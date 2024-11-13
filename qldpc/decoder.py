@@ -24,6 +24,36 @@ import numpy.typing as npt
 import pymatching
 
 
+def get_BP_OSD_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object):
+    # return BpOsdDecoder(
+    #     matrix.check_matrix,
+    #     error_channel=list(matrix.priors),
+    #     max_iter=5,
+    #     bp_method="ms",
+    #     ms_scaling_factor=0.625,
+    #     schedule="parallel",
+    #     omp_thread_count=1,
+    #     serial_schedule_order=None,
+    #     osd_method="osd0",
+    #     osd_order=0,
+    # )
+    # return ldpc.bposd_decoder(
+    #         matrix, osd_order=decoder_args.pop("osd_order", 0), **decoder_args
+    #     )
+    return ldpc.bposd_decoder(
+        matrix.check_matrix,
+        channel_probs=list(matrix.priors),
+        max_iter=5,
+        bp_method="ms",
+        ms_scaling_factor=0.625,
+        # schedule="parallel",
+        # omp_thread_count=1,
+        # serial_schedule_order=None,
+        osd_method="osd0",
+        osd_order=0,
+    )
+
+
 def decode_with_BP_OSD(
     matrix: npt.NDArray[np.int_],
     syndrome: npt.NDArray[np.int_],
@@ -35,9 +65,7 @@ def decode_with_BP_OSD(
     - Documentation: https://roffe.eu/software/ldpc/ldpc/osd_decoder.html
     - Reference: https://arxiv.org/abs/2005.07016
     """
-    bposd_decoder = ldpc.bposd_decoder(
-        matrix, osd_order=decoder_args.pop("osd_order", 0), **decoder_args
-    )
+    bposd_decoder = get_BP_OSD_decoder(matrix, **decoder_args)
     return bposd_decoder.decode(syndrome)
 
 

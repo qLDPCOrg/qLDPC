@@ -27,6 +27,7 @@ include = ["qldpc/py.typed"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
+beliefmatching = ">=0.1.1"
 cvxpy = ">=1.3.2"
 diskcache = ">=5.0.0"
 galois = ">=0.4.2"
@@ -36,6 +37,8 @@ networkx = ">=2.6.2"
 numpy = ">=2.0.0"
 platformdirs = ">=4.0.0"
 pymatching = ">=2.1.0"
+sinter = ">=1.14"
+stim = ">=1.14"
 sympy = ">=1.12"
 
 checks-superstaq = { version = ">=0.5.31", optional = true }
