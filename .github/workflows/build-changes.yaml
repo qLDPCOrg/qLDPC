@@ -5,7 +5,6 @@ on:
     branches: [ main ]
     paths:
       - 'pyproject.toml'
-      - '**/*.pyx'
   pull_request:
     branches: [ main ]
     types: [ opened, synchronize, reopened, ready_for_review ]  # defaults plus ready_for_review
@@ -13,19 +12,48 @@ on:
   workflow_call:
 
 jobs:
-  windows:
-    name: Windows check
+  ubuntu:
+    name: Ubuntu check (pip)
     if: github.event.pull_request.draft == false
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: 3.13
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}
+          key: ${{ env.pythonLocation }}-${{ hashFiles('**/pyproject.toml') }}
       - name: Install package and dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
       - name: Run all checks
         run: checks/all_.py
+
+  windows:
+    name: Windows check (uv)
+    if: github.event.pull_request.draft == false
+    runs-on: windows-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: 3.13
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+      - name: Install package and dependencies
+        run: |
+          uv venv
+          uv pip install '.[dev]'
+      - name: Run all checks
+        shell: cmd
+        run: |
+          .venv\Scripts\activate
+          python checks/all_.py

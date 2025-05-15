@@ -20,18 +20,17 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
+          python-version: 3.13
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
       - name: Install package and dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          uv venv
+          uv pip install '.[dev]'
 
   format:
     name: Lint and type check
@@ -41,44 +40,49 @@ jobs:
     needs: install
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
+          python-version: 3.13
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
       - name: Install package and dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          uv venv
+          uv pip install '.[dev]'
       - name: Run ruff format
         id: ruff-format
-        run: checks/format_.py
+        run: |
+          source .venv/bin/activate
+          checks/format_.py
         continue-on-error: true
       - name: Run ruff check
         id: ruff-check
-        run: checks/lint_.py
+        run: |
+          source .venv/bin/activate
+          checks/lint_.py
         continue-on-error: true
       - name: Run mypy
         id: mypy
-        run: checks/mypy_.py
+        run: |
+          source .venv/bin/activate
+          checks/mypy_.py
         continue-on-error: true
       - name: Check for failures
         run: |
           FAILED=0
           if [ ${{ steps.ruff-format.outcome }} != 'success' ]; then
             echo "ruff format failed"
-            FAILED=1
+            FAILED=$((FAILED + 1))
           fi
           if [ ${{ steps.ruff-check.outcome }} != 'success' ]; then
             echo "ruff check failed"
-            FAILED=2
+            FAILED=$((FAILED + 10))
           fi
           if [ ${{ steps.mypy.outcome }} != 'success' ]; then
             echo "mypy failed"
-            FAILED=3
+            FAILED=$((FAILED + 100))
           fi
           exit $FAILED
 
@@ -90,17 +94,18 @@ jobs:
     needs: install
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
+          python-version: 3.13
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
       - name: Install package and dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          uv venv
+          uv pip install '.[dev]'
       - name: Run coverage
-        run: checks/coverage_.py
+        run: |
+          source .venv/bin/activate
+          checks/coverage_.py
