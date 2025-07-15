@@ -1451,106 +1451,106 @@ class QuditCode(AbstractCode):
 
     @staticmethod
     def concatenate(
-        inner: QuditCode,
         outer: QuditCode,
-        outer_physical_to_inner_logical: Mapping[int, int] | Sequence[int] | None = None,
+        inner: QuditCode,
+        inner_physical_to_outer_logical: Mapping[int, int] | Sequence[int] | None = None,
         *,
         inherit_logicals: bool = True,
     ) -> QuditCode:
         """Concatenate two qudit codes.
 
-        The concatenated code uses the logical qudits of the "inner" code as the physical qudits of
-        the "outer" code, with outer_physical_to_inner_logical defining the map from outer physical
-        qudit index to inner logical qudit index.
+        The concatenated code uses the logical qudits of the "outer" code as the physical qudits of
+        the "inner" code, with inner_physical_to_outer_logical defining the map from inner physical
+        qudit index to outer logical qudit index.
 
-        This method nominally assumes that len(outer_physical_to_inner_logical) is equal to both the
-        number of logical qudits of the inner code and the number of physical qudits of the outer
-        code.  If len(outer_physical_to_inner_logical) is larger than the number of inner logicals
-        or outer physicals, then copies of the inner and outer codes are used (stacked together) to
-        match the expected number of "intermediate" qudits.  If no outer_physical_to_inner_logical
+        This method nominally assumes that len(inner_physical_to_outer_logical) is equal to both the
+        number of logical qudits of the outer code and the number of physical qudits of the inner
+        code.  If len(inner_physical_to_outer_logical) is larger than the number of outer logicals
+        or inner physicals, then copies of the outer and inner codes are used (stacked together) to
+        match the expected number of "intermediate" qudits.  If no inner_physical_to_outer_logical
         mapping is provided, then this method "interleaves" intermediate qubits, using each logical
-        qubit of an inner block as a physical qubit of a different outer code block.
+        qubit of an outer block as a physical qubit of a different inner code block.
 
-        If inherit_logicals is True, use the logical operators of the outer code as the logical
+        If inherit_logicals is True, use the logical operators of the inner code as the logical
         operators of the concatenated code.  Otherwise, logical operators of the concatenated code
         get recomputed from scratch.
         """
-        # stack copies of the inner and outer codes (if necessary) and permute inner logicals
-        inner, outer = QuditCode._standardize_concatenation_inputs(
-            inner, outer, outer_physical_to_inner_logical
+        # stack copies of the outer and inner codes (if necessary) and permute outer logicals
+        outer, inner = QuditCode._standardize_concatenation_inputs(
+            outer, inner, inner_physical_to_outer_logical
         )
-        is_subsystem_code = inner.is_subsystem_code or outer.is_subsystem_code
+        is_subsystem_code = outer.is_subsystem_code or inner.is_subsystem_code
 
         """
-        Parity checks inherited from the outer code are nominally defined in terms of their support
-        on logical operators of the inner code.  Expand these parity checks into their support on
-        the physical qudits of the inner code.
+        Parity checks inherited from the inner code are nominally defined in terms of their support
+        on logical operators of the outer code.  Expand these parity checks into their support on
+        the physical qudits of the outer code.
         """
-        outer_checks = outer.matrix @ inner.get_logical_ops()
+        inner_checks = inner.matrix @ outer.get_logical_ops()
 
-        # combine parity checks of the inner and outer codes
+        # combine parity checks of the outer and inner codes
         code = QuditCode(
-            np.vstack([inner.matrix, outer_checks]), is_subsystem_code=is_subsystem_code
+            np.vstack([outer.matrix, inner_checks]), is_subsystem_code=is_subsystem_code
         )
 
         if inherit_logicals:
-            code._logical_ops = outer.get_logical_ops() @ inner.get_logical_ops()
+            code._logical_ops = inner.get_logical_ops() @ outer.get_logical_ops()
         return code
 
     @staticmethod
     def _standardize_concatenation_inputs(
-        inner: QuditCode,
         outer: QuditCode,
-        outer_physical_to_inner_logical: Mapping[int, int] | Sequence[int] | None,
+        inner: QuditCode,
+        inner_physical_to_outer_logical: Mapping[int, int] | Sequence[int] | None,
     ) -> tuple[QuditCode, QuditCode]:
         """Helper function for code concatenation.
 
         This method...
-        - stacks copies of the inner and outer codes as necessary to make the number of logical
-          qudits of the inner code equal to the number of physical qudits of the outer code, and
-        - permutes logical qudits of the inner code according to outer_physical_to_inner_logical.
-          If no outer_physical_to_inner_logical mapping is provided, then this method "interleaves"
-          intermediate qubits, using each logical qubit of an inner block as a physical qubit of a
-          different outer code block.
+        - stacks copies of the outer and inner codes as necessary to make the number of logical
+          qudits of the outer code equal to the number of physical qudits of the inner code, and
+        - permutes logical qudits of the outer code according to inner_physical_to_outer_logical.
+          If no inner_physical_to_outer_logical mapping is provided, then this method "interleaves"
+          intermediate qubits, using each logical qubit of an outer block as a physical qubit of a
+          different inner code block.
         """
-        if inner.field is not outer.field:
+        if outer.field is not inner.field:
             raise ValueError("Cannot concatenate codes over different fields")
 
-        # convert outer_physical_to_inner_logical into a tuple that we can use to permute an array
-        if outer_physical_to_inner_logical is None:
-            outer_physical_to_inner_logical = tuple(
-                np.arange(len(outer) * inner.dimension, dtype=int)
-                .reshape(len(outer), inner.dimension)
+        # convert inner_physical_to_outer_logical into a tuple that we can use to permute an array
+        if inner_physical_to_outer_logical is None:
+            inner_physical_to_outer_logical = tuple(
+                np.arange(len(inner) * outer.dimension, dtype=int)
+                .reshape(len(inner), outer.dimension)
                 .T.ravel()
             )
         else:
-            num_qudits = len(outer_physical_to_inner_logical)
-            if num_qudits % inner.dimension or num_qudits % len(outer):
+            num_qudits = len(inner_physical_to_outer_logical)
+            if num_qudits % outer.dimension or num_qudits % len(inner):
                 raise ValueError(
                     "Code concatenation requires the number of qudits mapped by"
-                    f" outer_physical_to_inner_logical ({num_qudits}) to be divisible by the number"
-                    f" of logical qudits of the inner code ({inner.dimension}) and the number of"
-                    f" physical qudits of the outer code ({len(outer)})"
+                    f" inner_physical_to_outer_logical ({num_qudits}) to be divisible by the number"
+                    f" of logical qudits of the outer code ({outer.dimension}) and the number of"
+                    f" physical qudits of the inner code ({len(inner)})"
                 )
-            outer_physical_to_inner_logical = tuple(
-                outer_physical_to_inner_logical[qq]
-                for qq in range(len(outer_physical_to_inner_logical))
+            inner_physical_to_outer_logical = tuple(
+                inner_physical_to_outer_logical[qq]
+                for qq in range(len(inner_physical_to_outer_logical))
             )
 
-        # stack copies of the inner and outer codes, if necessary
-        if (num_inner_blocks := len(outer_physical_to_inner_logical) // inner.dimension) > 1:
-            inner = inner.stack(*[inner] * num_inner_blocks)
-        if (num_outer_blocks := len(outer_physical_to_inner_logical) // len(outer)) > 1:
+        # stack copies of the outer and inner codes, if necessary
+        if (num_outer_blocks := len(inner_physical_to_outer_logical) // outer.dimension) > 1:
             outer = outer.stack(*[outer] * num_outer_blocks)
+        if (num_inner_blocks := len(inner_physical_to_outer_logical) // len(inner)) > 1:
+            inner = inner.stack(*[inner] * num_inner_blocks)
 
-        # permute logical operators of the inner code
-        inner._logical_ops = (
-            inner.get_logical_ops()
-            .reshape(2, inner.dimension, -1)[:, outer_physical_to_inner_logical, :]
-            .reshape(2 * inner.dimension, -1)
-        ).view(inner.field)
+        # permute logical operators of the outer code
+        outer._logical_ops = (
+            outer.get_logical_ops()
+            .reshape(2, outer.dimension, -1)[:, inner_physical_to_outer_logical, :]
+            .reshape(2 * outer.dimension, -1)
+        ).view(outer.field)
 
-        return inner, outer
+        return outer, inner
 
 
 class CSSCode(QuditCode):
@@ -2244,55 +2244,55 @@ class CSSCode(QuditCode):
 
     @staticmethod
     def concatenate(
-        inner: QuditCode,
         outer: QuditCode,
-        outer_physical_to_inner_logical: Mapping[int, int] | Sequence[int] | None = None,
+        inner: QuditCode,
+        inner_physical_to_outer_logical: Mapping[int, int] | Sequence[int] | None = None,
         *,
         inherit_logicals: bool = True,
     ) -> CSSCode:
         """Concatenate two CSS codes.
 
-        The concatenated code uses the logical qudits of the "inner" code as the physical qudits of
-        the "outer" code, with outer_physical_to_inner_logical defining the map from outer physical
-        qudit index to inner logical qudit index.
+        The concatenated code uses the logical qudits of the "outer" code as the physical qudits of
+        the "inner" code, with inner_physical_to_outer_logical defining the map from inner physical
+        qudit index to outer logical qudit index.
 
-        This method nominally assumes that len(outer_physical_to_inner_logical) is equal to both the
-        number of logical qudits of the inner code and the number of physical qudits of the outer
-        code.  If len(outer_physical_to_inner_logical) is larger than the number of inner logicals
-        or outer physicals, then copies of the inner and outer codes are used (stacked together) to
-        match the expected number of "intermediate" qudits.  If no outer_physical_to_inner_logical
+        This method nominally assumes that len(inner_physical_to_outer_logical) is equal to both the
+        number of logical qudits of the outer code and the number of physical qudits of the inner
+        code.  If len(inner_physical_to_outer_logical) is larger than the number of outer logicals
+        or inner physicals, then copies of the outer and inner codes are used (stacked together) to
+        match the expected number of "intermediate" qudits.  If no inner_physical_to_outer_logical
         mapping is provided, then this method "interleaves" intermediate qubits, using each logical
-        qubit of an inner block as a physical qubit of a different outer code block.
+        qubit of an outer block as a physical qubit of a different inner code block.
 
-        If inherit_logicals is True, use the logical operators of the outer code as the logical
+        If inherit_logicals is True, use the logical operators of the inner code as the logical
         operators of the concatenated code.  Otherwise, logical operators of the concatenated code
         get recomputed from scratch.
         """
-        if not isinstance(inner, CSSCode) or not isinstance(outer, CSSCode):
+        if not isinstance(outer, CSSCode) or not isinstance(inner, CSSCode):
             raise TypeError("CSSCode.concatenate requires CSSCode inputs")
 
-        # stack copies of the inner and outer codes (if necessary) and permute inner logicals
-        inner, outer = QuditCode._standardize_concatenation_inputs(
-            inner, outer, outer_physical_to_inner_logical
+        # stack copies of the outer and inner codes (if necessary) and permute outer logicals
+        outer, inner = QuditCode._standardize_concatenation_inputs(
+            outer, inner, inner_physical_to_outer_logical
         )
-        assert isinstance(inner, CSSCode) and isinstance(outer, CSSCode)
+        assert isinstance(outer, CSSCode) and isinstance(inner, CSSCode)
 
         """
-        Parity checks inherited from the outer code are nominally defined in terms of their support
-        on logical operators of the inner code.  Expand these parity checks into their support on
-        the physical qudits of the inner code.
+        Parity checks inherited from the inner code are nominally defined in terms of their support
+        on logical operators of the outer code.  Expand these parity checks into their support on
+        the physical qudits of the outer code.
         """
-        outer_checks_x = outer.matrix_x @ inner.get_logical_ops(Pauli.X)
-        outer_checks_z = outer.matrix_z @ inner.get_logical_ops(Pauli.Z)
+        inner_checks_x = inner.matrix_x @ outer.get_logical_ops(Pauli.X)
+        inner_checks_z = inner.matrix_z @ outer.get_logical_ops(Pauli.Z)
 
-        # combine parity checks of the inner and outer codes
+        # combine parity checks of the outer and inner codes
         code = CSSCode(
-            np.vstack([inner.matrix_x, outer_checks_x]),
-            np.vstack([inner.matrix_z, outer_checks_z]),
+            np.vstack([outer.matrix_x, inner_checks_x]),
+            np.vstack([outer.matrix_z, inner_checks_z]),
         )
 
         if inherit_logicals:
-            code._logical_ops = outer.get_logical_ops() @ inner.get_logical_ops()
+            code._logical_ops = inner.get_logical_ops() @ outer.get_logical_ops()
         return code
 
     def get_logical_error_rate_func(
