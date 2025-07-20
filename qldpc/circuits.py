@@ -28,8 +28,6 @@ from qldpc import abstract, cache, codes
 from qldpc.math import op_to_string, symplectic_conjugate
 from qldpc.objects import Pauli
 
-CACHE_NAME = "qldpc_automorphisms"
-
 
 def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.Circuit]:
     """Restrict a circuit constructor to qubit-based codes."""
@@ -251,7 +249,7 @@ def get_transversal_automorphism_group(
 
 
 @cache.use_disk_cache(
-    CACHE_NAME,
+    "group_intersection",
     key_func=lambda xx, yy: (xx.hashable_generators(), yy.hashable_generators()),
 )
 def _sympy_group_intersection_generators(

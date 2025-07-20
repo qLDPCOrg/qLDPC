@@ -268,7 +268,7 @@ class GUFDecoder(Decoder):
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         max_weight = max_weight if max_weight is not None else self.default_max_weight
-        syndrome = self.code.field(syndrome)
+        syndrome = np.asarray(syndrome, dtype=int).view(self.code.field)
         syndrome_bits = np.where(syndrome)[0]
 
         # construct an "error set", within which we look for solutions to the decoding problem
@@ -295,18 +295,18 @@ class GUFDecoder(Decoder):
             Try to identify errors in the interior of the error_set that reproduce the syndrome,
             looking for solutions x to H @ x = s, or solutions [y,c] to [H|-s] @ [y,c].T = 0.
             """
-            augmented_matrix = np.column_stack([sub_matrix, -sub_syndrome])
-            candidate_solutions = augmented_matrix.null_space()  # type:ignore[attr-defined]
+            augmented_matrix = np.column_stack([sub_matrix, -sub_syndrome]).view(self.code.field)
+            candidate_solutions = augmented_matrix.null_space()
             solutions = candidate_solutions[np.where(candidate_solutions[:, -1])]
 
         # convert solutions [y,c] --> [y/c,1] --> y
         if self.code.field.order == 2:
-            solutions = solutions[:, :-1]
+            converted_solutions = solutions[:, :-1]
         else:
-            solutions = solutions[:, :-1] / solutions[:, -1][:, None]
+            converted_solutions = solutions[:, :-1] / solutions[:, -1][:, None]
 
         # identify the minimum-weight solution found so far
-        min_weight_solution = min(solutions, key=lambda solution: self.get_weight(solution))
+        min_weight_solution = min(converted_solutions, key=self.get_weight)
         weight = self.get_weight(min_weight_solution)
 
         if max_weight is not None and weight > max_weight:
@@ -505,9 +505,9 @@ class DirectDecoder(Decoder):
         else:
 
             def decode_func(candidate_word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-                candidate_word = field(candidate_word)
+                candidate_word = candidate_word.view(field)
                 syndrome = matrix @ candidate_word
-                error = field(decoder.decode(syndrome.view(np.ndarray)))
+                error = decoder.decode(syndrome.view(np.ndarray)).view(field)
                 return (candidate_word - error).view(np.ndarray)
 
         return DirectDecoder(decode_func)

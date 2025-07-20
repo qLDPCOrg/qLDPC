@@ -17,10 +17,10 @@ limitations under the License.
 
 from __future__ import annotations
 
-import subprocess
 import unittest.mock
 import urllib
 
+import galois
 import pytest
 
 from qldpc import external
@@ -102,11 +102,6 @@ def test_get_generators_from_groupnames() -> None:
         assert external.groups.get_generators_from_groupnames(GROUP) == GENERATORS
 
 
-def get_mock_process(stdout: str) -> subprocess.CompletedProcess[str]:
-    """Fake process with the given stdout."""
-    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout)
-
-
 def test_get_generators_with_gap() -> None:
     """Retrieve generators from GAP 4."""
 
@@ -115,28 +110,17 @@ def test_get_generators_with_gap() -> None:
         assert external.groups.get_generators_with_gap(GROUP) is None
 
     # cannot extract cycle from string
-    mock_process = get_mock_process("\n(1, 2a)\n")
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2a)\n"),
         pytest.raises(ValueError, match="Cannot extract cycle"),
     ):
         assert external.groups.get_generators_with_gap(GROUP) is None
 
-    # group not recognized by GAP
-    mock_process = get_mock_process("")
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
-        pytest.raises(ValueError, match="not recognized by GAP"),
-    ):
-        assert external.groups.get_generators_with_gap(GROUP) is None
-
     # everything works as expected
-    mock_process = get_mock_process("\n(1, 2)\n")
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2)\n"),
     ):
         assert external.groups.get_generators_with_gap(GROUP) == GENERATORS
 
@@ -189,10 +173,9 @@ def test_get_small_group_number() -> None:
         external.groups.get_small_group_number(order)
 
     # retrieve from GAP
-    mock_process = get_mock_process(str(number))
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=str(number)),
     ):
         assert external.groups.get_small_group_number(order) == number
 
@@ -215,19 +198,17 @@ def test_get_small_group_structure() -> None:
         assert external.groups.get_small_group_structure(order, index) == structure
 
     # fail to retrieve structure from GAP
-    process = get_mock_process("")
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=""),
         pytest.raises(ValueError, match="Group not recognized"),
     ):
         external.groups.get_small_group_structure(order, index)
 
     # retrieve structure from GAP
-    process = get_mock_process(structure)
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=structure),
     ):
         assert external.groups.get_small_group_structure(order, index) == structure
 
@@ -237,6 +218,31 @@ def test_get_small_group_structure() -> None:
     ):
         structure = f"SmallGroup({order},{index})"
         assert external.groups.get_small_group_structure(order, index) == structure
+
+
+def test_idempotents() -> None:
+    """Find primitive central idempotents of a group algebra."""
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        pytest.raises(ValueError, match="requires a GAP installation"),
+    ):
+        external.groups.get_primitive_central_idempotents("fake_group", 2)
+
+    z_2 = galois.GF(2).primitive_element
+    z_2_2 = galois.GF(4).primitive_element
+    field = galois.GF(4)
+    fake_output = "[ (Z(2))*(), (Z(2^2)^2)*(1,2)+(Z(2)^0)*(3,4)(5,6) ]"
+    expected_idempotents = (
+        ((int(field(z_2)), ((),)),),
+        ((int(field(z_2_2**2)), ((0, 1),)), (int(field(z_2**0)), ((2, 3), (4, 5)))),
+    )
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=fake_output),
+    ):
+        idempotents = external.groups.get_primitive_central_idempotents("fake_group", field.order)
+        assert idempotents == expected_idempotents
 
 
 def test_known_groups() -> None:

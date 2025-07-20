@@ -17,17 +17,11 @@ limitations under the License.
 
 from __future__ import annotations
 
-import subprocess
 import unittest.mock
 
 import pytest
 
 from qldpc import external
-
-
-def get_mock_process(stdout: str) -> subprocess.CompletedProcess[str]:
-    """Fake process with the given stdout."""
-    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout)
 
 
 def test_get_code() -> None:
@@ -40,36 +34,18 @@ def test_get_code() -> None:
     ):
         external.codes.get_code("")
 
-    # GUAVA is not installed
-    mock_process = get_mock_process("guava package is not available")
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
-        pytest.raises(ValueError, match="GAP package GUAVA not available"),
-    ):
-        external.codes.get_code("")
-
-    # code not recognized by GUAVA
-    mock_process = get_mock_process("\n")
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
-        pytest.raises(ValueError, match="Code not recognized"),
-    ):
-        external.codes.get_code("")
-
+    # extract parity check and finite field
     check = [1, 1]
-    mock_process = get_mock_process(f"\n{check}\nGF(3^3)")
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=f"\n{check}\nGF(3^3)"),
     ):
         assert external.codes.get_code("") == ([check], 27)
 
-    mock_process = get_mock_process(r"\nGF(3^3)")
+    # fail to find parity checks
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
-        pytest.raises(ValueError, match="has no parity checks"),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=r"\nGF(3^3)"),
+        pytest.raises(ValueError, match="Code has no parity checks"),
     ):
         assert external.codes.get_code("")

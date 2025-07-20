@@ -17,7 +17,7 @@ jobs:
     name: Installation check
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.12
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml', 'build-cython.py') }}
+          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
       - name: Install package and dependencies
         run: |
           python3 -m pip install --upgrade pip
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml', 'build-cython.py') }}
+          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
       - name: Install package and dependencies
         run: |
           python3 -m pip install --upgrade pip
@@ -74,11 +74,11 @@ jobs:
           fi
           if [ ${{ steps.ruff-check.outcome }} != 'success' ]; then
             echo "ruff check failed"
-            FAILED=1
+            FAILED=2
           fi
           if [ ${{ steps.mypy.outcome }} != 'success' ]; then
             echo "mypy failed"
-            FAILED=1
+            FAILED=3
           fi
           exit $FAILED
 
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml', 'build-cython.py') }}
+          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
       - name: Install package and dependencies
         run: |
           python3 -m pip install --upgrade pip

@@ -8,7 +8,6 @@ EXCLUDE = (
     "checks/*.py",
     "examples/*.py",
     "experiments/*.py",
-    "build-cython.py",
     "docs/source/conf.py",
 )
 

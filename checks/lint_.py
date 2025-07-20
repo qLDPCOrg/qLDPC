@@ -4,4 +4,4 @@ import sys
 import checks_superstaq
 
 if __name__ == "__main__":
-    exit(checks_superstaq.ruff_lint_.run(*sys.argv[1:]))
+    exit(checks_superstaq.lint_.run(*sys.argv[1:]))
