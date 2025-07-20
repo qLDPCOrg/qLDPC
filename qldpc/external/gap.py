@@ -17,17 +17,24 @@ limitations under the License.
 
 from __future__ import annotations
 
+import functools
+import os
 import re
 import subprocess
 from collections.abc import Sequence
 
+import qldpc
 
+GAP_ROOT = os.path.join(os.path.dirname(os.path.dirname(qldpc.__file__)), "gap")
+
+
+@functools.cache
 def is_installed() -> bool:
     """Is GAP 4 installed?"""
     commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n"); QUIT;']
     try:
         result = subprocess.run(commands, capture_output=True, text=True)
-        return bool(re.match(r"\n4\.[0-9]+\.[0-9]+$", result.stdout))
+        return bool(re.match(r"4\.[0-9]+\.[0-9]", result.stdout.strip()))
     except Exception:
         return False
 
@@ -44,9 +51,39 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
     return tuple(prefix + commands + suffix)
 
 
-def get_result(*commands: str) -> subprocess.CompletedProcess[str]:
+def get_output(*commands: str) -> str:
     """Get the output from the given GAP commands."""
     commands = sanitize_commands(commands)
-    shell_commands = ["gap", "-q", "--quitonbreak", "-c", " ".join(commands)]
+    shell_commands = ["gap", "-l", f";{GAP_ROOT}", "-q", "--quitonbreak", "-c", " ".join(commands)]
     result = subprocess.run(shell_commands, capture_output=True, text=True)
-    return result
+    if result.stderr:
+        raise ValueError(
+            f"Error encountered when running GAP:{result.stderr}\n\n"
+            f"GAP command:\n{' '.join(commands)}"
+        )
+    return result.stdout
+
+
+@functools.cache
+def require_package(name: str) -> None:
+    """Enforce the installation of a GAP package."""
+    availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
+    if availability == "fail":
+        response = (
+            input(f"GAP package {name} required but not installed.  Try to install it? (Y/n)")
+            .strip()
+            .lower()
+        )
+        if not response or response == "y":
+            commands = [
+                "git",
+                "clone",
+                f"https://github.com/gap-packages/{name.lower()}",
+                os.path.join(GAP_ROOT, "pkg", name.lower()),
+            ]
+            print(" ".join(commands))
+            install_result = subprocess.run(commands, capture_output=True, text=True)
+            if install_result.stderr:
+                raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
+        else:
+            raise ValueError("Cannot proceed without the required package")

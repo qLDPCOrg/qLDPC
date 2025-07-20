@@ -232,31 +232,31 @@ class QCCode(TBCode):
         self.orders = tuple(symbol_to_order.values())
 
         # identify the group generator associated with each symbol
-        self.group = abstract.AbelianGroup(*self.orders, field=field, product_lift=True)
-        self.gens = self.group.generators
-        self.symbol_gens = dict(zip(self.symbols, self.gens))
+        self.group = abstract.AbelianGroup(*self.orders)
+        self.ring = abstract.GroupRing(self.group, field)
+        self.symbol_gens = dict(zip(self.symbols, self.group.generators))
 
-        # build defining matrices of a generalized bicycle code
-        matrix_a = self.eval(self.poly_a).lift()
-        matrix_b = self.eval(self.poly_b).lift()
+        # build defining matrices of a generalized bicycle code; transpose the lift by convention
+        matrix_a = self.eval(self.poly_a).lift().T
+        matrix_b = self.eval(self.poly_b).lift().T
         TBCode.__init__(
             self, matrix_a, matrix_b, field, promise_equal_distance_xz=True, validate=False
         )
 
     def eval(
-        self,
-        expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | sympy.Poly,
-    ) -> abstract.Element:
+        self, expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | sympy.Poly
+    ) -> abstract.RingMember:
         """Convert a sympy expression into an element of this code's group algebra."""
         # evaluate a monomial
+        expression = expression.as_expr()
         if isinstance(expression, (sympy.Integer, sympy.Symbol, sympy.Pow, sympy.Mul)):
             coeff, monomial = expression.as_coeff_Mul()
             member = self.to_group_member(monomial)
-            return int(coeff) * abstract.Element(self.group, member)
+            return abstract.RingMember(self.ring, (int(coeff), member))
 
         # evaluate a polynomial
-        element = abstract.Element(self.group)
-        for term in expression.as_expr().args:
+        element = abstract.RingMember(self.ring)
+        for term in expression.args:
             element += self.eval(term)
         return element
 
@@ -729,7 +729,11 @@ class HGPCode(CSSCode):
         self._default_conjugate = slice(self.sector_size[0, 0], None)
 
         CSSCode.__init__(
-            self, matrix_x.astype(int), matrix_z.astype(int), field, is_subsystem_code=False
+            self,
+            matrix_x.view(np.ndarray).astype(int),
+            matrix_z.view(np.ndarray).astype(int),
+            field,
+            is_subsystem_code=False,
         )
 
         if set_logicals:
@@ -750,7 +754,7 @@ class HGPCode(CSSCode):
         # construct the X-sector and Z-sector parity check matrices
         matrix_x = np.block([mat_H1_In2, mat_Im1_H2_T])
         matrix_z = np.block([-mat_In1_H2, mat_H1_T_Im2])
-        return matrix_x, matrix_z
+        return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
     def get_graph_product(graph_a: nx.DiGraph, graph_b: nx.DiGraph) -> nx.DiGraph:
@@ -869,9 +873,9 @@ class HGPCode(CSSCode):
         logical_ops_z_l = np.kron(generator_a, pivots_b)
         logical_ops_z_r = np.kron(pivots_a_T, generator_b_T)
 
-        logical_ops_x = code_field(scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r))
-        logical_ops_z = code_field(scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r))
-        return logical_ops_x, logical_ops_z
+        logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
+        logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
+        return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
 
 
 class SHPCode(CSSCode):
@@ -906,16 +910,31 @@ class SHPCode(CSSCode):
         code_z = ClassicalCode(code_z, field)
         code_field = code_x.field
 
-        matrix_x = np.kron(code_x.matrix, code_field.Identity(len(code_z)))
-        matrix_z = np.kron(code_field.Identity(len(code_x)), code_z.matrix)
-        CSSCode.__init__(self, matrix_x, matrix_z, field, is_subsystem_code=True)
+        matrix_x, matrix_z = SHPCode.get_matrix_product(code_x.matrix, code_z.matrix)
+        CSSCode.__init__(
+            self,
+            matrix_x.view(np.ndarray).astype(int),
+            matrix_z.view(np.ndarray).astype(int),
+            code_field.order,
+            is_subsystem_code=True,
+        )
 
         stab_ops_x = np.kron(code_x.matrix, code_z.generator)
         stab_ops_z = np.kron(-code_x.generator, code_z.matrix)
-        self._stabilizer_ops = code_field(scipy.linalg.block_diag(stab_ops_x, stab_ops_z))
+        self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(code_field)
 
         if set_logicals:
             self.set_logical_ops_xz(*self.get_canonical_logical_ops(code_x, code_z), validate=False)
+
+    @staticmethod
+    def get_matrix_product(
+        matrix_a: npt.NDArray[np.int_ | np.object_],
+        matrix_b: npt.NDArray[np.int_ | np.object_],
+    ) -> tuple[npt.NDArray[np.int_ | np.object_], npt.NDArray[np.int_ | np.object_]]:
+        """Subsystem hypergraph product of two parity check matrices."""
+        matrix_x = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int)).view(type(matrix_a))
+        matrix_z = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b).view(type(matrix_a))
+        return matrix_x, matrix_z
 
     @staticmethod
     def get_canonical_logical_ops(
@@ -937,29 +956,29 @@ class SHPCode(CSSCode):
         pivots_x[range(len(pivots_x)), first_nonzero_cols(generator_x)] = 1
         pivots_z[range(len(pivots_z)), first_nonzero_cols(generator_z)] = 1
 
-        logical_ops_x = code_field(np.kron(pivots_x, generator_z))
-        logical_ops_z = code_field(np.kron(generator_x, pivots_z))
-        return logical_ops_x, logical_ops_z
+        logical_ops_x = np.kron(pivots_x, generator_z)
+        logical_ops_z = np.kron(generator_x, pivots_z)
+        return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
 
 
 class LPCode(CSSCode):
     """Lifted product (LP) code.
 
     A lifted product code is essentially the same as a hypergraph product code, except that the
-    parity check matrices are "protographs", or matrices whose entries are members of a group
-    algebra over a finite field F_q.  Each of these entries can be "lifted" to a representation as
-    orthogonal matrices over F_q, in which case the protograph is interpreted as a block matrix;
-    this is called "lifting" the protograph.
+    parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
+    over a finite field F_q.  Each of these entries can be "lifted" to a representation as
+    orthogonal matrices over F_q, in which case the RingArray is interpreted as a block matrix; this
+    is called "lifting" the RingArray.
 
     Notes:
-    - A lifted product code with protographs of size 1×1 is a two-block code (more specifically, a
-        two-block group-algebra code).  If the base group of the protographs is a cyclic group, the
+    - A lifted product code with RingArrays of size 1×1 is a two-block code (more specifically, a
+        two-block group-algebra code).  If the base group of the RingArrays is a cyclic group, the
         resulting lifted product code is a generalized bicycle code.
-    - A lifted product code with protographs whose entries get lifted to 1×1 matrices is a
-        hypergraph product code built from the lifted protographs.
+    - A lifted product code with RingArrays whose entries get lifted to 1×1 matrices is a
+        hypergraph product code built from the lifted RingArrays.
     - One way to get an LPCode: take a classical code with parity check matrix H and multiply it by
         a diagonal matrix D = diag(a_1, a_2, ... a_n), where all {a_j} are elements of a group
-        algebra.  The protograph P = H @ D can then be used for one of the protographs of an LPCode.
+        algebra.  The RingArray P = H @ D can then be used for one of the RingArrays of an LPCode.
 
     References:
     - https://errorcorrectionzoo.org/c/lifted_product
@@ -970,35 +989,85 @@ class LPCode(CSSCode):
 
     def __init__(
         self,
-        protograph_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
-        protograph_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+        matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
+        matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
     ) -> None:
-        """Lifted product of two protographs, as in arXiv:2012.04068."""
-        if protograph_b is None:
-            protograph_b = protograph_a
-        protograph_a = abstract.Protograph(protograph_a)
-        protograph_b = abstract.Protograph(protograph_b)
-        field = protograph_a.field.order
+        """Lifted product of two RingArrays, as in arXiv:2012.04068."""
+        if matrix_b is None:
+            matrix_b = matrix_a
+        matrix_a = abstract.RingArray(matrix_a)
+        matrix_b = abstract.RingArray(matrix_b)
+        field = matrix_a.field.order
 
         # identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = HGPCode.get_matrix_product(protograph_a, protograph_b)
+        matrix_x, matrix_z = HGPCode.get_matrix_product(matrix_a, matrix_b)
+        assert isinstance(matrix_x, abstract.RingArray)
+        assert isinstance(matrix_z, abstract.RingArray)
 
         # identify the number of qudits in each sector
-        self.sector_size = protograph_a.group.lift_dim * np.outer(
-            protograph_a.shape[::-1],
-            protograph_b.shape[::-1],
+        self.sector_size = matrix_a.group.lift_dim * np.outer(
+            matrix_a.shape[::-1],
+            matrix_b.shape[::-1],
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
         self._default_conjugate = slice(self.sector_size[0, 0], None)
 
-        CSSCode.__init__(
-            self,
-            abstract.Protograph(matrix_x.astype(object)).lift(),
-            abstract.Protograph(matrix_z.astype(object)).lift(),
-            field,
-            is_subsystem_code=False,
-        )
+        CSSCode.__init__(self, matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
+
+
+class SLPCode(CSSCode):
+    """Subsystem lifted product (SLP) code.
+
+    The subsystem lifted product code is a lifted version of the subsystem hypergraph product code.
+    That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.  See the docstring for
+    the LPCode for additional information.
+
+    As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
+    constructed by
+
+        from qldpc.abstract import CyclicGroup, GroupRing, RingMember, RingArray
+        from qldpc.codes import SLPCode
+
+        group = CyclicGroup(2)
+        ring = GroupRing(group)
+        x = RingMember(ring, group.generators[0])
+        matrix = RingArray([[ring.one, x, x], [x, x, ring.one]])  # Eq. 21 of arXiv:2404.18302v1
+        code = SLPCode(matrix)
+        assert code.get_code_parameters() == (18, 4, 2)
+
+    while the SLPCode in example 2 is
+
+        group = CyclicGroup(3)
+        ring = GroupRing(group)
+        x = RingMember(ring, group.generators[0])
+        matrix = RingArray([[ring.one + x + x**2, ring.one + x, x]])  # Eq. 23 of arXiv:2404.18302v1
+        code = SLPCode(matrix)
+        assert code.get_code_parameters() == (27, 12, 2)
+
+    References:
+    - https://errorcorrectionzoo.org/c/subsystem_lifted_product
+    - https://arxiv.org/abs/2404.18302
+    """
+
+    def __init__(
+        self,
+        matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
+        matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+    ) -> None:
+        """Subsystem lifted product of two RingArrays."""
+        if matrix_b is None:
+            matrix_b = matrix_a
+        matrix_a = abstract.RingArray(matrix_a)
+        matrix_b = abstract.RingArray(matrix_b)
+        field = matrix_a.field.order
+
+        # identify X-sector and Z-sector parity checks
+        matrix_x, matrix_z = SHPCode.get_matrix_product(matrix_a, matrix_b)
+        assert isinstance(matrix_x, abstract.RingArray)
+        assert isinstance(matrix_z, abstract.RingArray)
+
+        CSSCode.__init__(self, matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=True)
 
 
 ################################################################################
@@ -1275,7 +1344,7 @@ class SurfaceCode(CSSCode):
             # invert Z-type Pauli on every other qubit
             code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
             if code_field.order > 2:
-                matrix_z = code_field(matrix_z)
+                matrix_z = matrix_z.view(code_field)
                 matrix_z[:, self._default_conjugate] *= -1
 
         else:
@@ -1396,8 +1465,15 @@ class ToricCode(CSSCode):
             # invert Z-type Pauli on every other qubit
             code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
             if code_field.order > 2:
-                matrix_z = code_field(matrix_z)
+                matrix_z = matrix_z.view(code_field)
                 matrix_z[:, self._default_conjugate] *= -1
+
+            if rows == cols == 2 and rotated:
+                # All Toric codes have redundant parity checks, but the case of the rotated 2x2
+                # Toric code is particularly egregious: the two X/Z checks are *equal*.  So remove
+                # the extra checks in this case.
+                matrix_x = matrix_x[:-1]
+                matrix_z = matrix_z[:-1]
 
         else:
             # "original" toric code
@@ -1483,8 +1559,8 @@ class GeneralizedSurfaceCode(CSSCode):
             chain = ChainComplex(*chain.ops[:2])
 
         matrix_x, matrix_z = chain.op(1), chain.op(2).T
-        assert not isinstance(matrix_x, abstract.Protograph)
-        assert not isinstance(matrix_z, abstract.Protograph)
+        assert not isinstance(matrix_x, abstract.RingArray)
+        assert not isinstance(matrix_z, abstract.RingArray)
         CSSCode.__init__(self, matrix_x, matrix_z, field)
 
 

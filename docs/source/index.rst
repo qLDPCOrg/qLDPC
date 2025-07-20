@@ -5,7 +5,7 @@ This library is a collection of tools to construct and analyze finite-size `quan
 
 At the moment, this documentation page is largely auto-generated from docstrings that were written to be legible in the source code, so formatting will occasionally be wonky.  I will work on fixing the formatting in time.
 
-See the `readme page <https://github.com/Infleqtion/qLDPC>`_ for a high-level overview of the qLDPC library.
+See the `readme page <https://github.com/qLDPCOrg/qLDPC>`_ for a high-level overview of the qLDPC library.
 
 .. toctree::
    :maxdepth: 1

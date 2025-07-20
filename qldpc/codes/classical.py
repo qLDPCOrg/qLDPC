@@ -94,7 +94,7 @@ class ExtendedHammingCode(ClassicalCode):
         """Construct an extended Hamming code of a given rank."""
         matrix: npt.NDArray[np.int_] = HammingCode(rank, field=2).matrix
         matrix = np.column_stack([np.zeros(matrix.shape[0], dtype=int), matrix])
-        matrix = np.row_stack([np.ones(matrix.shape[1], dtype=int), matrix])
+        matrix = np.vstack([np.ones(matrix.shape[1], dtype=int), matrix])
         matrix[0] += matrix[1]
         ClassicalCode.__init__(self, matrix)
 

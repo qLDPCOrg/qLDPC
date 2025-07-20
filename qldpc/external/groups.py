@@ -21,15 +21,16 @@ import re
 import urllib.error
 import urllib.request
 
+import galois
+
 import qldpc.cache
 import qldpc.external.gap
 
-CACHE_NAME = "qldpc_groups"
 GENERATORS_LIST = list[list[tuple[int, ...]]]
 GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 
 
-@qldpc.cache.use_disk_cache(CACHE_NAME)
+@qldpc.cache.use_disk_cache("group_generators")
 def get_generators(group: str) -> GENERATORS_LIST:
     """Retrieve GAP group generators."""
 
@@ -56,12 +57,12 @@ def get_generators(group: str) -> GENERATORS_LIST:
     raise ValueError("\n".join(message))
 
 
-@qldpc.cache.use_disk_cache(CACHE_NAME)
+@qldpc.cache.use_disk_cache("small_group_number")
 def get_small_group_number(order: int) -> int:
     """Get the number of 'SmallGroup's of a given order."""
     if qldpc.external.gap.is_installed():
         command = f"Print(NumberSmallGroups({order}));"
-        return int(qldpc.external.gap.get_result(command).stdout)
+        return int(qldpc.external.gap.get_output(command))
 
     # get the HTML for the page with all groups
     page_html = maybe_get_webpage(order)
@@ -77,7 +78,7 @@ def get_small_group_structure(order: int, index: int) -> str:
     """Get a description of the structure of a SmallGroup from GAP."""
     # if we have the structure cached, retrieve it
     key = (order, index)
-    cache = qldpc.cache.get_disk_cache(CACHE_NAME)
+    cache = qldpc.cache.get_disk_cache("qldpc_group_structure")
     if structure := cache.get(key, None):
         return structure
 
@@ -85,8 +86,7 @@ def get_small_group_structure(order: int, index: int) -> str:
     name = f"SmallGroup({order},{index})"
     if qldpc.external.gap.is_installed():
         command = f"Print(StructureDescription({name}));"
-        result = qldpc.external.gap.get_result(command)
-        structure = result.stdout.strip()
+        structure = qldpc.external.gap.get_output(command).strip()
 
         if not structure:
             raise ValueError(f"Group not recognized by GAP: {name}")
@@ -103,24 +103,22 @@ def get_generators_with_gap(group: str) -> GENERATORS_LIST | None:
 
     if not qldpc.external.gap.is_installed():
         return None
+    qldpc.external.gap.require_package("GUAVA")
 
     # run GAP commands
     commands = [
         'LoadPackage("guava");',
-        f"G := {group};",
-        "iso := IsomorphismPermGroup(G);",
-        "permG := Image(iso, G);",
-        "gens := GeneratorsOfGroup(permG);",
+        f"group := {group};",
+        "iso := IsomorphismPermGroup(group);",
+        "perm_group := Image(iso, group);",
+        "gens := GeneratorsOfGroup(perm_group);",
         r'for gen in gens do Print(gen, "\n"); od;',
     ]
-    result = qldpc.external.gap.get_result(*commands)
-
-    if not result.stdout.strip():
-        raise ValueError(f"Group not recognized by GAP: {group}")
+    generators_str = qldpc.external.gap.get_output(*commands)
 
     # collect generators
     generators = []
-    for line in result.stdout.splitlines():
+    for line in generators_str.splitlines():
         if not line.strip():
             continue
 
@@ -219,6 +217,78 @@ def maybe_get_webpage(order: int) -> str | None:
     except (urllib.error.URLError, urllib.error.HTTPError):
         # we cannot access the webapage
         return None
+
+
+@qldpc.cache.use_disk_cache("idempotents")
+def get_primitive_central_idempotents(
+    group: str, field: int
+) -> tuple[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...], ...] | None:
+    """Get the primitive central idempotents of a group algebra over a finite field.
+
+    Primitive central idempotents of a ring are nonzero elements that:
+    - square to themselves (they are idempotent)
+    - commute with all other elements of the ring (they lie in the ring's center), and
+    - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
+    Two idempotents g, h are orthogonal if g * h = h * g 0.
+
+    Intuitively, primitive central idempotents idempotents act like projectors onto orthogonal
+    components of a ring.
+
+    See https://en.wikipedia.org/wiki/Idempotent_(ring_theory).
+
+    Returns a tuple of idempotents, where each idempotent is represented by a tuple of terms (to
+    sum), and each term is in turn a tuple (coefficient, permutation).  Here the coefficient is an
+    element of galois.GF(field) cast to an integer, and the permutation is expressed in cyclic form,
+    namely as a tuple of tuples of integers.
+    """
+    if not qldpc.external.gap.is_installed():
+        raise ValueError("Computing primitive central idempotents requires a GAP installation")
+    qldpc.external.gap.require_package("Wedderga")
+
+    idempotents_str = qldpc.external.gap.get_output(
+        'LoadPackage("wedderga");',
+        f"group := {group};",
+        f"ring := GroupRing(GF({field}), group);",
+        "idempotents := PrimitiveCentralIdempotentsByCharacterTable(ring);",
+        "Print(idempotents);",
+    )
+
+    coefficient_pattern = r"\(Z\(\d+(?:\^\d+)?\)(?:\^\d+)?\)"
+    cycle_pattern = r"\(\d+(?:,\d+)*\)|\(\)"
+    cycles_pattern = f"(?:{cycle_pattern})+"
+    ring_term_pattern = rf"{coefficient_pattern}\*{cycles_pattern}"
+    ring_member_pattern = rf"(?:{ring_term_pattern})(?:\+{ring_term_pattern})*"
+
+    re_ring_term = re.compile(ring_term_pattern)
+    re_ring_member = re.compile(ring_member_pattern)
+    re_cycle = re.compile(cycle_pattern)
+    re_integer = re.compile(r"\d+")
+    re_coefficient_components = re.compile(r"\(Z\((\d+)(?:\^(\d+))?\)(?:\^(\d+))?\)")
+
+    idempotents = []
+    for ring_member_match in re_ring_member.finditer(idempotents_str):
+        idempotent = []
+        for ring_term_match in re_ring_term.finditer(ring_member_match.group()):
+            coefficient_string, cycles_string = ring_term_match.group().split("*")
+
+            # convert "Z(p^k)^m" into galois.GF(field)(galois.GF(p**k).primitive_element ** m)
+            coefficient_match = re_coefficient_components.match(coefficient_string)
+            assert coefficient_match is not None
+            pp = int(coefficient_match.group(1))
+            kk = int(coefficient_match.group(2) or 1)
+            mm = int(coefficient_match.group(3) or 1)
+            coefficient = galois.GF(field)(galois.GF(pp**kk).primitive_element ** mm)
+
+            # extract and 0-index cycles
+            cycles = tuple(
+                tuple(int(ii) - 1 for ii in re_integer.findall(cycle_match.group()))
+                for cycle_match in re_cycle.finditer(cycles_string)
+            )
+            idempotent.append((int(coefficient), cycles))
+
+        idempotents.append(tuple(idempotent))
+
+    return tuple(idempotents)
 
 
 KNOWN_GROUPS: dict[str, GENERATORS_LIST] = {

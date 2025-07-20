@@ -15,6 +15,10 @@ from .common import (
     CSSCode,
     QuditCode,
 )
+from .distance import (
+    get_distance_classical,
+    get_distance_quantum,
+)
 from .quantum import (
     BaconShorCode,
     BBCode,
@@ -29,6 +33,7 @@ from .quantum import (
     QTCode,
     SHPCode,
     SHYPSCode,
+    SLPCode,
     SteaneCode,
     SurfaceCode,
     TBCode,
@@ -62,8 +67,11 @@ __all__ = [
     "QTCode",
     "SHPCode",
     "SHYPSCode",
+    "SLPCode",
     "SteaneCode",
     "SurfaceCode",
     "TBCode",
     "ToricCode",
+    "get_distance_classical",
+    "get_distance_quantum",
 ]

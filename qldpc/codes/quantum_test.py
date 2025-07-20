@@ -265,19 +265,19 @@ def test_trivial_lift(
     code_b = codes.ClassicalCode.random(*bits_checks_b, field=field, seed=np.random.randint(2**32))
     code_HGP = codes.HGPCode(code_a, code_b, field)
 
-    protograph_a = abstract.TrivialGroup.to_protograph(code_a.matrix, field)
-    protograph_b = abstract.TrivialGroup.to_protograph(code_b.matrix, field)
-    code_LP = codes.LPCode(protograph_a, protograph_b)
+    matrix_a = abstract.TrivialGroup.to_ring_array(code_a.matrix)
+    matrix_b = abstract.TrivialGroup.to_ring_array(code_b.matrix)
+    code_LP = codes.LPCode(matrix_a, matrix_b)
 
     assert np.array_equal(code_HGP.matrix_x, code_LP.matrix_x)
     assert np.array_equal(code_HGP.matrix_z, code_LP.matrix_z)
     assert nx.utils.graphs_equal(code_HGP.graph, code_LP.graph)
     assert np.array_equal(code_HGP.sector_size, code_LP.sector_size)
 
-    chain = ChainComplex.tensor_product(protograph_a, protograph_b.T)
+    chain = ChainComplex.tensor_product(matrix_a, matrix_b.T)
     matrix_x, matrix_z = chain.op(1), chain.op(2).T
-    assert isinstance(matrix_x, abstract.Protograph)
-    assert isinstance(matrix_z, abstract.Protograph)
+    assert isinstance(matrix_x, abstract.RingArray)
+    assert isinstance(matrix_z, abstract.RingArray)
     assert np.array_equal(matrix_x.lift(), code_HGP.matrix_x)
     assert np.array_equal(matrix_z.lift(), code_HGP.matrix_z)
 
@@ -285,24 +285,24 @@ def test_trivial_lift(
 def test_lift() -> None:
     """Verify lifting in Eqs. (8) and (10) of arXiv:2202.01702v3."""
     group = abstract.CyclicGroup(3)
-    zero = abstract.Element(group)
-    x0, x1, x2 = [abstract.Element(group, member) for member in group.generate()]
+    zero = abstract.RingMember(group)
+    x0, x1, x2 = [abstract.RingMember(group, member) for member in group.generate()]
     base_matrix = [[x1 + x2, x0, zero], [zero, x0 + x1, x1]]
 
-    protograph = abstract.Protograph(base_matrix)
-    matrix = [
+    ring_matrix = abstract.RingArray(base_matrix)
+    lifted_matrix = [
         [0, 1, 1, 1, 0, 0, 0, 0, 0],
         [1, 0, 1, 0, 1, 0, 0, 0, 0],
         [1, 1, 0, 0, 0, 1, 0, 0, 0],
-        [0, 0, 0, 1, 1, 0, 0, 1, 0],
-        [0, 0, 0, 0, 1, 1, 0, 0, 1],
-        [0, 0, 0, 1, 0, 1, 1, 0, 0],
+        [0, 0, 0, 1, 0, 1, 0, 0, 1],
+        [0, 0, 0, 1, 1, 0, 1, 0, 0],
+        [0, 0, 0, 0, 1, 1, 0, 1, 0],
     ]
-    assert np.array_equal(protograph.lift(), matrix)
+    assert np.array_equal(ring_matrix.lift(), lifted_matrix)
 
     # check that the lifted product code is indeed smaller than the HGP code!
-    code_HP = codes.HGPCode(matrix)
-    code_LP = codes.LPCode(protograph)
+    code_HP = codes.HGPCode(lifted_matrix)
+    code_LP = codes.LPCode(ring_matrix)
     assert code_HP.num_qudits > code_LP.num_qudits
     assert code_HP.num_checks > code_LP.num_checks
 
@@ -317,9 +317,9 @@ def test_twisted_XZZX(width: int = 3) -> None:
     code: codes.QuditCode
 
     # construct check matrix directly
-    ring = codes.RingCode(width).matrix
-    mat_1 = np.kron(ring, np.eye(width, dtype=int))
-    mat_2 = codes.RingCode(num_qudits // 2).matrix
+    ring_code = codes.RingCode(width).matrix.T
+    mat_1 = np.kron(ring_code, np.eye(width, dtype=int))
+    mat_2 = codes.RingCode(num_qudits // 2).matrix.T
     zero_1 = np.zeros((mat_1.shape[1],) * 2, dtype=int)
     zero_2 = np.zeros((mat_1.shape[0],) * 2, dtype=int)
     zero_3 = np.zeros((mat_2.shape[1],) * 2, dtype=int)
@@ -333,38 +333,44 @@ def test_twisted_XZZX(width: int = 3) -> None:
 
     # construct lifted product code
     group = abstract.CyclicGroup(num_qudits // 2)
-    unit = abstract.Element(group).one()
-    shift = abstract.Element(group, group.generators[0])
-    element_a = unit - shift**width
-    element_b = unit - shift
+    ring = abstract.GroupRing(group)
+    shift = abstract.RingMember(ring, group.generators[0])
+    element_a = ring.one - shift**width
+    element_b = ring.one - shift
     code = codes.LPCode([[element_a]], [[element_b]])
     qudits_to_conjugate = slice(code.sector_size[0, 0], None)
     assert np.array_equal(matrix, code.conjugated(qudits_to_conjugate).matrix)
 
     # same construction with a chain complex
-    protograph_a = abstract.Protograph([[element_a]])
-    protograph_b = abstract.Protograph([[element_b]])
-    chain = ChainComplex.tensor_product(protograph_a, protograph_b.T)
+    matrix_a = abstract.RingArray([[element_a]])
+    matrix_b = abstract.RingArray([[element_b]])
+    chain = ChainComplex.tensor_product(matrix_a, matrix_b.T)
     matrix_x, matrix_z = chain.op(1), chain.op(2).T
-    assert isinstance(matrix_x, abstract.Protograph)
-    assert isinstance(matrix_z, abstract.Protograph)
+    assert isinstance(matrix_x, abstract.RingArray)
+    assert isinstance(matrix_z, abstract.RingArray)
     code = codes.CSSCode(matrix_x.lift(), matrix_z.lift()).conjugated(qudits_to_conjugate)
     assert np.array_equal(matrix, code.matrix)
 
 
 def test_lifted_product_codes() -> None:
     """Lifted product codes in Eq. (5) of arXiv:2308.08648."""
-    for lift_dim, matrix in [
+    for lift_dim, exponents in [
         (16, [[0, 0, 0, 0, 0], [0, 2, 4, 7, 11], [0, 3, 10, 14, 15]]),
         (21, [[0, 0, 0, 0, 0], [0, 4, 5, 7, 17], [0, 14, 18, 12, 11]]),
     ]:
         group = abstract.CyclicGroup(lift_dim)
         xx = group.generators[0]
-        proto_matrix = [[abstract.Element(group, xx**power) for power in row] for row in matrix]
-        protograph = abstract.Protograph(proto_matrix)
-        code = codes.LPCode(protograph)
+        matrix = abstract.RingArray.build(
+            [[xx**power for power in row] for row in exponents], group
+        )
+        code = codes.LPCode(matrix)
         rate = code.dimension / code.num_qudits
         assert rate >= 2 / 17
+
+        # the subsystem version of this code has a highe encoding rate
+        subsystem_code = codes.SLPCode(matrix)
+        subsystem_rate = subsystem_code.dimension / subsystem_code.num_qudits
+        assert subsystem_rate > rate
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
@@ -492,6 +498,10 @@ def test_toric_codes() -> None:
     # rotated toric code must have even side lengths
     with pytest.raises(ValueError, match="even side lengths"):
         codes.ToricCode(3, rotated=True)
+
+    # the rotated 2x2 Toric code is special -- we remove redundant checks
+    code = codes.ToricCode(2, rotated=True)
+    assert len(code.matrix_x) == len(code.matrix_z) == 1
 
     # rotated toric XZZX code
     rows, cols = 6, 4

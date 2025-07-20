@@ -5,9 +5,10 @@ on:
     branches: [ main ]
     paths:
       - 'pyproject.toml'
-      - '**/*.pyx'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'pyproject.toml'
     types: [ opened, synchronize, reopened, ready_for_review ]  # defaults plus ready_for_review
   workflow_dispatch:
   workflow_call:
@@ -23,8 +24,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Set up Microsoft Visual Studio
-        uses: ilammy/msvc-dev-cmd@v1
       - name: Install package and dependencies
         run: |
           python3 -m pip install --upgrade pip

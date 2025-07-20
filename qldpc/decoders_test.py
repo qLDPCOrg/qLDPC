@@ -87,15 +87,15 @@ def test_decoding() -> None:
 
     # decode over trinary field
     field = galois.GF(3)
-    matrix = -field(matrix)
-    error = -field(error)
+    matrix = -matrix.view(field)
+    error = -error.view(field)
     assert np.array_equal(error, decoders.decode(matrix, syndrome))
 
     # decode directly from a corrupted code word
     code_word = field.Zeros(error.size)
-    corrupted_code_word = code_word + field(error)
+    corrupted_code_word = code_word + error.view(field)
     ilp_decoder = decoders.ILPDecoder(matrix)
-    direct_decoder = decoders.DirectDecoder.from_indirect(ilp_decoder, field(matrix))
+    direct_decoder = decoders.DirectDecoder.from_indirect(ilp_decoder, matrix.view(field))
     assert np.array_equal(code_word, direct_decoder.decode(corrupted_code_word))
 
     # the naive GUF decoder can fail sometimes
@@ -124,11 +124,11 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
 
     decoder: decoders.Decoder
     decoder = decoders.GUFDecoder(code.matrix, symplectic=True)
-    decoded_error = code.field(decoder.decode(syndrome))
+    decoded_error = decoder.decode(syndrome).view(code.field)
     assert np.array_equal(syndrome, symplectic_conjugate(code.matrix) @ decoded_error)
 
     decoder = decoders.LookupDecoder(code.matrix, symplectic=True, max_weight=2)
-    decoded_error = code.field(decoder.decode(syndrome))
+    decoded_error = decoder.decode(syndrome).view(code.field)
     assert np.array_equal(syndrome, symplectic_conjugate(code.matrix) @ decoded_error)
 
 

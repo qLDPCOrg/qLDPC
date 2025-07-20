@@ -23,16 +23,16 @@ import re
 import qldpc.cache
 import qldpc.external.gap
 
-CACHE_NAME = "qldpc_codes"
 
-
-@qldpc.cache.use_disk_cache(CACHE_NAME)
+@qldpc.cache.use_disk_cache("codes")
 def get_code(code: str) -> tuple[list[list[int]], int | None]:
     """Retrieve a group from GAP."""
 
-    # run GAP commands
     if not qldpc.external.gap.is_installed():
         raise ValueError("GAP 4 is not installed")
+    qldpc.external.gap.require_package("GUAVA")
+
+    # run GAP commands
     commands = [
         'LoadPackage("guava");',
         f"code := {code};",
@@ -40,18 +40,12 @@ def get_code(code: str) -> tuple[list[list[int]], int | None]:
         r'Print(LeftActingDomain(code), "\n");',
         r'for vec in mat do Print(List(vec, x -> Int(x)), "\n"); od;',
     ]
-    result = qldpc.external.gap.get_result(*commands)
-
-    if "guava package is not available" in result.stdout:
-        raise ValueError("GAP package GUAVA not available")
-
-    if not result.stdout.strip():
-        raise ValueError(f"Code not recognized by the GAP package GUAVA: {code}")
+    code_str = qldpc.external.gap.get_output(*commands)
 
     # identify base field and retrieve parity checks
     field: int | None = None
     checks = []
-    for line in result.stdout.splitlines():
+    for line in code_str.splitlines():
         if not line.strip():
             continue
 
@@ -62,6 +56,6 @@ def get_code(code: str) -> tuple[list[list[int]], int | None]:
             checks.append(ast.literal_eval(line))
 
     if not checks:
-        raise ValueError(f"Code exists, but has no parity checks: {code}")
+        raise ValueError(f"Code has no parity checks: {code}")
 
     return checks, field
