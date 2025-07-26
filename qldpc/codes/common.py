@@ -436,13 +436,23 @@ class ClassicalCode(AbstractCode):
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         **decoder_args: Any,
     ) -> int | float:
-        """Compute an upper bound on code distance by minimizing many individual upper bounds.
+        """Use a randomized algorithm to compute a single upper bound on code distance.
 
+        Minimize over `num_trials` randomized attempts to compute an upper bounds.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
 
-        If passed a vector, compute the minimum Hamming distance between the vector and a code word.
+        If passed a vector, bound the minimum Hamming distance between the vector and a code word.
 
         Additional arguments, if applicable, are passed to a decoder.
+
+        The code distance is the minimum Hamming distance between two code words, or equivalently
+        the minimum Hamming weight of a nonzero code word.  To find a minimal nonzero code word we
+        decode a trivial (all-0) syndrome, but enforce that the code word has nonzero overlap with a
+        random word, which excludes the all-0 word as a candidate.
+
+        If bounding the minimum distance between a vector and a code word, we can interpret the
+        vector as an error, and find a minimal-weight correction from decoding the syndrome induced
+        by this vector.
         """
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
@@ -2054,16 +2064,16 @@ class CSSCode(QuditCode):
 
     def get_distance_bound(
         self,
-        num_trials: int = 1,
         pauli: PauliXZ | None = None,
+        num_trials: int = 1,
         *,
         cutoff: int | None = None,
         **decoder_args: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        Minimize over `num_trials` randomized attempts to compute an upper bounds.
         If `pauli is not None`, consider only `pauli`-type logical operators.
+        Minimize over `num_trials` randomized attempts to compute an upper bounds.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
 
         Additional arguments, if applicable, are passed to a decoder.
