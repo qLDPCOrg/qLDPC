@@ -2064,16 +2064,16 @@ class CSSCode(QuditCode):
 
     def get_distance_bound(
         self,
-        pauli: PauliXZ | None = None,
         num_trials: int = 1,
+        pauli: PauliXZ | None = None,
         *,
         cutoff: int | None = None,
         **decoder_args: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        If `pauli is not None`, consider only `pauli`-type logical operators.
         Minimize over `num_trials` randomized attempts to compute an upper bounds.
+        If `pauli is not None`, consider only `pauli`-type logical operators.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
 
         Additional arguments, if applicable, are passed to a decoder.
