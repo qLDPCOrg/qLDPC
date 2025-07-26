@@ -457,86 +457,35 @@ class ClassicalCode(AbstractCode):
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
-        if vector is not None:
+        # initialize a decoder and syndrome
+        if vector is None:
+            effective_matrix = np.vstack([self.matrix, self.generator])
+            decoder = decoders.get_decoder(effective_matrix, **decoder_args)
+            effective_syndrome = np.zeros(len(effective_matrix), dtype=int)
+        else:
             decoder = decoders.get_decoder(self.matrix, **decoder_args)
-            min_bound = len(self)
-            for _ in range(num_trials):
-                if min_bound <= cutoff:
-                    return min_bound
+            effective_syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
 
-                correction_found = False
-                while not correction_found:
-                    syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
-                    correction = decoder.decode(syndrome, **decoder_args)
-                    correction_syndrome = self.matrix @ correction.view(self.field)
-                    correction_found = np.array_equal(correction_syndrome, syndrome)
-
-                min_bound = min(min_bound, int(np.count_nonzero(correction)))
-
-            return min_bound
-
-        decoder = decoders.get_decoder(self.matrix, **decoder_args)
-
-
+        # minimize over many bounds
         min_bound = len(self)
         for _ in range(num_trials):
-            if min_bound <= cutoff:
+            if cutoff and min_bound <= cutoff:
                 return min_bound
 
+            # solve a random decoding problem, retrying until we succeed
             correction_found = False
             while not correction_found:
-                syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
-                correction = decoder.decode(syndrome, **decoder_args)
-                correction_syndrome = self.matrix @ correction.view(self.field)
-                correction_found = np.array_equal(correction_syndrome, syndrome)
+                if vector is None:
+                    effective_syndrome[-len(self.generator) :] = get_random_array(
+                        self.field, len(self.generator), satisfy=lambda vec: vec.any()
+                    )
+                correction = decoder.decode(effective_syndrome, **decoder_args)
+                actual_syndrome = self.matrix @ correction.view(self.field)
+                correction_found = np.array_equal(actual_syndrome, effective_syndrome)
 
             min_bound = min(min_bound, int(np.count_nonzero(correction)))
 
         return min_bound
-
-    def get_one_distance_bound(
-        self, *, vector: Sequence[int] | npt.NDArray[np.int_] | None = None, **decoder_args: Any
-    ) -> int:
-        """Use a randomized algorithm to compute a single upper bound on code distance.
-
-        The code distance is the minimum Hamming distance between two code words, or equivalently
-        the minimum Hamming weight of a nonzero code word.  To find a minimal nonzero code word we
-        decode a trivial (all-0) syndrome, but enforce that the code word has nonzero overlap with a
-        random word, which excludes the all-0 word as a candidate.
-
-        If passed a vector, bound the minimum Hamming distance between the vector and a code word.
-        Equivalently, we can interpret the given vector as an error, and find a minimal-weight
-        correction from decoding the syndrome induced by this vector.
-
-        Additional arguments, if applicable, are passed to a decoder.
-        """
-        if vector is not None:
-            # find the distance of the given vector from a code word
-            correction = decoders.decode(
-                self.matrix,
-                self.matrix @ np.asarray(vector, dtype=int).view(self.field),
-                **decoder_args,
-            )
-            return int(np.count_nonzero(correction))
-
-        # effective syndrome: a trivial "actual" syndrome, and a nonzero overlap with a random word
-        effective_syndrome = np.zeros(self.num_checks + 1, dtype=int)
-        effective_syndrome[-1] = 1
-
-        valid_candidate_found = False
-        while not valid_candidate_found:
-            # construct an effective check matrix with a random nonzero word
-            random_word = get_random_array(self.field, len(self), satisfy=lambda vec: vec.any())
-            effective_check_matrix = np.vstack([self.matrix, random_word])
-
-            # find a low-weight candidate code word
-            candidate = decoders.decode(effective_check_matrix, effective_syndrome, **decoder_args)
-
-            # check whether we found a valid candidate
-            actual_syndrome = effective_check_matrix @ candidate.view(self.field)
-            valid_candidate_found = np.array_equal(actual_syndrome, effective_syndrome)
-
-        return int(np.count_nonzero(candidate))
 
     def get_code_params(
         self, *, bound: int | bool | None = None, **decoder_args: Any
@@ -1387,7 +1336,7 @@ class QuditCode(AbstractCode):
         min_bound = len(self)
         for _ in range(num_trials):
             if cutoff and min_bound <= cutoff:
-                break
+                return min_bound
             raise NotImplementedError(
                 "Monte Carlo distance bound calculation is not implemented for a general QuditCode"
             )
@@ -2146,6 +2095,7 @@ class CSSCode(QuditCode):
             return len(self)
 
         if pauli is None:
+            # minimize over X and Z bounds with roughly half the number of trials each
             num_trials_xz = [num_trials // 2, (num_trials + 1) // 2]
             random.shuffle(num_trials_xz)
             return min(
@@ -2160,17 +2110,15 @@ class CSSCode(QuditCode):
                 ]
             )
 
-        # define various objects as if we were computing X-distance
+        # pretend without lossf of generality that we are computing X-distance
         assert pauli in PAULIS_XZ
         pauli_z: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
         matrix_z = self.get_matrix(pauli_z)
         logical_ops_z = self.get_logical_ops(pauli_z)
 
-        # construct a decoder
+        # initialize a decoder and a trivial effective syndrome
         effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
         decoder = decoders.get_decoder(effective_check_matrix, **decoder_args)
-
-        # initialize a trivial effective syndrome
         effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
         # minimize over many bounds
@@ -2179,14 +2127,13 @@ class CSSCode(QuditCode):
             if cutoff and min_bound <= cutoff:
                 return min_bound
 
+            # Construct an effective syndrome from a random X-type logical operator, and decode.
+            # If decoding fails, try again.
             logical_op_found = False
             while not logical_op_found:
-                # construct an effective syndrome induced by a random X-type logical operator
                 effective_syndrome[-self.dimension :] = get_random_array(
                     self.field, self.dimension, satisfy=lambda vec: vec.any()
                 )
-
-                # decode and determine whether decoding was successful
                 candidate_logical_op = decoder.decode(effective_syndrome)
                 actual_syndrome = effective_check_matrix @ candidate_logical_op.view(self.field)
                 logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
