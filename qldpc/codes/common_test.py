@@ -151,7 +151,6 @@ def test_distance_classical(bits: int = 3) -> None:
         np.count_nonzero(random_vector)
         == trivial_code.get_distance_exact(vector=random_vector)
         == trivial_code.get_distance_bound(vector=random_vector)
-        == trivial_code.get_one_distance_bound(vector=random_vector)
     )
 
     # compute distance of a trinary repetition code
@@ -292,7 +291,7 @@ def test_distance_qudit() -> None:
     code._distance = None
     with pytest.raises(NotImplementedError, match="not implemented"):
         code.get_distance(bound=True)
-    with unittest.mock.patch("qldpc.codes.QuditCode.get_one_distance_bound", return_value=3):
+    with unittest.mock.patch("qldpc.codes.QuditCode.get_distance_bound", return_value=3):
         code.get_distance(bound=True)
 
     # the distance of dimension-0 codes is undefined
@@ -485,8 +484,6 @@ def test_css_ops() -> None:
     code: codes.CSSCode
 
     code = codes.HGPCode(codes.ClassicalCode.random(4, 2, field=3))
-    assert not np.any(code.matrix_z @ code.get_random_logical_op(Pauli.X, ensure_nontrivial=False))
-    assert not np.any(code.matrix_z @ code.get_random_logical_op(Pauli.X, ensure_nontrivial=True))
 
     # swap around logical operators
     code.set_logical_ops_xz(

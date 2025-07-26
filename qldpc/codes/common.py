@@ -23,7 +23,7 @@ import itertools
 import random
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Iterator, Literal, TypeVar, cast
+from typing import Any, Iterator, TypeVar, cast
 
 import galois
 import networkx as nx
@@ -379,12 +379,12 @@ class ClassicalCode(AbstractCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute
         upper bounds using a randomized algorithm and minimize over `bound` trials.  For a detailed
-        explanation, see `get_one_distance_bound`.
+        explanation, see `get_distance_bound`.
 
         If provided a vector, compute (or bound) the minimum Hamming distance between this vector
         and a code word.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Additional arguments, if applicable, are passed to a decoder.
         """
         if not bound:
             return self.get_distance_exact(vector=vector)
@@ -442,7 +442,7 @@ class ClassicalCode(AbstractCode):
 
         If passed a vector, compute the minimum Hamming distance between the vector and a code word.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Additional arguments, if applicable, are passed to a decoder.
         """
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
@@ -511,7 +511,7 @@ class ClassicalCode(AbstractCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute an
         upper bound using `bound` trials of a a randomized algorithm.  For a detailed explanation,
-        see the `get_one_distance_bound` method.
+        see the `get_distance_bound` method.
 
         Keyword arguments are passed to the calculation of code distance.
         """
@@ -1272,7 +1272,7 @@ class QuditCode(AbstractCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute an
         upper bound using `bound` trials of a a randomized algorithm.  For a detailed explanation,
-        see the `get_one_distance_bound` method.
+        see the `get_distance_bound` method.
 
         Keyword arguments are passed to the calculation of code distance.
         """
@@ -1284,9 +1284,9 @@ class QuditCode(AbstractCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute
         upper bounds using a randomized algorithm and minimize over `bound` trials.  For a detailed
-        explanation, see `get_one_distance_bound`.
+        explanation, see `get_distance_bound`.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Additional arguments, if applicable, are passed to a decoder.
         """
         if not bound:
             return self.get_distance_exact()
@@ -1335,11 +1335,12 @@ class QuditCode(AbstractCode):
     def get_distance_bound(
         self, num_trials: int = 1, *, cutoff: int | None = None, **decoder_args: Any
     ) -> int | float:
-        """Compute an upper bound on code distance by minimizing many individual upper bounds.
+        """Use a randomized algorithm to compute a single upper bound on code distance.
 
+        Minimize over `num_trials` randomized attempts to compute an upper bounds.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Additional arguments, if applicable, are passed to a decoder.
         """
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
@@ -1348,15 +1349,10 @@ class QuditCode(AbstractCode):
         for _ in range(num_trials):
             if cutoff and min_bound <= cutoff:
                 break
-            new_bound = self.get_one_distance_bound(**decoder_args)
-            min_bound = int(min(min_bound, new_bound))
+            raise NotImplementedError(
+                "Monte Carlo distance bound calculation is not implemented for a general QuditCode"
+            )
         return min_bound
-
-    def get_one_distance_bound(self, **decoder_args: Any) -> int:
-        """Use a randomized algorithm to compute a single upper bound on code distance."""
-        raise NotImplementedError(
-            "Monte Carlo distance bound calculation is not implemented for a general QuditCode"
-        )
 
     def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
         """Apply local Fourier transforms to data qudits, swapping X-type and Z-type operators."""
@@ -1994,9 +1990,9 @@ class CSSCode(QuditCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute
         upper bounds using a randomized algorithm and minimize over `bound` trials.  For a detailed
-        explanation, see `get_one_distance_bound`.
+        explanation, see `get_distance_bound`.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Additional arguments, if applicable, are passed to a decoder.
         """
         if not bound:
             return self.get_distance_exact(pauli)
@@ -2064,40 +2060,18 @@ class CSSCode(QuditCode):
         cutoff: int | None = None,
         **decoder_args: Any,
     ) -> int | float:
-        """Compute an upper bound on code distance by minimizing many individual upper bounds.
+        """Use a randomized algorithm to compute an upper bound on code distance.
 
+        Minimize over `num_trials` randomized attempts to compute an upper bounds.
         If `pauli is not None`, consider only `pauli`-type logical operators.
-
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
-
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
-        """
-        if (known_distance := self.get_distance_if_known(pauli)) is not None:
-            return known_distance
-
-        min_bound = len(self)
-        for _ in range(num_trials):
-            if cutoff and min_bound <= cutoff:
-                break
-            new_bound = self.get_one_distance_bound(pauli, **decoder_args)
-            min_bound = int(min(min_bound, new_bound))
-        return min_bound
-
-    def get_one_distance_bound(
-        self,
-        pauli: PauliXZ | None = None,
-        **decoder_args: Any,
-    ) -> int:
-        """Use a randomized algorithm to compute a single upper bound on code distance.
-
-        If `pauli is not None`, consider only `pauli`-type logical operators.
 
         Additional arguments, if applicable, are passed to a decoder.
 
         This method uses the randomized algorithm described in arXiv:2308.07915, and also below.
 
-        For ease of language, we henceforth assume (without loss of generality) that we are
-        computing an X-distance.
+        For ease of language, we henceforth assume without loss of generality that we computing an
+        X-distance, and tentatively assume `num_trials == 1`.
 
         Pick a random Z-type logical operator Z(w_z) whose support is indicated by the bistring w_z.
         We now wish to find a low-weight Pauli-X string X(w_x) that
@@ -2115,68 +2089,80 @@ class CSSCode(QuditCode):
         where the "0" on the top right is interpreted as a zero vector.  This equation can be solved
         by decoding the syndrome [ 0, 0, ..., 0, 1 ].T for the parity check matrix [ H_z.T, w_z ].T.
 
-        We solve the above decoding problem with a decoder in `decode`.  If the decoder fails to
-        find a solution, try again with a new random operator Z(w_z).  If the decoder succeeds in
+        We solve the above decoding problem with a decoder.  If the decoder fails to find a
+        solution, try again with a new random logical operator Z(w_z).  If the decoder succeeds in
         finding a solution w_x, this solution corresponds to a logical X-type operator X(w_x) -- and
-        presumably one of low Hamming weight, since decoders try to find low-weight solutions.
-        Return the Hamming weight |w_x|.
+        presumably one of low Hamming weight, assuming that the decoder tries to find low-weight
+        solutions to the decoding problem.  The Hamming weight |X(w_x)| is then our upper bound on
+        the X-distance of this code.
+
+        In practice, we want to minimize over many bounds.  To avoid constructing a new decoder for
+        every trial, we set the effective parity check matrix to [ H_z; L_z ], where L_z is a matrix
+        whose rows are a minimal basis for nontrivial logical Z-type operators.  In each trial, we
+        then construct an effective syndrome by enforcing that it has trivial stabilizers and that it anti-commutes with a random nonzero choice of the logical operators in L_z.
         """
-        pauli = pauli or random.choice(PAULIS_XZ)
-        assert pauli in PAULIS_XZ
+        if (known_distance := self.get_distance_if_known(pauli)) is not None:
+            return known_distance
+        if num_trials == 0:
+            return len(self)
 
-        # define pauli_z and code_z as if we are computing X-distance
-        pauli_z: Literal[Pauli.Z, Pauli.X] = Pauli.Z if pauli is Pauli.X else Pauli.X
-        code_z = self.get_code(pauli_z)
-
-        # construct the effective syndrome
-        effective_syndrome = np.zeros(code_z.num_checks + 1, dtype=int)
-        effective_syndrome[-1] = 1
-
-        logical_op_found = False
-        while not logical_op_found:
-            # support of pauli string with a trivial syndrome
-            word = self.get_random_logical_op(pauli_z, ensure_nontrivial=True)
-
-            # support of a candidate pauli-type logical operator
-            effective_check_matrix = np.vstack([code_z.matrix, word])
-            candidate_logical_op = decoders.decode(
-                effective_check_matrix, effective_syndrome, **decoder_args
+        if pauli is None:
+            num_trials_xz = [num_trials // 2, (num_trials + 1) // 2]
+            random.shuffle(num_trials_xz)
+            return min(
+                [
+                    self.get_distance_bound(
+                        num_trials=num_trials,
+                        pauli=pauli,
+                        cutoff=cutoff,
+                        **decoder_args,
+                    )
+                    for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
+                ]
             )
 
-            # check whether decoding was successful
-            actual_syndrome = effective_check_matrix @ candidate_logical_op.view(self.field)
-            logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
+        # define various objects as if we were computing X-distance
+        assert pauli in PAULIS_XZ
+        pauli_z: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
+        matrix_z = self.get_matrix(pauli_z)
+        logical_ops_z = self.get_logical_ops(pauli_z)
 
-        # return the Hamming weight of the logical operator
-        return int(np.count_nonzero(candidate_logical_op))
+        # construct a decoder
+        effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
+        decoder = decoders.get_decoder(effective_check_matrix, **decoder_args)
 
-    def get_random_logical_op(
-        self, pauli: PauliXZ, *, ensure_nontrivial: bool = False, seed: int | None = None
-    ) -> galois.FieldArray:
-        """Return a random logical operator of a given type.
+        # initialize a trivial effective syndrome
+        effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
-        A random logical operator may be trivial, which is to say that it may be equal to the
-        identity modulo stabilizers.  If `ensure_nontrivial is True`, ensure that the logical
-        operator we return is nontrivial.
-        """
-        assert pauli is Pauli.X or pauli is Pauli.Z
-        logical_ops = self.get_logical_ops(pauli)
-        stabilizer_ops = self.get_stabilizer_ops(pauli, canonicalized=True)
-        ops = np.vstack([logical_ops, stabilizer_ops])
-        random_array = get_random_array(
-            self.field,
-            len(ops),
-            seed=seed,
-            satisfy=lambda array: (np.any(array[: self.dimension]) if ensure_nontrivial else True),
-        )
-        return random_array @ ops
+        # minimize over many bounds
+        min_bound = len(self)
+        for _ in range(num_trials):
+            if cutoff and min_bound <= cutoff:
+                # we don't care about bounding below the cutoff, so quit early
+                break
+
+            logical_op_found = False
+            while not logical_op_found:
+                # construct an effective syndrome induced by a random X-type logical operator
+                effective_syndrome[-self.dimension :] = get_random_array(
+                    self.field, self.dimension, satisfy=lambda vec: vec.any()
+                )
+
+                # decode and determine whether decoding was successful
+                candidate_logical_op = decoder.decode(effective_syndrome)
+                actual_syndrome = effective_check_matrix @ candidate_logical_op.view(self.field)
+                logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
+
+            min_bound = int(min(min_bound, np.count_nonzero(candidate_logical_op)))
+
+        return min_bound
 
     def reduce_logical_op(self, pauli: PauliXZ, logical_index: int, **decoder_args: Any) -> None:
         """Reduce the weight of a logical operator.
 
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
         that it commutes with all logical operators except its dual.  This is essentially the same
-        method as that used in CSSCode.get_one_distance_bound.
+        method as that used in CSSCode.get_distance_bound.
         """
         assert pauli is Pauli.X or pauli is Pauli.Z
         assert 0 <= logical_index < self.dimension
