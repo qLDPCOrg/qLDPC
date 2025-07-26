@@ -285,6 +285,7 @@ def test_distance_qudit() -> None:
 
     # "forget" the code distance and recompute
     code._distance = None
+    assert code.get_distance_bound(num_trials=0) == 5
     assert code.get_distance_bound(cutoff=5) == 5
     assert code.get_distance_exact() == 3
 

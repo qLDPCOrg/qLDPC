@@ -457,14 +457,14 @@ class ClassicalCode(AbstractCode):
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
-        # initialize a decoder and syndrome
+        # initialize an effective check matrix and effective syndrome
         if vector is None:
-            effective_matrix = np.vstack([self.matrix, self.generator])
-            decoder = decoders.get_decoder(effective_matrix, **decoder_args)
-            effective_syndrome = np.zeros(len(effective_matrix), dtype=int)
+            effective_check_matrix = np.vstack([self.matrix, self.generator])
+            effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
         else:
-            decoder = decoders.get_decoder(self.matrix, **decoder_args)
+            effective_check_matrix = self.matrix
             effective_syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
+        decoder = decoders.get_decoder(effective_check_matrix, **decoder_args)
 
         # minimize over many bounds
         min_bound = len(self)
@@ -480,7 +480,7 @@ class ClassicalCode(AbstractCode):
                         self.field, len(self.generator), satisfy=lambda vec: vec.any()
                     )
                 correction = decoder.decode(effective_syndrome, **decoder_args)
-                actual_syndrome = self.matrix @ correction.view(self.field)
+                actual_syndrome = effective_check_matrix @ correction.view(self.field)
                 correction_found = np.array_equal(actual_syndrome, effective_syndrome)
 
             min_bound = min(min_bound, int(np.count_nonzero(correction)))
@@ -1332,15 +1332,14 @@ class QuditCode(AbstractCode):
         """
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
+        if num_trials == 0:
+            return len(self)
 
-        min_bound = len(self)
-        for _ in range(num_trials):
-            if cutoff and min_bound <= cutoff:
-                return min_bound
-            raise NotImplementedError(
-                "Monte Carlo distance bound calculation is not implemented for a general QuditCode"
-            )
-        return min_bound
+        if cutoff and len(self) <= cutoff:
+            return len(self)
+        raise NotImplementedError(
+            "Monte Carlo distance bound calculation is not implemented for a general QuditCode"
+        )
 
     def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
         """Apply local Fourier transforms to data qudits, swapping X-type and Z-type operators."""
