@@ -1274,7 +1274,7 @@ class QuditCode(AbstractCode):
         upper bounds using a randomized algorithm and minimize over `bound` trials.  For a detailed
         explanation, see `get_distance_bound`.
 
-        Additional arguments, if applicable, are passed to a decoder.
+        Additional arguments, if applicable, are passed to a decoder in `get_distance_bound`.
         """
         if not bound:
             return self.get_distance_exact()
@@ -1979,7 +1979,7 @@ class CSSCode(QuditCode):
         upper bounds using a randomized algorithm and minimize over `bound` trials.  For a detailed
         explanation, see `get_distance_bound`.
 
-        Additional arguments, if applicable, are passed to a decoder.
+        Additional arguments, if applicable, are passed to a decoder in `get_distance_bound`.
         """
         if not bound:
             return self.get_distance_exact(pauli)
