@@ -457,12 +457,41 @@ class ClassicalCode(AbstractCode):
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
+        if vector is not None:
+            decoder = decoders.get_decoder(self.matrix, **decoder_args)
+            min_bound = len(self)
+            for _ in range(num_trials):
+                if min_bound <= cutoff:
+                    return min_bound
+
+                correction_found = False
+                while not correction_found:
+                    syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
+                    correction = decoder.decode(syndrome, **decoder_args)
+                    correction_syndrome = self.matrix @ correction.view(self.field)
+                    correction_found = np.array_equal(correction_syndrome, syndrome)
+
+                min_bound = min(min_bound, int(np.count_nonzero(correction)))
+
+            return min_bound
+
+        decoder = decoders.get_decoder(self.matrix, **decoder_args)
+
+
         min_bound = len(self)
         for _ in range(num_trials):
-            if cutoff and min_bound <= cutoff:
-                break
-            new_bound = self.get_one_distance_bound(vector=vector, **decoder_args)
-            min_bound = int(min(min_bound, new_bound))
+            if min_bound <= cutoff:
+                return min_bound
+
+            correction_found = False
+            while not correction_found:
+                syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
+                correction = decoder.decode(syndrome, **decoder_args)
+                correction_syndrome = self.matrix @ correction.view(self.field)
+                correction_found = np.array_equal(correction_syndrome, syndrome)
+
+            min_bound = min(min_bound, int(np.count_nonzero(correction)))
+
         return min_bound
 
     def get_one_distance_bound(
@@ -2148,8 +2177,7 @@ class CSSCode(QuditCode):
         min_bound = len(self)
         for _ in range(num_trials):
             if cutoff and min_bound <= cutoff:
-                # we don't care about bounding below the cutoff, so quit early
-                break
+                return min_bound
 
             logical_op_found = False
             while not logical_op_found:
