@@ -13,12 +13,12 @@ Examples of basic usage with a predefined noise model:
 
     import stim
     from qldpc.stim.noise_model import NoiseModel
-    
+
     # Create a simple circuit
     circuit = stim.Circuit()
     circuit.append('H', [0])
     circuit.append('CX', [0, 1])
-    
+
     # Apply superconducting-inspired noise
     noise_model = NoiseModel.si1000(0.001)
     noisy_circuit = noise_model.noisy_circuit(circuit)
@@ -46,8 +46,7 @@ It is part of the code from the paper
 """
 
 from collections import Counter, defaultdict
-from collections.abc import Iterator
-from typing import AbstractSet
+from collections.abc import Iterator, Set
 
 import stim
 
@@ -142,7 +141,7 @@ OP_MEASURE_BASES = {
 COLLAPSING_OPS = {
     op
     for op, t in OP_TYPES.items()
-    if t == JUST_RESET_1Q or t == JUST_MEASURE_1Q or t == MPP or t == MEASURE_RESET_1Q
+    if t == JUST_RESET_1Q or t == JUST_MEASURE_1Q or t == MEASURE_RESET_1Q or t == MPP
 }
 
 
@@ -188,7 +187,7 @@ class NoiseRule:
         split_op: stim.CircuitInstruction,
         out_during_moment: stim.Circuit,
         after_moments: defaultdict[tuple[str, float], stim.Circuit],
-        immune_qubits: AbstractSet[int],
+        immune_qubits: Set[int],
     ) -> None:
         """Appends a noisy version of the given operation to the circuit.
 
@@ -467,8 +466,8 @@ class NoiseModel:
         *,
         moment_split_ops: list[stim.CircuitInstruction],
         out: stim.Circuit,
-        system_qubits: AbstractSet[int],
-        immune_qubits: AbstractSet[int],
+        system_qubits: Set[int],
+        immune_qubits: Set[int],
     ) -> None:
         """Appends idle errors to the circuit for qubits not being operated on.
 
@@ -533,8 +532,8 @@ class NoiseModel:
         *,
         moment_split_ops: list[stim.CircuitInstruction],
         out: stim.Circuit,
-        system_qubits: AbstractSet[int],
-        immune_qubits: AbstractSet[int],
+        system_qubits: Set[int],
+        immune_qubits: Set[int],
     ) -> None:
         """Appends a noisy version of a moment to the output circuit.
 
@@ -730,7 +729,7 @@ def occurs_in_classical_control_system(op: stim.CircuitInstruction) -> bool:
 
 
 def _split_targets_if_needed(
-    op: stim.CircuitInstruction, immune_qubits: AbstractSet[int]
+    op: stim.CircuitInstruction, immune_qubits: Set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits operations into pieces as needed.
 
@@ -756,7 +755,7 @@ def _split_targets_if_needed(
 
 
 def _split_targets_if_needed_clifford_1q(
-    op: stim.CircuitInstruction, immune_qubits: AbstractSet[int]
+    op: stim.CircuitInstruction, immune_qubits: Set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits single-qubit Clifford operations when immune qubits are present.
 
@@ -777,7 +776,7 @@ def _split_targets_if_needed_clifford_1q(
 
 
 def _split_targets_if_needed_clifford_2q(
-    op: stim.CircuitInstruction, immune_qubits: AbstractSet[int]
+    op: stim.CircuitInstruction, immune_qubits: Set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits two-qubit Clifford operations into individual gate pairs.
 
@@ -803,7 +802,7 @@ def _split_targets_if_needed_clifford_2q(
 
 
 def _split_targets_if_needed_m_basis(
-    op: stim.CircuitInstruction, immune_qubits: AbstractSet[int]
+    op: stim.CircuitInstruction, immune_qubits: Set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits an MPP operation into one operation for each Pauli product it measures.
 
@@ -830,7 +829,7 @@ def _split_targets_if_needed_m_basis(
 
 
 def _iter_split_op_moments(
-    circuit: stim.Circuit, *, immune_qubits: AbstractSet[int]
+    circuit: stim.Circuit, *, immune_qubits: Set[int]
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
     """Splits a circuit into moments and some operations into pieces.
 
