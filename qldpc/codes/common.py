@@ -460,8 +460,8 @@ class ClassicalCode(AbstractCode):
             check_matrix = self.matrix
             syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
         else:
-            check_matrix = np.vstack([self.matrix, self.generator])
-            syndrome = np.zeros(len(check_matrix), dtype=int)
+            check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
+            syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
         decoder = decoders.get_decoder(check_matrix, **decoder_args)
 
         # minimize over many individual bounds
