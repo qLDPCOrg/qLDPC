@@ -151,7 +151,6 @@ def test_distance_classical(bits: int = 3) -> None:
         np.count_nonzero(random_vector)
         == trivial_code.get_distance_exact(vector=random_vector)
         == trivial_code.get_distance_bound(vector=random_vector)
-        == trivial_code.get_one_distance_bound(vector=random_vector)
     )
 
     # compute distance of a trinary repetition code
@@ -286,13 +285,14 @@ def test_distance_qudit() -> None:
 
     # "forget" the code distance and recompute
     code._distance = None
+    assert code.get_distance_bound(num_trials=0) == 5
     assert code.get_distance_bound(cutoff=5) == 5
     assert code.get_distance_exact() == 3
 
     code._distance = None
     with pytest.raises(NotImplementedError, match="not implemented"):
         code.get_distance(bound=True)
-    with unittest.mock.patch("qldpc.codes.QuditCode.get_one_distance_bound", return_value=3):
+    with unittest.mock.patch("qldpc.codes.QuditCode.get_distance_bound", return_value=3):
         code.get_distance(bound=True)
 
     # the distance of dimension-0 codes is undefined
@@ -429,12 +429,12 @@ def test_qudit_concatenation() -> None:
     """Concatenate qudit codes."""
     code_5q = codes.FiveQubitCode()
 
-    # determine the number of copies of the inner code automatically
+    # determine the number of copies of the outer code automatically
     code = codes.QuditCode.concatenate(code_5q, code_5q)
-    assert len(code) == 5 * len(code_5q)
+    assert len(code) == len(code_5q) ** 2
     assert code.dimension == code_5q.dimension
 
-    # determine the number of copies of the inner and outer codes from wiring data
+    # determine the number of copies of the outer and inner codes from wiring data
     wiring = [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
     code = codes.QuditCode.concatenate(code_5q, code_5q, wiring)
     assert len(code) == 10 * len(code_5q)
@@ -485,8 +485,6 @@ def test_css_ops() -> None:
     code: codes.CSSCode
 
     code = codes.HGPCode(codes.ClassicalCode.random(4, 2, field=3))
-    assert not np.any(code.matrix_z @ code.get_random_logical_op(Pauli.X, ensure_nontrivial=False))
-    assert not np.any(code.matrix_z @ code.get_random_logical_op(Pauli.X, ensure_nontrivial=True))
 
     # swap around logical operators
     code.set_logical_ops_xz(
@@ -550,12 +548,12 @@ def test_css_concatenation() -> None:
     """Concatenate CSS codes."""
     code_c4 = codes.ToricCode(2)
 
-    # determine the number of copies of the inner code automatically
+    # determine the number of copies of the outer code automatically
     code = codes.CSSCode.concatenate(code_c4, code_c4)
     assert len(code) == len(code_c4) ** 2
     assert code.dimension == code_c4.dimension**2
 
-    # determine the number of copies of the inner and outer codes from wiring data
+    # determine the number of copies of the outer and inner codes from wiring data
     wiring = [0, 2, 4, 6, 1, 3, 5, 7]
     code = codes.CSSCode.concatenate(code_c4, code_c4, wiring)
     assert len(code) == 4 * len(code_c4)

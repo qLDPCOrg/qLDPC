@@ -23,7 +23,7 @@ import itertools
 import random
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Iterator, Literal, TypeVar, cast
+from typing import Any, Iterator, TypeVar, cast
 
 import galois
 import networkx as nx
@@ -379,12 +379,12 @@ class ClassicalCode(AbstractCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute
         upper bounds using a randomized algorithm and minimize over `bound` trials.  For a detailed
-        explanation, see `get_one_distance_bound`.
+        explanation, see `get_distance_bound`.
 
         If provided a vector, compute (or bound) the minimum Hamming distance between this vector
         and a code word.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Additional arguments, if applicable, are passed to a decoder in `get_distance_bound`.
         """
         if not bound:
             return self.get_distance_exact(vector=vector)
@@ -436,68 +436,54 @@ class ClassicalCode(AbstractCode):
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         **decoder_args: Any,
     ) -> int | float:
-        """Compute an upper bound on code distance by minimizing many individual upper bounds.
+        """Use a randomized algorithm to compute an upper bound on code distance.
 
-        If passed a cutoff, don't bother trying to find distances less than the cutoff.
+        Minimize over `num_trials` randomized calculations of a single upper bound.
+        If passed a cutoff, exit early once the bound reaches the cutoff.
+        If passed a vector, bound the minimum Hamming distance between the vector and a code word.
+        Additional arguments, if applicable, are passed to a decoder.
 
-        If passed a vector, compute the minimum Hamming distance between the vector and a code word.
+        The code distance is the minimum Hamming distance between two code words, or equivalently
+        the minimum Hamming weight of nonzero code words.  To find a minimal nonzero code word we
+        decode a trivial (all-0) syndrome, but enforce that the code word has nonzero overlap with a
+        random word, which excludes the all-0 word as a candidate.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        If bounding the minimum distance between a vector and a code word, we can interpret the
+        vector as an error, and find a minimal-weight correction from decoding the syndrome induced
+        by this vector.
         """
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
+        # initialize a (possibly "effective") check matrix and syndrome
+        if vector is not None:
+            check_matrix = self.matrix
+            syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
+        else:
+            check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
+            syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
+        decoder = decoders.get_decoder(check_matrix, **decoder_args)
+
+        # minimize over many individual bounds
         min_bound = len(self)
         for _ in range(num_trials):
             if cutoff and min_bound <= cutoff:
-                break
-            new_bound = self.get_one_distance_bound(vector=vector, **decoder_args)
-            min_bound = int(min(min_bound, new_bound))
+                return min_bound
+
+            # solve a randomized decoding problem, retrying until we succeed
+            correction_found = False
+            while not correction_found:
+                if vector is None:
+                    syndrome[-len(self.generator) :] = get_random_array(
+                        self.field, len(self.generator), satisfy=lambda vec: vec.any()
+                    )
+                correction = decoder.decode(syndrome, **decoder_args)
+                actual_syndrome = check_matrix @ correction.view(self.field)
+                correction_found = np.array_equal(actual_syndrome, syndrome)
+
+            min_bound = min(min_bound, int(np.count_nonzero(correction)))
+
         return min_bound
-
-    def get_one_distance_bound(
-        self, *, vector: Sequence[int] | npt.NDArray[np.int_] | None = None, **decoder_args: Any
-    ) -> int:
-        """Use a randomized algorithm to compute a single upper bound on code distance.
-
-        The code distance is the minimum Hamming distance between two code words, or equivalently
-        the minimum Hamming weight of a nonzero code word.  To find a minimal nonzero code word we
-        decode a trivial (all-0) syndrome, but enforce that the code word has nonzero overlap with a
-        random word, which excludes the all-0 word as a candidate.
-
-        If passed a vector, bound the minimum Hamming distance between the vector and a code word.
-        Equivalently, we can interpret the given vector as an error, and find a minimal-weight
-        correction from decoding the syndrome induced by this vector.
-
-        Additional arguments, if applicable, are passed to a decoder.
-        """
-        if vector is not None:
-            # find the distance of the given vector from a code word
-            correction = decoders.decode(
-                self.matrix,
-                self.matrix @ np.asarray(vector, dtype=int).view(self.field),
-                **decoder_args,
-            )
-            return int(np.count_nonzero(correction))
-
-        # effective syndrome: a trivial "actual" syndrome, and a nonzero overlap with a random word
-        effective_syndrome = np.zeros(self.num_checks + 1, dtype=int)
-        effective_syndrome[-1] = 1
-
-        valid_candidate_found = False
-        while not valid_candidate_found:
-            # construct an effective check matrix with a random nonzero word
-            random_word = get_random_array(self.field, len(self), satisfy=lambda vec: vec.any())
-            effective_check_matrix = np.vstack([self.matrix, random_word])
-
-            # find a low-weight candidate code word
-            candidate = decoders.decode(effective_check_matrix, effective_syndrome, **decoder_args)
-
-            # check whether we found a valid candidate
-            actual_syndrome = effective_check_matrix @ candidate.view(self.field)
-            valid_candidate_found = np.array_equal(actual_syndrome, effective_syndrome)
-
-        return int(np.count_nonzero(candidate))
 
     def get_code_params(
         self, *, bound: int | bool | None = None, **decoder_args: Any
@@ -511,7 +497,7 @@ class ClassicalCode(AbstractCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute an
         upper bound using `bound` trials of a a randomized algorithm.  For a detailed explanation,
-        see the `get_one_distance_bound` method.
+        see the `get_distance_bound` method.
 
         Keyword arguments are passed to the calculation of code distance.
         """
@@ -1272,7 +1258,7 @@ class QuditCode(AbstractCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute an
         upper bound using `bound` trials of a a randomized algorithm.  For a detailed explanation,
-        see the `get_one_distance_bound` method.
+        see the `get_distance_bound` method.
 
         Keyword arguments are passed to the calculation of code distance.
         """
@@ -1284,9 +1270,9 @@ class QuditCode(AbstractCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute
         upper bounds using a randomized algorithm and minimize over `bound` trials.  For a detailed
-        explanation, see `get_one_distance_bound`.
+        explanation, see `get_distance_bound`.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Additional arguments, if applicable, are passed to a decoder in `get_distance_bound`.
         """
         if not bound:
             return self.get_distance_exact()
@@ -1335,25 +1321,19 @@ class QuditCode(AbstractCode):
     def get_distance_bound(
         self, num_trials: int = 1, *, cutoff: int | None = None, **decoder_args: Any
     ) -> int | float:
-        """Compute an upper bound on code distance by minimizing many individual upper bounds.
+        """Use a randomized algorithm to compute an upper bound on code distance.
 
-        If passed a cutoff, don't bother trying to find distances less than the cutoff.
-
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Minimize over `num_trials` randomized calculations of a single upper bound.
+        If passed a cutoff, exit early once the bound reaches the cutoff.
+        Additional arguments, if applicable, are passed to a decoder.
         """
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
+        if num_trials == 0:
+            return len(self)
 
-        min_bound = len(self)
-        for _ in range(num_trials):
-            if cutoff and min_bound <= cutoff:
-                break
-            new_bound = self.get_one_distance_bound(**decoder_args)
-            min_bound = int(min(min_bound, new_bound))
-        return min_bound
-
-    def get_one_distance_bound(self, **decoder_args: Any) -> int:
-        """Use a randomized algorithm to compute a single upper bound on code distance."""
+        if cutoff and len(self) <= cutoff:
+            return len(self)
         raise NotImplementedError(
             "Monte Carlo distance bound calculation is not implemented for a general QuditCode"
         )
@@ -1451,106 +1431,106 @@ class QuditCode(AbstractCode):
 
     @staticmethod
     def concatenate(
-        inner: QuditCode,
         outer: QuditCode,
-        outer_physical_to_inner_logical: Mapping[int, int] | Sequence[int] | None = None,
+        inner: QuditCode,
+        inner_physical_to_outer_logical: Mapping[int, int] | Sequence[int] | None = None,
         *,
         inherit_logicals: bool = True,
     ) -> QuditCode:
         """Concatenate two qudit codes.
 
-        The concatenated code uses the logical qudits of the "inner" code as the physical qudits of
-        the "outer" code, with outer_physical_to_inner_logical defining the map from outer physical
-        qudit index to inner logical qudit index.
+        The concatenated code uses the logical qudits of the "outer" code as the physical qudits of
+        the "inner" code, with inner_physical_to_outer_logical defining the map from inner physical
+        qudit index to outer logical qudit index.
 
-        This method nominally assumes that len(outer_physical_to_inner_logical) is equal to both the
-        number of logical qudits of the inner code and the number of physical qudits of the outer
-        code.  If len(outer_physical_to_inner_logical) is larger than the number of inner logicals
-        or outer physicals, then copies of the inner and outer codes are used (stacked together) to
-        match the expected number of "intermediate" qudits.  If no outer_physical_to_inner_logical
+        This method nominally assumes that len(inner_physical_to_outer_logical) is equal to both the
+        number of logical qudits of the outer code and the number of physical qudits of the inner
+        code.  If len(inner_physical_to_outer_logical) is larger than the number of outer logicals
+        or inner physicals, then copies of the outer and inner codes are used (stacked together) to
+        match the expected number of "intermediate" qudits.  If no inner_physical_to_outer_logical
         mapping is provided, then this method "interleaves" intermediate qubits, using each logical
-        qubit of an inner block as a physical qubit of a different outer code block.
+        qubit of an outer block as a physical qubit of a different inner code block.
 
-        If inherit_logicals is True, use the logical operators of the outer code as the logical
+        If inherit_logicals is True, use the logical operators of the inner code as the logical
         operators of the concatenated code.  Otherwise, logical operators of the concatenated code
         get recomputed from scratch.
         """
-        # stack copies of the inner and outer codes (if necessary) and permute inner logicals
-        inner, outer = QuditCode._standardize_concatenation_inputs(
-            inner, outer, outer_physical_to_inner_logical
+        # stack copies of the outer and inner codes (if necessary) and permute outer logicals
+        outer, inner = QuditCode._standardize_concatenation_inputs(
+            outer, inner, inner_physical_to_outer_logical
         )
-        is_subsystem_code = inner.is_subsystem_code or outer.is_subsystem_code
+        is_subsystem_code = outer.is_subsystem_code or inner.is_subsystem_code
 
         """
-        Parity checks inherited from the outer code are nominally defined in terms of their support
-        on logical operators of the inner code.  Expand these parity checks into their support on
-        the physical qudits of the inner code.
+        Parity checks inherited from the inner code are nominally defined in terms of their support
+        on logical operators of the outer code.  Expand these parity checks into their support on
+        the physical qudits of the outer code.
         """
-        outer_checks = outer.matrix @ inner.get_logical_ops()
+        inner_checks = inner.matrix @ outer.get_logical_ops()
 
-        # combine parity checks of the inner and outer codes
+        # combine parity checks of the outer and inner codes
         code = QuditCode(
-            np.vstack([inner.matrix, outer_checks]), is_subsystem_code=is_subsystem_code
+            np.vstack([outer.matrix, inner_checks]), is_subsystem_code=is_subsystem_code
         )
 
         if inherit_logicals:
-            code._logical_ops = outer.get_logical_ops() @ inner.get_logical_ops()
+            code._logical_ops = inner.get_logical_ops() @ outer.get_logical_ops()
         return code
 
     @staticmethod
     def _standardize_concatenation_inputs(
-        inner: QuditCode,
         outer: QuditCode,
-        outer_physical_to_inner_logical: Mapping[int, int] | Sequence[int] | None,
+        inner: QuditCode,
+        inner_physical_to_outer_logical: Mapping[int, int] | Sequence[int] | None,
     ) -> tuple[QuditCode, QuditCode]:
         """Helper function for code concatenation.
 
         This method...
-        - stacks copies of the inner and outer codes as necessary to make the number of logical
-          qudits of the inner code equal to the number of physical qudits of the outer code, and
-        - permutes logical qudits of the inner code according to outer_physical_to_inner_logical.
-          If no outer_physical_to_inner_logical mapping is provided, then this method "interleaves"
-          intermediate qubits, using each logical qubit of an inner block as a physical qubit of a
-          different outer code block.
+        - stacks copies of the outer and inner codes as necessary to make the number of logical
+          qudits of the outer code equal to the number of physical qudits of the inner code, and
+        - permutes logical qudits of the outer code according to inner_physical_to_outer_logical.
+          If no inner_physical_to_outer_logical mapping is provided, then this method "interleaves"
+          intermediate qubits, using each logical qubit of an outer block as a physical qubit of a
+          different inner code block.
         """
-        if inner.field is not outer.field:
+        if outer.field is not inner.field:
             raise ValueError("Cannot concatenate codes over different fields")
 
-        # convert outer_physical_to_inner_logical into a tuple that we can use to permute an array
-        if outer_physical_to_inner_logical is None:
-            outer_physical_to_inner_logical = tuple(
-                np.arange(len(outer) * inner.dimension, dtype=int)
-                .reshape(len(outer), inner.dimension)
+        # convert inner_physical_to_outer_logical into a tuple that we can use to permute an array
+        if inner_physical_to_outer_logical is None:
+            inner_physical_to_outer_logical = tuple(
+                np.arange(len(inner) * outer.dimension, dtype=int)
+                .reshape(len(inner), outer.dimension)
                 .T.ravel()
             )
         else:
-            num_qudits = len(outer_physical_to_inner_logical)
-            if num_qudits % inner.dimension or num_qudits % len(outer):
+            num_qudits = len(inner_physical_to_outer_logical)
+            if num_qudits % outer.dimension or num_qudits % len(inner):
                 raise ValueError(
                     "Code concatenation requires the number of qudits mapped by"
-                    f" outer_physical_to_inner_logical ({num_qudits}) to be divisible by the number"
-                    f" of logical qudits of the inner code ({inner.dimension}) and the number of"
-                    f" physical qudits of the outer code ({len(outer)})"
+                    f" inner_physical_to_outer_logical ({num_qudits}) to be divisible by the number"
+                    f" of logical qudits of the outer code ({outer.dimension}) and the number of"
+                    f" physical qudits of the inner code ({len(inner)})"
                 )
-            outer_physical_to_inner_logical = tuple(
-                outer_physical_to_inner_logical[qq]
-                for qq in range(len(outer_physical_to_inner_logical))
+            inner_physical_to_outer_logical = tuple(
+                inner_physical_to_outer_logical[qq]
+                for qq in range(len(inner_physical_to_outer_logical))
             )
 
-        # stack copies of the inner and outer codes, if necessary
-        if (num_inner_blocks := len(outer_physical_to_inner_logical) // inner.dimension) > 1:
-            inner = inner.stack(*[inner] * num_inner_blocks)
-        if (num_outer_blocks := len(outer_physical_to_inner_logical) // len(outer)) > 1:
+        # stack copies of the outer and inner codes, if necessary
+        if (num_outer_blocks := len(inner_physical_to_outer_logical) // outer.dimension) > 1:
             outer = outer.stack(*[outer] * num_outer_blocks)
+        if (num_inner_blocks := len(inner_physical_to_outer_logical) // len(inner)) > 1:
+            inner = inner.stack(*[inner] * num_inner_blocks)
 
-        # permute logical operators of the inner code
-        inner._logical_ops = (
-            inner.get_logical_ops()
-            .reshape(2, inner.dimension, -1)[:, outer_physical_to_inner_logical, :]
-            .reshape(2 * inner.dimension, -1)
-        ).view(inner.field)
+        # permute logical operators of the outer code
+        outer._logical_ops = (
+            outer.get_logical_ops()
+            .reshape(2, outer.dimension, -1)[:, inner_physical_to_outer_logical, :]
+            .reshape(2 * outer.dimension, -1)
+        ).view(outer.field)
 
-        return inner, outer
+        return outer, inner
 
 
 class CSSCode(QuditCode):
@@ -1994,9 +1974,9 @@ class CSSCode(QuditCode):
 
         If `bound is None`, compute an exact code distance by brute force.  Otherwise, compute
         upper bounds using a randomized algorithm and minimize over `bound` trials.  For a detailed
-        explanation, see `get_one_distance_bound`.
+        explanation, see `get_distance_bound`.
 
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
+        Additional arguments, if applicable, are passed to a decoder in `get_distance_bound`.
         """
         if not bound:
             return self.get_distance_exact(pauli)
@@ -2064,40 +2044,17 @@ class CSSCode(QuditCode):
         cutoff: int | None = None,
         **decoder_args: Any,
     ) -> int | float:
-        """Compute an upper bound on code distance by minimizing many individual upper bounds.
+        """Use a randomized algorithm to compute an upper bound on code distance.
 
+        Minimize over `num_trials` randomized calculations of a single upper bound.
         If `pauli is not None`, consider only `pauli`-type logical operators.
-
-        If passed a cutoff, don't bother trying to find distances less than the cutoff.
-
-        Additional arguments, if applicable, are passed to a decoder in `get_one_distance_bound`.
-        """
-        if (known_distance := self.get_distance_if_known(pauli)) is not None:
-            return known_distance
-
-        min_bound = len(self)
-        for _ in range(num_trials):
-            if cutoff and min_bound <= cutoff:
-                break
-            new_bound = self.get_one_distance_bound(pauli, **decoder_args)
-            min_bound = int(min(min_bound, new_bound))
-        return min_bound
-
-    def get_one_distance_bound(
-        self,
-        pauli: PauliXZ | None = None,
-        **decoder_args: Any,
-    ) -> int:
-        """Use a randomized algorithm to compute a single upper bound on code distance.
-
-        If `pauli is not None`, consider only `pauli`-type logical operators.
-
+        If passed a cutoff, exit early once the bound reaches the cutoff.
         Additional arguments, if applicable, are passed to a decoder.
 
         This method uses the randomized algorithm described in arXiv:2308.07915, and also below.
 
-        For ease of language, we henceforth assume (without loss of generality) that we are
-        computing an X-distance.
+        For ease of language, we henceforth assume without loss of generality that we computing an
+        X-distance, and tentatively assume `num_trials == 1`.
 
         Pick a random Z-type logical operator Z(w_z) whose support is indicated by the bistring w_z.
         We now wish to find a low-weight Pauli-X string X(w_x) that
@@ -2113,70 +2070,79 @@ class CSSCode(QuditCode):
             ⌈ H_z   ⌉         ⌈ 0 ⌉
             ⌊ w_z.T ⌋ @ w_x = ⌊ 1 ⌋,
         where the "0" on the top right is interpreted as a zero vector.  This equation can be solved
-        by decoding the syndrome [ 0, 0, ..., 0, 1 ].T for the parity check matrix [ H_z.T, w_z ].T.
+        by decoding the syndrome [ 0, 0, ..., 0, 1 ].T for the parity check matrix [ H_z; w_z.T ].
+        If a decoder fails to find a solution, try again with a new random logical operator Z(w_z).
+        If the decoder succeeds in finding a solution w_x, this solution corresponds to a logical X
+        type operator X(w_x) -- and presumably one of low Hamming weight, assuming that the decoder
+        tries to find low-weight solutions to the decoding problem.  The Hamming weight |w_x| is
+        then our upper bound on the X-distance of this code.
 
-        We solve the above decoding problem with a decoder in `decode`.  If the decoder fails to
-        find a solution, try again with a new random operator Z(w_z).  If the decoder succeeds in
-        finding a solution w_x, this solution corresponds to a logical X-type operator X(w_x) -- and
-        presumably one of low Hamming weight, since decoders try to find low-weight solutions.
-        Return the Hamming weight |w_x|.
+        In practice, we want to minimize over many randomized trials that compute an upper bound.
+        To avoid constructing a new decoder for every trial, we set the effective parity check
+        matrix to [ H_z; L_z ], where L_z is a matrix whose rows are a minimal basis for nontrivial
+        logical Z-type operators.  In each trial, we then construct an effective syndrome by
+        enforcing that it has trivial stabilizers and that it anti-commutes with a random nonzero
+        choice of the logical operators in L_z.
         """
-        pauli = pauli or random.choice(PAULIS_XZ)
-        assert pauli in PAULIS_XZ
+        if (known_distance := self.get_distance_if_known(pauli)) is not None:
+            return known_distance
+        if num_trials == 0:
+            return len(self)
 
-        # define pauli_z and code_z as if we are computing X-distance
-        pauli_z: Literal[Pauli.Z, Pauli.X] = Pauli.Z if pauli is Pauli.X else Pauli.X
-        code_z = self.get_code(pauli_z)
-
-        # construct the effective syndrome
-        effective_syndrome = np.zeros(code_z.num_checks + 1, dtype=int)
-        effective_syndrome[-1] = 1
-
-        logical_op_found = False
-        while not logical_op_found:
-            # support of pauli string with a trivial syndrome
-            word = self.get_random_logical_op(pauli_z, ensure_nontrivial=True)
-
-            # support of a candidate pauli-type logical operator
-            effective_check_matrix = np.vstack([code_z.matrix, word])
-            candidate_logical_op = decoders.decode(
-                effective_check_matrix, effective_syndrome, **decoder_args
+        if pauli is None:
+            # minimize over X and Z bounds with roughly half the number of trials each
+            num_trials_xz = [num_trials // 2, (num_trials + 1) // 2]
+            random.shuffle(num_trials_xz)
+            return min(
+                [
+                    self.get_distance_bound(
+                        num_trials=num_trials,
+                        pauli=pauli,
+                        cutoff=cutoff,
+                        **decoder_args,
+                    )
+                    for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
+                ]
             )
 
-            # check whether decoding was successful
-            actual_syndrome = effective_check_matrix @ candidate_logical_op.view(self.field)
-            logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
+        # pretend without loss of generality that we are computing the X-distance
+        assert pauli in PAULIS_XZ
+        pauli_z: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
+        matrix_z = self.get_matrix(pauli_z)
+        logical_ops_z = self.get_logical_ops(pauli_z)
 
-        # return the Hamming weight of the logical operator
-        return int(np.count_nonzero(candidate_logical_op))
+        # initialize a decoder and a trivial effective syndrome
+        effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
+        decoder = decoders.get_decoder(effective_check_matrix, **decoder_args)
+        effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
-    def get_random_logical_op(
-        self, pauli: PauliXZ, *, ensure_nontrivial: bool = False, seed: int | None = None
-    ) -> galois.FieldArray:
-        """Return a random logical operator of a given type.
+        # minimize over many bounds
+        min_bound = len(self)
+        for _ in range(num_trials):
+            if cutoff and min_bound <= cutoff:
+                return min_bound
 
-        A random logical operator may be trivial, which is to say that it may be equal to the
-        identity modulo stabilizers.  If `ensure_nontrivial is True`, ensure that the logical
-        operator we return is nontrivial.
-        """
-        assert pauli is Pauli.X or pauli is Pauli.Z
-        logical_ops = self.get_logical_ops(pauli)
-        stabilizer_ops = self.get_stabilizer_ops(pauli, canonicalized=True)
-        ops = np.vstack([logical_ops, stabilizer_ops])
-        random_array = get_random_array(
-            self.field,
-            len(ops),
-            seed=seed,
-            satisfy=lambda array: (np.any(array[: self.dimension]) if ensure_nontrivial else True),
-        )
-        return random_array @ ops
+            # Construct an effective syndrome from a random X-type logical operator, and decode.
+            # If decoding fails, try again.
+            logical_op_found = False
+            while not logical_op_found:
+                effective_syndrome[-self.dimension :] = get_random_array(
+                    self.field, self.dimension, satisfy=lambda vec: vec.any()
+                )
+                candidate_logical_op = decoder.decode(effective_syndrome)
+                actual_syndrome = effective_check_matrix @ candidate_logical_op.view(self.field)
+                logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
+
+            min_bound = int(min(min_bound, np.count_nonzero(candidate_logical_op)))
+
+        return min_bound
 
     def reduce_logical_op(self, pauli: PauliXZ, logical_index: int, **decoder_args: Any) -> None:
         """Reduce the weight of a logical operator.
 
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
         that it commutes with all logical operators except its dual.  This is essentially the same
-        method as that used in CSSCode.get_one_distance_bound.
+        method as that used in CSSCode.get_distance_bound.
         """
         assert pauli is Pauli.X or pauli is Pauli.Z
         assert 0 <= logical_index < self.dimension
@@ -2244,55 +2210,55 @@ class CSSCode(QuditCode):
 
     @staticmethod
     def concatenate(
-        inner: QuditCode,
         outer: QuditCode,
-        outer_physical_to_inner_logical: Mapping[int, int] | Sequence[int] | None = None,
+        inner: QuditCode,
+        inner_physical_to_outer_logical: Mapping[int, int] | Sequence[int] | None = None,
         *,
         inherit_logicals: bool = True,
     ) -> CSSCode:
         """Concatenate two CSS codes.
 
-        The concatenated code uses the logical qudits of the "inner" code as the physical qudits of
-        the "outer" code, with outer_physical_to_inner_logical defining the map from outer physical
-        qudit index to inner logical qudit index.
+        The concatenated code uses the logical qudits of the "outer" code as the physical qudits of
+        the "inner" code, with inner_physical_to_outer_logical defining the map from inner physical
+        qudit index to outer logical qudit index.
 
-        This method nominally assumes that len(outer_physical_to_inner_logical) is equal to both the
-        number of logical qudits of the inner code and the number of physical qudits of the outer
-        code.  If len(outer_physical_to_inner_logical) is larger than the number of inner logicals
-        or outer physicals, then copies of the inner and outer codes are used (stacked together) to
-        match the expected number of "intermediate" qudits.  If no outer_physical_to_inner_logical
+        This method nominally assumes that len(inner_physical_to_outer_logical) is equal to both the
+        number of logical qudits of the outer code and the number of physical qudits of the inner
+        code.  If len(inner_physical_to_outer_logical) is larger than the number of outer logicals
+        or inner physicals, then copies of the outer and inner codes are used (stacked together) to
+        match the expected number of "intermediate" qudits.  If no inner_physical_to_outer_logical
         mapping is provided, then this method "interleaves" intermediate qubits, using each logical
-        qubit of an inner block as a physical qubit of a different outer code block.
+        qubit of an outer block as a physical qubit of a different inner code block.
 
-        If inherit_logicals is True, use the logical operators of the outer code as the logical
+        If inherit_logicals is True, use the logical operators of the inner code as the logical
         operators of the concatenated code.  Otherwise, logical operators of the concatenated code
         get recomputed from scratch.
         """
-        if not isinstance(inner, CSSCode) or not isinstance(outer, CSSCode):
+        if not isinstance(outer, CSSCode) or not isinstance(inner, CSSCode):
             raise TypeError("CSSCode.concatenate requires CSSCode inputs")
 
-        # stack copies of the inner and outer codes (if necessary) and permute inner logicals
-        inner, outer = QuditCode._standardize_concatenation_inputs(
-            inner, outer, outer_physical_to_inner_logical
+        # stack copies of the outer and inner codes (if necessary) and permute outer logicals
+        outer, inner = QuditCode._standardize_concatenation_inputs(
+            outer, inner, inner_physical_to_outer_logical
         )
-        assert isinstance(inner, CSSCode) and isinstance(outer, CSSCode)
+        assert isinstance(outer, CSSCode) and isinstance(inner, CSSCode)
 
         """
-        Parity checks inherited from the outer code are nominally defined in terms of their support
-        on logical operators of the inner code.  Expand these parity checks into their support on
-        the physical qudits of the inner code.
+        Parity checks inherited from the inner code are nominally defined in terms of their support
+        on logical operators of the outer code.  Expand these parity checks into their support on
+        the physical qudits of the outer code.
         """
-        outer_checks_x = outer.matrix_x @ inner.get_logical_ops(Pauli.X)
-        outer_checks_z = outer.matrix_z @ inner.get_logical_ops(Pauli.Z)
+        inner_checks_x = inner.matrix_x @ outer.get_logical_ops(Pauli.X)
+        inner_checks_z = inner.matrix_z @ outer.get_logical_ops(Pauli.Z)
 
-        # combine parity checks of the inner and outer codes
+        # combine parity checks of the outer and inner codes
         code = CSSCode(
-            np.vstack([inner.matrix_x, outer_checks_x]),
-            np.vstack([inner.matrix_z, outer_checks_z]),
+            np.vstack([outer.matrix_x, inner_checks_x]),
+            np.vstack([outer.matrix_z, inner_checks_z]),
         )
 
         if inherit_logicals:
-            code._logical_ops = outer.get_logical_ops() @ inner.get_logical_ops()
+            code._logical_ops = inner.get_logical_ops() @ outer.get_logical_ops()
         return code
 
     def get_logical_error_rate_func(
