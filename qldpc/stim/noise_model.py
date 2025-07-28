@@ -440,7 +440,7 @@ class NoiseModel:
         Raises:
             ValueError: If no noise rule is specified for the given operation.
         """
-        if occurs_in_classical_control_system(split_op):
+        if _occurs_in_classical_control_system(split_op):
             return None
 
         if self.gate_rules is not None:
@@ -491,7 +491,7 @@ class NoiseModel:
         collapse_qubits: list[int] = []
         clifford_qubits: list[int] = []
         for split_op in moment_split_ops:
-            if occurs_in_classical_control_system(split_op):
+            if _occurs_in_classical_control_system(split_op):
                 continue
             if split_op.name in COLLAPSING_OPS:
                 qubits_out = collapse_qubits
@@ -614,7 +614,7 @@ class NoiseModel:
             for split_op in split_ops:
                 # Check if this split operation would reuse any qubits
                 op_qubits = set()
-                if not occurs_in_classical_control_system(split_op):
+                if not _occurs_in_classical_control_system(split_op):
                     for target in split_op.targets_copy():
                         if not target.is_combiner:
                             op_qubits.add(target.value)
@@ -704,7 +704,7 @@ class NoiseModel:
         return result
 
 
-def occurs_in_classical_control_system(op: stim.CircuitInstruction) -> bool:
+def _occurs_in_classical_control_system(op: stim.CircuitInstruction) -> bool:
     """Determines if an operation is an annotation or a classical control system update.
 
     Args:
