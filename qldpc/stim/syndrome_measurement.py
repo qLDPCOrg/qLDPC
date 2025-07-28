@@ -56,7 +56,6 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
     ) -> stim.Circuit:
         coloring = nx.coloring.greedy_color(nx.line_graph(code.graph.to_undirected()), strategy)
         circuit = stim.Circuit()
-        circuit.append("H", check_ids)
 
         schedule: dict[int, list[tuple[int, int]]] = {}
         for edge, color in coloring.items():
@@ -72,7 +71,6 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
             if moment:  # Only add TICK if there were operations in this moment
                 circuit.append("TICK")
 
-        circuit.append("H", check_ids)
         return circuit
 
     def compile_sm_circuit(
@@ -107,14 +105,14 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
 
         # Initialize check qubits
         reset_qubits = stim_ids.z_check_ids + stim_ids.x_check_ids
-        circuit.append("R", reset_qubits)
+        circuit.append("RX", reset_qubits)
 
         # "Write" Z and X stabilizers to check qubits
         circuit += z_subcircuit
         circuit += x_subcircuit
 
         # Measure the extracted stabilizers
-        circuit.append("M", reset_qubits)
+        circuit.append("MX", reset_qubits)
 
         measurements = [stim_ids.z_check_ids + stim_ids.x_check_ids]
         return circuit, measurements
