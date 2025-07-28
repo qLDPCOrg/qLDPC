@@ -157,6 +157,9 @@ def memory_experiment(
         sampler = circuit.compile_sampler()
         results = sampler.sample(1000)
     """
+    if basis is not Pauli.X and basis is not Pauli.Z:
+        raise ValueError(f"Invalid basis: {basis}")
+
     data_qubits: list[int] = list(range(code.num_qubits))
     z_check_qubits: list[int] = list(range(code.num_qubits, code.num_qubits + code.num_checks_z))
     x_check_qubits: list[int] = list(
@@ -182,13 +185,7 @@ def memory_experiment(
         circuit.append("QUBIT_COORDS", z_check, (2, i))
 
     # Reset data qubits to appropriate basis
-    if basis is Pauli.X:
-        circuit.append("RX", data_qubits)
-    elif basis is Pauli.Z:
-        circuit.append("R", data_qubits)
-    else:
-        raise ValueError(f"Invalid basis: {basis}")
-
+    circuit.append(f"R{basis}", data_qubits)
     """
     Initial syndrome round to project into quiescent state
     """
