@@ -30,7 +30,7 @@ import stim
 from qldpc.codes.common import CSSCode
 from qldpc.objects import Pauli, PauliXZ
 from qldpc.stim.noise_model import NoiseModel
-from qldpc.stim.syndrome_measurement import StimIds, SyndromeMeasurement
+from qldpc.stim.syndrome_measurement import StimIds, SyndromeMeasurementStrategy
 
 
 def _update_meas_rec(meas_record: list[dict[int, int]], qubits: list[int]) -> None:
@@ -75,10 +75,10 @@ def _update_meas_rec(meas_record: list[dict[int, int]], qubits: list[int]) -> No
 
 def memory_experiment(
     code: CSSCode,
-    noise_model: NoiseModel,
-    syndrome_measurement_strategy: SyndromeMeasurement,
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy,
     num_rounds: int,
     basis: PauliXZ,
+    noise_model: NoiseModel | None = None,
 ) -> stim.Circuit:
     """Creates a Stim circuit for a quantum memory experiment.
 

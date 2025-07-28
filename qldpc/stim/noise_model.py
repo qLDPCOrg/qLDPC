@@ -9,19 +9,7 @@ The main components are:
 - Built-in noise models: si1000 (superconducting) and uniform_depolarizing
 - Automatic TICK insertion with idling errors
 
-Important note:
----------------
-
-This file has been extended from https://github.com/tqec/tqec/blob/main/src/tqec/utils/noise_model.py
-which itself was taken from https://zenodo.org/records/7487893
-and is under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/legalcode).
-It is part of the code from the paper:
-
-    Gidney, C. (2022). Data for "Inplace Access to the Surface Code Y Basis".
-    https://doi.org/10.5281/zenodo.7487893
-
-Example:
-    Basic usage with a predefined noise model:
+Examples of basic usage with a predefined noise model:
 
     import stim
     from qldpc.stim.noise_model import NoiseModel
@@ -34,8 +22,6 @@ Example:
     # Apply superconducting-inspired noise
     noise_model = NoiseModel.si1000(0.001)
     noisy_circuit = noise_model.noisy_circuit(circuit)
-
-    Custom noise model example:
 
     # Create a custom noise model
     custom_model = NoiseModel.custom(
