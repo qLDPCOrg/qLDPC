@@ -439,14 +439,12 @@ class ClassicalCode(AbstractCode):
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         Minimize over `num_trials` randomized calculations of a single upper bound.
-        If passed a cutoff, don't bother trying to find distances less than the cutoff.
-
+        If passed a cutoff, exit early once the bound reaches the cutoff.
         If passed a vector, bound the minimum Hamming distance between the vector and a code word.
-
         Additional arguments, if applicable, are passed to a decoder.
 
         The code distance is the minimum Hamming distance between two code words, or equivalently
-        the minimum Hamming weight of a nonzero code word.  To find a minimal nonzero code word we
+        the minimum Hamming weight of nonzero code words.  To find a minimal nonzero code word we
         decode a trivial (all-0) syndrome, but enforce that the code word has nonzero overlap with a
         random word, which excludes the all-0 word as a candidate.
 
@@ -457,16 +455,16 @@ class ClassicalCode(AbstractCode):
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
-        # initialize an effective check matrix and effective syndrome
-        if vector is None:
-            effective_check_matrix = np.vstack([self.matrix, self.generator])
-            effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
+        # initialize a (possibly "effective") check matrix and syndrome
+        if vector is not None:
+            check_matrix = self.matrix
+            syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
         else:
-            effective_check_matrix = self.matrix
-            effective_syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
-        decoder = decoders.get_decoder(effective_check_matrix, **decoder_args)
+            check_matrix = np.vstack([self.matrix, self.generator])
+            syndrome = np.zeros(len(check_matrix), dtype=int)
+        decoder = decoders.get_decoder(check_matrix, **decoder_args)
 
-        # minimize over many bounds
+        # minimize over many individual bounds
         min_bound = len(self)
         for _ in range(num_trials):
             if cutoff and min_bound <= cutoff:
@@ -476,12 +474,12 @@ class ClassicalCode(AbstractCode):
             correction_found = False
             while not correction_found:
                 if vector is None:
-                    effective_syndrome[-len(self.generator) :] = get_random_array(
+                    syndrome[-len(self.generator) :] = get_random_array(
                         self.field, len(self.generator), satisfy=lambda vec: vec.any()
                     )
-                correction = decoder.decode(effective_syndrome, **decoder_args)
-                actual_syndrome = effective_check_matrix @ correction.view(self.field)
-                correction_found = np.array_equal(actual_syndrome, effective_syndrome)
+                correction = decoder.decode(syndrome, **decoder_args)
+                actual_syndrome = check_matrix @ correction.view(self.field)
+                correction_found = np.array_equal(actual_syndrome, syndrome)
 
             min_bound = min(min_bound, int(np.count_nonzero(correction)))
 
@@ -1326,8 +1324,7 @@ class QuditCode(AbstractCode):
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         Minimize over `num_trials` randomized calculations of a single upper bound.
-        If passed a cutoff, don't bother trying to find distances less than the cutoff.
-
+        If passed a cutoff, exit early once the bound reaches the cutoff.
         Additional arguments, if applicable, are passed to a decoder.
         """
         if (known_distance := self.get_distance_if_known()) is not None:
@@ -2051,8 +2048,7 @@ class CSSCode(QuditCode):
 
         Minimize over `num_trials` randomized calculations of a single upper bound.
         If `pauli is not None`, consider only `pauli`-type logical operators.
-        If passed a cutoff, don't bother trying to find distances less than the cutoff.
-
+        If passed a cutoff, exit early once the bound reaches the cutoff.
         Additional arguments, if applicable, are passed to a decoder.
 
         This method uses the randomized algorithm described in arXiv:2308.07915, and also below.
