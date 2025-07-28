@@ -2071,13 +2071,11 @@ class CSSCode(QuditCode):
             ⌊ w_z.T ⌋ @ w_x = ⌊ 1 ⌋,
         where the "0" on the top right is interpreted as a zero vector.  This equation can be solved
         by decoding the syndrome [ 0, 0, ..., 0, 1 ].T for the parity check matrix [ H_z.T, w_z ].T.
-
-        We solve the above decoding problem with a decoder.  If the decoder fails to find a
-        solution, try again with a new random logical operator Z(w_z).  If the decoder succeeds in
-        finding a solution w_x, this solution corresponds to a logical X-type operator X(w_x) -- and
-        presumably one of low Hamming weight, assuming that the decoder tries to find low-weight
-        solutions to the decoding problem.  The Hamming weight |w_x| is then our upper bound on the
-        X-distance of this code.
+        If a decoder fails to find a solution, try again with a new random logical operator Z(w_z).
+        If the decoder succeeds in finding a solution w_x, this solution corresponds to a logical X
+        type operator X(w_x) -- and presumably one of low Hamming weight, assuming that the decoder
+        tries to find low-weight solutions to the decoding problem.  The Hamming weight |w_x| is
+        then our upper bound on the X-distance of this code.
 
         In practice, we want to minimize over many bounds.  To avoid constructing a new decoder for
         every trial, we set the effective parity check matrix to [ H_z; L_z ], where L_z is a matrix
