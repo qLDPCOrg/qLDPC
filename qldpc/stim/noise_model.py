@@ -434,9 +434,6 @@ class NoiseModel:
 
         Returns:
             The NoiseRule to apply to this operation, or None for no noise.
-
-        Raises:
-            ValueError: If no noise rule is specified for the given operation.
         """
         if _occurs_in_classical_control_system(split_op):
             return None
