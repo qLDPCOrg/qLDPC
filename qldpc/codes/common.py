@@ -438,7 +438,7 @@ class ClassicalCode(AbstractCode):
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        Minimize over `num_trials` randomized attempts to compute an upper bound.
+        Minimize over `num_trials` randomized calculations of a single upper bound.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
 
         If passed a vector, bound the minimum Hamming distance between the vector and a code word.
@@ -1325,7 +1325,7 @@ class QuditCode(AbstractCode):
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        Minimize over `num_trials` randomized attempts to compute an upper bound.
+        Minimize over `num_trials` randomized calculations of a single upper bound.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
 
         Additional arguments, if applicable, are passed to a decoder.
@@ -2049,7 +2049,7 @@ class CSSCode(QuditCode):
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        Minimize over `num_trials` randomized attempts to compute an upper bound.
+        Minimize over `num_trials` randomized calculations of a single upper bound.
         If `pauli is not None`, consider only `pauli`-type logical operators.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
 
