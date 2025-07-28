@@ -2070,7 +2070,7 @@ class CSSCode(QuditCode):
             ⌈ H_z   ⌉         ⌈ 0 ⌉
             ⌊ w_z.T ⌋ @ w_x = ⌊ 1 ⌋,
         where the "0" on the top right is interpreted as a zero vector.  This equation can be solved
-        by decoding the syndrome [ 0, 0, ..., 0, 1 ].T for the parity check matrix [ H_z.T, w_z ].T.
+        by decoding the syndrome [ 0, 0, ..., 0, 1 ].T for the parity check matrix [ H_z; w_z.T ].
         If a decoder fails to find a solution, try again with a new random logical operator Z(w_z).
         If the decoder succeeds in finding a solution w_x, this solution corresponds to a logical X
         type operator X(w_x) -- and presumably one of low Hamming weight, assuming that the decoder
