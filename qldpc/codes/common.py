@@ -470,7 +470,7 @@ class ClassicalCode(AbstractCode):
             if cutoff and min_bound <= cutoff:
                 return min_bound
 
-            # solve a random decoding problem, retrying until we succeed
+            # solve a randomized decoding problem, retrying until we succeed
             correction_found = False
             while not correction_found:
                 if vector is None:
@@ -2082,7 +2082,8 @@ class CSSCode(QuditCode):
         In practice, we want to minimize over many bounds.  To avoid constructing a new decoder for
         every trial, we set the effective parity check matrix to [ H_z; L_z ], where L_z is a matrix
         whose rows are a minimal basis for nontrivial logical Z-type operators.  In each trial, we
-        then construct an effective syndrome by enforcing that it has trivial stabilizers and that it anti-commutes with a random nonzero choice of the logical operators in L_z.
+        then construct an effective syndrome by enforcing that it has trivial stabilizers and that
+        it anti-commutes with a random nonzero choice of the logical operators in L_z.
         """
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
