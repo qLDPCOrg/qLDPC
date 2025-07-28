@@ -436,7 +436,7 @@ class ClassicalCode(AbstractCode):
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         **decoder_args: Any,
     ) -> int | float:
-        """Use a randomized algorithm to compute a single upper bound on code distance.
+        """Use a randomized algorithm to compute an upper bound on code distance.
 
         Minimize over `num_trials` randomized attempts to compute an upper bound.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
@@ -1323,7 +1323,7 @@ class QuditCode(AbstractCode):
     def get_distance_bound(
         self, num_trials: int = 1, *, cutoff: int | None = None, **decoder_args: Any
     ) -> int | float:
-        """Use a randomized algorithm to compute a single upper bound on code distance.
+        """Use a randomized algorithm to compute an upper bound on code distance.
 
         Minimize over `num_trials` randomized attempts to compute an upper bound.
         If passed a cutoff, don't bother trying to find distances less than the cutoff.
