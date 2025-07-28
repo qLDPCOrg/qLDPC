@@ -433,9 +433,7 @@ class NoiseModel:
             split_op: The circuit instruction to find a noise rule for.
 
         Returns:
-            The NoiseRule to apply to this operation, or None if the operation
-            occurs in the classical control system and should not have noise
-            applied.
+            The NoiseRule to apply to this operation, or None for no noise.
 
         Raises:
             ValueError: If no noise rule is specified for the given operation.
@@ -461,7 +459,7 @@ class NoiseModel:
             if rule is not None:
                 return rule
 
-        raise ValueError(f"No noise (or lack of noise) specified for {split_op=}.")
+        return None
 
     def _append_idle_error(
         self,
