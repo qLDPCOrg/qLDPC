@@ -45,6 +45,8 @@ It is part of the code from the paper
     https://doi.org/10.5281/zenodo.7487893
 """
 
+from __future__ import annotations
+
 from collections import Counter, defaultdict
 from collections.abc import Iterator, Set
 
@@ -152,7 +154,7 @@ class NoiseRule:
     that should be applied to a particular type of quantum operation.
     """
 
-    def __init__(self, *, after: dict[str, float], flip_result: float = 0):
+    def __init__(self, *, after: dict[str, float] = {}, flip_result: float = 0):
         """Initializes a noise rule with specified error channels.
 
         Args:
@@ -295,7 +297,7 @@ class NoiseModel:
         reset_x: float = 0.0,
         reset_y: float = 0.0,
         reset_z: float = 0.0,
-    ) -> "NoiseModel":
+    ) -> NoiseModel:
         """Creates a custom noise model with user-specified error rates.
 
         This method allows fine-grained control over all types of noise that can
@@ -348,22 +350,22 @@ class NoiseModel:
                 else None
             ),
             measure_rules={
-                "X": NoiseRule(after={}, flip_result=measure_flip_x),
-                "Y": NoiseRule(after={}, flip_result=measure_flip_y),
-                "Z": NoiseRule(after={}, flip_result=measure_flip_z),
-                "XX": NoiseRule(after={}, flip_result=measure_flip_xx),
-                "YY": NoiseRule(after={}, flip_result=measure_flip_yy),
-                "ZZ": NoiseRule(after={}, flip_result=measure_flip_zz),
+                "X": NoiseRule(flip_result=measure_flip_x),
+                "Y": NoiseRule(flip_result=measure_flip_y),
+                "Z": NoiseRule(flip_result=measure_flip_z),
+                "XX": NoiseRule(flip_result=measure_flip_xx),
+                "YY": NoiseRule(flip_result=measure_flip_yy),
+                "ZZ": NoiseRule(flip_result=measure_flip_zz),
             },
             gate_rules={
-                "RX": (NoiseRule(after={"Z_ERROR": reset_x}) if reset_x else NoiseRule(after={})),
-                "RY": (NoiseRule(after={"X_ERROR": reset_y}) if reset_y else NoiseRule(after={})),
-                "R": (NoiseRule(after={"X_ERROR": reset_z}) if reset_z else NoiseRule(after={})),
+                "RX": (NoiseRule(after={"Z_ERROR": reset_x}) if reset_x else NoiseRule()),
+                "RY": (NoiseRule(after={"X_ERROR": reset_y}) if reset_y else NoiseRule()),
+                "R": (NoiseRule(after={"X_ERROR": reset_z}) if reset_z else NoiseRule()),
             },
         )
 
     @staticmethod
-    def si1000(p: float) -> "NoiseModel":
+    def si1000(p: float) -> NoiseModel:
         """Creates a superconducting-inspired noise model.
 
         As defined in "A Fault-Tolerant Honeycomb Memory":
@@ -389,7 +391,7 @@ class NoiseModel:
         )
 
     @staticmethod
-    def uniform_depolarizing(p: float, idling_error: bool = True) -> "NoiseModel":
+    def uniform_depolarizing(p: float, idling_error: bool = True) -> NoiseModel:
         """Creates a near-standard circuit depolarizing noise model.
 
         Everything has the same parameter p. Single qubit clifford gates
