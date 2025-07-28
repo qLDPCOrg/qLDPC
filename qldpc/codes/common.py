@@ -2077,11 +2077,12 @@ class CSSCode(QuditCode):
         tries to find low-weight solutions to the decoding problem.  The Hamming weight |w_x| is
         then our upper bound on the X-distance of this code.
 
-        In practice, we want to minimize over many bounds.  To avoid constructing a new decoder for
-        every trial, we set the effective parity check matrix to [ H_z; L_z ], where L_z is a matrix
-        whose rows are a minimal basis for nontrivial logical Z-type operators.  In each trial, we
-        then construct an effective syndrome by enforcing that it has trivial stabilizers and that
-        it anti-commutes with a random nonzero choice of the logical operators in L_z.
+        In practice, we want to minimize over many randomized trials that compute an upper bound.
+        To avoid constructing a new decoder for every trial, we set the effective parity check
+        matrix to [ H_z; L_z ], where L_z is a matrix whose rows are a minimal basis for nontrivial
+        logical Z-type operators.  In each trial, we then construct an effective syndrome by
+        enforcing that it has trivial stabilizers and that it anti-commutes with a random nonzero
+        choice of the logical operators in L_z.
         """
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
