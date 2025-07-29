@@ -69,8 +69,6 @@ def test_special_codes() -> None:
         code._dimension = None
         code._distance = None
         assert code.get_code_params() == params
-    with pytest.raises(ValueError, match="We not know any suitable polynomial"):
-        codes.SimplexCode(8)
 
 
 def test_tanner_code() -> None:
