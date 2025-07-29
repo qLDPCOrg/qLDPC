@@ -262,39 +262,31 @@ class SimplexCode(ClassicalCode):
     - https://arxiv.org/abs/2502.07150
     """
 
-    def __init__(self, dim: int) -> None:
-        block_length = 2**dim - 1
+    def __init__(self, dim: int, field: int | None = None) -> None:
+        field = field or DEFAULT_FIELD_ORDER
+        polynomial = SimplexCode.get_canonical_primitive_polynomial(order=field, dim=dim)
+        if polynomial is None:
+            # TODO: pick a suitable polynomial for SimplexCode(dim, field)
+            raise ValueError(
+                f"We have not picked a canonical polynomial to define SimplexCode({dim}, {field})"
+            )
 
-        matrix = np.zeros([block_length] * 2, dtype=int)
-        rows = np.arange(block_length, dtype=int)
-        for shift in SimplexCode.get_polynomial_exponents(dim):
-            matrix[rows, (rows + shift) % block_length] = 1
-        ClassicalCode.__init__(self, matrix, field=2)
+        coefficients = polynomial.coefficients(size=field**dim - 1, order="asc")
+        matrix = np.array([np.roll(coefficients, jj) for jj in range(len(coefficients))])
+        ClassicalCode.__init__(self, matrix, field=field)
 
         self._dimension = dim
-        self._distance = 2 ** (dim - 1)
+        self._distance = field ** (dim - 1) * (field - 1)
 
     @staticmethod
-    def get_polynomial_exponents(dim: int) -> tuple[int, ...]:
-        """Exponents of the polynomial that defines a SimplexCode of a given dimension.
+    def get_canonical_primitive_polynomial(
+        order: int, dim: int, *, index: int = 0
+    ) -> galois.Poly | None:
+        """Canonical polynomial that defines a SimplexCode of given dimension.
 
         The polynomial is a primitive polynomial (i.e., "prime", with no factors) of the form
             h(x) = 1 + x**c + x**dim,
         where x is the generator of a cyclic group of order 2**dim - 1, and c is an integer.
         """
-        # QUESTION: would any polynomial in galois.primitive_polys(2, dim, terms=3) suffice here?
-        if dim == 2:
-            return 0, 1, 2
-        if dim == 3:
-            return 0, 2, 3
-        if dim == 4:
-            return 0, 3, 4
-        if dim == 5:
-            return 0, 3, 5
-        if dim == 6:
-            return 0, 5, 6
-        if dim == 7:
-            return 0, 6, 7
-        raise ValueError(
-            f"Classical simplex codes are only supported for dimensions >1, <=7 (provided: {dim})"
-        )
+        polynomials = list(galois.primitive_polys(order=order, degree=dim, terms=3, reverse=True))
+        return polynomials[index % len(polynomials)] if len(polynomials) else None
