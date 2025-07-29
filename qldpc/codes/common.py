@@ -408,9 +408,6 @@ class ClassicalCode(AbstractCode):
         if self.field.order == 2:
             distance = get_distance_classical(self.generator)
         else:
-            warnings.warn(
-                "Computing the exact distance of a non-binary code may take a (very) long time"
-            )
             distance = min(np.count_nonzero(word) for word in self.iter_words(skip_zero=True))
         self._distance = int(distance)
         return self._distance
