@@ -284,7 +284,7 @@ class SimplexCode(ClassicalCode):
         """
         field = field or DEFAULT_FIELD_ORDER
 
-        # first try finding a primitive three-term polynomial of order dim
+        # first try finding a primitive three-term polynomial of degree dim
         try:
             primitive_polys = galois.primitive_polys(order=field, degree=dim, terms=3)
             return next(primitive_polys)
