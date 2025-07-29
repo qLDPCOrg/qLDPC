@@ -1597,11 +1597,18 @@ class SHYPSCode(SHPCode):
     - https://arxiv.org/abs/2502.07150
     """
 
-    def __init__(self, dim_x: int, dim_z: int | None = None, *, set_logicals: bool = True) -> None:
+    def __init__(
+        self,
+        dim_x: int,
+        dim_z: int | None = None,
+        field: int | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
         dim_z = dim_z if dim_z is not None else dim_x
 
-        code_x = SimplexCode(dim_x)
-        code_z = SimplexCode(dim_z)
+        code_x = SimplexCode(dim_x, field)
+        code_z = SimplexCode(dim_z, field)
         SHPCode.__init__(self, code_x, code_z, set_logicals=set_logicals)
 
         self._dimension = dim_x * dim_z
