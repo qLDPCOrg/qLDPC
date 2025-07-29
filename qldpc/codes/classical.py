@@ -291,4 +291,4 @@ class SimplexCode(ClassicalCode):
         where x is the generator of a cyclic group of order 2**dim - 1, and c is an integer.
         """
         polynomials = list(galois.primitive_polys(order=order, degree=dim, terms=3, reverse=True))
-        return polynomials[index % len(polynomials)] if len(polynomials) else None
+        return polynomials[index % len(polynomials)] if polynomials else None
