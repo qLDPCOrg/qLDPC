@@ -62,7 +62,7 @@ def test_special_codes() -> None:
     )
 
     # classical simplex codes
-    for dimension in range(2, 5):
+    for dimension in range(2, 9):
         code = codes.SimplexCode(dimension)
         params = (2**dimension - 1, dimension, 2 ** (dimension - 1))
         assert code.get_code_params() == params
