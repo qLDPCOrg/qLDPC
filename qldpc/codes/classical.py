@@ -293,15 +293,15 @@ class SimplexCode(ClassicalCode):
 
         # find a suitable polynomial by brute force
 
-        cyclic_group_order = field**dim - 1
-        mod_poly_coefficients = [0] * (cyclic_group_order + 1)
+        order = field**dim - 1
+        mod_poly_coefficients = [0] * (order + 1)
         mod_poly_coefficients[0] = -1
         mod_poly_coefficients[-1] = 1
         mod_poly = galois.Poly(mod_poly_coefficients, field=galois.GF(field))
 
         for aa, bb in itertools.product(range(1, field), repeat=2):
-            for cc, dd in itertools.combinations(range(1, cyclic_group_order + 1), 2):
-                coefficients = [0] * (cyclic_group_order + 1)
+            for cc, dd in itertools.combinations(range(1, order + 1), 2):
+                coefficients = [0] * (order + 1)
                 coefficients[0] = 1
                 coefficients[cc] = aa
                 coefficients[dd] = bb
