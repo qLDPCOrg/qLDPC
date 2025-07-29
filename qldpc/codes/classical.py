@@ -275,12 +275,12 @@ class SimplexCode(ClassicalCode):
 
     @staticmethod
     def get_defining_polynomial(dim: int, field: int | None = None) -> galois.Poly:
-        """The polynomial that defines a SimplexCode of given dimension.
+        """The polynomial that defines a SimplexCode of a given dimension and base field.
 
         Returns a three-term polynomial of the form h(x) = 1 + a * x**c + b * x**d, where
-        - the coefficients a and b are elements of a finite field
-        - the exponents c and d are integers
-        - gcd(h(x), x ** (field**dim - 1) - 1) is a primitive polynomial of degree dim
+        - the coefficients a and b are elements of a finite field,
+        - the exponents c and d are integers, and
+        - gcd(h(x), x ** (field**dim - 1) - 1) is a primitive polynomial of degree dim.
         """
         field = field or DEFAULT_FIELD_ORDER
 
