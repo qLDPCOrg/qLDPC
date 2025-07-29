@@ -253,9 +253,10 @@ class TannerCode(ClassicalCode):
 
 
 class SimplexCode(ClassicalCode):
-    """Classical simplex codes, with code parameters [2**k - 1, k, 2 ** (k - 1)].
+    """Classical simplex codes.
 
-    The automorphism group of SimplexCode(k) is the general linear group GL(k).
+    A binary simplex code with dimension k has code parameters [2**k - 1, k, 2 ** (k - 1)].
+    The automorphism of this code is the general linear group GL(k, 2).
 
     References:
     - https://errorcorrectionzoo.org/c/simplex
@@ -268,7 +269,7 @@ class SimplexCode(ClassicalCode):
         if polynomial is None:
             # TODO: pick a suitable polynomial for SimplexCode(dim, field)
             raise ValueError(
-                f"We have not picked a canonical polynomial to define SimplexCode({dim}, {field})"
+                f"We not know any suitable polynomial to define SimplexCode({dim}, {field})"
             )
 
         coefficients = polynomial.coefficients(size=field**dim - 1, order="asc")
