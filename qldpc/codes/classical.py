@@ -302,10 +302,10 @@ class SimplexCode(ClassicalCode):
         for aa, bb in itertools.product(range(1, field), repeat=2):
             for cc, dd in itertools.combinations(range(1, cyclic_group_order + 1), 2):
                 coefficients = [0] * (cyclic_group_order + 1)
-                coefficients[-1] = 1
-                coefficients[-cc] = aa
-                coefficients[-dd] = bb
-                poly = galois.Poly(coefficients, field=galois.GF(field))
+                coefficients[0] = 1
+                coefficients[cc] = aa
+                coefficients[dd] = bb
+                poly = galois.Poly(coefficients[::-1], field=galois.GF(field))
                 gcd_poly = galois.gcd(poly, mod_poly)
                 if gcd_poly.degree == dim and gcd_poly.is_primitive():
                     return poly
