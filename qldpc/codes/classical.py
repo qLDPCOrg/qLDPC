@@ -291,7 +291,7 @@ class SimplexCode(ClassicalCode):
         except StopIteration:
             None
 
-        # try finding a suitable polynomial by brute force
+        # find a suitable polynomial by brute force
 
         cyclic_group_order = field**dim - 1
         mod_poly_coefficients = [0] * (cyclic_group_order + 1)
@@ -310,4 +310,6 @@ class SimplexCode(ClassicalCode):
                 if gcd_poly.degree == dim and gcd_poly.is_primitive():
                     return poly
 
-        raise ValueError("Suitable primitive polynomial not found")
+        raise ValueError(
+            "Suitable primitive polynomial not found.  This should not be possible."
+        )  # pragma: no cover
