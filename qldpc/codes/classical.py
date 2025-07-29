@@ -267,7 +267,8 @@ class SimplexCode(ClassicalCode):
         field = field or DEFAULT_FIELD_ORDER
         polynomial = SimplexCode.get_canonical_primitive_polynomial(order=field, dim=dim)
         if polynomial is None:
-            # TODO: pick a suitable polynomial for SimplexCode(dim, field)
+            # TODO: pick a suitable polynomial for all choices of (dim, field)
+            # see section VIII.D of arXiv:https://arxiv.org/abs/2502.07150v1
             raise ValueError(
                 f"We not know any suitable polynomial to define SimplexCode({dim}, {field})"
             )
