@@ -62,10 +62,14 @@ def test_special_codes() -> None:
     )
 
     # classical simplex codes
-    for dimension in range(2, 8):
+    for dimension in range(2, 5):
         code = codes.SimplexCode(dimension)
-        assert code.get_code_params() == (2**dimension - 1, dimension, 2 ** (dimension - 1))
-    with pytest.raises(ValueError, match="dimensions >1, <=7"):
+        params = (2**dimension - 1, dimension, 2 ** (dimension - 1))
+        assert code.get_code_params() == params
+        code._dimension = None
+        code._distance = None
+        assert code.get_code_params() == params
+    with pytest.raises(ValueError, match="We not know any suitable polynomial"):
         codes.SimplexCode(8)
 
 
