@@ -265,14 +265,7 @@ class SimplexCode(ClassicalCode):
 
     def __init__(self, dim: int, field: int | None = None) -> None:
         field = field or DEFAULT_FIELD_ORDER
-        polynomial = SimplexCode.get_canonical_primitive_polynomial(order=field, dim=dim)
-        if polynomial is None:
-            # TODO: pick a suitable polynomial for all choices of (dim, field)
-            # see section VIII.D of arXiv:https://arxiv.org/abs/2502.07150v1
-            raise ValueError(
-                f"We not know any suitable polynomial to define SimplexCode({dim}, {field})"
-            )
-
+        polynomial = SimplexCode.get_defining_polynomial(dim, field)
         coefficients = polynomial.coefficients(size=field**dim - 1, order="asc")
         matrix = np.array([np.roll(coefficients, jj) for jj in range(len(coefficients))])
         ClassicalCode.__init__(self, matrix, field=field)
@@ -281,14 +274,40 @@ class SimplexCode(ClassicalCode):
         self._distance = field ** (dim - 1) * (field - 1)
 
     @staticmethod
-    def get_canonical_primitive_polynomial(
-        order: int, dim: int, *, index: int = 0
-    ) -> galois.Poly | None:
-        """Canonical polynomial that defines a SimplexCode of given dimension.
+    def get_defining_polynomial(dim: int, field: int | None = None) -> galois.Poly:
+        """The polynomial that defines a SimplexCode of given dimension.
 
-        The polynomial is a primitive polynomial (i.e., "prime", with no factors) of the form
-            h(x) = 1 + x**c + x**dim,
-        where x is the generator of a cyclic group of order 2**dim - 1, and c is an integer.
+        Returns a three-term polynomial of the form h(x) = 1 + a * x**c + b * x**d, where
+        - the coefficients a and b are elements of a finite field
+        - the exponents c and d are integers
+        - gcd(h(x), x ** (field**dim - 1) - 1) is a primitive polynomial of degree dim
         """
-        polynomials = list(galois.primitive_polys(order=order, degree=dim, terms=3, reverse=True))
-        return polynomials[index % len(polynomials)] if polynomials else None
+        field = field or DEFAULT_FIELD_ORDER
+
+        # first try finding a primitive three-term polynomial of order dim
+        try:
+            primitive_polys = galois.primitive_polys(order=field, degree=dim, terms=3)
+            return next(primitive_polys)
+        except StopIteration:
+            None
+
+        # try finding a suitable polynomial by brute force
+
+        cyclic_group_order = field**dim - 1
+        mod_poly_coefficients = [0] * (cyclic_group_order + 1)
+        mod_poly_coefficients[0] = -1
+        mod_poly_coefficients[-1] = 1
+        mod_poly = galois.Poly(mod_poly_coefficients, field=galois.GF(field))
+
+        for aa, bb in itertools.product(range(1, field), repeat=2):
+            for cc, dd in itertools.combinations(range(1, cyclic_group_order + 1), 2):
+                coefficients = [0] * (cyclic_group_order + 1)
+                coefficients[-1] = 1
+                coefficients[-cc] = aa
+                coefficients[-dd] = bb
+                poly = galois.Poly(coefficients, field=galois.GF(field))
+                gcd_poly = galois.gcd(poly, mod_poly)
+                if gcd_poly.degree == dim and gcd_poly.is_primitive():
+                    return poly
+
+        raise ValueError("Suitable primitive polynomial not found")
