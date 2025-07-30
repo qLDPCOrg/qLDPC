@@ -233,177 +233,50 @@ class NoiseRule:
 class NoiseModel:
     """A model that defines how to add noise to quantum circuits.
 
-    This class provides a framework for adding various types of
-    noise to quantum circuits, including idle depolarization, gate errors,
-    and measurement errors. It supports both built-in noise models and
-    custom user-defined noise configurations.
-
-    Attributes:
-        rules: Dictionary mapping gate names to their noise rules.
-        default_clifford_1q_rule: Default noise rule for all single-qubit Clifford gates.
-        default_clifford_2q_rule: Default noise rule for all two-qubit Clifford gates.
-        idle_depolarization: Probability of depolarization for idle qubits.
-        additional_depolarization_waiting_for_m_or_r: Additional depolarization
-            probability for qubits waiting during measurement or reset operations.
+    This class provides a framework for adding various types of noise to quantum circuits, including
+    gate errors, readout errors, reset errors, and idling errors.
     """
 
     def __init__(
         self,
         rules: dict[str, NoiseRule] | None = None,
-        default_clifford_1q_rule: NoiseRule | None = None,
-        default_clifford_2q_rule: NoiseRule | None = None,
-        idle_depolarization: float = 0.0,
-        additional_depolarization_waiting_for_m_or_r: float = 0.0,
+        clifford_1q_error: NoiseRule | float | None = None,
+        clifford_2q_error: NoiseRule | float | None = None,
+        readout_error: float | None = None,
+        reset_error: float | None = None,
+        idle_depolarization: float | None = None,
+        additional_depolarization_waiting_for_m_or_r: float | None = None,
     ):
         """Initializes a noise model with specified parameters.
 
         Args:
-            rules: Dictionary mapping specific gate names to their noise rules.
-            default_clifford_1q_rule: Default noise rule to apply to
-            single-qubit Clifford gates that don't have specific rules.
-            default_clifford_2q_rule: Default noise rule to apply to
-                two-qubit Clifford gates that don't have specific rules.
-            idle_depolarization: Probability of depolarization for qubits that
-                are not being operated on during a moment.
-            additional_depolarization_waiting_for_m_or_r: Additional depolarization
-                probability applied to qubits that are waiting while other qubits
-                undergo measurement or reset operations.
+            rules: Dictionary mapping specific gate names to their noise rules.  Overrides all other
+                default noise rules as applicable.
+            clifford_1q_error: Noise rule or depolarization probability for one-qubit unitary
+                Clifford gates.
+            clifford_2q_error: Default noise rule or depolarization probability for two-qubit unitary
+                Clifford gates.
+            readout_error: Default probability of flipping measurement results.
+            reset_error: Default probability of reseting qubits to the wrong state.
+            idle_depolarization: Probability of depolarization for each qubit that is idling in any
+                given moment.
+            additional_depolarization_waiting_for_m_or_r: Additional depolarization probability
+                applied to qubits that are waiting while other qubits undergo measurement or reset
+                operations.
         """
+        if not (isinstance(clifford_1q_error, NoiseRule) or clifford_1q_error is None):
+            clifford_1q_error = NoiseRule(after={"DEPOLARIZE1": clifford_1q_error})
+        if not (isinstance(clifford_2q_error, NoiseRule) or clifford_2q_error is None):
+            clifford_2q_error = NoiseRule(after={"DEPOLARIZE2": clifford_2q_error})
+
         self.rules = rules
-        self.default_clifford_1q_rule = default_clifford_1q_rule
-        self.default_clifford_2q_rule = default_clifford_2q_rule
+        self.clifford_1q_error = clifford_1q_error
+        self.clifford_2q_error = clifford_2q_error
+        self.readout_error = readout_error
+        self.reset_error = reset_error
         self.idle_depolarization = idle_depolarization
         self.additional_depolarization_waiting_for_m_or_r = (
             additional_depolarization_waiting_for_m_or_r
-        )
-
-    @staticmethod
-    def from_probs(
-        clifford_1q_depolarization: float = 0.0,
-        clifford_2q_depolarization: float = 0.0,
-        *,
-        measure_x: float = 0.0,
-        measure_y: float = 0.0,
-        measure_z: float = 0.0,
-        measure_xx: float = 0.0,
-        measure_yy: float = 0.0,
-        measure_zz: float = 0.0,
-        reset_x: float = 0.0,
-        reset_y: float = 0.0,
-        reset_z: float = 0.0,
-        idle_depolarization: float = 0.0,
-        additional_depolarization_waiting_for_m_or_r: float = 0.0,
-    ) -> NoiseModel:
-        """Creates a custom noise model with user-specified error rates.
-
-        This method allows fine-grained control over all types of noise that can
-        be applied to quantum circuits, including idle errors, gate errors,
-        measurement errors, and reset errors.
-
-        Args:
-            clifford_1q_depolarization: Depolarization probability for one-qubit Clifford gates.
-            clifford_2q_depolarization: Depolarization probability for two-qubit Clifford gates.
-            measure_x: Probability of measurement result bit flip for X-basis measurements.
-            measure_y: Probability of measurement result bit flip for Y-basis measurements.
-            measure_z: Probability of measurement result bit flip for Z-basis measurements.
-            measure_xx: Probability of measurement result bit flip for XX-basis joint measurements.
-            measure_yy: Probability of measurement result bit flip for YY-basis joint measurements.
-            measure_zz: Probability of measurement result bit flip for ZZ-basis joint measurements.
-            reset_x: Probability of bit flip error after RX (reset to |+⟩) operations.
-            reset_y: Probability of bit flip error after RY (reset to |i⟩) operations.
-            reset_z: Probability of bit flip error after R/RZ (reset to |0⟩) operations.
-            idle_depolarization: Probability of depolarization for qubits that are idle (not being
-                operated on) during a moment.
-            additional_depolarization_waiting_for_m_or_r: Additional depolarization probability for
-                qubits waiting while other qubits undergo measurement or reset operations.
-
-        Returns:
-            A NoiseModel instance configured with the specified error rates.
-        """
-        return NoiseModel(
-            rules={
-                "RX": (NoiseRule(after={"Z_ERROR": reset_x}) if reset_x else NoiseRule()),
-                "RY": (NoiseRule(after={"X_ERROR": reset_y}) if reset_y else NoiseRule()),
-                "RZ": (NoiseRule(after={"X_ERROR": reset_z}) if reset_z else NoiseRule()),
-                "MX": NoiseRule(flip_result=measure_x),
-                "MY": NoiseRule(flip_result=measure_y),
-                "MZ": NoiseRule(flip_result=measure_z),
-                "MXX": NoiseRule(flip_result=measure_xx),
-                "MYY": NoiseRule(flip_result=measure_yy),
-                "MZZ": NoiseRule(flip_result=measure_zz),
-            },
-            default_clifford_1q_rule=(
-                NoiseRule(after={"DEPOLARIZE1": clifford_1q_depolarization})
-                if clifford_1q_depolarization
-                else None
-            ),
-            default_clifford_2q_rule=(
-                NoiseRule(after={"DEPOLARIZE2": clifford_2q_depolarization})
-                if clifford_2q_depolarization
-                else None
-            ),
-            idle_depolarization=idle_depolarization,
-            additional_depolarization_waiting_for_m_or_r=additional_depolarization_waiting_for_m_or_r,
-        )
-
-    @staticmethod
-    def si1000(p: float) -> NoiseModel:
-        """Creates a superconducting-inspired noise model.
-
-        As defined in "A Fault-Tolerant Honeycomb Memory":
-        https://arxiv.org/abs/2108.10457
-
-        Note: Small tweak from the paper - the measurement result is
-        probabilistically flipped instead of the input qubit.
-
-        Args:
-            p: The base error probability parameter.
-
-        Returns:
-            A NoiseModel instance configured with superconducting-inspired
-            error rates.
-        """
-        return NoiseModel.from_probs(
-            clifford_1q_depolarization=p / 10,
-            clifford_2q_depolarization=p,
-            measure_z=p * 5,
-            reset_z=p * 2,
-            idle_depolarization=p / 10,
-            additional_depolarization_waiting_for_m_or_r=2 * p,
-        )
-
-    @staticmethod
-    def uniform_depolarizing(p: float, idling_error: bool = True) -> NoiseModel:
-        """Creates a near-standard circuit depolarizing noise model.
-
-        Everything has the same parameter p. Single qubit clifford gates
-        get single qubit depolarization. Two qubit clifford gates get
-        single qubit depolarization. Dissipative gates have their result
-        probabilistically bit flipped (or phase flipped if appropriate).
-
-        Non-demolition measurement is treated a bit unusually in that it
-        is the result that is flipped instead of the input qubit.
-
-        Args:
-            p: Depolarizing noise parameter.
-            idling_error: If False, disables idle depolarization noise.
-
-        Returns:
-            A NoiseModel instance configured with uniform depolarizing noise.
-        """
-        return NoiseModel.from_probs(
-            clifford_1q_depolarization=p,
-            clifford_2q_depolarization=p,
-            measure_x=p,
-            measure_y=p,
-            measure_z=p,
-            measure_xx=p,
-            measure_yy=p,
-            measure_zz=p,
-            reset_x=p,
-            reset_y=p,
-            reset_z=p,
-            idle_depolarization=p if idling_error else 0.0,
         )
 
     def noisy_circuit(
@@ -501,10 +374,10 @@ class NoiseModel:
                 return rule
 
         op_type = OP_TYPES[split_op.name]
-        if self.default_clifford_1q_rule is not None and op_type == CLIFFORD_1Q:
-            return self.default_clifford_1q_rule
-        if self.default_clifford_2q_rule is not None and op_type == CLIFFORD_2Q:
-            return self.default_clifford_2q_rule
+        if self.clifford_1q_error is not None and op_type == CLIFFORD_1Q:
+            return self.clifford_1q_error
+        if self.clifford_2q_error is not None and op_type == CLIFFORD_2Q:
+            return self.clifford_2q_error
 
         return None
 
@@ -674,6 +547,46 @@ class NoiseModel:
                 used_qubits.update(op_qubits)
 
         return result
+
+
+class SI1000NoiseModel(NoiseModel):
+    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory"
+
+    This noise model is defined by a two-qubit gate infidelity that determines all error rates.
+
+    See https://arxiv.org/abs/2108.10457.
+    """
+
+    def __init__(self, p: float) -> None:
+        """Instantiate a superconducting-inspired noise model."""
+        super().__init__(
+            clifford_1q_error=p / 10,
+            clifford_2q_error=p,
+            readout_error=p * 5,
+            reset_error=p * 2,
+            idle_depolarization=p / 10,
+            additional_depolarization_waiting_for_m_or_r=2 * p,
+        )
+
+
+class DepolarizingNoiseModel(NoiseModel):
+    """Creates a near-standard circuit depolarizing noise model.
+
+    Everything has the same parameter p.  One-qubit clifford gates get one-qubit depolarization.
+    Two-qubit clifford gates get two-qubit depolarization.  Dissipative gates have their result
+    probabilistically bit flipped (or phase flipped if appropriate).  Measurements have their
+    outcomes probabilistically flipped.
+    """
+
+    def __init__(self, p: float, *, idling_error: bool = True) -> None:
+        """Instantiate a depolarizing noise model."""
+        super().__init__(
+            clifford_1q_error=p,
+            clifford_2q_error=p,
+            readout_error=p,
+            reset_error=p,
+            idle_depolarization=p if idling_error else False,
+        )
 
 
 def _standardized_name(op: stim.CircuitInstruction) -> str:

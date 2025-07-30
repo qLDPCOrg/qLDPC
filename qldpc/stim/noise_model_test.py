@@ -24,11 +24,7 @@ def test_noise_injections() -> None:
     p_2 = 1e-2
     p_m = 5e-2
     noise_model = qldpc.stim.NoiseModel(
-        {
-            "H": qldpc.stim.NoiseRule(after={"DEPOLARIZE1": p_1}),
-            "CX": qldpc.stim.NoiseRule(after={"DEPOLARIZE2": p_2}),
-            "MZ": qldpc.stim.NoiseRule(flip_result=p_m),
-        }
+        clifford_1q_error=p_1, clifford_2q_error=p_2, readout_error=p_m
     )
     noisy_circuit = stim.Circuit(f"""
         H 0
@@ -40,7 +36,4 @@ def test_noise_injections() -> None:
         TICK
         M({p_m}) 0 1 2
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
-
-    noise_model = qldpc.stim.NoiseModel.from_probs(p_1, p_2, measure_z=p_m)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
