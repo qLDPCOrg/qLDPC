@@ -282,12 +282,12 @@ class NoiseModel:
         clifford_1q_depolarization: float = 0.0,
         clifford_2q_depolarization: float = 0.0,
         *,
-        measure_flip_x: float = 0.0,
-        measure_flip_y: float = 0.0,
-        measure_flip_z: float = 0.0,
-        measure_flip_xx: float = 0.0,
-        measure_flip_yy: float = 0.0,
-        measure_flip_zz: float = 0.0,
+        measure_x: float = 0.0,
+        measure_y: float = 0.0,
+        measure_z: float = 0.0,
+        measure_xx: float = 0.0,
+        measure_yy: float = 0.0,
+        measure_zz: float = 0.0,
         reset_x: float = 0.0,
         reset_y: float = 0.0,
         reset_z: float = 0.0,
@@ -301,33 +301,21 @@ class NoiseModel:
         measurement errors, and reset errors.
 
         Args:
-            clifford_1q_depolarization: Depolarization probability for single-qubit
-                Clifford gates. Defaults to 0.0.
-            clifford_2q_depolarization: Depolarization probability for two-qubit
-                Clifford gates. Defaults to 0.0.
-            measure_flip_x: Probability of measurement result bit flip for X-basis
-                measurements. Defaults to 0.0.
-            measure_flip_y: Probability of measurement result bit flip for Y-basis
-                measurements. Defaults to 0.0.
-            measure_flip_z: Probability of measurement result bit flip for Z-basis
-                measurements. Defaults to 0.0.
-            measure_flip_xx: Probability of measurement result bit flip for XX-basis
-                joint measurements. Defaults to 0.0.
-            measure_flip_yy: Probability of measurement result bit flip for YY-basis
-                joint measurements. Defaults to 0.0.
-            measure_flip_zz: Probability of measurement result bit flip for ZZ-basis
-                joint measurements. Defaults to 0.0.
+            clifford_1q_depolarization: Depolarization probability for one-qubit Clifford gates.
+            clifford_2q_depolarization: Depolarization probability for two-qubit Clifford gates.
+            measure_x: Probability of measurement result bit flip for X-basis measurements.
+            measure_y: Probability of measurement result bit flip for Y-basis measurements.
+            measure_z: Probability of measurement result bit flip for Z-basis measurements.
+            measure_xx: Probability of measurement result bit flip for XX-basis joint measurements.
+            measure_yy: Probability of measurement result bit flip for YY-basis joint measurements.
+            measure_zz: Probability of measurement result bit flip for ZZ-basis joint measurements.
             reset_x: Probability of bit flip error after RX (reset to |+⟩) operations.
-                Defaults to 0.0.
             reset_y: Probability of bit flip error after RY (reset to |i⟩) operations.
-                Defaults to 0.0.
             reset_z: Probability of bit flip error after R/RZ (reset to |0⟩) operations.
-                Defaults to 0.0.
-            idle_depolarization: Probability of depolarization for qubits that
-                are idle (not being operated on) during a moment. Defaults to 0.0.
-            additional_depolarization_waiting_for_m_or_r: Additional depolarization
-                probability for qubits waiting while other qubits undergo
-                measurement or reset operations. Defaults to 0.0.
+            idle_depolarization: Probability of depolarization for qubits that are idle (not being
+                operated on) during a moment.
+            additional_depolarization_waiting_for_m_or_r: Additional depolarization probability for
+                qubits waiting while other qubits undergo measurement or reset operations.
 
         Returns:
             A NoiseModel instance configured with the specified error rates.
@@ -337,12 +325,12 @@ class NoiseModel:
                 "RX": (NoiseRule(after={"Z_ERROR": reset_x}) if reset_x else NoiseRule()),
                 "RY": (NoiseRule(after={"X_ERROR": reset_y}) if reset_y else NoiseRule()),
                 "RZ": (NoiseRule(after={"X_ERROR": reset_z}) if reset_z else NoiseRule()),
-                "MX": NoiseRule(flip_result=measure_flip_x),
-                "MY": NoiseRule(flip_result=measure_flip_y),
-                "MZ": NoiseRule(flip_result=measure_flip_z),
-                "MXX": NoiseRule(flip_result=measure_flip_xx),
-                "MYY": NoiseRule(flip_result=measure_flip_yy),
-                "MZZ": NoiseRule(flip_result=measure_flip_zz),
+                "MX": NoiseRule(flip_result=measure_x),
+                "MY": NoiseRule(flip_result=measure_y),
+                "MZ": NoiseRule(flip_result=measure_z),
+                "MXX": NoiseRule(flip_result=measure_xx),
+                "MYY": NoiseRule(flip_result=measure_yy),
+                "MZZ": NoiseRule(flip_result=measure_zz),
             },
             default_clifford_1q_rule=(
                 NoiseRule(after={"DEPOLARIZE1": clifford_1q_depolarization})
@@ -378,7 +366,7 @@ class NoiseModel:
         return NoiseModel.from_probs(
             clifford_1q_depolarization=p / 10,
             clifford_2q_depolarization=p,
-            measure_flip_z=p * 5,
+            measure_z=p * 5,
             reset_z=p * 2,
             idle_depolarization=p / 10,
             additional_depolarization_waiting_for_m_or_r=2 * p,
@@ -406,12 +394,12 @@ class NoiseModel:
         return NoiseModel.from_probs(
             clifford_1q_depolarization=p,
             clifford_2q_depolarization=p,
-            measure_flip_x=p,
-            measure_flip_y=p,
-            measure_flip_z=p,
-            measure_flip_xx=p,
-            measure_flip_yy=p,
-            measure_flip_zz=p,
+            measure_x=p,
+            measure_y=p,
+            measure_z=p,
+            measure_xx=p,
+            measure_yy=p,
+            measure_zz=p,
             reset_x=p,
             reset_y=p,
             reset_z=p,

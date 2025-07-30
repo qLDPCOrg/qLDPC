@@ -50,5 +50,5 @@ def test_noise_injections() -> None:
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
-    noise_model = qldpc.stim.NoiseModel.from_probs(p_1, p_2, measure_flip_z=p_m)
+    noise_model = qldpc.stim.NoiseModel.from_probs(p_1, p_2, measure_z=p_m)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))

@@ -271,5 +271,4 @@ def memory_experiment(
             k,
         )
 
-    # Apply noise model to the entire circuit
-    return noise_model.noisy_circuit(circuit)
+    return noise_model.noisy_circuit(circuit) if noise_model else circuit
