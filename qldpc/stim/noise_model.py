@@ -239,25 +239,26 @@ class NoiseModel:
 
     def __init__(
         self,
-        rules: dict[str, NoiseRule] | None = None,
         clifford_1q_error: NoiseRule | float | None = None,
         clifford_2q_error: NoiseRule | float | None = None,
         readout_error: float | None = None,
         reset_error: float | None = None,
+        *,
+        rules: dict[str, NoiseRule] | None = None,
         idle_depolarization: float | None = None,
         additional_depolarization_waiting_for_m_or_r: float | None = None,
     ):
         """Initializes a noise model with specified parameters.
 
         Args:
-            rules: Dictionary mapping specific gate names to their noise rules.  Overrides all other
-                default noise rules as applicable.
             clifford_1q_error: Noise rule or depolarization probability for one-qubit unitary
                 Clifford gates.
             clifford_2q_error: Default noise rule or depolarization probability for two-qubit unitary
                 Clifford gates.
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of reseting qubits to the wrong state.
+            rules: Dictionary mapping specific gate names to their noise rules.  Overrides all other
+                rules for unitary, measurement, and reset gates.
             idle_depolarization: Probability of depolarization for each qubit that is idling in any
                 given moment.
             additional_depolarization_waiting_for_m_or_r: Additional depolarization probability
