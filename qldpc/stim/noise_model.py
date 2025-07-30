@@ -25,10 +25,10 @@ Examples of basic usage with a predefined noise model:
 
     # Create a custom noise model
     custom_model = NoiseModel.custom(
-         idle_depolarization=0.0001,
          clifford_1q_depolarization=0.001,
          clifford_2q_depolarization=0.01,
          measure_flip_z=0.02
+         idle_depolarization=0.0001,
      )
     noisy_circuit = custom_model.noisy_circuit(circuit)
 
@@ -132,13 +132,6 @@ OP_TYPES = {
     # 'E': NOISE,
     # 'ELSE_CORRELATED_ERROR',
 }
-OP_MEASURE_BASES = {
-    "M": "Z",
-    "MX": "X",
-    "MY": "Y",
-    "MZ": "Z",
-    "MPP": "",
-}
 COLLAPSING_OPS = {
     op
     for op, op_type in OP_TYPES.items()
@@ -152,28 +145,26 @@ COLLAPSING_OPS = {
 class NoiseRule:
     """Describes how to add noise to an operation.
 
-    This class encapsulates the noise channels and measurement error probabilities
-    that should be applied to a particular type of quantum operation.
+    This class encapsulates the noise channels and measurement error probabilities that should be
+    applied to a particular type of quantum operation.
     """
 
     def __init__(self, *, after: dict[str, float] = {}, flip_result: float = 0):
         """Initializes a noise rule with specified error channels.
 
         Args:
-            after: A dictionary mapping noise channel names to their probability
-                arguments. For example, {"DEPOLARIZE2": 0.01, "X_ERROR": 0.02}
-                will add two-qubit depolarization with parameter 0.01 and also
-                add 2% bit flip noise. These noise channels occur after all other
-                operations in the moment and are applied to the same targets as
-                the relevant operation.
-            flip_result: The probability that a measurement result should be
-                reported incorrectly. Only valid when applied to operations that
-                produce measurement results. Defaults to 0.
+            after: A dictionary mapping noise channel names to their probability arguments.  For
+                example, {"DEPOLARIZE2": 0.01, "X_ERROR": 0.02} will add two-qubit depolarization
+                with parameter 0.01 and also add 2% bit flip noise.  These noise channels occur after
+                all other operations in the moment and are applied to the same targets as the
+                relevant operation.
+            flip_result: The probability that a measurement result should be reported incorrectly.
+                Only valid when applied to operations that produce measurement results.
 
         Raises:
-            ValueError: If flip_result is not between 0 and 1 (inclusive), or if
-                any probability in after is not between 0 and 1 (inclusive), or
-                if any key in after is not a valid noise channel name.
+            ValueError: If flip_result is not between 0 and 1 (inclusive), or if any probability in
+                after is not between 0 and 1 (inclusive), or if any key in after is not a valid noise
+                channel name.
         """
         if not (0 <= flip_result <= 1):
             raise ValueError(f"not (0 <= {flip_result=} <= 1)")
@@ -279,7 +270,6 @@ class NoiseModel:
                 undergo measurement or reset operations.
         """
         self.rules = rules
-        # self.rules = {name: rule for name, rule in rules.items()}
         self.default_clifford_1q_rule = default_clifford_1q_rule
         self.default_clifford_2q_rule = default_clifford_2q_rule
         self.idle_depolarization = idle_depolarization
