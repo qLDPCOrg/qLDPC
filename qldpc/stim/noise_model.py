@@ -120,7 +120,6 @@ OP_TYPES = {
     "QUBIT_COORDS": ANNOTATION,
     "SHIFT_COORDS": ANNOTATION,
     "TICK": ANNOTATION,
-    "E": ANNOTATION,
     "DEPOLARIZE1": NOISE,
     "DEPOLARIZE2": NOISE,
     "PAULI_CHANNEL_1": NOISE,
@@ -142,8 +141,11 @@ OP_MEASURE_BASES = {
 }
 COLLAPSING_OPS = {
     op
-    for op, t in OP_TYPES.items()
-    if t == JUST_RESET_1Q or t == JUST_MEASURE_1Q or t == MEASURE_RESET_1Q or t == MPP
+    for op, op_type in OP_TYPES.items()
+    if op_type == JUST_RESET_1Q
+    or op_type == JUST_MEASURE_1Q
+    or op_type == MEASURE_RESET_1Q
+    or op_type == MPP
 }
 
 
@@ -175,9 +177,9 @@ class NoiseRule:
         """
         if not (0 <= flip_result <= 1):
             raise ValueError(f"not (0 <= {flip_result=} <= 1)")
-        for k, p in after.items():
-            if OP_TYPES[k] != NOISE:
-                raise ValueError(f"not a noise channel: {k} from {after=}")
+        for op, p in after.items():
+            if OP_TYPES[op] != NOISE:
+                raise ValueError(f"not a noise channel: {op} from {after=}")
             if not (0 <= p <= 1):
                 raise ValueError(f"not (0 <= {p} <= 1) from {after=}")
         self.after = after
@@ -208,22 +210,31 @@ class NoiseRule:
         """
         targets = split_op.targets_copy()
         if immune_qubits and any(
-            (t.is_qubit_target or t.is_x_target or t.is_y_target or t.is_z_target)
-            and t.value in immune_qubits
-            for t in targets
+            (
+                target.is_qubit_target
+                or target.is_x_target
+                or target.is_y_target
+                or target.is_z_target
+            )
+            and target.value in immune_qubits
+            for target in targets
         ):
             out_during_moment.append(split_op)
             return
 
         args = split_op.gate_args_copy()
         if self.flip_result:
-            t = OP_TYPES[split_op.name]
-            assert t == MPP or t == JUST_MEASURE_1Q or t == MEASURE_RESET_1Q
-            assert len(args) == 0
-            args = [self.flip_result]
+            op_type = OP_TYPES[split_op.name]
+            assert op_type == MPP or op_type == JUST_MEASURE_1Q or op_type == MEASURE_RESET_1Q
+            if not args:
+                args = [self.flip_result]
+            else:
+                assert len(args) == 1
+                # combine bit-flip probabilities
+                args = [1 - (1 - self.flip_result) * (1 - args[0])]
 
         out_during_moment.append(split_op.name, targets, args)
-        raw_targets = [t.value for t in targets if not t.is_combiner]
+        raw_targets = [target.value for target in targets if not target.is_combiner]
         for op_name, arg in self.after.items():
             after_moments[(op_name, arg)].append(op_name, raw_targets, arg)
 
@@ -237,57 +248,50 @@ class NoiseModel:
     custom user-defined noise configurations.
 
     Attributes:
+        rules: Dictionary mapping gate names to their noise rules.
+        default_clifford_1q_rule: Default noise rule for all single-qubit Clifford gates.
+        default_clifford_2q_rule: Default noise rule for all two-qubit Clifford gates.
         idle_depolarization: Probability of depolarization for idle qubits.
         additional_depolarization_waiting_for_m_or_r: Additional depolarization
             probability for qubits waiting during measurement or reset operations.
-        gate_rules: Dictionary mapping gate names to their noise rules.
-        measure_rules: Dictionary mapping measurement bases to their noise rules.
-        any_clifford_1q_rule: Default noise rule for all single-qubit Clifford gates.
-        any_clifford_2q_rule: Default noise rule for all two-qubit Clifford gates.
     """
 
     def __init__(
         self,
-        idle_depolarization: float,
-        additional_depolarization_waiting_for_m_or_r: float = 0,
-        gate_rules: dict[str, NoiseRule] | None = None,
-        measure_rules: dict[str, NoiseRule] | None = None,
-        any_clifford_1q_rule: NoiseRule | None = None,
-        any_clifford_2q_rule: NoiseRule | None = None,
+        rules: dict[str, NoiseRule] | None = None,
+        default_clifford_1q_rule: NoiseRule | None = None,
+        default_clifford_2q_rule: NoiseRule | None = None,
+        idle_depolarization: float = 0.0,
+        additional_depolarization_waiting_for_m_or_r: float = 0.0,
     ):
         """Initializes a noise model with specified parameters.
 
         Args:
+            rules: Dictionary mapping specific gate names to their noise rules.
+            default_clifford_1q_rule: Default noise rule to apply to
+            single-qubit Clifford gates that don't have specific rules.
+            default_clifford_2q_rule: Default noise rule to apply to
+                two-qubit Clifford gates that don't have specific rules.
             idle_depolarization: Probability of depolarization for qubits that
                 are not being operated on during a moment.
             additional_depolarization_waiting_for_m_or_r: Additional depolarization
                 probability applied to qubits that are waiting while other qubits
                 undergo measurement or reset operations.
-            gate_rules: Optional dictionary mapping specific gate names to their
-                noise rules. If provided, these take precedence over the default
-                Clifford rules.
-            measure_rules: Optional dictionary mapping measurement basis strings
-                (e.g., "X", "Y", "Z", "XX", "YY", "ZZ") to their noise rules.
-            any_clifford_1q_rule: Optional default noise rule to apply to all
-                single-qubit Clifford gates that don't have specific rules.
-            any_clifford_2q_rule: Optional default noise rule to apply to all
-                two-qubit Clifford gates that don't have specific rules.
         """
+        self.rules = rules
+        # self.rules = {name: rule for name, rule in rules.items()}
+        self.default_clifford_1q_rule = default_clifford_1q_rule
+        self.default_clifford_2q_rule = default_clifford_2q_rule
         self.idle_depolarization = idle_depolarization
         self.additional_depolarization_waiting_for_m_or_r = (
             additional_depolarization_waiting_for_m_or_r
         )
-        self.gate_rules = gate_rules
-        self.measure_rules = measure_rules
-        self.any_clifford_1q_rule = any_clifford_1q_rule
-        self.any_clifford_2q_rule = any_clifford_2q_rule
 
     @staticmethod
-    def custom(
-        idle_depolarization: float = 0.0,
-        additional_depolarization_waiting_for_m_or_r: float = 0.0,
+    def from_probs(
         clifford_1q_depolarization: float = 0.0,
         clifford_2q_depolarization: float = 0.0,
+        *,
         measure_flip_x: float = 0.0,
         measure_flip_y: float = 0.0,
         measure_flip_z: float = 0.0,
@@ -297,6 +301,8 @@ class NoiseModel:
         reset_x: float = 0.0,
         reset_y: float = 0.0,
         reset_z: float = 0.0,
+        idle_depolarization: float = 0.0,
+        additional_depolarization_waiting_for_m_or_r: float = 0.0,
     ) -> NoiseModel:
         """Creates a custom noise model with user-specified error rates.
 
@@ -305,11 +311,6 @@ class NoiseModel:
         measurement errors, and reset errors.
 
         Args:
-            idle_depolarization: Probability of depolarization for qubits that
-                are idle (not being operated on) during a moment. Defaults to 0.0.
-            additional_depolarization_waiting_for_m_or_r: Additional depolarization
-                probability for qubits waiting while other qubits undergo
-                measurement or reset operations. Defaults to 0.0.
             clifford_1q_depolarization: Depolarization probability for single-qubit
                 Clifford gates. Defaults to 0.0.
             clifford_2q_depolarization: Depolarization probability for two-qubit
@@ -332,36 +333,39 @@ class NoiseModel:
                 Defaults to 0.0.
             reset_z: Probability of bit flip error after R/RZ (reset to |0⟩) operations.
                 Defaults to 0.0.
+            idle_depolarization: Probability of depolarization for qubits that
+                are idle (not being operated on) during a moment. Defaults to 0.0.
+            additional_depolarization_waiting_for_m_or_r: Additional depolarization
+                probability for qubits waiting while other qubits undergo
+                measurement or reset operations. Defaults to 0.0.
 
         Returns:
             A NoiseModel instance configured with the specified error rates.
         """
         return NoiseModel(
-            idle_depolarization=idle_depolarization,
-            additional_depolarization_waiting_for_m_or_r=additional_depolarization_waiting_for_m_or_r,
-            any_clifford_1q_rule=(
+            rules={
+                "RX": (NoiseRule(after={"Z_ERROR": reset_x}) if reset_x else NoiseRule()),
+                "RY": (NoiseRule(after={"X_ERROR": reset_y}) if reset_y else NoiseRule()),
+                "RZ": (NoiseRule(after={"X_ERROR": reset_z}) if reset_z else NoiseRule()),
+                "MX": NoiseRule(flip_result=measure_flip_x),
+                "MY": NoiseRule(flip_result=measure_flip_y),
+                "MZ": NoiseRule(flip_result=measure_flip_z),
+                "MXX": NoiseRule(flip_result=measure_flip_xx),
+                "MYY": NoiseRule(flip_result=measure_flip_yy),
+                "MZZ": NoiseRule(flip_result=measure_flip_zz),
+            },
+            default_clifford_1q_rule=(
                 NoiseRule(after={"DEPOLARIZE1": clifford_1q_depolarization})
                 if clifford_1q_depolarization
                 else None
             ),
-            any_clifford_2q_rule=(
+            default_clifford_2q_rule=(
                 NoiseRule(after={"DEPOLARIZE2": clifford_2q_depolarization})
                 if clifford_2q_depolarization
                 else None
             ),
-            measure_rules={
-                "X": NoiseRule(flip_result=measure_flip_x),
-                "Y": NoiseRule(flip_result=measure_flip_y),
-                "Z": NoiseRule(flip_result=measure_flip_z),
-                "XX": NoiseRule(flip_result=measure_flip_xx),
-                "YY": NoiseRule(flip_result=measure_flip_yy),
-                "ZZ": NoiseRule(flip_result=measure_flip_zz),
-            },
-            gate_rules={
-                "RX": (NoiseRule(after={"Z_ERROR": reset_x}) if reset_x else NoiseRule()),
-                "RY": (NoiseRule(after={"X_ERROR": reset_y}) if reset_y else NoiseRule()),
-                "R": (NoiseRule(after={"X_ERROR": reset_z}) if reset_z else NoiseRule()),
-            },
+            idle_depolarization=idle_depolarization,
+            additional_depolarization_waiting_for_m_or_r=additional_depolarization_waiting_for_m_or_r,
         )
 
     @staticmethod
@@ -381,13 +385,13 @@ class NoiseModel:
             A NoiseModel instance configured with superconducting-inspired
             error rates.
         """
-        return NoiseModel.custom(
-            idle_depolarization=p / 10,
-            additional_depolarization_waiting_for_m_or_r=2 * p,
+        return NoiseModel.from_probs(
             clifford_1q_depolarization=p / 10,
             clifford_2q_depolarization=p,
             measure_flip_z=p * 5,
             reset_z=p * 2,
+            idle_depolarization=p / 10,
+            additional_depolarization_waiting_for_m_or_r=2 * p,
         )
 
     @staticmethod
@@ -409,8 +413,7 @@ class NoiseModel:
         Returns:
             A NoiseModel instance configured with uniform depolarizing noise.
         """
-        return NoiseModel.custom(
-            idle_depolarization=p if idling_error else 0.0,
+        return NoiseModel.from_probs(
             clifford_1q_depolarization=p,
             clifford_2q_depolarization=p,
             measure_flip_x=p,
@@ -422,6 +425,7 @@ class NoiseModel:
             reset_x=p,
             reset_y=p,
             reset_z=p,
+            idle_depolarization=p if idling_error else 0.0,
         )
 
     def _noise_rule_for_split_operation(
@@ -438,23 +442,19 @@ class NoiseModel:
         if _occurs_in_classical_control_system(split_op):
             return None
 
-        if self.gate_rules is not None:
-            rule = self.gate_rules.get(split_op.name)
+        if self.rules is not None:
+            rule = self.rules.get(_standardized_name(split_op)) or self.rules.get(
+                split_op.name
+            )  # allows for an MPP rule, but first checks for rules such as MXY
             if rule is not None:
                 return rule
 
-        t = OP_TYPES[split_op.name]
+        op_type = OP_TYPES[split_op.name]
 
-        if self.any_clifford_1q_rule is not None and t == CLIFFORD_1Q:
-            return self.any_clifford_1q_rule
-        if self.any_clifford_2q_rule is not None and t == CLIFFORD_2Q:
-            return self.any_clifford_2q_rule
-        if self.measure_rules is not None:
-            measure_basis = _measure_basis(split_op=split_op)
-            assert measure_basis is not None
-            rule = self.measure_rules.get(measure_basis)
-            if rule is not None:
-                return rule
+        if self.default_clifford_1q_rule is not None and op_type == CLIFFORD_1Q:
+            return self.default_clifford_1q_rule
+        if self.default_clifford_2q_rule is not None and op_type == CLIFFORD_2Q:
+            return self.default_clifford_2q_rule
 
         return None
 
@@ -699,6 +699,36 @@ class NoiseModel:
         return result
 
 
+def _standardized_name(op: stim.CircuitInstruction) -> str:
+    """Stardardized name of a circuit instruction.
+
+    The primary function of this method is to disambiguate the basis of measurement and reset gates.
+
+    Args:
+        op: The circuit circuit instruction whose name we need.
+
+    Returns:
+        str: The standardized name.
+    """
+    op_name = op.name
+    if op_name == "M" or op_name == "R" or op_name == "MR":
+        return op_name + "Z"
+
+    if op_name == "MPP":
+        name = "M"
+        for target in op.targets_copy()[::2]:
+            if target.is_x_target:
+                name += "X"
+            elif target.is_y_target:
+                name += "Y"
+            else:
+                assert target.is_z_target
+                name += "Z"
+        return name
+
+    return op_name
+
+
 def _occurs_in_classical_control_system(op: stim.CircuitInstruction) -> bool:
     """Determines if an operation is an annotation or a classical control system update.
 
@@ -709,10 +739,10 @@ def _occurs_in_classical_control_system(op: stim.CircuitInstruction) -> bool:
         True if the operation occurs in the classical control system and should
         not have quantum noise applied to it, False otherwise.
     """
-    t = OP_TYPES[op.name]
-    if t == ANNOTATION:
+    op_type = OP_TYPES[op.name]
+    if op_type == ANNOTATION:
         return True
-    if t == CLIFFORD_2Q:
+    if op_type == CLIFFORD_2Q:
         targets = op.targets_copy()
         for k in range(0, len(targets), 2):
             a = targets[k]
@@ -740,12 +770,12 @@ def _split_targets_if_needed(
     Yields:
         Circuit instructions, potentially split into smaller pieces.
     """
-    t = OP_TYPES[op.name]
-    if t == CLIFFORD_2Q:
+    op_type = OP_TYPES[op.name]
+    if op_type == CLIFFORD_2Q:
         yield from _split_targets_if_needed_clifford_2q(op, immune_qubits)
-    elif t == MPP:
+    elif op_type == MPP:
         yield from _split_targets_if_needed_m_basis(op, immune_qubits)
-    elif t in [NOISE, ANNOTATION]:
+    elif op_type in [NOISE, ANNOTATION]:
         yield op
     else:
         yield from _split_targets_if_needed_clifford_1q(op, immune_qubits)
@@ -766,8 +796,8 @@ def _split_targets_if_needed_clifford_1q(
     """
     if immune_qubits:
         args = op.gate_args_copy()
-        for t in op.targets_copy():
-            yield stim.CircuitInstruction(op.name, [t], args)
+        for targets in op.targets_copy():
+            yield stim.CircuitInstruction(op.name, [targets], args)
     else:
         yield op
 
@@ -790,7 +820,7 @@ def _split_targets_if_needed_clifford_2q(
     """
     assert OP_TYPES[op.name] == CLIFFORD_2Q
     targets = op.targets_copy()
-    if immune_qubits or any(t.is_measurement_record_target for t in targets):
+    if immune_qubits or any(targets.is_measurement_record_target for targets in targets):
         args = op.gate_args_copy()
         for k in range(0, len(targets), 2):
             yield stim.CircuitInstruction(op.name, targets[k : k + 2], args)
@@ -861,41 +891,3 @@ def _iter_split_op_moments(
             cur_moment.extend(_split_targets_if_needed(op, immune_qubits=immune_qubits))
     if cur_moment:
         yield cur_moment
-
-
-def _measure_basis(*, split_op: stim.CircuitInstruction) -> str | None:
-    """Converts an operation into a string describing the Pauli product basis it measures.
-
-    This function determines what basis a measurement operation measures in, which
-    is used to determine the appropriate noise rules to apply.
-
-    Args:
-        split_op: The circuit instruction to analyze.
-
-    Returns:
-        None if this is not a measurement operation (or not exclusively a measurement).
-        str: Pauli product string that the operation measures (e.g. "XX" or "Y").
-
-    Examples:
-        - MZ operation returns "Z"
-        - MX operation returns "X"
-        - MPP X0*Y1 operation returns "XY"
-
-    Raises:
-        NotImplementedError: If the operation contains target types that are not
-            supported.
-    """
-    result = OP_MEASURE_BASES.get(split_op.name)
-    targets = split_op.targets_copy()
-    if result == "":
-        for k in range(0, len(targets), 2):
-            t = targets[k]
-            if t.is_x_target:
-                result += "X"
-            elif t.is_y_target:
-                result += "Y"
-            elif t.is_z_target:
-                result += "Z"
-            else:
-                raise NotImplementedError(f"{targets=}")
-    return result
