@@ -319,7 +319,7 @@ class NoiseModel:
         if automatic_ticks:
             if immune_qubits:
                 raise ValueError("Automatic TICK insertion does not support immune qubits.")
-            circuit = self._preprocess_circuit_with_auto_ticks(circuit)
+            circuit = _preprocess_circuit_with_auto_ticks(circuit)
 
         result = stim.Circuit()
 
@@ -491,64 +491,6 @@ class NoiseModel:
             immune_qubits=immune_qubits,
         )
 
-    def _preprocess_circuit_with_auto_ticks(self, circuit: stim.Circuit) -> stim.Circuit:
-        """Preprocesses a circuit to automatically insert TICKs when qubits are reused.
-
-        This ensures that no qubit is operated on multiple times within a single moment,
-        which allows the existing idling error logic to work correctly.
-
-        Args:
-            circuit: The input circuit to preprocess.
-
-        Returns:
-            A new circuit with TICKs automatically inserted to prevent qubit reuse
-            within the same moment.
-        """
-        result = stim.Circuit()
-        used_qubits: set[int] = set()
-
-        for op in circuit:
-            if isinstance(op, stim.CircuitRepeatBlock):
-                # Process repeat blocks recursively
-                if used_qubits:
-                    result.append("TICK")
-                    used_qubits.clear()
-                processed_body = self._preprocess_circuit_with_auto_ticks(op.body_copy())
-                result.append(
-                    stim.CircuitRepeatBlock(repeat_count=op.repeat_count, body=processed_body)
-                )
-                continue
-
-            if op.name == "TICK":
-                # Explicit TICK - clear used qubits
-                result.append(op)
-                used_qubits.clear()
-                continue
-
-            # For preprocessing, we need to force splitting of multi-target operations
-            # to detect qubit reuse properly. Use a dummy immune_qubits set with -1
-            # to force splitting of 2-qubit operations
-            split_ops = list(_split_targets_if_needed(op, immune_qubits={-1}))
-
-            for split_op in split_ops:
-                # Check if this split operation would reuse any qubits
-                op_qubits = set()
-                if not _occurs_in_classical_control_system(split_op):
-                    for target in split_op.targets_copy():
-                        if not target.is_combiner:
-                            op_qubits.add(target.value)
-
-                # If there's qubit reuse, insert a TICK first
-                if op_qubits & used_qubits:
-                    result.append("TICK")
-                    used_qubits.clear()
-
-                # Add the operation and update used qubits
-                result.append(split_op)
-                used_qubits.update(op_qubits)
-
-        return result
-
 
 class SI1000NoiseModel(NoiseModel):
     """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory"
@@ -588,6 +530,65 @@ class DepolarizingNoiseModel(NoiseModel):
             reset_error=p,
             idle_depolarization=p if idling_error else False,
         )
+
+
+def _preprocess_circuit_with_auto_ticks(circuit: stim.Circuit) -> stim.Circuit:
+    """Preprocesses a circuit to automatically insert TICKs when qubits are reused.
+
+    This ensures that no qubit is operated on multiple times within a single moment,
+    which allows the existing idling error logic to work correctly.
+
+    Args:
+        circuit: The input circuit to preprocess.
+
+    Returns:
+        A new circuit with TICKs automatically inserted to prevent qubit reuse
+        within the same moment.
+    """
+    result = stim.Circuit()
+    used_qubits: set[int] = set()
+
+    for op in circuit:
+        if isinstance(op, stim.CircuitRepeatBlock):
+            # Process repeat blocks recursively
+            if used_qubits:
+                result.append("TICK")
+                used_qubits.clear()
+            processed_body = _preprocess_circuit_with_auto_ticks(op.body_copy())
+            result.append(
+                stim.CircuitRepeatBlock(repeat_count=op.repeat_count, body=processed_body)
+            )
+            continue
+
+        if op.name == "TICK":
+            # Explicit TICK - clear used qubits
+            result.append(op)
+            used_qubits.clear()
+            continue
+
+        # For preprocessing, we need to force splitting of multi-target operations
+        # to detect qubit reuse properly. Use a dummy immune_qubits set with -1
+        # to force splitting of 2-qubit operations
+        split_ops = list(_split_targets_if_needed(op, immune_qubits={-1}))
+
+        for split_op in split_ops:
+            # Check if this split operation would reuse any qubits
+            op_qubits = set()
+            if not _occurs_in_classical_control_system(split_op):
+                for target in split_op.targets_copy():
+                    if not target.is_combiner:
+                        op_qubits.add(target.value)
+
+            # If there's qubit reuse, insert a TICK first
+            if op_qubits & used_qubits:
+                result.append("TICK")
+                used_qubits.clear()
+
+            # Add the operation and update used qubits
+            result.append(split_op)
+            used_qubits.update(op_qubits)
+
+    return result
 
 
 def _standardized_name(op: stim.CircuitInstruction) -> str:
