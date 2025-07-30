@@ -8,14 +8,6 @@ def _are_equivalent(circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: floa
     trivial_noise_model = qldpc.stim.NoiseModel()
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
     circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
-    print()
-    print()
-    print()
-    print(circuit_a)
-    print()
-    print()
-    print()
-    print(circuit_b)
     return circuit_a.approx_equals(circuit_b, atol=atol)
 
 

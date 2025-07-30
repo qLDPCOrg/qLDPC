@@ -406,6 +406,79 @@ class NoiseModel:
             idle_depolarization=p if idling_error else 0.0,
         )
 
+    def noisy_circuit(
+        self,
+        circuit: stim.Circuit,
+        *,
+        system_qubits: set[int] | None = None,
+        immune_qubits: set[int] | None = None,
+        automatic_ticks: bool = True,
+    ) -> stim.Circuit:
+        """Returns a noisy version of the given circuit.
+
+        This method applies the noise model to transform a clean quantum circuit
+        into one that includes realistic noise effects. The circuit is first
+        preprocessed to automatically insert TICKs when needed to prevent qubit
+        reuse conflicts, then noise is applied according to the configured rules.
+
+        Args:
+            circuit: The circuit to layer noise over.
+            system_qubits: All qubits used by the circuit. These are the qubits
+                eligible for idling noise. If None, defaults to all qubits from
+                0 to circuit.num_qubits-1.
+            immune_qubits: Qubits to not apply noise to, even if they are
+                operated on. If None, defaults to an empty set.
+            automatic_ticks: If True, automatically inserts TICK operations
+                to prevent qubit reuse conflicts. If False, assumes the circuit
+                is already preprocessed and does not insert TICKs.
+
+        Returns:
+            The noisy version of the circuit with all specified noise channels
+            applied.
+        """
+        if system_qubits is None:
+            system_qubits = set(range(circuit.num_qubits))
+        if immune_qubits is None:
+            immune_qubits = set()
+
+        # Preprocess the circuit to automatically insert TICKs when qubits are reused
+        if automatic_ticks:
+            if immune_qubits:
+                raise ValueError("Automatic TICK insertion does not support immune qubits.")
+            circuit = self._preprocess_circuit_with_auto_ticks(circuit)
+
+        result = stim.Circuit()
+
+        first = True
+        for moment_split_ops in _iter_split_op_moments(circuit, immune_qubits=immune_qubits):
+            if first:
+                first = False
+            elif result and isinstance(result[-1], stim.CircuitRepeatBlock):
+                pass
+            else:
+                result.append("TICK")
+            if isinstance(moment_split_ops, stim.CircuitRepeatBlock):
+                noisy_body = self.noisy_circuit(
+                    moment_split_ops.body_copy(),
+                    system_qubits=system_qubits,
+                    immune_qubits=immune_qubits,
+                )
+                noisy_body.append("TICK")
+                result.append(
+                    stim.CircuitRepeatBlock(
+                        repeat_count=moment_split_ops.repeat_count, body=noisy_body
+                    )
+                )
+            else:
+                self._append_noisy_moment(
+                    moment_split_ops=moment_split_ops,
+                    out=result,
+                    system_qubits=system_qubits,
+                    immune_qubits=immune_qubits,
+                )
+
+        return result
+
     def _noise_rule_for_split_operation(
         self, *, split_op: stim.CircuitInstruction
     ) -> NoiseRule | None:
@@ -428,7 +501,6 @@ class NoiseModel:
                 return rule
 
         op_type = OP_TYPES[split_op.name]
-
         if self.default_clifford_1q_rule is not None and op_type == CLIFFORD_1Q:
             return self.default_clifford_1q_rule
         if self.default_clifford_2q_rule is not None and op_type == CLIFFORD_2Q:
@@ -600,79 +672,6 @@ class NoiseModel:
                 # Add the operation and update used qubits
                 result.append(split_op)
                 used_qubits.update(op_qubits)
-
-        return result
-
-    def noisy_circuit(
-        self,
-        circuit: stim.Circuit,
-        *,
-        system_qubits: set[int] | None = None,
-        immune_qubits: set[int] | None = None,
-        automatic_ticks: bool = True,
-    ) -> stim.Circuit:
-        """Returns a noisy version of the given circuit.
-
-        This method applies the noise model to transform a clean quantum circuit
-        into one that includes realistic noise effects. The circuit is first
-        preprocessed to automatically insert TICKs when needed to prevent qubit
-        reuse conflicts, then noise is applied according to the configured rules.
-
-        Args:
-            circuit: The circuit to layer noise over.
-            system_qubits: All qubits used by the circuit. These are the qubits
-                eligible for idling noise. If None, defaults to all qubits from
-                0 to circuit.num_qubits-1.
-            immune_qubits: Qubits to not apply noise to, even if they are
-                operated on. If None, defaults to an empty set.
-            automatic_ticks: If True, automatically inserts TICK operations
-                to prevent qubit reuse conflicts. If False, assumes the circuit
-                is already preprocessed and does not insert TICKs.
-
-        Returns:
-            The noisy version of the circuit with all specified noise channels
-            applied.
-        """
-        if system_qubits is None:
-            system_qubits = set(range(circuit.num_qubits))
-        if immune_qubits is None:
-            immune_qubits = set()
-
-        # Preprocess the circuit to automatically insert TICKs when qubits are reused
-        if automatic_ticks:
-            if immune_qubits:
-                raise ValueError("Automatic TICK insertion does not support immune qubits.")
-            circuit = self._preprocess_circuit_with_auto_ticks(circuit)
-
-        result = stim.Circuit()
-
-        first = True
-        for moment_split_ops in _iter_split_op_moments(circuit, immune_qubits=immune_qubits):
-            if first:
-                first = False
-            elif result and isinstance(result[-1], stim.CircuitRepeatBlock):
-                pass
-            else:
-                result.append("TICK")
-            if isinstance(moment_split_ops, stim.CircuitRepeatBlock):
-                noisy_body = self.noisy_circuit(
-                    moment_split_ops.body_copy(),
-                    system_qubits=system_qubits,
-                    immune_qubits=immune_qubits,
-                )
-                noisy_body.append("TICK")
-                result.append(
-                    stim.CircuitRepeatBlock(
-                        repeat_count=moment_split_ops.repeat_count, body=noisy_body
-                    )
-                )
-            else:
-                self._append_noisy_moment(
-                    moment_split_ops=moment_split_ops,
-                    out=result,
-                    system_qubits=system_qubits,
-                    immune_qubits=immune_qubits,
-                )
 
         return result
 
