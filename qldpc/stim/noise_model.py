@@ -249,7 +249,8 @@ class NoiseModel:
     """A model that defines how to add noise to quantum circuits.
 
     This class provides a framework for adding various types of noise to quantum circuits, including
-    gate errors, readout errors, reset errors, and idling errors.
+    gate errors, readout errors, reset errors, and idling errors.  Classically controlled operations
+    are assumed to NOT occur, so the corresponding qubits pick up idling errors, if applicable.
     """
 
     def __init__(
