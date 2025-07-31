@@ -467,9 +467,6 @@ class NoiseModel:
         usage_counts = collections.Counter(collapse_qubits + clifford_qubits)
         qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
         if qubits_used_multiple_times:
-            moment = stim.Circuit()
-            for op in moment:
-                moment.append(op)
             raise ValueError(
                 f"Qubits were operated on multiple times without a TICK in between:\n"
                 f"multiple uses: {sorted(qubits_used_multiple_times)}\n"

@@ -92,6 +92,16 @@ def test_gate_errors() -> None:
     assert _are_equivalent(double_noisy_circuit, noise_model.noisy_circuit(noisy_circuit))
 
 
+def test_test():
+    # reusing a qubit in the same moment raises an error
+    circuit = stim.Circuit("""
+        CX 0 1 1 2
+    """)
+    noise_model = NoiseModel(idle_error=0.1)
+    with pytest.raises(ValueError, match="multiple uses"):
+        noise_model.noisy_circuit(circuit, insert_ticks=False)
+
+
 def test_idle_errors() -> None:
     """Add idling errors to a circuit."""
 
