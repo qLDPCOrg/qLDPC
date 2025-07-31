@@ -38,7 +38,7 @@ def test_gate_errors() -> None:
         TICK
         M 0
         RX 1
-        MRY 2
+        MR 2
     """)
     noise_model = NoiseModel(
         clifford_1q_error=0.1, clifford_2q_error=0.2, readout_error=0.3, reset_error=0.4
@@ -53,7 +53,7 @@ def test_gate_errors() -> None:
         TICK
         MZ(0.3) 0
         RX 1
-        MRY(0.3) 2
+        MR(0.3) 2
         Z_ERROR(0.4) 1
         X_ERROR(0.4) 2
     """)
