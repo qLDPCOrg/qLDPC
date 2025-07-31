@@ -26,20 +26,6 @@ def _are_equivalent(circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: floa
     trivial_noise_model = qldpc.stim.NoiseModel()
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
     circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
-    ################################################################################
-    # DEBUGGING CODE
-    if not circuit_a.approx_equals(circuit_b, atol=atol):
-        print()
-        print()
-        print()
-        print()
-        print(circuit_a)
-        print()
-        print()
-        print()
-        print(circuit_b)
-        print()
-    ################################################################################
     return circuit_a.approx_equals(circuit_b, atol=atol)
 
 
@@ -120,7 +106,7 @@ def test_idle_errors() -> None:
 
     circuit = stim.Circuit("""
         H 0 1 2
-        Z 1
+        H 1
         M 0
         DETECTOR rec[-1]
     """)
@@ -129,7 +115,7 @@ def test_idle_errors() -> None:
     )
     noisy_circuit = stim.Circuit("""
         H 0 1 2
-        Z 1
+        H 1
         M(0.1) 0
         DETECTOR rec[-1]
         DEPOLARIZE1(0.2) 2
@@ -237,7 +223,7 @@ def test_repeat_blocks() -> None:
             DEPOLARIZE2(0.1) 0 1
         }
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit, insert_ticks=False))
 
 
 def test_noise_rule_errors() -> None:
