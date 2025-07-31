@@ -192,7 +192,28 @@ def test_classical_controls() -> None:
 
 def test_pauli_product_measurements() -> None:
     """Pauli product measurements get special treatment."""
-    # TODO: add
+
+    circuit = stim.Circuit("""
+        MPP X0*Y1*Z2
+    """)
+    noise_model = qldpc.stim.NoiseModel(readout_error=0.1)
+    noisy_circuit = stim.Circuit("""
+        MPP(0.1) X0*Y1*Z2
+    """)
+    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # override the default MPP rule for specific Pauli products
+    circuit = stim.Circuit("""
+        MPP Z0*Z1*Z2
+        MPP X0*Y1*Z2
+    """)
+    noise_rule = qldpc.stim.NoiseRule(readout_error=0.2)
+    noise_model = qldpc.stim.NoiseModel(readout_error=0.1, rules={"MXYZ": noise_rule})
+    noisy_circuit = stim.Circuit("""
+        MPP(0.1) Z0*Z1*Z2
+        MPP(0.2) X0*Y1*Z2
+    """)
+    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
 
 def test_repeat_blocks() -> None:
