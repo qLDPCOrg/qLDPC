@@ -122,6 +122,7 @@ def test_idle_errors() -> None:
         H 0 1 2
         Z 1
         M 0
+        DETECTOR rec[-1]
     """)
     noise_model = qldpc.stim.NoiseModel(
         readout_error=0.1, idle_error=0.2, additional_error_waiting_for_m_or_r=0.3
@@ -130,6 +131,7 @@ def test_idle_errors() -> None:
         H 0 1 2
         Z 1
         M(0.1) 0
+        DETECTOR rec[-1]
         DEPOLARIZE1(0.2) 2
         DEPOLARIZE1(0.3) 1 2
     """)
@@ -194,11 +196,12 @@ def test_pauli_product_measurements() -> None:
     """Pauli product measurements get special treatment."""
 
     circuit = stim.Circuit("""
-        MPP X0*Y1*Z2
+        MPP X1*Y2*Z3
     """)
-    noise_model = qldpc.stim.NoiseModel(readout_error=0.1)
+    noise_model = qldpc.stim.NoiseModel(readout_error=0.1, idle_error=0.2)
     noisy_circuit = stim.Circuit("""
-        MPP(0.1) X0*Y1*Z2
+        MPP(0.1) X1*Y2*Z3
+        DEPOLARIZE1(0.2) 0
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 

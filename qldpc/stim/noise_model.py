@@ -453,20 +453,28 @@ class NoiseModel:
             ValueError: If qubits are operated on multiple times within the same moment without a
                 TICK in between.
         """
-        collapse_qubits: list[int] = []
-        clifford_qubits: list[int] = []
-        cc_qubits: list[int] = []
+        collapsed_qubits: list[int] = []
+        operation_qubits: list[int] = []
+        classically_controlled_qubits: list[int] = []
         for op in moment:
             if OP_TYPES[op.name] == ANNOTATION:
                 continue
-            if _involves_classical_bits(op):
-                cc_qubits.extend([target.value for target in op.targets_copy() if target.is_qubit_target])
-                continue
-            qubits = collapse_qubits if op.name in COLLAPSING_OPS else clifford_qubits
-            qubits.extend([target.value for target in op.targets_copy() if not target.is_combiner])
+
+            target_qubits = [
+                target.qubit_value for target in op.targets_copy() if target.qubit_value is not None
+            ]
+            if op.name in COLLAPSING_OPS:
+                qubits = collapsed_qubits
+            elif _involves_classical_bits(op):
+                qubits = classically_controlled_qubits
+            else:
+                qubits = operation_qubits
+            qubits.extend(target_qubits)
 
         # Safety check for operation collisions.
-        usage_counts = collections.Counter(collapse_qubits + clifford_qubits + cc_qubits)
+        usage_counts = collections.Counter(
+            collapsed_qubits + operation_qubits + classically_controlled_qubits
+        )
         qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
         if qubits_used_multiple_times:
             raise ValueError(
@@ -475,12 +483,12 @@ class NoiseModel:
                 f"moment:\n{moment}"
             )
 
-        non_collapse_qubits = system_qubits - immune_qubits - set(collapse_qubits)
-        idle_qubits = sorted(non_collapse_qubits - set(clifford_qubits))
+        non_collapse_qubits = system_qubits - immune_qubits - set(collapsed_qubits)
+        idle_qubits = sorted(non_collapse_qubits - set(operation_qubits))
 
         if self.idle_error and idle_qubits:
             circuit.append("DEPOLARIZE1", idle_qubits, self.idle_error)
-        if self.additional_error_waiting_for_m_or_r and collapse_qubits and non_collapse_qubits:
+        if self.additional_error_waiting_for_m_or_r and collapsed_qubits and non_collapse_qubits:
             circuit.append(
                 "DEPOLARIZE1", non_collapse_qubits, self.additional_error_waiting_for_m_or_r
             )
