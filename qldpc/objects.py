@@ -52,11 +52,11 @@ class Pauli(enum.Enum):
         return Pauli(self.value[::-1])
 
     def __str__(self) -> str:
-        if self == Pauli.I:
+        if self is Pauli.I:
             return "I"
-        elif self == Pauli.Z:
+        elif self is Pauli.Z:
             return "Z"
-        elif self == Pauli.X:
+        elif self is Pauli.X:
             return "X"
         return "Y"
 
