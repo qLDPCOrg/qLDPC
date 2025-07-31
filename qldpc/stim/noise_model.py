@@ -15,20 +15,19 @@ Examples of basic usage with a predefined noise model:
     from qldpc.stim.noise_model import NoiseModel
 
     # Create a simple circuit
-    circuit = stim.Circuit()
-    circuit.append('H', [0])
-    circuit.append('CX', [0, 1])
+    circuit = stim.Circuit("H 0 \n CX 0 1")
 
     # Apply superconducting-inspired noise
-    noise_model = NoiseModel.si1000(0.001)
+    noise_model = SI1000NoiseModel.(0.001)
     noisy_circuit = noise_model.noisy_circuit(circuit)
 
     # Create a custom noise model
-    custom_model = NoiseModel.custom(
-         clifford_1q_depolarization=0.001,
-         clifford_2q_depolarization=0.01,
-         measure_flip_z=0.02
-         idle_depolarization=0.0001,
+    custom_model = NoiseModel(
+         clifford_1q_error=0.001,
+         clifford_2q_error=0.01,
+         readout_error=0.02,
+         reset_error=p_r
+         idle_error=0.0001,
      )
     noisy_circuit = custom_model.noisy_circuit(circuit)
 
@@ -269,26 +268,24 @@ class NoiseModel:
         readout_error: float | None = None,
         reset_error: float | None = None,
         *,
+        idle_error: float | None = None,
+        additional_error_waiting_for_m_or_r: float | None = None,
         rules: dict[str, NoiseRule] | None = None,
-        idle_depolarization: float | None = None,
-        additional_depolarization_waiting_for_m_or_r: float | None = None,
     ):
         """Initializes a noise model with specified parameters.
 
         Args:
-            clifford_1q_error: Noise rule or depolarization probability for one-qubit unitary
+            clifford_1q_error: Default noise rule or depolarization probability for one-qubit unitary
                 Clifford gates.
             clifford_2q_error: Default noise rule or depolarization probability for two-qubit unitary
                 Clifford gates.
             readout_error: Default probability of flipping measurement results.
-            reset_error: Default probability of reseting qubits to the wrong state.
+            reset_error: Default probability of resetting qubits to the wrong state.
+            idle_error: Probability of depolarization for each idling qubit in any given moment.
+            additional_error_waiting_for_m_or_r: Additional depolarization probability applied to
+                qubits that are waiting while other qubits undergo measurement or reset operations.
             rules: Dictionary mapping specific gate names to their noise rules.  Overrides all other
                 rules for unitary, measurement, and reset gates.
-            idle_depolarization: Probability of depolarization for each qubit that is idling in any
-                given moment.
-            additional_depolarization_waiting_for_m_or_r: Additional depolarization probability
-                applied to qubits that are waiting while other qubits undergo measurement or reset
-                operations.
         """
         if not (isinstance(clifford_1q_error, NoiseRule) or clifford_1q_error is None):
             clifford_1q_error = NoiseRule(after={"DEPOLARIZE1": clifford_1q_error})
@@ -300,10 +297,42 @@ class NoiseModel:
         self.clifford_2q_error = clifford_2q_error
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
-        self.idle_depolarization = idle_depolarization
-        self.additional_depolarization_waiting_for_m_or_r = (
-            additional_depolarization_waiting_for_m_or_r
-        )
+        self.idle_error = idle_error
+        self.additional_error_waiting_for_m_or_r = additional_error_waiting_for_m_or_r
+
+    def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
+        """Determines the noise rule to apply to a specific operation.
+
+        Args:
+            op: The circuit instruction to find a noise rule for.
+
+        Returns:
+            The NoiseRule to apply for the given operation, or None for no noise.
+        """
+        if _occurs_in_classical_control_system(op):
+            return None
+
+        if self.rules is not None:
+            rule = self.rules.get(_standardized_name(op)) or self.rules.get(
+                op.name
+            )  # allows for an MPP rule, but first checks for rules such as MXY
+            if rule is not None:
+                return rule
+
+        op_type = OP_TYPES[op.name]
+        if self.clifford_1q_error is not None and op_type == CLIFFORD_1Q:
+            return self.clifford_1q_error
+        if self.clifford_2q_error is not None and op_type == CLIFFORD_2Q:
+            return self.clifford_2q_error
+
+        if self.readout_error and op.name in JUST_MEASURE_OPS:
+            return NoiseRule(readout_error=self.readout_error)
+        if self.reset_error and op.name in JUST_RESET_OPS:
+            return NoiseRule(reset_error=self.reset_error)
+        if (self.readout_error or self.reset_error) and op.name in MEASURE_AND_RESET_OPS:
+            return NoiseRule(readout_error=self.readout_error, reset_error=self.reset_error)
+
+        return None
 
     def noisy_circuit(
         self,
@@ -315,25 +344,23 @@ class NoiseModel:
     ) -> stim.Circuit:
         """Returns a noisy version of the given circuit.
 
-        This method applies the noise model to transform a clean quantum circuit
-        into one that includes realistic noise effects. The circuit is first
-        preprocessed to automatically insert TICKs when needed to prevent qubit
-        reuse conflicts, then noise is applied according to the configured rules.
+        This method applies the noise model to transform a clean quantum circuit into one that
+        includes realistic noise effects.  The circuit is first preprocessed to automatically insert
+        TICKs when needed to prevent qubit reuse conflicts, then noise is applied according to the
+        configured rules.
 
         Args:
             circuit: The circuit to layer noise over.
-            system_qubits: All qubits used by the circuit. These are the qubits
-                eligible for idling noise. If None, defaults to all qubits from
-                0 to circuit.num_qubits-1.
-            immune_qubits: Qubits to not apply noise to, even if they are
-                operated on. If None, defaults to an empty set.
-            automatic_ticks: If True, automatically inserts TICK operations
-                to prevent qubit reuse conflicts. If False, assumes the circuit
-                is already preprocessed and does not insert TICKs.
+            system_qubits: All qubits used by the circuit.  These are the qubits eligible for idling
+                noise.  If None, defaults to all qubits from 0 to circuit.num_qubits-1.
+            immune_qubits: Qubits to not apply noise to, even if they are operated on.  If None,
+                defaults to an empty set.
+            automatic_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
+                conflicts.  If False, assumes the circuit is already preprocessed and does not insert
+                TICKs.
 
         Returns:
-            The noisy version of the circuit with all specified noise channels
-            applied.
+            The noisy version of the circuit with all specified noise channels applied.
         """
         if system_qubits is None:
             system_qubits = set(range(circuit.num_qubits))
@@ -377,42 +404,6 @@ class NoiseModel:
                 )
 
         return result
-
-    def _noise_rule_for_split_operation(
-        self, *, split_op: stim.CircuitInstruction
-    ) -> NoiseRule | None:
-        """Determines the noise rule to apply to a specific operation.
-
-        Args:
-            split_op: The circuit instruction to find a noise rule for.
-
-        Returns:
-            The NoiseRule to apply to this operation, or None for no noise.
-        """
-        if _occurs_in_classical_control_system(split_op):
-            return None
-
-        if self.rules is not None:
-            rule = self.rules.get(_standardized_name(split_op)) or self.rules.get(
-                split_op.name
-            )  # allows for an MPP rule, but first checks for rules such as MXY
-            if rule is not None:
-                return rule
-
-        op_type = OP_TYPES[split_op.name]
-        if self.clifford_1q_error is not None and op_type == CLIFFORD_1Q:
-            return self.clifford_1q_error
-        if self.clifford_2q_error is not None and op_type == CLIFFORD_2Q:
-            return self.clifford_2q_error
-
-        if self.readout_error and split_op.name in JUST_MEASURE_OPS:
-            return NoiseRule(readout_error=self.readout_error)
-        if self.reset_error and split_op.name in JUST_RESET_OPS:
-            return NoiseRule(reset_error=self.reset_error)
-        if (self.readout_error or self.reset_error) and split_op.name in MEASURE_AND_RESET_OPS:
-            return NoiseRule(readout_error=self.readout_error, reset_error=self.reset_error)
-
-        return None
 
     def _append_idle_error(
         self,
@@ -469,16 +460,12 @@ class NoiseModel:
         collapse_qubits_set = set(collapse_qubits)
         clifford_qubits_set = set(clifford_qubits)
         idle = sorted(system_qubits - collapse_qubits_set - clifford_qubits_set - immune_qubits)
-        if idle and self.idle_depolarization:
-            out.append("DEPOLARIZE1", idle, self.idle_depolarization)
+        if idle and self.idle_error:
+            out.append("DEPOLARIZE1", idle, self.idle_error)
 
         waiting_for_mr = sorted(system_qubits - collapse_qubits_set - immune_qubits)
-        if (
-            collapse_qubits_set
-            and waiting_for_mr
-            and self.additional_depolarization_waiting_for_m_or_r
-        ):
-            out.append("DEPOLARIZE1", idle, self.additional_depolarization_waiting_for_m_or_r)
+        if collapse_qubits_set and waiting_for_mr and self.additional_error_waiting_for_m_or_r:
+            out.append("DEPOLARIZE1", idle, self.additional_error_waiting_for_m_or_r)
 
     def _append_noisy_moment(
         self,
@@ -503,7 +490,7 @@ class NoiseModel:
         """
         after: defaultdict[tuple[str, float], stim.Circuit] = defaultdict(stim.Circuit)
         for split_op in moment_split_ops:
-            rule = self._noise_rule_for_split_operation(split_op=split_op)
+            rule = self.get_noise_rule(op=split_op)
             if rule is None:
                 out.append(split_op)
             else:
@@ -539,8 +526,8 @@ class SI1000NoiseModel(NoiseModel):
             clifford_2q_error=p,
             readout_error=p * 5,
             reset_error=p * 2,
-            idle_depolarization=p / 10,
-            additional_depolarization_waiting_for_m_or_r=2 * p,
+            idle_error=p / 10,
+            additional_error_waiting_for_m_or_r=2 * p,
         )
 
 
@@ -560,7 +547,7 @@ class DepolarizingNoiseModel(NoiseModel):
             clifford_2q_error=p,
             readout_error=p,
             reset_error=p,
-            idle_depolarization=p if idling_error else False,
+            idle_error=p if idling_error else False,
         )
 
 
@@ -598,9 +585,11 @@ def _preprocess_circuit_with_auto_ticks(circuit: stim.Circuit) -> stim.Circuit:
             used_qubits.clear()
             continue
 
-        # For preprocessing, we need to force splitting of multi-target operations
-        # to detect qubit reuse properly. Use a dummy immune_qubits set with -1
-        # to force splitting of 2-qubit operations
+        """
+        For preprocessing, we need to force splitting of multi-target operations to detect qubit
+        reuse properly.  Use a dummy immune_qubits set with -1 to force splitting of 2-qubit
+        operations.
+        """
         split_ops = list(_split_targets_if_needed(op, immune_qubits={-1}))
 
         for split_op in split_ops:
@@ -784,18 +773,16 @@ def _iter_split_op_moments(
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
     """Splits a circuit into moments and some operations into pieces.
 
-    Classical control system operations like CX rec[-1] 0 are split from quantum
-    operations like CX 1 0. MPP operations are split into one operation per
-    Pauli product.
+    Classical control system operations like CX rec[-1] 0 are split from quantum operations like
+    CX 1 0.  MPP operations are split into one operation per Pauli product.
 
     Args:
         circuit: The circuit to split into moments.
         immune_qubits: Set of qubit indices that should not have noise applied.
 
     Yields:
-        Lists of operations corresponding to one moment in the circuit, with any
-        problematic operations like MPPs split into pieces, or CircuitRepeatBlock
-        instances for repeat blocks.
+        Lists of operations corresponding to one moment in the circuit, with any problematic
+        operations like MPPs split into pieces, or CircuitRepeatBlock instances for repeat blocks.
 
     Note:
         A moment is the time between two TICKs.
