@@ -110,7 +110,7 @@ def test_gate_errors() -> None:
     circuit = stim.Circuit("""
         CX 0 1 1 2
     """)
-    noise_model = qldpc.stim.SI1000NoiseModel(p=0.1)
+    noise_model = qldpc.stim.SI1000NoiseModel(0.1)
     with pytest.raises(ValueError, match="multiple uses"):
         noise_model.noisy_circuit(circuit, insert_ticks=False)
 
@@ -142,7 +142,7 @@ def test_immunity() -> None:
     circuit = stim.Circuit("""
         H 0 1
     """)
-    noise_model = qldpc.stim.DepolarizingNoiseModel(p=0.1)
+    noise_model = qldpc.stim.DepolarizingNoiseModel(0.1)
     noisy_circuit = stim.Circuit("""
         H 0 1
         DEPOLARIZE1(0.1) 1
@@ -164,7 +164,7 @@ def test_classical_controls() -> None:
     circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
     """)
-    noise_model = qldpc.stim.SI1000NoiseModel(p=0.1)
+    noise_model = qldpc.stim.SI1000NoiseModel(0.1)
     noisy_circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
         DEPOLARIZE2(0.1) 0 1
@@ -225,7 +225,7 @@ def test_repeat_blocks() -> None:
             CX 0 1
         }
     """)
-    noise_model = qldpc.stim.DepolarizingNoiseModel(p=0.1, include_idling_error=False)
+    noise_model = qldpc.stim.DepolarizingNoiseModel(0.1, include_idling_error=False)
     noisy_circuit = stim.Circuit("""
         H 0
         DEPOLARIZE1(0.1) 0
