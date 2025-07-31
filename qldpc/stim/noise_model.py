@@ -300,7 +300,7 @@ class NoiseModel:
         Returns:
             The NoiseRule to apply for the given operation, or None for no noise.
         """
-        if _is_annotation_or_involves_classical_bits(op):
+        if OP_TYPES[op.name] == ANNOTATION or _involves_classical_bits(op):
             return None
 
         if self.rules is not None:
@@ -455,14 +455,18 @@ class NoiseModel:
         """
         collapse_qubits: list[int] = []
         clifford_qubits: list[int] = []
+        cc_qubits: list[int] = []
         for op in moment:
-            if _is_annotation_or_involves_classical_bits(op):
+            if OP_TYPES[op.name] == ANNOTATION:
+                continue
+            if _involves_classical_bits(op):
+                cc_qubits.extend([target.value for target in op.targets_copy() if target.is_qubit_target])
                 continue
             qubits = collapse_qubits if op.name in COLLAPSING_OPS else clifford_qubits
             qubits.extend([target.value for target in op.targets_copy() if not target.is_combiner])
 
         # Safety check for operation collisions.
-        usage_counts = collections.Counter(collapse_qubits + clifford_qubits)
+        usage_counts = collections.Counter(collapse_qubits + clifford_qubits + cc_qubits)
         qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
         if qubits_used_multiple_times:
             raise ValueError(
@@ -597,7 +601,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit) -> stim.Circuit:
         for split_op in split_ops:
             # Check if this split operation would reuse any qubits
             op_qubits = set()
-            if not _is_annotation_or_involves_classical_bits(split_op):
+            if OP_TYPES[split_op.name] != ANNOTATION:
                 for target in split_op.targets_copy():
                     if not target.is_combiner:
                         op_qubits.add(target.value)
@@ -614,16 +618,16 @@ def _split_moments_with_ticks(circuit: stim.Circuit) -> stim.Circuit:
     return result
 
 
-def _is_annotation_or_involves_classical_bits(op: stim.CircuitInstruction) -> bool:
-    """Determines if an operation is an annotation or involves classical bits.
+def _involves_classical_bits(op: stim.CircuitInstruction) -> bool:
+    """Determines if an operation involves classical bits.
 
     Args:
         op: The circuit instruction to check.
 
     Returns:
-        True if the operation is an annotation or involves classical control bits.  False otherwise.
+        True if the operation involves classical control bits.  False otherwise.
     """
-    return OP_TYPES[op.name] == ANNOTATION or any(
+    return any(
         target.is_measurement_record_target or target.is_sweep_bit_target
         for target in op.targets_copy()
     )
