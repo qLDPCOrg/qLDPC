@@ -534,10 +534,12 @@ class SI1000NoiseModel(NoiseModel):
 class DepolarizingNoiseModel(NoiseModel):
     """Creates a near-standard circuit depolarizing noise model.
 
-    Everything has the same parameter p.  One-qubit clifford gates get one-qubit depolarization.
-    Two-qubit clifford gates get two-qubit depolarization.  Dissipative gates have their result
-    probabilistically bit flipped (or phase flipped if appropriate).  Measurements have their
-    outcomes probabilistically flipped.
+    All operations has the same error parameter p:
+    - One-qubit Clifford gates get one-qubit depolarization.
+    - Two-qubit Clifford gates get two-qubit depolarization.
+    - Measurements have their outcomes probabilistically flipped.
+    - Reset gates probabalistically reset qubits to the wrong (orthogonal) state.
+    - If applicable, every idling qubit in a given moment gets depolarized.
     """
 
     def __init__(self, p: float, *, idling_error: bool = True) -> None:
