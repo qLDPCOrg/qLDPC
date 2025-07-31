@@ -372,7 +372,7 @@ class NoiseModel:
         if automatic_ticks:
             if immune_qubits:
                 raise ValueError("Automatic TICK insertion does not support immune qubits.")
-            circuit = _preprocess_circuit_with_auto_ticks(circuit, circuit_qubits)
+            circuit = _preprocess_circuit_with_auto_ticks(circuit)
 
         result = stim.Circuit()
 
@@ -580,16 +580,13 @@ def _get_standardized_name(op: stim.CircuitInstruction) -> str:
     return op_name
 
 
-def _preprocess_circuit_with_auto_ticks(
-    circuit: stim.Circuit, circuit_qubits: Set[int]
-) -> stim.Circuit:
+def _preprocess_circuit_with_auto_ticks(circuit: stim.Circuit) -> stim.Circuit:
     """Insert TICKs into a circuit to split moments that act on a qubit multiple times.
 
     This preprocessing ensures, for example, that idling errors are treated correctly.
 
     Args:
         circuit: The input circuit to preprocess.
-        circuit_qubits: The qubits used by the circuit.
 
     Returns:
         A new circuit with TICKs inserted to prevent qubit reuse within the same moment.
