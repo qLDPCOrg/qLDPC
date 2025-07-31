@@ -127,7 +127,7 @@ def test_immunity() -> None:
     circuit = stim.Circuit("""
         H 0 1
     """)
-    noise_model = qldpc.stim.NoiseModel(clifford_1q_error=0.1)
+    noise_model = qldpc.stim.DepolarizingNoiseModel(p=0.1)
     noisy_circuit = stim.Circuit("""
         H 0 1
         DEPOLARIZE1(0.1) 1
@@ -145,14 +145,15 @@ def test_immunity() -> None:
 def test_classical_controls() -> None:
     """Classically controled gates get special treatment."""
 
-    # classically controlled operations are immune to noise
+    # classically controls are immune to noise, but the qubits still pick up idling errors
     circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
     """)
-    noise_model = qldpc.stim.DepolarizingNoiseModel(p=0.2, include_idling_error=False)
+    noise_model = qldpc.stim.SI1000NoiseModel(p=0.1)
     noisy_circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
-        DEPOLARIZE2(0.2) 0 1
+        DEPOLARIZE2(0.1) 0 1
+        DEPOLARIZE1(0.01) 2
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
