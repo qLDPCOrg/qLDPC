@@ -1,13 +1,9 @@
-"""Implementation of different noise models for Stim quantum circuits.
+"""Implementation of different noise models for Stim circuits.
 
-This module provides a comprehensive framework for adding noise models
-to quantum circuits built with Stim.
-
-The main components are:
-- NoiseRule: Defines how to add noise to individual operations
-- NoiseModel: Controls the application of noise across entire circuits
-- Built-in noise models: si1000 (superconducting) and uniform_depolarizing
-- Automatic TICK insertion with idling errors
+The main components of this module are:
+- NoiseRule: Defines how to add noise to individual operations.
+- NoiseModel: Defines how noise is added to circuits.
+- Built-in noise models: SI1000NoiseModel (superconducting-inspired) and DepolarizingNoiseModel.
 
 Examples of basic usage with a predefined noise model:
 
@@ -35,13 +31,14 @@ Examples of basic usage with a predefined noise model:
 Important note:
 ---------------
 
-This file has been extended from https://github.com/tqec/tqec/blob/main/src/tqec/utils/noise_model.py
-which itself was taken from https://zenodo.org/records/7487893
-and is under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/legalcode).
-It is part of the code from the paper
+This file was taken and modified from
+    https://github.com/tqec/tqec/blob/main/src/tqec/utils/noise_model.py
+which itself was taken from
+    https://zenodo.org/records/7487893
+and licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/legalcode).
 
-    Gidney, C. (2022). Data for "Inplace Access to the Surface Code Y Basis".
-    https://doi.org/10.5281/zenodo.7487893
+The original code was written for the paper at "Inplace Access to the Surface Code Y Basis", at
+    https://quantum-journal.org/papers/q-2024-04-08-1310.
 """
 
 from __future__ import annotations
