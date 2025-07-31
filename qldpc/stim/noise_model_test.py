@@ -11,6 +11,8 @@ def _are_equivalent(circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: floa
     trivial_noise_model = NoiseModel()
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
     circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
+    ################################################################################
+    # DEBUGGING CODE
     if not circuit_a.approx_equals(circuit_b, atol=atol):
         print()
         print()
@@ -22,6 +24,7 @@ def _are_equivalent(circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: floa
         print()
         print(circuit_b)
         print()
+    ################################################################################
     return circuit_a.approx_equals(circuit_b, atol=atol)
 
 
@@ -134,6 +137,7 @@ def test_immunity() -> None:
 def test_classical_controls() -> None:
     """Classically controled gates get special treatment."""
 
+    # classically controlled operations are immune to noise
     circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
     """)
@@ -144,13 +148,32 @@ def test_classical_controls() -> None:
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
+    # qubits addressed by classical controls pick up idling errors by default
+    circuit = stim.Circuit("""
+        H 0
+        CX rec[-1] 1
+        TICK
+        H 0 1 2
+    """)
+    noise_model = NoiseModel(idle_error=0.1)
+    noisy_circuit = stim.Circuit("""
+        H 0
+        CX rec[-1] 1
+        DEPOLARIZE1(0.1) 1 2
+        TICK
+        H 0 1 2
+    """)
+    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
 
 def test_pauli_product_measurements() -> None:
     """Pauli product measurements get special treatment."""
+    # TODO: add
 
 
 def test_repeat_blocks() -> None:
     """Repeat blocks get special treatment."""
+    # TODO: add
 
 
 def test_noise_rule_errors() -> None:
