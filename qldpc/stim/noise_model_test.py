@@ -14,7 +14,7 @@ def _are_equivalent(circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: floa
     return circuit_a.approx_equals(circuit_b, atol=atol)
 
 
-def test_noise_injections(pytestconfig: pytest.Config) -> None:
+def test_noise_injection(pytestconfig: pytest.Config) -> None:
     """Inject noise into a circuit."""
     random.seed(pytestconfig.getoption("randomly_seed"))
 
@@ -22,16 +22,18 @@ def test_noise_injections(pytestconfig: pytest.Config) -> None:
         H 0
         CX 0 1 1 2
         TICK
-        MRY 0
-        M 1 2
+        M 0 1
+        MRY 2
     """)
 
+    # pick some random noise parameters
     p_1 = random.random() / 3
     p_2 = random.random()
     p_m = random.random()
     p_r = random.random()
+
     noise_model = qldpc.stim.NoiseModel(
-        clifford_1q_error=p_1, clifford_2q_error=p_2, readout_error=p_m
+        clifford_1q_error=p_1, clifford_2q_error=p_2, readout_error=p_m, reset_error=p_r
     )
     noisy_circuit = stim.Circuit(f"""
         H 0
@@ -41,8 +43,9 @@ def test_noise_injections(pytestconfig: pytest.Config) -> None:
         CX 1 2
         DEPOLARIZE2({p_2}) 1 2
         TICK
-        MRY({p_m}) 0
-        MZ({p_m}) 1 2
+        MZ({p_m}) 0 1
+        MRY({p_m}) 2
+        X_ERROR({p_r}) 2
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
@@ -57,18 +60,7 @@ def test_noise_injections(pytestconfig: pytest.Config) -> None:
         DEPOLARIZE2({p_2}) 1 2
         PAULI_CHANNEL_1(0, {p_1}, {p_1}) 1 2
         TICK
-        MRY 0
-        MZ 1 2
-    """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
-
-    noise_model = qldpc.stim.NoiseModel(readout_error=p_m, reset_error=p_r)
-    noisy_circuit = stim.Circuit(f"""
-        H 0
-        CX 0 1 1 2
-        TICK
-        MRY({p_m}) 0
-        M({p_m}) 1 2
-        X_ERROR({p_r}) 0
+        MZ 0 1
+        MRY 2
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
