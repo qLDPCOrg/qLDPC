@@ -147,6 +147,7 @@ def test_immunity() -> None:
 
 def test_classical_controls() -> None:
     """Classically controled gates get special treatment."""
+    noise_model: qldpc.stim.NoiseModel
 
     # classically controls are immune to noise, but the qubits still pick up idling errors
     circuit = stim.Circuit("""
