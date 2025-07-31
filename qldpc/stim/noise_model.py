@@ -334,7 +334,7 @@ class NoiseModel:
         *,
         system_qubits: Collection[int] | None = None,
         immune_qubits: Collection[int] | None = None,
-        automatic_ticks: bool = True,
+        insert_ticks: bool = True,
     ) -> stim.Circuit:
         """Construct a noisy version of the given circuit.
 
@@ -348,7 +348,7 @@ class NoiseModel:
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
             immune_qubits: All qubits that are declared immune to noise, even if they are operated
                 on.  If None, defaults to the empty set.
-            automatic_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
+            insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes that this preprocessing is not necessary.
 
         Returns:
@@ -357,7 +357,7 @@ class NoiseModel:
         system_qubits = set(system_qubits or range(circuit.num_qubits))
         immune_qubits = set(immune_qubits or [])
 
-        if automatic_ticks:
+        if insert_ticks:
             # split moments with TICKs to prevent qubit reuse conflicts
             if immune_qubits:
                 raise ValueError("Automatic TICK insertion does not support immune qubits.")
@@ -656,7 +656,7 @@ def _split_targets_if_needed(
     if op_type == CLIFFORD_2Q:
         yield from _split_targets_clifford_2q(op, immune_qubits)
     elif op_type == JUST_MEASURE_PP:
-        yield from _split_targets_if_needed_m_basis(op, immune_qubits)
+        yield from _split_mpp_targets(op, immune_qubits)
     elif op_type in [NOISE, ANNOTATION]:
         yield op
     else:
@@ -708,7 +708,7 @@ def _split_targets_clifford_2q(
         yield op
 
 
-def _split_targets_if_needed_m_basis(
+def _split_mpp_targets(
     op: stim.CircuitInstruction, immune_qubits: set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits an MPP operation into one operation for each Pauli product it measures.
@@ -721,6 +721,7 @@ def _split_targets_if_needed_m_basis(
     Yields:
         Circuit instructions, one for each Pauli product measurement.
     """
+    assert OP_TYPES[op.name] == JUST_MEASURE_PP
     targets = op.targets_copy()
     args = op.gate_args_copy()
     start = end = 0
