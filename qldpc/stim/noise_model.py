@@ -687,7 +687,8 @@ def _split_targets_if_needed_clifford_1q(
         immune_qubits: Set of qubit indices that should not have noise applied.
 
     Yields:
-        Circuit instructions, either the original operation or split into individual single-target operations.
+        Circuit instructions, either the original operation or split into individual single-target
+        operations.
     """
     if immune_qubits:
         args = op.gate_args_copy()
