@@ -253,48 +253,63 @@ class TannerCode(ClassicalCode):
 
 
 class SimplexCode(ClassicalCode):
-    """Classical simplex codes, with code parameters [2**k - 1, k, 2 ** (k - 1)].
+    """Classical simplex codes.
 
-    The automorphism group of SimplexCode(k) is the general linear group GL(k).
+    A binary simplex code with dimension k has code parameters [2**k - 1, k, 2 ** (k - 1)].
+    The automorphism of this code is the general linear group GL(k, 2).
 
     References:
     - https://errorcorrectionzoo.org/c/simplex
     - https://arxiv.org/abs/2502.07150
     """
 
-    def __init__(self, dim: int) -> None:
-        block_length = 2**dim - 1
-
-        matrix = np.zeros([block_length] * 2, dtype=int)
-        rows = np.arange(block_length, dtype=int)
-        for shift in SimplexCode.get_polynomial_exponents(dim):
-            matrix[rows, (rows + shift) % block_length] = 1
-        ClassicalCode.__init__(self, matrix, field=2)
+    def __init__(self, dim: int, field: int | None = None) -> None:
+        field = field or DEFAULT_FIELD_ORDER
+        polynomial = SimplexCode.get_defining_polynomial(dim, field)
+        coefficients = polynomial.coefficients(size=field**dim - 1, order="asc")
+        matrix = np.array([np.roll(coefficients, jj) for jj in range(len(coefficients))])
+        ClassicalCode.__init__(self, matrix, field=field)
 
         self._dimension = dim
-        self._distance = 2 ** (dim - 1)
+        self._distance = field ** (dim - 1) * (field - 1)
 
     @staticmethod
-    def get_polynomial_exponents(dim: int) -> tuple[int, ...]:
-        """Exponents of the polynomial that defines a SimplexCode of a given dimension.
+    def get_defining_polynomial(dim: int, field: int | None = None) -> galois.Poly:
+        """The polynomial that defines a SimplexCode of a given dimension and base field.
 
-        The polynomial is a primitive polynomial (i.e., "prime", with no factors) of the form
-            h(x) = 1 + x**c + x**dim,
-        where x is the generator of a cyclic group of order 2**dim - 1, and c is an integer.
+        Returns a three-term polynomial of the form h(x) = 1 + a * x**c + b * x**d, where
+        - the coefficients a and b are elements of a finite field,
+        - the exponents c and d are integers, and
+        - gcd(h(x), x ** (field**dim - 1) - 1) is a primitive polynomial of degree dim.
         """
-        # QUESTION: would any polynomial in galois.primitive_polys(2, dim, terms=3) suffice here?
-        if dim == 2:
-            return 0, 1, 2
-        if dim == 3:
-            return 0, 2, 3
-        if dim == 4:
-            return 0, 3, 4
-        if dim == 5:
-            return 0, 3, 5
-        if dim == 6:
-            return 0, 5, 6
-        if dim == 7:
-            return 0, 6, 7
+        field = field or DEFAULT_FIELD_ORDER
+
+        # first try finding a primitive three-term polynomial of degree dim
+        try:
+            primitive_polys = galois.primitive_polys(order=field, degree=dim, terms=3)
+            return next(primitive_polys)
+        except StopIteration:
+            None
+
+        # find a suitable polynomial by brute force
+
+        order = field**dim - 1
+        mod_poly_coefficients = [0] * (order + 1)
+        mod_poly_coefficients[0] = -1
+        mod_poly_coefficients[-1] = 1
+        mod_poly = galois.Poly(mod_poly_coefficients, field=galois.GF(field))
+
+        for aa, bb in itertools.product(range(1, field), repeat=2):
+            for cc, dd in itertools.combinations(range(1, order + 1), 2):
+                coefficients = [0] * (order + 1)
+                coefficients[0] = 1
+                coefficients[cc] = aa
+                coefficients[dd] = bb
+                poly = galois.Poly(coefficients[::-1], field=galois.GF(field))
+                gcd_poly = galois.gcd(poly, mod_poly)
+                if gcd_poly.degree == dim and gcd_poly.is_primitive():
+                    return poly
+
         raise ValueError(
-            f"Classical simplex codes are only supported for dimensions >1, <=7 (provided: {dim})"
-        )
+            "Suitable primitive polynomial not found.  This should not be possible."
+        )  # pragma: no cover
