@@ -54,11 +54,12 @@ import stim
 
 CLIFFORD_1Q = "C1"
 CLIFFORD_2Q = "C2"
-ANNOTATION = "info"
-MPP = "MPP"
-MEASURE_RESET_1Q = "MR1"
 JUST_MEASURE_1Q = "M1"
+JUST_MEASURE_2Q = "M2"
+JUST_MEASURE_PP = "MPP"
 JUST_RESET_1Q = "R1"
+MEASURE_RESET_1Q = "MR1"
+ANNOTATION = "info"
 NOISE = "!?"
 
 OP_TYPES = {
@@ -102,19 +103,22 @@ OP_TYPES = {
     "ZCX": CLIFFORD_2Q,
     "ZCY": CLIFFORD_2Q,
     "ZCZ": CLIFFORD_2Q,
-    "MPP": MPP,
-    "MR": MEASURE_RESET_1Q,
-    "MRX": MEASURE_RESET_1Q,
-    "MRY": MEASURE_RESET_1Q,
-    "MRZ": MEASURE_RESET_1Q,
     "M": JUST_MEASURE_1Q,
     "MX": JUST_MEASURE_1Q,
     "MY": JUST_MEASURE_1Q,
     "MZ": JUST_MEASURE_1Q,
+    "MXX": JUST_MEASURE_2Q,
+    "MYY": JUST_MEASURE_2Q,
+    "MZZ": JUST_MEASURE_2Q,
+    "MPP": JUST_MEASURE_PP,
     "R": JUST_RESET_1Q,
     "RX": JUST_RESET_1Q,
     "RY": JUST_RESET_1Q,
     "RZ": JUST_RESET_1Q,
+    "MR": MEASURE_RESET_1Q,
+    "MRX": MEASURE_RESET_1Q,
+    "MRY": MEASURE_RESET_1Q,
+    "MRZ": MEASURE_RESET_1Q,
     "DETECTOR": ANNOTATION,
     "OBSERVABLE_INCLUDE": ANNOTATION,
     "QUBIT_COORDS": ANNOTATION,
@@ -130,16 +134,16 @@ OP_TYPES = {
     # Not supported.
     # 'CORRELATED_ERROR': NOISE,
     # 'E': NOISE,
-    # 'ELSE_CORRELATED_ERROR',
+    # 'ELSE_CORRELATED_ERROR': NOISE,
 }
-COLLAPSING_OPS = {
+JUST_MEASURE_OPS = {
     op
     for op, op_type in OP_TYPES.items()
-    if op_type == JUST_RESET_1Q
-    or op_type == JUST_MEASURE_1Q
-    or op_type == MEASURE_RESET_1Q
-    or op_type == MPP
+    if op_type == JUST_MEASURE_1Q or op_type == JUST_MEASURE_2Q or op_type == JUST_MEASURE_PP
 }
+JUST_RESET_OPS = {op for op, op_type in OP_TYPES.items() if op_type == JUST_RESET_1Q}
+MEASURE_AND_RESET_OPS = {op for op, op_type in OP_TYPES.items() if op_type == MEASURE_RESET_1Q}
+COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
 
 class NoiseRule:
@@ -149,7 +153,13 @@ class NoiseRule:
     applied to a particular type of quantum operation.
     """
 
-    def __init__(self, *, after: dict[str, float | Iterable[float]] = {}, flip_result: float = 0):
+    def __init__(
+        self,
+        *,
+        after: dict[str, float | Iterable[float]] = {},
+        readout_error: float = 0,
+        reset_error: float = 0,
+    ):
         """Initializes a noise rule with specified error channels.
 
         Args:
@@ -158,19 +168,25 @@ class NoiseRule:
                 depolarization with parameter 0.01, followed by 2% bit-flip noise.  These noise
                 channels occur after all other operations in the moment and are applied to the same
                 targets as the relevant operation.
-            flip_result: The probability that a measurement result should be reported incorrectly.
-                Only used when applied to operations that produce measurement results.
+            readout_error: The probability that a measurement result is reported incorrectly.  Only
+                allowed for operations that produce measurement results.
+            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
+                operations that reset qubits.
 
         Raises:
-            ValueError: If any noise channel name is not recognized, or if any net probability of
+            ValueError: If any noise channel name is not recognized or if any net probability of an
                 error is not between 0 and 1 (inclusive).
         """
-        self.flip_result = flip_result
-        if not (0 <= flip_result <= 1):
-            raise ValueError(f"{flip_result=} is not between 0 and 1")
+        self.readout_error = readout_error
+        if not (0 <= readout_error <= 1):
+            raise ValueError(f"{readout_error=} is not between 0 and 1")
+
+        self.reset_error = reset_error
+        if not (0 <= reset_error <= 1):
+            raise ValueError(f"{reset_error=} is not between 0 and 1")
 
         self.after = {
-            op: list(prob_or_probs) if isinstance(prob_or_probs, Iterable) else [prob_or_probs]
+            op: tuple(prob_or_probs) if isinstance(prob_or_probs, Iterable) else (prob_or_probs,)
             for op, prob_or_probs in after.items()
         }
         for op, probs in self.after.items():
@@ -191,18 +207,15 @@ class NoiseRule:
     ) -> None:
         """Appends a noisy version of the given operation to the circuit.
 
-        This method applies the noise rule to a quantum operation, adding the
-        operation itself along with any associated noise channels to the appropriate
-        circuit sections.
+        This method applies the noise rule to a quantum operation, adding the operation itself along
+        with any associated noise channels to the appropriate circuit sections.
 
         Args:
             split_op: The quantum operation to add noise to.
-            out_during_moment: The circuit to append the operation to during the
-                current moment.
-            after_moments: A dictionary mapping noise channel types and parameters
-                to circuits that should be executed after the main operations.
-            immune_qubits: A set of qubit indices that should not have noise
-                applied to them.
+            out_during_moment: The circuit to append the operation to during the current moment.
+            after_moments: A dictionary mapping noise channel types and parameters to circuits that
+                should be executed after the main operations.
+            immune_qubits: A set of qubit indices that should not have noise applied to them.
         """
         targets = split_op.targets_copy()
         if immune_qubits and any(
@@ -219,20 +232,27 @@ class NoiseRule:
             return
 
         args = split_op.gate_args_copy()
-        if self.flip_result:
-            op_type = OP_TYPES[split_op.name]
-            assert op_type == MPP or op_type == JUST_MEASURE_1Q or op_type == MEASURE_RESET_1Q
+        if self.readout_error:
+            assert split_op.name in JUST_MEASURE_OPS or split_op.name in MEASURE_AND_RESET_OPS
             if not args:
-                args = [self.flip_result]
+                args = [self.readout_error]
             else:
                 assert len(args) == 1
                 # combine bit-flip probabilities
-                args = [1 - (1 - self.flip_result) * (1 - args[0])]
+                args = [1 - (1 - self.readout_error) * (1 - args[0])]
 
         out_during_moment.append(split_op.name, targets, args)
+
         raw_targets = [target.value for target in targets if not target.is_combiner]
-        for op_name, arg in self.after.items():
-            after_moments[(op_name, arg)].append(op_name, raw_targets, arg)
+        if self.reset_error:
+            assert split_op.name in JUST_RESET_OPS or split_op.name in MEASURE_AND_RESET_OPS
+            error_basis = "X" if _standardized_name(split_op)[-1] != "X" else "Z"
+            op_name = f"{error_basis}_ERROR"
+            args = (self.reset_error,)
+            after_moments[(op_name, args)].append(op_name, raw_targets, args)
+
+        for op_name, args in self.after.items():
+            after_moments[(op_name, args)].append(op_name, raw_targets, args)
 
 
 class NoiseModel:
@@ -278,8 +298,8 @@ class NoiseModel:
         self.rules = rules
         self.clifford_1q_error = clifford_1q_error
         self.clifford_2q_error = clifford_2q_error
-        self.readout_error = readout_error
-        self.reset_error = reset_error
+        self.readout_error = readout_error or 0
+        self.reset_error = reset_error or 0
         self.idle_depolarization = idle_depolarization
         self.additional_depolarization_waiting_for_m_or_r = (
             additional_depolarization_waiting_for_m_or_r
@@ -384,6 +404,13 @@ class NoiseModel:
             return self.clifford_1q_error
         if self.clifford_2q_error is not None and op_type == CLIFFORD_2Q:
             return self.clifford_2q_error
+
+        if self.readout_error and split_op.name in JUST_MEASURE_OPS:
+            return NoiseRule(readout_error=self.readout_error)
+        if self.reset_error and split_op.name in JUST_RESET_OPS:
+            return NoiseRule(reset_error=self.reset_error)
+        if (self.readout_error or self.reset_error) and split_op.name in MEASURE_AND_RESET_OPS:
+            return NoiseRule(readout_error=self.readout_error, reset_error=self.reset_error)
 
         return None
 
@@ -602,7 +629,7 @@ def _standardized_name(op: stim.CircuitInstruction) -> str:
     The primary function of this method is to disambiguate the basis of measurement and reset gates.
 
     Args:
-        op: The circuit circuit instruction whose name we need.
+        op:_name The name of the circuit instruction that we need to standardize.
 
     Returns:
         str: The standardized name.
@@ -670,7 +697,7 @@ def _split_targets_if_needed(
     op_type = OP_TYPES[op.name]
     if op_type == CLIFFORD_2Q:
         yield from _split_targets_if_needed_clifford_2q(op, immune_qubits)
-    elif op_type == MPP:
+    elif op_type == JUST_MEASURE_PP:
         yield from _split_targets_if_needed_m_basis(op, immune_qubits)
     elif op_type in [NOISE, ANNOTATION]:
         yield op
