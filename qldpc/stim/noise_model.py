@@ -48,7 +48,7 @@ It is part of the code from the paper
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterator, Set
+from collections.abc import Iterable, Iterator, Set
 
 import stim
 
@@ -149,32 +149,37 @@ class NoiseRule:
     applied to a particular type of quantum operation.
     """
 
-    def __init__(self, *, after: dict[str, float] = {}, flip_result: float = 0):
+    def __init__(self, *, after: dict[str, float | Iterable[float]] = {}, flip_result: float = 0):
         """Initializes a noise rule with specified error channels.
 
         Args:
             after: A dictionary mapping noise channel names to their probability arguments.  For
-                example, {"DEPOLARIZE2": 0.01, "X_ERROR": 0.02} will add two-qubit depolarization
-                with parameter 0.01 and also add 2% bit flip noise.  These noise channels occur after
-                all other operations in the moment and are applied to the same targets as the
-                relevant operation.
+                example, {"DEPOLARIZE2": 0.01, "PAULI_CHANNEL_1": [0.02, 0, 0]} will add two-qubit
+                depolarization with parameter 0.01, followed by 2% bit-flip noise.  These noise
+                channels occur after all other operations in the moment and are applied to the same
+                targets as the relevant operation.
             flip_result: The probability that a measurement result should be reported incorrectly.
-                Only valid when applied to operations that produce measurement results.
+                Only used when applied to operations that produce measurement results.
 
         Raises:
-            ValueError: If flip_result is not between 0 and 1 (inclusive), or if any probability in
-                after is not between 0 and 1 (inclusive), or if any key in after is not a valid noise
-                channel name.
+            ValueError: If any noise channel name is not recognized, or if any net probability of
+                error is not between 0 and 1 (inclusive).
         """
-        if not (0 <= flip_result <= 1):
-            raise ValueError(f"not (0 <= {flip_result=} <= 1)")
-        for op, p in after.items():
-            if OP_TYPES[op] != NOISE:
-                raise ValueError(f"not a noise channel: {op} from {after=}")
-            if not (0 <= p <= 1):
-                raise ValueError(f"not (0 <= {p} <= 1) from {after=}")
-        self.after = after
         self.flip_result = flip_result
+        if not (0 <= flip_result <= 1):
+            raise ValueError(f"{flip_result=} is not between 0 and 1")
+
+        self.after = {
+            op: list(prob_or_probs) if isinstance(prob_or_probs, Iterable) else [prob_or_probs]
+            for op, prob_or_probs in after.items()
+        }
+        for op, probs in self.after.items():
+            if OP_TYPES[op] != NOISE:
+                raise ValueError(f"Invalid or unrecognized noise channel {op} in {after=}")
+            if not (0 <= sum(probs) <= 1):
+                raise ValueError(
+                    f"The net probability of an error is not beween 0 and 1 in {after=}"
+                )
 
     def append_noisy_version_of(
         self,
