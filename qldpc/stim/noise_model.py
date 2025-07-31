@@ -1,4 +1,4 @@
-"""Implementation of different noise models for Stim circuits.
+"""Implementation of noise models for Stim circuits.
 
 The main components of this module are:
 - NoiseRule: Defines how to add noise to individual operations.
@@ -19,11 +19,11 @@ Examples of basic usage with a predefined noise model:
 
     # Create a custom noise model
     custom_model = NoiseModel(
-         clifford_1q_error=0.001,
-         clifford_2q_error=0.01,
-         readout_error=0.02,
-         reset_error=p_r
-         idle_error=0.0001,
+         clifford_1q_error=3e-5,
+         clifford_2q_error=1e-3,
+         readout_error=1e-3,
+         reset_error=1e-3,
+         idle_error=2e-4,
      )
     noisy_circuit = custom_model.noisy_circuit(circuit)
 
@@ -526,7 +526,7 @@ class DepolarizingNoiseModel(NoiseModel):
     - If applicable, every idling qubit in a given moment gets depolarized.
     """
 
-    def __init__(self, p: float, *, include_idling_error: bool = True) -> None:
+    def __init__(self, p: float, *, include_idling_error: bool = False) -> None:
         """Instantiate a depolarizing noise model."""
         super().__init__(
             clifford_1q_error=p,

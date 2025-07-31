@@ -130,7 +130,7 @@ def test_immunity() -> None:
     circuit = stim.Circuit("""
         H 0 1
     """)
-    noise_model = qldpc.stim.DepolarizingNoiseModel(0.1)
+    noise_model = qldpc.stim.DepolarizingNoiseModel(0.1, include_idling_error=False)
     noisy_circuit = stim.Circuit("""
         H 0 1
         DEPOLARIZE1(0.1) 1
