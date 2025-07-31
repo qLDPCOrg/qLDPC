@@ -1,4 +1,4 @@
-"""Implementation of different noise models for Stim circuits.
+"""Implementation of noise models for Stim circuits.
 
 The main components of this module are:
 - NoiseRule: Defines how to add noise to individual operations.
@@ -19,10 +19,10 @@ Examples of basic usage with a predefined noise model:
 
     # Create a custom noise model
     custom_model = NoiseModel(
-         clifford_1q_error=0.001,
+         clifford_1q_error=0.0005,
          clifford_2q_error=0.01,
          readout_error=0.02,
-         reset_error=p_r
+         reset_error=0.001,
          idle_error=0.0001,
      )
     noisy_circuit = custom_model.noisy_circuit(circuit)
