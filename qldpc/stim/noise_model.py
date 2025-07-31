@@ -354,7 +354,7 @@ class NoiseModel:
             immune_qubits: Qubits to not apply noise to, even if they are operated on.  If None,
                 defaults to an empty set.
             system_qubits: All qubits that are (a) used by the circuit or (b) are allowed to
-                accumulate idling errors.  Defaults to all of the qubits in the given circuit.
+                accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
             automatic_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes the circuit is already preprocessed and does not insert
                 TICKs.
@@ -363,10 +363,7 @@ class NoiseModel:
             The noisy version of the circuit with all specified noise channels applied.
         """
         immune_qubits = immune_qubits or set()
-
-        circuit_qubits = set.union(*[set(op.targets_copy) for op in circuit])
-        system_qubits = system_qubits or circuit_qubits
-        assert circuit_qubits.issubset(system_qubits)
+        system_qubits = system_qubits or set(range(circuit.num_qubits))
 
         # Preprocess the circuit to automatically insert TICKs when qubits are reused
         if automatic_ticks:
