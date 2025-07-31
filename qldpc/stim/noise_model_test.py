@@ -3,12 +3,12 @@ import random
 import pytest
 import stim
 
-from qldpc.stim import NoiseModel, NoiseRule
+import qldpc
 
 
 def _are_equivalent(circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: float = 1e-10) -> bool:
     """Test equivalence between circuits after some standardization."""
-    trivial_noise_model = NoiseModel()
+    trivial_noise_model = qldpc.stim.NoiseModel()
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
     circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
     ################################################################################
@@ -40,7 +40,7 @@ def test_gate_errors() -> None:
         RX 1
         MR 2
     """)
-    noise_model = NoiseModel(
+    noise_model = qldpc.stim.NoiseModel(
         clifford_1q_error=0.1, clifford_2q_error=0.2, readout_error=0.3, reset_error=0.4
     )
     noisy_circuit = stim.Circuit("""
@@ -63,8 +63,8 @@ def test_gate_errors() -> None:
     circuit = stim.Circuit("""
         CX 0 1
     """)
-    noise_rule = NoiseRule(after={"DEPOLARIZE2": 0.2, "PAULI_CHANNEL_1": [0, 0.1, 0.1]})
-    noise_model = NoiseModel(rules={"CX": noise_rule})
+    noise_rule = qldpc.stim.NoiseRule(after={"DEPOLARIZE2": 0.2, "PAULI_CHANNEL_1": [0, 0.1, 0.1]})
+    noise_model = qldpc.stim.NoiseModel(rules={"CX": noise_rule})
     noisy_circuit = stim.Circuit("""
         CX 0 1
         DEPOLARIZE2(0.2) 0 1
@@ -79,7 +79,7 @@ def test_gate_errors() -> None:
         H 0
         M 0
     """)
-    noise_model = NoiseModel(readout_error=p_m)
+    noise_model = qldpc.stim.NoiseModel(readout_error=p_m)
     noisy_circuit = stim.Circuit(f"""
         H 0
         MZ({p_m}) 0
@@ -91,13 +91,11 @@ def test_gate_errors() -> None:
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
     assert _are_equivalent(double_noisy_circuit, noise_model.noisy_circuit(noisy_circuit))
 
-
-def test_test():
     # reusing a qubit in the same moment raises an error
     circuit = stim.Circuit("""
         CX 0 1 1 2
     """)
-    noise_model = NoiseModel(idle_error=0.1)
+    noise_model = qldpc.stim.SI1000NoiseModel(p=0.1)
     with pytest.raises(ValueError, match="multiple uses"):
         noise_model.noisy_circuit(circuit, insert_ticks=False)
 
@@ -110,7 +108,7 @@ def test_idle_errors() -> None:
         Z 1
         M 0
     """)
-    noise_model = NoiseModel(
+    noise_model = qldpc.stim.NoiseModel(
         readout_error=0.1, idle_error=0.2, additional_error_waiting_for_m_or_r=0.3
     )
     noisy_circuit = stim.Circuit("""
@@ -129,7 +127,7 @@ def test_immunity() -> None:
     circuit = stim.Circuit("""
         H 0 1
     """)
-    noise_model = NoiseModel(clifford_1q_error=0.1)
+    noise_model = qldpc.stim.NoiseModel(clifford_1q_error=0.1)
     noisy_circuit = stim.Circuit("""
         H 0 1
         DEPOLARIZE1(0.1) 1
@@ -151,7 +149,7 @@ def test_classical_controls() -> None:
     circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
     """)
-    noise_model = NoiseModel(clifford_2q_error=0.2)
+    noise_model = qldpc.stim.DepolarizingNoiseModel(p=0.2, include_idling_error=False)
     noisy_circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
         DEPOLARIZE2(0.2) 0 1
@@ -165,7 +163,7 @@ def test_classical_controls() -> None:
         TICK
         H 0 1 2
     """)
-    noise_model = NoiseModel(idle_error=0.1)
+    noise_model = qldpc.stim.NoiseModel(idle_error=0.1)
     noisy_circuit = stim.Circuit("""
         H 0
         CX rec[-1] 1
@@ -189,10 +187,10 @@ def test_repeat_blocks() -> None:
 def test_noise_rule_errors() -> None:
     """Cover various NoiseRule errors."""
     with pytest.raises(ValueError, match="not between 0 and 1"):
-        NoiseRule(readout_error=1.1)
+        qldpc.stim.NoiseRule(readout_error=1.1)
     with pytest.raises(ValueError, match="not between 0 and 1"):
-        NoiseRule(reset_error=1.1)
+        qldpc.stim.NoiseRule(reset_error=1.1)
     with pytest.raises(ValueError, match="not between 0 and 1"):
-        NoiseRule(after={"X_ERROR": -0.1})
+        qldpc.stim.NoiseRule(after={"X_ERROR": -0.1})
     with pytest.raises(ValueError, match="Invalid or unrecognized noise channel"):
-        NoiseRule(after={"S": 0.5})
+        qldpc.stim.NoiseRule(after={"S": 0.5})

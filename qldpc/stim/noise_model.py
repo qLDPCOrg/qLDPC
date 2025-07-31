@@ -515,14 +515,14 @@ class DepolarizingNoiseModel(NoiseModel):
     - If applicable, every idling qubit in a given moment gets depolarized.
     """
 
-    def __init__(self, p: float, *, idling_error: bool = True) -> None:
+    def __init__(self, p: float, *, include_idling_error: bool = True) -> None:
         """Instantiate a depolarizing noise model."""
         super().__init__(
             clifford_1q_error=p,
             clifford_2q_error=p,
             readout_error=p,
             reset_error=p,
-            idle_error=p if idling_error else False,
+            idle_error=p if include_idling_error else False,
         )
 
 
