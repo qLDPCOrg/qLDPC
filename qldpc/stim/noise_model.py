@@ -387,7 +387,7 @@ class NoiseModel:
                     )
                 )
             else:
-                self._append_noisy_moment(
+                self._inplace_append_noisy_moment(
                     circuit=noisy_circuit,
                     moment=moment_or_repeat_block,
                     system_qubits=system_qubits,
@@ -396,7 +396,7 @@ class NoiseModel:
 
         return noisy_circuit
 
-    def _append_noisy_moment(
+    def _inplace_append_noisy_moment(
         self,
         *,
         circuit: stim.Circuit,
@@ -428,14 +428,14 @@ class NoiseModel:
         circuit.append(noise_after_moment)
 
         if self.idle_error or self.additional_error_waiting_for_m_or_r:
-            self._append_idle_errors(
+            self._inplace_append_idle_errors(
                 circuit=circuit,
                 moment=moment,
                 system_qubits=system_qubits,
                 immune_qubits=immune_qubits,
             )
 
-    def _append_idle_errors(
+    def _inplace_append_idle_errors(
         self,
         *,
         circuit: stim.Circuit,
