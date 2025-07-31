@@ -3,12 +3,12 @@ import random
 import pytest
 import stim
 
-import qldpc
+from qldpc.stim import NoiseModel, NoiseRule
 
 
 def _are_equivalent(circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: float = 1e-10) -> bool:
     """Test equivalence between circuits after some standardization."""
-    trivial_noise_model = qldpc.stim.NoiseModel()
+    trivial_noise_model = NoiseModel()
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
     circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
     return circuit_a.approx_equals(circuit_b, atol=atol)
@@ -32,7 +32,7 @@ def test_noise_injection(pytestconfig: pytest.Config) -> None:
     p_m = random.random()
     p_r = random.random()
 
-    noise_model = qldpc.stim.NoiseModel(
+    noise_model = NoiseModel(
         clifford_1q_error=p_1, clifford_2q_error=p_2, readout_error=p_m, reset_error=p_r
     )
     noisy_circuit = stim.Circuit(f"""
@@ -49,8 +49,8 @@ def test_noise_injection(pytestconfig: pytest.Config) -> None:
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
-    noise_rule = qldpc.stim.NoiseRule(after={"DEPOLARIZE2": p_2, "PAULI_CHANNEL_1": [0, p_1, p_1]})
-    noise_model = qldpc.stim.NoiseModel(rules={"CX": noise_rule})
+    noise_rule = NoiseRule(after={"DEPOLARIZE2": p_2, "PAULI_CHANNEL_1": [0, p_1, p_1]})
+    noise_model = NoiseModel(rules={"CX": noise_rule})
     noisy_circuit = stim.Circuit(f"""
         H 0
         CX 0 1

@@ -245,7 +245,7 @@ class NoiseRule:
         raw_targets = [target.value for target in targets if not target.is_combiner]
         if self.reset_error:
             assert split_op.name in JUST_RESET_OPS or split_op.name in MEASURE_AND_RESET_OPS
-            error_basis = "X" if _standardized_name(split_op)[-1] != "X" else "Z"
+            error_basis = "X" if _get_standardized_name(split_op)[-1] != "X" else "Z"
             op_name = f"{error_basis}_ERROR"
             args = (self.reset_error,)
             after_moments[(op_name, args)].append(op_name, raw_targets, args)
@@ -313,7 +313,7 @@ class NoiseModel:
             return None
 
         if self.rules is not None:
-            rule = self.rules.get(_standardized_name(op)) or self.rules.get(
+            rule = self.rules.get(_get_standardized_name(op)) or self.rules.get(
                 op.name
             )  # allows for an MPP rule, but first checks for rules such as MXY
             if rule is not None:
@@ -338,8 +338,8 @@ class NoiseModel:
         self,
         circuit: stim.Circuit,
         *,
-        system_qubits: set[int] | None = None,
         immune_qubits: set[int] | None = None,
+        system_qubits: set[int] | None = None,
         automatic_ticks: bool = True,
     ) -> stim.Circuit:
         """Returns a noisy version of the given circuit.
@@ -351,10 +351,10 @@ class NoiseModel:
 
         Args:
             circuit: The circuit to layer noise over.
-            system_qubits: All qubits used by the circuit.  These are the qubits eligible for idling
-                noise.  If None, defaults to all qubits from 0 to circuit.num_qubits-1.
             immune_qubits: Qubits to not apply noise to, even if they are operated on.  If None,
                 defaults to an empty set.
+            system_qubits: All qubits that are (a) used by the circuit or (b) are allowed to
+                accumulate idling errors.  Defaults to all of the qubits in the given circuit.
             automatic_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes the circuit is already preprocessed and does not insert
                 TICKs.
@@ -362,16 +362,17 @@ class NoiseModel:
         Returns:
             The noisy version of the circuit with all specified noise channels applied.
         """
-        if system_qubits is None:
-            system_qubits = set(range(circuit.num_qubits))
-        if immune_qubits is None:
-            immune_qubits = set()
+        immune_qubits = immune_qubits or set()
+
+        circuit_qubits = set.union(*[set(op.targets_copy) for op in circuit])
+        system_qubits = system_qubits or circuit_qubits
+        assert circuit_qubits.issubset(system_qubits)
 
         # Preprocess the circuit to automatically insert TICKs when qubits are reused
         if automatic_ticks:
             if immune_qubits:
                 raise ValueError("Automatic TICK insertion does not support immune qubits.")
-            circuit = _preprocess_circuit_with_auto_ticks(circuit)
+            circuit = _preprocess_circuit_with_auto_ticks(circuit, circuit_qubits)
 
         result = stim.Circuit()
 
@@ -410,8 +411,8 @@ class NoiseModel:
         *,
         moment_split_ops: list[stim.CircuitInstruction],
         out: stim.Circuit,
-        system_qubits: Set[int],
         immune_qubits: Set[int],
+        system_qubits: Set[int],
     ) -> None:
         """Appends idle errors to the circuit for qubits not being operated on.
 
@@ -421,10 +422,8 @@ class NoiseModel:
         Args:
             moment_split_ops: List of operations happening during this moment.
             out: The circuit to append idle error operations to.
-            system_qubits: Set of all qubits in the system that can experience
-                idle errors.
-            immune_qubits: Set of qubit indices that should not have noise
-                applied to them.
+            immune_qubits: Set of qubit indices that should not have noise applied to them.
+            system_qubits: Set of all qubits in the system that can experience idle errors.
 
         Raises:
             ValueError: If qubits are operated on multiple times within the
@@ -472,8 +471,8 @@ class NoiseModel:
         *,
         moment_split_ops: list[stim.CircuitInstruction],
         out: stim.Circuit,
-        system_qubits: Set[int],
         immune_qubits: Set[int],
+        system_qubits: Set[int],
     ) -> None:
         """Appends a noisy version of a moment to the output circuit.
 
@@ -483,10 +482,8 @@ class NoiseModel:
         Args:
             moment_split_ops: List of operations happening during this moment.
             out: The circuit to append the noisy operations to.
-            system_qubits: Set of all qubits in the system that can experience
-                idle errors.
-            immune_qubits: Set of qubit indices that should not have noise
-                applied to them.
+            immune_qubits: Set of qubit indices that should not have noise applied to them.
+            system_qubits: Set of all qubits in the system that can experience idle errors.
         """
         after: defaultdict[tuple[str, float], stim.Circuit] = defaultdict(stim.Circuit)
         for split_op in moment_split_ops:
@@ -553,18 +550,49 @@ class DepolarizingNoiseModel(NoiseModel):
         )
 
 
-def _preprocess_circuit_with_auto_ticks(circuit: stim.Circuit) -> stim.Circuit:
-    """Preprocesses a circuit to automatically insert TICKs when qubits are reused.
+def _get_standardized_name(op: stim.CircuitInstruction) -> str:
+    """Stardardized name of a circuit instruction.
 
-    This ensures that no qubit is operated on multiple times within a single moment,
-    which allows the existing idling error logic to work correctly.
+    The primary function of this method is to disambiguate the basis of measurement and reset gates.
+
+    Args:
+        op:_name The name of the circuit instruction that we need to standardize.
+
+    Returns:
+        str: The standardized name.
+    """
+    op_name = op.name
+    if op_name == "M" or op_name == "R" or op_name == "MR":
+        return op_name + "Z"
+
+    if op_name == "MPP":
+        name = "M"
+        for target in op.targets_copy()[::2]:
+            if target.is_x_target:
+                name += "X"
+            elif target.is_y_target:
+                name += "Y"
+            else:
+                assert target.is_z_target
+                name += "Z"
+        return name
+
+    return op_name
+
+
+def _preprocess_circuit_with_auto_ticks(
+    circuit: stim.Circuit, circuit_qubits: Set[int]
+) -> stim.Circuit:
+    """Insert TICKs into a circuit to split moments that act on a qubit multiple times.
+
+    This preprocessing ensures, for example, that idling errors are treated correctly.
 
     Args:
         circuit: The input circuit to preprocess.
+        circuit_qubits: The qubits used by the circuit.
 
     Returns:
-        A new circuit with TICKs automatically inserted to prevent qubit reuse
-        within the same moment.
+        A new circuit with TICKs inserted to prevent qubit reuse within the same moment.
     """
     result = stim.Circuit()
     used_qubits: set[int] = set()
@@ -583,7 +611,7 @@ def _preprocess_circuit_with_auto_ticks(circuit: stim.Circuit) -> stim.Circuit:
 
         if op.name == "TICK":
             # Explicit TICK - clear used qubits
-            result.append(op)
+            result.append("TICK")
             used_qubits.clear()
             continue
 
@@ -612,36 +640,6 @@ def _preprocess_circuit_with_auto_ticks(circuit: stim.Circuit) -> stim.Circuit:
             used_qubits.update(op_qubits)
 
     return result
-
-
-def _standardized_name(op: stim.CircuitInstruction) -> str:
-    """Stardardized name of a circuit instruction.
-
-    The primary function of this method is to disambiguate the basis of measurement and reset gates.
-
-    Args:
-        op:_name The name of the circuit instruction that we need to standardize.
-
-    Returns:
-        str: The standardized name.
-    """
-    op_name = op.name
-    if op_name == "M" or op_name == "R" or op_name == "MR":
-        return op_name + "Z"
-
-    if op_name == "MPP":
-        name = "M"
-        for target in op.targets_copy()[::2]:
-            if target.is_x_target:
-                name += "X"
-            elif target.is_y_target:
-                name += "Y"
-            else:
-                assert target.is_z_target
-                name += "Z"
-        return name
-
-    return op_name
 
 
 def _occurs_in_classical_control_system(op: stim.CircuitInstruction) -> bool:
