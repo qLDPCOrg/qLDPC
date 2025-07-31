@@ -603,7 +603,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit) -> stim.Circuit:
         for split_op in split_ops:
             # Check if this split operation would reuse any qubits
             op_qubits = set()
-            if not (OP_TYPES[split_op.name] == ANNOTATION or _involves_classical_bits(split_op)):
+            if OP_TYPES[split_op.name] != ANNOTATION:
                 for target in split_op.targets_copy():
                     if not target.is_combiner:
                         op_qubits.add(target.value)
