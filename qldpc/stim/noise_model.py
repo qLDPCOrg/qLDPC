@@ -19,11 +19,11 @@ Examples of basic usage with a predefined noise model:
 
     # Create a custom noise model
     custom_model = NoiseModel(
-         clifford_1q_error=0.0005,
-         clifford_2q_error=0.01,
-         readout_error=0.02,
-         reset_error=0.001,
-         idle_error=0.0001,
+         clifford_1q_error=3e-5,
+         clifford_2q_error=1e-3,
+         readout_error=1e-3,
+         reset_error=1e-3,
+         idle_error=2e-4,
      )
     noisy_circuit = custom_model.noisy_circuit(circuit)
 
