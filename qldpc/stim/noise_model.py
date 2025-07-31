@@ -190,7 +190,7 @@ class NoiseRule:
                 raise ValueError(f"Invalid or unrecognized noise channel {op} in {after=}")
             if not (0 <= sum(probs) <= 1):
                 raise ValueError(
-                    f"The net probability of an error is not beween 0 and 1 in {after=}"
+                    f"The net probability of an error is not between 0 and 1 in {after=}"
                 )
 
     def noisy_operation(
@@ -653,7 +653,7 @@ def _split_targets_if_needed(
     if op_type == CLIFFORD_2Q:
         yield from _split_targets_clifford_2q(op, immune_qubits)
     elif op_type == JUST_MEASURE_PP:
-        yield from _split_mpp_targets(op, immune_qubits)
+        yield from _split_targets_mpp(op, immune_qubits)
     elif op_type in [NOISE, ANNOTATION]:
         yield op
     else:
@@ -705,7 +705,7 @@ def _split_targets_clifford_2q(
         yield op
 
 
-def _split_mpp_targets(
+def _split_targets_mpp(
     op: stim.CircuitInstruction, immune_qubits: set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits an MPP operation into one operation for each Pauli product it measures.
