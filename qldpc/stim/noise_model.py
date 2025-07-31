@@ -196,6 +196,57 @@ class NoiseRule:
                     f"The net probability of an error is not beween 0 and 1 in {after=}"
                 )
 
+    def noisy_operation(
+        self, op: stim.CircuitInstruction, *, immune_qubits: Set[int] = set()
+    ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
+        """Apply this noise rule to the given operation.
+
+        Args:
+            op: The operation to add noise to.
+
+        Returns:
+            stim.CircuitInstruction: The given operation possibly modified to account for noise.
+            stim.Circuit: Noise operations that should follow the given operation.
+        """
+        targets = op.targets_copy()
+        if immune_qubits and any(
+            (
+                target.is_qubit_target
+                or target.is_x_target
+                or target.is_y_target
+                or target.is_z_target
+            )
+            and target.value in immune_qubits
+            for target in targets
+        ):
+            return op, stim.Circuit()
+
+        args = op.gate_args_copy()
+        if self.readout_error:
+            assert op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
+            if not args:
+                args = [self.readout_error]
+            else:
+                assert len(args) == 1
+                # combine bit-flip probabilities
+                args = [1 - (1 - self.readout_error) * (1 - args[0])]
+
+        noisy_op = stim.CircuitInstruction(op.name, targets, args)
+        circuit_after = stim.Circuit()
+
+        qubit_targets = [target.value for target in targets if not target.is_combiner]
+        if self.reset_error:
+            assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
+            error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
+            error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
+            circuit_after.append(error_op)
+
+        for op_name, args in self.after.items():
+            error_op = stim.CircuitInstruction(op_name, qubit_targets, args)
+            circuit_after.append(error_op)
+
+        return noisy_op, circuit_after
+
     def append_noisy_version_of(
         self,
         *,
