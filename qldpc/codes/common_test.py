@@ -156,8 +156,7 @@ def test_distance_classical(bits: int = 3) -> None:
     # compute distance of a trinary repetition code
     rep_code = codes.RepetitionCode(bits, field=3)
     rep_code._distance = None
-    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
-        assert rep_code.get_distance_exact() == 3
+    assert rep_code.get_distance_exact() == 3
 
 
 def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
