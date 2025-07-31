@@ -18,6 +18,8 @@ def test_noise_injection(pytestconfig: pytest.Config) -> None:
     """Inject noise into a circuit."""
     random.seed(pytestconfig.getoption("randomly_seed"))
 
+    # GATE ERRORS
+
     circuit = stim.Circuit("""
         H 0
         CX 0 1 1 2
@@ -49,6 +51,8 @@ def test_noise_injection(pytestconfig: pytest.Config) -> None:
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
+    # COMPOSITION OF GATE ERRORS
+
     noise_rule = NoiseRule(after={"DEPOLARIZE2": p_2, "PAULI_CHANNEL_1": [0, p_1, p_1]})
     noise_model = NoiseModel(rules={"CX": noise_rule})
     noisy_circuit = stim.Circuit(f"""
@@ -62,5 +66,25 @@ def test_noise_injection(pytestconfig: pytest.Config) -> None:
         TICK
         MZ 0 1
         MRY 2
+    """)
+    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # IDLING ERRORS
+
+    circuit = stim.Circuit("""
+        H 0 1 2
+        Z 1
+        M 0
+    """)
+
+    p_i = random.random()
+    p_imr = random.random()
+    noise_model = NoiseModel(idle_error=p_i, additional_error_waiting_for_m_or_r=p_imr)
+    noisy_circuit = stim.Circuit(f"""
+        H 0 1 2
+        Z 1
+        M 0
+        DEPOLARIZE1({p_i}) 2
+        DEPOLARIZE1({p_imr}) 1 2
     """)
     assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))

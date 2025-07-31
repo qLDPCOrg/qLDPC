@@ -46,8 +46,8 @@ It is part of the code from the paper
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Set
+import collections
+from collections.abc import Collection, Iterable, Iterator
 
 import stim
 
@@ -197,7 +197,7 @@ class NoiseRule:
                 )
 
     def noisy_operation(
-        self, op: stim.CircuitInstruction, *, immune_qubits: Set[int] = set()
+        self, op: stim.CircuitInstruction, *, immune_qubits: set[int] = set()
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 
@@ -232,77 +232,20 @@ class NoiseRule:
                 args = [1 - (1 - self.readout_error) * (1 - args[0])]
 
         noisy_op = stim.CircuitInstruction(op.name, targets, args)
-        circuit_after = stim.Circuit()
+        noise_after = stim.Circuit()
 
         qubit_targets = [target.value for target in targets if not target.is_combiner]
         if self.reset_error:
             assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
             error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
             error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
-            circuit_after.append(error_op)
+            noise_after.append(error_op)
 
         for op_name, args in self.after.items():
             error_op = stim.CircuitInstruction(op_name, qubit_targets, args)
-            circuit_after.append(error_op)
+            noise_after.append(error_op)
 
-        return noisy_op, circuit_after
-
-    def append_noisy_version_of(
-        self,
-        *,
-        split_op: stim.CircuitInstruction,
-        out_during_moment: stim.Circuit,
-        after_moments: defaultdict[tuple[str, float], stim.Circuit],
-        immune_qubits: Set[int],
-    ) -> None:
-        """Appends a noisy version of the given operation to the circuit.
-
-        This method applies the noise rule to a quantum operation, adding the operation itself along
-        with any associated noise channels to the appropriate circuit sections.
-
-        Args:
-            split_op: The quantum operation to add noise to.
-            out_during_moment: The circuit to append the operation to during the current moment.
-            after_moments: A dictionary mapping noise channel types and parameters to circuits that
-                should be executed after the main operations.
-            immune_qubits: A set of qubit indices that should not have noise applied to them.
-        """
-        targets = split_op.targets_copy()
-        if immune_qubits and any(
-            (
-                target.is_qubit_target
-                or target.is_x_target
-                or target.is_y_target
-                or target.is_z_target
-            )
-            and target.value in immune_qubits
-            for target in targets
-        ):
-            out_during_moment.append(split_op)
-            return
-
-        args = split_op.gate_args_copy()
-        if self.readout_error:
-            assert split_op.name in JUST_MEASURE_OPS or split_op.name in MEASURE_AND_RESET_OPS
-            if not args:
-                args = [self.readout_error]
-            else:
-                assert len(args) == 1
-                # combine bit-flip probabilities
-                args = [1 - (1 - self.readout_error) * (1 - args[0])]
-
-        out_during_moment.append(split_op.name, targets, args)
-
-        raw_targets = [target.value for target in targets if not target.is_combiner]
-        if self.reset_error:
-            assert split_op.name in JUST_RESET_OPS or split_op.name in MEASURE_AND_RESET_OPS
-            error_basis = "X" if _get_standardized_name(split_op)[-1] != "X" else "Z"
-            op_name = f"{error_basis}_ERROR"
-            args = (self.reset_error,)
-            after_moments[(op_name, args)].append(op_name, raw_targets, args)
-
-        for op_name, args in self.after.items():
-            after_moments[(op_name, args)].append(op_name, raw_targets, args)
+        return noisy_op, noise_after
 
 
 class NoiseModel:
@@ -389,8 +332,8 @@ class NoiseModel:
         self,
         circuit: stim.Circuit,
         *,
-        immune_qubits: set[int] | None = None,
         system_qubits: set[int] | None = None,
+        immune_qubits: set[int] | None = None,
         automatic_ticks: bool = True,
     ) -> stim.Circuit:
         """Returns a noisy version of the given circuit.
@@ -402,10 +345,10 @@ class NoiseModel:
 
         Args:
             circuit: The circuit to layer noise over.
-            immune_qubits: Qubits to not apply noise to, even if they are operated on.  If None,
-                defaults to an empty set.
             system_qubits: All qubits that are (a) used by the circuit or (b) are allowed to
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
+            immune_qubits: Qubits to not apply noise to, even if they are operated on.  If None,
+                defaults to an empty set.
             automatic_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes the circuit is already preprocessed and does not insert
                 TICKs.
@@ -413,8 +356,8 @@ class NoiseModel:
         Returns:
             The noisy version of the circuit with all specified noise channels applied.
         """
-        immune_qubits = immune_qubits or set()
         system_qubits = system_qubits or set(range(circuit.num_qubits))
+        immune_qubits = immune_qubits or set()
 
         # Preprocess the circuit to automatically insert TICKs when qubits are reused
         if automatic_ticks:
@@ -422,107 +365,48 @@ class NoiseModel:
                 raise ValueError("Automatic TICK insertion does not support immune qubits.")
             circuit = _preprocess_circuit_with_auto_ticks(circuit)
 
-        result = stim.Circuit()
+        circuit = stim.Circuit()
 
-        first = True
-        for moment_split_ops in _iter_split_op_moments(circuit, immune_qubits=immune_qubits):
-            if first:
-                first = False
-            elif result and isinstance(result[-1], stim.CircuitRepeatBlock):
+        first_moment = True
+        for moment_or_repeat_block in _iter_moments_and_repeat_blocks(circuit, immune_qubits):
+            if first_moment:
+                first_moment = False
+            elif circuit and isinstance(circuit[-1], stim.CircuitRepeatBlock):
                 pass
             else:
-                result.append("TICK")
-            if isinstance(moment_split_ops, stim.CircuitRepeatBlock):
+                circuit.append("TICK")
+
+            if isinstance(moment_or_repeat_block, stim.CircuitRepeatBlock):
                 noisy_body = self.noisy_circuit(
-                    moment_split_ops.body_copy(),
+                    moment_or_repeat_block.body_copy(),
                     system_qubits=system_qubits,
                     immune_qubits=immune_qubits,
                 )
                 noisy_body.append("TICK")
-                result.append(
+                circuit.append(
                     stim.CircuitRepeatBlock(
-                        repeat_count=moment_split_ops.repeat_count, body=noisy_body
+                        repeat_count=moment_or_repeat_block.repeat_count, body=noisy_body
                     )
                 )
             else:
                 self._append_noisy_moment(
-                    moment_split_ops=moment_split_ops,
-                    out=result,
+                    circuit=circuit,
+                    moment=moment_or_repeat_block,
                     system_qubits=system_qubits,
                     immune_qubits=immune_qubits,
                 )
 
-        return result
-
-    def _append_idle_error(
-        self,
-        *,
-        moment_split_ops: list[stim.CircuitInstruction],
-        out: stim.Circuit,
-        immune_qubits: Set[int],
-        system_qubits: Set[int],
-    ) -> None:
-        """Appends idle errors to the circuit for qubits not being operated on.
-
-        This method identifies which qubits are idle during a moment and applies
-        depolarization noise to them according to the noise model parameters.
-
-        Args:
-            moment_split_ops: List of operations happening during this moment.
-            out: The circuit to append idle error operations to.
-            immune_qubits: Set of qubit indices that should not have noise applied to them.
-            system_qubits: Set of all qubits in the system that can experience idle errors.
-
-        Raises:
-            ValueError: If qubits are operated on multiple times within the
-                same moment without a TICK in between.
-        """
-        collapse_qubits: list[int] = []
-        clifford_qubits: list[int] = []
-        for split_op in moment_split_ops:
-            if _is_annotation_or_involves_classical_bits(split_op):
-                continue
-            if split_op.name in COLLAPSING_OPS:
-                qubits_out = collapse_qubits
-            else:
-                qubits_out = clifford_qubits
-            for target in split_op.targets_copy():
-                if not target.is_combiner:
-                    qubits_out.append(target.value)
-
-        # Safety check for operation collisions.
-        usage_counts = Counter(collapse_qubits + clifford_qubits)
-        qubits_used_multiple_times = {q for q, c in usage_counts.items() if c != 1}
-        if qubits_used_multiple_times:
-            moment = stim.Circuit()
-            for op in moment_split_ops:
-                moment.append(op)
-            raise ValueError(
-                f"Qubits were operated on multiple times without a TICK in between:\n"
-                f"multiple uses: {sorted(qubits_used_multiple_times)}\n"
-                f"moment:\n"
-                f"{moment}"
-            )
-
-        collapse_qubits_set = set(collapse_qubits)
-        clifford_qubits_set = set(clifford_qubits)
-        idle = sorted(system_qubits - collapse_qubits_set - clifford_qubits_set - immune_qubits)
-        if idle and self.idle_error:
-            out.append("DEPOLARIZE1", idle, self.idle_error)
-
-        waiting_for_mr = sorted(system_qubits - collapse_qubits_set - immune_qubits)
-        if collapse_qubits_set and waiting_for_mr and self.additional_error_waiting_for_m_or_r:
-            out.append("DEPOLARIZE1", idle, self.additional_error_waiting_for_m_or_r)
+        return circuit
 
     def _append_noisy_moment(
         self,
         *,
-        moment_split_ops: list[stim.CircuitInstruction],
-        out: stim.Circuit,
-        immune_qubits: Set[int],
-        system_qubits: Set[int],
+        circuit: stim.Circuit,
+        moment: list[stim.CircuitInstruction],
+        system_qubits: set[int],
+        immune_qubits: set[int],
     ) -> None:
-        """Appends a noisy version of a moment to the output circuit.
+        """Appends a noisy version of a moment to the given circuit.
 
         This method processes all operations in a moment, applies their respective
         noise rules, and adds the resulting noisy operations to the output circuit.
@@ -530,30 +414,82 @@ class NoiseModel:
         Args:
             moment_split_ops: List of operations happening during this moment.
             out: The circuit to append the noisy operations to.
-            immune_qubits: Set of qubit indices that should not have noise applied to them.
             system_qubits: Set of all qubits in the system that can experience idle errors.
+            immune_qubits: Set of qubit indices that should not have noise applied to them.
         """
-        after: defaultdict[tuple[str, float], stim.Circuit] = defaultdict(stim.Circuit)
-        for split_op in moment_split_ops:
-            rule = self.get_noise_rule(op=split_op)
+        noise_after = stim.Circuit()
+        for op in moment:
+            rule = self.get_noise_rule(op=op)
             if rule is None:
-                out.append(split_op)
+                circuit.append(op)
             else:
-                rule.append_noisy_version_of(
-                    split_op=split_op,
-                    out_during_moment=out,
-                    after_moments=after,
-                    immune_qubits=immune_qubits,
-                )
-        for k in sorted(after.keys()):
-            out += after[k]
+                noisy_op, noise = rule.noisy_operation(op, immune_qubits=immune_qubits)
+                circuit.append(noisy_op)
+                noise_after.append(noise)
 
-        self._append_idle_error(
-            moment_split_ops=moment_split_ops,
-            out=out,
-            system_qubits=system_qubits,
-            immune_qubits=immune_qubits,
-        )
+        circuit.append(noise_after)
+
+        if self.idle_error or self.additional_error_waiting_for_m_or_r:
+            self._append_idle_errors(
+                circuit=circuit,
+                moment=moment,
+                system_qubits=system_qubits,
+                immune_qubits=immune_qubits,
+            )
+
+    def _append_idle_errors(
+        self,
+        *,
+        circuit: stim.Circuit,
+        moment: Collection[stim.CircuitInstruction],
+        system_qubits: set[int],
+        immune_qubits: set[int],
+    ) -> None:
+        """Append idling errors from the given moment to the given circuit.
+
+        This method identifies which qubits are idle during a moment and applies depolarization noise
+        to them according to the noise model parameters.
+
+        Args:
+            circuit: The circuit to append idle error operations to.
+            moment: The collection of operations happening in the final moment of the circuit.
+            system_qubits: Set of all qubits in the system that can experience idle errors.
+            immune_qubits: Set of qubit indices that should not have noise applied to them.
+
+        Raises:
+            ValueError: If qubits are operated on multiple times within the same moment without a
+                TICK in between.
+        """
+        collapse_qubits: list[int] = []
+        clifford_qubits: list[int] = []
+        for op in moment:
+            if _is_annotation_or_involves_classical_bits(op):
+                continue
+            qubits = collapse_qubits if op.name in COLLAPSING_OPS else clifford_qubits
+            qubits.extend([target.value for target in op.targets_copy() if not target.is_combiner])
+
+        # Safety check for operation collisions.
+        usage_counts = collections.Counter(collapse_qubits + clifford_qubits)
+        qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
+        if qubits_used_multiple_times:
+            moment = stim.Circuit()
+            for op in moment:
+                moment.append(op)
+            raise ValueError(
+                f"Qubits were operated on multiple times without a TICK in between:\n"
+                f"multiple uses: {sorted(qubits_used_multiple_times)}\n"
+                f"moment:\n{moment}"
+            )
+
+        non_collapse_qubits = system_qubits - immune_qubits - set(collapse_qubits)
+        idle_qubits = sorted(non_collapse_qubits - set(clifford_qubits))
+
+        if self.idle_error and idle_qubits:
+            circuit.append("DEPOLARIZE1", idle_qubits, self.idle_error)
+        if self.additional_error_waiting_for_m_or_r and collapse_qubits and non_collapse_qubits:
+            circuit.append(
+                "DEPOLARIZE1", non_collapse_qubits, self.additional_error_waiting_for_m_or_r
+            )
 
 
 class SI1000NoiseModel(NoiseModel):
@@ -703,7 +639,7 @@ def _is_annotation_or_involves_classical_bits(op: stim.CircuitInstruction) -> bo
 
 
 def _split_targets_if_needed(
-    op: stim.CircuitInstruction, immune_qubits: Set[int]
+    op: stim.CircuitInstruction, immune_qubits: set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits operations into pieces as needed.
 
@@ -729,7 +665,7 @@ def _split_targets_if_needed(
 
 
 def _split_targets_if_needed_clifford_1q(
-    op: stim.CircuitInstruction, immune_qubits: Set[int]
+    op: stim.CircuitInstruction, immune_qubits: set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits single-qubit Clifford operations when immune qubits are present.
 
@@ -750,7 +686,7 @@ def _split_targets_if_needed_clifford_1q(
 
 
 def _split_targets_if_needed_clifford_2q(
-    op: stim.CircuitInstruction, immune_qubits: Set[int]
+    op: stim.CircuitInstruction, immune_qubits: set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits two-qubit Clifford operations into individual gate pairs.
 
@@ -776,7 +712,7 @@ def _split_targets_if_needed_clifford_2q(
 
 
 def _split_targets_if_needed_m_basis(
-    op: stim.CircuitInstruction, immune_qubits: Set[int]
+    op: stim.CircuitInstruction, immune_qubits: set[int]
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits an MPP operation into one operation for each Pauli product it measures.
 
@@ -801,8 +737,8 @@ def _split_targets_if_needed_m_basis(
     assert end == len(targets)
 
 
-def _iter_split_op_moments(
-    circuit: stim.Circuit, *, immune_qubits: Set[int]
+def _iter_moments_and_repeat_blocks(
+    circuit: stim.Circuit, immune_qubits: set[int]
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
     """Splits a circuit into moments and some operations into pieces.
 
@@ -820,18 +756,18 @@ def _iter_split_op_moments(
     Note:
         A moment is the time between two TICKs.
     """
-    cur_moment: list[stim.CircuitInstruction] = []
+    current_moment: list[stim.CircuitInstruction] = []
 
     for op in circuit:
         if isinstance(op, stim.CircuitRepeatBlock):
-            if cur_moment:
-                yield cur_moment
-                cur_moment = []
+            if current_moment:
+                yield current_moment
+                current_moment = []
             yield op
         elif op.name == "TICK":
-            yield cur_moment
-            cur_moment = []
+            yield current_moment
+            current_moment = []
         else:
-            cur_moment.extend(_split_targets_if_needed(op, immune_qubits))
-    if cur_moment:
-        yield cur_moment
+            current_moment.extend(_split_targets_if_needed(op, immune_qubits))
+    if current_moment:
+        yield current_moment
