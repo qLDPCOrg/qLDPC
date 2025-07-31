@@ -218,7 +218,23 @@ def test_pauli_product_measurements() -> None:
 
 def test_repeat_blocks() -> None:
     """Repeat blocks get special treatment."""
-    # TODO: add
+
+    circuit = stim.Circuit("""
+        H 0
+        REPEAT 3 {
+            CX 0 1
+        }
+    """)
+    noise_model = qldpc.stim.DepolarizingNoiseModel(p=0.1, include_idling_error=False)
+    noisy_circuit = stim.Circuit("""
+        H 0
+        DEPOLARIZE1(0.1) 0
+        REPEAT 3 {
+            CX 0 1
+            DEPOLARIZE2(0.1) 0 1
+        }
+    """)
+    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
 
 def test_noise_rule_errors() -> None:

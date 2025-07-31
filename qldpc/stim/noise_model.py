@@ -366,9 +366,7 @@ class NoiseModel:
         for moment_or_repeat_block in _iter_moments_and_repeat_blocks(circuit, immune_qubits):
             if first_moment:
                 first_moment = False
-            elif noisy_circuit and isinstance(noisy_circuit[-1], stim.CircuitRepeatBlock):
-                pass
-            else:
+            elif not isinstance(noisy_circuit[-1], stim.CircuitRepeatBlock):
                 noisy_circuit.append("TICK")
 
             if isinstance(moment_or_repeat_block, stim.CircuitRepeatBlock):
