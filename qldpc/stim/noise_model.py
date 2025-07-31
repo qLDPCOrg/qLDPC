@@ -309,7 +309,7 @@ class NoiseModel:
         Returns:
             The NoiseRule to apply for the given operation, or None for no noise.
         """
-        if _occurs_in_classical_control_system(op):
+        if _is_annotation_or_involves_classical_bits(op):
             return None
 
         if self.rules is not None:
@@ -429,7 +429,7 @@ class NoiseModel:
         collapse_qubits: list[int] = []
         clifford_qubits: list[int] = []
         for split_op in moment_split_ops:
-            if _occurs_in_classical_control_system(split_op):
+            if _is_annotation_or_involves_classical_bits(split_op):
                 continue
             if split_op.name in COLLAPSING_OPS:
                 qubits_out = collapse_qubits
@@ -619,7 +619,7 @@ def _preprocess_circuit_with_auto_ticks(circuit: stim.Circuit) -> stim.Circuit:
         for split_op in split_ops:
             # Check if this split operation would reuse any qubits
             op_qubits = set()
-            if not _occurs_in_classical_control_system(split_op):
+            if not _is_annotation_or_involves_classical_bits(split_op):
                 for target in split_op.targets_copy():
                     if not target.is_combiner:
                         op_qubits.add(target.value)
@@ -636,30 +636,19 @@ def _preprocess_circuit_with_auto_ticks(circuit: stim.Circuit) -> stim.Circuit:
     return result
 
 
-def _occurs_in_classical_control_system(op: stim.CircuitInstruction) -> bool:
-    """Determines if an operation is an annotation or a classical control system update.
+def _is_annotation_or_involves_classical_bits(op: stim.CircuitInstruction) -> bool:
+    """Determines if an operation is an annotation or involves classical bits.
 
     Args:
         op: The circuit instruction to check.
 
     Returns:
-        True if the operation occurs in the classical control system and should
-        not have quantum noise applied to it, False otherwise.
+        True if the operation is an annotation or involves classical control bits.  False otherwise.
     """
-    op_type = OP_TYPES[op.name]
-    if op_type == ANNOTATION:
-        return True
-    if op_type == CLIFFORD_2Q:
-        targets = op.targets_copy()
-        for k in range(0, len(targets), 2):
-            a = targets[k]
-            b = targets[k + 1]
-            classical_0 = a.is_measurement_record_target or a.is_sweep_bit_target
-            classical_1 = b.is_measurement_record_target or b.is_sweep_bit_target
-            if not (classical_0 or classical_1):
-                return False
-        return True
-    return False
+    return OP_TYPES[op.name] == ANNOTATION or any(
+        target.is_measurement_record_target or target.is_sweep_bit_target
+        for target in op.targets_copy()
+    )
 
 
 def _split_targets_if_needed(
@@ -667,8 +656,8 @@ def _split_targets_if_needed(
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits operations into pieces as needed.
 
-    This function splits operations like MPP into each product, and separates
-    classical control operations from quantum operations.
+    This function splits operations like MPP into each product, and separates classical control
+    operations from quantum operations.
 
     Args:
         op: The circuit instruction to potentially split.
@@ -698,13 +687,12 @@ def _split_targets_if_needed_clifford_1q(
         immune_qubits: Set of qubit indices that should not have noise applied.
 
     Yields:
-        Circuit instructions, either the original operation or split into
-        individual single-target operations.
+        Circuit instructions, either the original operation or split into individual single-target operations.
     """
     if immune_qubits:
         args = op.gate_args_copy()
-        for targets in op.targets_copy():
-            yield stim.CircuitInstruction(op.name, [targets], args)
+        for target in op.targets_copy():
+            yield stim.CircuitInstruction(op.name, [target], args)
     else:
         yield op
 
@@ -714,8 +702,8 @@ def _split_targets_if_needed_clifford_2q(
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits two-qubit Clifford operations into individual gate pairs.
 
-    This function separates classical control system operations from quantum
-    operations happening on the quantum computer.
+    This function separates classical control system operations from quantum operations happening on
+    the quantum computer.
 
     Args:
         op: The two-qubit Clifford operation to potentially split.
@@ -727,7 +715,7 @@ def _split_targets_if_needed_clifford_2q(
     """
     assert OP_TYPES[op.name] == CLIFFORD_2Q
     targets = op.targets_copy()
-    if immune_qubits or any(targets.is_measurement_record_target for targets in targets):
+    if immune_qubits or any(target.is_measurement_record_target for target in targets):
         args = op.gate_args_copy()
         for k in range(0, len(targets), 2):
             yield stim.CircuitInstruction(op.name, targets[k : k + 2], args)
@@ -750,16 +738,15 @@ def _split_targets_if_needed_m_basis(
     """
     targets = op.targets_copy()
     args = op.gate_args_copy()
-    k = 0
-    start = k
-    while k < len(targets):
-        if k + 1 == len(targets) or not targets[k + 1].is_combiner:
-            yield stim.CircuitInstruction(op.name, targets[start : k + 1], args)
-            k += 1
-            start = k
+    start = end = 0
+    while end < len(targets):
+        if end + 1 == len(targets) or not targets[end + 1].is_combiner:
+            yield stim.CircuitInstruction(op.name, targets[start : end + 1], args)
+            end += 1
+            start = end
         else:
-            k += 2
-    assert k == len(targets)
+            end += 2
+    assert end == len(targets)
 
 
 def _iter_split_op_moments(
@@ -793,6 +780,6 @@ def _iter_split_op_moments(
             yield cur_moment
             cur_moment = []
         else:
-            cur_moment.extend(_split_targets_if_needed(op, immune_qubits=immune_qubits))
+            cur_moment.extend(_split_targets_if_needed(op, immune_qubits))
     if cur_moment:
         yield cur_moment
