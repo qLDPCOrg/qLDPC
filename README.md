@@ -22,7 +22,7 @@ If you use macOS you may need to install `cvxpy` manually by following the instr
 
 ### GAP
 
-Some features in `qLDPC` require an installation of the computer algebra system [GAP](https://www.gap-system.org/).  If you use `conda` to manage your python environment, you can obtain `gap` by running `conda install -c conda-forge gap`.
+Some features in `qLDPC` require an installation of the computer algebra system [GAP](https://www.gap-system.org/).  If you (a) use linux or macOS, and (b) use a `conda` to manage your python environment, then you can obtain GAP by running `conda install -c conda-forge gap`.  Installations without `conda` should also work, as long as `gap` is a recognized shell command (i.e., in a terminal).  Unfortunately, I have not figured out how to install [GAP](https://www.gap-system.org/) in a `qLDPC`-compatible way on Windows.  If you figure this out, [please let me know](https://github.com/qLDPCOrg/qLDPC/issues/294)!
 
 ## 🚀 Features
 
@@ -52,7 +52,7 @@ Notable features include:
   - Various pre-defined groups (mostly borrowed from [SymPy](https://docs.sympy.org/latest/modules/combinatorics/named_groups.html)).
   - Communication with the [GAP](https://www.gap-system.org/) computer algebra system and [GroupNames.org](https://people.maths.bris.ac.uk/~matyd/GroupNames/) for constructing [even more groups](https://docs.gap-system.org/doc/ref/chap50.html).
 - `objects.py`: module for constructing helper objects such as Cayley complexes and chain complexes, which are instrumental for the construction of various quantum codes.
-- `qldpc.circuits.get_transversal_ops`: construction of all SWAP-transversal logical Clifford gates in one code block of a qubit code (see [arXiv:2409.18175](https://arxiv.org/abs/2409.18175); requires [GAP](https://www.gap-system.org/) and [GUAVA](https://www.gap-system.org/Packages/guava.html)).  Warning: this method relies on a subroutine (namely, finding classical code automorphisms) that has exponential complexity, and is therefore only practical for codes with small-to-moderate size.
+- `qldpc.circuits.get_transversal_ops`: construction of all SWAP-transversal logical Clifford gates in one code block of a qubit code (see [arXiv:2409.18175](https://arxiv.org/abs/2409.18175); requires [GAP](https://www.gap-system.org/)/[GUAVA](https://www.gap-system.org/Packages/guava.html)).  Warning: this method relies on a subroutine (namely, finding classical code automorphisms) that has exponential complexity, and is therefore only practical for codes with small-to-moderate size.
 
 ## 🤔 Questions and issues
 
