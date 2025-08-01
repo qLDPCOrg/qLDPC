@@ -28,26 +28,39 @@ from qldpc import codes
 
 
 @dataclasses.dataclass
-class StimIds:
-    data_ids: list[int]
-    z_check_ids: list[int]
-    x_check_ids: list[int]
+class QubitIds:
+    """Container for qubit indices."""
+
+    data: list[int]
+    x_check: list[int]
+    z_check: list[int]
+
+    def __init__(self, num_data: int, num_checks_x: int, num_checks_z: int) -> None:
+        """Initialize from a number of data, X-check, and Z-check qubits."""
+        self.data = list(range(num_data))
+        self.x_check: list[int] = list(range(num_data, num_data + num_checks_x))
+        self.z_check: list[int] = list(
+            range(
+                num_data + num_checks_x,
+                num_data + num_checks_x + num_checks_z,
+            )
+        )
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
     """Base class for a syndrome measurement strategy."""
 
     @abc.abstractmethod
-    def compile_circuit(
-        self, code: codes.CSSCode, stim_ids: StimIds
+    def get_circuit(
+        self, code: codes.CSSCode, stim_ids: QubitIds | None = None
     ) -> tuple[stim.Circuit, list[list[int]]]:
         """Compiles a syndrome measurement circuit for a given CSSCode and noise model.
 
         Args:
             codes.CSSCode:
                 The quantum code to be compiled into a single round of syndrome measurements.
-            StimIDs:
-                Stim circuit ids to be used for data qubits, Z check qubits, and X check qubits.
+            QubitIds:
+                Integer indices to be used for data qubits, X check qubits, and Z check qubits.
 
         Returns:
             stim.Circuit:
@@ -64,38 +77,41 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
     WARNING: This scheme is not guaranteed to be fault-tolerant or distance-preserving.
     """
 
-    def compile_circuit(
+    def get_circuit(
         self,
         code: codes.CSSCode,
-        stim_ids: StimIds,
+        qubit_ids: QubitIds | None = None,
         strategy: str = "largest_first",
     ) -> tuple[stim.Circuit, list[list[int]]]:
         """
         Compiles a coloration circuit. Not depth-optimal as no interleaving of opposite type checks is present. Z checks are performed first followed by X checks
         """
-        assert len(code) == len(stim_ids.data_ids)
-        assert code.num_checks_x == len(stim_ids.x_check_ids)
-        assert code.num_checks_z == len(stim_ids.z_check_ids)
+        if qubit_ids is not None:
+            assert len(code) == len(qubit_ids.data)
+            assert code.num_checks_x == len(qubit_ids.x_check)
+            assert code.num_checks_z == len(qubit_ids.z_check)
+        else:
+            qubit_ids = QubitIds(len(code), code.num_checks_x, code.num_checks_z)
 
-        z_subcircuit = self._classical_subcode_to_subcircuit(
-            code.code_z,
-            stim_ids.z_check_ids,
-            stim_ids.data_ids,
-            "CZ",
-            strategy,
-        )
         x_subcircuit = self._classical_subcode_to_subcircuit(
             code.code_x,
-            stim_ids.x_check_ids,
-            stim_ids.data_ids,
+            qubit_ids.x_check,
+            qubit_ids.data,
             "CX",
+            strategy,
+        )
+        z_subcircuit = self._classical_subcode_to_subcircuit(
+            code.code_z,
+            qubit_ids.z_check,
+            qubit_ids.data,
+            "CZ",
             strategy,
         )
 
         circuit = stim.Circuit()
 
         # Initialize check qubits
-        reset_qubits = stim_ids.z_check_ids + stim_ids.x_check_ids
+        reset_qubits = qubit_ids.z_check + qubit_ids.x_check
         circuit.append("RX", reset_qubits)
 
         # "Write" Z and X stabilizers to check qubits
@@ -105,18 +121,18 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
         # Measure the extracted stabilizers
         circuit.append("MX", reset_qubits)
 
-        measurements = [stim_ids.z_check_ids + stim_ids.x_check_ids]
+        measurements = [qubit_ids.z_check + qubit_ids.x_check]
         return circuit, measurements
 
     def _classical_subcode_to_subcircuit(
         self,
-        code: codes.ClassicalCode,
+        subcode: codes.ClassicalCode,
         check_ids: Sequence[int],
         data_ids: Sequence[int],
         gate: str,
         strategy: str,
     ) -> stim.Circuit:
-        coloring = nx.coloring.greedy_color(nx.line_graph(code.graph.to_undirected()), strategy)
+        coloring = nx.coloring.greedy_color(nx.line_graph(subcode.graph.to_undirected()), strategy)
         circuit = stim.Circuit()
 
         schedule: dict[int, list[tuple[int, int]]] = {}

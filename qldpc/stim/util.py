@@ -85,14 +85,14 @@ def _prior_dict_to_matrices(
 
 
 def detector_error_model_to_css_checks(
-    dem: DetectorErrorModel,
+    dem: stim.DetectorErrorModel,
     fn_det_basis: Callable[[stim.DemTargetWithCoords], PauliXZ] = _det_basis_coord,
 ) -> tuple[CheckMatrices, CheckMatrices]:
     """
-    Convert a DetectorErrorModel into separate Z/X check matrices
+    Convert a stim.DetectorErrorModel into separate Z/X check matrices
 
-    args:
-        dem: DetectorErrorModel
+    Args:
+        dem: stim.DetectorErrorModel
             The detector error model to convert
         fn_det_basis: Callable[[stim.DemTargetWithCoords], PauliXZ]
             A function that takes a detector and returns the basis of the CSS stabilizer it checks (Z/X)
