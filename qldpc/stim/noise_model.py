@@ -1,4 +1,4 @@
-"""Implementation of noise models for Stim circuits.
+"""Implementation of noise models for Stim circuits
 
 The main components of this module are:
 - NoiseRule: Defines how to add noise to individual operations.
