@@ -216,9 +216,9 @@ def test_rows_to_ints(dtype: npt.DTypeLike) -> None:
 
     for indices in np.ndindex(ints.shape):
         i = indices[-1] * nbits
-        packed_bits = bits[*indices[:-1]][i : i + nbits]
+        packed_bits = bits[indices[:-1]][i : i + nbits]
         bitstr = "".join(map(str, packed_bits))
-        assert np.binary_repr(ints[*indices], len(bitstr)) == bitstr
+        assert np.binary_repr(ints[indices], len(bitstr)) == bitstr
 
     # Pack array with more dimensions
     bits = bits.reshape(5, 1, 2, -1)
