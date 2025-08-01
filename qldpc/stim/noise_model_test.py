@@ -21,7 +21,9 @@ import stim
 import qldpc
 
 
-def _are_equivalent(circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: float = 1e-10) -> bool:
+def _circuits_are_equivalent(
+    circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: float = 1e-10
+) -> bool:
     """Test equivalence between circuits after some standardization."""
     trivial_noise_model = qldpc.stim.NoiseModel()
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
@@ -58,7 +60,7 @@ def test_gate_errors() -> None:
         Z_ERROR(0.4) 1
         X_ERROR(0.4) 2
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
     # multiple errors after one gate
     circuit = stim.Circuit("""
@@ -71,7 +73,7 @@ def test_gate_errors() -> None:
         DEPOLARIZE2(0.2) 0 1
         PAULI_CHANNEL_1(0, 0.1, 0.1) 0 1
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
     # compose gate errors
     p_m = 0.1
@@ -89,8 +91,8 @@ def test_gate_errors() -> None:
         H 0
         MZ({double_p_m}) 0
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
-    assert _are_equivalent(double_noisy_circuit, noise_model.noisy_circuit(noisy_circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(double_noisy_circuit, noise_model.noisy_circuit(noisy_circuit))
 
     # reusing a qubit in the same moment raises an error
     circuit = stim.Circuit("""
@@ -121,7 +123,7 @@ def test_idle_errors() -> None:
         DEPOLARIZE1(0.2) 2
         DEPOLARIZE1(0.3) 1 2
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
 
 def test_immunity() -> None:
@@ -135,12 +137,12 @@ def test_immunity() -> None:
         H 0 1
         DEPOLARIZE1(0.1) 1
     """)
-    assert _are_equivalent(
+    assert _circuits_are_equivalent(
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False)
     )
 
     with pytest.raises(ValueError, match="does not support immune qubits"):
-        assert _are_equivalent(
+        assert _circuits_are_equivalent(
             noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=True)
         )
 
@@ -159,7 +161,7 @@ def test_classical_controls() -> None:
         DEPOLARIZE2(0.1) 0 1
         DEPOLARIZE1(0.01) 2
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
     # qubits addressed by classical controls pick up idling errors by default
     circuit = stim.Circuit("""
@@ -176,7 +178,7 @@ def test_classical_controls() -> None:
         TICK
         H 0 1 2
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
 
 def test_pauli_product_measurements() -> None:
@@ -190,7 +192,7 @@ def test_pauli_product_measurements() -> None:
         MPP(0.1) X1*Y2*Z3
         DEPOLARIZE1(0.2) 0
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
     # override the default MPP rule for specific Pauli products
     circuit = stim.Circuit("""
@@ -203,7 +205,7 @@ def test_pauli_product_measurements() -> None:
         MPP(0.1) Z0*Z1*Z2
         MPP(0.2) X0*Y1*Z2
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
 
 def test_repeat_blocks() -> None:
@@ -224,7 +226,9 @@ def test_repeat_blocks() -> None:
             DEPOLARIZE2(0.1) 0 1
         }
     """)
-    assert _are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit, insert_ticks=False))
+    assert _circuits_are_equivalent(
+        noisy_circuit, noise_model.noisy_circuit(circuit, insert_ticks=False)
+    )
 
 
 def test_noise_rule_errors() -> None:
@@ -237,3 +241,11 @@ def test_noise_rule_errors() -> None:
         qldpc.stim.NoiseRule(after={"X_ERROR": -0.1})
     with pytest.raises(ValueError, match="Invalid or unrecognized noise channel"):
         qldpc.stim.NoiseRule(after={"S": 0.5})
+
+
+def test_trivial_noise() -> None:
+    """Boolean testing for trivial noise rules/models."""
+    assert not bool(qldpc.stim.NoiseRule())
+    assert not bool(qldpc.stim.NoiseModel())
+    assert bool(qldpc.stim.NoiseRule(readout_error=0.1))
+    assert bool(qldpc.stim.NoiseModel(readout_error=0.1))

@@ -197,6 +197,10 @@ class NoiseRule:
                     f"The net probability of an error is not between 0 and 1 in {after=}"
                 )
 
+    def __bool__(self) -> bool:
+        """Is this noise rule nontrivial?"""
+        return bool(self.after) or bool(self.readout_error) or bool(self.reset_error)
+
     def noisy_operation(
         self, op: stim.CircuitInstruction, *, immune_qubits: set[int] = set()
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
@@ -295,6 +299,18 @@ class NoiseModel:
         self.reset_error = reset_error or 0
         self.idle_error = idle_error
         self.additional_error_waiting_for_m_or_r = additional_error_waiting_for_m_or_r
+
+    def __bool__(self) -> bool:
+        """Is this noise model nontrivial?"""
+        return (
+            bool(self.rules)
+            or bool(self.clifford_1q_error)
+            or bool(self.clifford_2q_error)
+            or bool(self.readout_error)
+            or bool(self.reset_error)
+            or bool(self.idle_error)
+            or bool(self.additional_error_waiting_for_m_or_r)
+        )
 
     def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
         """Determines the noise rule to apply to a specific operation.
