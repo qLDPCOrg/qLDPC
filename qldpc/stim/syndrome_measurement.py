@@ -18,10 +18,10 @@ class StimIds:
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
-    """Base class for a syndrome measurement scheme."""
+    """Base class for a syndrome measurement strategy."""
 
     @abc.abstractmethod
-    def compile_sm_circuit(
+    def compile_circuit(
         self, code: codes.CSSCode, stim_ids: StimIds
     ) -> tuple[stim.Circuit, list[list[int]]]:
         """Compiles a syndrome measurement circuit for a given CSSCode and noise model.
@@ -31,6 +31,7 @@ class SyndromeMeasurementStrategy(abc.ABC):
                 The quantum code to be compiled into a single round of syndrome measurements.
             StimIDs:
                 Stim circuit ids to be used for data qubits, Z check qubits, and X check qubits.
+
         Returns:
             stim.Circuit:
                 Stim circuit containing the compiled syndrome measurement round
@@ -46,34 +47,7 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
     WARNING: This scheme is not guaranteed to be fault-tolerant or distance-preserving.
     """
 
-    def _classical_subcode_to_subcircuit(
-        self,
-        code: codes.ClassicalCode,
-        check_ids: Sequence[int],
-        data_ids: Sequence[int],
-        gate: str,
-        strategy: str,
-    ) -> stim.Circuit:
-        coloring = nx.coloring.greedy_color(nx.line_graph(code.graph.to_undirected()), strategy)
-        circuit = stim.Circuit()
-
-        schedule: dict[int, list[tuple[int, int]]] = {}
-        for edge, color in coloring.items():
-            assert edge[0].is_data ^ edge[1].is_data  # Assert valid edge (data <-> check)
-            if edge[0].is_data:
-                check_op = (check_ids[edge[1].index], data_ids[edge[0].index])
-            else:
-                check_op = (check_ids[edge[0].index], data_ids[edge[1].index])
-            schedule.setdefault(color, []).append(check_op)
-        for color, moment in schedule.items():
-            for check_qubit, data_qubit in moment:
-                circuit.append(gate, [check_qubit, data_qubit])
-            if moment:  # Only add TICK if there were operations in this moment
-                circuit.append("TICK")
-
-        return circuit
-
-    def compile_sm_circuit(
+    def compile_circuit(
         self,
         code: codes.CSSCode,
         stim_ids: StimIds,
@@ -116,3 +90,30 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
 
         measurements = [stim_ids.z_check_ids + stim_ids.x_check_ids]
         return circuit, measurements
+
+    def _classical_subcode_to_subcircuit(
+        self,
+        code: codes.ClassicalCode,
+        check_ids: Sequence[int],
+        data_ids: Sequence[int],
+        gate: str,
+        strategy: str,
+    ) -> stim.Circuit:
+        coloring = nx.coloring.greedy_color(nx.line_graph(code.graph.to_undirected()), strategy)
+        circuit = stim.Circuit()
+
+        schedule: dict[int, list[tuple[int, int]]] = {}
+        for edge, color in coloring.items():
+            assert edge[0].is_data ^ edge[1].is_data  # Assert valid edge (data <-> check)
+            if edge[0].is_data:
+                check_op = (check_ids[edge[1].index], data_ids[edge[0].index])
+            else:
+                check_op = (check_ids[edge[0].index], data_ids[edge[1].index])
+            schedule.setdefault(color, []).append(check_op)
+        for color, moment in schedule.items():
+            for check_qubit, data_qubit in moment:
+                circuit.append(gate, [check_qubit, data_qubit])
+            if moment:  # Only add TICK if there were operations in this moment
+                circuit.append("TICK")
+
+        return circuit

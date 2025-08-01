@@ -1,4 +1,4 @@
-"""Circuit construction utilities for quantum error correction experiments.
+"""Circuit construction utilities for quantum error correction experiments
 
 This module provides functions for building Stim quantum circuits for quantum
 error correction memory experiments using CSS codes.
@@ -22,62 +22,36 @@ Example:
          num_rounds=5,
          basis=Pauli.Z
      )
+
+
+Copyright 2023 The qLDPC Authors and Infleqtion Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 """
 
 import numpy as np
 import stim
 
-from qldpc.codes.common import CSSCode
+from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
-from qldpc.stim.noise_model import NoiseModel
-from qldpc.stim.syndrome_measurement import StimIds, SyndromeMeasurementStrategy
-
-
-def _update_meas_rec(meas_record: list[dict[int, int]], qubits: list[int]) -> None:
-    """Updates a measurement record after a round of measurements.
-
-    Measurement results in Stim are recorded as a stack and can be tricky to
-    reference correctly. The meas_record tracks the indices in the stack for
-    each 'round' of measurements. This function should be called after every
-    round of measurements with the same list of qubits that were measured.
-
-    The function maintains a record where each entry maps qubit indices to their
-    corresponding negative indices in the Stim measurement record stack. When
-    new measurements are added, all previous indices are shifted to maintain
-    correct references.
-
-    Args:
-        meas_record: A list of dictionaries, where each dictionary maps qubit
-            indices to their corresponding negative indices in the Stim
-            measurement record. This list is modified in-place.
-        qubits: A list of qubit indices that were measured in the current round,
-            in the order they were passed to Stim. The order matters because
-            Stim records measurements in a stack.
-
-    Example:
-        meas_record = []
-        _update_meas_rec(meas_record, [0, 1, 2])
-        print(meas_record)
-        [{0: -3, 1: -2, 2: -1}]
-        _update_meas_rec(meas_record, [3, 4])
-        print(meas_record)
-        [{0: -5, 1: -4, 2: -3}, {3: -2, 4: -1}]
-    """
-    meas_round = {}
-    for i in range(len(qubits)):
-        q = qubits[-(i + 1)]
-        meas_round[q] = -(i + 1)
-    for round in meas_record:
-        for q, idx in round.items():
-            round[q] = idx - len(qubits)
-    meas_record.append(meas_round)
+from qldpc.stim import NoiseModel, StimIds, SyndromeMeasurementStrategy
 
 
 def memory_experiment(
-    code: CSSCode,
+    code: codes.CSSCode,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy,
     num_rounds: int,
-    basis: PauliXZ,
+    basis: PauliXZ = Pauli.X,
     noise_model: NoiseModel | None = None,
 ) -> stim.Circuit:
     """Creates a Stim circuit for a quantum memory experiment.
@@ -133,14 +107,14 @@ def memory_experiment(
 
     Example:
         from qldpc.codes.classical import RepetitionCode
-        from qldpc.codes.quantum import CSSCode
+        from qldpc.codes.quantum import codes.CSSCode
         from qldpc.stim.noise_model import NoiseModel
         from qldpc.stim.syndrome_measurement_strategy import BareColorCircuit
         from qldpc.objects import Pauli
         >>>
         # Create a 3-qubit repetition code
         rep_code = RepetitionCode(3)
-        css_code = CSSCode(rep_code, rep_code)
+        css_code = codes.CSSCode(rep_code, rep_code)
         noise_model = NoiseModel.uniform_depolarizing(0.01)
         syndrome_measurement_strategy = BareColorCircuit()
         >>>
@@ -171,7 +145,7 @@ def memory_experiment(
     stim_ids = StimIds(data_qubits, z_check_qubits, x_check_qubits)
 
     meas_rec: list[dict[int, int]] = []
-    sm_circuit, sm_measurements = syndrome_measurement_strategy.compile_sm_circuit(code, stim_ids)
+    sm_circuit, sm_measurements = syndrome_measurement_strategy.get_circuit(code, stim_ids)
 
     """
     Define qubit coordinates
@@ -272,3 +246,43 @@ def memory_experiment(
         )
 
     return noise_model.noisy_circuit(circuit) if noise_model else circuit
+
+
+def _update_meas_rec(meas_record: list[dict[int, int]], qubits: list[int]) -> None:
+    """Updates a measurement record after a round of measurements.
+
+    Measurement results in Stim are recorded as a stack and can be tricky to
+    reference correctly. The meas_record tracks the indices in the stack for
+    each 'round' of measurements. This function should be called after every
+    round of measurements with the same list of qubits that were measured.
+
+    The function maintains a record where each entry maps qubit indices to their
+    corresponding negative indices in the Stim measurement record stack. When
+    new measurements are added, all previous indices are shifted to maintain
+    correct references.
+
+    Args:
+        meas_record: A list of dictionaries, where each dictionary maps qubit
+            indices to their corresponding negative indices in the Stim
+            measurement record. This list is modified in-place.
+        qubits: A list of qubit indices that were measured in the current round,
+            in the order they were passed to Stim. The order matters because
+            Stim records measurements in a stack.
+
+    Example:
+        meas_record = []
+        _update_meas_rec(meas_record, [0, 1, 2])
+        print(meas_record)
+        [{0: -3, 1: -2, 2: -1}]
+        _update_meas_rec(meas_record, [3, 4])
+        print(meas_record)
+        [{0: -5, 1: -4, 2: -3}, {3: -2, 4: -1}]
+    """
+    meas_round = {}
+    for i in range(len(qubits)):
+        q = qubits[-(i + 1)]
+        meas_round[q] = -(i + 1)
+    for round in meas_record:
+        for q, idx in round.items():
+            round[q] = idx - len(qubits)
+    meas_record.append(meas_round)
