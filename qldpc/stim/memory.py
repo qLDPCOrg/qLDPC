@@ -44,7 +44,9 @@ import stim
 
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
-from qldpc.stim import NoiseModel, StimIds, SyndromeMeasurementStrategy
+
+from .noise_model import NoiseModel
+from .syndrome_measurement import StimIds, SyndromeMeasurementStrategy
 
 
 def memory_experiment(

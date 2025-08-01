@@ -8,17 +8,14 @@ import numpy.typing as npt
 import sinter
 from stim import DemTargetWithCoords, DetectorErrorModel
 
-from qldpc.decoders import Decoder, get_decoder
+from qldpc import decoders
 from qldpc.objects import Pauli, PauliXZ
-from qldpc.stim.util import (
-    CheckMatrices,
-    _det_basis_coord,
-    detector_error_model_to_css_checks,
-)
+
+from .util import CheckMatrices, _det_basis_coord, detector_error_model_to_css_checks
 
 
 class CompiledSinterDecoder(sinter.CompiledDecoder):
-    def __init__(self, check_matrices: CheckMatrices, decoder: Decoder) -> None:
+    def __init__(self, check_matrices: CheckMatrices, decoder: decoders.Decoder) -> None:
         self.check_matrices = check_matrices
         self.decoder = decoder
 
@@ -80,7 +77,7 @@ class SinterDecoder(sinter.Decoder):
         else:
             raise ValueError(f"Invalid basis: {self.basis}")
 
-        decoder = get_decoder(
+        decoder = decoders.get_decoder(
             check_matrices.check_matrix,
             error_channel=list(check_matrices.priors),
             **self.decoder_kwargs,
