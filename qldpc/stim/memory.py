@@ -139,7 +139,6 @@ def memory_experiment(
     qubit_ids = QubitIds(len(code), code.num_checks_x, code.num_checks_z)
     data_ids = qubit_ids.data
     check_ids = qubit_ids.x_check if basis is Pauli.X else qubit_ids.z_check
-    check_12 = 1 if basis is Pauli.X else 2
 
     meas_rec: list[dict[int, int]] = []
     sm_circuit, sm_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
@@ -151,7 +150,7 @@ def memory_experiment(
     for i, data_id in enumerate(data_ids):
         circuit.append("QUBIT_COORDS", data_id, (0, i))
     for i, check_id in enumerate(check_ids):
-        circuit.append("QUBIT_COORDS", check_id, (check_12, i))
+        circuit.append("QUBIT_COORDS", check_id, (1, i))
 
     # Reset data qubits to appropriate basis
     circuit.append(f"R{basis}", data_ids)
@@ -162,7 +161,7 @@ def memory_experiment(
     for meas_round in sm_measurements:
         _update_meas_rec(meas_rec, meas_round)
     for i, check_id in enumerate(check_ids):
-        circuit.append("DETECTOR", [stim.target_rec(meas_rec[-1][check_id])], (check_12, i, 0))
+        circuit.append("DETECTOR", [stim.target_rec(meas_rec[-1][check_id])], (i, 0))
 
     """
     Repeated syndrome rounds
@@ -178,9 +177,9 @@ def memory_experiment(
                 stim.target_rec(meas_rec[-1][check_id]),
                 stim.target_rec(meas_rec[-2][check_id]),
             ],
-            (check_12, i, 1),
+            (i, 1),
         )
-    repeat_circuit.append("SHIFT_COORDS", [], (0, 0, 1))
+    repeat_circuit.append("SHIFT_COORDS", [], (0, 1))
     circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
     """
@@ -199,7 +198,7 @@ def memory_experiment(
             "DETECTOR",
             [stim.target_rec(meas_rec[-1][data_ids[q]]) for q in data_support]
             + [stim.target_rec(meas_rec[-2][check_id])],
-            (check_12, i, num_rounds),
+            (i, num_rounds),
         )
 
     """
