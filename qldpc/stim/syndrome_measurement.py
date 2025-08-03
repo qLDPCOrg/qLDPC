@@ -109,19 +109,19 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
         )
 
         circuit = stim.Circuit()
+        check_qubits = qubit_ids.x_check + qubit_ids.z_check
 
         # Initialize check qubits
-        reset_qubits = qubit_ids.z_check + qubit_ids.x_check
-        circuit.append("RX", reset_qubits)
+        circuit.append("RX", check_qubits)
 
         # "Write" Z and X stabilizers to check qubits
-        circuit += z_subcircuit
         circuit += x_subcircuit
+        circuit += z_subcircuit
 
         # Measure the extracted stabilizers
-        circuit.append("MX", reset_qubits)
+        circuit.append("MX", check_qubits)
 
-        measurements = [qubit_ids.z_check + qubit_ids.x_check]
+        measurements = [qubit_ids.x_check + qubit_ids.z_check]
         return circuit, measurements
 
     def _classical_subcode_to_subcircuit(
