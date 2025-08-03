@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import pathlib
-from collections.abc import Callable
 
 import numpy as np
 import numpy.typing as npt
 import sinter
-from stim import DemTargetWithCoords, DetectorErrorModel
+from stim import DetectorErrorModel
 
 from qldpc import decoders
-from qldpc.objects import Pauli, PauliXZ
 
-from .util import CheckMatrices, _det_basis_coord, detector_error_model_to_css_checks
+from .util import CheckMatrices, detector_error_model_to_css_checks
 
 
 class CompiledSinterDecoder(sinter.CompiledDecoder):
@@ -43,31 +41,17 @@ class SinterDecoder(sinter.Decoder):
     NOTE: Currently assumes a CSS code experiment in a specified basis and therefore separates decoding into the resulting X or Z sub-problem.
     """
 
-    def __init__(
-        self,
-        basis: PauliXZ,
-        fn_det_basis: Callable[[DemTargetWithCoords], PauliXZ] = _det_basis_coord,
-        **decoder_kwargs: object,
-    ) -> None:
+    def __init__(self, **decoder_kwargs: object) -> None:
         """
         args:
-            basis: PauliXZ
-                CSS decoding sub-problem basis
-            fn_det_basis: Callable[[DemTargetWithCoords], PauliXZ]
-                For general CSS codes, determining a detector's basis is seemingly non-trivial.
-                This function extracts this from the detector coordinates, assuming some convention.
-                The default convention is based on first coordinate (1 = X, 2 = Z)
-                NOTE: This function needs to be defined at the top-level of a module (i.e. not in a jupyter notebook cell) to work with Sinter
             kwargs: Any
                 keyword arguments to be passed to qldpc.decoders.get_decoder when compiling a detector error model
 
         """
-        self.basis = basis
-        self.fn_det_basis = fn_det_basis
         self.decoder_kwargs = decoder_kwargs
 
     def compile_decoder_for_dem(self, dem: DetectorErrorModel) -> sinter.CompiledDecoder:
-        check_matrices = detector_error_model_to_css_checks(dem, self.fn_det_basis)
+        check_matrices = detector_error_model_to_css_checks(dem)
         decoder = decoders.get_decoder(
             check_matrices.check_matrix,
             error_channel=list(check_matrices.priors),

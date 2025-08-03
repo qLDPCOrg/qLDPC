@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
 
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc.objects import Pauli, PauliXZ
-
 
 @dataclasses.dataclass(frozen=True)
 class CircuitLevelError:
     dets: tuple[stim.DemTargetWithCoords, ...]
     obs: tuple[stim.DemTarget, ...]
-    basis: PauliXZ
 
 
 @dataclasses.dataclass
@@ -24,18 +20,6 @@ class CheckMatrices:
     check_matrix: scipy.sparse.csc_matrix
     obs_matrix: scipy.sparse.csc_matrix
     priors: npt.NDArray[np.float64]
-
-
-def _det_basis_coord(det: stim.DemTargetWithCoords) -> PauliXZ:
-    """
-    Returns the basis of the detector based on the 1st coordinate (1 == X, 2 == Z)
-    """
-    if det.coords[0] == 1:
-        return Pauli.X
-    elif det.coords[0] == 2:
-        return Pauli.Z
-    else:
-        raise ValueError(f"Invalid basis: {det.coords[0]} (must be 1 or 2)")
 
 
 def _prior_dict_to_matrices(
@@ -84,22 +68,15 @@ def _prior_dict_to_matrices(
     return CheckMatrices(check_map, check_matrix, obs_matrix, np.array(priors))
 
 
-def detector_error_model_to_css_checks(
-    dem: stim.DetectorErrorModel,
-    fn_det_basis: Callable[[stim.DemTargetWithCoords], PauliXZ] = _det_basis_coord,
-) -> tuple[CheckMatrices, CheckMatrices]:
+def detector_error_model_to_css_checks(dem: stim.DetectorErrorModel) -> CheckMatrices:
     """
-    Convert a stim.DetectorErrorModel into separate Z/X check matrices
+    Convert a stim.DetectorErrorModel into check matrices
 
     Args:
         dem: stim.DetectorErrorModel
             The detector error model to convert
-        fn_det_basis: Callable[[stim.DemTargetWithCoords], PauliXZ]
-            A function that takes a detector and returns the basis of the CSS stabilizer it checks (Z/X)
-            By default, the 1st coordinate of the detector is used to determine the basis (1 == Z, 2 == X)
     returns:
-        tuple[CheckMatrices, CheckMatrices]
-            The Z and X check matrices
+        CheckMatrices: The check matrices
     """
     det_coords: dict[int, list[float]] = dem.get_detector_coordinates()
 
@@ -118,11 +95,9 @@ def detector_error_model_to_css_checks(
                     obs.append(targ)
 
             if len(dets) > 0:
-                error = CircuitLevelError(tuple(dets), tuple(obs), Pauli.Z)
+                error = CircuitLevelError(tuple(dets), tuple(obs))
                 error_priors[error] = error_priors.setdefault(error, 0) + prior
 
-    check_matrices = _prior_dict_to_matrices(
-        error_priors, dem.num_detectors, dem.num_observables
-    )
+    check_matrices = _prior_dict_to_matrices(error_priors, dem.num_detectors, dem.num_observables)
 
     return check_matrices
