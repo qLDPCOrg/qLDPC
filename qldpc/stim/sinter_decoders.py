@@ -67,16 +67,7 @@ class SinterDecoder(sinter.Decoder):
         self.decoder_kwargs = decoder_kwargs
 
     def compile_decoder_for_dem(self, dem: DetectorErrorModel) -> sinter.CompiledDecoder:
-        z_check_matrices, x_check_matrices = detector_error_model_to_css_checks(
-            dem, self.fn_det_basis
-        )
-        if self.basis is Pauli.Z:
-            check_matrices = z_check_matrices
-        elif self.basis is Pauli.X:
-            check_matrices = x_check_matrices
-        else:
-            raise ValueError(f"Invalid basis: {self.basis}")
-
+        check_matrices = detector_error_model_to_css_checks(dem, self.fn_det_basis)
         decoder = decoders.get_decoder(
             check_matrices.check_matrix,
             error_channel=list(check_matrices.priors),

@@ -103,40 +103,26 @@ def detector_error_model_to_css_checks(
     """
     det_coords: dict[int, list[float]] = dem.get_detector_coordinates()
 
-    z_error_priors: dict[CircuitLevelError, float] = {}
-    x_error_priors: dict[CircuitLevelError, float] = {}
+    error_priors: dict[CircuitLevelError, float] = {}
     for instr in dem.flattened():
         if instr.type == "error":
             prior = instr.args_copy()[0]
-            z_dets: list[stim.DemTarget] = []
-            x_dets: list[stim.DemTarget] = []
+            dets: list[stim.DemTarget] = []
             obs: list[stim.DemTarget] = []
+
             for targ in instr.targets_copy():
                 if targ.is_relative_detector_id():
                     det = stim.DemTargetWithCoords(dem_target=targ, coords=det_coords[targ.val])
-                    basis = fn_det_basis(det)
-                    if basis is Pauli.Z:
-                        z_dets.append(det)
-                    elif basis is Pauli.X:
-                        x_dets.append(det)
-                    else:
-                        raise ValueError(f"Invalid basis: {basis}")
+                    dets.append(det)
                 elif targ.is_logical_observable_id():
                     obs.append(targ)
 
-            if len(z_dets) > 0:
-                z_error = CircuitLevelError(tuple(z_dets), tuple(obs), Pauli.Z)
-                z_error_priors[z_error] = z_error_priors.setdefault(z_error, 0) + prior
+            if len(dets) > 0:
+                error = CircuitLevelError(tuple(dets), tuple(obs), Pauli.Z)
+                error_priors[error] = error_priors.setdefault(error, 0) + prior
 
-            if len(x_dets) > 0:
-                x_error = CircuitLevelError(tuple(x_dets), tuple(obs), Pauli.X)
-                x_error_priors[x_error] = x_error_priors.setdefault(x_error, 0) + prior
-
-    z_check_matrices = _prior_dict_to_matrices(
-        z_error_priors, dem.num_detectors, dem.num_observables
-    )
-    x_check_matrices = _prior_dict_to_matrices(
-        x_error_priors, dem.num_detectors, dem.num_observables
+    check_matrices = _prior_dict_to_matrices(
+        error_priors, dem.num_detectors, dem.num_observables
     )
 
-    return z_check_matrices, x_check_matrices
+    return check_matrices
