@@ -35,7 +35,6 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
             syndrome = np.unpackbits(
                 bit_packed_syndrome, count=self.num_detectors, bitorder="little"
             )
-            # predicted_errors = self.decoder.decode(self.dem_arrays.syndrome_map @ syndrome)
             predicted_errors = self.decoder.decode(syndrome)
             observable_flips.append(self.dem_arrays.observable_flip_matrix @ predicted_errors % 2)
         return np.packbits(np.array(observable_flips, dtype=np.uint8), bitorder="little", axis=1)
@@ -87,10 +86,6 @@ class DemArrays:
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
     error_probs: npt.NDArray[np.float64]  # probability of occurrence for each error
 
-    syndrome_map: scipy.sparse.csr_matrix  # map to possibly forget and permute detectors
-
-    # TODO:
-    # - add a syndrome_map to allow considering only a subset of detectors
     def __init__(self, dem: stim.DetectorErrorModel) -> None:
         """Initialize from a stim.DetectorErrorModel."""
         errors = DemArrays._collect_and_organize_circuit_errors(dem)
