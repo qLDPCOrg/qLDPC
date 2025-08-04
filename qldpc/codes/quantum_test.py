@@ -26,6 +26,7 @@ import pytest
 import sympy
 
 from qldpc import abstract, codes
+from qldpc.codes import BalancedProductCode
 from qldpc.objects import ChainComplex, Node, Pauli
 
 
@@ -578,3 +579,27 @@ def test_balanced_product_code() -> None:
     # Since many permutations that meet requirements, can't check exact form of generators
     assert len(balanced_code.get_logical_ops()) == 4
     assert balanced_code.get_distance_exact() == 3
+
+    matrix = np.array(
+        [
+            [1, 1, 0],
+            [0, 1, 1],
+            [0, 0, 1],
+        ]
+    )
+    with pytest.raises(ValueError):
+        BalancedProductCode(matrix, 4)
+
+    matrix[0][0] = 2
+    with pytest.raises(ValueError):
+        BalancedProductCode(matrix, 1)
+
+    matrix = np.array(
+        [
+            [1, 1, 0, 1],
+            [0, 1, 1, 0],
+            [0, 0, 1, 0],
+        ]
+    )
+    with pytest.raises(ValueError):
+        BalancedProductCode(matrix, 2)
