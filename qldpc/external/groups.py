@@ -22,6 +22,7 @@ import urllib.error
 import urllib.request
 
 import galois
+from sympy.combinatorics import Permutation
 
 import qldpc.cache
 import qldpc.external.gap
@@ -289,6 +290,40 @@ def get_primitive_central_idempotents(
         idempotents.append(tuple(idempotent))
 
     return tuple(idempotents)
+
+
+"""
+Gets all  order l permutations for a nxm matrix
+"""
+
+
+def get_permutation_symmetry_of_matrix(
+    symmetry_length: int, n: int, m: int
+) -> tuple[list[qldpc.abstract.GroupMember], list[qldpc.abstract.GroupMember]]:
+    # Parse output, account for zero-based indexing
+    def parse_permutation_output(output: str) -> list[qldpc.abstract.GroupMember]:
+        perm_list = []
+        for perm in output.strip("[] ").split(", "):
+            result = []
+            cycles = re.findall(r"\([^()]+\)", perm)
+            for cycle in cycles:
+                cycle = cycle.strip("()")
+                elements = tuple(int(x) - 1 for x in cycle.split(","))
+                result.append(elements)
+            # Remove trivial permutation
+            if result:
+                perm_list.append(qldpc.abstract.GroupMember.from_sympy(Permutation(result)))
+        return perm_list
+
+    row_permutations_output = qldpc.external.gap.get_output(
+        f"row_perms := Filtered(SymmetricGroup({n}), perm -> Order(perm) = {symmetry_length});Print(row_perms);",
+    )
+    col_permutations_output = qldpc.external.gap.get_output(
+        f"col_perms := Filtered(SymmetricGroup({m}), perm -> Order(perm) = {symmetry_length});Print(col_perms);",
+    )
+    return parse_permutation_output(row_permutations_output), parse_permutation_output(
+        col_permutations_output
+    )
 
 
 KNOWN_GROUPS: dict[str, GENERATORS_LIST] = {
