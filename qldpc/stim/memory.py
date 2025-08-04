@@ -163,24 +163,25 @@ def memory_experiment(
     for i, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [stim.target_rec(meas_rec[-1][check_id])], (i, 0))
 
-    """
-    Repeated syndrome rounds
-    """
-    repeat_circuit = stim.Circuit()
-    repeat_circuit.append(sm_circuit)
-    for meas_round in sm_measurements:
-        _update_meas_rec(meas_rec, meas_round)
-    for i, check_id in enumerate(check_ids):
-        repeat_circuit.append(
-            "DETECTOR",
-            [
-                stim.target_rec(meas_rec[-1][check_id]),
-                stim.target_rec(meas_rec[-2][check_id]),
-            ],
-            (i, 1),
-        )
-    repeat_circuit.append("SHIFT_COORDS", [], (0, 1))
-    circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
+    if num_rounds > 1:
+        """
+        Repeated syndrome rounds
+        """
+        repeat_circuit = stim.Circuit()
+        repeat_circuit.append(sm_circuit)
+        for meas_round in sm_measurements:
+            _update_meas_rec(meas_rec, meas_round)
+        for i, check_id in enumerate(check_ids):
+            repeat_circuit.append(
+                "DETECTOR",
+                [
+                    stim.target_rec(meas_rec[-1][check_id]),
+                    stim.target_rec(meas_rec[-2][check_id]),
+                ],
+                (i, 1),
+            )
+        repeat_circuit.append("SHIFT_COORDS", [], (0, 1))
+        circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
     """
     Measure out data qubits
