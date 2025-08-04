@@ -556,3 +556,25 @@ def test_shyps_code() -> None:
         params = ((2**dimension - 1) ** 2, dimension**2, 2 ** (dimension - 1))
         assert code.get_code_params() == params
         assert np.all(np.count_nonzero(code.matrix.view(np.ndarray), axis=1) == 3)
+
+
+def test_balanced_product_code() -> None:
+    # Test from https://arxiv.org/pdf/2505.13679 pg 3
+    matrix = np.array(
+        [
+            [1, 1, 0, 0, 0, 0],
+            [0, 1, 1, 0, 0, 0],
+            [0, 0, 1, 1, 0, 0],
+            [0, 0, 0, 1, 1, 0],
+            [0, 0, 0, 0, 1, 1],
+            [1, 0, 0, 0, 0, 1],
+        ]
+    )
+    balanced_code = codes.BalancedProductCode(matrix, 3)
+    # Meets CSS orthogonality
+    np.array_equal(
+        balanced_code.code_x.matrix @ balanced_code.code_z.matrix.transpose(), np.zeros((6, 6), int)
+    )
+    # Since many permutations that meet requirements, can't check exact form of generators
+    assert len(balanced_code.get_logical_ops()) == 4
+    assert balanced_code.get_distance_exact() == 3
