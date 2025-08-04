@@ -86,6 +86,9 @@ class DemArrays:
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
     error_probs: npt.NDArray[np.float64]  # probability of occurrence for each error
 
+    # TODO:
+    # - add a syndrome_map to allow considering only a subset of detectors
+    # - add a merge_indistinguishable_errors: bool = False option
     def __init__(self, dem: stim.DetectorErrorModel) -> None:
         """Initialize from a stim.DetectorErrorModel."""
         errors = DemArrays._collect_and_organize_circuit_errors(dem)
