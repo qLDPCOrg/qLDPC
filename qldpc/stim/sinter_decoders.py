@@ -95,7 +95,7 @@ class DemArrays:
             self.error_probs,
             self.detector_flip_matrix,
             self.observables_flip_matrix,
-            self.check_map,
+            self.syndrome_map,
         ) = DemArrays._arrays_from_errors(errors, dem.num_detectors, dem.num_observables)
 
     @staticmethod
