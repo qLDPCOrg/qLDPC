@@ -33,7 +33,7 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
             syndrome = np.unpackbits(
                 bit_packed_syndrome, count=self.num_detectors, bitorder="little"
             )
-            pred_errors = self.decoder.decode(self.dem_arrays.detector_map @ syndrome)
+            pred_errors = self.decoder.decode(self.dem_arrays.syndrome_map @ syndrome)
             obs_pred = (self.dem_arrays.observables_flip_matrix @ pred_errors) % 2
             observable_flips.append(np.packbits(obs_pred.astype(np.uint8), bitorder="little"))
 
@@ -81,11 +81,12 @@ class CircuitLevelError:
 class DemArrays:
     """Representation of a stim.DetectorErrorModel by a collection of arrays."""
 
-    error_probs: npt.NDArray[np.float_]  # the probability of occurrence for each error
+    error_probs: npt.NDArray[np.float64]  # the probability of occurrence for each error
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
     observables_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
 
-    check_map: scipy.sparse.csc_matrix  # TODO: eliminate
+    # matrix to pre-process syndromes (detection events)
+    syndrome_map: scipy.sparse.csc_matrix  # TODO: explain why this is necessary
 
     def __init__(self, dem: stim.DetectorErrorModel) -> None:
         """Initialize the arrays of a given detector error model."""
@@ -123,7 +124,7 @@ class DemArrays:
     def _arrays_from_errors(
         errors: dict[CircuitLevelError, float], num_detectors: int, num_observables: int
     ) -> tuple[
-        npt.NDArray[np.float_],
+        npt.NDArray[np.float64],
         scipy.sparse.csc_matrix,
         scipy.sparse.csc_matrix,
         scipy.sparse.csc_matrix,
@@ -155,7 +156,7 @@ class DemArrays:
                 obs_row_idx += [obs.val]
                 obs_col_idx += [erorr_index]
 
-        detector_map = scipy.sparse.csc_matrix(
+        syndrome_map = scipy.sparse.csc_matrix(
             (
                 np.ones(len(detector_index_map), dtype=int),
                 (list(detector_index_map.values()), list(detector_index_map.keys())),
@@ -170,4 +171,4 @@ class DemArrays:
             (np.ones(len(obs_row_idx), dtype=int), (obs_row_idx, obs_col_idx)),
             shape=(len(observables), len(errors)),
         )
-        return np.array(error_probs), detector_flip_matrix, observables_flip_matrix, detector_map
+        return np.array(error_probs), detector_flip_matrix, observables_flip_matrix, syndrome_map
