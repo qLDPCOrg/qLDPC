@@ -110,8 +110,8 @@ class DemArrays:
             observable_flip_matrix[[target.val for target in observables], error_index] = 1
             self.error_probs[error_index] = probability
 
-        self.detector_flip_matrix = detector_flip_matrix.tocsr()
-        self.observable_flip_matrix = observable_flip_matrix.tocsr()
+        self.detector_flip_matrix = detector_flip_matrix.tocsc()
+        self.observable_flip_matrix = observable_flip_matrix.tocsc()
 
     @staticmethod
     def _collect_and_organize_circuit_errors(
@@ -119,7 +119,7 @@ class DemArrays:
     ) -> dict[tuple[frozenset[stim.DemTarget], frozenset[stim.DemTarget]], float]:
         """Identify and organize circuit errors in a stim.DetectorErrorModel.
 
-        Each circuit error is associated with:
+        Each circuit error is identified by:
         - a set of detectors that are flipped,
         - a set of observables that are flipped, and
         - a probability of occurrence.
