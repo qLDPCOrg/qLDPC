@@ -63,6 +63,8 @@ class SinterDecoder(sinter.Decoder):
                 or decoder_kwargs.get("with_BF")
             ):
                 self.priors_arg = "error_channel"
+            if decoder_kwargs.get("with_MWPM"):
+                self.priors_arg = "weights"
 
     def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> sinter.CompiledDecoder:
         """Creates a decoder preconfigured for the given detector error model.
