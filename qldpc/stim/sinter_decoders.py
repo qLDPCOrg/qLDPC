@@ -7,7 +7,6 @@ from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
-import scipy
 import scipy.sparse
 import sinter
 import stim
@@ -47,7 +46,7 @@ class SinterDecoder(sinter.Decoder):
         """Initialize a SinterDecoder.
 
         Args:
-            prior_args: The keyword argument to which to pass priors about circuit-level error
+            priors_args: The keyword argument to which to pass priors about circuit-level error
                 likelihoods when constructing a decoder with qldpc.decoders.get_decoder.
             decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
