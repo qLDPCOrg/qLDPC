@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import collections
-import dataclasses
+import itertools
+from collections.abc import Collection, Hashable
+from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -17,9 +19,9 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit."""
 
     def __init__(self, dem_arrays: DemArrays, decoder: decoders.Decoder) -> None:
+        self.num_detectors = dem_arrays.detector_flip_matrix.shape[0]
         self.dem_arrays = dem_arrays
         self.decoder = decoder
-        self.num_detectors = dem_arrays.detector_flip_matrix.shape[0]
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -33,11 +35,9 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
             syndrome = np.unpackbits(
                 bit_packed_syndrome, count=self.num_detectors, bitorder="little"
             )
-            pred_errors = self.decoder.decode(self.dem_arrays.syndrome_map @ syndrome)
-            obs_pred = (self.dem_arrays.observables_flip_matrix @ pred_errors) % 2
-            observable_flips.append(np.packbits(obs_pred.astype(np.uint8), bitorder="little"))
-
-        return np.array(observable_flips)
+            predicted_errors = self.decoder.decode(syndrome)
+            observable_flips.append(self.dem_arrays.observable_flip_matrix @ predicted_errors % 2)
+        return np.packbits(np.array(observable_flips, dtype=np.uint8), bitorder="little", axis=1)
 
 
 class SinterDecoder(sinter.Decoder):
@@ -69,106 +69,93 @@ class SinterDecoder(sinter.Decoder):
         return CompiledSinterDecoder(dem_arrays, decoder)
 
 
-@dataclasses.dataclass(frozen=True)
-class CircuitLevelError:
-    """A circuit-level error, identified by the detectors and observables that it flips."""
-
-    detectors: tuple[stim.DemTargetWithCoords, ...]
-    observables: tuple[stim.DemTarget, ...]
-
-
-# TODO: think more about this and refactor
 class DemArrays:
     """Representation of a stim.DetectorErrorModel by a collection of arrays."""
 
-    error_probs: npt.NDArray[np.float64]  # the probability of occurrence for each error
+    error_probs: npt.NDArray[np.float64]  # probability of occurrence for each error
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
-    observables_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
-
-    # matrix to pre-process syndromes (detection events)
-    syndrome_map: scipy.sparse.csc_matrix  # TODO: explain why this is necessary
+    observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
 
     def __init__(self, dem: stim.DetectorErrorModel) -> None:
         """Initialize the arrays of a given detector error model."""
-        errors = DemArrays._collect_errors(dem)
-        (
-            self.error_probs,
-            self.detector_flip_matrix,
-            self.observables_flip_matrix,
-            self.syndrome_map,
-        ) = DemArrays._arrays_from_errors(errors, dem.num_detectors, dem.num_observables)
+        errors = DemArrays._collect_and_organize_circuit_errors(dem)
+
+        # initialize empty arrays
+        self.error_probs = np.zeros(len(errors), dtype=float)
+        detector_flip_matrix = scipy.sparse.dok_matrix(
+            (dem.num_detectors, len(errors)), dtype=np.uint8
+        )
+        observable_flip_matrix = scipy.sparse.dok_matrix(
+            (dem.num_observables, len(errors)), dtype=np.uint8
+        )
+
+        # iterate over all sets of detectors that may be flipped by an error
+        for error_index, (detectors, observables_probs) in enumerate(errors.items()):
+            detector_flip_matrix[[target.val for target in detectors], error_index] = 1
+
+            probabilities = [prob for probs in observables_probs.values() for prob in probs]
+            self.error_probs[error_index] = _probability_of_an_odd_number_of_events(probabilities)
+
+            observables = frozenset.union(*observables_probs.keys())
+            observable_flip_matrix[[target.val for target in observables], error_index] = 1
+
+        self.detector_flip_matrix = detector_flip_matrix.tocsr()
+        self.observable_flip_matrix = observable_flip_matrix.tocsr()
 
     @staticmethod
-    def _collect_errors(dem: stim.DetectorErrorModel) -> dict[CircuitLevelError, float]:
-        """Convert a stim.DetectorErrorModel into a dictionary mapping errors to likelihoods."""
-        det_coords: dict[int, list[float]] = dem.get_detector_coordinates()
-        errors: dict[CircuitLevelError, float] = collections.defaultdict(float)
+    def _collect_and_organize_circuit_errors(
+        dem: stim.DetectorErrorModel,
+    ) -> dict[frozenset[stim.DemTarget], dict[frozenset[stim.DemTarget], list[float]]]:
+        """Identify and organize circuit errors in a stim.DetectorErrorModel.
+
+        Each circuit error is associated with:
+        - a set of detectors that are flipped,
+        - a set of observables that are flipped, and
+        - a probability of occurrence.
+
+        This method organizes error mechanisms into a dictionary of dictionaries that looks like
+            {frozenset_of_detectors: {frozenset_of_observables: list_of_probabilities}},
+        where list_of_probabilities is a list of probabilities of occurrence of independent errors
+        that trigger the corresponding sets of detectors and observables.
+        """
+        errors: dict[frozenset[stim.DemTarget], dict[frozenset[stim.DemTarget], list[float]]] = (
+            collections.defaultdict(lambda: collections.defaultdict(list))
+        )
         for instruction in dem.flattened():
             if instruction.type == "error":
-                prob = instruction.args_copy()[0]
+                probability = instruction.args_copy()[0]
                 targets = instruction.targets_copy()
-                detectors = tuple(
-                    stim.DemTargetWithCoords(dem_target=target, coords=det_coords[target.val])
-                    for target in targets
-                    if target.is_relative_detector_id()
+                detectors = _frozenset_of_items_that_occur_an_odd_number_of_times(
+                    [target for target in targets if target.is_relative_detector_id()]
                 )
-                if len(detectors) > 0:
-                    observables = tuple(
-                        target for target in targets if target.is_logical_observable_id()
-                    )
-                    error = CircuitLevelError(detectors, observables)
-                    errors[error] = errors[error] * (1 - prob) + prob * (1 - errors[error])
+                observables = _frozenset_of_items_that_occur_an_odd_number_of_times(
+                    [target for target in targets if target.is_logical_observable_id()]
+                )
+                errors[detectors][observables].append(probability)
         return errors
 
-    @staticmethod
-    def _arrays_from_errors(
-        errors: dict[CircuitLevelError, float], num_detectors: int, num_observables: int
-    ) -> tuple[
-        npt.NDArray[np.float64],
-        scipy.sparse.csc_matrix,
-        scipy.sparse.csc_matrix,
-        scipy.sparse.csc_matrix,
-    ]:
-        """Construct DemArrays instance data from a dictionary mapping errors to likelihoods."""
-        detectors: list[stim.DemTarget] = []
-        detector_index_map: dict[stim.DemTarget, int] = {}
-        det_row_idx: list[int] = []
-        det_col_idx: list[int] = []
 
-        observables: list[int] = list(range(num_observables))
-        obs_row_idx: list[int] = []
-        obs_col_idx: list[int] = []
+HashableType = TypeVar("HashableType", bound=Hashable)
 
-        error_probs: list[float] = []
 
-        for erorr_index, (erorr_witnesses, error_prob) in enumerate(errors.items()):
-            error_probs.append(error_prob)
+def _frozenset_of_items_that_occur_an_odd_number_of_times(
+    items: Collection[HashableType],
+) -> frozenset[HashableType]:
+    """Frozen subset of items that occur an odd number of times."""
+    return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
 
-            for det in erorr_witnesses.detectors:
-                det_val = det.dem_target.val
-                if det not in detectors:
-                    detector_index_map[det_val] = len(detectors)
-                    detectors += [det]
-                det_row_idx += [detector_index_map[det_val]]
-                det_col_idx += [erorr_index]
 
-            for obs in erorr_witnesses.observables:
-                obs_row_idx += [obs.val]
-                obs_col_idx += [erorr_index]
-
-        syndrome_map = scipy.sparse.csc_matrix(
-            (
-                np.ones(len(detector_index_map), dtype=int),
-                (list(detector_index_map.values()), list(detector_index_map.keys())),
-            ),
-            shape=(len(detectors), num_detectors),
-        )
-        detector_flip_matrix = scipy.sparse.csc_matrix(
-            (np.ones(len(det_row_idx), dtype=int), (det_row_idx, det_col_idx)),
-            shape=(len(detectors), len(errors)),
-        )
-        observables_flip_matrix = scipy.sparse.csc_matrix(
-            (np.ones(len(obs_row_idx), dtype=int), (obs_row_idx, obs_col_idx)),
-            shape=(len(observables), len(errors)),
-        )
-        return np.array(error_probs), detector_flip_matrix, observables_flip_matrix, syndrome_map
+def _probability_of_an_odd_number_of_events(event_probabilities: Collection[float]) -> float:
+    """Identify the probability that an odd number of (otherwise independent) events occurs."""
+    net_probability = 0.0
+    num_events = len(event_probabilities)
+    for num_events_that_occur in range(1, num_events + 1, 2):
+        for events_that_occur in itertools.combinations(range(num_events), num_events_that_occur):
+            probability_that_these_events_occur = np.prod(
+                [
+                    prob if event in events_that_occur else 1 - prob
+                    for event, prob in enumerate(event_probabilities)
+                ]
+            )
+            net_probability += probability_that_these_events_occur
+    return net_probability
