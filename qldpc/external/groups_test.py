@@ -23,7 +23,7 @@ import urllib
 import galois
 import pytest
 
-from qldpc import external
+from qldpc import abstract, external
 
 # define global testing variables
 ORDER, INDEX = 2, 1
@@ -252,3 +252,37 @@ def test_known_groups() -> None:
 
         gap_generators = external.groups.get_generators_with_gap(group)
         assert gap_generators is None or gap_generators == generators
+
+
+def test_find_permutations() -> None:
+    expected_4x4_order4 = (
+        [
+            abstract.GroupMember(0, 3, 2, 1),
+            abstract.GroupMember(0, 3, 1, 2),
+            abstract.GroupMember(0, 1, 3, 2),
+            abstract.GroupMember(0, 1, 2, 3),
+            abstract.GroupMember(0, 2, 3, 1),
+            abstract.GroupMember(0, 2, 1, 3),
+        ],
+        [
+            abstract.GroupMember(0, 3, 2, 1),
+            abstract.GroupMember(0, 3, 1, 2),
+            abstract.GroupMember(0, 1, 3, 2),
+            abstract.GroupMember(0, 1, 2, 3),
+            abstract.GroupMember(0, 2, 3, 1),
+            abstract.GroupMember(0, 2, 1, 3),
+        ],
+    )
+    actual = external.groups.get_permutation_symmetry_of_matrix(4, 4, 4)
+    assert actual == expected_4x4_order4
+
+    expected_3x2_order2 = (
+        [abstract.GroupMember(1, 2), abstract.GroupMember(0, 2), abstract.GroupMember(0, 1)],
+        [abstract.GroupMember(0, 1)],
+    )
+    actual = external.groups.get_permutation_symmetry_of_matrix(2, 3, 2)
+    assert actual == expected_3x2_order2
+
+    expected_empty: tuple[list[abstract.GroupMember], list[abstract.GroupMember]] = ([], [])
+    actual = external.groups.get_permutation_symmetry_of_matrix(5, 3, 3)
+    assert actual == expected_empty
