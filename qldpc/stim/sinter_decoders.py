@@ -72,32 +72,39 @@ class SinterDecoder(sinter.Decoder):
 class DemArrays:
     """Representation of a stim.DetectorErrorModel by a collection of arrays."""
 
-    error_probs: npt.NDArray[np.float64]  # probability of occurrence for each error
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
+    error_probs: npt.NDArray[np.float64]  # probability of occurrence for each error
 
     def __init__(self, dem: stim.DetectorErrorModel) -> None:
-        """Initialize the arrays of a given detector error model."""
+        """Initialize from a stim.DetectorErrorModel."""
         errors = DemArrays._collect_and_organize_circuit_errors(dem)
 
         # initialize empty arrays
-        self.error_probs = np.zeros(len(errors), dtype=float)
         detector_flip_matrix = scipy.sparse.dok_matrix(
             (dem.num_detectors, len(errors)), dtype=np.uint8
         )
         observable_flip_matrix = scipy.sparse.dok_matrix(
             (dem.num_observables, len(errors)), dtype=np.uint8
         )
+        self.error_probs = np.zeros(len(errors), dtype=float)
 
-        # iterate over all sets of detectors that may be flipped by an error
+        # iterate over all circuit errors
         for error_index, (detectors, observables_probs) in enumerate(errors.items()):
             detector_flip_matrix[[target.val for target in detectors], error_index] = 1
 
-            probabilities = [prob for probs in observables_probs.values() for prob in probs]
-            self.error_probs[error_index] = _probability_of_an_odd_number_of_events(probabilities)
-
+            """
+            If a decoder decides that this error occurs and len(observables_probs) > 1, then strictly
+            speaking we can only make probabilistic statements about which set of observables was
+            flipped.  This is rather messy.  To make our lives easier, we give up on sorting out this
+            mess and conservatively declare that all observables that may have been flipped were in
+            fact flipped.
+            """
             observables = frozenset.union(*observables_probs.keys())
             observable_flip_matrix[[target.val for target in observables], error_index] = 1
+
+            probability = _probability_of_an_odd_number_of_events(observables_probs.values())
+            self.error_probs[error_index] = probability
 
         self.detector_flip_matrix = detector_flip_matrix.tocsr()
         self.observable_flip_matrix = observable_flip_matrix.tocsr()
@@ -105,7 +112,7 @@ class DemArrays:
     @staticmethod
     def _collect_and_organize_circuit_errors(
         dem: stim.DetectorErrorModel,
-    ) -> dict[frozenset[stim.DemTarget], dict[frozenset[stim.DemTarget], list[float]]]:
+    ) -> dict[frozenset[stim.DemTarget], dict[frozenset[stim.DemTarget], float]]:
         """Identify and organize circuit errors in a stim.DetectorErrorModel.
 
         Each circuit error is associated with:
@@ -113,11 +120,18 @@ class DemArrays:
         - a set of observables that are flipped, and
         - a probability of occurrence.
 
-        This method organizes error mechanisms into a dictionary of dictionaries that looks like
-            {frozenset_of_detectors: {frozenset_of_observables: list_of_probabilities}},
-        where list_of_probabilities is a list of probabilities of occurrence of independent errors
-        that trigger the corresponding sets of detectors and observables.
+        This method organizes circuit errors into a dictionary of dictionaries that looks like
+            {frozenset_of_detectors: {frozenset_of_observables: probability}},
+        where "probability" is the probability of occurrence for a circuit error that flips the
+        corresponding detectors and observables.
+
+        The motivation for organizing cirucit errors in this way is that a real experiment cannot
+        distinguish error mechanisms that flip the same set of detectors.  We therefore have to
+        combine such circuit errors when making inferences from detector data.  We defer the
+        consideration of how these circuit errors are combined to downstream methods.
         """
+        # First, collect all circuit errors in the stim.DetectorErrorModel, accounting for the
+        # possibility of redundant errors that flip the same set of detectors and observables.
         errors: dict[frozenset[stim.DemTarget], dict[frozenset[stim.DemTarget], list[float]]] = (
             collections.defaultdict(lambda: collections.defaultdict(list))
         )
@@ -132,7 +146,16 @@ class DemArrays:
                     [target for target in targets if target.is_logical_observable_id()]
                 )
                 errors[detectors][observables].append(probability)
-        return errors
+
+        # Combine circuit errors to obtain a single independent probability of occurrence for each
+        # set of flipped detectors and observables.
+        return {
+            detectors: {
+                observables: _probability_of_an_odd_number_of_events(probabilities)
+                for observables, probabilities in observables_and_probabilities.items()
+            }
+            for detectors, observables_and_probabilities in errors.items()
+        }
 
 
 HashableType = TypeVar("HashableType", bound=Hashable)
