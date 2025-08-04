@@ -105,8 +105,7 @@ class DemArrays:
         self.error_probs = np.zeros(len(errors), dtype=float)
 
         # iterate over all circuit errors
-        for error_index, (detectors_observables, probability) in enumerate(errors.items()):
-            detectors, observables = detectors_observables
+        for error_index, ((detectors, observables), probability) in enumerate(errors.items()):
             detector_flip_matrix[[target.val for target in detectors], error_index] = 1
             observable_flip_matrix[[target.val for target in observables], error_index] = 1
             self.error_probs[error_index] = probability
