@@ -51,10 +51,18 @@ class SinterDecoder(sinter.Decoder):
                 likelihoods when constructing a decoder with qldpc.decoders.get_decoder.
             decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
-
         """
         self.priors_arg = priors_arg
         self.decoder_kwargs = decoder_kwargs
+
+        if self.priors_arg is None:
+            # address some known cases
+            if (
+                decoder_kwargs.get("with_BP_OSD")
+                or decoder_kwargs.get("with_BP_LSD")
+                or decoder_kwargs.get("with_BF")
+            ):
+                self.priors_arg = "error_channel"
 
     def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> sinter.CompiledDecoder:
         """Creates a decoder preconfigured for the given detector error model.
