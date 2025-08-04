@@ -21,6 +21,7 @@ from .distance import (
 )
 from .quantum import (
     BaconShorCode,
+    BalancedProductCode,
     BBCode,
     C4Code,
     C6Code,
@@ -55,6 +56,7 @@ __all__ = [
     "CSSCode",
     "QuditCode",
     "BaconShorCode",
+    "BalancedProductCode",
     "BBCode",
     "C4Code",
     "C6Code",
