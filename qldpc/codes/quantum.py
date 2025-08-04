@@ -31,6 +31,7 @@ import numpy.typing as npt
 import scipy
 import sympy
 
+import qldpc.external.groups
 from qldpc import abstract
 from qldpc.abstract import DEFAULT_FIELD_ORDER
 from qldpc.math import first_nonzero_cols
@@ -1562,6 +1563,58 @@ class GeneralizedSurfaceCode(CSSCode):
         assert not isinstance(matrix_x, abstract.RingArray)
         assert not isinstance(matrix_z, abstract.RingArray)
         CSSCode.__init__(self, matrix_x, matrix_z, field)
+
+
+class BalancedProductCode(CSSCode):
+    """Code created from the product of classical codes. Similar to hypergraph codes.
+
+    Binary matrix (M) must 2 permutations of order symmetryLength, r and c. Where r*M = M*C^T
+
+
+    References:
+    - https://errorcorrectionzoo.org/c/balanced_product
+    - https://arxiv.org/pdf/2505.13679
+
+    """
+
+    def __init__(self, binaryMatrix: np.typing.NDArray[np.int_], symmetryLength: int) -> None:
+        if not np.all((binaryMatrix == 0) | binaryMatrix == 1):
+            raise ValueError("Binary matrix must only have zeros or ones")
+
+        if binaryMatrix.shape[0] != binaryMatrix.shape[1]:
+            raise ValueError("Only square binary matrix is supported at this time")
+
+        self._r = None
+        self._c = None
+
+        r_candidates, c_candidates = qldpc.external.groups.get_permutation_symmetry_of_matrix(
+            symmetryLength, binaryMatrix.shape[0], binaryMatrix.shape[1]
+        )
+
+        if not r_candidates or not c_candidates:
+            raise ValueError("Matrix doesn't have any permutations of that orbit length")
+        for r in r_candidates:
+            for c in c_candidates:
+                if np.array_equal(
+                    r.to_matrix(binaryMatrix.shape[0]) @ binaryMatrix,
+                    binaryMatrix @ c.to_matrix(binaryMatrix.shape[1]).T,
+                ):
+                    self._c = c
+                    self._r = r
+                    break
+        if self._c is None:
+            raise ValueError(
+                "Matrix doesn't have permutation that satisfy balanced product properties"
+            )
+        assert self._r is not None
+        assert self._c is not None
+        check_x = np.hstack(
+            (binaryMatrix.T, np.eye(binaryMatrix.shape[0], dtype=int) + self._c.to_matrix())
+        )
+        check_z = np.hstack(
+            (np.eye(binaryMatrix.shape[1], dtype=int) + self._r.to_matrix(), binaryMatrix)
+        )
+        CSSCode.__init__(self, check_x, check_z)
 
 
 class BaconShorCode(SHPCode):
