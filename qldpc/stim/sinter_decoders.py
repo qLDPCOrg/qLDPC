@@ -35,7 +35,7 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
             syndrome = np.unpackbits(
                 bit_packed_syndrome, count=self.num_detectors, bitorder="little"
             )
-            predicted_errors = self.decoder.decode(syndrome)
+            predicted_errors = self.decoder.decode(syndrome.astype(int))
             observable_flips.append(self.dem_arrays.observable_flip_matrix @ predicted_errors % 2)
         return np.packbits(np.array(observable_flips, dtype=np.uint8), bitorder="little", axis=1)
 
@@ -171,5 +171,5 @@ def _probability_of_an_odd_number_of_events(event_probabilities: Collection[floa
                     for event, prob in enumerate(event_probabilities)
                 ]
             )
-            net_probability += probability_that_these_events_occur
+            net_probability += float(probability_that_these_events_occur)
     return net_probability
