@@ -255,6 +255,16 @@ def test_known_groups() -> None:
 
 
 def test_find_permutations() -> None:
+
+    mocked_outputs = [
+    "[ (1,4,3,2), (1,4,2,3), (1,2,4,3), (1,2,3,4), (1,3,4,2), (1,3,2,4) ]",
+    "[ (1,4,3,2), (1,4,2,3), (1,2,4,3), (1,2,3,4), (1,3,4,2), (1,3,2,4) ]",
+    "[ (2,3), (1,3), (1,2) ]",
+    "[ (1,2) ]",
+    "[  ]",
+    "[  ]"
+    ]
+
     expected_4x4_order4 = (
         [
             abstract.GroupMember(0, 3, 2, 1),
@@ -273,16 +283,18 @@ def test_find_permutations() -> None:
             abstract.GroupMember(0, 2, 1, 3),
         ],
     )
-    actual = external.groups.get_permutation_symmetry_of_matrix(4, 4, 4)
-    assert actual == expected_4x4_order4
 
     expected_3x2_order2 = (
         [abstract.GroupMember(1, 2), abstract.GroupMember(0, 2), abstract.GroupMember(0, 1)],
         [abstract.GroupMember(0, 1)],
     )
-    actual = external.groups.get_permutation_symmetry_of_matrix(2, 3, 2)
-    assert actual == expected_3x2_order2
 
     expected_empty: tuple[list[abstract.GroupMember], list[abstract.GroupMember]] = ([], [])
-    actual = external.groups.get_permutation_symmetry_of_matrix(5, 3, 3)
-    assert actual == expected_empty
+
+    with unittest.mock.patch("qldpc.external.gap.get_output", side_effect=mocked_outputs):
+        actual = external.groups.get_permutation_symmetry_of_matrix(4, 4, 4)
+        assert actual == expected_4x4_order4
+        actual = external.groups.get_permutation_symmetry_of_matrix(2, 3, 2)
+        assert actual == expected_3x2_order2
+        actual = external.groups.get_permutation_symmetry_of_matrix(5, 3, 3)
+        assert actual == expected_empty
