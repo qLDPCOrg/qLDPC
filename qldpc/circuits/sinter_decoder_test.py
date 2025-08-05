@@ -28,7 +28,7 @@ def test_dem_arrays() -> None:
         error(0.002) D0 D1
         error(0.003) D2 L1
     """)
-    dem_arrays = qldpc.stim.DetectorErrorModelArrays(dem)
+    dem_arrays = qldpc.circuits.DetectorErrorModelArrays(dem)
     assert dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-10)
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 3
@@ -47,7 +47,7 @@ def test_dem_arrays() -> None:
         error(0.006) D0 D3
         error(0.005) L1
     """)
-    dem_arrays = qldpc.stim.DetectorErrorModelArrays(dem)
+    dem_arrays = qldpc.circuits.DetectorErrorModelArrays(dem)
     assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 4
@@ -56,10 +56,10 @@ def test_dem_arrays() -> None:
 
 def test_sinter_decoder() -> None:
     """Default parameter setting for a SinterDecoder."""
-    sinter_decoder = qldpc.stim.SinterDecoder(with_MWPM=True)
+    sinter_decoder = qldpc.circuits.SinterDecoder(with_MWPM=True)
     assert sinter_decoder.error_probs_arg == "weights"
 
-    sinter_decoder = qldpc.stim.SinterDecoder(with_BP_OSD=True)
+    sinter_decoder = qldpc.circuits.SinterDecoder(with_BP_OSD=True)
     assert sinter_decoder.error_probs_arg == "error_channel"
 
     dem = stim.DetectorErrorModel("""
