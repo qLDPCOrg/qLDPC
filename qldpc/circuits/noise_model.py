@@ -8,7 +8,7 @@ The main components of this module are:
 Examples of basic usage with a predefined noise model:
 
     import stim
-    from qldpc.stim.noise_model import DepolarizingNoiseModel, NoiseModel, SI1000NoiseModel
+    from qldpc.circuits.noise_model import DepolarizingNoiseModel, NoiseModel, SI1000NoiseModel
 
     # Create a simple circuit
     circuit = stim.Circuit("H 0 \n CX 0 1")

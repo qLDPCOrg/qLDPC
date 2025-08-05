@@ -920,7 +920,7 @@ class QuditCode(AbstractCode):
             Focusing on the gauge-qudit rows (i.e., constraints) of the parity check matrix, define
                 A = matrix_z[rows_gz, cols_gl],
                 B = matrix_x[rows_gx, cols_gl],
-            and denode the logical operator components in the GL sector by
+            and denote the logical operator components in the GL sector by
                 U = logicals_xx[cols_gl],
                 V = logicals_zz[cols_gl].
             These components need to satisfy the system of matrix equations
