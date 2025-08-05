@@ -1,11 +1,6 @@
 import importlib.metadata
-import sys
 
-from . import abstract, cache, codes, decoders, external, math, objects, stim
-
-# make qldpc.circuits an alias for qldpc.stim
-circuits = stim
-sys.modules["qldpc.circuits"] = stim
+from . import abstract, cache, circuits, codes, decoders, external, math, objects
 
 __version__ = importlib.metadata.version("qldpc")
 
@@ -19,5 +14,4 @@ __all__ = [
     "external",
     "math",
     "objects",
-    "stim",
 ]

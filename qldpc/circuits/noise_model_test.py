@@ -25,7 +25,7 @@ def _circuits_are_equivalent(
     circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: float = 1e-10
 ) -> bool:
     """Test equivalence between circuits after some standardization."""
-    trivial_noise_model = qldpc.stim.NoiseModel()
+    trivial_noise_model = qldpc.circuits.NoiseModel()
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
     circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
     return circuit_a.approx_equals(circuit_b, atol=atol)
@@ -43,7 +43,7 @@ def test_gate_errors() -> None:
         RX 1
         MR 2
     """)
-    noise_model = qldpc.stim.NoiseModel(
+    noise_model = qldpc.circuits.NoiseModel(
         clifford_1q_error=0.1, clifford_2q_error=0.2, readout_error=0.3, reset_error=0.4
     )
     noisy_circuit = stim.Circuit("""
@@ -66,8 +66,10 @@ def test_gate_errors() -> None:
     circuit = stim.Circuit("""
         CX 0 1
     """)
-    noise_rule = qldpc.stim.NoiseRule(after={"DEPOLARIZE2": 0.2, "PAULI_CHANNEL_1": [0, 0.1, 0.1]})
-    noise_model = qldpc.stim.NoiseModel(rules={"CX": noise_rule})
+    noise_rule = qldpc.circuits.NoiseRule(
+        after={"DEPOLARIZE2": 0.2, "PAULI_CHANNEL_1": [0, 0.1, 0.1]}
+    )
+    noise_model = qldpc.circuits.NoiseModel(rules={"CX": noise_rule})
     noisy_circuit = stim.Circuit("""
         CX 0 1
         DEPOLARIZE2(0.2) 0 1
@@ -82,7 +84,7 @@ def test_gate_errors() -> None:
         H 0
         M 0
     """)
-    noise_model = qldpc.stim.NoiseModel(readout_error=p_m)
+    noise_model = qldpc.circuits.NoiseModel(readout_error=p_m)
     noisy_circuit = stim.Circuit(f"""
         H 0
         MZ({p_m}) 0
@@ -98,7 +100,7 @@ def test_gate_errors() -> None:
     circuit = stim.Circuit("""
         CX 0 1 1 2
     """)
-    noise_model = qldpc.stim.SI1000NoiseModel(0.1)
+    noise_model = qldpc.circuits.SI1000NoiseModel(0.1)
     with pytest.raises(ValueError, match="multiple uses"):
         noise_model.noisy_circuit(circuit, insert_ticks=False)
 
@@ -112,7 +114,7 @@ def test_idle_errors() -> None:
         M 0
         DETECTOR rec[-1]
     """)
-    noise_model = qldpc.stim.NoiseModel(
+    noise_model = qldpc.circuits.NoiseModel(
         readout_error=0.1, idle_error=0.2, additional_error_waiting_for_m_or_r=0.3
     )
     noisy_circuit = stim.Circuit("""
@@ -132,7 +134,7 @@ def test_immunity() -> None:
     circuit = stim.Circuit("""
         H 0 1
     """)
-    noise_model = qldpc.stim.DepolarizingNoiseModel(0.1, include_idling_error=False)
+    noise_model = qldpc.circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
     noisy_circuit = stim.Circuit("""
         H 0 1
         DEPOLARIZE1(0.1) 1
@@ -149,13 +151,13 @@ def test_immunity() -> None:
 
 def test_classical_controls() -> None:
     """Classically controled gates get special treatment."""
-    noise_model: qldpc.stim.NoiseModel
+    noise_model: qldpc.circuits.NoiseModel
 
     # classically controls are immune to noise, but the qubits still pick up idling errors
     circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
     """)
-    noise_model = qldpc.stim.SI1000NoiseModel(0.1)
+    noise_model = qldpc.circuits.SI1000NoiseModel(0.1)
     noisy_circuit = stim.Circuit("""
         CX 0 1 rec[-1] 2
         DEPOLARIZE2(0.1) 0 1
@@ -170,7 +172,7 @@ def test_classical_controls() -> None:
         TICK
         H 0 1 2
     """)
-    noise_model = qldpc.stim.NoiseModel(idle_error=0.1)
+    noise_model = qldpc.circuits.NoiseModel(idle_error=0.1)
     noisy_circuit = stim.Circuit("""
         H 0
         CX rec[-1] 1
@@ -187,7 +189,7 @@ def test_pauli_product_measurements() -> None:
     circuit = stim.Circuit("""
         MPP X1*Y2*Z3
     """)
-    noise_model = qldpc.stim.NoiseModel(readout_error=0.1, idle_error=0.2)
+    noise_model = qldpc.circuits.NoiseModel(readout_error=0.1, idle_error=0.2)
     noisy_circuit = stim.Circuit("""
         MPP(0.1) X1*Y2*Z3
         DEPOLARIZE1(0.2) 0
@@ -199,8 +201,8 @@ def test_pauli_product_measurements() -> None:
         MPP Z0*Z1*Z2
         MPP X0*Y1*Z2
     """)
-    noise_rule = qldpc.stim.NoiseRule(readout_error=0.2)
-    noise_model = qldpc.stim.NoiseModel(readout_error=0.1, rules={"MXYZ": noise_rule})
+    noise_rule = qldpc.circuits.NoiseRule(readout_error=0.2)
+    noise_model = qldpc.circuits.NoiseModel(readout_error=0.1, rules={"MXYZ": noise_rule})
     noisy_circuit = stim.Circuit("""
         MPP(0.1) Z0*Z1*Z2
         MPP(0.2) X0*Y1*Z2
@@ -217,7 +219,7 @@ def test_repeat_blocks() -> None:
             CX 0 1
         }
     """)
-    noise_model = qldpc.stim.DepolarizingNoiseModel(0.1, include_idling_error=False)
+    noise_model = qldpc.circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
     noisy_circuit = stim.Circuit("""
         H 0
         DEPOLARIZE1(0.1) 0
@@ -234,18 +236,18 @@ def test_repeat_blocks() -> None:
 def test_noise_rule_errors() -> None:
     """Cover various NoiseRule errors."""
     with pytest.raises(ValueError, match="not between 0 and 1"):
-        qldpc.stim.NoiseRule(readout_error=1.1)
+        qldpc.circuits.NoiseRule(readout_error=1.1)
     with pytest.raises(ValueError, match="not between 0 and 1"):
-        qldpc.stim.NoiseRule(reset_error=1.1)
+        qldpc.circuits.NoiseRule(reset_error=1.1)
     with pytest.raises(ValueError, match="not between 0 and 1"):
-        qldpc.stim.NoiseRule(after={"X_ERROR": -0.1})
+        qldpc.circuits.NoiseRule(after={"X_ERROR": -0.1})
     with pytest.raises(ValueError, match="Invalid or unrecognized noise channel"):
-        qldpc.stim.NoiseRule(after={"S": 0.5})
+        qldpc.circuits.NoiseRule(after={"S": 0.5})
 
 
 def test_trivial_noise() -> None:
     """Boolean testing for trivial noise rules/models."""
-    assert not bool(qldpc.stim.NoiseRule())
-    assert not bool(qldpc.stim.NoiseModel())
-    assert bool(qldpc.stim.NoiseRule(readout_error=0.1))
-    assert bool(qldpc.stim.NoiseModel(readout_error=0.1))
+    assert not bool(qldpc.circuits.NoiseRule())
+    assert not bool(qldpc.circuits.NoiseModel())
+    assert bool(qldpc.circuits.NoiseRule(readout_error=0.1))
+    assert bool(qldpc.circuits.NoiseModel(readout_error=0.1))
