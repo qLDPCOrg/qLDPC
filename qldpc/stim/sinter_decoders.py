@@ -60,7 +60,6 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit."""
 
     def __init__(self, dem_arrays: DetectorErrorModelArrays, decoder: decoders.Decoder) -> None:
-        self.num_detectors = dem_arrays.detector_flip_matrix.shape[0]
         self.dem_arrays = dem_arrays
         self.decoder = decoder
 
@@ -74,7 +73,7 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
         observable_flips = []
         for bit_packed_syndrome in bit_packed_detection_event_data:
             syndrome = np.unpackbits(
-                bit_packed_syndrome, count=self.num_detectors, bitorder="little"
+                bit_packed_syndrome, count=self.dem_arrays.num_detectors, bitorder="little"
             )
             predicted_errors = self.decoder.decode(syndrome.astype(int))
             observable_flips.append(self.dem_arrays.observable_flip_matrix @ predicted_errors % 2)
@@ -120,6 +119,21 @@ class DetectorErrorModelArrays:
         self.detector_flip_matrix = detector_flip_matrix.tocsc()
         self.observable_flip_matrix = observable_flip_matrix.tocsc()
 
+    @property
+    def num_errors(self) -> int:
+        """The number of distinct circuit errors."""
+        return self.detector_flip_matrix.shape[1]
+
+    @property
+    def num_detectors(self) -> int:
+        """The number of detectors that witness circuit errors."""
+        return self.detector_flip_matrix.shape[0]
+
+    @property
+    def num_observables(self) -> int:
+        """The number of tracked logical observables."""
+        return self.observable_flip_matrix.shape[0]
+
     @staticmethod
     def get_merged_circuit_errors(
         dem: stim.DetectorErrorModel,
@@ -161,6 +175,17 @@ class DetectorErrorModelArrays:
             detectors_observables: _probability_of_an_odd_number_of_events(probabilities)
             for detectors_observables, probabilities in errors.items()
         }
+
+    def to_detector_error_model(self) -> stim.DetectorErrorModel:
+        """Convert this object into a stim.DetectorErrorModel."""
+        dem = stim.DetectorErrorModel()
+        for prob, detector_vec, observable_vec in zip(
+            self.error_probs, self.detector_flip_matrix.T, self.observable_flip_matrix.T
+        ):
+            detectors = " ".join([f"D{dd}" for dd in detector_vec.nonzero()[1]])
+            observables = " ".join([f"L{dd}" for dd in observable_vec.nonzero()[1]])
+            dem += stim.DetectorErrorModel(f"error({prob}) {detectors} {observables}")
+        return dem
 
 
 HashableType = TypeVar("HashableType", bound=Hashable)

@@ -10,7 +10,7 @@ from .circuits import (
 )
 from .memory import memory_experiment
 from .noise_model import DepolarizingNoiseModel, NoiseModel, NoiseRule, SI1000NoiseModel
-from .sinter_decoders import CompiledSinterDecoder, SinterDecoder
+from .sinter_decoders import CompiledSinterDecoder, DetectorErrorModelArrays, SinterDecoder
 from .syndrome_measurement import BareColorCircuit, SyndromeMeasurementStrategy
 
 __all__ = [
@@ -28,6 +28,7 @@ __all__ = [
     "NoiseRule",
     "SI1000NoiseModel",
     "CompiledSinterDecoder",
+    "DetectorErrorModelArrays",
     "SinterDecoder",
     "BareColorCircuit",
     "SyndromeMeasurementStrategy",
