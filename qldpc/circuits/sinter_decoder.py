@@ -188,9 +188,9 @@ class DetectorErrorModelArrays:
                             f"Split error mechanisms are not supported (in {instruction})"
                         )
 
-                detector_ids = _values_that_occur_an_odd_number_of_times(detector_ids)
-                observable_ids = _values_that_occur_an_odd_number_of_times(observable_ids)
-                errors[detector_ids, observable_ids].append(probability)
+                detector_ids_set = _values_that_occur_an_odd_number_of_times(detector_ids)
+                observable_ids_set = _values_that_occur_an_odd_number_of_times(observable_ids)
+                errors[detector_ids_set, observable_ids_set].append(probability)
 
         # Combine circuit errors to obtain a single probability of occurrence for each set of flipped
         # detectors and observables.
@@ -211,8 +211,8 @@ class DetectorErrorModelArrays:
         return dem
 
 
-def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> tuple[int, ...]:
-    """Sorted subset of items that occur an odd number of times."""
+def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
+    """Subset of items that occur an odd number of times."""
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
 
 
