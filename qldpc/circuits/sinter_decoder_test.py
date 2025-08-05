@@ -78,10 +78,3 @@ def test_sinter_decoder() -> None:
     expected_flips = np.packbits(observable_flips, bitorder="little", axis=1)
     predicted_observable_flips = compiled_sinter_decoder.decode_shots_bit_packed(bit_packed_shots)
     assert np.array_equal(predicted_observable_flips, expected_flips)
-
-
-def test_split_error() -> None:
-    """Split errors in detector error models are not supported."""
-    dem = stim.DetectorErrorModel("error(0.1) D0 ^ D1")
-    with pytest.raises(ValueError, match="Split error mechanisms are not supported"):
-        qldpc.circuits.DetectorErrorModelArrays(dem)

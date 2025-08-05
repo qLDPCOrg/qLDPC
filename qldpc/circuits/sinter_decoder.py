@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import collections
 import itertools
+import warnings
 from collections.abc import Collection
 
 import numpy as np
@@ -175,22 +176,13 @@ class DetectorErrorModelArrays:
             if instruction.type == "error":
                 probability = instruction.args_copy()[0]
                 targets = instruction.targets_copy()
-
-                detector_ids = []
-                observable_ids = []
-                for target in targets:
-                    if target.is_relative_detector_id():
-                        detector_ids.append(target.val)
-                    elif target.is_logical_observable_id():
-                        observable_ids.append(target.val)
-                    else:
-                        raise ValueError(
-                            f"Split error mechanisms are not supported (in {instruction})"
-                        )
-
-                detector_ids_set = _values_that_occur_an_odd_number_of_times(detector_ids)
-                observable_ids_set = _values_that_occur_an_odd_number_of_times(observable_ids)
-                errors[detector_ids_set, observable_ids_set].append(probability)
+                detectors = _values_that_occur_an_odd_number_of_times(
+                    [target.val for target in targets if target.is_relative_detector_id()]
+                )
+                observables = _values_that_occur_an_odd_number_of_times(
+                    [target.val for target in targets if target.is_logical_observable_id()]
+                )
+                errors[detectors, observables].append(probability)
 
         # Combine circuit errors to obtain a single probability of occurrence for each set of flipped
         # detectors and observables.
