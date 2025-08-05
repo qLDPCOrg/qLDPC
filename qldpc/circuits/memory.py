@@ -6,23 +6,23 @@ error correction memory experiments using CSS codes.
 Example:
     Creating a memory experiment circuit:
 
-    from qldpc.codes import SteanCode
-    from qldpc.stim.noise_model import NoiseModel
-    from qldpc.stim.syndrome_measurement_strategy import BareColorCircuit
+    from qldpc.codes import SteaneCode
+    from qldpc.circuits import BareColorCircuit, DepolarizingNoiseModel, memory_experiment
     from qldpc.objects import Pauli
-    # Create a CSS code and noise model
-    css_code = SteanCode()
-    noise_model = NoiseModel.uniform_depolarizing(0.001)
-    syndrome_measurement_strategy = BareColorCircuit()
-    # Generate memory experiment circuit
-    circuit = memory_experiment(
-         code=css_code,
-         noise_model=noise_model,
-         syndrome_measurement_strategy=syndrome_measurement_strategy,
-         num_rounds=5,
-         basis=Pauli.Z
-     )
 
+    # Create a CSS code and noise model
+    code = SteaneCode()
+    noise_model = DepolarizingNoiseModel(1e-3)
+    syndrome_measurement_strategy = BareColorCircuit()
+
+    # Generate a memory experiment circuit for the logical Z operator
+    circuit = memory_experiment(
+        code,
+        syndrome_measurement_strategy,
+        num_rounds=3,
+        basis=Pauli.Z,
+        noise_model=noise_model,
+    )
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
