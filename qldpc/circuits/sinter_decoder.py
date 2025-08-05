@@ -161,11 +161,8 @@ class DetectorErrorModelArrays:
         - a set of observables that are flipped, and
         - a probability of occurrence.
 
-        This method organizes circuit errors into a dictionary of dictionaries that looks like
-            {(frozenset_of_detector_ids, frozenset_of_observable_ids): probability}},
-        where "probability" is the probability of occurrence for a circuit error that flips the
-        corresponding detectors and observables.  Circuit errors
-
+        This method organizes circuit errors into a dictionary that looks like
+            {(detector_ids, observable_ids): probability}}.
         Circuit errors that flip the same set of detectors and observables are merged.
         """
         # Collect all circuit errors in the stim.DetectorErrorModel, accounting for the possibility
