@@ -92,8 +92,8 @@ class DetectorErrorModelArrays:
     3. error_probs: an array of probabilities of occurrence for each circuit error.
 
     A DetectorErrorModelArrays is almost one-to-one with a stim.DetectorErrorModel instance.  The
-    only difference is that DetectorErrorModelArrays "merges" circuit errors that flip the same set
-    of detectors and observables.
+    only differences are that a DetectorErrorModelArrays (a) "merges" circuit errors that flip the
+    same set of detectors and observables, and (b) does not preserve detector coordinate data.
     """
 
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
