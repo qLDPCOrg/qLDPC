@@ -128,9 +128,9 @@ class DetectorErrorModelArrays:
         self.error_probs = np.zeros(len(errors), dtype=float)
 
         # iterate over and account for all circuit errors
-        for error_index, ((detectors, observables), probability) in enumerate(errors.items()):
-            detector_flip_matrix[[target.val for target in detectors], error_index] = 1
-            observable_flip_matrix[[target.val for target in observables], error_index] = 1
+        for error_index, ((detector_ids, observable_ids), probability) in enumerate(errors.items()):
+            detector_flip_matrix[list(detector_ids), error_index] = 1
+            observable_flip_matrix[list(observable_ids), error_index] = 1
             self.error_probs[error_index] = probability
 
         self.detector_flip_matrix = detector_flip_matrix.tocsc()
@@ -154,7 +154,7 @@ class DetectorErrorModelArrays:
     @staticmethod
     def get_merged_circuit_errors(
         dem: stim.DetectorErrorModel,
-    ) -> dict[tuple[frozenset[stim.DemTarget], frozenset[stim.DemTarget]], float]:
+    ) -> dict[tuple[frozenset[int], frozenset[int]], float]:
         """Organize and merge circuit errors in a stim.DetectorErrorModel.
 
         Each circuit error is identified by:
@@ -163,7 +163,7 @@ class DetectorErrorModelArrays:
         - a probability of occurrence.
 
         This method organizes circuit errors into a dictionary of dictionaries that looks like
-            {(frozenset_of_detectors, frozenset_of_observables): probability}},
+            {(frozenset_of_detector_ids, frozenset_of_observable_ids): probability}},
         where "probability" is the probability of occurrence for a circuit error that flips the
         corresponding detectors and observables.  Circuit errors
 
@@ -171,20 +171,27 @@ class DetectorErrorModelArrays:
         """
         # Collect all circuit errors in the stim.DetectorErrorModel, accounting for the possibility
         # of indistinguishable errors that flip the same sets of detectors and observables.
-        errors: dict[tuple[frozenset[stim.DemTarget], frozenset[stim.DemTarget]], list[float]] = (
-            collections.defaultdict(list)
-        )
+        errors = collections.defaultdict(list)
         for instruction in dem.flattened():
             if instruction.type == "error":
                 probability = instruction.args_copy()[0]
                 targets = instruction.targets_copy()
-                detectors = _frozenset_of_items_that_occur_an_odd_number_of_times(
-                    [target for target in targets if target.is_relative_detector_id()]
-                )
-                observables = _frozenset_of_items_that_occur_an_odd_number_of_times(
-                    [target for target in targets if target.is_logical_observable_id()]
-                )
-                errors[detectors, observables].append(probability)
+
+                detector_ids = []
+                observable_ids = []
+                for target in targets:
+                    if target.is_relative_detector_id():
+                        detector_ids.append(target.val)
+                    elif target.is_logical_observable_id():
+                        observable_ids.append(target.val)
+                    else:
+                        raise ValueError(
+                            f"Split error mechanisms are not supported (in {instruction})"
+                        )
+
+                detector_ids = _values_that_occur_an_odd_number_of_times(detector_ids)
+                observable_ids = _values_that_occur_an_odd_number_of_times(observable_ids)
+                errors[detector_ids, observable_ids].append(probability)
 
         # Combine circuit errors to obtain a single probability of occurrence for each set of flipped
         # detectors and observables.
@@ -205,13 +212,8 @@ class DetectorErrorModelArrays:
         return dem
 
 
-HashableType = TypeVar("HashableType", bound=Hashable)
-
-
-def _frozenset_of_items_that_occur_an_odd_number_of_times(
-    items: Collection[HashableType],
-) -> frozenset[HashableType]:
-    """Frozen subset of items that occur an odd number of times."""
+def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> tuple[int, ...]:
+    """Sorted subset of items that occur an odd number of times."""
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
 
 
