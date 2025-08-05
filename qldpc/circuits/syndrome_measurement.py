@@ -28,7 +28,7 @@ from qldpc import codes
 
 
 @dataclasses.dataclass
-class QubitIds:
+class QubitIDs:
     """Container for qubit indices."""
 
     data: list[int]
@@ -52,22 +52,17 @@ class SyndromeMeasurementStrategy(abc.ABC):
 
     @abc.abstractmethod
     def get_circuit(
-        self, code: codes.CSSCode, stim_ids: QubitIds | None = None
+        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, list[list[int]]]:
-        """Compiles a syndrome measurement circuit for a given CSSCode and noise model.
+        """Construct a circuit to measure the syndromes of an error-correcting code.
 
         Args:
-            codes.CSSCode:
-                The quantum code to be compiled into a single round of syndrome measurements.
-            QubitIds:
-                Integer indices to be used for data qubits, X check qubits, and Z check qubits.
+            codes.QuditCode: The quantum code whose syndromes we want to measure.
+            circuits.QubitIds: Integer indices for the data qubits, the qubits that measure X-type
+                stabilizers, and the qubits that measure Z-type stabilizers.
 
         Returns:
-            stim.Circuit:
-                Stim circuit containing the compiled syndrome measurement round
-            list[list[int]]:
-                The history of measurement rounds performed in the circuit.  Each round is a list of
-                the stim ids measured that round, in the order they were passed to stim.
+            stim.Circuit: The syndrome measurement circuit.
         """
 
 
@@ -80,7 +75,7 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
     def get_circuit(
         self,
         code: codes.CSSCode,
-        qubit_ids: QubitIds | None = None,
+        qubit_ids: QubitIDs | None = None,
         strategy: str = "largest_first",
     ) -> tuple[stim.Circuit, list[list[int]]]:
         """
@@ -91,7 +86,7 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
             assert code.num_checks_x == len(qubit_ids.x_check)
             assert code.num_checks_z == len(qubit_ids.z_check)
         else:
-            qubit_ids = QubitIds(len(code), code.num_checks_x, code.num_checks_z)
+            qubit_ids = QubitIDs(len(code), code.num_checks_x, code.num_checks_z)
 
         x_subcircuit = self._classical_subcode_to_subcircuit(
             code.code_x,
@@ -121,8 +116,7 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
         # Measure the extracted stabilizers
         circuit.append("MX", check_qubits)
 
-        measurements = [qubit_ids.x_check + qubit_ids.z_check]
-        return circuit, measurements
+        return circuit
 
     def _classical_subcode_to_subcircuit(
         self,

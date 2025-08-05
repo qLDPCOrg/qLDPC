@@ -7,7 +7,7 @@ from .common import (
 from .memory import memory_experiment
 from .noise_model import DepolarizingNoiseModel, NoiseModel, NoiseRule, SI1000NoiseModel
 from .sinter_decoders import CompiledSinterDecoder, SinterDecoder
-from .syndrome_measurement import BareColorCircuit, SyndromeMeasurementStrategy
+from .syndrome_measurement import BareColorCircuit, QubitIDs, SyndromeMeasurementStrategy
 from .transversal import (
     get_transversal_automorphism_group,
     get_transversal_circuit,
@@ -28,6 +28,7 @@ __all__ = [
     "CompiledSinterDecoder",
     "SinterDecoder",
     "BareColorCircuit",
+    "QubitIDs",
     "SyndromeMeasurementStrategy",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",
