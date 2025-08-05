@@ -21,9 +21,9 @@ class SinterDecoder(sinter.Decoder):
         """Initialize a SinterDecoder.
 
         Args:
-            probs_arg: The keyword argument to which to pass the probabilities of occurrence for each
-                circuit error (determined by a detector error model) to a decoder in
-                qldpc.decoders.get_decoder.
+            error_probs_arg: The keyword argument to which to pass the probabilities of occurrence
+                for each circuit error (determined by a detector error model) to a decoder in
+                qldpc.decoders.get_decoder.  This argument is only necessary for custom decoders.
             decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
@@ -51,9 +51,7 @@ class SinterDecoder(sinter.Decoder):
             {self.error_probs_arg: list(dem_arrays.error_probs)} if self.error_probs_arg else {}
         )
         decoder = decoders.get_decoder(
-            dem_arrays.detector_flip_matrix,
-            **self.decoder_kwargs,
-            **probs_kwarg,
+            dem_arrays.detector_flip_matrix, **self.decoder_kwargs, **probs_kwarg
         )
         return CompiledSinterDecoder(dem_arrays, decoder)
 
