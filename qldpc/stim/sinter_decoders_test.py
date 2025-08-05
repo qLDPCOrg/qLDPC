@@ -24,28 +24,28 @@ import qldpc
 def test_dem_arrays() -> None:
     """Conversion to/from DetectorErrorModelArrays."""
     dem = stim.DetectorErrorModel("""
-        error(0.0001) D0
-        error(0.0002) D0 D1
-        error(0.0003) D2 L1
+        error(0.001) D0
+        error(0.002) D0 D1
+        error(0.003) D2 L1
     """)
     dem_arrays = qldpc.stim.DetectorErrorModelArrays(dem)
-    assert dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
+    assert dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-10)
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 3
     assert dem_arrays.num_observables == 2
 
     # merge equivalent errors
     dem = stim.DetectorErrorModel("""
-        error(0.0001) D0
-        error(0.0002) D0 D3
-        error(0.0003) D0
-        error(0.0004) D0 D3
-        error(0.0005) L1
+        error(0.001) D0
+        error(0.002) D0 D3
+        error(0.003) D0
+        error(0.004) D0 D3
+        error(0.005) L1
     """)
     simplified_dem = stim.DetectorErrorModel("""
-        error(0.0004) D0
-        error(0.0006) D0 D3
-        error(0.0005) L1
+        error(0.004) D0
+        error(0.006) D0 D3
+        error(0.005) L1
     """)
     dem_arrays = qldpc.stim.DetectorErrorModelArrays(dem)
     assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
