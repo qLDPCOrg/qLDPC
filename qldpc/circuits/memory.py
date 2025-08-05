@@ -46,7 +46,7 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from .noise_model import NoiseModel
-from .syndrome_measurement import QubitIDs, SyndromeMeasurementStrategy
+from .syndrome_measurement import QubitIds, SyndromeMeasurementStrategy
 
 
 def memory_experiment(
@@ -136,11 +136,10 @@ def memory_experiment(
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(f"Invalid basis: {basis}")
 
-    qubit_ids = QubitIDs(len(code), code.num_checks_x, code.num_checks_z)
+    qubit_ids = QubitIds(len(code), code.num_checks_x, code.num_checks_z)
 
     meas_rec: list[dict[int, int]] = []
-    sm_circuit = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    sm_measurements = _get_measurements(sm_circuit)
+    sm_circuit, sm_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
 
     """
     Define qubit coordinates
@@ -241,21 +240,6 @@ def memory_experiment(
         )
 
     return noise_model.noisy_circuit(circuit) if noise_model else circuit
-
-
-def _get_measurements(circuit: stim.Circuit) -> list[list[int]]:
-    """Extract measurements from the given circuit.
-
-    The measurements are represented by an ordered list of lists, where each inner list corresponds
-    to one measurement instruction, and contains the indices of the measured qubits.
-    """
-    measurements = []
-    for instruction in circuit:
-        if instruction.num_measurements:
-            targets = instruction.targets_copy()
-            qubits = [target.value for target in targets if target.is_qubit_target]
-            measurements.append(qubits)
-    return measurements
 
 
 def _update_meas_rec(meas_record: list[dict[int, int]], qubits: list[int]) -> None:
