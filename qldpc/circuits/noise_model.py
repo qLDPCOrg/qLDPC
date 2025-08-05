@@ -525,6 +525,7 @@ class SI1000NoiseModel(NoiseModel):
 
     def __init__(self, p: float) -> None:
         """Instantiate a superconducting-inspired noise model."""
+        self.p = p
         super().__init__(
             clifford_1q_error=p / 10,
             clifford_2q_error=p,
@@ -548,6 +549,8 @@ class DepolarizingNoiseModel(NoiseModel):
 
     def __init__(self, p: float, *, include_idling_error: bool = False) -> None:
         """Instantiate a depolarizing noise model."""
+        self.p = p
+        self.include_idling_error = include_idling_error
         super().__init__(
             clifford_1q_error=p,
             clifford_2q_error=p,

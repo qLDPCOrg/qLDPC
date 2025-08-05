@@ -16,7 +16,6 @@ limitations under the License.
 """
 
 import numpy as np
-import pytest
 import stim
 
 import qldpc
