@@ -1602,10 +1602,6 @@ class BalancedProductCode(CSSCode):
                     self._c = c
                     self._r = r
                     break
-        if self._c is None:
-            raise ValueError(
-                "Matrix doesn't have permutation that satisfy balanced product properties"
-            )
         assert self._r is not None
         assert self._c is not None
         check_x = np.hstack(
