@@ -182,8 +182,8 @@ class DetectorErrorModelArrays:
         for prob, detector_vec, observable_vec in zip(
             self.error_probs, self.detector_flip_matrix.T, self.observable_flip_matrix.T
         ):
-            detectors = " ".join([f"D{dd}" for dd in detector_vec.nonzero()[1]])
-            observables = " ".join([f"L{dd}" for dd in observable_vec.nonzero()[1]])
+            detectors = " ".join([f"D{dd}" for dd in sorted(detector_vec.nonzero()[1])])
+            observables = " ".join([f"L{dd}" for dd in sorted(observable_vec.nonzero()[1])])
             dem += stim.DetectorErrorModel(f"error({prob}) {detectors} {observables}")
         return dem
 
