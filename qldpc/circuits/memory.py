@@ -46,7 +46,7 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from .noise_model import NoiseModel
-from .syndrome_measurement import QubitIds, SyndromeMeasurementStrategy
+from .syndrome_measurement import QubitIDs, SyndromeMeasurementStrategy
 
 
 def memory_experiment(
@@ -136,7 +136,7 @@ def memory_experiment(
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(f"Invalid basis: {basis}")
 
-    qubit_ids = QubitIds(len(code), code.num_checks_x, code.num_checks_z)
+    qubit_ids = QubitIDs(len(code), code.num_checks_x, code.num_checks_z)
 
     meas_rec: list[dict[int, int]] = []
     sm_circuit, sm_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
