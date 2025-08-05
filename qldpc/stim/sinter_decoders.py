@@ -102,7 +102,7 @@ class DetectorErrorModelArrays:
 
     def __init__(self, dem: stim.DetectorErrorModel) -> None:
         """Initialize from a stim.DetectorErrorModel."""
-        errors = DetectorErrorModelArrays._collect_and_organize_circuit_errors(dem)
+        errors = DetectorErrorModelArrays.get_merged_circuit_errors(dem)
 
         # initialize empty arrays
         detector_flip_matrix = scipy.sparse.dok_matrix(
@@ -113,7 +113,7 @@ class DetectorErrorModelArrays:
         )
         self.error_probs = np.zeros(len(errors), dtype=float)
 
-        # iterate over all circuit errors
+        # iterate over and account for all circuit errors
         for error_index, ((detectors, observables), probability) in enumerate(errors.items()):
             detector_flip_matrix[[target.val for target in detectors], error_index] = 1
             observable_flip_matrix[[target.val for target in observables], error_index] = 1
@@ -123,10 +123,10 @@ class DetectorErrorModelArrays:
         self.observable_flip_matrix = observable_flip_matrix.tocsc()
 
     @staticmethod
-    def _collect_and_organize_circuit_errors(
+    def get_merged_circuit_errors(
         dem: stim.DetectorErrorModel,
     ) -> dict[tuple[frozenset[stim.DemTarget], frozenset[stim.DemTarget]], float]:
-        """Identify and organize circuit errors in a stim.DetectorErrorModel.
+        """Organize and merge circuit errors in a stim.DetectorErrorModel.
 
         Each circuit error is identified by:
         - a set of detectors that are flipped,
@@ -136,7 +136,9 @@ class DetectorErrorModelArrays:
         This method organizes circuit errors into a dictionary of dictionaries that looks like
             {(frozenset_of_detectors, frozenset_of_observables): probability}},
         where "probability" is the probability of occurrence for a circuit error that flips the
-        corresponding detectors and observables.
+        corresponding detectors and observables.  Circuit errors
+
+        Circuit errors that flip the same set of detectors and observables are merged.
         """
         # Collect all circuit errors in the stim.DetectorErrorModel, accounting for the possibility
         # of indistinguishable errors that flip the same sets of detectors and observables.
