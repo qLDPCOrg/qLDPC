@@ -15,10 +15,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import numpy as np
 import pytest
 import stim
 
 from qldpc import circuits, codes
+from qldpc.math import symplectic_conjugate
+from qldpc.objects import Pauli
 
 
 def test_measurement_record() -> None:
@@ -35,7 +38,48 @@ def test_measurement_record() -> None:
         record.get_target_rec(0, 2)
 
 
-def test_edge_coloring_strategy() -> None:
+def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     """Syndrome extraction by Tanner graph edge coloring."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
+
+    code = codes.SteaneCode()
+    state_prep = circuits.get_encoding_circuit(code)
+
+    errors = np.random.choice([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], size=[len(code)])
+    ###################################################################
     code = codes.FiveQubitCode()
-    circuit = circuits.get_encoding_circuit(code)
+    state_prep = circuits.get_encoding_circuit(code)
+    errors = [Pauli.I] + [Pauli.I] * (len(code) - 1)
+    ###################################################################
+    error_ops = stim.Circuit()
+    for qubit, pauli in enumerate(errors):
+        error_ops.append(f"{pauli}_error", [qubit], [1])
+
+    error_vec = code.field([pauli.value for pauli in errors]).T.ravel()
+    syndrome_vec = code.matrix @ symplectic_conjugate(error_vec)
+
+    for strategy in [
+        circuits.EdgeColoring,
+        # we aspire to have more measurement strategies
+    ]:
+        syndrome_extraction, record = strategy.get_circuit(code)
+        detectors = stim.Circuit()
+        for check in range(len(code), len(code) + code.num_checks):
+            detectors.append("DETECTOR", record.get_target_rec(check))
+
+        circuit = state_prep + error_ops + syndrome_extraction + detectors
+        sample = circuit.compile_detector_sampler().sample(1).ravel()
+
+    # assert np.array_equal(syndrome_vec, sample)
+
+    print()
+    print()
+    print()
+    print(circuit)
+    print()
+    print(code.get_strings())
+    print()
+    print(syndrome_vec)
+    print(sample)
+
+    print(np.array_equal(syndrome_vec, sample))
