@@ -65,7 +65,7 @@ class MeasurementRecord:
             self.qubit_to_measurement[qubit].extend(
                 [self.num_measurements + measurement for measurement in measurements]
             )
-            self.num_measurements += len(measurements)
+        self.num_measurements += sum(len(measurements) for _, measurements in record.items())
 
     def get_last_target_rec(self, qubit_index: int) -> stim.target_rec:
         """Get the most recent Stim measurement record target (by index) for the given qubit."""
