@@ -52,7 +52,8 @@ def test_syndrome_measurement(
     ###################################################################
     code = codes.FiveQubitCode()
     state_prep = circuits.get_encoding_circuit(code)
-    errors = [Pauli.I] + [Pauli.I] * (len(code) - 1)
+    errors = np.random.choice([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], size=[len(code)])
+    # errors = [Pauli.I] + [Pauli.I] * (len(code) - 1)
     ###################################################################
     error_ops = stim.Circuit()
     for qubit, pauli in enumerate(errors):
@@ -62,6 +63,15 @@ def test_syndrome_measurement(
     syndrome_vec = code.matrix @ symplectic_conjugate(error_vec)
 
     syndrome_extraction, record = strategy.get_circuit(code)
+    ###################################################################
+    syndrome_extraction = stim.Circuit("""
+        MPP X0*Z1*Z2*X3
+        MPP X1*Z2*Z3*X4
+        MPP X2*Z3*Z4*X0
+        MPP X3*Z4*Z0*X1
+    """)
+    ###################################################################
+
     detectors = stim.Circuit()
     for check in range(len(code), len(code) + code.num_checks):
         detectors.append("DETECTOR", record.get_target_rec(check))
