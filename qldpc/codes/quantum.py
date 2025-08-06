@@ -1606,6 +1606,44 @@ class BalancedProductCode(CSSCode):
         )
         CSSCode.__init__(self, check_x, check_z)
 
+    """
+    Allows for the creation of balanced codes from a classical code and a CSS code.
+    
+    https://arxiv.org/pdf/2505.13679v1
+    
+    """
+
+    @classmethod
+    def from_codes(cls, code_q: CSSCode, code_c: ClassicalCode) -> qldpc.codes.BalancedProductCode:
+        r_X, n_X = code_q.code_x.matrix.shape
+        # i.e. rows of quantum matrix, number qubits of quantum matrix
+        r_C, n_C = code_c.matrix.shape
+
+        # Make new H_x
+        Hx_tensor = np.kron(code_q.code_x.matrix, np.eye(n_C, dtype=int))
+        classical_T_tensor = np.kron(np.eye(r_X, dtype=int), code_c.matrix.T)
+        H_new_X = np.hstack((Hx_tensor, classical_T_tensor))
+
+        # Make new H_z
+        Hz_tensor = np.kron(code_q.code_z.matrix, np.eye(n_C, dtype=int))
+
+        bottom_left = np.kron(np.eye(n_X, dtype=int), code_c.matrix)
+        bottom_right = np.kron(code_q.code_x.matrix.T, np.eye(r_C, dtype=int))
+
+        top_right_zeros = np.zeros(
+            (Hz_tensor.shape[0], bottom_left.shape[1] + bottom_right.shape[1] - Hz_tensor.shape[1]),
+            dtype=int,
+        )
+        top_row = np.hstack((Hz_tensor, top_right_zeros))
+
+        bottom_row = np.hstack((bottom_left, bottom_right))
+
+        H_new_Z = np.vstack((top_row, bottom_row))
+
+        new_code = cls.__new__(cls)
+        CSSCode.__init__(new_code, H_new_X, H_new_Z)
+        return new_code
+
 
 class BaconShorCode(SHPCode):
     """Bacon-Shor code on a square grid, implemented as a subsystem hypergraph product code.
