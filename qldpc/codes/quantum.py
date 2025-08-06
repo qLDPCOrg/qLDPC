@@ -1611,24 +1611,37 @@ class BalancedProductCode(CSSCode):
     
     https://arxiv.org/pdf/2505.13679v1
     
+    If 'distance_balancing', function will determine if x and z errors have the same distance
+    and if not, will construct the code to maximize the final distance. This involve exact distance calculations
+    which will only work on relatively small codes
+    
     """
 
     @classmethod
-    def from_codes(cls, code_q: CSSCode, code_c: ClassicalCode) -> qldpc.codes.BalancedProductCode:
-        r_X, n_X = code_q.code_x.matrix.shape
-        # i.e. rows of quantum matrix, number qubits of quantum matrix
+    def from_codes(cls, code_q: CSSCode, code_c: ClassicalCode, distance_balancing: bool = False) -> qldpc.codes.BalancedProductCode:
+        # i.e. rows of matrix, number qubits of matrix
         r_C, n_C = code_c.matrix.shape
 
+        high_distance = code_q.code_z
+        low_distance = code_q.code_x
+        if distance_balancing:
+            if code_q.code_x.get_distance_exact() > code_q.code_z.get_distance_exact():
+                temp = high_distance
+                high_distance = low_distance
+                low_distance = temp
+
+        r_low, n_low = low_distance.matrix.shape
+
         # Make new H_x
-        Hx_tensor = np.kron(code_q.code_x.matrix, np.eye(n_C, dtype=int))
-        classical_T_tensor = np.kron(np.eye(r_X, dtype=int), code_c.matrix.T)
+        Hx_tensor = np.kron(low_distance.matrix, np.eye(n_C, dtype=int))
+        classical_T_tensor = np.kron(np.eye(r_low, dtype=int), code_c.matrix.T)  # shape: (r_low * n_C, r_low * r_C)
         H_new_X = np.hstack((Hx_tensor, classical_T_tensor))
 
         # Make new H_z
-        Hz_tensor = np.kron(code_q.code_z.matrix, np.eye(n_C, dtype=int))
+        Hz_tensor = np.kron(high_distance.matrix, np.eye(n_C, dtype=int))
 
-        bottom_left = np.kron(np.eye(n_X, dtype=int), code_c.matrix)
-        bottom_right = np.kron(code_q.code_x.matrix.T, np.eye(r_C, dtype=int))
+        bottom_left = np.kron(np.eye(n_low, dtype=int), code_c.matrix)
+        bottom_right = np.kron(low_distance.matrix.T, np.eye(r_C, dtype=int))
 
         top_right_zeros = np.zeros(
             (Hz_tensor.shape[0], bottom_left.shape[1] + bottom_right.shape[1] - Hz_tensor.shape[1]),
