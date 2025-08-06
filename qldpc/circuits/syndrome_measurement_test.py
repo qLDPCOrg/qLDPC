@@ -18,7 +18,7 @@ limitations under the License.
 import pytest
 import stim
 
-from qldpc import circuits
+from qldpc import circuits, codes
 
 
 def test_measurement_record() -> None:
@@ -26,8 +26,16 @@ def test_measurement_record() -> None:
     record = circuits.MeasurementRecord()
     record.append({0: [0, 1], 2: [2]})
     assert record.num_measurements == 3
-    assert dict(record.items()) == record.qubit_to_measurement
-    assert record.get_last_target_rec(2) == stim.target_rec(-1)
-    assert record.get_last_target_rec(0) == stim.target_rec(-2)
+    assert dict(record.items()) == record.qubit_to_measurements
+    assert record.get_target_rec(2) == stim.target_rec(-1)
+    assert record.get_target_rec(0) == stim.target_rec(-2)
     with pytest.raises(ValueError, match="Qubit 1 not found"):
-        record.get_last_target_rec(1)
+        record.get_target_rec(1)
+    with pytest.raises(ValueError, match="Invalid measurement index"):
+        record.get_target_rec(0, 2)
+
+
+def test_edge_coloring_strategy() -> None:
+    """Syndrome extraction by Tanner graph edge coloring."""
+    code = codes.FiveQubitCode()
+    circuit = circuits.get_encoding_circuit(code)
