@@ -343,7 +343,10 @@ def get_balanced_permutations_of_matrix(
                 binaryMatrix @ C.to_matrix(binaryMatrix.shape[1]).T,
             ):
                 return R, C
-    raise ValueError("Matrix doesn't have any permutations that meet required constraints")
+    raise ValueError(
+        "Matrix doesn't have any permutations that meet required constraints"
+    )  # pragma: no cover
+    # shouldn't ever get to this point, don't require test coverage
 
 
 KNOWN_GROUPS: dict[str, GENERATORS_LIST] = {

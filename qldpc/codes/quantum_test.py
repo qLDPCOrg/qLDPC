@@ -591,6 +591,13 @@ def test_balanced_product_code() -> None:
     assert len(balanced_code.get_logical_ops()) == 4
     assert balanced_code.get_distance_exact() == 3
 
+    R, C = (
+        abstract.GroupMember.from_sympy(Permutation([0, 1, 2, 3, 4, 5])),
+        abstract.GroupMember.from_sympy(Permutation([0, 1, 2, 3, 4, 5])),
+    )
+    with pytest.raises(ValueError):
+        codes.BalancedProductCode(matrix, R, C)
+
     matrix_extra_row = np.vstack([matrix, np.zeros((1, 6), dtype=int)])
     with pytest.raises(ValueError):
         BalancedProductCode(matrix_extra_row, R, C)
