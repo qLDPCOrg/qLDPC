@@ -38,22 +38,25 @@ def test_measurement_record() -> None:
         record.get_target_rec(0, 2)
 
 
-@pytest.mark.parametrize("strategy", [circuits.EdgeColoring])
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        # circuits.SerialExtraction,
+        circuits.EdgeColoring,
+    ],
+)
 def test_syndrome_measurement(
     strategy: circuits.SyndromeMeasurementStrategy, pytestconfig: pytest.Config
 ) -> None:
     """Syndrome extraction by Tanner graph edge coloring."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
-    code = codes.SteaneCode()
+    code = codes.FiveQubitCode()
     state_prep = circuits.get_encoding_circuit(code)
 
     errors = np.random.choice([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], size=[len(code)])
     ###################################################################
-    code = codes.FiveQubitCode()
-    state_prep = circuits.get_encoding_circuit(code)
-    errors = np.random.choice([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], size=[len(code)])
-    # errors = [Pauli.I] + [Pauli.I] * (len(code) - 1)
+    errors = [Pauli.X] + [Pauli.I] * (len(code) - 1)
     ###################################################################
     error_ops = stim.Circuit()
     for qubit, pauli in enumerate(errors):
@@ -64,19 +67,31 @@ def test_syndrome_measurement(
 
     syndrome_extraction, record = strategy.get_circuit(code)
     ###################################################################
-    syndrome_extraction = stim.Circuit("""
-        MPP X0*Z1*Z2*X3
-        MPP X1*Z2*Z3*X4
-        MPP X2*Z3*Z4*X0
-        MPP X3*Z4*Z0*X1
-    """)
+    # syndrome_extraction = stim.Circuit()
+    # syndrome_extraction.append("RX", [5, 6, 7, 8])
+    # syndrome_extraction.append("CX", [5, 0])
+    # syndrome_extraction.append("CZ", [5, 1])
+    # syndrome_extraction.append("CZ", [5, 2])
+    # syndrome_extraction.append("CX", [5, 3])
+    # syndrome_extraction.append("CX", [6, 1])
+    # syndrome_extraction.append("CZ", [6, 2])
+    # syndrome_extraction.append("CZ", [6, 3])
+    # syndrome_extraction.append("CX", [6, 4])
+    # syndrome_extraction.append("CX", [7, 2])
+    # syndrome_extraction.append("CZ", [7, 3])
+    # syndrome_extraction.append("CZ", [7, 4])
+    # syndrome_extraction.append("CX", [7, 0])
+    # syndrome_extraction.append("CX", [8, 3])
+    # syndrome_extraction.append("CZ", [8, 4])
+    # syndrome_extraction.append("CZ", [8, 0])
+    # syndrome_extraction.append("CX", [8, 1])
+    # syndrome_extraction.append("MX", [5, 6, 7, 8])
     ###################################################################
 
-    detectors = stim.Circuit()
     for check in range(len(code), len(code) + code.num_checks):
-        detectors.append("DETECTOR", record.get_target_rec(check))
+        syndrome_extraction.append("DETECTOR", record.get_target_rec(check))
 
-    circuit = state_prep + error_ops + syndrome_extraction + detectors
+    circuit = state_prep + error_ops + syndrome_extraction
     sample = circuit.compile_detector_sampler().sample(1).ravel()
 
     # assert np.array_equal(syndrome_vec, sample)
