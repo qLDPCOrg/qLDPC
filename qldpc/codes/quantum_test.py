@@ -26,6 +26,7 @@ import pytest
 import sympy
 from sympy.combinatorics import Permutation
 
+import qldpc.codes
 from qldpc import abstract, codes
 from qldpc.codes import BalancedProductCode
 from qldpc.objects import ChainComplex, Node, Pauli
@@ -597,3 +598,16 @@ def test_balanced_product_code() -> None:
     matrix[0][0] = 2
     with pytest.raises(ValueError):
         BalancedProductCode(matrix, R, C)
+
+
+def test_balanced_product_from_codes() -> None:
+    css = qldpc.codes.SurfaceCode(5)
+    classical = qldpc.codes.classical.RepetitionCode(5)
+    new_code = qldpc.codes.BalancedProductCode.from_codes(css, classical)
+    assert (
+        new_code.num_qubits
+        == css.num_qubits * classical.matrix.shape[1]
+        + css.code_x.matrix.shape[0] * classical.matrix.shape[0]
+    )
+    assert len(new_code.get_logical_ops()) // 2 == 1
+    # New code should have n*n_c + m_x * m_c qubits and k*k_c logical qubits
