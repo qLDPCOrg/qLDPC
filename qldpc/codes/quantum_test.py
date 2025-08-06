@@ -611,3 +611,14 @@ def test_balanced_product_from_codes() -> None:
     )
     assert len(new_code.get_logical_ops()) // 2 == 1
     # New code should have n*n_c + m_x * m_c qubits and k*k_c logical qubits
+
+def test_unbalanced_product_from_codes() -> None:
+    css = qldpc.codes.HGPCode(qldpc.codes.RepetitionCode(5), qldpc.codes.HammingCode(3))
+
+    classical = qldpc.codes.classical.RepetitionCode(5)
+
+    new_code = qldpc.codes.BalancedProductCode.from_codes(css, classical, True)
+
+    assert new_code.num_qubits == css.num_qubits * 5 + css.code_z.matrix.shape[0] * classical.matrix.shape[0]
+    assert len(css.get_logical_ops()) == len(new_code.get_logical_ops())
+
