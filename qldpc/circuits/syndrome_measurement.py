@@ -6,7 +6,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,8 +18,9 @@ limitations under the License.
 from __future__ import annotations
 
 import abc
+import collections
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 import networkx as nx
 import stim
@@ -27,24 +28,50 @@ import stim
 from qldpc import codes
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # noqa: F821
 class QubitIDs:
     """Container for qubit indices."""
 
     data: list[int]
-    x_check: list[int]
-    z_check: list[int]
+    check: list[int]
 
-    def __init__(self, num_data: int, num_checks_x: int, num_checks_z: int) -> None:
-        """Initialize from a number of data, X-check, and Z-check qubits."""
-        self.data = list(range(num_data))
-        self.x_check: list[int] = list(range(num_data, num_data + num_checks_x))
-        self.z_check: list[int] = list(
-            range(
-                num_data + num_checks_x,
-                num_data + num_checks_x + num_checks_z,
-            )
+    def __init__(self, code: codes.AbstractCode) -> None:
+        """Initialize from an error-correcting code specific parity checks."""
+        self.data = list(range(len(code)))
+        self.check: list[int] = list(range(len(code), len(code) + code.num_checks))
+
+
+class MeasurementRecord:
+    """Store a measurement record in a Stim circuit."""
+
+    num_measurements: int
+    qubit_to_measurement: dict[int, list[int]]
+
+    def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
+        self.qubit_to_measurement = collections.defaultdict(
+            list, initial_record if initial_record else {}
         )
+        self.num_measurements = sum(
+            len(measurements) for measurements in self.qubit_to_measurement.values()
+        )
+
+    def items(self) -> Iterator[tuple[int, list[int]]]:
+        """Iterator over qubits and their measurements."""
+        yield from self.qubit_to_measurement.items()
+
+    def append(self, record: MeasurementRecord | dict[int, list[int]]) -> None:
+        """Append the given record to this one."""
+        for qubit, measurements in record.items():
+            self.qubit_to_measurement[qubit].extend(
+                [self.num_measurements + measurement for measurement in measurements]
+            )
+            self.num_measurements += len(measurements)
+
+    def get_last_target_rec(self, qubit_index: int) -> stim.target_rec:
+        """Get the most recent Stim measurement record target (by index) for the given qubit."""
+        if qubit_index not in self.qubit_to_measurement:
+            raise ValueError(f"Qubit {qubit_index} not found in measurement record")
+        return stim.target_rec(self.qubit_to_measurement[qubit_index][-1] - self.num_measurements)
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
@@ -87,10 +114,9 @@ class BareColorCircuit(SyndromeMeasurementStrategy):
         """
         if qubit_ids is not None:
             assert len(code) == len(qubit_ids.data)
-            assert code.num_checks_x == len(qubit_ids.x_check)
-            assert code.num_checks_z == len(qubit_ids.z_check)
+            assert code.num_checks == len(qubit_ids.check)
         else:
-            qubit_ids = QubitIDs(len(code), code.num_checks_x, code.num_checks_z)
+            qubit_ids = QubitIDs(code)
 
         x_subcircuit = self._classical_subcode_to_subcircuit(
             code.code_x,

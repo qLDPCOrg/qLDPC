@@ -50,7 +50,7 @@ from .syndrome_measurement import QubitIDs, SyndromeMeasurementStrategy
 
 
 def memory_experiment(
-    code: codes.CSSCode,
+    code: codes.QuditCode,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy,
     num_rounds: int = 1,
     basis: PauliXZ = Pauli.X,
