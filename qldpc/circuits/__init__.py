@@ -8,7 +8,7 @@ from .memory import memory_experiment
 from .noise_model import DepolarizingNoiseModel, NoiseModel, NoiseRule, SI1000NoiseModel
 from .sinter_decoders import CompiledSinterDecoder, SinterDecoder
 from .syndrome_measurement import (
-    BareColorCircuit,
+    EdgeColoring,
     MeasurementRecord,
     QubitIDs,
     SyndromeMeasurementStrategy,
@@ -32,7 +32,7 @@ __all__ = [
     "SI1000NoiseModel",
     "CompiledSinterDecoder",
     "SinterDecoder",
-    "BareColorCircuit",
+    "EdgeColoring",
     "MeasurementRecord",
     "QubitIDs",
     "SyndromeMeasurementStrategy",

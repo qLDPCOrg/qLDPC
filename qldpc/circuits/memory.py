@@ -7,13 +7,13 @@ Example:
     Creating a memory experiment circuit:
 
     from qldpc.codes import SteaneCode
-    from qldpc.circuits import BareColorCircuit, DepolarizingNoiseModel, memory_experiment
+    from qldpc.circuits import EdgeColoring, DepolarizingNoiseModel, memory_experiment
     from qldpc.objects import Pauli
 
     # Create a CSS code and noise model
     code = SteaneCode()
     noise_model = DepolarizingNoiseModel(1e-3)
-    syndrome_measurement_strategy = BareColorCircuit()
+    syndrome_measurement_strategy = EdgeColoring()
 
     # Generate a memory experiment circuit for the logical Z operator
     circuit = memory_experiment(
@@ -111,14 +111,14 @@ def memory_experiment(
         from qldpc.codes.classical import RepetitionCode
         from qldpc.codes.quantum import codes.CSSCode
         from qldpc.stim.noise_model import NoiseModel
-        from qldpc.stim.syndrome_measurement_strategy import BareColorCircuit
+        from qldpc.stim.syndrome_measurement_strategy import EdgeColoring
         from qldpc.objects import Pauli
         >>>
         # Create a 3-qubit repetition code
         rep_code = RepetitionCode(3)
         css_code = codes.CSSCode(rep_code, rep_code)
         noise_model = NoiseModel.uniform_depolarizing(0.01)
-        syndrome_measurement_strategy = BareColorCircuit()
+        syndrome_measurement_strategy = EdgeColoring()
         >>>
         # Generate 5-round Z-basis memory experiment
         circuit = memory_experiment(
@@ -136,7 +136,7 @@ def memory_experiment(
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(f"Invalid basis: {basis}")
 
-    qubit_ids = QubitIDs(len(code), code.num_checks_x, code.num_checks_z)
+    qubit_ids = QubitIDs.from_code(code)
 
     meas_rec: list[dict[int, int]] = []
     sm_circuit, sm_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
