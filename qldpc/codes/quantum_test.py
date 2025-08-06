@@ -24,6 +24,7 @@ import networkx as nx
 import numpy as np
 import pytest
 import sympy
+from sympy.combinatorics import Permutation
 
 from qldpc import abstract, codes
 from qldpc.codes import BalancedProductCode
@@ -560,54 +561,39 @@ def test_shyps_code() -> None:
 
 
 def test_balanced_product_code() -> None:
-    mocked_output = [
-        "[ (4,6,5), (4,5,6), (3,6,5), (3,6,4), (3,4,6), (3,4,5), (3,5,6), (3,5,4), (2,6,5), (2,6,4), (2,6,3), (2,3,6), (2,3,4), (2,3,5), (2,4,6), (2,4,5), (2,4,3), (2,5,6), (2,5,4), (2,5,3), (1,6,5), (1,6,4), (1,6,3), (1,6,2), (1,6,2)(3,4,5), (1,6,2)(3,5,4), (1,6,5)(2,3,4), (1,6,4)(2,3,5), (1,6,5)(2,4,3), (1,6,3)(2,4,5), (1,6,4)(2,5,3), (1,6,3)(2,5,4), (1,2,6), (1,2,6)(3,4,5), (1,2,6)(3,5,4), (1,2,3), (1,2,3)(4,6,5), (1,2,3)(4,5,6), (1,2,4), (1,2,4)(3,6,5), (1,2,4)(3,5,6), (1,2,5), (1,2,5)(3,6,4), (1,2,5)(3,4,6), (1,3,6), (1,3,4), (1,3,5), (1,3,2), (1,3,2)(4,6,5), (1,3,2)(4,5,6), (1,3,4)(2,6,5), (1,3,5)(2,6,4), (1,3,6)(2,4,5), (1,3,5)(2,4,6), (1,3,6)(2,5,4), (1,3,4)(2,5,6), (1,4,6), (1,4,5), (1,4,3), (1,4,2), (1,4,2)(3,6,5), (1,4,2)(3,5,6), (1,4,5)(2,3,6), (1,4,6)(2,3,5), (1,4,5)(2,6,3), (1,4,3)(2,6,5), (1,4,6)(2,5,3), (1,4,3)(2,5,6), (1,5,6), (1,5,4), (1,5,3), (1,5,2), (1,5,2)(3,4,6), (1,5,2)(3,6,4), (1,5,6)(2,3,4), (1,5,4)(2,3,6), (1,5,6)(2,4,3), (1,5,3)(2,4,6), (1,5,4)(2,6,3), (1,5,3)(2,6,4) ]",
-        "[ (4,6,5), (4,5,6), (3,6,5), (3,6,4), (3,4,6), (3,4,5), (3,5,6), (3,5,4), (2,6,5), (2,6,4), (2,6,3), (2,3,6), (2,3,4), (2,3,5), (2,4,6), (2,4,5), (2,4,3), (2,5,6), (2,5,4), (2,5,3), (1,6,5), (1,6,4), (1,6,3), (1,6,2), (1,6,2)(3,4,5), (1,6,2)(3,5,4), (1,6,5)(2,3,4), (1,6,4)(2,3,5), (1,6,5)(2,4,3), (1,6,3)(2,4,5), (1,6,4)(2,5,3), (1,6,3)(2,5,4), (1,2,6), (1,2,6)(3,4,5), (1,2,6)(3,5,4), (1,2,3), (1,2,3)(4,6,5), (1,2,3)(4,5,6), (1,2,4), (1,2,4)(3,6,5), (1,2,4)(3,5,6), (1,2,5), (1,2,5)(3,6,4), (1,2,5)(3,4,6), (1,3,6), (1,3,4), (1,3,5), (1,3,2), (1,3,2)(4,6,5), (1,3,2)(4,5,6), (1,3,4)(2,6,5), (1,3,5)(2,6,4), (1,3,6)(2,4,5), (1,3,5)(2,4,6), (1,3,6)(2,5,4), (1,3,4)(2,5,6), (1,4,6), (1,4,5), (1,4,3), (1,4,2), (1,4,2)(3,6,5), (1,4,2)(3,5,6), (1,4,5)(2,3,6), (1,4,6)(2,3,5), (1,4,5)(2,6,3), (1,4,3)(2,6,5), (1,4,6)(2,5,3), (1,4,3)(2,5,6), (1,5,6), (1,5,4), (1,5,3), (1,5,2), (1,5,2)(3,4,6), (1,5,2)(3,6,4), (1,5,6)(2,3,4), (1,5,4)(2,3,6), (1,5,6)(2,4,3), (1,5,3)(2,4,6), (1,5,4)(2,6,3), (1,5,3)(2,6,4) ]",
-        "[  ]",
-        "[  ]",
-    ]
-    with unittest.mock.patch("qldpc.external.gap.get_output", side_effect=mocked_output):
-        # Test from https://arxiv.org/pdf/2505.13679 pg 3
-        matrix = np.array(
-            [
-                [1, 1, 0, 0, 0, 0],
-                [0, 1, 1, 0, 0, 0],
-                [0, 0, 1, 1, 0, 0],
-                [0, 0, 0, 1, 1, 0],
-                [0, 0, 0, 0, 1, 1],
-                [1, 0, 0, 0, 0, 1],
-            ]
-        )
-        balanced_code = codes.BalancedProductCode(matrix, 3)
-        # Meets CSS orthogonality
-        np.array_equal(
-            balanced_code.code_x.matrix @ balanced_code.code_z.matrix.transpose(),
-            np.zeros((6, 6), int),
-        )
-        # Since many permutations that meet requirements, can't check exact form of generators
-        assert len(balanced_code.get_logical_ops()) == 4
-        assert balanced_code.get_distance_exact() == 3
+    # Test from https://arxiv.org/pdf/2505.13679 pg 3
+    matrix = np.array(
+        [
+            [1, 1, 0, 0, 0, 0],
+            [0, 1, 1, 0, 0, 0],
+            [0, 0, 1, 1, 0, 0],
+            [0, 0, 0, 1, 1, 0],
+            [0, 0, 0, 0, 1, 1],
+            [1, 0, 0, 0, 0, 1],
+        ]
+    )
 
-        matrix = np.array(
-            [
-                [1, 1, 0],
-                [0, 1, 1],
-                [0, 0, 1],
-            ]
-        )
-        with pytest.raises(ValueError):
-            BalancedProductCode(matrix, 4)
+    R, C = (
+        abstract.GroupMember.from_sympy(Permutation([2, 3, 4, 5, 0, 1])),
+        abstract.GroupMember.from_sympy(Permutation([4, 5, 0, 1, 2, 3])),
+    )
 
-        matrix[0][0] = 2
-        with pytest.raises(ValueError):
-            BalancedProductCode(matrix, 1)
+    balanced_code = codes.BalancedProductCode(matrix, R, C)
 
-        matrix = np.array(
-            [
-                [1, 1, 0, 1],
-                [0, 1, 1, 0],
-                [0, 0, 1, 0],
-            ]
-        )
-        with pytest.raises(ValueError):
-            BalancedProductCode(matrix, 2)
+    # Meets CSS orthogonality
+
+    np.array_equal(
+        balanced_code.code_x.matrix @ balanced_code.code_z.matrix.transpose(),
+        np.zeros((6, 6), int),
+    )
+    # Since many permutations that meet requirements, can't check exact form of generators
+    assert len(balanced_code.get_logical_ops()) == 4
+    assert balanced_code.get_distance_exact() == 3
+
+    matrix_extra_row = np.vstack([matrix, np.zeros((1, 6), dtype=int)])
+    with pytest.raises(ValueError):
+        BalancedProductCode(matrix_extra_row, R, C)
+
+    matrix[0][0] = 2
+    with pytest.raises(ValueError):
+        BalancedProductCode(matrix, R, C)
