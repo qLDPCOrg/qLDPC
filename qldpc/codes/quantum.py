@@ -1577,33 +1577,27 @@ class BalancedProductCode(CSSCode):
 
     """
 
-    def __init__(self, binaryMatrix: np.typing.NDArray[np.int_], symmetryLength: int) -> None:
+    def __init__(
+        self,
+        binaryMatrix: np.typing.NDArray[np.int_],
+        R: qldpc.abstract.GroupMember,
+        C: qldpc.abstract.GroupMember,
+    ) -> None:
         if not np.all((binaryMatrix == 0) | binaryMatrix == 1):
             raise ValueError("Binary matrix must only have zeros or ones")
 
         if binaryMatrix.shape[0] != binaryMatrix.shape[1]:
             raise ValueError("Only square binary matrix is supported at this time")
 
-        self._r = None
-        self._c = None
+        if not np.array_equal(
+            R.to_matrix(binaryMatrix.shape[0]) @ binaryMatrix,
+            binaryMatrix @ C.to_matrix(binaryMatrix.shape[1]).T,
+        ):
+            raise ValueError("Invalid permutations provided")
 
-        r_candidates, c_candidates = qldpc.external.groups.get_permutation_symmetry_of_matrix(
-            symmetryLength, binaryMatrix.shape[0], binaryMatrix.shape[1]
-        )
+        self._r = R
+        self._c = C
 
-        if not r_candidates or not c_candidates:
-            raise ValueError("Matrix doesn't have any permutations of that orbit length")
-        for r in r_candidates:
-            for c in c_candidates:
-                if np.array_equal(
-                    r.to_matrix(binaryMatrix.shape[0]) @ binaryMatrix,
-                    binaryMatrix @ c.to_matrix(binaryMatrix.shape[1]).T,
-                ):
-                    self._c = c
-                    self._r = r
-                    break
-        assert self._r is not None
-        assert self._c is not None
         check_x = np.hstack(
             (binaryMatrix.T, np.eye(binaryMatrix.shape[0], dtype=int) + self._c.to_matrix())
         )

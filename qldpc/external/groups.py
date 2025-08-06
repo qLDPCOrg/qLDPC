@@ -22,6 +22,7 @@ import urllib.error
 import urllib.request
 
 import galois
+import numpy as np
 from sympy.combinatorics import Permutation
 
 import qldpc.cache
@@ -324,6 +325,25 @@ def get_permutation_symmetry_of_matrix(
     return parse_permutation_output(row_permutations_output), parse_permutation_output(
         col_permutations_output
     )
+
+
+def get_balanced_permutations_of_matrix(
+    binaryMatrix: np.typing.NDArray[np.int_], symmetryLength: int
+) -> tuple[qldpc.abstract.GroupMember, qldpc.abstract.GroupMember]:
+    r_candidates, c_candidates = qldpc.external.groups.get_permutation_symmetry_of_matrix(
+        symmetryLength, binaryMatrix.shape[0], binaryMatrix.shape[1]
+    )
+
+    if not r_candidates or not c_candidates:
+        raise ValueError("Matrix doesn't have any permutations of that orbit length")
+    for R in r_candidates:
+        for C in c_candidates:
+            if np.array_equal(
+                R.to_matrix(binaryMatrix.shape[0]) @ binaryMatrix,
+                binaryMatrix @ C.to_matrix(binaryMatrix.shape[1]).T,
+            ):
+                return R, C
+    raise ValueError("Matrix doesn't have any permutations that meet required constraints")
 
 
 KNOWN_GROUPS: dict[str, GENERATORS_LIST] = {
