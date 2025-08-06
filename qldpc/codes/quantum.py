@@ -1568,8 +1568,23 @@ class GeneralizedSurfaceCode(CSSCode):
 class BalancedProductCode(CSSCode):
     """Code created from the product of classical codes. Similar to hypergraph codes.
 
-    Binary matrix (M) must 2 permutations of order symmetryLength, r and c. Where r*M = M*C^T
+    Binary matrix (M) must have 2 permutations, r and c. Where r*M = M*C^T and r^l = I and c^l for some l.
 
+    qldpc.external.groups.get_balanced_permutations_of_matrix can be used to find these permutations.
+
+    I.e.
+    matrix = np.array(
+        [
+            [1, 1, 0, 0, 0, 0],
+            [0, 1, 1, 0, 0, 0],
+            [0, 0, 1, 1, 0, 0],
+            [0, 0, 0, 1, 1, 0],
+            [0, 0, 0, 0, 1, 1],
+            [1, 0, 0, 0, 0, 1],
+        ]
+    )
+    R,C = ldpc.external.groups.get_balanced_permutations_of_matrix(matrix,3)
+    balanced_code = codes.BalancedProductCode(matrix,R,C)
 
     References:
     - https://errorcorrectionzoo.org/c/balanced_product
@@ -1588,7 +1603,6 @@ class BalancedProductCode(CSSCode):
 
         if binaryMatrix.shape[0] != binaryMatrix.shape[1]:
             raise ValueError("Only square binary matrix is supported at this time")
-
         if not np.array_equal(
             R.to_matrix(binaryMatrix.shape[0]) @ binaryMatrix,
             binaryMatrix @ C.to_matrix(binaryMatrix.shape[1]).T,
@@ -1618,7 +1632,9 @@ class BalancedProductCode(CSSCode):
     """
 
     @classmethod
-    def from_codes(cls, code_q: CSSCode, code_c: ClassicalCode, distance_balancing: bool = False) -> qldpc.codes.BalancedProductCode:
+    def from_codes(
+        cls, code_q: CSSCode, code_c: ClassicalCode, distance_balancing: bool = False
+    ) -> qldpc.codes.BalancedProductCode:
         # i.e. rows of matrix, number qubits of matrix
         r_C, n_C = code_c.matrix.shape
 
@@ -1634,7 +1650,9 @@ class BalancedProductCode(CSSCode):
 
         # Make new H_x
         Hx_tensor = np.kron(low_distance.matrix, np.eye(n_C, dtype=int))
-        classical_T_tensor = np.kron(np.eye(r_low, dtype=int), code_c.matrix.T)  # shape: (r_low * n_C, r_low * r_C)
+        classical_T_tensor = np.kron(
+            np.eye(r_low, dtype=int), code_c.matrix.T
+        )  # shape: (r_low * n_C, r_low * r_C)
         H_new_X = np.hstack((Hx_tensor, classical_T_tensor))
 
         # Make new H_z
