@@ -26,6 +26,7 @@ import networkx as nx
 import stim
 
 from qldpc import codes
+from qldpc.objects import Node, Pauli
 
 
 @dataclasses.dataclass
@@ -79,9 +80,10 @@ class MeasurementRecord:
 class SyndromeMeasurementStrategy(abc.ABC):
     """Base class for a syndrome measurement strategy."""
 
+    @staticmethod
     @abc.abstractmethod
     def get_circuit(
-        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+        code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, list[list[int]]]:
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
@@ -102,8 +104,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
     WARNING: This scheme is not guaranteed to be fault-tolerant or distance-preserving.
     """
 
+    @staticmethod
     def get_circuit(
-        self,
         code: codes.QuditCode,
         qubit_ids: QubitIDs | None = None,
         *,
@@ -124,60 +126,49 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         """
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
-        x_subcircuit = self._classical_subcode_to_subcircuit(
-            code.code_x,
-            qubit_ids.x_check,
-            qubit_ids.data,
-            "CX",
-            strategy,
-        )
-        z_subcircuit = self._classical_subcode_to_subcircuit(
-            code.code_z,
-            qubit_ids.z_check,
-            qubit_ids.data,
-            "CZ",
-            strategy,
-        )
-
         circuit = stim.Circuit()
-        check_qubits = qubit_ids.x_check + qubit_ids.z_check
+        circuit.append("RX", qubit_ids.check)
+        circuit.append("TICK")
 
-        # Initialize check qubits
-        circuit.append("RX", check_qubits)
+        data_nodes = [Node(index, is_data=True) for index in qubit_ids.data]
+        check_nodes = [Node(index, is_data=False) for index in range(code.num_checks)]
+        if isinstance(code, codes.CSSCode):
+            check_nodes_x = check_nodes[: code.num_checks_x]
+            check_nodes_z = check_nodes[code.num_checks_x :]
+            graph_x = code.graph.subgraph(data_nodes + check_nodes_x)
+            graph_z = code.graph.subgraph(data_nodes + check_nodes_z)
+            circuit += EdgeColoring.graph_to_circuit(graph_x, qubit_ids, strategy)
+            circuit += EdgeColoring.graph_to_circuit(graph_z, qubit_ids, strategy)
+        else:
+            circuit += EdgeColoring.graph_to_circuit(code.graph, qubit_ids, strategy)
 
-        # "Write" Z and X stabilizers to check qubits
-        circuit += x_subcircuit
-        circuit += z_subcircuit
+        circuit.append("MX", qubit_ids.check)
+        measurement_record = MeasurementRecord(
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
+        )
+        return circuit, measurement_record
 
-        # Measure the extracted stabilizers
-        circuit.append("MX", check_qubits)
+    def graph_to_circuit(graph: nx.DiGraph, qubit_ids: QubitIDs, strategy: str) -> stim.Circuit:
+        """Convert a Tanner graph into a syndrome extraction circuit.
 
-        measurements = [qubit_ids.x_check + qubit_ids.z_check]
-        return circuit, measurements
+        Assumes that check qubits are initialized |+>.
+        """
+        # color the edges of the Tanner graph
+        coloring = nx.coloring.greedy_color(nx.line_graph(graph.to_undirected()), strategy)
 
-    def _classical_subcode_to_subcircuit(
-        self,
-        subcode: codes.ClassicalCode,
-        check_ids: Sequence[int],
-        data_ids: Sequence[int],
-        gate: str,
-        strategy: str,
-    ) -> stim.Circuit:
-        coloring = nx.coloring.greedy_color(nx.line_graph(subcode.graph.to_undirected()), strategy)
-        circuit = stim.Circuit()
-
-        schedule: dict[int, list[tuple[int, int]]] = {}
+        # collect edges by color, in (gate, qubit_1, qubit_2) format
+        color_to_gates: dict[int : list[tuple[str, int, int]]] = collections.defaultdict(list)
         for edge, color in coloring.items():
-            assert edge[0].is_data ^ edge[1].is_data  # Assert valid edge (data <-> check)
-            if edge[0].is_data:
-                check_op = (check_ids[edge[1].index], data_ids[edge[0].index])
-            else:
-                check_op = (check_ids[edge[0].index], data_ids[edge[1].index])
-            schedule.setdefault(color, []).append(check_op)
-        for color, moment in schedule.items():
-            for check_qubit, data_qubit in moment:
-                circuit.append(gate, [check_qubit, data_qubit])
-            if moment:  # Only add TICK if there were operations in this moment
-                circuit.append("TICK")
+            data_node, check_node = sorted(edge)
+            data_qubit = qubit_ids.data[data_node.index]
+            check_qubit = qubit_ids.check[check_node.index]
+            pauli = graph[check_node][data_node][Pauli]
+            color_to_gates[color].append((f"C{pauli}", check_qubit, data_qubit))
 
+        # collect all gates into a circuit
+        circuit = stim.Circuit()
+        for gates in color_to_gates.values():
+            for gate, check_qubit, data_qubit in sorted(gates):
+                circuit.append(gate, [check_qubit, data_qubit])
+            circuit.append("TICK")
         return circuit
