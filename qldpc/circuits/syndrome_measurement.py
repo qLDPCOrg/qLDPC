@@ -20,13 +20,15 @@ from __future__ import annotations
 import abc
 import collections
 import dataclasses
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 
 import networkx as nx
 import stim
 
 from qldpc import codes
 from qldpc.objects import Node, Pauli
+
+from .common import restrict_to_qubits
 
 
 @dataclasses.dataclass
@@ -81,10 +83,11 @@ class SyndromeMeasurementStrategy(abc.ABC):
     """Base class for a syndrome measurement strategy."""
 
     @staticmethod
+    @restrict_to_qubits
     @abc.abstractmethod
     def get_circuit(
         code: codes.QuditCode, qubit_ids: QubitIDs | None = None
-    ) -> tuple[stim.Circuit, list[list[int]]]:
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
@@ -105,12 +108,10 @@ class EdgeColoring(SyndromeMeasurementStrategy):
     """
 
     @staticmethod
+    @restrict_to_qubits
     def get_circuit(
-        code: codes.QuditCode,
-        qubit_ids: QubitIDs | None = None,
-        *,
-        strategy: str = "largest_first",
-    ) -> tuple[stim.Circuit, list[list[int]]]:
+        code: codes.QuditCode, qubit_ids: QubitIDs | None = None, *, strategy: str = "largest_first"
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
         """Construct a syndrome measurement circuit using Algorithm 1 of arXiv:2109.14609.
 
         Args:
@@ -156,18 +157,18 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         # color the edges of the Tanner graph
         coloring = nx.coloring.greedy_color(nx.line_graph(graph.to_undirected()), strategy)
 
-        # collect edges by color, in (gate, qubit_1, qubit_2) format
-        color_to_gates: dict[int : list[tuple[str, int, int]]] = collections.defaultdict(list)
+        # collect operations by color, in (gate, qubit_1, qubit_2) format
+        color_to_ops: dict[int, list[tuple[str, int, int]]] = collections.defaultdict(list)
         for edge, color in coloring.items():
             data_node, check_node = sorted(edge)
             data_qubit = qubit_ids.data[data_node.index]
             check_qubit = qubit_ids.check[check_node.index]
             pauli = graph[check_node][data_node][Pauli]
-            color_to_gates[color].append((f"C{pauli}", check_qubit, data_qubit))
+            color_to_ops[color].append((f"C{pauli}", check_qubit, data_qubit))
 
         # collect all gates into a circuit
         circuit = stim.Circuit()
-        for gates in color_to_gates.values():
+        for gates in color_to_ops.values():
             for gate, check_qubit, data_qubit in sorted(gates):
                 circuit.append(gate, [check_qubit, data_qubit])
             circuit.append("TICK")
