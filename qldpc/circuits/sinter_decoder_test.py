@@ -59,10 +59,10 @@ def test_dem_arrays() -> None:
 def test_sinter_decoder() -> None:
     """Default parameter setting for a SinterDecoder."""
     sinter_decoder = qldpc.circuits.SinterDecoder(with_MWPM=True)
-    assert sinter_decoder.error_probs_arg == "weights"
+    assert sinter_decoder.priors_arg == "weights"
 
     sinter_decoder = qldpc.circuits.SinterDecoder(with_BP_OSD=True)
-    assert sinter_decoder.error_probs_arg == "error_channel"
+    assert sinter_decoder.priors_arg == "error_channel"
 
     dem = stim.DetectorErrorModel("""
         error(0.0001) D0
