@@ -36,13 +36,15 @@ def test_dem_arrays() -> None:
     assert dem_arrays.num_detectors == 3
     assert dem_arrays.num_observables == 2
 
-    # merge equivalent errors
+    # simplify and merge errors
     dem = stim.DetectorErrorModel("""
-        error(0.001) D0
+        error(0.001) D0 D0 D0
         error(0.002) D0 D3
         error(0.003) D0
         error(0.004) D0 D3
         error(0.005) L1
+        error(0.5) D2 D2
+        error(0) D1
     """)
     simplified_dem = stim.DetectorErrorModel("""
         error(0.004) D0

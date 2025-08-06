@@ -186,7 +186,8 @@ class DetectorErrorModelArrays:
                 observables = _values_that_occur_an_odd_number_of_times(
                     [target.val for target in targets if target.is_logical_observable_id()]
                 )
-                errors[detectors, observables].append(probability)
+                if (detectors or observables) and probability:
+                    errors[detectors, observables].append(probability)
 
         # Combine circuit errors to obtain a single probability of occurrence for each set of flipped
         # detectors and observables.
