@@ -104,7 +104,7 @@ class SyndromeMeasurementStrategy(abc.ABC):
 class EdgeColoring(SyndromeMeasurementStrategy):
     """Coloration strategy for syndrome measurement in arXiv:2109.14609.
 
-    WARNING: This scheme is not guaranteed to be fault-tolerant or distance-preserving.
+    WARNING: This strategy is not guaranteed to be fault-tolerant or distance-preserving.
     """
 
     @staticmethod
