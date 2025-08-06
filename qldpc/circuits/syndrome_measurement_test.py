@@ -38,7 +38,10 @@ def test_measurement_record() -> None:
         record.get_target_rec(0, 2)
 
 
-def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
+@pytest.mark.parametrize("strategy", [circuits.EdgeColoring])
+def test_syndrome_measurement(
+    strategy: circuits.SyndromeMeasurementStrategy, pytestconfig: pytest.Config
+) -> None:
     """Syndrome extraction by Tanner graph edge coloring."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
@@ -58,17 +61,13 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     error_vec = code.field([pauli.value for pauli in errors]).T.ravel()
     syndrome_vec = code.matrix @ symplectic_conjugate(error_vec)
 
-    for strategy in [
-        circuits.EdgeColoring,
-        # we aspire to have more measurement strategies
-    ]:
-        syndrome_extraction, record = strategy.get_circuit(code)
-        detectors = stim.Circuit()
-        for check in range(len(code), len(code) + code.num_checks):
-            detectors.append("DETECTOR", record.get_target_rec(check))
+    syndrome_extraction, record = strategy.get_circuit(code)
+    detectors = stim.Circuit()
+    for check in range(len(code), len(code) + code.num_checks):
+        detectors.append("DETECTOR", record.get_target_rec(check))
 
-        circuit = state_prep + error_ops + syndrome_extraction + detectors
-        sample = circuit.compile_detector_sampler().sample(1).ravel()
+    circuit = state_prep + error_ops + syndrome_extraction + detectors
+    sample = circuit.compile_detector_sampler().sample(1).ravel()
 
     # assert np.array_equal(syndrome_vec, sample)
 
