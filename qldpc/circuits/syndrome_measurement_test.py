@@ -75,8 +75,8 @@ def test_syndrome_measurement(
 
     # compare against the expected syndrome
     error_xz = code.field([pauli.value for pauli in errors]).T.ravel()
-    expected_syndome = code.matrix @ symplectic_conjugate(error_xz)
-    assert np.array_equal(expected_syndome, syndrome)
+    expected_syndrome = code.matrix @ symplectic_conjugate(error_xz)
+    assert np.array_equal(expected_syndrome, syndrome)
 
 
 def test_syndrome_errors() -> None:
