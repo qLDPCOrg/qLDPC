@@ -4,7 +4,7 @@ from .common import (
     get_encoding_tableau,
     get_logical_tableau,
 )
-from .memory import memory_experiment
+from .memory import get_memory_experiment
 from .noise_model import (
     DepolarizingNoiseModel,
     NoiseModel,
@@ -35,7 +35,7 @@ __all__ = [
     "get_encoding_circuit",
     "get_encoding_tableau",
     "get_logical_tableau",
-    "memory_experiment",
+    "get_memory_experiment",
     "DepolarizingNoiseModel",
     "NoiseModel",
     "NoiseRule",
