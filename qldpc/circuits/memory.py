@@ -185,7 +185,7 @@ def memory_experiment(
         """
         repeat_circuit = stim.Circuit()
         repeat_circuit.append(one_cycle)
-        measurement_record.append(cycle_measurements)  # TODO: fix for repeat blocks
+        measurement_record.append(cycle_measurements)
         for i, check_id in enumerate(check_ids):
             repeat_circuit.append(
                 "DETECTOR",
@@ -197,6 +197,10 @@ def memory_experiment(
             )
         repeat_circuit.append("SHIFT_COORDS", [], (0, 1))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
+
+        # make the measurement_record account for repeated measurements
+        for _ in range(num_rounds - 2):
+            measurement_record.append(cycle_measurements)
 
     """
     Measure out data qubits
