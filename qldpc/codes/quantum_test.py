@@ -592,7 +592,7 @@ def test_balanced_product_code() -> None:
     assert balanced_code.get_distance_exact() == 3
 
     R, C = (
-        abstract.GroupMember.from_sympy(Permutation([0, 1, 2, 3, 4, 5])),
+        abstract.GroupMember.from_sympy(Permutation([1, 0, 2, 3, 4, 5])),
         abstract.GroupMember.from_sympy(Permutation([0, 1, 2, 3, 4, 5])),
     )
     with pytest.raises(ValueError):
