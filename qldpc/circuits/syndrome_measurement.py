@@ -45,6 +45,9 @@ class QubitIDs:
         check = list(range(len(code), len(code) + code.num_checks))
         return QubitIDs(data, check)
 
+    def __iter__(self) -> Iterator[list[int]]:
+        yield from (self.data, self.check)
+
 
 class MeasurementRecord:
     """Store a measurement record in a Stim circuit."""

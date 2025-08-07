@@ -26,6 +26,15 @@ from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
 
 
+def test_qubit_ids() -> None:
+    """Default qubit indices."""
+    code = codes.FiveQubitCode()
+    qubit_ids = circuits.QubitIDs.from_code(code)
+    data_ids, check_ids = qubit_ids
+    assert data_ids == list(range(len(code)))
+    assert check_ids == list(range(len(code), len(code) + code.num_checks))
+
+
 def test_measurement_record() -> None:
     """Build and use a MeasurementRecord."""
     record = circuits.MeasurementRecord()

@@ -50,7 +50,6 @@ from .syndrome_measurement import (
     EdgeColoring,
     MeasurementRecord,
     QubitIDs,
-    SerialExtraction,
     SyndromeMeasurementStrategy,
 )
 
@@ -60,6 +59,7 @@ def memory_experiment(
     syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
     num_rounds: int = 1,
     basis: PauliXZ = Pauli.X,
+    qubit_ids: QubitIDs | None = None,
     noise_model: NoiseModel | None = None,
 ) -> stim.Circuit:
     """Construct a circuit for a quantum memory cycle of the given code.
@@ -142,19 +142,20 @@ def memory_experiment(
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(f"Invalid basis: {basis}")
 
-    if syndrome_measurement_strategy is None:
-        syndrome_measurement_strategy = (
-            EdgeColoring if isinstance(code, codes.CSSCode) else SerialExtraction
-        )
+    if not isinstance(code, codes.CSSCode):
+        raise ValueError("Memory experiments for are currently not supported for non-CSS codes")
 
-    qubit_ids = QubitIDs.from_code(code)
-    data_ids = qubit_ids.data
+    # identify data and check qubit indices
+    data_ids, check_ids = qubit_ids or QubitIDs.from_code(code)
+
+    # set default measurement strategy, identify relevant checks as well as their support
+    syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
+    check_support = code.get_matrix(basis)
     check_ids = (
-        qubit_ids.check[: code.num_checks_x]
-        if basis is Pauli.X
-        else qubit_ids.check[code.num_checks_x :]
+        check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
     )
 
+    # build one QEC cycle
     measurement_record = MeasurementRecord()
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
 
@@ -206,9 +207,8 @@ def memory_experiment(
     """
     Reconstruct a final round of checks based on data qubit measurements
     """
-    check_matrix = code.get_matrix(basis)
     for i, check_id in enumerate(check_ids):
-        data_support = np.where(check_matrix[i])[0]
+        data_support = np.where(check_support[i])[0]
         circuit.append(
             "DETECTOR",
             [measurement_record.get_target_rec(data_ids[q]) for q in data_support]
