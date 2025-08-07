@@ -15,6 +15,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import random
+
 import numpy as np
 import pytest
 import stim
@@ -51,13 +53,13 @@ def test_syndrome_measurement(
     pytestconfig: pytest.Config,
 ) -> None:
     """Syndrome extraction by Tanner graph edge coloring."""
-    np.random.seed(pytestconfig.getoption("randomly_seed"))
+    random.seed(pytestconfig.getoption("randomly_seed"))
 
     # prepare a logical |0> state
     state_prep = circuits.get_encoding_circuit(code)
 
     # apply random Pauli errors to the data qubits
-    errors = np.random.choice([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], size=[len(code)])
+    errors = random.choices([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], k=len(code))
     error_ops = stim.Circuit()
     for qubit, pauli in enumerate(errors):
         error_ops.append(f"{pauli}_error", [qubit], [1])
