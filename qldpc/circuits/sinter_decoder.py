@@ -33,38 +33,28 @@ from qldpc import decoders
 class SinterDecoder(sinter.Decoder):
     """Decoder usable by Sinter for decoding circuit errors."""
 
-    def __init__(
-        self,
-        *,
-        priors_arg: str | None = None,
-        probs_to_priors: Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]] | None = None,
-        **decoder_kwargs: object,
-    ) -> None:
+    def __init__(self, *, error_probs_arg: str | None = None, **decoder_kwargs: object) -> None:
         """Initialize a SinterDecoder.
 
         Args:
-            priors_arg: The keyword argument to which to pass priors about circuit error
+            error_probs_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
-            probs_to_priors: Function to map a vector of probabilities for individual circuit errors
-                to a vector of priors for those circuit errors, which gets passed to the decoder.
-                Defaults to the identity function.
             decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.priors_arg = priors_arg
-        self.probs_to_priors = probs_to_priors or (lambda probs: probs)
+        self.error_probs_arg = error_probs_arg
         self.decoder_kwargs = decoder_kwargs
 
-        if self.priors_arg is None:
+        if self.error_probs_arg is None:
             # address some known cases
             if (
                 decoder_kwargs.get("with_BP_OSD")
                 or decoder_kwargs.get("with_BP_LSD")
                 or decoder_kwargs.get("with_BF")
             ):
-                self.priors_arg = "error_channel"
+                self.error_probs_arg = "error_channel"
             if decoder_kwargs.get("with_MWPM"):
-                self.priors_arg = "weights"
+                self.error_probs_arg = "weights"
 
     def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> sinter.CompiledDecoder:
         """Creates a decoder preconfigured for the given detector error model.
@@ -72,10 +62,11 @@ class SinterDecoder(sinter.Decoder):
         See help(sinter.Decoder) for additional information.
         """
         dem_arrays = DetectorErrorModelArrays(dem)
-        priors = self.probs_to_priors(dem_arrays.error_probs)
-        priors_kwarg = {self.priors_arg: list(priors)} if self.priors_arg else {}
+        error_probs_kwarg = (
+            {self.error_probs_arg: list(dem_arrays.error_probs)} if self.error_probs_arg else {}
+        )
         decoder = decoders.get_decoder(
-            dem_arrays.detector_flip_matrix, **self.decoder_kwargs, **priors_kwarg
+            dem_arrays.detector_flip_matrix, **self.decoder_kwargs, **error_probs_kwarg
         )
         return CompiledSinterDecoder(dem_arrays, decoder)
 

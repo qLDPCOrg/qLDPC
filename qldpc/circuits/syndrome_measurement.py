@@ -118,7 +118,10 @@ class SyndromeMeasurementStrategy(abc.ABC):
 
 
 class SerialExtraction(SyndromeMeasurementStrategy):
-    """Serialize syndrome extraction according to a code's parity check matrix."""
+    """Serialize syndrome extraction according to a code's parity check matrix.
+
+    WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
+    """
 
     @staticmethod
     @restrict_to_qubits
