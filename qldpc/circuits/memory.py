@@ -46,12 +46,18 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from .noise_model import NoiseModel
-from .syndrome_measurement import MeasurementRecord, QubitIDs, SyndromeMeasurementStrategy
+from .syndrome_measurement import (
+    EdgeColoring,
+    MeasurementRecord,
+    QubitIDs,
+    SerialExtraction,
+    SyndromeMeasurementStrategy,
+)
 
 
 def memory_experiment(
     code: codes.QuditCode,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy,
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
     num_rounds: int = 1,
     basis: PauliXZ = Pauli.X,
     noise_model: NoiseModel | None = None,
@@ -135,6 +141,11 @@ def memory_experiment(
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(f"Invalid basis: {basis}")
+
+    if syndrome_measurement_strategy is None:
+        syndrome_measurement_strategy = (
+            EdgeColoring if isinstance(code, codes.CSSCode) else SerialExtraction
+        )
 
     qubit_ids = QubitIDs.from_code(code)
     data_ids = qubit_ids.data
