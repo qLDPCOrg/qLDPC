@@ -186,7 +186,6 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             raise ValueError(
                 "The EdgeColoring strategy for syndrome measurement does not work for non-CSS codes"
             )
-
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
         # identify subgraphs of the Tanner graph for X-type and Z-type stabilizers
