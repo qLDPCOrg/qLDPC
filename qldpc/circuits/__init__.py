@@ -5,9 +5,24 @@ from .common import (
     get_logical_tableau,
 )
 from .memory import memory_experiment
-from .noise_model import DepolarizingNoiseModel, NoiseModel, NoiseRule, SI1000NoiseModel
-from .sinter_decoder import CompiledSinterDecoder, DetectorErrorModelArrays, SinterDecoder
-from .syndrome_measurement import BareColorCircuit, SyndromeMeasurementStrategy
+from .noise_model import (
+    DepolarizingNoiseModel,
+    NoiseModel,
+    NoiseRule,
+    SI1000NoiseModel,
+)
+from .sinter_decoder import (
+    CompiledSinterDecoder,
+    DetectorErrorModelArrays,
+    SinterDecoder,
+)
+from .syndrome_measurement import (
+    EdgeColoring,
+    MeasurementRecord,
+    QubitIDs,
+    SerialExtraction,
+    SyndromeMeasurementStrategy,
+)
 from .transversal import (
     get_transversal_automorphism_group,
     get_transversal_circuit,
@@ -28,7 +43,10 @@ __all__ = [
     "CompiledSinterDecoder",
     "DetectorErrorModelArrays",
     "SinterDecoder",
-    "BareColorCircuit",
+    "EdgeColoring",
+    "MeasurementRecord",
+    "QubitIDs",
+    "SerialExtraction",
     "SyndromeMeasurementStrategy",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",

@@ -7,13 +7,13 @@ Example:
     Creating a memory experiment circuit:
 
     from qldpc.codes import SteaneCode
-    from qldpc.circuits import BareColorCircuit, DepolarizingNoiseModel, memory_experiment
+    from qldpc.circuits import EdgeColoring, DepolarizingNoiseModel, memory_experiment
     from qldpc.objects import Pauli
 
     # Create a CSS code and noise model
     code = SteaneCode()
     noise_model = DepolarizingNoiseModel(1e-3)
-    syndrome_measurement_strategy = BareColorCircuit()
+    syndrome_measurement_strategy = EdgeColoring()
 
     # Generate a memory experiment circuit for the logical Z operator
     circuit = memory_experiment(
@@ -46,11 +46,11 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from .noise_model import NoiseModel
-from .syndrome_measurement import QubitIds, SyndromeMeasurementStrategy
+from .syndrome_measurement import MeasurementRecord, QubitIDs, SyndromeMeasurementStrategy
 
 
 def memory_experiment(
-    code: codes.CSSCode,
+    code: codes.QuditCode,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy,
     num_rounds: int = 1,
     basis: PauliXZ = Pauli.X,
@@ -111,14 +111,14 @@ def memory_experiment(
         from qldpc.codes.classical import RepetitionCode
         from qldpc.codes.quantum import codes.CSSCode
         from qldpc.stim.noise_model import NoiseModel
-        from qldpc.stim.syndrome_measurement_strategy import BareColorCircuit
+        from qldpc.stim.syndrome_measurement_strategy import EdgeColoring
         from qldpc.objects import Pauli
         >>>
         # Create a 3-qubit repetition code
         rep_code = RepetitionCode(3)
         css_code = codes.CSSCode(rep_code, rep_code)
         noise_model = NoiseModel.uniform_depolarizing(0.01)
-        syndrome_measurement_strategy = BareColorCircuit()
+        syndrome_measurement_strategy = EdgeColoring()
         >>>
         # Generate 5-round Z-basis memory experiment
         circuit = memory_experiment(
@@ -136,12 +136,16 @@ def memory_experiment(
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(f"Invalid basis: {basis}")
 
-    qubit_ids = QubitIds(len(code), code.num_checks_x, code.num_checks_z)
+    qubit_ids = QubitIDs.from_code(code)
     data_ids = qubit_ids.data
-    check_ids = qubit_ids.x_check if basis is Pauli.X else qubit_ids.z_check
+    check_ids = (
+        qubit_ids.check[: code.num_checks_x]
+        if basis is Pauli.X
+        else qubit_ids.check[code.num_checks_x :]
+    )
 
-    meas_rec: list[dict[int, int]] = []
-    sm_circuit, sm_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
+    measurement_record = MeasurementRecord()
+    one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
 
     """
     Define qubit coordinates
@@ -154,29 +158,28 @@ def memory_experiment(
 
     # Reset data qubits to appropriate basis
     circuit.append(f"R{basis}", data_ids)
+
     """
     Initial syndrome round to project into quiescent state
     """
-    circuit.append(sm_circuit)
-    for meas_round in sm_measurements:
-        _update_meas_rec(meas_rec, meas_round)
+    circuit.append(one_cycle)
+    measurement_record.append(cycle_measurements)
     for i, check_id in enumerate(check_ids):
-        circuit.append("DETECTOR", [stim.target_rec(meas_rec[-1][check_id])], (i, 0))
+        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (i, 0))
 
     if num_rounds > 1:
         """
         Repeated syndrome rounds
         """
         repeat_circuit = stim.Circuit()
-        repeat_circuit.append(sm_circuit)
-        for meas_round in sm_measurements:
-            _update_meas_rec(meas_rec, meas_round)
+        repeat_circuit.append(one_cycle)
+        measurement_record.append(cycle_measurements)  # TODO: fix for repeat blocks
         for i, check_id in enumerate(check_ids):
             repeat_circuit.append(
                 "DETECTOR",
                 [
-                    stim.target_rec(meas_rec[-1][check_id]),
-                    stim.target_rec(meas_rec[-2][check_id]),
+                    measurement_record.get_target_rec(check_id, -1),
+                    measurement_record.get_target_rec(check_id, -2),
                 ],
                 (i, 1),
             )
@@ -187,7 +190,7 @@ def memory_experiment(
     Measure out data qubits
     """
     circuit.append(f"M{basis}", data_ids)
-    _update_meas_rec(meas_rec, data_ids)
+    measurement_record.append({qubit: [qubit] for qubit in range(len(code))})
 
     """
     Reconstruct a final round of checks based on data qubit measurements
@@ -197,8 +200,8 @@ def memory_experiment(
         data_support = np.where(check_matrix[i])[0]
         circuit.append(
             "DETECTOR",
-            [stim.target_rec(meas_rec[-1][data_ids[q]]) for q in data_support]
-            + [stim.target_rec(meas_rec[-2][check_id])],
+            [measurement_record.get_target_rec(data_ids[q]) for q in data_support]
+            + [measurement_record.get_target_rec(check_id)],
             (i, num_rounds),
         )
 
@@ -210,48 +213,8 @@ def memory_experiment(
         data_support = np.where(obs)[0]
         circuit.append(
             "OBSERVABLE_INCLUDE",
-            [stim.target_rec(meas_rec[-1][data_ids[q]]) for q in data_support],
+            [measurement_record.get_target_rec(data_ids[q]) for q in data_support],
             k,
         )
 
     return noise_model.noisy_circuit(circuit) if noise_model else circuit
-
-
-def _update_meas_rec(meas_record: list[dict[int, int]], qubits: list[int]) -> None:
-    """Updates a measurement record after a round of measurements.
-
-    Measurement results in Stim are recorded as a stack and can be tricky to
-    reference correctly. The meas_record tracks the indices in the stack for
-    each 'round' of measurements. This function should be called after every
-    round of measurements with the same list of qubits that were measured.
-
-    The function maintains a record where each entry maps qubit indices to their
-    corresponding negative indices in the Stim measurement record stack. When
-    new measurements are added, all previous indices are shifted to maintain
-    correct references.
-
-    Args:
-        meas_record: A list of dictionaries, where each dictionary maps qubit
-            indices to their corresponding negative indices in the Stim
-            measurement record. This list is modified in-place.
-        qubits: A list of qubit indices that were measured in the current round,
-            in the order they were passed to Stim. The order matters because
-            Stim records measurements in a stack.
-
-    Example:
-        meas_record = []
-        _update_meas_rec(meas_record, [0, 1, 2])
-        print(meas_record)
-        [{0: -3, 1: -2, 2: -1}]
-        _update_meas_rec(meas_record, [3, 4])
-        print(meas_record)
-        [{0: -5, 1: -4, 2: -3}, {3: -2, 4: -1}]
-    """
-    meas_round = {}
-    for i in range(len(qubits)):
-        q = qubits[-(i + 1)]
-        meas_round[q] = -(i + 1)
-    for round in meas_record:
-        for q, idx in round.items():
-            round[q] = idx - len(qubits)
-    meas_record.append(meas_round)

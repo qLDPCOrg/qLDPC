@@ -43,20 +43,30 @@ def test_state_prep() -> None:
         simulator = stim.TableauSimulator()
         simulator.do(encoder)
 
-        # the state of the simulator is a +1 eigenstate of code stabilizers
+        # stabilizers have expectation value +1
         for row in code.get_stabilizer_ops():
             string = op_to_string(row)
             assert simulator.peek_observable_expectation(string) == 1
 
-        # the state of the simulator is a +1 eigenstate of all logical Z operators
+        # logical Z operators have expectation value +1
         for op in codes.QuditCode.get_logical_ops(code, Pauli.Z):
             string = op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 1
 
-        # the state of the simulator is a +1 eigenstate of all gauge Z operators
+        # logical Z operators have expectation value 0
+        for op in codes.QuditCode.get_logical_ops(code, Pauli.X):
+            string = op_to_string(op)
+            assert simulator.peek_observable_expectation(string) == 0
+
+        # gauge Z operators have expectation value +1
         for op in codes.QuditCode.get_gauge_ops(code, Pauli.Z):
             string = op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 1
+
+        # gauge X operators have expectation value 0
+        for op in codes.QuditCode.get_gauge_ops(code, Pauli.X):
+            string = op_to_string(op)
+            assert simulator.peek_observable_expectation(string) == 0
 
 
 def test_logical_tableau() -> None:

@@ -6,7 +6,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,135 +18,218 @@ limitations under the License.
 from __future__ import annotations
 
 import abc
+import collections
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Iterator
 
 import networkx as nx
 import stim
 
 from qldpc import codes
+from qldpc.objects import Node, Pauli
+
+from .common import restrict_to_qubits
 
 
 @dataclasses.dataclass
-class QubitIds:
-    """Container for qubit indices."""
+class QubitIDs:
+    """Container for data qubit and check (syndrome readout) qubit indices."""
 
-    data: list[int]
-    x_check: list[int]
-    z_check: list[int]
+    data: list[int]  # data qubit indices
+    check: list[int]  # check (syndrome readout) qubit indices
 
-    def __init__(self, num_data: int, num_checks_x: int, num_checks_z: int) -> None:
-        """Initialize from a number of data, X-check, and Z-check qubits."""
-        self.data = list(range(num_data))
-        self.x_check: list[int] = list(range(num_data, num_data + num_checks_x))
-        self.z_check: list[int] = list(
-            range(
-                num_data + num_checks_x,
-                num_data + num_checks_x + num_checks_z,
-            )
+    @staticmethod
+    def from_code(code: codes.QuditCode) -> QubitIDs:
+        """Initialize from an error-correcting code with specific parity checks."""
+        data = list(range(len(code)))
+        check = list(range(len(code), len(code) + code.num_checks))
+        return QubitIDs(data, check)
+
+
+class MeasurementRecord:
+    """Store a measurement record in a Stim circuit."""
+
+    num_measurements: int
+    qubit_to_measurement: dict[int, list[int]]
+
+    def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
+        self.qubit_to_measurements = collections.defaultdict(
+            list, initial_record if initial_record else {}
         )
+        self.num_measurements = sum(
+            len(measurements) for measurements in self.qubit_to_measurements.values()
+        )
+
+    def items(self) -> Iterator[tuple[int, list[int]]]:
+        """Iterator over qubits and their measurements."""
+        yield from self.qubit_to_measurements.items()
+
+    def append(self, record: MeasurementRecord | dict[int, list[int]]) -> None:
+        """Append the given record to this one."""
+        for qubit, measurements in record.items():
+            self.qubit_to_measurements[qubit].extend(
+                [self.num_measurements + measurement for measurement in measurements]
+            )
+        self.num_measurements += sum(len(measurements) for _, measurements in record.items())
+
+    def get_target_rec(self, qubit: int, measurement_index: int = -1) -> stim.target_rec:
+        """Retrieve a Stim measurement record target for the given qubit.
+
+        Args:
+            qubit: the qubit (by index) whose measurement record we want.
+            measurement_index: an index specifying which measurement of the specified qubit we want.
+                A measurement_index of 0 would be the first measruement of the qubit, while a
+                measurement_index of -1 would be the most recent measurement.  Default value: -1.
+
+        Returns:
+            stim.target_rec: a Stim measurement record target.
+        """
+        if qubit not in self.qubit_to_measurements:
+            raise ValueError(f"Qubit {qubit} not found in measurement record")
+        measurements = self.qubit_to_measurements[qubit]
+        if not -len(measurements) <= measurement_index < len(measurements):
+            raise ValueError(
+                f"Invalid measurement index {measurement_index} for qubit {qubit} with "
+                f"{len(measurements)} measurements"
+            )
+        return stim.target_rec(measurements[measurement_index] - self.num_measurements)
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
     """Base class for a syndrome measurement strategy."""
 
+    @staticmethod
+    @restrict_to_qubits
     @abc.abstractmethod
     def get_circuit(
-        self, code: codes.CSSCode, stim_ids: QubitIds | None = None
-    ) -> tuple[stim.Circuit, list[list[int]]]:
-        """Compiles a syndrome measurement circuit for a given CSSCode and noise model.
+        code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
-            codes.CSSCode:
-                The quantum code to be compiled into a single round of syndrome measurements.
-            QubitIds:
-                Integer indices to be used for data qubits, X check qubits, and Z check qubits.
+            codes.QuditCode: The code whose syndromes we want to measure.
+            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+                Defaults to QubitIDs.from_code(code).
 
         Returns:
-            stim.Circuit:
-                Stim circuit containing the compiled syndrome measurement round
-            list[list[int]]:
-                The history of measurement rounds performed in the circuit.  Each round is a list of
-                the stim ids measured that round, in the order they were passed to stim.
+            stim.Circuit: A syndrome measurement circuit.
+            circuits.MeasurementRecord: The record of measurements in the circuit.
         """
 
 
-class BareColorCircuit(SyndromeMeasurementStrategy):
-    """A coloration circuit syndrome measurement scheme as defined in https://arxiv.org/abs/2109.14609 (Algorithm 1).
+class SerialExtraction(SyndromeMeasurementStrategy):
+    """Serialize syndrome extraction according to a code's parity check matrix."""
 
-    WARNING: This scheme is not guaranteed to be fault-tolerant or distance-preserving.
+    @staticmethod
+    @restrict_to_qubits
+    def get_circuit(
+        code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Construct a syndrome measurement circuit using Algorithm 1 of arXiv:2109.14609.
+
+        Args:
+            codes.QuditCode: The code whose syndromes we want to measure.
+            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+                Defaults to QubitIDs.from_code(code).
+
+        Returns:
+            stim.Circuit: A syndrome measurement circuit.
+            circuits.MeasurementRecord: The record of measurements in the circuit.
+        """
+        qubit_ids = qubit_ids or QubitIDs.from_code(code)
+
+        circuit = stim.Circuit()
+        circuit.append("RX", qubit_ids.check)
+
+        # write syndromes to ancilla qubits one at a time
+        for check_qubit, check in enumerate(code.matrix, start=len(code)):
+            for data_qubit, pauli_xz in enumerate(check.reshape(2, len(code)).T):
+                pauli = Pauli(tuple(pauli_xz))
+                if pauli is not Pauli.I:
+                    circuit.append(f"C{pauli}", [check_qubit, data_qubit])
+
+        circuit.append("MX", qubit_ids.check)
+        measurement_record = MeasurementRecord(
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
+        )
+        return circuit, measurement_record
+
+
+class EdgeColoring(SyndromeMeasurementStrategy):
+    """Coloration strategy for syndrome measurement in arXiv:2109.14609.
+
+    In words, this strategy colors the edges of the Tanner graph of a code, which determines the
+    corresponding gate order.
+
+    WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
 
+    @staticmethod
+    @restrict_to_qubits
     def get_circuit(
-        self,
-        code: codes.CSSCode,
-        qubit_ids: QubitIds | None = None,
-        strategy: str = "largest_first",
-    ) -> tuple[stim.Circuit, list[list[int]]]:
+        code: codes.QuditCode, qubit_ids: QubitIDs | None = None, *, strategy: str = "largest_first"
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Construct a syndrome measurement circuit using Algorithm 1 of arXiv:2109.14609.
+
+        Args:
+            codes.QuditCode: The code whose syndromes we want to measure.
+            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+                Defaults to QubitIDs.from_code(code).
+            strategy: The graph coloration stratepy passed to nx.greedy_color.
+                Defaults to "largest_first".
+
+        Returns:
+            stim.Circuit: A syndrome measurement circuit.
+            circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        Compiles a coloration circuit. Not depth-optimal as no interleaving of opposite type checks is present. Z checks are performed first followed by X checks
+        if not isinstance(code, codes.CSSCode):
+            raise ValueError(
+                "The EdgeColoring strategy for syndrome measurement does not work for non-CSS codes"
+            )
+        qubit_ids = qubit_ids or QubitIDs.from_code(code)
+
+        # identify subgraphs of the Tanner graph for X-type and Z-type stabilizers
+        data_nodes = [Node(index, is_data=True) for index in qubit_ids.data]
+        check_nodes = [Node(index, is_data=False) for index in range(code.num_checks)]
+        check_nodes_x = check_nodes[: code.num_checks_x]
+        check_nodes_z = check_nodes[code.num_checks_x :]
+        graph_x = code.graph.subgraph(data_nodes + check_nodes_x)
+        graph_z = code.graph.subgraph(data_nodes + check_nodes_z)
+
+        # measure X and Z stabilizers in sequence
+        circuit = stim.Circuit()
+        circuit.append("RX", qubit_ids.check)
+        circuit.append("TICK")
+        circuit += EdgeColoring.graph_to_circuit(graph_x, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(graph_z, qubit_ids, strategy)
+        circuit.append("MX", qubit_ids.check)
+
+        measurement_record = MeasurementRecord(
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
+        )
+        return circuit, measurement_record
+
+    def graph_to_circuit(graph: nx.DiGraph, qubit_ids: QubitIDs, strategy: str) -> stim.Circuit:
+        """Convert a Tanner graph into a syndrome extraction circuit.
+
+        Assumes that check qubits are initialized |+>.
         """
-        if qubit_ids is not None:
-            assert len(code) == len(qubit_ids.data)
-            assert code.num_checks_x == len(qubit_ids.x_check)
-            assert code.num_checks_z == len(qubit_ids.z_check)
-        else:
-            qubit_ids = QubitIds(len(code), code.num_checks_x, code.num_checks_z)
+        # color the edges of the Tanner graph
+        coloring = nx.coloring.greedy_color(nx.line_graph(graph.to_undirected()), strategy)
 
-        x_subcircuit = self._classical_subcode_to_subcircuit(
-            code.code_x,
-            qubit_ids.x_check,
-            qubit_ids.data,
-            "CX",
-            strategy,
-        )
-        z_subcircuit = self._classical_subcode_to_subcircuit(
-            code.code_z,
-            qubit_ids.z_check,
-            qubit_ids.data,
-            "CZ",
-            strategy,
-        )
-
-        circuit = stim.Circuit()
-        check_qubits = qubit_ids.x_check + qubit_ids.z_check
-
-        # Initialize check qubits
-        circuit.append("RX", check_qubits)
-
-        # "Write" Z and X stabilizers to check qubits
-        circuit += x_subcircuit
-        circuit += z_subcircuit
-
-        # Measure the extracted stabilizers
-        circuit.append("MX", check_qubits)
-
-        measurements = [qubit_ids.x_check + qubit_ids.z_check]
-        return circuit, measurements
-
-    def _classical_subcode_to_subcircuit(
-        self,
-        subcode: codes.ClassicalCode,
-        check_ids: Sequence[int],
-        data_ids: Sequence[int],
-        gate: str,
-        strategy: str,
-    ) -> stim.Circuit:
-        coloring = nx.coloring.greedy_color(nx.line_graph(subcode.graph.to_undirected()), strategy)
-        circuit = stim.Circuit()
-
-        schedule: dict[int, list[tuple[int, int]]] = {}
+        # collect operations by color, in (gate, qubit_1, qubit_2) format
+        color_to_ops: dict[int, list[tuple[str, int, int]]] = collections.defaultdict(list)
         for edge, color in coloring.items():
-            assert edge[0].is_data ^ edge[1].is_data  # Assert valid edge (data <-> check)
-            if edge[0].is_data:
-                check_op = (check_ids[edge[1].index], data_ids[edge[0].index])
-            else:
-                check_op = (check_ids[edge[0].index], data_ids[edge[1].index])
-            schedule.setdefault(color, []).append(check_op)
-        for color, moment in schedule.items():
-            for check_qubit, data_qubit in moment:
-                circuit.append(gate, [check_qubit, data_qubit])
-            if moment:  # Only add TICK if there were operations in this moment
-                circuit.append("TICK")
+            data_node, check_node = sorted(edge)
+            data_qubit = qubit_ids.data[data_node.index]
+            check_qubit = qubit_ids.check[check_node.index]
+            pauli = graph[check_node][data_node][Pauli]
+            color_to_ops[color].append((f"C{pauli}", check_qubit, data_qubit))
 
+        # collect all gates into a circuit
+        circuit = stim.Circuit()
+        for gates in color_to_ops.values():
+            for gate, check_qubit, data_qubit in sorted(gates):
+                circuit.append(gate, [check_qubit, data_qubit])
+            circuit.append("TICK")
         return circuit
