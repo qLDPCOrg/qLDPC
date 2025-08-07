@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import collections
 import itertools
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 
 import numpy as np
 import numpy.typing as npt
