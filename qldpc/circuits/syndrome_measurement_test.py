@@ -39,71 +39,45 @@ def test_measurement_record() -> None:
 
 
 @pytest.mark.parametrize(
-    "strategy",
+    "code,strategy",
     [
-        # circuits.SerialExtraction,
-        circuits.EdgeColoring,
+        (codes.FiveQubitCode(), circuits.SerialExtraction),
+        (codes.SteaneCode(), circuits.EdgeColoring),
     ],
 )
 def test_syndrome_measurement(
-    strategy: circuits.SyndromeMeasurementStrategy, pytestconfig: pytest.Config
+    code: codes.QuditCode,
+    strategy: circuits.SyndromeMeasurementStrategy,
+    pytestconfig: pytest.Config,
 ) -> None:
     """Syndrome extraction by Tanner graph edge coloring."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
-    code = codes.FiveQubitCode()
+    # prepare a logical |0> state
     state_prep = circuits.get_encoding_circuit(code)
 
+    # apply random Pauli errors to the data qubits
     errors = np.random.choice([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], size=[len(code)])
-    ###################################################################
-    errors = [Pauli.X] + [Pauli.I] * (len(code) - 1)
-    ###################################################################
     error_ops = stim.Circuit()
     for qubit, pauli in enumerate(errors):
         error_ops.append(f"{pauli}_error", [qubit], [1])
 
-    error_vec = code.field([pauli.value for pauli in errors]).T.ravel()
-    syndrome_vec = code.matrix @ symplectic_conjugate(error_vec)
-
+    # measure syndromes
     syndrome_extraction, record = strategy.get_circuit(code)
-    ###################################################################
-    # syndrome_extraction = stim.Circuit()
-    # syndrome_extraction.append("RX", [5, 6, 7, 8])
-    # syndrome_extraction.append("CX", [5, 0])
-    # syndrome_extraction.append("CZ", [5, 1])
-    # syndrome_extraction.append("CZ", [5, 2])
-    # syndrome_extraction.append("CX", [5, 3])
-    # syndrome_extraction.append("CX", [6, 1])
-    # syndrome_extraction.append("CZ", [6, 2])
-    # syndrome_extraction.append("CZ", [6, 3])
-    # syndrome_extraction.append("CX", [6, 4])
-    # syndrome_extraction.append("CX", [7, 2])
-    # syndrome_extraction.append("CZ", [7, 3])
-    # syndrome_extraction.append("CZ", [7, 4])
-    # syndrome_extraction.append("CX", [7, 0])
-    # syndrome_extraction.append("CX", [8, 3])
-    # syndrome_extraction.append("CZ", [8, 4])
-    # syndrome_extraction.append("CZ", [8, 0])
-    # syndrome_extraction.append("CX", [8, 1])
-    # syndrome_extraction.append("MX", [5, 6, 7, 8])
-    ###################################################################
-
     for check in range(len(code), len(code) + code.num_checks):
         syndrome_extraction.append("DETECTOR", record.get_target_rec(check))
 
+    # sample the circuit to obtain a syndrome vector
     circuit = state_prep + error_ops + syndrome_extraction
-    sample = circuit.compile_detector_sampler().sample(1).ravel()
+    syndrome = circuit.compile_detector_sampler().sample(1).ravel()
 
-    # assert np.array_equal(syndrome_vec, sample)
+    # compare against the expected syndrome
+    error_xz = code.field([pauli.value for pauli in errors]).T.ravel()
+    expected_syndome = code.matrix @ symplectic_conjugate(error_xz)
+    assert np.array_equal(expected_syndome, syndrome)
 
-    print()
-    print()
-    print()
-    print(circuit)
-    print()
-    print(code.get_strings())
-    print()
-    print(syndrome_vec)
-    print(sample)
 
-    print(np.array_equal(syndrome_vec, sample))
+def test_syndrome_errors() -> None:
+    """Not all codes are supported by all syndrome extraction circuits."""
+    with pytest.raises(ValueError, match="does not work for non-CSS codes"):
+        circuits.EdgeColoring.get_circuit(codes.FiveQubitCode())

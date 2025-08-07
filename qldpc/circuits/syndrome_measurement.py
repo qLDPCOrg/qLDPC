@@ -182,25 +182,29 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
+        if not isinstance(code, codes.CSSCode):
+            raise ValueError(
+                "The EdgeColoring strategy for syndrome measurement does not work for non-CSS codes"
+            )
+
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
+        # identify subgraphs of the Tanner graph for X-type and Z-type stabilizers
+        data_nodes = [Node(index, is_data=True) for index in qubit_ids.data]
+        check_nodes = [Node(index, is_data=False) for index in range(code.num_checks)]
+        check_nodes_x = check_nodes[: code.num_checks_x]
+        check_nodes_z = check_nodes[code.num_checks_x :]
+        graph_x = code.graph.subgraph(data_nodes + check_nodes_x)
+        graph_z = code.graph.subgraph(data_nodes + check_nodes_z)
+
+        # measure X and Z stabilizers in sequence
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
         circuit.append("TICK")
-
-        data_nodes = [Node(index, is_data=True) for index in qubit_ids.data]
-        check_nodes = [Node(index, is_data=False) for index in range(code.num_checks)]
-        if isinstance(code, codes.CSSCode):
-            check_nodes_x = check_nodes[: code.num_checks_x]
-            check_nodes_z = check_nodes[code.num_checks_x :]
-            graph_x = code.graph.subgraph(data_nodes + check_nodes_x)
-            graph_z = code.graph.subgraph(data_nodes + check_nodes_z)
-            circuit += EdgeColoring.graph_to_circuit(graph_x, qubit_ids, strategy)
-            circuit += EdgeColoring.graph_to_circuit(graph_z, qubit_ids, strategy)
-        else:
-            circuit += EdgeColoring.graph_to_circuit(code.graph, qubit_ids, strategy)
-
+        circuit += EdgeColoring.graph_to_circuit(graph_x, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(graph_z, qubit_ids, strategy)
         circuit.append("MX", qubit_ids.check)
+
         measurement_record = MeasurementRecord(
             {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
         )
