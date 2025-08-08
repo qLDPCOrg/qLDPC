@@ -139,7 +139,8 @@ def get_memory_experiment(
         raise ValueError("Memory experiments are currently not supported for subsystem codes")
 
     # identify data and check qubit indices
-    data_ids, check_ids = qubit_ids or QubitIDs.from_code(code)
+    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    data_ids, check_ids = qubit_ids
 
     # identify relevant checks and their data qubit support
     check_ids = (
