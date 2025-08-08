@@ -6,19 +6,16 @@ error correction memory experiments using CSS codes.
 Example:
     Creating a memory experiment circuit:
 
-    from qldpc.codes import SteaneCode
-    from qldpc.circuits import EdgeColoring, DepolarizingNoiseModel, memory_experiment
+    from qldpc import circuits, codes
     from qldpc.objects import Pauli
 
     # Create a CSS code and noise model
-    code = SteaneCode()
-    noise_model = DepolarizingNoiseModel(1e-3)
-    syndrome_measurement_strategy = EdgeColoring()
+    code = codes.SteaneCode()
+    noise_model = circuits.DepolarizingNoiseModel(1e-3)
 
     # Generate a memory experiment circuit for the logical Z operator
-    circuit = memory_experiment(
+    circuit = circuits.get_memory_experiment(
         code,
-        syndrome_measurement_strategy,
         num_rounds=3,
         basis=Pauli.Z,
         noise_model=noise_model,
