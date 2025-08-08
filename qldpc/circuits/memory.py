@@ -58,7 +58,7 @@ def get_memory_experiment(
     code: codes.QuditCode,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
     num_rounds: int = 1,
-    pauli: PauliXZ = Pauli.X,
+    basis: PauliXZ = Pauli.Z,
     *,
     qubit_ids: QubitIDs | None = None,
     noise_model: NoiseModel | None = None,
@@ -66,11 +66,19 @@ def get_memory_experiment(
     """Construct a circuit for testing the performance of a code as a quantum memory.
 
     The circuit consists of (generally multiple) quantum error correction (QEC) cycles for the code,
-    using a particular syndrome measurement strategy.  Each QEC cycle measures all syndromes, and
-    detectors are added to enforce (a) that the syndrome from the first QEC cycle is trivial, and
-    (b) that every subsequent QEC cycle yields the same syndrome as the preceding round.
+    using a particular syndrome measurement strategy.  Each QEC cycle measures all parity checks of
+    the code, and detectors are added to enforce that (a) the syndrome from the first QEC cycle is
+    trivial, and (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
+    The "basis" argument determines whether the circuit tracks logical X or Z operators.
 
-    Data qubits are prepared the |0> or |+> states, respectively, if pauli is Pauli.Z or Pauli.X.
+    In total, the circuit performs the following:
+    1. Initialize all data qubits to |0> (if basis is Pauli.Z) or |+> (if basis is Pauli.X).
+    2. Perform an initial QEC cycle, adding detectors for the basis-type stabilizers.
+    3. Repeat num_rounds - 1 QEC cycles, adding detectors to enforce that basis-type stabilizers
+        have not changed between adjacent QEC cycles.
+    4. Measure all data qubits in the specified basis.
+    5. Add detectors for basis-type parity checks on the final data qubit measurements.
+    6. Use the final data qubit measurements to define all basis-type logical observables.
 
     The qubit layout uses a linear arrangement:
     - Data qubits: coordinates (0, i) for i-th data qubit
@@ -81,14 +89,6 @@ def get_memory_experiment(
     - (x, y) are the check qubit coordinates
     - t is the syndrome measurement round (0-indexed)
     - basis indicates the stabilizer type (0 for Z, 1 for X)
-
-    The experiment flow:
-    1. Initialize data qubits in the specified basis
-    2. Perform initial syndrome measurement (creates detectors for round 0)
-    3. Repeat syndrome measurements for num_rounds-1 additional rounds
-    4. Measure out all data qubits in the specified basis
-    5. Create final detectors comparing data measurements to last syndrome round
-    6. Define logical observables based on the code's logical operators
 
     Args:
         code: The CSS quantum error correcting code to test. Must have both
@@ -141,20 +141,24 @@ def get_memory_experiment(
         sampler = circuit.compile_sampler()
         results = sampler.sample(1000)
     """
-    if pauli is not Pauli.X and pauli is not Pauli.Z:
-        raise ValueError(f"Invalid basis: {pauli}")
-
+    if basis is not Pauli.X and basis is not Pauli.Z:
+        raise ValueError(
+            "Memory experiments currently only support tracking logical operators in the X or Z"
+            f" basis (provided: {basis})"
+        )
     if not isinstance(code, codes.CSSCode):
-        raise ValueError("Memory experiments for are currently not supported for non-CSS codes")
+        raise ValueError("Memory experiments are currently not supported for non-CSS codes")
+    if code.is_subsystem_code:
+        raise ValueError("Memory experiments are currently not supported for subsystem codes")
 
     # identify data and check qubit indices
     data_ids, check_ids = qubit_ids or QubitIDs.from_code(code)
 
     # set default measurement strategy, identify relevant checks as well as their support
     syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
-    check_support = code.get_matrix(pauli)
+    check_support = code.get_matrix(basis)
     check_ids = (
-        check_ids[: code.num_checks_x] if pauli is Pauli.X else check_ids[code.num_checks_x :]
+        check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
     )
 
     # build one QEC cycle
@@ -171,7 +175,7 @@ def get_memory_experiment(
         circuit.append("QUBIT_COORDS", check_id, (1, i))
 
     # Reset data qubits to appropriate basis
-    circuit.append(f"R{pauli}", data_ids)
+    circuit.append(f"R{basis}", data_ids)
 
     """
     Initial syndrome round to project into quiescent state
@@ -207,7 +211,7 @@ def get_memory_experiment(
     """
     Measure out data qubits
     """
-    circuit.append(f"M{pauli}", data_ids)
+    circuit.append(f"M{basis}", data_ids)
     measurement_record.append({qubit: [qubit] for qubit in range(len(code))})
 
     """
@@ -225,7 +229,7 @@ def get_memory_experiment(
     """
     Define observables for memory experiment
     """
-    observables = code.get_logical_ops(pauli)
+    observables = code.get_logical_ops(basis)
     for k, obs in enumerate(observables):
         data_support = np.where(obs)[0]
         circuit.append(
