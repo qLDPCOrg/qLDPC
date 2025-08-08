@@ -56,7 +56,7 @@ from .syndrome_measurement import (
 
 def get_memory_experiment(
     code: codes.QuditCode,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
     num_rounds: int = 1,
     basis: PauliXZ = Pauli.Z,
     *,
@@ -80,40 +80,27 @@ def get_memory_experiment(
     5. Add detectors for basis-type parity checks on the final data qubit measurements.
     6. Use the final data qubit measurements to define all basis-type logical observables.
 
-    The qubit layout uses a linear arrangement:
-    - Data qubits: coordinates (0, i) for i-th data qubit
-    - X check qubits: coordinates (1, i) for i-th X stabilizer
-    - Z check qubits: coordinates (2, i) for i-th Z stabilizer
-
-    Detector coordinates follow the pattern (x, y, t, basis) where:
-    - (x, y) are the check qubit coordinates
-    - t is the syndrome measurement round (0-indexed)
-    - basis indicates the stabilizer type (0 for Z, 1 for X)
+    Qubits and detectors are assigned coordinates as follows:
+    - The data qubit addressed by column c of the parity check matrix gets coordinate (0, c).
+    - The check qubit associated with row r of the parity check matrix gets coordinate (0, r).
+    - The k-th detector in measurement round m gets coordinate (m, k).
 
     Args:
-        code: The CSS quantum error correcting code to test. Must have both
-            X and Z stabilizers defined along with logical operators.
-        noise_model: The noise model to apply to the circuit. The clean circuit
-            is constructed first, then noise is applied via noisy_circuit().
-        syndrome_measurement_strategy: The syndrome measurement strategy to use. This defines
-            how stabilizer measurements are performed (e.g., scheduling,
-            connectivity constraints).
-        num_rounds: Total number of syndrome measurement rounds to perform.
-            Must be at least 1. More rounds provide better error correction
-            but increase circuit depth.
-        basis: The Pauli basis for the memory experiment. Must be either
-            Pauli.X or Pauli.Z. This determines:
-            - How data qubits are initialized (|+⟩ for X, |0⟩ for Z)
-            - How data qubits are measured (X-basis for X, Z-basis for Z)
-            - Which stabilizers are used for initial/final detectors
+        code: A quantum error-correcting code.  Only CSS stabilizer (non-subsystem) qubit codes are
+            supported at the moment (generalization to non-CSS and subsystem codes pending).
+        syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
+            each round of QEC measures all parity checks of the code.  Default: EdgeColoring().
+        num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
+        basis: Should be Pauli.X or Pauli.Z, depending the desired logical operators to track.  A
+            logical error in a noisy simulation of the circuit corresponds to a logical error in one
+            of these operators.  Default: Pauli.Z.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
+            labeling qubits by their corresponding column/row of the parity check matrix.
+        noise_model: The noise model to apply to the circuit after construction, or None to return a
+            noiseless circuit.  Default: None.
 
     Returns:
-        A complete Stim circuit with noise applied, ready for simulation.
-        The circuit includes all necessary DETECTOR and OBSERVABLE_INCLUDE
-        instructions for error correction analysis.
-
-    Raises:
-        ValueError: If basis is not Pauli.X or Pauli.Z.
+        stim.Circuit: A circuit ready for simulation via Stim or Sinter.
 
     Example:
         from qldpc.codes.classical import RepetitionCode
@@ -154,12 +141,11 @@ def get_memory_experiment(
     # identify data and check qubit indices
     data_ids, check_ids = qubit_ids or QubitIDs.from_code(code)
 
-    # set default measurement strategy, identify relevant checks as well as their support
-    syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
-    check_support = code.get_matrix(basis)
+    # identify relevant checks and their data qubit support
     check_ids = (
         check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
     )
+    check_support = code.get_matrix(basis)
 
     # build one QEC cycle
     measurement_record = MeasurementRecord()
@@ -169,9 +155,9 @@ def get_memory_experiment(
     Define qubit coordinates
     """
     circuit = stim.Circuit()
-    for i, data_id in enumerate(data_ids):
+    for i, data_id in enumerate(qubit_ids.data):
         circuit.append("QUBIT_COORDS", data_id, (0, i))
-    for i, check_id in enumerate(check_ids):
+    for i, check_id in enumerate(qubit_ids.check):
         circuit.append("QUBIT_COORDS", check_id, (1, i))
 
     # Reset data qubits to appropriate basis
@@ -183,7 +169,7 @@ def get_memory_experiment(
     circuit.append(one_cycle)
     measurement_record.append(cycle_measurements)
     for i, check_id in enumerate(check_ids):
-        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (i, 0))
+        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, i))
 
     if num_rounds > 1:
         """
@@ -199,9 +185,9 @@ def get_memory_experiment(
                     measurement_record.get_target_rec(check_id, -1),
                     measurement_record.get_target_rec(check_id, -2),
                 ],
-                (i, 1),
+                (1, i),
             )
-        repeat_circuit.append("SHIFT_COORDS", [], (0, 1))
+        repeat_circuit.append("SHIFT_COORDS", [], (1, 0))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
         # make the measurement_record account for repeated measurements
