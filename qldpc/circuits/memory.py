@@ -165,17 +165,14 @@ def get_memory_experiment(
     # reset data qubits to appropriate basis
     circuit.append(f"R{basis}", data_ids)
 
-    # first round of QEC, followed by detectors for basis-type parity checks
+    # first round of QEC and detectors
     circuit.append(one_cycle)
     measurement_record.append(cycle_measurements)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, kk))
 
-    #
+    # following repeated rounds of QEC and detectors
     if num_rounds > 1:
-        """
-        Repeated syndrome rounds
-        """
         repeat_circuit = stim.Circuit()
         repeat_circuit.append(one_cycle)
         measurement_record.append(cycle_measurements)
@@ -195,34 +192,27 @@ def get_memory_experiment(
         for _ in range(num_rounds - 2):
             measurement_record.append(cycle_measurements)
 
-    """
-    Measure out data qubits
-    """
+    # measure out the data qubits
     circuit.append(f"M{basis}", data_ids)
     measurement_record.append({qubit: [qubit] for qubit in range(len(code))})
 
-    """
-    Reconstruct a final round of checks based on data qubit measurements
-    """
+    # detectors for all stabilizers that can be inferred from the data qubit measurements
     for jj, check_id in enumerate(check_ids):
         data_support = np.where(check_support[jj])[0]
         circuit.append(
             "DETECTOR",
-            [measurement_record.get_target_rec(data_ids[q]) for q in data_support]
+            [measurement_record.get_target_rec(qq) for qq in data_support]
             + [measurement_record.get_target_rec(check_id)],
             (num_rounds, jj),
         )
 
-    """
-    Define observables for memory experiment
-    """
-    observables = code.get_logical_ops(basis)
-    for k, obs in enumerate(observables):
-        data_support = np.where(obs)[0]
+    # add all basis-type observables
+    for kk, observable in enumerate(code.get_logical_ops(basis)):
+        data_support = np.where(observable)[0]
         circuit.append(
             "OBSERVABLE_INCLUDE",
-            [measurement_record.get_target_rec(data_ids[q]) for q in data_support],
-            k,
+            [measurement_record.get_target_rec(qq) for qq in data_support],
+            kk,
         )
 
     return noise_model.noisy_circuit(circuit) if noise_model else circuit
