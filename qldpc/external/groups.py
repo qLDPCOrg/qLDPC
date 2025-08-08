@@ -294,7 +294,7 @@ def get_primitive_central_idempotents(
 
 
 """
-Gets all  order l permutations for a nxm matrix
+Gets all order l permutations for a nxm matrix
 """
 
 
@@ -325,6 +325,12 @@ def get_permutation_symmetry_of_matrix(
     return parse_permutation_output(row_permutations_output), parse_permutation_output(
         col_permutations_output
     )
+
+
+"""
+Gets a pair of permutations with a certain orbit length (if one exists) for a binary matrix 
+that meets the requirements to construct a balanced product code
+"""
 
 
 def get_balanced_permutations_of_matrix(
