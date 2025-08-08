@@ -55,10 +55,10 @@ from .syndrome_measurement import (
 
 
 def get_memory_experiment(
-    code: codes.QuditCode,
+    code: codes.AbstractCode,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
     num_rounds: int = 1,
-    basis: PauliXZ = Pauli.Z,
+    basis: PauliXZ = Pauli.X,
     *,
     qubit_ids: QubitIDs | None = None,
     noise_model: NoiseModel | None = None,
@@ -82,18 +82,20 @@ def get_memory_experiment(
 
     Qubits and detectors are assigned coordinates as follows:
     - The data qubit addressed by column c of the parity check matrix gets coordinate (0, c).
-    - The check qubit associated with row r of the parity check matrix gets coordinate (0, r).
+    - The check qubit associated with row r of the parity check matrix gets coordinate (1, r).
     - The k-th detector in measurement round m gets coordinate (m, k).
 
     Args:
-        code: A quantum error-correcting code.  Only CSS stabilizer (non-subsystem) qubit codes are
-            supported at the moment (generalization to non-CSS and subsystem codes pending).
+        code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
+            that protects only basis-type logical operators.  Otherwise, only CSS stabilizer
+            (non-subsystem) qubit codes are supported at the moment (generalization to non-CSS and
+            subsystem codes pending).
         syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
             each round of QEC measures all parity checks of the code.  Default: EdgeColoring().
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         basis: Should be Pauli.X or Pauli.Z, depending the desired logical operators to track.  A
             logical error in a noisy simulation of the circuit corresponds to a logical error in one
-            of these operators.  Default: Pauli.Z.
+            of these operators.  Default: Pauli.X.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
             labeling qubits by their corresponding column/row of the parity check matrix.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
@@ -109,13 +111,12 @@ def get_memory_experiment(
 
         # Create a 3-qubit repetition code
         rep_code = codes.RepetitionCode(3)
-        css_code = codes.CSSCode(rep_code, rep_code)
         noise_model = DepolarizingNoiseModel(1e-2)
         syndrome_measurement_strategy = EdgeColoring()
 
         # Generate 5-round Z-basis memory experiment
         circuit = memory_experiment(
-            code=css_code,
+            code=rep_code,
             syndrome_measurement_strategy=syndrome_measurement_strategy,
             num_rounds=5,
             basis=Pauli.Z,
@@ -131,20 +132,24 @@ def get_memory_experiment(
             "Memory experiments currently only support tracking logical operators in the X or Z"
             f" basis (provided: {basis})"
         )
+    if isinstance(code, codes.ClassicalCode):
+        matrix_x = code.field.Zeros((0, len(code))) if basis is Pauli.X else code.matrix
+        matrix_z = code.matrix if basis is Pauli.X else code.field.Zeros((0, len(code)))
+        code = codes.CSSCode(matrix_x, matrix_z)
     if not isinstance(code, codes.CSSCode):
         raise ValueError("Memory experiments are currently not supported for non-CSS codes")
     if code.is_subsystem_code:
         raise ValueError("Memory experiments are currently not supported for subsystem codes")
 
-    # identify data and check qubit indices
+    # identify all data and check qubit indices
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
     data_ids, check_ids = qubit_ids
 
-    # identify relevant checks and their data qubit support
+    # identify the support and indices of basis-type parity checks
+    check_support = code.get_matrix(basis)
     check_ids = (
         check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
     )
-    check_support = code.get_matrix(basis)
 
     # build one QEC cycle
     measurement_record = MeasurementRecord()
