@@ -120,9 +120,10 @@ def get_memory_experiment(
             noise_model=noise_model,
         )
 
-        # Circuit is ready for simulation
-        sampler = circuit.compile_sampler()
-        results = sampler.sample(1000)
+        # The circuit is ready for simulation!
+        # We can now sample detector and observable flips.
+        sampler = circuit.compile_detector_sampler()
+        detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(
@@ -130,8 +131,8 @@ def get_memory_experiment(
             f" basis (provided: {basis})"
         )
     if isinstance(code, codes.ClassicalCode):
-        matrix_x = code.field.Zeros((0, len(code))) if basis is Pauli.X else code.matrix
-        matrix_z = code.matrix if basis is Pauli.X else code.field.Zeros((0, len(code)))
+        matrix_x = code.matrix if basis is Pauli.X else code.field.Zeros((0, len(code)))
+        matrix_z = code.field.Zeros((0, len(code))) if basis is Pauli.X else code.matrix
         code = codes.CSSCode(matrix_x, matrix_z)
     if not isinstance(code, codes.CSSCode):
         raise ValueError("Memory experiments are currently not supported for non-CSS codes")
