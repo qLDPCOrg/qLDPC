@@ -103,27 +103,25 @@ def get_memory_experiment(
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
 
     Example:
-        from qldpc.codes.classical import RepetitionCode
-        from qldpc.codes.quantum import codes.CSSCode
-        from qldpc.stim.noise_model import NoiseModel
-        from qldpc.stim.syndrome_measurement_strategy import EdgeColoring
+        from qldpc import codes
+        from qldpc.circuits import DepolarizingNoiseModel, EdgeColoring
         from qldpc.objects import Pauli
-        >>>
+
         # Create a 3-qubit repetition code
-        rep_code = RepetitionCode(3)
+        rep_code = codes.RepetitionCode(3)
         css_code = codes.CSSCode(rep_code, rep_code)
-        noise_model = NoiseModel.uniform_depolarizing(0.01)
+        noise_model = DepolarizingNoiseModel(1e-2)
         syndrome_measurement_strategy = EdgeColoring()
-        >>>
+
         # Generate 5-round Z-basis memory experiment
         circuit = memory_experiment(
-             code=css_code,
-             noise_model=noise_model,
-             syndrome_measurement_strategy=syndrome_measurement_strategy,
-             num_rounds=5,
-             basis=Pauli.Z
-         )
-        >>>
+            code=css_code,
+            syndrome_measurement_strategy=syndrome_measurement_strategy,
+            num_rounds=5,
+            basis=Pauli.Z,
+            noise_model=noise_model,
+        )
+
         # Circuit is ready for simulation
         sampler = circuit.compile_sampler()
         results = sampler.sample(1000)
