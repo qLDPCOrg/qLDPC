@@ -616,8 +616,27 @@ def test_balanced_product_from_codes() -> None:
         == css.num_qubits * classical.matrix.shape[1]
         + css.code_x.matrix.shape[0] * classical.matrix.shape[0]
     )
-    assert len(new_code.get_logical_ops()) // 2 == 1
+    assert new_code.get_logical_ops().shape[0] // 2 == 1
     # New code should have n*n_c + m_x * m_c qubits and k*k_c logical qubits
+
+    from sympy.abc import x, y
+
+    orders: tuple[int, int] | dict[sympy.Symbol, int]
+    orders = {x: 12, y: 4}
+    poly_a = 1 + y + x * y + x**9
+    poly_b = 1 + x**2 + x**7 + x**9 * y**2
+    css2 = codes.BBCode(orders, poly_a, poly_b, field=2)
+    classical2 = qldpc.codes.classical.ReedMullerCode(5, 5)
+    new_code = qldpc.codes.BalancedProductCode.from_codes(css2, classical2)
+    assert (
+        new_code.num_qubits
+        == css2.num_qubits * classical2.matrix.shape[1]
+        + css2.code_x.matrix.shape[0] * classical2.matrix.shape[0]
+    )
+    # new logical qubits should be k*k_c
+    assert (new_code.get_logical_ops().shape[0] // 2) == (
+        css2.get_logical_ops().shape[0] // 2
+    ) * classical2.dimension
 
 
 def test_unbalanced_product_from_codes() -> None:
@@ -631,4 +650,4 @@ def test_unbalanced_product_from_codes() -> None:
         new_code.num_qubits
         == css.num_qubits * 5 + css.code_z.matrix.shape[0] * classical.matrix.shape[0]
     )
-    assert len(css.get_logical_ops()) == len(new_code.get_logical_ops())
+    assert css.get_logical_ops().shape[0] == new_code.get_logical_ops().shape[0]
