@@ -142,6 +142,11 @@ class AbstractCode(abc.ABC):
         """Parity check matrix of this code."""
         return self._matrix
 
+    def matrix_as_string(self) -> str:
+        """The parity check matrix of this code as a string."""
+        checks = ["[" + ",".join(map(str, line)) + "]" for line in self.matrix]
+        return "[" + ",".join(checks) + "]"
+
     @functools.cached_property
     @abc.abstractmethod
     def canonicalized(self) -> AbstractCode:
@@ -556,11 +561,6 @@ class ClassicalCode(AbstractCode):
         code = ClassicalCode(matrix, field)
         setattr(code, "_name", name)
         return code
-
-    def matrix_as_string(self) -> str:
-        """The parity check matrix of this code in string form."""
-        checks_str = ["[" + ",".join(map(str, line)) + "]" for line in self.matrix]
-        return "[" + ",".join(checks_str) + "]"
 
     def get_automorphism_group(self) -> abstract.Group:
         """Get the automorphism group of this code.
