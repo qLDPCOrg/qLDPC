@@ -75,7 +75,7 @@ def get_distance_bound(
     See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
     """
     qldpc.external.gap.require_package("GUAVA")
-    qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages")
+    qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
 
     cutoff = cutoff or 0
     field = f"GF({code.field.order})"
