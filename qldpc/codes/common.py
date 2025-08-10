@@ -371,13 +371,13 @@ class ClassicalCode(AbstractCode):
     def get_code_params(
         self, *, bound: int | bool | None = None, **bound_kwargs: Any
     ) -> tuple[int, int, int | float]:
-        """Compute the parameters of this code: [n,k,d].
+        f"""Compute the parameters of this code: [n,k,d].
 
         Args:
             bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds (see ClassicalCode.get_distance_bound).
-            **bound_kwargs: Keyword arguments to pass to ClassicalCode.get_distance_bound.
+                randomized upper bounds; see help({type(self)}.get_distance_bound).
+            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
 
         Returns:
             A tuple of integers, (n, k, d), where:
@@ -395,15 +395,15 @@ class ClassicalCode(AbstractCode):
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         **bound_kwargs: Any,
     ) -> int | float:
-        """Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
+        f"""Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
 
         Args:
             bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds (see ClassicalCode.get_distance_bound).
+                randomized upper bounds; see help({type(self)}.get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            **bound_kwargs: Keyword arguments to pass to ClassicalCode.get_distance_bound.
+            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
@@ -1266,13 +1266,13 @@ class QuditCode(AbstractCode):
     def get_code_params(
         self, *, bound: int | bool | None = None, **bound_args: Any
     ) -> tuple[int, int, int | float]:
-        """Compute the parameters of this code: [n,k,d].
+        f"""Compute the parameters of this code: [n,k,d].
 
         Args:
             bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds (see QuditCode.get_distance_bound).
-            **bound_kwargs: Keyword arguments to pass to QuditCode.get_distance_bound.
+                randomized upper bounds; see help({type(self)}.get_distance_bound).
+            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
 
         Returns:
             A tuple of integers, (n, k, d), where:
@@ -1283,21 +1283,21 @@ class QuditCode(AbstractCode):
         distance = self.get_distance(bound=bound, **bound_args)
         return len(self), self.dimension, distance
 
-    def get_distance(self, *, bound: int | bool | None = None, **decoder_args: Any) -> int | float:
-        """Compute (or upper bound) the minimum weight of nontrivial logical operators.
+    def get_distance(self, *, bound: int | bool | None = None, **bound_args: Any) -> int | float:
+        f"""Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
             bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds (see ClassicalCode.get_distance_bound).
-            **decoder_args: Keyword arguments to pass to a decoder.
+                randomized upper bounds; see help({type(self)}.get_distance_bound).
+            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
         if not bound:
             return self.get_distance_exact()
-        return self.get_distance_bound(num_trials=int(bound), **decoder_args)
+        return self.get_distance_bound(num_trials=int(bound), **bound_args)
 
     def get_distance_exact(self) -> int | float:
         """Compute the minimum weight of nontrivial logical operators by brute force."""
@@ -1344,9 +1344,13 @@ class QuditCode(AbstractCode):
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        Minimize over `num_trials` randomized calculations of a single upper bound.
-        If passed a cutoff, exit early once the bound reaches the cutoff.
-        Additional arguments, if applicable, are passed to a decoder.
+        Args:
+            num_trials: Minimize over this many independent upper bounds.
+            cutoff: Exit early once the upper bound falls to or below this cutoff.
+            **decoder_args: Keyword arguments to pass to a decoder.
+
+        Returns:
+            An upper bound on distance if it is defined, or np.nan otherwise.
         """
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
