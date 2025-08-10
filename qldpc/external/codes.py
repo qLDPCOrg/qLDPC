@@ -74,6 +74,9 @@ def get_distance_bound(
     If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
     See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
     """
+    qldpc.external.gap.require_package("GUAVA")
+    qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages")
+
     cutoff = cutoff or 0
     field = f"GF({code.field.order})"
     kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])

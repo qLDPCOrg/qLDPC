@@ -44,7 +44,7 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
     stream = "__stream__"
     prefix = [
         f"{stream} := OutputTextUser();",
-        f"SetPrintFormattingStatus({stream}, false);",
+        f"SetPrintFormattingStatus({stream},false);",
     ]
     suffix = ["QUIT;"]
     commands = [cmd.replace("Print(", f"PrintTo({stream}, ") for cmd in commands]
@@ -58,14 +58,14 @@ def get_output(*commands: str) -> str:
     result = subprocess.run(shell_commands, capture_output=True, text=True)
     if result.stderr:
         raise ValueError(
-            f"Error encountered when running GAP:{result.stderr}\n\n"
+            f"Error encountered when running GAP:\n{result.stderr}\n\n"
             f"GAP command:\n{' '.join(commands)}"
         )
     return result.stdout
 
 
 @functools.cache
-def require_package(name: str) -> None:
+def require_package(name: str, repo_root: str | None = None) -> None:
     """Enforce the installation of a GAP package."""
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
     if availability == "fail":
@@ -75,10 +75,11 @@ def require_package(name: str) -> None:
             .lower()
         )
         if not response or response == "y":
+            repo_root = repo_root or "https://github.com/gap-packages"
             commands = [
                 "git",
                 "clone",
-                f"https://github.com/gap-packages/{name.lower()}",
+                f"{repo_root}/{name.lower()}",
                 os.path.join(GAP_ROOT, "pkg", name.lower()),
             ]
             print(" ".join(commands))
