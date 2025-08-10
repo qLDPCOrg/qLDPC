@@ -65,7 +65,7 @@ def get_output(*commands: str) -> str:
 
 
 @functools.cache
-def require_package(name: str, repo_root: str | None = None) -> None:
+def require_package(name: str, repo_root: str = "https://github.com/gap-packages") -> None:
     """Enforce the installation of a GAP package."""
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
     if availability == "fail":
@@ -75,7 +75,6 @@ def require_package(name: str, repo_root: str | None = None) -> None:
             .lower()
         )
         if not response or response == "y":
-            repo_root = repo_root or "https://github.com/gap-packages"
             commands = [
                 "git",
                 "clone",
