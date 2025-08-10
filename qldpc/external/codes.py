@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 import re
 
+import qldpc
 import qldpc.cache
 import qldpc.external.gap
 
@@ -59,3 +60,26 @@ def get_code(code: str) -> tuple[list[list[int]], int | None]:
         raise ValueError(f"Code has no parity checks: {code}")
 
     return checks, field
+
+
+def get_distance_bound(
+    code: qldpc.codes.QuditCode, num_trials: int = 1, *, cutoff: int | None = None
+) -> int:
+    """Estimate the distance of a quantum code using QDistRnd.
+
+    If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
+    """
+    if isinstance(code, qldpc.codes.CSSCode):
+        commands = [
+            'LoadPackage("QDistRnd");',
+            f"F := GF({code.field.order});",
+            f"matrix_x := One(F)*{code.code_x.matrix_as_string()};",
+            f"matrix_z := One(F)*{code.code_z.matrix_as_string()};",
+            f"Print(DistRandCSS(matrix_x,matrix_z,{num_trials},{cutoff or 0}: field:=F));",
+        ]
+        output = qldpc.external.gap.get_output(*commands)
+        return int(output)
+
+    if code.is_subsystem_code:
+        raise ValueError()
+    # print(qldpc.external.gap.get_output())
