@@ -1353,14 +1353,18 @@ class QuditCode(AbstractCode):
         return self._distance
 
     def get_distance_bound(
-        self, num_trials: int = 1, *, cutoff: int | None = None, **decoder_args: Any
+        self, num_trials: int = 1, *, cutoff: int | None = None, **bound_kwargs: Any
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
+
+        Specifically, use GAP's QDistRnd package to compute a distance bound.  Raise an error
+        otherwise.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            **decoder_args: Keyword arguments to pass to a decoder.
+            **bound_kwargs: Keyword arguments to pass the downstream distance bounding method.
+                See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
@@ -1370,15 +1374,13 @@ class QuditCode(AbstractCode):
         if num_trials == 0:
             return len(self)
 
-        # if requested, estimate distance with GAP (QDistRnd)
-        if decoder_args.get("with_gap") is True:
-            return external.codes.get_distance_bound(self, num_trials, cutoff=cutoff)
+        if not external.gap.is_installed():
+            raise ValueError("GAP not installed")
 
-        if cutoff and len(self) <= cutoff:
-            return len(self)
-        raise NotImplementedError(
-            "Monte Carlo distance bound calculation is not implemented for a general QuditCode"
-        )
+        maxav = bound_kwargs.pop("maxav", "fail")
+        if bound_kwargs:
+            raise ValueError(f"Arguments not recognized for distance bounding: {bound_kwargs}")
+        return external.codes.get_distance_bound(self, num_trials, cutoff=cutoff, maxav=maxav)
 
     def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
         """Apply local Fourier transforms to data qudits, swapping X-type and Z-type operators."""
@@ -2098,19 +2100,82 @@ class CSSCode(QuditCode):
         pauli: PauliXZ | None = None,
         *,
         cutoff: int | None = None,
-        **decoder_args: Any,
+        **bound_kwargs: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        Minimize over `num_trials` randomized calculations of a single upper bound.
-        If `pauli is not None`, consider only `pauli`-type logical operators.
-        If passed a cutoff, exit early once the bound reaches the cutoff.
-        Additional arguments, if applicable, are passed to a decoder.
+        If available (and appropriate, given the bound_kwargs), use GAP's QDistRnd package to
+        compute a distance bound.  Otherwise, use the decoder-based algorithm in
+        CSSCode.get_distance_bound_with_decoder.
 
-        This method uses the randomized algorithm described in arXiv:2308.07915, and also below.
+        Args:
+            num_trials: Minimize over this many independent upper bounds.
+            pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
+                X-type logical operator).  If passed qldpc.objects.Pauli.X, compute the Z-distance.
+                If None (the default), minimize over X and Z.
+            cutoff: Exit early once the upper bound falls to or below this cutoff.
+            **bound_kwargs: Keyword arguments to pass the downstream distance bounding method.
+                If provided arguments that are not recognized by QDistRnd, use a decoder-based
+                distance bounding method, and pass these keyword arguments to a decoder in a call to
+                qldpc.decoders.get_decoder.
+
+        Returns:
+            An upper bound on distance if it is defined, or np.nan otherwise.
+        """
+        if (known_distance := self.get_distance_if_known(pauli)) is not None:
+            return known_distance
+        if num_trials == 0:
+            return len(self)
+
+        if pauli is None:
+            # minimize over X and Z bounds with roughly half the number of trials each
+            num_trials_xz = [num_trials // 2, (num_trials + 1) // 2]
+            random.shuffle(num_trials_xz)
+            return min(
+                [
+                    self.get_distance_bound(
+                        num_trials=num_trials, pauli=pauli, cutoff=cutoff, **bound_kwargs
+                    )
+                    for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
+                ]
+            )
+
+        if not external.gap.is_installed() or any(kwarg != "maxav" for kwarg in bound_kwargs):
+            return self.get_distance_bound_with_decoder(
+                pauli, num_trials, cutoff=cutoff, **bound_kwargs
+            )
+
+        # GAP estimates the Z-distance of CSS codes, so flip X/Z if necessary
+        code = (
+            self
+            if pauli is Pauli.Z
+            else CSSCode(self.matrix_z, self.matrix_x, is_subsystem_code=self.is_subsystem_code)
+        )
+        maxav = bound_kwargs.get("maxav", "fail")
+        return external.codes.get_distance_bound(code, num_trials, cutoff=cutoff, maxav=maxav)
+
+    def get_distance_bound_with_decoder(
+        self,
+        pauli: PauliXZ,
+        num_trials: int = 1,
+        *,
+        cutoff: int | None = None,
+        **decoder_kwargs: Any,
+    ) -> int | float:
+        """Use a randomized algorithm to compute an upper bound on code distance.
+
+        Specifically, use the algorithm described in arXiv:2308.07915, also explaied below.
+
+        Args:
+            pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
+                X-type logical operator).  If passed qldpc.objects.Pauli.X, compute the Z-distance.
+            num_trials: Minimize over this many independent upper bounds.
+            cutoff: Exit early once the upper bound falls to or below this cutoff.
+            **decoder_kwargs: Keyword arguments to pass to a decoder in a call to
+                qldpc.decoders.get_decoder.
 
         For ease of language, we henceforth assume without loss of generality that we computing an
-        X-distance, and tentatively assume `num_trials == 1`.
+        X-distance, and tentatively assume that `num_trials == 1`.
 
         Pick a random Z-type logical operator Z(w_z) whose support is indicated by the bistring w_z.
         We now wish to find a low-weight Pauli-X string X(w_x) that
@@ -2140,43 +2205,14 @@ class CSSCode(QuditCode):
         enforcing that it has trivial stabilizers and that it anti-commutes with a random nonzero
         choice of the logical operators in L_z.
         """
-        if (known_distance := self.get_distance_if_known(pauli)) is not None:
-            return known_distance
-        if num_trials == 0:
-            return len(self)
-
-        if pauli is None:
-            # minimize over X and Z bounds with roughly half the number of trials each
-            num_trials_xz = [num_trials // 2, (num_trials + 1) // 2]
-            random.shuffle(num_trials_xz)
-            return min(
-                [
-                    self.get_distance_bound(
-                        num_trials=num_trials, pauli=pauli, cutoff=cutoff, **decoder_args
-                    )
-                    for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
-                ]
-            )
-
-        # if requested, estimate distance with GAP (QDistRnd)
-        if decoder_args.get("with_gap") is True:
-            # GAP estimates the Z-distance of CSS codes, so flip X/Z if necessary
-            code = (
-                self
-                if pauli is Pauli.Z
-                else CSSCode(self.matrix_z, self.matrix_x, is_subsystem_code=self.is_subsystem_code)
-            )
-            return external.codes.get_distance_bound(code, num_trials, cutoff=cutoff)
-
         # pretend without loss of generality that we are computing the X-distance
-        assert pauli in PAULIS_XZ
         pauli_z: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
         matrix_z = self.get_matrix(pauli_z)
         logical_ops_z = self.get_logical_ops(pauli_z)
 
         # initialize a decoder and a trivial effective syndrome
         effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
-        decoder = decoders.get_decoder(effective_check_matrix, **decoder_args)
+        decoder = decoders.get_decoder(effective_check_matrix, **decoder_kwargs)
         effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
         # minimize over many bounds

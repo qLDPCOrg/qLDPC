@@ -63,19 +63,26 @@ def get_code(code: str) -> tuple[list[list[int]], int | None]:
 
 
 def get_distance_bound(
-    code: qldpc.codes.QuditCode, num_trials: int = 1, *, cutoff: int | None = None
+    code: qldpc.codes.QuditCode,
+    num_trials: int = 1,
+    *,
+    cutoff: int | None = None,
+    maxav: str = "fail",
 ) -> int:
     """Estimate the distance of a quantum code using QDistRnd.
 
     If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
     """
+    cutoff = cutoff or 0
     if isinstance(code, qldpc.codes.CSSCode):
+        field = f"GF({code.field.order})"
+        args = ",".join([f"{field}*matrix_x", f"{field}*matrix_z", f"{num_trials}", f"{cutoff}"])
+        kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])
         commands = [
             'LoadPackage("QDistRnd");',
-            f"F := GF({code.field.order});",
-            f"matrix_x := One(F)*{code.code_x.matrix_as_string()};",
-            f"matrix_z := One(F)*{code.code_z.matrix_as_string()};",
-            f"Print(DistRandCSS(matrix_x,matrix_z,{num_trials},{cutoff or 0}: field:=F));",
+            f"matrix_x := {code.code_x.matrix_as_string()};",
+            f"matrix_z := {code.code_z.matrix_as_string()};",
+            f"Print(DistRandCSS({args}:{kwargs}));",
         ]
         output = qldpc.external.gap.get_output(*commands)
         return int(output)
