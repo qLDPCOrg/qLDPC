@@ -446,7 +446,12 @@ class ClassicalCode(AbstractCode):
     def get_distance_if_known(
         self, vector: Sequence[int] | npt.NDArray[np.int_] | None = None
     ) -> int | float | None:
-        """Retrieve a distance, if known.  Otherwise, return None."""
+        """Retrieve a distance, if known.  Otherwise, return None.
+
+        Args:
+            vector: If None (the default) retrieve the code distance.  Otherwise, retrieve the
+                minimum distance of this vector from a code word.
+        """
         if vector is not None:
             return np.count_nonzero(vector) if self.dimension == 0 else None
 
@@ -1304,7 +1309,11 @@ class QuditCode(AbstractCode):
         return self.get_distance_bound(num_trials=int(bound), **bound_kwargs)
 
     def get_distance_exact(self) -> int | float:
-        """Compute the minimum weight of nontrivial logical operators by brute force."""
+        """Compute the minimum weight of nontrivial logical operators by brute force.
+
+        Returns:
+            An integer distance if it is defined, or np.nan otherwise.
+        """
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
 
@@ -2032,7 +2041,7 @@ class CSSCode(QuditCode):
                 If None (the default), minimize over X and Z.
 
         Returns:
-            An integer distance if it is defined, and np.nan otherwise.
+            An integer distance if it is defined, or np.nan otherwise.
         """
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
