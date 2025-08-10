@@ -1371,11 +1371,13 @@ class QuditCode(AbstractCode):
         """
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
-        if num_trials == 0:
+        if num_trials == 0 or cutoff == len(self):
             return len(self)
 
         if not external.gap.is_installed():
-            raise ValueError("GAP not installed")
+            raise NotImplementedError(
+                "Bounding the code distance of non-CSS codes without GAP is not supported"
+            )
 
         maxav = bound_kwargs.pop("maxav", "fail")
         if bound_kwargs:

@@ -290,10 +290,21 @@ def test_distance_qudit() -> None:
     assert code.get_distance_exact() == 3
 
     code._distance = None
-    with pytest.raises(NotImplementedError, match="not implemented"):
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        pytest.raises(NotImplementedError, match="not supported"),
+    ):
         code.get_distance(bound=True)
-    with unittest.mock.patch("qldpc.codes.QuditCode.get_distance_bound", return_value=3):
-        code.get_distance(bound=True)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        pytest.raises(ValueError, match="Arguments not recognized"),
+    ):
+        code.get_distance(bound=True, test=True)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=3),
+    ):
+        assert code.get_distance(bound=True) == 3
 
     # the distance of dimension-0 codes is undefined
     assert codes.QuditCode([[0, 1]]).get_distance() is np.nan
