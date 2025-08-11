@@ -18,7 +18,7 @@ limitations under the License.
 import numpy as np
 import stim
 
-import qldpc
+from qldpc import circuits
 
 
 def test_dem_arrays() -> None:
@@ -30,7 +30,7 @@ def test_dem_arrays() -> None:
         error(0.002) D0 D1
         error(0.003) D2 L1
     """)
-    dem_arrays = qldpc.circuits.DetectorErrorModelArrays(dem)
+    dem_arrays = circuits.DetectorErrorModelArrays(dem)
     assert dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-10)
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 3
@@ -51,7 +51,7 @@ def test_dem_arrays() -> None:
         error(0.006) D0 D3
         error(0.005) L1
     """)
-    dem_arrays = qldpc.circuits.DetectorErrorModelArrays(dem)
+    dem_arrays = circuits.DetectorErrorModelArrays(dem)
     assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 4
@@ -59,23 +59,24 @@ def test_dem_arrays() -> None:
 
 
 def test_sinter_decoder() -> None:
-    """Default parameter setting for a SinterDecoder."""
-    sinter_decoder = qldpc.circuits.SinterDecoder(with_MWPM=True)
-    assert sinter_decoder.error_probs_arg == "weights"
-
-    sinter_decoder = qldpc.circuits.SinterDecoder(with_BP_OSD=True)
-    assert sinter_decoder.error_probs_arg == "error_channel"
-
+    """Try out a simple decoding problem."""
     dem = stim.DetectorErrorModel("""
         error(0.0001) D0
         error(0.0002) D0 D1
         error(0.0003) D2 L1
     """)
-    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
     circuit_errors = [[1, 0, 0], [1, 1, 0], [1, 0, 1]]
     observable_flips = [[0, 0], [0, 0], [0, 1]]
-
     bit_packed_shots = np.packbits(circuit_errors, bitorder="little", axis=1)
     expected_flips = np.packbits(observable_flips, bitorder="little", axis=1)
-    predicted_observable_flips = compiled_sinter_decoder.decode_shots_bit_packed(bit_packed_shots)
-    assert np.array_equal(predicted_observable_flips, expected_flips)
+
+    # try decoders with and without a decode_batch method
+    for sinter_decoder, probs_arg in [
+        (circuits.SinterDecoder(with_BP_OSD=True), "error_channel"),
+        (circuits.SinterDecoder(with_MWPM=True), "weights"),
+    ]:
+        assert sinter_decoder.error_probs_arg == probs_arg
+
+        compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
+        predicted_flips = compiled_sinter_decoder.decode_shots_bit_packed(bit_packed_shots)
+        assert np.array_equal(predicted_flips, expected_flips)
