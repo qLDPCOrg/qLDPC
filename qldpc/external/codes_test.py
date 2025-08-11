@@ -21,19 +21,11 @@ import unittest.mock
 
 import pytest
 
-from qldpc import external
+from qldpc import codes, external
 
 
 def test_get_code() -> None:
     """Retrieve parity check matrix from GAP 4."""
-
-    # GAP is not installed
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(ValueError, match="GAP 4 is not installed"),
-    ):
-        external.codes.get_code("")
-
     # extract parity check and finite field
     check = [1, 1]
     with (
@@ -49,3 +41,14 @@ def test_get_code() -> None:
         pytest.raises(ValueError, match="Code has no parity checks"),
     ):
         assert external.codes.get_code("")
+
+
+def test_distance_bound() -> None:
+    """Compute a bound on code distance using QDistRnd."""
+    with unittest.mock.patch("qldpc.external.gap.require_package", return_value=None):
+        with pytest.raises(ValueError, match="non-CSS subsystem codes"):
+            external.codes.get_distance_bound(codes.QuditCode(codes.SHYPSCode(2).matrix))
+
+        with unittest.mock.patch("qldpc.external.gap.get_output", return_value="3"):
+            assert external.codes.get_distance_bound(codes.FiveQubitCode()) == 3
+            assert external.codes.get_distance_bound(codes.SteaneCode()) == 3

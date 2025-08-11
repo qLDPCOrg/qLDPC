@@ -25,7 +25,7 @@ import galois
 import numpy as np
 import pytest
 
-from qldpc import codes
+from qldpc import codes, external
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
 
@@ -39,11 +39,13 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     code = codes.ClassicalCode.random(5, 3, field=2, seed=np.random.randint(2**32))
     assert len(code) == code.num_bits == 5
+    assert code.num_checks == 3
     assert "ClassicalCode" in str(code)
     assert code.get_random_word() in code
 
     # reordering the rows of the generator matrix results in a valid generator matrix
     code.set_generator(np.roll(code.generator, shift=1, axis=0))
+    assert codes.ClassicalCode(code).generator is code.generator
 
     code = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**32))
     assert "GF(3)" in str(code)
@@ -129,9 +131,8 @@ def test_distance_classical(bits: int = 3) -> None:
     """Distance of a vector from a classical code."""
     rep_code = codes.RepetitionCode(bits, field=2)
 
-    # "forget" the exact code distance
+    # "forget" the exact code distance, and re-compute (or estimate) it in various ways
     rep_code._distance = None
-
     assert rep_code.get_distance_bound(cutoff=bits) == bits
     assert rep_code.get_distance(bound=True) == bits
     assert rep_code.get_distance() == bits
@@ -142,6 +143,11 @@ def test_distance_classical(bits: int = 3) -> None:
         assert dist_exact == min(weight, bits - weight)
         assert dist_exact <= dist_bound
 
+    # computing an exact distance but providing bounding arguments raises a warning
+    with pytest.warns(UserWarning, match="ignored"):
+        assert rep_code.get_distance(test_arg=True)
+
+    # trivial (null) codes have an undefined distance
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     random_vector = np.random.randint(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
@@ -171,6 +177,7 @@ def test_automorphism() -> None:
     automorphisms = "\n()\n(2,4,3)\n(2,3,4)\n"
 
     # raise an error when GAP is not installed
+    external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
         pytest.raises(ValueError, match="Cannot build GAP group"),
@@ -237,6 +244,7 @@ def test_qudit_code() -> None:
     assert code.dimension == 1
     assert code.get_weight() == 4
     assert code.get_logical_ops(Pauli.X).shape == code.get_logical_ops(Pauli.Z).shape
+    assert codes.QuditCode.equiv(code, codes.QuditCode(code))
 
     # equivlence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
@@ -282,17 +290,31 @@ def test_distance_qudit() -> None:
     assert code.get_code_params() == (5, 1, 3)
     assert code.get_distance(bound=True) == 3
 
-    # "forget" the code distance and recompute
+    # "forget" the code distance and compute estimate
     code._distance = None
     assert code.get_distance_bound(num_trials=0) == 5
     assert code.get_distance_bound(cutoff=5) == 5
-    assert code.get_distance_exact() == 3
+
+    # computing an exact distance but providing bounding arguments raises a warning
+    with pytest.warns(UserWarning, match="ignored"):
+        assert code.get_distance(test_arg=True)
 
     code._distance = None
-    with pytest.raises(NotImplementedError, match="not implemented"):
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        pytest.raises(NotImplementedError, match="not supported"),
+    ):
         code.get_distance(bound=True)
-    with unittest.mock.patch("qldpc.codes.QuditCode.get_distance_bound", return_value=3):
-        code.get_distance(bound=True)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        pytest.raises(ValueError, match="Arguments not recognized"),
+    ):
+        code.get_distance(bound=True, test=True)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=3),
+    ):
+        assert code.get_distance(bound=True) == 3
 
     # the distance of dimension-0 codes is undefined
     assert codes.QuditCode([[0, 1]]).get_distance() is np.nan
@@ -507,15 +529,28 @@ def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     # qutrit code distance
     code = codes.HGPCode(codes.RepetitionCode(2, field=3))
-    assert code.get_distance_bound(cutoff=len(code)) == len(code)
-    assert code.get_distance(bound=True) <= len(code)
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance(bound=False) == 2
+
+    code._distance = code._distance_x = code._distance_z = None
+    assert code.get_distance_bound(cutoff=len(code)) == len(code)
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+        assert code.get_distance(bound=True) <= len(code)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=-1),
+    ):
+        assert code.get_distance(bound=True) == -1
 
     # qubit code distance
     code = codes.HGPCode(codes.RepetitionCode(2, field=2))
     code._is_subsystem_code = True  # test that this does not break anything
     assert code.get_distance_exact() == 2
+    assert code.get_distance_bound_with_decoder(Pauli.X, cutoff=len(code)) <= len(code)
+
+    # computing an exact distance but providing bounding arguments raises a warning
+    with pytest.warns(UserWarning, match="ignored"):
+        assert code.get_distance(test_arg=True)
 
     # an empty quantum code has distance infinity
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])

@@ -22,7 +22,7 @@ If you use macOS you may need to install `cvxpy` manually by following the instr
 
 ### GAP
 
-Some features in `qLDPC` require an installation of the computer algebra system [GAP](https://www.gap-system.org/).  If you (a) use linux or macOS, and (b) use a `conda` to manage your python environment, then you can obtain GAP by running `conda install -c conda-forge gap`.  Installations without `conda` should also work, as long as `gap` is a recognized shell command (i.e., in a terminal).  Unfortunately, I have not figured out how to install [GAP](https://www.gap-system.org/) in a `qLDPC`-compatible way on Windows.  If you figure this out, [please let me know](https://github.com/qLDPCOrg/qLDPC/issues/294)!
+Some features in `qLDPC` require an installation of the computer algebra system [GAP](https://www.gap-system.org/).  If you (a) use linux or macOS, and (b) use a `conda` to manage your python environment, then you can obtain GAP by running `conda install -c conda-forge gap` (or `gap-core`).  Installations without `conda` should also work, as long as `gap` is a recognized shell command (i.e., in a terminal).  Unfortunately, I have not figured out how to install [GAP](https://www.gap-system.org/) in a `qLDPC`-compatible way on Windows.  If you figure this out, [please let me know](https://github.com/qLDPCOrg/qLDPC/issues/294)!
 
 ## 🚀 Features
 
@@ -33,9 +33,8 @@ Notable features include:
 - `QuditCode`: class for constructing [Galois-qudit codes](https://errorcorrectionzoo.org/c/galois_into_galois), including both [stabilizer](https://errorcorrectionzoo.org/c/galois_stabilizer) and [subsystem](https://errorcorrectionzoo.org/c/oecc) codes.
   - `QuditCode.get_logical_ops`: method to construct a complete basis of nontrivial logical Pauli operators for a `QuditCode`.
   - `QuditCode.concatenate`: method to [concatenate](https://errorcorrectionzoo.org/c/quantum_concatenated) `QuditCode`s in various ways.
-  - `QuditCode.get_distance`: method to compute the code distance (i.e., the minimum weight of a nontrivial logical operator) of a `QuditCode`.
+  - `QuditCode.get_distance`: method to compute the exact code distance of a `QuditCode` (i.e., the minimum weight of a nontrivial logical operator).  Includes options to compute an upper bound on code distance using [QDistRnd](https://docs.gap-system.org/pkg/qdistrnd/doc/chap1_mj.html) or (for CSS codes) a decoder-based method introduced in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915).
 - `CSSCode`: subclass of `QuditCode` for the special case of constructing a [quantum CSS code](https://errorcorrectionzoo.org/c/css) out of two mutually compatible `ClassicalCode`s.
-  - `CSSCode.get_distance_bound`: method to estimate an upper bound on code distance using the method of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915).
 - Classes for special quantum code constructions and code families, such as:
   - `TBCode`: [two-block quantum codes](https://errorcorrectionzoo.org/c/two_block_quantum).
   - `BBCode`: [bivariate bicycle codes](https://errorcorrectionzoo.org/c/quantum_quasi_cyclic), as in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) and [arXiv:2311.16980](https://arxiv.org/abs/2311.16980).  See [`examples/bivariate_bicycle_codes.ipynb`](https://github.com/qLDPCOrg/qLDPC/blob/main/examples/bivariate_bicycle_codes.ipynb) for methods to identify...

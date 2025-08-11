@@ -40,20 +40,31 @@ from .classical import HammingCode, RepetitionCode, RingCode, SimplexCode, Tanne
 from .common import ClassicalCode, CSSCode, QuditCode
 
 
-class FiveQubitCode(QuditCode):
+class FiveQuditCode(QuditCode):
+    """Smallest quantum error-correcting code."""
+
+    def __init__(self, field: int | None = None) -> None:
+        code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        matrix = [
+            [1, 0, 0, 1, 0, 0, -1, -1, 0, 0],
+            [0, 1, 0, 0, 1, 0, 0, -1, -1, 0],
+            [1, 0, 1, 0, 0, 0, 0, 0, -1, -1],
+            [0, 1, 0, 1, 0, -1, 0, 0, 0, -1],
+        ]
+        QuditCode.__init__(
+            self,
+            code_field(1) * np.array(matrix, dtype=int),
+            is_subsystem_code=False,
+        )
+        self._dimension = 1
+        self._distance = 3
+
+
+class FiveQubitCode(FiveQuditCode):
     """Smallest quantum error-correcting code."""
 
     def __init__(self) -> None:
-        code = QuditCode.from_strings(
-            "X Z Z X I",
-            "I X Z Z X",
-            "X I X Z Z",
-            "Z X I X Z",
-            field=2,
-        )
-        QuditCode.__init__(self, code, is_subsystem_code=False)
-        self._dimension = 1
-        self._distance = 3
+        super().__init__(field=2)
 
 
 class SteaneCode(CSSCode):

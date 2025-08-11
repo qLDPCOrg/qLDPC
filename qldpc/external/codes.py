@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 import re
 
+import qldpc
 import qldpc.cache
 import qldpc.external.gap
 
@@ -27,9 +28,6 @@ import qldpc.external.gap
 @qldpc.cache.use_disk_cache("codes")
 def get_code(code: str) -> tuple[list[list[int]], int | None]:
     """Retrieve a group from GAP."""
-
-    if not qldpc.external.gap.is_installed():
-        raise ValueError("GAP 4 is not installed")
     qldpc.external.gap.require_package("GUAVA")
 
     # run GAP commands
@@ -59,3 +57,51 @@ def get_code(code: str) -> tuple[list[list[int]], int | None]:
         raise ValueError(f"Code has no parity checks: {code}")
 
     return checks, field
+
+
+def get_distance_bound(
+    code: qldpc.codes.QuditCode,
+    num_trials: int = 1,
+    *,
+    cutoff: int | None = None,
+    maxav: str = "fail",
+) -> int:
+    """Estimate the distance of a quantum code using GAP's QDistRnd package.
+
+    If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
+    See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
+
+    Note that QDistRnd does not support subsystem codes.  In the case of a CSS code, however, we
+    can still compute the Z-distance by promoting all Z-type gauge group generators to stabilizers.
+    """
+    qldpc.external.gap.require_package("GUAVA")
+    qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
+
+    cutoff = cutoff or 0
+    field = f"GF({code.field.order})"
+    kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])
+
+    if isinstance(code, qldpc.codes.CSSCode):
+        code_x = qldpc.codes.ClassicalCode(code.get_stabilizer_ops(qldpc.objects.Pauli.X))
+        code_z = code.code_z
+        args = ",".join([f"{field}*matrix_x", f"{field}*matrix_z", f"{num_trials}", f"{cutoff}"])
+        commands = [
+            'LoadPackage("QDistRnd");',
+            f"matrix_x := {code_x.matrix_as_string()};",
+            f"matrix_z := {code_z.matrix_as_string()};",
+            f"Print(DistRandCSS({args}:{kwargs}));",
+        ]
+
+    elif code.is_subsystem_code:
+        raise ValueError("QDistRnd cannot estimate the distance of non-CSS subsystem codes.")
+
+    else:
+        args = ",".join([f"{field}*matrix", f"{num_trials}", f"{cutoff}"])
+        commands = [
+            'LoadPackage("QDistRnd");',
+            f"matrix := {code.matrix_as_string()};",
+            f"Print(DistRandStab({args}:{kwargs}));",
+        ]
+
+    bound = qldpc.external.gap.get_output(*commands)
+    return int(bound)
