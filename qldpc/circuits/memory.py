@@ -21,6 +21,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
+from .common import restrict_to_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import (
     EdgeColoring,
@@ -30,6 +31,7 @@ from .syndrome_measurement import (
 )
 
 
+@restrict_to_qubits
 def get_memory_experiment(
     code: codes.AbstractCode,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
