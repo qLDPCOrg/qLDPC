@@ -53,11 +53,11 @@ def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder
     if decoder_args.pop("with_BF", False):
         return get_decoder_BF(matrix, **decoder_args)
 
+    if name := decoder_args.pop("with_RBP", None):
+        return get_decoder_RBP(name, matrix, **decoder_args)
+
     if decoder_args.pop("with_MWPM", False):
         return get_decoder_MWPM(matrix, **decoder_args)
-
-    if name := decoder_args.pop("with_relay_BP", None):
-        return get_decoder_relay_BP(name, matrix, **decoder_args)
 
     if decoder_args.pop("with_lookup", False):
         return get_decoder_lookup(matrix, **decoder_args)
@@ -121,18 +121,51 @@ def get_decoder_MWPM(matrix: npt.NDArray[np.int_], **decoder_args: object) -> De
     return pymatching.Matching.from_check_matrix(matrix, **decoder_args)
 
 
-def get_decoder_relay_BP(
-    name: str, matrix: npt.NDArray[np.int_], **decoder_args: object
-) -> Decoder:
+def get_decoder_RBP(name: object, matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
     """Relay-BP decoders."""
     try:
         import relay_bp
     except ImportError:
         raise ImportError("Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'")
+    if not isinstance(name, str) or not hasattr(relay_bp, name):
+        raise ValueError(f"Relay BP decoder name not recognized: {name}")
+
     error_priors = decoder_args.pop(
         "error_priors", np.ones(matrix.shape[1], dtype=np.float64) * PLACEHOLDER_ERROR_RATE
     )
-    return getattr(relay_bp, name)(matrix, error_priors, **decoder_args)
+    decoder = getattr(relay_bp, name)(matrix, error_priors, **decoder_args)
+
+    class RelayBPDecoder(Decoder):
+        """Patch the decoding methods of Relay-BP decoders to cast syndromes to np.uint8."""
+
+        def __init__(self, decoder: Decoder) -> None:
+            self.decoder = decoder
+
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            """Cast the syndrome to a np.uint8 before decoding."""
+            return self.decoder.decode(np.asarray(syndrome, dtype=np.uint8))
+
+        def decode_batch(
+            self, syndromes: npt.NDArray[np.int_]
+        ) -> npt.NDArray[np.int_]:  # pragma: no cover
+            """Cast the syndrome to a np.uint8 before decoding."""
+            return getattr(self.decoder, "decode_batch")(np.asarray(syndromes, dtype=np.uint8))
+
+        def decode_detailed(
+            self, syndrome: npt.NDArray[np.int_]
+        ) -> npt.NDArray[np.int_]:  # pragma: no cover
+            """Cast the syndrome to a np.uint8 before decoding."""
+            return getattr(self.decoder, "decode_detailed")(np.asarray(syndrome, dtype=np.uint8))
+
+        def decode_detailed_batch(
+            self, syndromes: npt.NDArray[np.int_]
+        ) -> npt.NDArray[np.int_]:  # pragma: no cover
+            """Cast the syndrome to a np.uint8 before decoding."""
+            return getattr(self.decoder, "decode_detailed_batch")(
+                np.asarray(syndromes, dtype=np.uint8)
+            )
+
+    return RelayBPDecoder(decoder)
 
 
 def get_decoder_lookup(matrix: npt.NDArray[np.int_], **decoder_args: object) -> LookupDecoder:

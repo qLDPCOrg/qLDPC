@@ -16,6 +16,7 @@ from .decoders import (
     get_decoder_ILP,
     get_decoder_lookup,
     get_decoder_MWPM,
+    get_decoder_RBP,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "get_decoder_ILP",
     "get_decoder_lookup",
     "get_decoder_MWPM",
+    "get_decoder_RBP",
 ]
