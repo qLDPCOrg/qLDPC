@@ -1,25 +1,4 @@
-"""Circuit construction utilities for quantum error correction experiments
-
-This module provides functions for building Stim quantum circuits for quantum
-error correction memory experiments using CSS codes.
-
-Example:
-    Creating a memory experiment circuit:
-
-    from qldpc import circuits, codes
-    from qldpc.objects import Pauli
-
-    # Create a CSS code and noise model
-    code = codes.SteaneCode()
-    noise_model = circuits.DepolarizingNoiseModel(1e-3)
-
-    # Generate a memory experiment circuit for the logical Z operator
-    circuit = circuits.get_memory_experiment(
-        code,
-        num_rounds=3,
-        basis=Pauli.Z,
-        noise_model=noise_model,
-    )
+"""Circuit construction utilities for quantum error-corrected memory experiments
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -27,7 +6,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
