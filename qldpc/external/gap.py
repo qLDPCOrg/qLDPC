@@ -44,7 +44,7 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
     stream = "__stream__"
     prefix = [
         f"{stream} := OutputTextUser();",
-        f"SetPrintFormattingStatus({stream}, false);",
+        f"SetPrintFormattingStatus({stream},false);",
     ]
     suffix = ["QUIT;"]
     commands = [cmd.replace("Print(", f"PrintTo({stream}, ") for cmd in commands]
@@ -58,32 +58,43 @@ def get_output(*commands: str) -> str:
     result = subprocess.run(shell_commands, capture_output=True, text=True)
     if result.stderr:
         raise ValueError(
-            f"Error encountered when running GAP:{result.stderr}\n\n"
+            f"Error encountered when running GAP:\n{result.stderr}\n\n"
             f"GAP command:\n{' '.join(commands)}"
         )
     return result.stdout
 
 
 @functools.cache
-def require_package(name: str) -> None:
-    """Enforce the installation of a GAP package."""
+def require_package(name: str, repo: str | None = None) -> None:
+    """Enforce the installation of a GAP package.
+
+    Args:
+        name: The GAP package name.
+        repo: The repository from which to git clone the package, if necessary.
+            Defaults to f"https://github.com/gap-packages/{name}" if no repository is provided.
+
+    Raises:
+        ValueError: If the package is not installed and an attempt to install it fails.
+    """
+    if not is_installed():
+        raise FileNotFoundError(
+            "GAP 4 is required, but an installation cannot be found\n"
+            "GAP should be accessible from the command line with the 'gap' command"
+        )
+
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
     if availability == "fail":
         response = (
-            input(f"GAP package {name} required but not installed.  Try to install it? (Y/n)")
+            input(f"GAP package {name} is required but not installed.  Try to install it? (Y/n)")
             .strip()
             .lower()
         )
         if not response or response == "y":
-            commands = [
-                "git",
-                "clone",
-                f"https://github.com/gap-packages/{name.lower()}",
-                os.path.join(GAP_ROOT, "pkg", name.lower()),
-            ]
+            repo = repo or f"https://github.com/gap-packages/{name}"
+            commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
             print(" ".join(commands))
             install_result = subprocess.run(commands, capture_output=True, text=True)
             if install_result.stderr:
                 raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
         else:
-            raise ValueError("Cannot proceed without the required package")
+            raise ValueError(f"Cannot proceed without the required package ({name})")

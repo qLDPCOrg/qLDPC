@@ -45,7 +45,6 @@ def get_mock_page(text: str) -> unittest.mock.MagicMock:
 
 def test_get_group_url() -> None:
     """Retrieve url for group webpage on GroupNames.org."""
-
     # cannot connect to general webpage
     with unittest.mock.patch(
         "urllib.request.urlopen", side_effect=urllib.error.URLError("message")
@@ -74,15 +73,14 @@ def test_get_group_url() -> None:
         assert external.groups.get_group_url(ORDER, INDEX) == GROUP_URL
 
 
-def test_get_generators_from_groupnames() -> None:
+def test_maybe_get_generators_from_groupnames() -> None:
     """Retrieve generators from group webpage on GroupNames.org."""
-
     # group not indexed
-    assert external.groups.get_generators_from_groupnames("") is None
+    assert external.groups.maybe_get_generators_from_groupnames("") is None
 
     # group url not found
     with unittest.mock.patch("qldpc.external.groups.get_group_url", return_value=None):
-        assert external.groups.get_generators_from_groupnames(GROUP) is None
+        assert external.groups.maybe_get_generators_from_groupnames(GROUP) is None
 
     # cannot find generators
     mock_page = get_mock_page(MOCK_GROUP_HTML.replace("pre", ""))
@@ -91,7 +89,7 @@ def test_get_generators_from_groupnames() -> None:
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
         pytest.raises(ValueError, match="Generators .* not found"),
     ):
-        external.groups.get_generators_from_groupnames(GROUP)
+        external.groups.maybe_get_generators_from_groupnames(GROUP)
 
     # everything works as expected
     mock_page = get_mock_page(MOCK_GROUP_HTML)
@@ -99,15 +97,13 @@ def test_get_generators_from_groupnames() -> None:
         unittest.mock.patch("qldpc.external.groups.get_group_url", return_value=GROUP_URL),
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
     ):
-        assert external.groups.get_generators_from_groupnames(GROUP) == GENERATORS
+        assert external.groups.maybe_get_generators_from_groupnames(GROUP) == GENERATORS
 
 
-def test_get_generators_with_gap() -> None:
+def test_maybe_get_generators_from_gap() -> None:
     """Retrieve generators from GAP 4."""
-
-    # GAP is not installed
     with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
-        assert external.groups.get_generators_with_gap(GROUP) is None
+        assert external.groups.maybe_get_generators_from_gap(GROUP) is None
 
     # cannot extract cycle from string
     with (
@@ -115,52 +111,63 @@ def test_get_generators_with_gap() -> None:
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2a)\n"),
         pytest.raises(ValueError, match="Cannot extract cycle"),
     ):
-        assert external.groups.get_generators_with_gap(GROUP) is None
+        assert external.groups.maybe_get_generators_from_gap(GROUP) is None
 
     # everything works as expected
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2)\n"),
     ):
-        assert external.groups.get_generators_with_gap(GROUP) == GENERATORS
+        assert external.groups.maybe_get_generators_from_gap(GROUP) == GENERATORS
 
 
 def test_get_generators() -> None:
     """Retrieve generators somehow."""
+    # retrieve known groups
+    for group, generators in external.groups.KNOWN_GROUPS.items():
+        assert external.groups.get_generators(group) == generators
 
     # retrieve from GAP
-    with (
-        unittest.mock.patch(
-            "qldpc.external.groups.get_generators_with_gap", return_value=GENERATORS
-        ),
+    with unittest.mock.patch(
+        "qldpc.external.groups.maybe_get_generators_from_gap", return_value=GENERATORS
     ):
         assert external.groups.get_generators(GROUP) == GENERATORS
 
     # retrieve from GroupNames.org
     with (
-        unittest.mock.patch("qldpc.external.groups.get_generators_with_gap", return_value=None),
         unittest.mock.patch(
-            "qldpc.external.groups.get_generators_from_groupnames", return_value=GENERATORS
+            "qldpc.external.groups.maybe_get_generators_from_gap", return_value=None
+        ),
+        unittest.mock.patch(
+            "qldpc.external.groups.maybe_get_generators_from_groupnames", return_value=GENERATORS
         ),
     ):
         assert external.groups.get_generators(GROUP) == GENERATORS
 
     # fail to retrieve from anywhere :(
     with (
-        unittest.mock.patch("qldpc.external.groups.get_generators_with_gap", return_value=None),
         unittest.mock.patch(
-            "qldpc.external.groups.get_generators_from_groupnames", return_value=None
+            "qldpc.external.groups.maybe_get_generators_from_gap", return_value=None
+        ),
+        unittest.mock.patch(
+            "qldpc.external.groups.maybe_get_generators_from_groupnames", return_value=None
         ),
     ):
-        with pytest.raises(ValueError, match="Cannot build GAP group"):
+        with (
+            unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+            pytest.raises(ValueError, match="Cannot build GAP group"),
+        ):
             external.groups.get_generators(GROUP)
-        with pytest.raises(ValueError, match="Cannot build GAP group"):
+
+        with (
+            unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+            pytest.raises(ValueError, match="Cannot build GAP group"),
+        ):
             external.groups.get_generators("CyclicGroup(2)")
 
 
 def test_get_small_group_number() -> None:
     """Retrieve the number of groups of some order."""
-
     order, number = 16, 14
     text = rf"<td>{order},{number}</td>"
 
@@ -222,12 +229,6 @@ def test_get_small_group_structure() -> None:
 
 def test_idempotents() -> None:
     """Find primitive central idempotents of a group algebra."""
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(ValueError, match="requires a GAP installation"),
-    ):
-        external.groups.get_primitive_central_idempotents("fake_group", 2)
-
     z_2 = galois.GF(2).primitive_element
     z_2_2 = galois.GF(4).primitive_element
     field = galois.GF(4)
@@ -243,12 +244,3 @@ def test_idempotents() -> None:
     ):
         idempotents = external.groups.get_primitive_central_idempotents("fake_group", field.order)
         assert idempotents == expected_idempotents
-
-
-def test_known_groups() -> None:
-    """Retrieve known groups."""
-    for group, generators in external.groups.KNOWN_GROUPS.items():
-        assert external.groups.get_generators(group) == generators
-
-        gap_generators = external.groups.get_generators_with_gap(group)
-        assert gap_generators is None or gap_generators == generators

@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 import re
 
+import qldpc
 import qldpc.cache
 import qldpc.external.gap
 
@@ -27,9 +28,6 @@ import qldpc.external.gap
 @qldpc.cache.use_disk_cache("codes")
 def get_code(code: str) -> tuple[list[list[int]], int | None]:
     """Retrieve a group from GAP."""
-
-    if not qldpc.external.gap.is_installed():
-        raise ValueError("GAP 4 is not installed")
     qldpc.external.gap.require_package("GUAVA")
 
     # run GAP commands
