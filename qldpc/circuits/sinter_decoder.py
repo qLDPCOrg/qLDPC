@@ -85,24 +85,19 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
+        syndromes = np.unpackbits(
+            bit_packed_detection_event_data,
+            count=self.dem_arrays.num_detectors,
+            bitorder="little",
+            axis=1,
+        )
         if hasattr(self.decoder, "decode_batch"):
-            syndromes = np.unpackbits(
-                bit_packed_detection_event_data,
-                count=self.dem_arrays.num_detectors,
-                bitorder="little",
-                axis=1,
-            )
             predicted_errors_T = self.decoder.decode_batch(syndromes)
             observable_flips = predicted_errors_T @ self.dem_arrays.observable_flip_matrix.T % 2
         else:
             observable_flips = []
-            for bit_packed_syndrome in bit_packed_detection_event_data:
-                syndrome = np.unpackbits(
-                    bit_packed_syndrome,
-                    count=self.dem_arrays.num_detectors,
-                    bitorder="little",
-                )
-                predicted_errors = self.decoder.decode(syndrome.astype(int))
+            for syndrome in syndromes:
+                predicted_errors = self.decoder.decode(syndrome)
                 observable_flips.append(
                     self.dem_arrays.observable_flip_matrix @ predicted_errors % 2
                 )
