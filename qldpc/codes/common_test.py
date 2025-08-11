@@ -129,9 +129,8 @@ def test_distance_classical(bits: int = 3) -> None:
     """Distance of a vector from a classical code."""
     rep_code = codes.RepetitionCode(bits, field=2)
 
-    # "forget" the exact code distance
+    # "forget" the exact code distance, and re-compute (or estimate) it in various ways
     rep_code._distance = None
-
     assert rep_code.get_distance_bound(cutoff=bits) == bits
     assert rep_code.get_distance(bound=True) == bits
     assert rep_code.get_distance() == bits
@@ -142,6 +141,11 @@ def test_distance_classical(bits: int = 3) -> None:
         assert dist_exact == min(weight, bits - weight)
         assert dist_exact <= dist_bound
 
+    # computing an exact distance but providing bounding arguments raises a warning
+    with pytest.warns(UserWarning, match="ignored"):
+        assert rep_code.get_distance(test_arg=True)
+
+    # trivial (null) codes have an undefined distance
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     random_vector = np.random.randint(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
@@ -283,11 +287,14 @@ def test_distance_qudit() -> None:
     assert code.get_code_params() == (5, 1, 3)
     assert code.get_distance(bound=True) == 3
 
-    # "forget" the code distance and recompute
+    # "forget" the code distance and compute estimate
     code._distance = None
     assert code.get_distance_bound(num_trials=0) == 5
     assert code.get_distance_bound(cutoff=5) == 5
-    assert code.get_distance_exact() == 3
+
+    # computing an exact distance but providing bounding arguments raises a warning
+    with pytest.warns(UserWarning, match="ignored"):
+        assert code.get_distance(test_arg=True)
 
     code._distance = None
     with (
@@ -536,6 +543,10 @@ def test_distance_css() -> None:
     code = codes.HGPCode(codes.RepetitionCode(2, field=2))
     code._is_subsystem_code = True  # test that this does not break anything
     assert code.get_distance_exact() == 2
+
+    # computing an exact distance but providing bounding arguments raises a warning
+    with pytest.warns(UserWarning, match="ignored"):
+        assert code.get_distance(test_arg=True)
 
     # an empty quantum code has distance infinity
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
