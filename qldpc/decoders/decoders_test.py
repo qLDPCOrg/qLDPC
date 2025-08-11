@@ -66,14 +66,16 @@ def test_decoding() -> None:
     ]:
         assert np.array_equal([error], decoder.decode_batch(syndrome_batch))
 
-    # cover some peculiarities of the Relay-BP decoder
-    decoder = decoders.get_decoder_RBP("RelayDecoderF32", matrix)
-    assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
-    assert np.array_equal(error, decoder.decode_detailed_batch(syndrome_batch)[0].decoding)
+
+def test_decoder_errors() -> None:
+    """Fail to initialize decoders."""
+    # fail to initialize a relay-bp decoder because relay-bp is not installed
     with (
         unittest.mock.patch.dict("sys.modules", {"relay_bp": None}),
         pytest.raises(ImportError, match="Failed to import relay-bp"),
     ):
-        decoders.get_decoder(matrix, with_RBP="RelayDecoderF64")
+        decoders.get_decoder(np.array([]), with_RBP="RelayDecoderF64")
+
+    # fail to initialize a relay-bp decoder from an unrecognized name
     with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder(matrix, with_RBP="invalid_name")
+        decoders.get_decoder(np.array([]), with_RBP="invalid_name")

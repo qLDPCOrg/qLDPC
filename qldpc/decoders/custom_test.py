@@ -31,20 +31,29 @@ from qldpc.math import symplectic_conjugate
 
 
 @functools.cache
-def get_toy_problem() -> tuple[
-    npt.NDArray[np.int_], npt.NDArray[np.int_], npt.NDArray[np.int_], decoders.Decoder
-]:
+def get_toy_problem() -> tuple[npt.NDArray[np.int_], npt.NDArray[np.int_], npt.NDArray[np.int_]]:
     """Get a toy decoding problem."""
     matrix = np.eye(3, 2, dtype=int)
     error = np.array([1, 1], dtype=int)
-    syndrome = np.array([1, 1, 0], dtype=int)
-    decoder = decoders.get_decoder(matrix)
-    return matrix, error, syndrome, decoder
+    syndrome = matrix @ error
+    return matrix, error, syndrome
+
+
+def test_relay_bp() -> None:
+    """The Relay-BP decoder needs a custom wrapper class."""
+    matrix, error, syndrome = get_toy_problem()
+    syndrome_batch = np.array([syndrome])
+
+    decoder = decoders.get_decoder_RBP("RelayDecoderF32", matrix)
+    assert np.array_equal(error, decoder.decode(syndrome))
+    assert np.array_equal(error, decoder.decode_batch(syndrome_batch)[0])
+    assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
+    assert np.array_equal(error, decoder.decode_detailed_batch(syndrome_batch)[0].decoding)
 
 
 def test_lookup() -> None:
     """Decode with a lookup table."""
-    matrix, error, syndrome, decoder = get_toy_problem()
+    matrix, error, syndrome = get_toy_problem()
 
     # the distance of the given code is undefined, so lookup decoding to half the distance fails
     with pytest.warns(UserWarning, match="without specifying a maximum error weight"):
@@ -73,7 +82,9 @@ def test_generalized_union_find() -> None:
 
 def test_block_decoder() -> None:
     """Decode independent code blocks."""
-    matrix, error, syndrome, decoder = get_toy_problem()
+    matrix, error, syndrome = get_toy_problem()
+    decoder = decoders.get_decoder(matrix)
+
     block_error = np.concatenate([error, error])
     block_syndrome = np.concatenate([syndrome, syndrome])
     block_decoder = decoders.BlockDecoder(syndrome.size, decoder)
@@ -82,7 +93,7 @@ def test_block_decoder() -> None:
 
 def test_direct_ilp_decoding() -> None:
     """Decode directly from a corrupted code word using integer linear programming."""
-    matrix, error, syndrome, _ = get_toy_problem()
+    matrix, error, syndrome = get_toy_problem()
 
     code_word = np.zeros_like(error)
     corrupted_code_word = (code_word + error) % 2
