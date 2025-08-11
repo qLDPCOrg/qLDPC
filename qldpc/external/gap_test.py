@@ -59,19 +59,26 @@ def test_get_output() -> None:
 
 def test_require_package() -> None:
     """Install missing GAP packages."""
-    # user declines to install missing package
     with (
-        unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
-        unittest.mock.patch("builtins.input", return_value="n"),
-        pytest.raises(ValueError, match="Cannot proceed without the required package"),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        pytest.raises(FileNotFoundError, match="GAP 4 .* installation cannot be found"),
     ):
         external.gap.require_package("")
 
-    # fail to install missing package
-    with (
-        unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
-        unittest.mock.patch("builtins.input", return_value="y"),
-        unittest.mock.patch("subprocess.run", return_value=get_mock_process("", "error")),
-        pytest.raises(ValueError, match="Failed to install"),
-    ):
-        external.gap.require_package("")
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True):
+        # user declines to install missing package
+        with (
+            unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
+            unittest.mock.patch("builtins.input", return_value="n"),
+            pytest.raises(ValueError, match="Cannot proceed without the required package"),
+        ):
+            external.gap.require_package("")
+
+        # fail to install missing package
+        with (
+            unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
+            unittest.mock.patch("builtins.input", return_value="y"),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process("", "error")),
+            pytest.raises(ValueError, match="Failed to install"),
+        ):
+            external.gap.require_package("")

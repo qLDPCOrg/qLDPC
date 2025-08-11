@@ -450,8 +450,9 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     code._distance_x = code._distance_z = None  # "forget" the code distances
     assert code.dimension == 1
     assert code.num_qudits == rows * cols + (rows - 1) * (cols - 1)
-    assert code.get_distance(Pauli.X, bound=True) >= cols
-    assert code.get_distance(Pauli.Z, bound=True) >= rows
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+        assert cols <= code.get_distance(Pauli.X, bound=True) <= len(code)
+        assert rows <= code.get_distance(Pauli.Z, bound=True) <= len(code)
 
     # un-rotated SurfaceCode = HGPCode
     rep_codes = (codes.RepetitionCode(rows), codes.RepetitionCode(cols))
