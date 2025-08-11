@@ -62,6 +62,18 @@ def symplectic_conjugate(vectors: IntegerArray) -> IntegerArray:
     return conjugated_vectors.reshape(vectors.shape).view(type(vectors))
 
 
+def symplectic_weight(vectors: npt.NDArray[np.int_]) -> int:
+    """The symplectic weight of vectors.
+
+    The symplectic weight of a Pauli string is the number of qudits that it addresses nontrivially.
+    """
+    assert vectors.shape[-1] % 2 == 0
+    vectors_xz = vectors.reshape(-1, 2, vectors.shape[-1] // 2)
+    vectors_x = np.asarray(vectors_xz[:, 0, :], dtype=int)
+    vectors_z = np.asarray(vectors_xz[:, 1, :], dtype=int)
+    return np.count_nonzero(vectors_x | vectors_z, axis=-1).reshape(vectors.shape[:-1])
+
+
 def first_nonzero_cols(matrix: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
     """Get the first nonzero column for every row in a matrix."""
     if matrix.size == 0:

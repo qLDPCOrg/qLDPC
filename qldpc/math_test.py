@@ -36,6 +36,7 @@ def test_vectors() -> None:
     """Methods that act on vectors."""
     vectors = np.array([[0, 1], [1, 2]], dtype=int)
     vectors_conj = np.array([[-1, 0], [-2, 1]], dtype=int)
+    assert np.array_equal(qldpc.math.symplectic_weight(vectors), [1, 1])
     assert np.array_equal(qldpc.math.symplectic_conjugate(vectors), vectors_conj)
 
     assert np.array_equal(qldpc.math.first_nonzero_cols(np.empty(0, dtype=int)), [])

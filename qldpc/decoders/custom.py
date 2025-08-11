@@ -1,4 +1,4 @@
-"""Decoding a syndrome with a parity check matrix
+"""Custom decoders
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -23,16 +23,12 @@ from typing import Callable, Protocol
 
 import cvxpy
 import galois
-import ldpc
 import numpy as np
 import numpy.typing as npt
-import pymatching
 
 from qldpc import codes
-from qldpc.math import symplectic_conjugate
+from qldpc.math import symplectic_conjugate, symplectic_weight
 from qldpc.objects import Node
-
-PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
 
 class Decoder(Protocol):
@@ -40,101 +36,6 @@ class Decoder(Protocol):
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-
-
-def decode(
-    matrix: npt.NDArray[np.int_], syndrome: npt.NDArray[np.int_], **decoder_args: object
-) -> npt.NDArray[np.int_]:
-    """Find a `vector` that solves `matrix @ vector == syndrome mod 2`."""
-    decoder = get_decoder(matrix, **decoder_args)
-    return decoder.decode(syndrome)
-
-
-def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Retrieve a decoder."""
-    if constructor := decoder_args.pop("decoder_constructor", None):
-        assert callable(constructor)
-        return constructor(matrix, **decoder_args)
-
-    if decoder := decoder_args.pop("static_decoder", None):
-        assert hasattr(decoder, "decode") and callable(getattr(decoder, "decode"))
-        assert not decoder_args, "if passed a static decoder, we cannot process decoding arguments"
-        return decoder
-
-    if decoder_args.pop("with_lookup", False):
-        return get_decoder_lookup(matrix, **decoder_args)
-
-    if decoder_args.pop("with_GUF", False):
-        return get_decoder_GUF(matrix, **decoder_args)
-
-    if decoder_args.pop("with_ILP", False):
-        return get_decoder_ILP(matrix, **decoder_args)
-
-    if decoder_args.pop("with_MWPM", False):
-        return get_decoder_MWPM(matrix, **decoder_args)
-
-    if decoder_args.pop("with_BF", False):
-        return get_decoder_BF(matrix, **decoder_args)
-
-    if decoder_args.pop("with_BP_LSD", False):
-        return get_decoder_BP_LSD(matrix, **decoder_args)
-
-    # use a different default decoder for non-binary fields
-    if isinstance(matrix, galois.FieldArray) and type(matrix).order != 2:
-        decoder_args.pop("with_GUF", None)
-        return get_decoder_GUF(matrix, **decoder_args)
-
-    decoder_args.pop("with_BP_OSD", None)
-    return get_decoder_BP_OSD(matrix, **decoder_args)
-
-
-def get_decoder_BP_OSD(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Decoder based on belief propagation with ordered statistics (BP+OSD).
-
-    For details about the BD-OSD decoder and its arguments, see:
-    - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
-    - Reference: https://arxiv.org/abs/2005.07016
-    """
-    if "error_channel" not in decoder_args and "error_rate" not in decoder_args:
-        decoder_args["error_rate"] = PLACEHOLDER_ERROR_RATE
-    return ldpc.BpOsdDecoder(matrix, **decoder_args)
-
-
-def get_decoder_BP_LSD(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Decoder based on belief propagation with localized statistics (BP+LSD).
-
-    For details about the BD-LSD decoder and its arguments, see:
-    - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
-    - Reference: https://arxiv.org/abs/2406.18655
-    """
-    if "error_channel" not in decoder_args and "error_rate" not in decoder_args:
-        decoder_args["error_rate"] = PLACEHOLDER_ERROR_RATE
-    return ldpc.bplsd_decoder.BpLsdDecoder(matrix, **decoder_args)
-
-
-def get_decoder_BF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Decoder based on belief finding (BF).
-
-    For details about the BF decoder and its arguments, see:
-    - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
-    - References:
-      - https://arxiv.org/abs/1709.06218
-      - https://arxiv.org/abs/2103.08049
-      - https://arxiv.org/abs/2209.01180
-    """
-    if "error_channel" not in decoder_args and "error_rate" not in decoder_args:
-        decoder_args["error_rate"] = PLACEHOLDER_ERROR_RATE
-    return ldpc.BeliefFindDecoder(matrix, **decoder_args)
-
-
-def get_decoder_MWPM(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Decoder based on minimum weight perfect matching (MWPM)."""
-    return pymatching.Matching.from_check_matrix(matrix, **decoder_args)
-
-
-def get_decoder_lookup(matrix: npt.NDArray[np.int_], **decoder_args: object) -> LookupDecoder:
-    """Decoder based on a lookup table from errors to syndromes."""
-    return LookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
 
 
 class LookupDecoder(Decoder):
@@ -205,22 +106,6 @@ class LookupDecoder(Decoder):
         return self.table.get(tuple(syndrome.view(np.ndarray)), self.null_correction.copy())
 
 
-def get_symplectic_weight(vector: npt.NDArray[np.int_]) -> int:
-    """Get the symplectic weight of a vector.
-
-    The symplectic weight of a Pauli string is the number of qudits that it addresses nontrivially.
-    """
-    vector = vector.reshape(2, -1)
-    vector_x = np.asarray(vector[0], dtype=int)
-    vector_z = np.asarray(vector[1], dtype=int)
-    return np.count_nonzero(vector_x | vector_z)
-
-
-def get_decoder_GUF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> GUFDecoder:
-    """Decoder based on a generalization of Union-Find, described in arXiv:2103.08049."""
-    return GUFDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
-
-
 class GUFDecoder(Decoder):
     """The generalized Union-Find (GUF) decoder in https://arxiv.org/abs/2103.08049.
 
@@ -258,7 +143,7 @@ class GUFDecoder(Decoder):
 
         else:
             # decoding a quantum code: the "weight" of an error vector is its symplectic weight
-            self.get_weight = get_symplectic_weight
+            self.get_weight = symplectic_weight
             self.code = codes.QuditCode(symplectic_conjugate(matrix))
 
         self.graph = self.code.graph.to_undirected()
@@ -359,15 +244,7 @@ class GUFDecoder(Decoder):
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
 
 
-def get_decoder_ILP(matrix: npt.NDArray[np.int_], **decoder_args: object) -> ILPDecoder:
-    """Decoder based on solving an integer linear program (ILP).
-
-    All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
-    """
-    return ILPDecoder(matrix, **decoder_args)
-
-
-class ILPDecoder(Decoder):
+class ILPDecoder(Decoder):  # noqa: F821
     """Decoder based on solving an integer linear program (ILP).
 
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
