@@ -76,10 +76,16 @@ def require_package(name: str, repo: str | None = None) -> None:
     Raises:
         ValueError: If the package is not installed and an attempt to install it fails.
     """
+    if not is_installed():
+        raise FileNotFoundError(
+            "GAP 4 is required, but an installation cannot be found\n"
+            "GAP should be accessible from the command line with the 'gap' command"
+        )
+
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
     if availability == "fail":
         response = (
-            input(f"GAP package {name} required but not installed.  Try to install it? (Y/n)")
+            input(f"GAP package {name} is required but not installed.  Try to install it? (Y/n)")
             .strip()
             .lower()
         )
@@ -91,4 +97,4 @@ def require_package(name: str, repo: str | None = None) -> None:
             if install_result.stderr:
                 raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
         else:
-            raise ValueError("Cannot proceed without the required package")
+            raise ValueError(f"Cannot proceed without the required package ({name})")

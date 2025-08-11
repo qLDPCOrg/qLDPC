@@ -33,16 +33,16 @@ GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 @qldpc.cache.use_disk_cache("group_generators")
 def get_generators(group: str) -> GENERATORS_LIST:
     """Retrieve GAP group generators."""
-
+    # try retrieving a known group
     if generators := KNOWN_GROUPS.get(group):
         return generators
 
-    generators = get_generators_with_gap(group)
-    if generators is not None:
+    # try retrieving a group from GAP
+    if generators := maybe_get_generators_from_gap(group):
         return generators
 
-    generators = get_generators_from_groupnames(group)
-    if generators is not None:
+    # try retrieving a group from GroupNames
+    if generators := maybe_get_generators_from_groupnames(group):
         return generators
 
     message = [
@@ -61,6 +61,7 @@ def get_generators(group: str) -> GENERATORS_LIST:
 def get_small_group_number(order: int) -> int:
     """Get the number of 'SmallGroup's of a given order."""
     if qldpc.external.gap.is_installed():
+        qldpc.external.gap.require_package("SmallGrp")
         command = f"Print(NumberSmallGroups({order}));"
         return int(qldpc.external.gap.get_output(command))
 
@@ -98,12 +99,14 @@ def get_small_group_structure(order: int, index: int) -> str:
     return name
 
 
-def get_generators_with_gap(group: str) -> GENERATORS_LIST | None:
+def maybe_get_generators_from_gap(group: str) -> GENERATORS_LIST | None:
     """Retrieve GAP group generators from GAP directly."""
-
-    if not qldpc.external.gap.is_installed():
+    try:
+        qldpc.external.gap.require_package("GUAVA")
+    except FileNotFoundError as error:
+        if not re.search("GAP 4 .* installation cannot be found", str(error)):
+            raise error  # pragma: no cover
         return None
-    qldpc.external.gap.require_package("GUAVA")
 
     # run GAP commands
     commands = [
@@ -136,9 +139,8 @@ def get_generators_with_gap(group: str) -> GENERATORS_LIST | None:
     return generators
 
 
-def get_generators_from_groupnames(group: str) -> GENERATORS_LIST | None:
+def maybe_get_generators_from_groupnames(group: str) -> GENERATORS_LIST | None:
     """Retrieve GAP group generators from GroupNames.org."""
-
     # extract order and index of a SmallGroup
     match = re.match(r"SmallGroup\(([0-9]+),([0-9]+)\)", group)
     if match:
@@ -183,7 +185,6 @@ def get_generators_from_groupnames(group: str) -> GENERATORS_LIST | None:
 
 def get_group_url(order: int, index: int) -> str | None:
     """Retrieve the webpage of an indexed GAP group on GroupNames.org."""
-
     # get the HTML for the page with all groups
     page_html = maybe_get_webpage(order)
     if page_html is None:
@@ -241,8 +242,6 @@ def get_primitive_central_idempotents(
     element of galois.GF(field) cast to an integer, and the permutation is expressed in cyclic form,
     namely as a tuple of tuples of integers.
     """
-    if not qldpc.external.gap.is_installed():
-        raise ValueError("Computing primitive central idempotents requires a GAP installation")
     qldpc.external.gap.require_package("Wedderga")
 
     idempotents_str = qldpc.external.gap.get_output(

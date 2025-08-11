@@ -26,14 +26,6 @@ from qldpc import external
 
 def test_get_code() -> None:
     """Retrieve parity check matrix from GAP 4."""
-
-    # GAP is not installed
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(ValueError, match="GAP 4 is not installed"),
-    ):
-        external.codes.get_code("")
-
     # extract parity check and finite field
     check = [1, 1]
     with (
