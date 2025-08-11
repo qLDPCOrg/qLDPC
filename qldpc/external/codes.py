@@ -82,12 +82,13 @@ def get_distance_bound(
     kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])
 
     if isinstance(code, qldpc.codes.CSSCode):
-        # TODO: deal with subsystem codes
+        code_x = code.code_x
+        code_z = qldpc.codes.ClassicalCode(code.get_stabilizer_ops(qldpc.objects.Pauli.Z))
         args = ",".join([f"{field}*matrix_x", f"{field}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd");',
-            f"matrix_x := {code.code_x.matrix_as_string()};",
-            f"matrix_z := {code.code_z.matrix_as_string()};",
+            f"matrix_x := {code_x.matrix_as_string()};",
+            f"matrix_z := {code_z.matrix_as_string()};",
             f"Print(DistRandCSS({args}:{kwargs}));",
         ]
 
@@ -102,5 +103,5 @@ def get_distance_bound(
             f"Print(DistRandStab({args}:{kwargs}));",
         ]
 
-    output = qldpc.external.gap.get_output(*commands)
-    return int(output)
+    bound = qldpc.external.gap.get_output(*commands)
+    return int(bound)
