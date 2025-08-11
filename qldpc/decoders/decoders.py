@@ -47,29 +47,29 @@ def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder
         assert not decoder_args, "if passed a static decoder, we cannot process decoding arguments"
         return decoder
 
-    if decoder_args.pop("with_lookup", False):
-        return get_decoder_lookup(matrix, **decoder_args)
-
-    if decoder_args.pop("with_GUF", False):
-        return get_decoder_GUF(matrix, **decoder_args)
-
-    if decoder_args.pop("with_ILP", False):
-        return get_decoder_ILP(matrix, **decoder_args)
-
-    if decoder_args.pop("with_MWPM", False):
-        return get_decoder_MWPM(matrix, **decoder_args)
+    if decoder_args.pop("with_BP_LSD", False):
+        return get_decoder_BP_LSD(matrix, **decoder_args)
 
     if decoder_args.pop("with_BF", False):
         return get_decoder_BF(matrix, **decoder_args)
 
-    if decoder_args.pop("with_BP_LSD", False):
-        return get_decoder_BP_LSD(matrix, **decoder_args)
+    if decoder_args.pop("with_MWPM", False):
+        return get_decoder_MWPM(matrix, **decoder_args)
 
-    # use a different default decoder for non-binary fields
-    if isinstance(matrix, galois.FieldArray) and type(matrix).order != 2:
-        decoder_args.pop("with_GUF", None)
+    if decoder_args.pop("with_lookup", False):
+        return get_decoder_lookup(matrix, **decoder_args)
+
+    if decoder_args.pop("with_ILP", False):
+        return get_decoder_ILP(matrix, **decoder_args)
+
+    # use GUF if requested, or by default for non-binary fields
+    with_GUF = decoder_args.pop("with_GUF", False) or (
+        isinstance(matrix, galois.FieldArray) and type(matrix).order != 2
+    )
+    if with_GUF:
         return get_decoder_GUF(matrix, **decoder_args)
 
+    # use BP+OSD by default
     decoder_args.pop("with_BP_OSD", None)
     return get_decoder_BP_OSD(matrix, **decoder_args)
 
@@ -123,14 +123,14 @@ def get_decoder_lookup(matrix: npt.NDArray[np.int_], **decoder_args: object) -> 
     return LookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
 
 
-def get_decoder_GUF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> GUFDecoder:
-    """Decoder based on a generalization of Union-Find, described in arXiv:2103.08049."""
-    return GUFDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
-
-
 def get_decoder_ILP(matrix: npt.NDArray[np.int_], **decoder_args: object) -> ILPDecoder:
     """Decoder based on solving an integer linear program (ILP).
 
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
     """
     return ILPDecoder(matrix, **decoder_args)
+
+
+def get_decoder_GUF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> GUFDecoder:
+    """Decoder based on a generalization of Union-Find, described in arXiv:2103.08049."""
+    return GUFDecoder(matrix, **decoder_args)  # type:ignore[arg-type]

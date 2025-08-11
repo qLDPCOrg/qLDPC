@@ -106,6 +106,86 @@ class LookupDecoder(Decoder):
         return self.table.get(tuple(syndrome.view(np.ndarray)), self.null_correction.copy())
 
 
+class ILPDecoder(Decoder):  # noqa: F821
+    """Decoder based on solving an integer linear program (ILP).
+
+    All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
+    """
+
+    def __init__(self, matrix: npt.NDArray[np.int_], **decoder_args: object) -> None:
+        self.modulus = type(matrix).order if isinstance(matrix, galois.FieldArray) else 2
+        if not galois.is_prime(self.modulus):
+            raise ValueError("ILP decoding only supports prime number fields")
+
+        self.matrix = np.asarray(matrix, dtype=int) % self.modulus
+        num_checks, num_variables = self.matrix.shape
+
+        # variables, their constraints, and the objective (minimizing number of nonzero variables)
+        self.variable_constraints = []
+        if self.modulus == 2:
+            self.variables = cvxpy.Variable(num_variables, boolean=True)
+            self.objective = cvxpy.Minimize(cvxpy.norm(self.variables, 1))
+        else:
+            self.variables = cvxpy.Variable(num_variables, integer=True)
+            nonzero_variable_flags = cvxpy.Variable(num_variables, boolean=True)
+            self.variable_constraints += [var >= 0 for var in iter(self.variables)]
+            self.variable_constraints += [var <= self.modulus - 1 for var in iter(self.variables)]
+            self.variable_constraints += [self.modulus * nonzero_variable_flags >= self.variables]
+            self.objective = cvxpy.Minimize(cvxpy.norm(nonzero_variable_flags, 1))
+
+        self.decoder_args = decoder_args
+
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+        # identify all constraints
+        constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
+
+        # solve the optimization problem!
+        problem = cvxpy.Problem(self.objective, constraints)
+        result = problem.solve(**self.decoder_args)
+
+        # raise error if the optimization failed
+        if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
+            message = "Optimal solution to integer linear program could not be found!"
+            raise ValueError(message + f"\nSolver output: {result}")
+
+        # return solution to the problem variables
+        return self.variables.value.astype(int)
+
+    def cvxpy_constraints_for_syndrome(
+        self, syndrome: npt.NDArray[np.int_]
+    ) -> list[cvxpy.Constraint]:
+        """Build cvxpy constraints of the form `matrix @ variables == syndrome (mod q)`.
+
+        This method uses boolean slack variables {s_j} to relax each constraint of the form
+        `expression = val mod q`
+        to
+        `expression = val + sum_j q^j s_j`.
+        """
+        syndrome = np.asarray(syndrome, dtype=int) % self.modulus
+
+        constraints = []
+        for idx, (check, syndrome_bit) in enumerate(zip(self.matrix, syndrome)):
+            # identify the largest power of q needed for the relaxation
+            max_zero = int(sum(check) * (self.modulus - 1) - syndrome_bit)
+            if max_zero == 0 or self.modulus == 2:
+                max_power_of_q = max_zero.bit_length() - 1
+            else:
+                max_power_of_q = int(np.log2(max_zero) / np.log2(self.modulus))
+
+            if max_power_of_q > 0:
+                powers_of_q = [self.modulus**jj for jj in range(1, max_power_of_q + 1)]
+                slack_variables = cvxpy.Variable(max_power_of_q, boolean=True)
+                zero_mod_q = powers_of_q @ slack_variables
+            else:
+                zero_mod_q = 0
+
+            constraint = check @ self.variables == syndrome_bit + zero_mod_q
+            constraints.append(constraint)
+
+        return constraints
+
+
 class GUFDecoder(Decoder):
     """The generalized Union-Find (GUF) decoder in https://arxiv.org/abs/2103.08049.
 
@@ -242,86 +322,6 @@ class GUFDecoder(Decoder):
         # the order of checks, bits is technically arbitrary, but according to unofficial empirical
         # tests, reverse-sorted order works better for concatenated codes
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
-
-
-class ILPDecoder(Decoder):  # noqa: F821
-    """Decoder based on solving an integer linear program (ILP).
-
-    All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
-    """
-
-    def __init__(self, matrix: npt.NDArray[np.int_], **decoder_args: object) -> None:
-        self.modulus = type(matrix).order if isinstance(matrix, galois.FieldArray) else 2
-        if not galois.is_prime(self.modulus):
-            raise ValueError("ILP decoding only supports prime number fields")
-
-        self.matrix = np.asarray(matrix, dtype=int) % self.modulus
-        num_checks, num_variables = self.matrix.shape
-
-        # variables, their constraints, and the objective (minimizing number of nonzero variables)
-        self.variable_constraints = []
-        if self.modulus == 2:
-            self.variables = cvxpy.Variable(num_variables, boolean=True)
-            self.objective = cvxpy.Minimize(cvxpy.norm(self.variables, 1))
-        else:
-            self.variables = cvxpy.Variable(num_variables, integer=True)
-            nonzero_variable_flags = cvxpy.Variable(num_variables, boolean=True)
-            self.variable_constraints += [var >= 0 for var in iter(self.variables)]
-            self.variable_constraints += [var <= self.modulus - 1 for var in iter(self.variables)]
-            self.variable_constraints += [self.modulus * nonzero_variable_flags >= self.variables]
-            self.objective = cvxpy.Minimize(cvxpy.norm(nonzero_variable_flags, 1))
-
-        self.decoder_args = decoder_args
-
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
-        # identify all constraints
-        constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
-
-        # solve the optimization problem!
-        problem = cvxpy.Problem(self.objective, constraints)
-        result = problem.solve(**self.decoder_args)
-
-        # raise error if the optimization failed
-        if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
-            message = "Optimal solution to integer linear program could not be found!"
-            raise ValueError(message + f"\nSolver output: {result}")
-
-        # return solution to the problem variables
-        return self.variables.value.astype(int)
-
-    def cvxpy_constraints_for_syndrome(
-        self, syndrome: npt.NDArray[np.int_]
-    ) -> list[cvxpy.Constraint]:
-        """Build cvxpy constraints of the form `matrix @ variables == syndrome (mod q)`.
-
-        This method uses boolean slack variables {s_j} to relax each constraint of the form
-        `expression = val mod q`
-        to
-        `expression = val + sum_j q^j s_j`.
-        """
-        syndrome = np.asarray(syndrome, dtype=int) % self.modulus
-
-        constraints = []
-        for idx, (check, syndrome_bit) in enumerate(zip(self.matrix, syndrome)):
-            # identify the largest power of q needed for the relaxation
-            max_zero = int(sum(check) * (self.modulus - 1) - syndrome_bit)
-            if max_zero == 0 or self.modulus == 2:
-                max_power_of_q = max_zero.bit_length() - 1
-            else:
-                max_power_of_q = int(np.log2(max_zero) / np.log2(self.modulus))
-
-            if max_power_of_q > 0:
-                powers_of_q = [self.modulus**jj for jj in range(1, max_power_of_q + 1)]
-                slack_variables = cvxpy.Variable(max_power_of_q, boolean=True)
-                zero_mod_q = powers_of_q @ slack_variables
-            else:
-                zero_mod_q = 0
-
-            constraint = check @ self.variables == syndrome_bit + zero_mod_q
-            constraints.append(constraint)
-
-        return constraints
 
 
 class BlockDecoder(Decoder):
