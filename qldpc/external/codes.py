@@ -73,6 +73,9 @@ def get_distance_bound(
 
     If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
     See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
+
+    Note that QDistRnd does not support subsystem codes.  In the case of a CSS code, however, we
+    can still compute the Z-distance by promoting all Z-type gauge group generators to stabilizers.
     """
     qldpc.external.gap.require_package("GUAVA")
     qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
@@ -82,8 +85,8 @@ def get_distance_bound(
     kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])
 
     if isinstance(code, qldpc.codes.CSSCode):
-        code_x = code.code_x
-        code_z = qldpc.codes.ClassicalCode(code.get_stabilizer_ops(qldpc.objects.Pauli.Z))
+        code_x = qldpc.codes.ClassicalCode(code.get_stabilizer_ops(qldpc.objects.Pauli.X))
+        code_z = code.code_z
         args = ",".join([f"{field}*matrix_x", f"{field}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd");',
