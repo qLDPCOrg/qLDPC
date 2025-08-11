@@ -102,12 +102,13 @@ def test_maybe_get_generators_from_groupnames() -> None:
 
 def test_maybe_get_generators_from_gap() -> None:
     """Retrieve generators from GAP 4."""
+    external.gap.require_package.cache_clear()
     with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
         assert external.groups.maybe_get_generators_from_gap(GROUP) is None
 
     # cannot extract cycle from string
     with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2a)\n"),
         pytest.raises(ValueError, match="Cannot extract cycle"),
     ):
@@ -115,7 +116,7 @@ def test_maybe_get_generators_from_gap() -> None:
 
     # everything works as expected
     with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2)\n"),
     ):
         assert external.groups.maybe_get_generators_from_gap(GROUP) == GENERATORS

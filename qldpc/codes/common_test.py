@@ -25,7 +25,7 @@ import galois
 import numpy as np
 import pytest
 
-from qldpc import codes
+from qldpc import codes, external
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
 
@@ -177,6 +177,7 @@ def test_automorphism() -> None:
     automorphisms = "\n()\n(2,4,3)\n(2,3,4)\n"
 
     # raise an error when GAP is not installed
+    external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
         pytest.raises(ValueError, match="Cannot build GAP group"),
