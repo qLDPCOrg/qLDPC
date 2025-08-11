@@ -519,10 +519,18 @@ def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     # qutrit code distance
     code = codes.HGPCode(codes.RepetitionCode(2, field=3))
-    assert code.get_distance_bound(cutoff=len(code)) == len(code)
-    assert code.get_distance(bound=True) <= len(code)
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance(bound=False) == 2
+
+    code._distance = code._distance_x = code._distance_z = None
+    assert code.get_distance_bound(cutoff=len(code)) == len(code)
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+        assert code.get_distance(bound=True) <= len(code)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=-1),
+    ):
+        assert code.get_distance(bound=True) == -1
 
     # qubit code distance
     code = codes.HGPCode(codes.RepetitionCode(2, field=2))

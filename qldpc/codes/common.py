@@ -2126,7 +2126,7 @@ class CSSCode(QuditCode):
         """
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
-        if num_trials == 0:
+        if num_trials == 0 or cutoff == len(self):
             return len(self)
 
         if pauli is None:
