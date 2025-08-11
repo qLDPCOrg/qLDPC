@@ -22,7 +22,6 @@ import unittest.mock
 import numpy as np
 import numpy.typing as npt
 import pytest
-import relay_bp
 
 from qldpc import decoders
 
@@ -62,13 +61,13 @@ def test_decoding() -> None:
     # some decoders can decode in batches
     syndrome_batch = np.array([syndrome])
     for decoder in [
-        decoders.get_decoder(matrix, with_MWPM=True),
-        decoders.get_decoder(matrix, with_RBP="RelayDecoderF32"),
+        decoders.get_decoder_MWPM(matrix),
+        decoders.get_decoder_RBP("RelayDecoderF32", matrix),
     ]:
         assert np.array_equal([error], decoder.decode_batch(syndrome_batch))
 
     # cover some peculiarities of the Relay-BP decoder
-    decoder = decoders.get_decoder(matrix, with_RBP="RelayDecoderF32")
+    decoder = decoders.get_decoder_RBP("RelayDecoderF32", matrix)
     assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
     assert np.array_equal(error, decoder.decode_detailed_batch(syndrome_batch)[0].decoding)
     with (

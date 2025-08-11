@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import itertools
 import warnings
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
 
 import cvxpy
 import galois
@@ -30,12 +30,48 @@ from qldpc import codes
 from qldpc.math import symplectic_conjugate, symplectic_weight
 from qldpc.objects import Node
 
+if TYPE_CHECKING:
+    import relay_bp
+
 
 class Decoder(Protocol):
-    """Template (protocol) for a decoder object."""
+    """Template class for a decoder."""
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
+
+
+class BatchDecoder(Protocol):
+    """Template class for a decoder that can decode in batches."""
+
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+
+    def decode_batch(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes and return inferred errors."""
+
+
+class RelayBPDecoder(BatchDecoder):
+    """Wrapper class for Relay-BP decoders."""
+
+    def __init__(self, decoder: Decoder) -> None:
+        self.decoder = decoder
+
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Cast the syndrome to a np.uint8 and decode."""
+        return self.decoder.decode(np.asarray(syndrome, dtype=np.uint8))
+
+    def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Cast the syndromes to a np.uint8 and decode."""
+        return getattr(self.decoder, "decode_batch")(np.asarray(syndromes, dtype=np.uint8))
+
+    def decode_detailed(self, syndrome: npt.NDArray[np.int_]) -> relay_bp.DecodeResult:
+        """Cast the syndrome to a np.uint8 and decode."""
+        return getattr(self.decoder, "decode_detailed")(np.asarray(syndrome, dtype=np.uint8))
+
+    def decode_detailed_batch(self, syndromes: npt.NDArray[np.int_]) -> list[relay_bp.DecodeResult]:
+        """Cast the syndromes to a np.uint8 and decode."""
+        return getattr(self.decoder, "decode_detailed_batch")(np.asarray(syndromes, dtype=np.uint8))
 
 
 class LookupDecoder(Decoder):
