@@ -53,4 +53,6 @@ def test_decoding() -> None:
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_BP_LSD=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_BF=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_MWPM=True))
+
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_lookup=True, max_weight=2))
+    assert np.array_equal(error, decoders.decode(matrix, syndrome, with_relay_BP="RelayDecoderF32"))

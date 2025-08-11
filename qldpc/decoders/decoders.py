@@ -56,6 +56,9 @@ def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder
     if decoder_args.pop("with_MWPM", False):
         return get_decoder_MWPM(matrix, **decoder_args)
 
+    if name := decoder_args.pop("with_relay_BP", None):
+        return get_decoder_relay_BP(name, matrix, **decoder_args)
+
     if decoder_args.pop("with_lookup", False):
         return get_decoder_lookup(matrix, **decoder_args)
 
@@ -116,6 +119,20 @@ def get_decoder_BF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Deco
 def get_decoder_MWPM(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
     """Decoder based on minimum weight perfect matching (MWPM)."""
     return pymatching.Matching.from_check_matrix(matrix, **decoder_args)
+
+
+def get_decoder_relay_BP(
+    name: str, matrix: npt.NDArray[np.int_], **decoder_args: object
+) -> Decoder:
+    """Relay-BP decoders."""
+    try:
+        import relay_bp
+    except ImportError:
+        raise ImportError("Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'")
+    error_priors = decoder_args.pop(
+        "error_priors", np.ones(matrix.shape[1], dtype=np.float64) * PLACEHOLDER_ERROR_RATE
+    )
+    return getattr(relay_bp, name)(matrix, error_priors, **decoder_args)
 
 
 def get_decoder_lookup(matrix: npt.NDArray[np.int_], **decoder_args: object) -> LookupDecoder:
