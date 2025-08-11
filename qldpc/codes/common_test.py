@@ -39,11 +39,13 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     code = codes.ClassicalCode.random(5, 3, field=2, seed=np.random.randint(2**32))
     assert len(code) == code.num_bits == 5
+    assert code.num_checks == 3
     assert "ClassicalCode" in str(code)
     assert code.get_random_word() in code
 
     # reordering the rows of the generator matrix results in a valid generator matrix
     code.set_generator(np.roll(code.generator, shift=1, axis=0))
+    assert codes.ClassicalCode(code).generator is code.generator
 
     code = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**32))
     assert "GF(3)" in str(code)
@@ -543,6 +545,7 @@ def test_distance_css() -> None:
     code = codes.HGPCode(codes.RepetitionCode(2, field=2))
     code._is_subsystem_code = True  # test that this does not break anything
     assert code.get_distance_exact() == 2
+    assert code.get_distance_bound_with_decoder(Pauli.X, cutoff=len(code)) <= len(code)
 
     # computing an exact distance but providing bounding arguments raises a warning
     with pytest.warns(UserWarning, match="ignored"):
