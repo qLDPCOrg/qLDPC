@@ -21,7 +21,7 @@ import unittest.mock
 
 import pytest
 
-from qldpc import external
+from qldpc import codes, external
 
 
 def test_get_code() -> None:
@@ -41,3 +41,14 @@ def test_get_code() -> None:
         pytest.raises(ValueError, match="Code has no parity checks"),
     ):
         assert external.codes.get_code("")
+
+
+def test_distance_bound() -> None:
+    """Compute a bound on code distance using QDistRnd."""
+    with unittest.mock.patch("qldpc.external.gap.require_package", return_value=None):
+        with pytest.raises(ValueError, match="non-CSS subsystem codes"):
+            external.codes.get_distance_bound(codes.QuditCode(codes.SHYPSCode(2).matrix))
+
+        with unittest.mock.patch("qldpc.external.gap.get_output", return_value="3"):
+            assert external.codes.get_distance_bound(codes.FiveQubitCode()) == 3
+            assert external.codes.get_distance_bound(codes.SteaneCode()) == 3
