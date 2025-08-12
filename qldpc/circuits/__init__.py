@@ -4,10 +4,25 @@ from .common import (
     get_encoding_tableau,
     get_logical_tableau,
 )
-from .memory import memory_experiment
-from .noise_model import DepolarizingNoiseModel, NoiseModel, NoiseRule, SI1000NoiseModel
-from .sinter_decoders import CompiledSinterDecoder, SinterDecoder
-from .syndrome_measurement import BareColorCircuit, SyndromeMeasurementStrategy
+from .memory import get_memory_experiment
+from .noise_model import (
+    DepolarizingNoiseModel,
+    NoiseModel,
+    NoiseRule,
+    SI1000NoiseModel,
+)
+from .sinter_decoder import (
+    CompiledSinterDecoder,
+    DetectorErrorModelArrays,
+    SinterDecoder,
+)
+from .syndrome_measurement import (
+    EdgeColoring,
+    MeasurementRecord,
+    QubitIDs,
+    SerialExtraction,
+    SyndromeMeasurementStrategy,
+)
 from .transversal import (
     get_transversal_automorphism_group,
     get_transversal_circuit,
@@ -20,14 +35,18 @@ __all__ = [
     "get_encoding_circuit",
     "get_encoding_tableau",
     "get_logical_tableau",
-    "memory_experiment",
+    "get_memory_experiment",
     "DepolarizingNoiseModel",
     "NoiseModel",
     "NoiseRule",
     "SI1000NoiseModel",
     "CompiledSinterDecoder",
+    "DetectorErrorModelArrays",
     "SinterDecoder",
-    "BareColorCircuit",
+    "EdgeColoring",
+    "MeasurementRecord",
+    "QubitIDs",
+    "SerialExtraction",
     "SyndromeMeasurementStrategy",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",
