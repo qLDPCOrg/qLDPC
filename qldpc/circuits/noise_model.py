@@ -3,7 +3,7 @@
 The main components of this module are:
 - NoiseRule: Defines how to add noise to individual operations.
 - NoiseModel: Defines how noise is added to circuits.
-- Built-in noise models: SI1000NoiseModel (superconducting-inspired) and DepolarizingNoiseModel.
+- Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 
 Examples of basic usage with a predefined noise model:
 
@@ -515,27 +515,6 @@ class NoiseModel:
             )
 
 
-class SI1000NoiseModel(NoiseModel):
-    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory"
-
-    This noise model is defined by a two-qubit gate infidelity that determines all error rates.
-
-    See https://arxiv.org/abs/2108.10457.
-    """
-
-    def __init__(self, p: float) -> None:
-        """Instantiate a superconducting-inspired noise model."""
-        self.p = p
-        super().__init__(
-            clifford_1q_error=p / 10,
-            clifford_2q_error=p,
-            readout_error=p * 5,
-            reset_error=p * 2,
-            idle_error=p / 10,
-            additional_error_waiting_for_m_or_r=2 * p,
-        )
-
-
 class DepolarizingNoiseModel(NoiseModel):
     """Creates a near-standard circuit depolarizing noise model.
 
@@ -557,6 +536,27 @@ class DepolarizingNoiseModel(NoiseModel):
             readout_error=p,
             reset_error=p,
             idle_error=p if include_idling_error else False,
+        )
+
+
+class SI1000NoiseModel(NoiseModel):
+    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory"
+
+    This noise model is defined by a two-qubit gate infidelity that determines all error rates.
+
+    See https://arxiv.org/abs/2108.10457.
+    """
+
+    def __init__(self, p: float) -> None:
+        """Instantiate a superconducting-inspired noise model."""
+        self.p = p
+        super().__init__(
+            clifford_1q_error=p / 10,
+            clifford_2q_error=p,
+            readout_error=p * 5,
+            reset_error=p * 2,
+            idle_error=p / 10,
+            additional_error_waiting_for_m_or_r=2 * p,
         )
 
 
