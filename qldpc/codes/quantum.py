@@ -889,7 +889,7 @@ class HGPCode(CSSCode):
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
         return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None = None) -> int | float | None:
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float | None:
         """Exact distance calculation for hypergraph product codes, from arXiv:2308.15520."""
         if pauli is not None:
             # TODO: address the case of X and Z distance
@@ -993,7 +993,7 @@ class SHPCode(CSSCode):
         logical_ops_z = np.kron(generator_x, pivots_z)
         return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None = None) -> int | float | None:
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float | None:
         """Exact distance calculation for subsystem hypergraph product codes."""
         if pauli is not None:
             # TODO: address the case of X and Z distance
