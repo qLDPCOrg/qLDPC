@@ -53,7 +53,7 @@ class MeasurementRecord:
     """Store a measurement record in a Stim circuit."""
 
     num_measurements: int
-    qubit_to_measurement: dict[int, list[int]]
+    qubit_to_measurements: dict[int, list[int]]
 
     def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
         self.qubit_to_measurements = collections.defaultdict(
