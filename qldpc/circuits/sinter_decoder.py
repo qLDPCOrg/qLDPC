@@ -53,6 +53,8 @@ class SinterDecoder(sinter.Decoder):
                 or decoder_kwargs.get("with_BF")
             ):
                 self.error_probs_arg = "error_channel"
+            if decoder_kwargs.get("with_RBP"):
+                self.error_probs_arg = "error_priors"
             if decoder_kwargs.get("with_MWPM"):
                 self.error_probs_arg = "weights"
 

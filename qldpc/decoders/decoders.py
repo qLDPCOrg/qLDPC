@@ -136,11 +136,8 @@ def get_decoder_RBP(
         raise ImportError("Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'")
     if not isinstance(name, str) or not hasattr(relay_bp, name):
         raise ValueError(f"Relay BP decoder name not recognized: {name}")
-
-    error_priors = decoder_args.pop(
-        "error_priors", np.ones(matrix.shape[1], dtype=np.float64) * PLACEHOLDER_ERROR_RATE
-    )
-    decoder = getattr(relay_bp, name)(matrix, error_priors, **decoder_args)
+    error_priors = decoder_args.pop("error_priors", [PLACEHOLDER_ERROR_RATE] * matrix.shape[1])
+    decoder = getattr(relay_bp, name)(matrix, np.asarray(error_priors), **decoder_args)
     return RelayBPDecoder(decoder)
 
 

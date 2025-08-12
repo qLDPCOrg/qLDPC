@@ -73,6 +73,7 @@ def test_sinter_decoder() -> None:
     # try decoders with and without a decode_batch method
     for sinter_decoder, probs_arg in [
         (circuits.SinterDecoder(with_BP_OSD=True), "error_channel"),
+        (circuits.SinterDecoder(with_RBP="MinSumBPDecoderF32"), "error_priors"),
         (circuits.SinterDecoder(with_MWPM=True), "weights"),
     ]:
         assert sinter_decoder.error_probs_arg == probs_arg
