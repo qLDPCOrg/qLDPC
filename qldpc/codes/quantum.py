@@ -929,20 +929,20 @@ class SHPCode(CSSCode):
 
     def __init__(
         self,
-        code_x: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        code_z: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
+        code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
         field: int | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
         """Subsystem hypergraph product of two classical codes, as in arXiv:2002.06257."""
-        if code_z is None:
-            code_z = code_x
-        code_x = ClassicalCode(code_x, field)
-        code_z = ClassicalCode(code_z, field)
-        code_field = code_x.field
+        if code_b is None:
+            code_b = code_a
+        self.code_a = ClassicalCode(code_a, field)
+        self.code_b = ClassicalCode(code_b, field)
+        code_field = self.code_a.field
 
-        matrix_x, matrix_z = SHPCode.get_matrix_product(code_x.matrix, code_z.matrix)
+        matrix_x, matrix_z = SHPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
         CSSCode.__init__(
             self,
             matrix_x.view(np.ndarray).astype(int),
@@ -951,12 +951,13 @@ class SHPCode(CSSCode):
             is_subsystem_code=True,
         )
 
-        stab_ops_x = np.kron(code_x.matrix, code_z.generator)
-        stab_ops_z = np.kron(-code_x.generator, code_z.matrix)
+        stab_ops_x = np.kron(self.code_a.matrix, self.code_b.generator)
+        stab_ops_z = np.kron(-self.code_a.generator, self.code_b.matrix)
         self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(code_field)
 
         if set_logicals:
-            self.set_logical_ops_xz(*self.get_canonical_logical_ops(code_x, code_z), validate=False)
+            logical_ops_xz = SHPCode.get_canonical_logical_ops(self.code_a, self.code_b)
+            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
     @staticmethod
     def get_matrix_product(
@@ -991,6 +992,13 @@ class SHPCode(CSSCode):
         logical_ops_x = np.kron(pivots_x, generator_z)
         logical_ops_z = np.kron(generator_x, pivots_z)
         return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+
+    def _get_distance_exact(self, pauli: PauliXZ | None = None) -> int | float | None:
+        """Exact distance calculation for subsystem hypergraph product codes."""
+        if pauli is not None:
+            # TODO: address the case of X and Z distance
+            return None
+        return min(self.code_a.get_distance(), self.code_b.get_distance())
 
 
 class LPCode(CSSCode):
