@@ -34,7 +34,7 @@ import sympy
 from qldpc import abstract
 from qldpc.abstract import DEFAULT_FIELD_ORDER
 from qldpc.math import first_nonzero_cols
-from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, QuditOperator
+from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditOperator
 
 from .classical import HammingCode, RepetitionCode, RingCode, SimplexCode, TannerCode
 from .common import ClassicalCode, CSSCode, QuditCode
@@ -723,17 +723,17 @@ class HGPCode(CSSCode):
         """
         if code_b is None:
             code_b = code_a
-        code_a = ClassicalCode(code_a, field)
-        code_b = ClassicalCode(code_b, field)
-        field = code_a.field.order
+        self.code_a = ClassicalCode(code_a, field)
+        self.code_b = ClassicalCode(code_b, field)
+        field = self.code_a.field.order
 
         # use a matrix-based hypergraph product to identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = HGPCode.get_matrix_product(code_a.matrix, code_b.matrix)
+        matrix_x, matrix_z = HGPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
 
         # identify the number of qudits in each sector
         self.sector_size = np.outer(
-            [code_a.num_bits, code_a.num_checks],
-            [code_b.num_bits, code_b.num_checks],
+            [self.code_a.num_bits, self.code_a.num_checks],
+            [self.code_b.num_bits, self.code_b.num_checks],
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
@@ -748,7 +748,8 @@ class HGPCode(CSSCode):
         )
 
         if set_logicals:
-            self.set_logical_ops_xz(*self.get_canonical_logical_ops(code_a, code_b), validate=False)
+            logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
+            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
     @staticmethod
     def get_matrix_product(
@@ -887,6 +888,26 @@ class HGPCode(CSSCode):
         logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
         return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+
+    def _get_distance_exact(self, pauli: PauliXZ | None = None) -> int | float | None:
+        """Exact distance calculation for hypergraph product codes, from arXiv:2308.15520."""
+        if pauli is not None:
+            # TODO: address the case of X and Z distance
+            return None
+        code_a = self.code_a
+        code_b = self.code_b
+        code_a_T = ClassicalCode(self.code_a.matrix.T)
+        code_b_T = ClassicalCode(self.code_b.matrix.T)
+        if code_a_T.get_distance() is np.nan or code_b_T.get_distance() is np.nan:
+            return min(code_a.get_distance(), code_b.get_distance())
+        if code_a.get_distance() is np.nan or code_b.get_distance() is np.nan:
+            return min(code_a_T.get_distance(), code_b_T.get_distance())
+        return min(
+            code_a.get_distance(),
+            code_b.get_distance(),
+            code_a_T.get_distance(),
+            code_b_T.get_distance(),
+        )
 
 
 class SHPCode(CSSCode):

@@ -2050,6 +2050,12 @@ class CSSCode(QuditCode):
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
 
+        if (
+            hasattr(self, "_get_distance_exact")
+            and (distance := self._get_distance_exact(pauli)) is not None
+        ):
+            return distance
+
         if pauli is None:
             return min(self.get_distance_exact(Pauli.X), self.get_distance_exact(Pauli.Z))
 
