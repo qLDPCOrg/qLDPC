@@ -321,11 +321,9 @@ def test_distance_qudit() -> None:
 
     # fallback pythonic brute-force distance calculation
     surface_code = codes.SurfaceCode(2, field=3)
-    surface_code._distance = None
-    surface_code._distance_x = None
-    surface_code._distance_z = None
-    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
-        assert codes.QuditCode.get_distance_exact(surface_code) == 2
+    with unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None):
+        with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+            assert codes.QuditCode.get_distance_exact(surface_code) == 2
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -531,11 +529,13 @@ def test_distance_css() -> None:
     code = codes.HGPCode(codes.RepetitionCode(2, field=3))
     assert code.get_distance(bound=False) == 2
 
-    with unittest.mock.patch("qldpc.codes.HGPCode._get_distance_exact", return_value=None):
+    with (
+        unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
+        unittest.mock.patch("qldpc.codes.HGPCode._get_distance_exact", return_value=None),
+    ):
         with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
             assert code.get_distance(bound=False) == 2
 
-        code._distance = code._distance_x = code._distance_z = None
         assert code.get_distance_bound(cutoff=len(code)) == len(code)
         with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
             assert code.get_distance(bound=True) <= len(code)
