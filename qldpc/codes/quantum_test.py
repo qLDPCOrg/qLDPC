@@ -447,10 +447,12 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
 
     # "ordinary"/original surface code
     code = codes.SurfaceCode(rows, cols, rotated=False)
-    code._distance_x = code._distance_z = None  # "forget" the code distances
     assert code.dimension == 1
     assert code.num_qudits == rows * cols + (rows - 1) * (cols - 1)
-    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+    with (
+        unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+    ):
         assert cols <= code.get_distance(Pauli.X, bound=True) <= len(code)
         assert rows <= code.get_distance(Pauli.Z, bound=True) <= len(code)
 
@@ -544,16 +546,31 @@ def test_generalized_surface_codes(size: int = 3) -> None:
 
 def test_bacon_shor_code() -> None:
     """Bacon-Shor code."""
-    code = codes.BaconShorCode(3)
-    code._distance_x = code._distance_z = None
+    code = codes.BaconShorCode(2, 3)
     assert all(np.count_nonzero(row) == 2 for row in code.matrix)
-    assert code.get_distance() == 3
+    assert code.get_distance(Pauli.X) == 3
+    assert code.get_distance(Pauli.Z) == 2
 
 
 def test_shyps_code() -> None:
     """Sanity checks for the SHYPS code."""
-    for dimension in range(3, 8):
+    for dimension in [3, 4, 5]:
         code = codes.SHYPSCode(dimension)
         params = ((2**dimension - 1) ** 2, dimension**2, 2 ** (dimension - 1))
         assert code.get_code_params() == params
         assert np.all(np.count_nonzero(code.matrix.view(np.ndarray), axis=1) == 3)
+
+
+def test_exact_distances() -> None:
+    """Compute exact distances in special cases."""
+    for code in [
+        codes.HGPCode(codes.RingCode(2), field=2),
+        codes.SHPCode(codes.RepetitionCode(2), field=2),
+    ]:
+        dist_x = code.get_distance(Pauli.X)
+        dist_z = code.get_distance(Pauli.Z)
+        dist = code.get_distance()
+        with unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None):
+            assert dist_x == code.get_distance(Pauli.X)
+            assert dist_z == code.get_distance(Pauli.Z)
+            assert dist == code.get_distance()

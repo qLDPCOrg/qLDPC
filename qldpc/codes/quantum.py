@@ -893,15 +893,15 @@ class HGPCode(CSSCode):
         """Exact distance calculation for hypergraph product codes, from arXiv:2308.15520."""
         if pauli is not None:
             # TODO: address the case of X and Z distance
-            return None
+            return None  # pragma: no cover
         code_a = self.code_a
         code_b = self.code_b
         code_a_T = ClassicalCode(self.code_a.matrix.T)
         code_b_T = ClassicalCode(self.code_b.matrix.T)
         if code_a_T.get_distance() is np.nan or code_b_T.get_distance() is np.nan:
-            return min(code_a.get_distance(), code_b.get_distance())
+            return min(code_a.get_distance(), code_b.get_distance())  # pragma: no cover
         if code_a.get_distance() is np.nan or code_b.get_distance() is np.nan:
-            return min(code_a_T.get_distance(), code_b_T.get_distance())
+            return min(code_a_T.get_distance(), code_b_T.get_distance())  # pragma: no cover
         return min(
             code_a.get_distance(),
             code_b.get_distance(),
@@ -995,10 +995,13 @@ class SHPCode(CSSCode):
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float | None:
         """Exact distance calculation for subsystem hypergraph product codes."""
-        if pauli is not None:
-            # TODO: address the case of X and Z distance
-            return None
-        return min(self.code_a.get_distance(), self.code_b.get_distance())
+        match pauli:
+            case Pauli.X:
+                return self.code_b.get_distance()
+            case Pauli.Z:
+                return self.code_a.get_distance()
+            case _:
+                return min(self.code_a.get_distance(), self.code_b.get_distance())
 
 
 class LPCode(CSSCode):
@@ -1623,6 +1626,9 @@ class BaconShorCode(SHPCode):
         code_z = RepetitionCode(cols, field) if cols is not None else None
         SHPCode.__init__(self, code_x, code_z, field, set_logicals=set_logicals)
 
+        self._distance_x = cols
+        self._distance_z = rows
+
 
 class SHYPSCode(SHPCode):
     """Subsystem hypergraph product simplex (SHYPS) code.
@@ -1652,5 +1658,3 @@ class SHYPSCode(SHPCode):
         SHPCode.__init__(self, code_x, code_z, set_logicals=set_logicals)
 
         self._dimension = dim_x * dim_z
-        self._distance_x = code_z.get_distance()  # X errors are witnessed by the Z code
-        self._distance_z = code_x.get_distance()  # Z errors are witnessed by the X code

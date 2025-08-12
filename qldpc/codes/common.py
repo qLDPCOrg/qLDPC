@@ -2100,7 +2100,11 @@ class CSSCode(QuditCode):
             return self._distance_x
         elif pauli is Pauli.Z:
             return self._distance_z
-        return self._distance
+        return (
+            min(self._distance_x, self._distance_z)
+            if self._distance_x is not None and self._distance_z is not None
+            else self._distance
+        )
 
     def get_distance_bound(
         self,
