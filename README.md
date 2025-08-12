@@ -16,13 +16,13 @@ pip install -e qLDPC
 ```
 You can also `pip install -e 'qLDPC[dev]'` to additionally install some development tools.
 
+### GAP
+
+Some features in `qLDPC` require an installation of the [GAP](https://www.gap-system.org) computer algebra system.  If you (a) use linux or macOS, and (b) use a `conda` to manage your python environment, then you can obtain GAP by running `conda install -c conda-forge gap` (or `gap-core`).  Installations without `conda` should also work, as long as `gap` is a recognized command in the command line.  Unfortunately, I have not figured out how to install [GAP](https://www.gap-system.org) in a `qLDPC`-compatible way on Windows.  If you figure this out, [please let me know](https://github.com/qLDPCOrg/qLDPC/issues/294)!
+
 ### macOS
 
 If you use macOS you may need to install `cvxpy` manually by following the instructions [here](https://www.cvxpy.org/install) before installing `qLDPC`.  If you use `conda` to manage your python environment, you can obtain `cvxpy` by running `conda install -c conda-forge cvxpy`.
-
-### GAP
-
-Some features in `qLDPC` require an installation of the computer algebra system [GAP](https://www.gap-system.org).  If you (a) use linux or macOS, and (b) use a `conda` to manage your python environment, then you can obtain GAP by running `conda install -c conda-forge gap` (or `gap-core`).  Installations without `conda` should also work, as long as `gap` is a recognized shell command (i.e., in a terminal).  Unfortunately, I have not figured out how to install [GAP](https://www.gap-system.org) in a `qLDPC`-compatible way on Windows.  If you figure this out, [please let me know](https://github.com/qLDPCOrg/qLDPC/issues/294)!
 
 ## 🚀 Features
 
@@ -39,7 +39,7 @@ Notable features include:
   - `BBCode`: [bivariate bicycle codes](https://errorcorrectionzoo.org/c/quantum_quasi_cyclic), as in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) and [arXiv:2311.16980](https://arxiv.org/abs/2311.16980).  See [`examples/bivariate_bicycle_codes.ipynb`](https://github.com/qLDPCOrg/qLDPC/blob/main/examples/bivariate_bicycle_codes.ipynb) for methods to identify...
     - toric layouts of a `BBCode`, in which the code looks like a toric code augmented by some long-distance checks, as in discussed in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915), and
     - qubit layouts that minimize the communication distance for neutral atoms, as discussed in [arXiv:2404.18809](https://arxiv.org/abs/2404.18809).
-  - `HGPCode`: [hypergraph product codes](https://errorcorrectionzoo.org/c/hypergraph_product).
+  - `HGPCode`: [hypergraph product codes](https://errorcorrectionzoo.org/c/hypergraph_product), first introduced in [arXiv:0903.0566](https://arxiv.org/abs/0903.0566).
   - `SHPCode`: [subsystem hypergraph product codes](https://errorcorrectionzoo.org/c/subsystem_quantum_parity), as in [arXiv:2002.06257](https://arxiv.org/abs/2002.06257).
   - `SHYPSCode`: [subsystem hypergraph product simplex codes](https://errorcorrectionzoo.org/c/shyps), as in [arXiv:2502.07150](https://arxiv.org/abs/2502.07150).
   - `LPCode`: [lifted product codes](https://errorcorrectionzoo.org/c/lifted_product), as in [arXiv:2012.04068](https://arxiv.org/abs/2012.04068) and [arXiv:2202.01702](https://arxiv.org/abs/2202.01702).

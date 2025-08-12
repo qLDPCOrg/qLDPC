@@ -34,7 +34,7 @@ import sympy
 from qldpc import abstract
 from qldpc.abstract import DEFAULT_FIELD_ORDER
 from qldpc.math import first_nonzero_cols
-from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, QuditOperator
+from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditOperator
 
 from .classical import HammingCode, RepetitionCode, RingCode, SimplexCode, TannerCode
 from .common import ClassicalCode, CSSCode, QuditCode
@@ -686,15 +686,15 @@ class HGPCode(CSSCode):
 
     This class contains two equivalent constructions of an HGPCode:
     - A construction based on Tanner graphs (as discussed above).
-    - A construction based on check matrices, taken from arXiv:2202.01702.
+    - A construction based on check matrices, as originally introduced in arXiv:0903.0566.
     The latter construction is less intuitive, but more efficient.
 
     References:
     - https://errorcorrectionzoo.org/c/hypergraph_product
-    - https://arxiv.org/abs/2202.01702
-    - https://www.youtube.com/watch?v=iehMcUr2saM
     - https://arxiv.org/abs/0903.0566
     - https://arxiv.org/abs/1202.0928
+    - https://arxiv.org/abs/2202.01702
+    - https://www.youtube.com/watch?v=iehMcUr2saM
     """
 
     sector_size: npt.NDArray[np.int_]
@@ -707,7 +707,7 @@ class HGPCode(CSSCode):
         *,
         set_logicals: bool = True,
     ) -> None:
-        """Hypergraph product of two classical codes, as in arXiv:2202.01702.
+        """Hypergraph product of two classical codes, as in arXiv:0903.0566.
 
         The parity check matrices of the hypergraph product code are:
 
@@ -723,17 +723,17 @@ class HGPCode(CSSCode):
         """
         if code_b is None:
             code_b = code_a
-        code_a = ClassicalCode(code_a, field)
-        code_b = ClassicalCode(code_b, field)
-        field = code_a.field.order
+        self.code_a = ClassicalCode(code_a, field)
+        self.code_b = ClassicalCode(code_b, field)
+        field = self.code_a.field.order
 
         # use a matrix-based hypergraph product to identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = HGPCode.get_matrix_product(code_a.matrix, code_b.matrix)
+        matrix_x, matrix_z = HGPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
 
         # identify the number of qudits in each sector
         self.sector_size = np.outer(
-            [code_a.num_bits, code_a.num_checks],
-            [code_b.num_bits, code_b.num_checks],
+            [self.code_a.num_bits, self.code_a.num_checks],
+            [self.code_b.num_bits, self.code_b.num_checks],
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
@@ -748,7 +748,8 @@ class HGPCode(CSSCode):
         )
 
         if set_logicals:
-            self.set_logical_ops_xz(*self.get_canonical_logical_ops(code_a, code_b), validate=False)
+            logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
+            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
     @staticmethod
     def get_matrix_product(
@@ -888,6 +889,26 @@ class HGPCode(CSSCode):
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
         return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
 
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float | None:
+        """Exact distance calculation for hypergraph product codes, from arXiv:2308.15520."""
+        if pauli is not None:
+            # TODO: address the case of X and Z distance
+            return None  # pragma: no cover
+        code_a = self.code_a
+        code_b = self.code_b
+        code_a_T = ClassicalCode(self.code_a.matrix.T)
+        code_b_T = ClassicalCode(self.code_b.matrix.T)
+        if code_a_T.get_distance() is np.nan or code_b_T.get_distance() is np.nan:
+            return min(code_a.get_distance(), code_b.get_distance())  # pragma: no cover
+        if code_a.get_distance() is np.nan or code_b.get_distance() is np.nan:
+            return min(code_a_T.get_distance(), code_b_T.get_distance())  # pragma: no cover
+        return min(
+            code_a.get_distance(),
+            code_b.get_distance(),
+            code_a_T.get_distance(),
+            code_b_T.get_distance(),
+        )
+
 
 class SHPCode(CSSCode):
     """Subsystem hypergraph product (SHP) code.
@@ -908,20 +929,20 @@ class SHPCode(CSSCode):
 
     def __init__(
         self,
-        code_x: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        code_z: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
+        code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
         field: int | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
         """Subsystem hypergraph product of two classical codes, as in arXiv:2002.06257."""
-        if code_z is None:
-            code_z = code_x
-        code_x = ClassicalCode(code_x, field)
-        code_z = ClassicalCode(code_z, field)
-        code_field = code_x.field
+        if code_b is None:
+            code_b = code_a
+        self.code_a = ClassicalCode(code_a, field)
+        self.code_b = ClassicalCode(code_b, field)
+        code_field = self.code_a.field
 
-        matrix_x, matrix_z = SHPCode.get_matrix_product(code_x.matrix, code_z.matrix)
+        matrix_x, matrix_z = SHPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
         CSSCode.__init__(
             self,
             matrix_x.view(np.ndarray).astype(int),
@@ -930,12 +951,13 @@ class SHPCode(CSSCode):
             is_subsystem_code=True,
         )
 
-        stab_ops_x = np.kron(code_x.matrix, code_z.generator)
-        stab_ops_z = np.kron(-code_x.generator, code_z.matrix)
+        stab_ops_x = np.kron(self.code_a.matrix, self.code_b.generator)
+        stab_ops_z = np.kron(-self.code_a.generator, self.code_b.matrix)
         self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(code_field)
 
         if set_logicals:
-            self.set_logical_ops_xz(*self.get_canonical_logical_ops(code_x, code_z), validate=False)
+            logical_ops_xz = SHPCode.get_canonical_logical_ops(self.code_a, self.code_b)
+            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
     @staticmethod
     def get_matrix_product(
@@ -970,6 +992,16 @@ class SHPCode(CSSCode):
         logical_ops_x = np.kron(pivots_x, generator_z)
         logical_ops_z = np.kron(generator_x, pivots_z)
         return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+        """Exact distance calculation for subsystem hypergraph product codes."""
+        match pauli:
+            case Pauli.X:
+                return self.code_b.get_distance()
+            case Pauli.Z:
+                return self.code_a.get_distance()
+            case _:
+                return min(self.code_a.get_distance(), self.code_b.get_distance())
 
 
 class LPCode(CSSCode):
@@ -1594,6 +1626,9 @@ class BaconShorCode(SHPCode):
         code_z = RepetitionCode(cols, field) if cols is not None else None
         SHPCode.__init__(self, code_x, code_z, field, set_logicals=set_logicals)
 
+        self._distance_x = cols
+        self._distance_z = rows
+
 
 class SHYPSCode(SHPCode):
     """Subsystem hypergraph product simplex (SHYPS) code.
@@ -1623,5 +1658,3 @@ class SHYPSCode(SHPCode):
         SHPCode.__init__(self, code_x, code_z, set_logicals=set_logicals)
 
         self._dimension = dim_x * dim_z
-        self._distance_x = code_z.get_distance()  # X errors are witnessed by the Z code
-        self._distance_z = code_x.get_distance()  # Z errors are witnessed by the X code
