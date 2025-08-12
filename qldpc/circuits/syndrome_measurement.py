@@ -81,7 +81,7 @@ class MeasurementRecord:
         Args:
             qubit: the qubit (by index) whose measurement record we want.
             measurement_index: an index specifying which measurement of the specified qubit we want.
-                A measurement_index of 0 would be the first measruement of the qubit, while a
+                A measurement_index of 0 would be the first measurement of the qubit, while a
                 measurement_index of -1 would be the most recent measurement.  Default value: -1.
 
         Returns:
