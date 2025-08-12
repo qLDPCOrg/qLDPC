@@ -525,6 +525,8 @@ def test_css_ops() -> None:
 
 def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
+    code: codes.CSSCode
+
     # qutrit code distance
     code = codes.HGPCode(codes.RepetitionCode(2, field=3))
     assert code.get_distance(bound=False) == 2

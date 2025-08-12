@@ -993,7 +993,7 @@ class SHPCode(CSSCode):
         logical_ops_z = np.kron(generator_x, pivots_z)
         return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float | None:
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for subsystem hypergraph product codes."""
         match pauli:
             case Pauli.X:
