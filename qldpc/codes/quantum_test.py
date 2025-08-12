@@ -225,7 +225,7 @@ def test_hypergraph_product(
     assert np.array_equal(code.matrix_z, matrix_z)
 
     # verify that the canonical logicals are valid
-    code.set_logical_ops(code.get_logical_ops())
+    code.set_logical_ops(code.get_logical_ops(), validate=True)
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -249,7 +249,7 @@ def test_subsystem_hypergraph_product(
     )
 
     # verify that the canonical logicals are valid
-    code.set_logical_ops(code.get_logical_ops())
+    code.set_logical_ops(code.get_logical_ops(), validate=True)
 
 
 def test_trivial_lift(
