@@ -1,10 +1,12 @@
 from .custom import (
+    BatchDecoder,
     BlockDecoder,
     Decoder,
     DirectDecoder,
     GUFDecoder,
     ILPDecoder,
     LookupDecoder,
+    RelayBPDecoder,
 )
 from .decoders import (
     decode,
@@ -20,12 +22,14 @@ from .decoders import (
 )
 
 __all__ = [
+    "BatchDecoder",
     "BlockDecoder",
     "Decoder",
     "DirectDecoder",
     "GUFDecoder",
     "ILPDecoder",
     "LookupDecoder",
+    "RelayBPDecoder",
     "decode",
     "get_decoder",
     "get_decoder_BF",

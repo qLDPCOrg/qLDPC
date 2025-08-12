@@ -146,7 +146,7 @@ class LookupDecoder(Decoder):
         return self.table.get(tuple(syndrome.view(np.ndarray)), self.null_correction.copy())
 
 
-class ILPDecoder(Decoder):  # noqa: F821
+class ILPDecoder(Decoder):
     """Decoder based on solving an integer linear program (ILP).
 
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.

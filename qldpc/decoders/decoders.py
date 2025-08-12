@@ -124,7 +124,12 @@ def get_decoder_MWPM(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Ba
 def get_decoder_RBP(
     name: object, matrix: npt.NDArray[np.int_], **decoder_args: object
 ) -> RelayBPDecoder:
-    """Relay-BP decoders."""
+    """Relay-BP decoders.
+
+    For details about Relay-BP decoders, see:
+    - Documentation: https://pypi.org/project/relay-bp/
+    - Reference: https://arxiv.org/abs/2506.01779
+    """
     try:
         import relay_bp
     except ImportError:
