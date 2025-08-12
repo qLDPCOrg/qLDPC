@@ -46,10 +46,10 @@ Notable features include:
   - `SLPCode`: [subsystem lifted product codes](https://errorcorrectionzoo.org/c/subsystem_lifted_product), as in [arXiv:2404.18302](https://arxiv.org/abs/2404.18302).
   - `QTCode`: [quantum Tanner codes](https://errorcorrectionzoo.org/c/quantum_tanner), as in [arXiv:2202.13641](https://arxiv.org/abs/2202.13641) and [arXiv:2206.07571](https://arxiv.org/abs/2206.07571).
 - `decoders.py`: module for decoding errors with various methods, including BP-OSD, BP-LSD, and belief-find (via [`ldpc`](https://github.com/quantumgizmos/ldpc)), Relay-BP (via [`relay-bp`](https://pypi.org/project/relay-bp)), minimum-weight perfect matching (via [`pymatching`](https://github.com/oscarhiggott/PyMatching)), and others.  Includes an interface for using custom decoders. 
-- `qldpc.circuits`: module for Stim circuits and circuit utilities, including:
+- `qldpc.circuits`: module for [`stim`](https://github.com/quantumlib/Stim) circuits and circuit utilities, including:
   - `get_memory_experiment`: circuit for testing the performance of a code as a quantum memory.  Accepts both predefined and custom-built `SyndromeMeasurementStrategy`s.
   - `NoiseModel`: class for constructing expressive Pauli noise models, which map noiseless circuits to noisy circuits.  Built-in subclasses include a single-parameter `DepolarizingNoiseModel` and a superconducting-inspired `SI1000NoiseModel`.
-  - `SinterDecoder`: class to construct circuit-level decoders that are usable by Sinter.
+  - `SinterDecoder`: class to construct circuit-level decoders that are usable by [`sinter`](https://pypi.org/project/sinter).
   - `get_encoding_circuit`: circuit to prepare the all-|0> logical state of a code.  (Warning: generally not fault-tolerant.  Fault-tolerant encoding circuits [pending](https://github.com/qLDPCOrg/qLDPC/issues/327).)
   - `get_transversal_ops`: logical tableaus and physical circuits for the SWAP-transversal logical Clifford gates of a code, constructed via the code automorphism method of [arXiv:2409.18175](https://arxiv.org/abs/2409.18175).  (Warning: exponential complexity.)
   - `get_transversal_circuits`: find a SWAP-transversal physical circuit (if any) that implements a given logical Clifford operation in a code.  (Warning: exponential complexity.)
