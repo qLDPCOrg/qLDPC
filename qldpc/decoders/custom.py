@@ -54,7 +54,8 @@ class BatchDecoder(Protocol):
 class RelayBPDecoder(BatchDecoder):
     """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
-    The primary purpose of this class is to cast syndromes to a np.uint8 type before passing them to a decoder in the relay-bp package, which otherwise throws a type error.
+    The primary purpose of this class is to cast syndromes to a np.uint8 data type before passing
+    them to the decoders in the relay-bp package, which otherwise throw a type error.
     """
 
     def __init__(self, decoder: BatchDecoder) -> None:
