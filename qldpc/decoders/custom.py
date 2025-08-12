@@ -52,25 +52,28 @@ class BatchDecoder(Protocol):
 
 
 class RelayBPDecoder(BatchDecoder):
-    """Wrapper class for Relay-BP decoders."""
+    """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
-    def __init__(self, decoder: Decoder) -> None:
+    The primary purpose of this class is to cast syndromes to a np.uint8 type before passing them to a decoder in the relay-bp package, which otherwise throws a type error.
+    """
+
+    def __init__(self, decoder: BatchDecoder) -> None:
         self.decoder = decoder
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Cast the syndrome to a np.uint8 and decode."""
+        """Decode an error syndrome and return an inferred error."""
         return self.decoder.decode(np.asarray(syndrome, dtype=np.uint8))
 
     def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Cast the syndromes to a np.uint8 and decode."""
-        return getattr(self.decoder, "decode_batch")(np.asarray(syndromes, dtype=np.uint8))
+        """Decode a batch of error syndromes and return inferred errors."""
+        return self.decoder.decode_batch(np.asarray(syndromes, dtype=np.uint8))
 
     def decode_detailed(self, syndrome: npt.NDArray[np.int_]) -> relay_bp.DecodeResult:
-        """Cast the syndrome to a np.uint8 and decode."""
+        """Decode an error syndrome and return detailed information about the results."""
         return getattr(self.decoder, "decode_detailed")(np.asarray(syndrome, dtype=np.uint8))
 
     def decode_detailed_batch(self, syndromes: npt.NDArray[np.int_]) -> list[relay_bp.DecodeResult]:
-        """Cast the syndromes to a np.uint8 and decode."""
+        """Decode a batch of error syndromes and return detailed information about the results."""
         return getattr(self.decoder, "decode_detailed_batch")(np.asarray(syndromes, dtype=np.uint8))
 
 
