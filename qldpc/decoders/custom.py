@@ -1,4 +1,4 @@
-"""Decoding a syndrome with a parity check matrix
+"""Custom decoder classes
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -19,122 +19,63 @@ from __future__ import annotations
 
 import itertools
 import warnings
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
 
 import cvxpy
 import galois
-import ldpc
 import numpy as np
 import numpy.typing as npt
-import pymatching
 
 from qldpc import codes
-from qldpc.math import symplectic_conjugate
+from qldpc.math import symplectic_conjugate, symplectic_weight
 from qldpc.objects import Node
 
-PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
+if TYPE_CHECKING:
+    import relay_bp
 
 
 class Decoder(Protocol):
-    """Template (protocol) for a decoder object."""
+    """Template class for a decoder."""
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
 
 
-def decode(
-    matrix: npt.NDArray[np.int_], syndrome: npt.NDArray[np.int_], **decoder_args: object
-) -> npt.NDArray[np.int_]:
-    """Find a `vector` that solves `matrix @ vector == syndrome mod 2`."""
-    decoder = get_decoder(matrix, **decoder_args)
-    return decoder.decode(syndrome)
+class BatchDecoder(Protocol):
+    """Template class for a decoder that can decode in batches."""
+
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+
+    def decode_batch(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes and return inferred errors."""
 
 
-def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Retrieve a decoder."""
-    if constructor := decoder_args.pop("decoder_constructor", None):
-        assert callable(constructor)
-        return constructor(matrix, **decoder_args)
+class RelayBPDecoder(BatchDecoder):
+    """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
-    if decoder := decoder_args.pop("static_decoder", None):
-        assert hasattr(decoder, "decode") and callable(getattr(decoder, "decode"))
-        assert not decoder_args, "if passed a static decoder, we cannot process decoding arguments"
-        return decoder
-
-    if decoder_args.pop("with_lookup", False):
-        return get_decoder_lookup(matrix, **decoder_args)
-
-    if decoder_args.pop("with_GUF", False):
-        return get_decoder_GUF(matrix, **decoder_args)
-
-    if decoder_args.pop("with_ILP", False):
-        return get_decoder_ILP(matrix, **decoder_args)
-
-    if decoder_args.pop("with_MWPM", False):
-        return get_decoder_MWPM(matrix, **decoder_args)
-
-    if decoder_args.pop("with_BF", False):
-        return get_decoder_BF(matrix, **decoder_args)
-
-    if decoder_args.pop("with_BP_LSD", False):
-        return get_decoder_BP_LSD(matrix, **decoder_args)
-
-    # use a different default decoder for non-binary fields
-    if isinstance(matrix, galois.FieldArray) and type(matrix).order != 2:
-        decoder_args.pop("with_GUF", None)
-        return get_decoder_GUF(matrix, **decoder_args)
-
-    decoder_args.pop("with_BP_OSD", None)
-    return get_decoder_BP_OSD(matrix, **decoder_args)
-
-
-def get_decoder_BP_OSD(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Decoder based on belief propagation with ordered statistics (BP+OSD).
-
-    For details about the BD-OSD decoder and its arguments, see:
-    - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
-    - Reference: https://arxiv.org/abs/2005.07016
+    The primary purpose of this class is to cast syndromes to a np.uint8 data type before passing
+    them to the decoders in the relay-bp package, which otherwise throw a type error.
     """
-    if "error_channel" not in decoder_args and "error_rate" not in decoder_args:
-        decoder_args["error_rate"] = PLACEHOLDER_ERROR_RATE
-    return ldpc.BpOsdDecoder(matrix, **decoder_args)
 
+    def __init__(self, decoder: BatchDecoder) -> None:
+        self.decoder = decoder
 
-def get_decoder_BP_LSD(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Decoder based on belief propagation with localized statistics (BP+LSD).
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+        return self.decoder.decode(np.asarray(syndrome, dtype=np.uint8))
 
-    For details about the BD-LSD decoder and its arguments, see:
-    - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
-    - Reference: https://arxiv.org/abs/2406.18655
-    """
-    if "error_channel" not in decoder_args and "error_rate" not in decoder_args:
-        decoder_args["error_rate"] = PLACEHOLDER_ERROR_RATE
-    return ldpc.bplsd_decoder.BpLsdDecoder(matrix, **decoder_args)
+    def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes and return inferred errors."""
+        return self.decoder.decode_batch(np.asarray(syndromes, dtype=np.uint8))
 
+    def decode_detailed(self, syndrome: npt.NDArray[np.int_]) -> relay_bp.DecodeResult:
+        """Decode an error syndrome and return detailed information about the results."""
+        return getattr(self.decoder, "decode_detailed")(np.asarray(syndrome, dtype=np.uint8))
 
-def get_decoder_BF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Decoder based on belief finding (BF).
-
-    For details about the BF decoder and its arguments, see:
-    - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
-    - References:
-      - https://arxiv.org/abs/1709.06218
-      - https://arxiv.org/abs/2103.08049
-      - https://arxiv.org/abs/2209.01180
-    """
-    if "error_channel" not in decoder_args and "error_rate" not in decoder_args:
-        decoder_args["error_rate"] = PLACEHOLDER_ERROR_RATE
-    return ldpc.BeliefFindDecoder(matrix, **decoder_args)
-
-
-def get_decoder_MWPM(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
-    """Decoder based on minimum weight perfect matching (MWPM)."""
-    return pymatching.Matching.from_check_matrix(matrix, **decoder_args)
-
-
-def get_decoder_lookup(matrix: npt.NDArray[np.int_], **decoder_args: object) -> LookupDecoder:
-    """Decoder based on a lookup table from errors to syndromes."""
-    return LookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
+    def decode_detailed_batch(self, syndromes: npt.NDArray[np.int_]) -> list[relay_bp.DecodeResult]:
+        """Decode a batch of error syndromes and return detailed information about the results."""
+        return getattr(self.decoder, "decode_detailed_batch")(np.asarray(syndromes, dtype=np.uint8))
 
 
 class LookupDecoder(Decoder):
@@ -205,20 +146,84 @@ class LookupDecoder(Decoder):
         return self.table.get(tuple(syndrome.view(np.ndarray)), self.null_correction.copy())
 
 
-def get_symplectic_weight(vector: npt.NDArray[np.int_]) -> int:
-    """Get the symplectic weight of a vector.
+class ILPDecoder(Decoder):
+    """Decoder based on solving an integer linear program (ILP).
 
-    The symplectic weight of a Pauli string is the number of qudits that it addresses nontrivially.
+    All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
     """
-    vector = vector.reshape(2, -1)
-    vector_x = np.asarray(vector[0], dtype=int)
-    vector_z = np.asarray(vector[1], dtype=int)
-    return np.count_nonzero(vector_x | vector_z)
 
+    def __init__(self, matrix: npt.NDArray[np.int_], **decoder_args: object) -> None:
+        self.modulus = type(matrix).order if isinstance(matrix, galois.FieldArray) else 2
+        if not galois.is_prime(self.modulus):
+            raise ValueError("ILP decoding only supports prime number fields")
 
-def get_decoder_GUF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> GUFDecoder:
-    """Decoder based on a generalization of Union-Find, described in arXiv:2103.08049."""
-    return GUFDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
+        self.matrix = np.asarray(matrix, dtype=int) % self.modulus
+        num_checks, num_variables = self.matrix.shape
+
+        # variables, their constraints, and the objective (minimizing number of nonzero variables)
+        self.variable_constraints = []
+        if self.modulus == 2:
+            self.variables = cvxpy.Variable(num_variables, boolean=True)
+            self.objective = cvxpy.Minimize(cvxpy.norm(self.variables, 1))
+        else:
+            self.variables = cvxpy.Variable(num_variables, integer=True)
+            nonzero_variable_flags = cvxpy.Variable(num_variables, boolean=True)
+            self.variable_constraints += [var >= 0 for var in iter(self.variables)]
+            self.variable_constraints += [var <= self.modulus - 1 for var in iter(self.variables)]
+            self.variable_constraints += [self.modulus * nonzero_variable_flags >= self.variables]
+            self.objective = cvxpy.Minimize(cvxpy.norm(nonzero_variable_flags, 1))
+
+        self.decoder_args = decoder_args
+
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+        # identify all constraints
+        constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
+
+        # solve the optimization problem!
+        problem = cvxpy.Problem(self.objective, constraints)
+        result = problem.solve(**self.decoder_args)
+
+        # raise error if the optimization failed
+        if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
+            message = "Optimal solution to integer linear program could not be found!"
+            raise ValueError(message + f"\nSolver output: {result}")
+
+        # return solution to the problem variables
+        return self.variables.value.astype(int)
+
+    def cvxpy_constraints_for_syndrome(
+        self, syndrome: npt.NDArray[np.int_]
+    ) -> list[cvxpy.Constraint]:
+        """Build cvxpy constraints of the form `matrix @ variables == syndrome (mod q)`.
+
+        This method uses boolean slack variables {s_j} to relax each constraint of the form
+        `expression = val mod q`
+        to
+        `expression = val + sum_j q^j s_j`.
+        """
+        syndrome = np.asarray(syndrome, dtype=int) % self.modulus
+
+        constraints = []
+        for idx, (check, syndrome_bit) in enumerate(zip(self.matrix, syndrome)):
+            # identify the largest power of q needed for the relaxation
+            max_zero = int(sum(check) * (self.modulus - 1) - syndrome_bit)
+            if max_zero == 0 or self.modulus == 2:
+                max_power_of_q = max_zero.bit_length() - 1
+            else:
+                max_power_of_q = int(np.log2(max_zero) / np.log2(self.modulus))
+
+            if max_power_of_q > 0:
+                powers_of_q = [self.modulus**jj for jj in range(1, max_power_of_q + 1)]
+                slack_variables = cvxpy.Variable(max_power_of_q, boolean=True)
+                zero_mod_q = powers_of_q @ slack_variables
+            else:
+                zero_mod_q = 0
+
+            constraint = check @ self.variables == syndrome_bit + zero_mod_q
+            constraints.append(constraint)
+
+        return constraints
 
 
 class GUFDecoder(Decoder):
@@ -258,7 +263,7 @@ class GUFDecoder(Decoder):
 
         else:
             # decoding a quantum code: the "weight" of an error vector is its symplectic weight
-            self.get_weight = get_symplectic_weight
+            self.get_weight = symplectic_weight
             self.code = codes.QuditCode(symplectic_conjugate(matrix))
 
         self.graph = self.code.graph.to_undirected()
@@ -357,94 +362,6 @@ class GUFDecoder(Decoder):
         # the order of checks, bits is technically arbitrary, but according to unofficial empirical
         # tests, reverse-sorted order works better for concatenated codes
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
-
-
-def get_decoder_ILP(matrix: npt.NDArray[np.int_], **decoder_args: object) -> ILPDecoder:
-    """Decoder based on solving an integer linear program (ILP).
-
-    All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
-    """
-    return ILPDecoder(matrix, **decoder_args)
-
-
-class ILPDecoder(Decoder):
-    """Decoder based on solving an integer linear program (ILP).
-
-    All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
-    """
-
-    def __init__(self, matrix: npt.NDArray[np.int_], **decoder_args: object) -> None:
-        self.modulus = type(matrix).order if isinstance(matrix, galois.FieldArray) else 2
-        if not galois.is_prime(self.modulus):
-            raise ValueError("ILP decoding only supports prime number fields")
-
-        self.matrix = np.asarray(matrix, dtype=int) % self.modulus
-        num_checks, num_variables = self.matrix.shape
-
-        # variables, their constraints, and the objective (minimizing number of nonzero variables)
-        self.variable_constraints = []
-        if self.modulus == 2:
-            self.variables = cvxpy.Variable(num_variables, boolean=True)
-            self.objective = cvxpy.Minimize(cvxpy.norm(self.variables, 1))
-        else:
-            self.variables = cvxpy.Variable(num_variables, integer=True)
-            nonzero_variable_flags = cvxpy.Variable(num_variables, boolean=True)
-            self.variable_constraints += [var >= 0 for var in iter(self.variables)]
-            self.variable_constraints += [var <= self.modulus - 1 for var in iter(self.variables)]
-            self.variable_constraints += [self.modulus * nonzero_variable_flags >= self.variables]
-            self.objective = cvxpy.Minimize(cvxpy.norm(nonzero_variable_flags, 1))
-
-        self.decoder_args = decoder_args
-
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
-        # identify all constraints
-        constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
-
-        # solve the optimization problem!
-        problem = cvxpy.Problem(self.objective, constraints)
-        result = problem.solve(**self.decoder_args)
-
-        # raise error if the optimization failed
-        if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
-            message = "Optimal solution to integer linear program could not be found!"
-            raise ValueError(message + f"\nSolver output: {result}")
-
-        # return solution to the problem variables
-        return self.variables.value.astype(int)
-
-    def cvxpy_constraints_for_syndrome(
-        self, syndrome: npt.NDArray[np.int_]
-    ) -> list[cvxpy.Constraint]:
-        """Build cvxpy constraints of the form `matrix @ variables == syndrome (mod q)`.
-
-        This method uses boolean slack variables {s_j} to relax each constraint of the form
-        `expression = val mod q`
-        to
-        `expression = val + sum_j q^j s_j`.
-        """
-        syndrome = np.asarray(syndrome, dtype=int) % self.modulus
-
-        constraints = []
-        for idx, (check, syndrome_bit) in enumerate(zip(self.matrix, syndrome)):
-            # identify the largest power of q needed for the relaxation
-            max_zero = int(sum(check) * (self.modulus - 1) - syndrome_bit)
-            if max_zero == 0 or self.modulus == 2:
-                max_power_of_q = max_zero.bit_length() - 1
-            else:
-                max_power_of_q = int(np.log2(max_zero) / np.log2(self.modulus))
-
-            if max_power_of_q > 0:
-                powers_of_q = [self.modulus**jj for jj in range(1, max_power_of_q + 1)]
-                slack_variables = cvxpy.Variable(max_power_of_q, boolean=True)
-                zero_mod_q = powers_of_q @ slack_variables
-            else:
-                zero_mod_q = 0
-
-            constraint = check @ self.variables == syndrome_bit + zero_mod_q
-            constraints.append(constraint)
-
-        return constraints
 
 
 class BlockDecoder(Decoder):
