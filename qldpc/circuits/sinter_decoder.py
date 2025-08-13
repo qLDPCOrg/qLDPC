@@ -39,7 +39,7 @@ class SinterDecoder(sinter.Decoder):
         Args:
             error_probs_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
-            decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
+            **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
         self.error_probs_arg = error_probs_arg
