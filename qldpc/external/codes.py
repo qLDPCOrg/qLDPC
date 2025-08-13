@@ -96,10 +96,13 @@ def get_distance_bound(
         raise ValueError("QDistRnd cannot estimate the distance of non-CSS subsystem codes.")
 
     else:
+        # "riffle" the parity check matrix to put X and Z support bits each qudit next to each other
+        matrix = code.matrix.reshape(-1, 2, len(code)).transpose(0, 2, 1).reshape(code.matrix.shape)
+        riffled_code = qldpc.codes.ClassicalCode(matrix)
         args = ",".join([f"{field}*matrix", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd");',
-            f"matrix := {code.matrix_as_string()};",
+            f"matrix := {riffled_code.matrix_as_string()};",
             f"Print(DistRandStab({args}:{kwargs}));",
         ]
 
