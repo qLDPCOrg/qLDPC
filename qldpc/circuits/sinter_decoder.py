@@ -36,6 +36,8 @@ class SinterDecoder(sinter.Decoder):
     def __init__(self, *, error_probs_arg: str | None = None, **decoder_kwargs: object) -> None:
         """Initialize a SinterDecoder.
 
+        See help(sinter.Decoder) for additional information.
+
         Args:
             error_probs_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
