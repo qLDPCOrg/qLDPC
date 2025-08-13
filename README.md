@@ -1,10 +1,19 @@
 # qLDPC
 
-This package contains tools for constructing and analyzing [quantum low density parity check (qLDPC) codes](https://errorcorrectionzoo.org/c/qldpc).  At least, that was the original motivation for this package.  In practice, the tools here can work just as well for more general error-correcting stabilizer and subsystem codes.
+This library contains tools for constructing and analyzing [quantum low density parity check (qLDPC) codes](https://errorcorrectionzoo.org/c/qldpc).  At least, that was the original motivation for this library.  In practice, the tools here can work just as well for error-correcting stabilizer and subsystem codes more broadly.
+
+In a nutshell, `qLDPC` provides supports a variety of built-in codes and custom codes constructed from parity check matrices that represent stabilizer or gauge group generators.  Once a code is constructed, `qLDPC` automates various tasks of common interest, and integrates with external tools (including [`QDistRnd`](https://docs.gap-system.org/pkg/qdistrnd/doc/chap1_mj.html), [`ldpc`](https://github.com/quantumgizmos/ldpc), [`stim`](https://github.com/quantumlib/Stim), and [`sinter`](https://pypi.org/project/sinter), among others) for analyzing error-correcting codes.  Automated tasks include:
+- constructing a canonical basis logical Pauli operators,
+- computing (or upper-bounding) code distance,
+- computing logical error rates in a code-capacity model,
+- constructing various circuits of interest, such as a quantum memory experiment for obtaining circuit-level logical error rates,
+- defining custom Pauli noise models,
+- plugging a decoder of choice into your workflow.
+Where possible, this library strives to support qudit codes over arbitrary finite (Galois) fields, although circuit-related utilities are (at least currently) limited to qubit codes.  See the [`examples`](https://github.com/qLDPCOrg/qLDPC/tree/main/examples) directory for some demonstrations and use-cases.
 
 ## 📦 Installation
 
-This package requires Python>=3.10, and can be installed from the Python Package Index (PyPI) with
+This library requires Python>=3.10, and can be installed from the Python Package Index (PyPI) with
 ```
 pip install qldpc
 ```
@@ -29,10 +38,10 @@ If you use macOS you may need to install `cvxpy` manually by following the instr
 Notable features include:
 - `ClassicalCode`: class for representing classical linear error-correcting codes over finite fields.
   - Various pre-defined classical code families.
-  - Communication with the [GAP](https://www.gap-system.org)/[GUAVA](https://www.gap-system.org/Packages/guava.html) package for [even more codes](https://docs.gap-system.org/pkg/guava/doc/chap5.html).
+  - Communication with the [GAP](https://www.gap-system.org)/[`GUAVA`](https://www.gap-system.org/Packages/guava.html) package for [even more codes](https://docs.gap-system.org/pkg/guava/doc/chap5.html).
 - `QuditCode`: class for constructing [Galois-qudit codes](https://errorcorrectionzoo.org/c/galois_into_galois), including both [stabilizer](https://errorcorrectionzoo.org/c/galois_stabilizer) and [subsystem](https://errorcorrectionzoo.org/c/oecc) codes.
   - `QuditCode.get_logical_ops`: method to construct a complete basis of nontrivial logical Pauli operators for a `QuditCode`.
-  - `QuditCode.get_distance`: method to compute the exact code distance of a `QuditCode` (i.e., the minimum weight of a nontrivial logical operator).  Includes options to compute an upper bound on code distance using [QDistRnd](https://docs.gap-system.org/pkg/qdistrnd/doc/chap1_mj.html) or (for CSS codes) a decoder-based method introduced in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915).
+  - `QuditCode.get_distance`: method to compute the exact code distance of a `QuditCode` (i.e., the minimum weight of a nontrivial logical operator).  Includes options to compute an upper bound on code distance using [`QDistRnd`](https://docs.gap-system.org/pkg/qdistrnd/doc/chap1_mj.html) or (for CSS codes) a decoder-based method introduced in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915).
   - `QuditCode.concatenate`: method to [concatenate](https://errorcorrectionzoo.org/c/quantum_concatenated) `QuditCode`s in various ways.
 - `CSSCode`: subclass of `QuditCode` for the special case of constructing a [quantum CSS code](https://errorcorrectionzoo.org/c/css) out of two mutually compatible `ClassicalCode`s.  Special cases (subclasses) with specialized constructors and helper methods include:
   - `TBCode`: [two-block quantum codes](https://errorcorrectionzoo.org/c/two_block_quantum).
@@ -60,7 +69,7 @@ Notable features include:
 
 ## 🤔 Questions and issues
 
-This project aspires to have a [documentation page](https://qldpc.readthedocs.io/en/latest), but at the moment the documentation is out of date and auto-generated from source code that was written to be human-readable in a plain text editor.  For now, I recommend looking at the source code (and comments therein) directly, as well as the `examples` directory.  Test files (such as `qldpc/codes/quantum_test.py`) also contain some examples of using the classes and methods in this library.
+This project aspires to have a [documentation page](https://qldpc.readthedocs.io/en/latest), but at the moment the documentation is out of date and auto-generated from source code that was written to be human-readable in a plain text editor.  For now, I recommend looking at the source code (and comments therein) directly, as well as the [`examples`](https://github.com/qLDPCOrg/qLDPC/tree/main/examples) directory.  Test files (such as [`qldpc/codes/quantum_test.py`](https://github.com/qLDPCOrg/qLDPC/blob/main/qldpc/codes/quantum_test.py)) also contain some examples of using the classes and methods in this library.
 
 If you have any questions, feedback, or requests, please [open an issue on GitHub](https://github.com/qLDPCOrg/qLDPC/issues/new) or email me at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com)!
 

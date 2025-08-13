@@ -1453,19 +1453,12 @@ class QuditCode(AbstractCode):
         matrix = np.hstack([code_x.matrix, code_z.matrix])
         is_subsystem_code = any(code.is_subsystem_code for code in codes)
         code = QuditCode(matrix, is_subsystem_code=is_subsystem_code)
+        length = len(code)  # defined purely for aesthetic/auto-formatting reasons
         if inherit_logicals:
-            logicals_xx = [
-                QuditCode.get_logical_ops(code, Pauli.X)[:, : len(code)] for code in codes
-            ]
-            logicals_zx = [
-                QuditCode.get_logical_ops(code, Pauli.Z)[:, : len(code)] for code in codes
-            ]
-            logicals_xz = [
-                QuditCode.get_logical_ops(code, Pauli.X)[:, len(code) :] for code in codes
-            ]
-            logicals_zz = [
-                QuditCode.get_logical_ops(code, Pauli.Z)[:, len(code) :] for code in codes
-            ]
+            logicals_xx = [QuditCode.get_logical_ops(code, Pauli.X)[:, :length] for code in codes]
+            logicals_zx = [QuditCode.get_logical_ops(code, Pauli.Z)[:, :length] for code in codes]
+            logicals_xz = [QuditCode.get_logical_ops(code, Pauli.X)[:, length:] for code in codes]
+            logicals_zz = [QuditCode.get_logical_ops(code, Pauli.Z)[:, length:] for code in codes]
             logical_ops = np.block(
                 [
                     [scipy.linalg.block_diag(*logicals_xx), scipy.linalg.block_diag(*logicals_xz)],
