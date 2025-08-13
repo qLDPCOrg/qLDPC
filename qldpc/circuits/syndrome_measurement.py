@@ -215,6 +215,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         )
         return circuit, measurement_record
 
+    @staticmethod
     def graph_to_circuit(graph: nx.DiGraph, qubit_ids: QubitIDs, strategy: str) -> stim.Circuit:
         """Convert a Tanner graph into a syndrome extraction circuit.
 
