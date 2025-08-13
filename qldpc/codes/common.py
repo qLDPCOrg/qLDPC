@@ -2050,10 +2050,10 @@ class CSSCode(QuditCode):
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
 
-        if (
-            hasattr(self, "_get_distance_exact")
-            and (distance := self._get_distance_exact(pauli)) is not None
-        ):
+        if (distance := self._get_distance_exact(pauli)) is not NotImplemented:
+            self._distance_x = distance if pauli is Pauli.X else self._distance_x
+            self._distance_z = distance if pauli is Pauli.Z else self._distance_z
+            self._distance = distance if pauli is None else self._distance
             return distance
 
         if pauli is None:
@@ -2087,6 +2087,10 @@ class CSSCode(QuditCode):
         if self._distance_x is not None and self._distance_z is not None:
             self._distance = min(self._distance_x, self._distance_z)
         return distance
+
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+        """Method for subclasses to compute specialized exact distance calculations."""
+        return NotImplemented  # pragma: no cover
 
     def get_distance_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
         """Retrieve a distance, if known.  Otherwise, return None."""

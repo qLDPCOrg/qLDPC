@@ -77,14 +77,15 @@ def get_distance_bound(
     qldpc.external.gap.require_package("GUAVA")
     qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
 
-    cutoff = cutoff or 0
     field = f"GF({code.field.order})"
+    one = f"One({field})"
+    cutoff = cutoff or 0
     kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])
 
     if isinstance(code, qldpc.codes.CSSCode):
         code_x = qldpc.codes.ClassicalCode(code.get_stabilizer_ops(qldpc.objects.Pauli.X))
         code_z = code.code_z
-        args = ",".join([f"{field}*matrix_x", f"{field}*matrix_z", f"{num_trials}", f"{cutoff}"])
+        args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd");',
             f"matrix_x := {code_x.matrix_as_string()};",
@@ -99,7 +100,7 @@ def get_distance_bound(
         # "riffle" the parity check matrix to put X and Z support bits each qudit next to each other
         matrix = code.matrix.reshape(-1, 2, len(code)).transpose(0, 2, 1).reshape(code.matrix.shape)
         riffled_code = qldpc.codes.ClassicalCode(matrix)
-        args = ",".join([f"{field}*matrix", f"{num_trials}", f"{cutoff}"])
+        args = ",".join([f"{one}*matrix", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd");',
             f"matrix := {riffled_code.matrix_as_string()};",

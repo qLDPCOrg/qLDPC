@@ -533,7 +533,7 @@ def test_distance_css() -> None:
 
     with (
         unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
-        unittest.mock.patch("qldpc.codes.HGPCode._get_distance_exact", return_value=None),
+        unittest.mock.patch("qldpc.codes.HGPCode._get_distance_exact", return_value=NotImplemented),
     ):
         with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
             assert code.get_distance(bound=False) == 2
@@ -549,7 +549,9 @@ def test_distance_css() -> None:
 
     # qubit code distance
     code = codes.SHPCode(codes.RepetitionCode(2, field=2))
-    with unittest.mock.patch("qldpc.codes.SHPCode._get_distance_exact", return_value=None):
+    with unittest.mock.patch(
+        "qldpc.codes.SHPCode._get_distance_exact", return_value=NotImplemented
+    ):
         assert code.get_distance_exact() == 2
         assert code.get_distance_bound_with_decoder(Pauli.X, cutoff=len(code)) <= len(code)
 

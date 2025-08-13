@@ -567,13 +567,15 @@ def test_exact_distances() -> None:
         codes.HGPCode(codes.RingCode(2), field=2),
         codes.SHPCode(codes.RepetitionCode(2), field=2),
     ]:
+        name = type(code).__name__
         dist = code.get_distance()
         dist_x = code.get_distance(Pauli.X)
         dist_z = code.get_distance(Pauli.Z)
         with (
             unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
-            unittest.mock.patch("qldpc.codes.HGPCode._get_distance_exact", return_value=None),
-            unittest.mock.patch("qldpc.codes.SHPCode._get_distance_exact", return_value=None),
+            unittest.mock.patch(
+                f"qldpc.codes.{name}._get_distance_exact", return_value=NotImplemented
+            ),
         ):
             assert dist == code.get_distance()
             assert dist_x == code.get_distance(Pauli.X)
