@@ -26,7 +26,7 @@ import networkx as nx
 import stim
 
 from qldpc import codes
-from qldpc.objects import Node, Pauli
+from qldpc.objects import Pauli
 
 from .common import restrict_to_qubits
 
@@ -162,10 +162,12 @@ class SerialExtraction(SyndromeMeasurementStrategy):
 
 
 class EdgeColoring(SyndromeMeasurementStrategy):
-    """Coloration strategy for syndrome measurement in arXiv:2109.14609.
+    """Edge coloration syndrome measurement strategy in Algorithm 1 of arXiv:2109.14609.
 
-    In words, this strategy colors the edges of the Tanner graph of a code, which determines the
-    corresponding gate order.
+    For a CSS code with Tanner graph T, this strategy is as follows:
+    1. Construct the subgraphs T_X and T_Z of T restricted, respectively, to X and Z stabilizers.
+    2. For each T_P in {T_X, T_Z}, color the edges of T_P, and then apply all corresponding gates
+        one color at a time.
 
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
@@ -194,20 +196,11 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
-        # identify subgraphs of the Tanner graph for X-type and Z-type stabilizers
-        data_nodes = [Node(index, is_data=True) for index in qubit_ids.data]
-        check_nodes = [Node(index, is_data=False) for index in range(code.num_checks)]
-        check_nodes_x = check_nodes[: code.num_checks_x]
-        check_nodes_z = check_nodes[code.num_checks_x :]
-        graph_x = code.graph.subgraph(data_nodes + check_nodes_x)
-        graph_z = code.graph.subgraph(data_nodes + check_nodes_z)
-
-        # measure X and Z stabilizers in sequence
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
         circuit.append("TICK")
-        circuit += EdgeColoring.graph_to_circuit(graph_x, qubit_ids, strategy)
-        circuit += EdgeColoring.graph_to_circuit(graph_z, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, strategy)
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(

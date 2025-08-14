@@ -22,6 +22,7 @@ import unittest.mock
 from typing import Iterator
 
 import galois
+import networkx as nx
 import numpy as np
 import pytest
 
@@ -497,6 +498,10 @@ def test_css_code() -> None:
     with pytest.raises(ValueError, match="incompatible"):
         code_z = codes.ClassicalCode.random(3, 2, field=code_x.field.order**2)
         codes.CSSCode(code_x, code_z)
+
+    assert nx.utils.misc.graphs_equal(
+        code.graph, nx.compose(code.get_graph(Pauli.X), code.get_graph(Pauli.Z))
+    )
 
 
 def test_css_ops() -> None:

@@ -1688,6 +1688,32 @@ class CSSCode(QuditCode):
         ).view(self.field)
 
     @functools.cached_property
+    def graphs_xz(self) -> tuple[nx.DiGraph, nx.DiGraph]:
+        """Subgraghs of the Tanner graph for X-type and Z-type parity checks."""
+        data_nodes = [Node(index, is_data=True) for index in range(len(self))]
+        check_nodes = [Node(index, is_data=False) for index in range(self.num_checks)]
+        check_nodes_x = check_nodes[: self.num_checks_x]
+        check_nodes_z = check_nodes[self.num_checks_x :]
+        graph_x = self.graph.subgraph(data_nodes + check_nodes_x)
+        graph_z = self.graph.subgraph(data_nodes + check_nodes_z)
+        return graph_x, graph_z
+
+    @property
+    def graph_x(self) -> nx.DiGraph:
+        """Subgragh of the Tanner graph for X-type parity checks."""
+        return self.graphs_xz[0]
+
+    @property
+    def graph_z(self) -> nx.DiGraph:
+        """Subgragh of the Tanner graph for Z-type parity checks."""
+        return self.graphs_xz[1]
+
+    def get_graph(self, pauli: PauliXZ) -> galois.FieldArray:
+        """Subgragh of the Tanner graph for pauli-type parity checks."""
+        assert pauli in PAULIS_XZ
+        return self.graph_x if pauli is Pauli.X else self.graph_z
+
+    @functools.cached_property
     def canonicalized(self) -> CSSCode:
         """The same code with its parity matrices in reduced row echelon form."""
         return CSSCode(
