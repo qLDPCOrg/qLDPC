@@ -198,7 +198,6 @@ class EdgeColoring(SyndromeMeasurementStrategy):
 
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
-        circuit.append("TICK")
         circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, strategy)
         circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, strategy)
         circuit.append("MX", qubit_ids.check)
@@ -231,5 +230,4 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         for gates in color_to_ops.values():
             for gate, check_qubit, data_qubit in sorted(gates):
                 circuit.append(gate, [check_qubit, data_qubit])
-            circuit.append("TICK")
         return circuit
