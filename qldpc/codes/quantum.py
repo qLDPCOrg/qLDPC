@@ -79,7 +79,7 @@ class SteaneCode(CSSCode):
 
 
 class IcebergCode(CSSCode):
-    """Quantum error detecting code: [2m, 2m-2, 2].
+    """A quantum error detecting code: [2m, 2m-2, 2].
 
     The m = 3 IcebergCode is the [6, 4, 2] code that is used to construct concatenated
     many-hypercube codes.
@@ -138,7 +138,7 @@ class C6Code(CSSCode):
 
 
 class TBCode(CSSCode):
-    """Two-block (TB) code.
+    """Two-block code.
 
     A TBCode code is built out of two matrices A and B, which are combined as
     - matrix_x = [A, B], and
@@ -329,7 +329,6 @@ class QCCode(TBCode):
         return new_poly
 
 
-# TODO: example notebook featuring this code
 class BBCode(QCCode):
     """Bivariate bicycle code.
 
@@ -644,7 +643,7 @@ class BBCode(QCCode):
 
 
 class HGPCode(CSSCode):
-    """Hypergraph product (HGP) code.
+    """Hypergraph product code.
 
     A hypergraph product code AB is constructed from the parity check matrices of two classical
     codes, A and B.
@@ -911,7 +910,7 @@ class HGPCode(CSSCode):
 
 
 class SHPCode(CSSCode):
-    """Subsystem hypergraph product (SHP) code.
+    """Subsystem hypergraph product code.
 
     A subsystem hypergraph product code (SHPCode) is constructed from two classical codes.  Unlike
     the ordinary hypergraph product code, an SHPCode depends only on the actual classical codes it
@@ -1005,7 +1004,7 @@ class SHPCode(CSSCode):
 
 
 class LPCode(CSSCode):
-    """Lifted product (LP) code.
+    """Lifted product code.
 
     A lifted product code is essentially the same as a hypergraph product code, except that the
     parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
@@ -1060,7 +1059,7 @@ class LPCode(CSSCode):
 
 
 class SLPCode(CSSCode):
-    """Subsystem lifted product (SLP) code.
+    """Subsystem lifted product code.
 
     The subsystem lifted product code is a lifted version of the subsystem hypergraph product code.
     That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.  See the docstring for

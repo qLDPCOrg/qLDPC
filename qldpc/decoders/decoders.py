@@ -127,7 +127,7 @@ def get_decoder_RBP(
     """Relay-BP decoders.
 
     For details about Relay-BP decoders, see:
-    - Documentation: https://pypi.org/project/relay-bp/
+    - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """
     try:

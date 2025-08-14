@@ -105,7 +105,7 @@ class ExtendedHammingCode(ClassicalCode):
 class ReedSolomonCode(ClassicalCode):
     """Classical Reed-Solomon code.
 
-    Source: https://galois.readthedocs.io/en/v0.3.8/api/galois.ReedSolomon/
+    Source: https://mhostetter.github.io/galois/latest/api/galois.ReedSolomon
     References:
     - https://errorcorrectionzoo.org/c/reed_solomon
     - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
@@ -117,9 +117,9 @@ class ReedSolomonCode(ClassicalCode):
 
 
 class BCHCode(ClassicalCode):
-    """Classical binary BCH code.
+    """Classical BCH (Bose-Chaudhuri-Hocquenghem) code.
 
-    Source: https://galois.readthedocs.io/en/v0.3.8/api/galois.BCH/
+    Source: https://mhostetter.github.io/galois/latest/api/galois.BCH
     References:
     - https://errorcorrectionzoo.org/c/bch
     - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
@@ -253,7 +253,7 @@ class TannerCode(ClassicalCode):
 
 
 class SimplexCode(ClassicalCode):
-    """Classical simplex codes.
+    """Classical simplex code.
 
     A binary simplex code with dimension k has code parameters [2**k - 1, k, 2 ** (k - 1)].
     The automorphism of this code is the general linear group GL(k, 2).

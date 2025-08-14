@@ -5,4 +5,8 @@ import checks_superstaq
 import pytest_
 
 if __name__ == "__main__":
-    exit(checks_superstaq.coverage_.run(*sys.argv[1:], "--modular", exclude=pytest_.EXCLUDE))
+    exit(
+        checks_superstaq.coverage_.run(
+            *sys.argv[1:], "--modular", "--sysmon", exclude=pytest_.EXCLUDE
+        )
+    )
