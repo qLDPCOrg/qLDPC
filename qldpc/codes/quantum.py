@@ -1594,29 +1594,30 @@ class BPCode(CSSCode):
 
     def __init__(
         self,
-        binaryMatrix: np.typing.NDArray[np.int_],
+        seed_matrix: np.typing.NDArray[np.int_],
         R: qldpc.abstract.GroupMember,
         C: qldpc.abstract.GroupMember,
     ) -> None:
-        if not np.all((binaryMatrix == 0) | binaryMatrix == 1):
+        if not np.all((seed_matrix == 0) | seed_matrix == 1):
             raise ValueError("Binary matrix must only have zeros or ones")
 
-        if binaryMatrix.shape[0] != binaryMatrix.shape[1]:
+        if seed_matrix.shape[0] != seed_matrix.shape[1]:
             raise ValueError("Only square binary matrix is supported at this time")
         if not np.array_equal(
-            R.to_matrix(binaryMatrix.shape[0]) @ binaryMatrix,
-            binaryMatrix @ C.to_matrix(binaryMatrix.shape[1]).T,
+            R.to_matrix(seed_matrix.shape[0]) @ seed_matrix,
+            seed_matrix @ C.to_matrix(seed_matrix.shape[1]).T,
         ):
             raise ValueError("Invalid permutations provided")
 
         self._r = R
         self._c = C
+        self._seed_matrix = seed_matrix
 
         check_x = np.hstack(
-            (binaryMatrix.T, np.eye(binaryMatrix.shape[0], dtype=int) + self._c.to_matrix())
+            (seed_matrix.T, np.eye(seed_matrix.shape[0], dtype=int) + self._c.to_matrix())
         )
         check_z = np.hstack(
-            (np.eye(binaryMatrix.shape[1], dtype=int) + self._r.to_matrix(), binaryMatrix)
+            (np.eye(seed_matrix.shape[1], dtype=int) + self._r.to_matrix(), seed_matrix)
         )
         CSSCode.__init__(self, check_x, check_z)
 
