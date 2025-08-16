@@ -1597,6 +1597,7 @@ class BPCode(CSSCode):
         seed_matrix: np.typing.NDArray[np.int_],
         R: qldpc.abstract.GroupMember,
         C: qldpc.abstract.GroupMember,
+        field: int | None = None,
     ) -> None:
         if not np.all((seed_matrix == 0) | seed_matrix == 1):
             raise ValueError("Binary matrix must only have zeros or ones")
@@ -1619,23 +1620,23 @@ class BPCode(CSSCode):
         check_z = np.hstack(
             (np.eye(seed_matrix.shape[1], dtype=int) + self._r.to_matrix(), seed_matrix)
         )
-        CSSCode.__init__(self, check_x, check_z)
-
-    """
-    Allows for the creation of balanced codes from a classical code and a CSS code.
-    
-    https://arxiv.org/pdf/2505.13679v1
-    
-    If 'distance_balancing', function will determine if x and z errors have the same distance
-    and if not, will construct the code to maximize the final distance. This involve exact distance calculations
-    which will only work on relatively small codes
-    
-    """
+        CSSCode.__init__(self, check_x, check_z, field, is_subsystem_code=False)
 
     @classmethod
     def from_codes(
         cls, code_q: CSSCode, code_c: ClassicalCode, distance_balancing: bool = False
     ) -> qldpc.codes.BPCode:
+        """
+        Allows for the creation of balanced codes from a classical code and a CSS code.
+
+        https://arxiv.org/pdf/2505.13679v1
+
+        If 'distance_balancing', function will determine if x and z errors have the same distance
+        and if not, will construct the code to maximize the final distance. This involve exact distance calculations
+        which will only work on relatively small codes
+
+        """
+
         # i.e. rows of matrix, number qubits of matrix
         r_C, n_C = code_c.matrix.shape
 

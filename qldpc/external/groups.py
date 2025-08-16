@@ -117,7 +117,6 @@ def get_generators_with_gap(group: str) -> GENERATORS_LIST | None:
         r'for gen in gens do Print(gen, "\n"); od;',
     ]
     generators_str = qldpc.external.gap.get_output(*commands)
-
     # collect generators
     generators = []
     for line in generators_str.splitlines():
@@ -293,14 +292,13 @@ def get_primitive_central_idempotents(
     return tuple(idempotents)
 
 
-"""
-Gets all order l permutations for a nxm matrix
-"""
-
-
 def get_permutation_symmetry_of_matrix(
-    symmetry_length: int, n: int, m: int
+    symmetry_length: int, rows: int, columns: int
 ) -> tuple[list[qldpc.abstract.GroupMember], list[qldpc.abstract.GroupMember]]:
+    """
+    Gets all order l permutations for matrix of shape (rows,columns)
+    """
+
     # Parse output, account for zero-based indexing
     def parse_permutation_output(output: str) -> list[qldpc.abstract.GroupMember]:
         perm_list = []
@@ -317,25 +315,24 @@ def get_permutation_symmetry_of_matrix(
         return perm_list
 
     row_permutations_output = qldpc.external.gap.get_output(
-        f"row_perms := Filtered(SymmetricGroup({n}), perm -> Order(perm) = {symmetry_length});Print(row_perms);",
+        f"row_perms := Filtered(SymmetricGroup({rows}), perm -> Order(perm) = {symmetry_length});Print(row_perms);",
     )
     col_permutations_output = qldpc.external.gap.get_output(
-        f"col_perms := Filtered(SymmetricGroup({m}), perm -> Order(perm) = {symmetry_length});Print(col_perms);",
+        f"col_perms := Filtered(SymmetricGroup({columns}), perm -> Order(perm) = {symmetry_length});Print(col_perms);",
     )
     return parse_permutation_output(row_permutations_output), parse_permutation_output(
         col_permutations_output
     )
 
 
-"""
-Gets a pair of permutations with a certain orbit length (if one exists) for a binary matrix 
-that meets the requirements to construct a balanced product code
-"""
-
-
 def get_balanced_permutations_of_matrix(
     binaryMatrix: np.typing.NDArray[np.int_], symmetryLength: int
 ) -> tuple[qldpc.abstract.GroupMember, qldpc.abstract.GroupMember]:
+    """
+    Gets a pair of permutations with a certain orbit length (if one exists) for a binary matrix
+    that meets the requirements to construct a balanced product code
+    """
+
     r_candidates, c_candidates = qldpc.external.groups.get_permutation_symmetry_of_matrix(
         symmetryLength, binaryMatrix.shape[0], binaryMatrix.shape[1]
     )
