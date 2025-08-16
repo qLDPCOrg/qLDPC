@@ -28,7 +28,7 @@ from sympy.combinatorics import Permutation
 
 import qldpc.codes
 from qldpc import abstract, codes
-from qldpc.codes import BalancedProductCode
+from qldpc.codes import BPCode
 from qldpc.objects import ChainComplex, Node, Pauli
 
 
@@ -579,7 +579,7 @@ def test_balanced_product_code() -> None:
         abstract.GroupMember.from_sympy(Permutation([4, 5, 0, 1, 2, 3])),
     )
 
-    balanced_code = codes.BalancedProductCode(matrix, R, C)
+    balanced_code = codes.BPCode(matrix, R, C)
 
     # Meets CSS orthogonality
 
@@ -596,21 +596,21 @@ def test_balanced_product_code() -> None:
         abstract.GroupMember.from_sympy(Permutation([0, 1, 2, 3, 4, 5])),
     )
     with pytest.raises(ValueError):
-        codes.BalancedProductCode(matrix, R, C)
+        codes.BPCode(matrix, R, C)
 
     matrix_extra_row = np.vstack([matrix, np.zeros((1, 6), dtype=int)])
     with pytest.raises(ValueError):
-        BalancedProductCode(matrix_extra_row, R, C)
+        BPCode(matrix_extra_row, R, C)
 
     matrix[0][0] = 2
     with pytest.raises(ValueError):
-        BalancedProductCode(matrix, R, C)
+        BPCode(matrix, R, C)
 
 
 def test_balanced_product_from_codes() -> None:
     css = qldpc.codes.SurfaceCode(5)
     classical = qldpc.codes.classical.RepetitionCode(5)
-    new_code = qldpc.codes.BalancedProductCode.from_codes(css, classical)
+    new_code = qldpc.codes.BPCode.from_codes(css, classical)
     assert (
         new_code.num_qubits
         == css.num_qubits * classical.matrix.shape[1]
@@ -627,7 +627,7 @@ def test_balanced_product_from_codes() -> None:
     poly_b = 1 + x**2 + x**7 + x**9 * y**2
     css2 = codes.BBCode(orders, poly_a, poly_b, field=2)
     classical2 = qldpc.codes.classical.ReedMullerCode(5, 5)
-    new_code = qldpc.codes.BalancedProductCode.from_codes(css2, classical2)
+    new_code = qldpc.codes.BPCode.from_codes(css2, classical2)
     assert (
         new_code.num_qubits
         == css2.num_qubits * classical2.matrix.shape[1]
@@ -644,7 +644,7 @@ def test_unbalanced_product_from_codes() -> None:
 
     classical = qldpc.codes.classical.RepetitionCode(5)
 
-    new_code = qldpc.codes.BalancedProductCode.from_codes(css, classical, True)
+    new_code = qldpc.codes.BPCode.from_codes(css, classical, True)
 
     assert (
         new_code.num_qubits

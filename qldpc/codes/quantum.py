@@ -1565,7 +1565,7 @@ class GeneralizedSurfaceCode(CSSCode):
         CSSCode.__init__(self, matrix_x, matrix_z, field)
 
 
-class BalancedProductCode(CSSCode):
+class BPCode(CSSCode):
     """Code created from the product of classical codes. Similar to hypergraph codes.
 
     Binary matrix (M) must have 2 permutations, r and c. Where r*M = M*C^T and r^l = I and c^l for some l.
@@ -1634,7 +1634,7 @@ class BalancedProductCode(CSSCode):
     @classmethod
     def from_codes(
         cls, code_q: CSSCode, code_c: ClassicalCode, distance_balancing: bool = False
-    ) -> qldpc.codes.BalancedProductCode:
+    ) -> qldpc.codes.BPCode:
         # i.e. rows of matrix, number qubits of matrix
         r_C, n_C = code_c.matrix.shape
 
