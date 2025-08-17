@@ -730,7 +730,7 @@ class QuditCode(AbstractCode):
     _stabilizer_ops: galois.FieldArray | None = None
     _gauge_ops: galois.FieldArray | None = None
     _logical_ops: galois.FieldArray | None = None
-    _is_subsystem_code: bool
+    _is_subsystem_code: bool | None
 
     def __init__(
         self,
@@ -746,12 +746,9 @@ class QuditCode(AbstractCode):
             self._stabilizer_ops = matrix._stabilizer_ops
             self._gauge_ops = matrix._gauge_ops
             self._logical_ops = matrix._logical_ops
-            self._is_subsystem_code = matrix.is_subsystem_code
-            assert is_subsystem_code is None or is_subsystem_code == matrix.is_subsystem_code
+            self._is_subsystem_code = matrix._is_subsystem_code
 
         else:
-            if is_subsystem_code is None:
-                is_subsystem_code = bool(np.any(symplectic_conjugate(self.matrix) @ self.matrix.T))
             self._is_subsystem_code = is_subsystem_code
 
     def __eq__(self, other: object) -> bool:
@@ -774,7 +771,11 @@ class QuditCode(AbstractCode):
 
     @property
     def is_subsystem_code(self) -> bool:
-        """Is this code a subsystem code?  If not, it is a stabilizer code."""
+        """Is this code a subsystem code?  That is, do all parity checks commute?."""
+        if self._is_subsystem_code is None:
+            self._is_subsystem_code = bool(
+                np.any(symplectic_conjugate(self.matrix) @ self.matrix.T)
+            )
         return self._is_subsystem_code
 
     @functools.cached_property
@@ -782,7 +783,7 @@ class QuditCode(AbstractCode):
         """The same code with its parity matrix in reduced row echelon form."""
         matrix_rref = self.matrix.row_reduce()
         matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
-        return QuditCode(matrix_rref, self.field.order, is_subsystem_code=self.is_subsystem_code)
+        return QuditCode(matrix_rref, self.field.order, is_subsystem_code=self._is_subsystem_code)
 
     @staticmethod
     def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
@@ -1391,7 +1392,7 @@ class QuditCode(AbstractCode):
         matrix_reshaped = self.matrix.copy().reshape(-1, 2, len(self))
         matrix_reshaped[:, :, qudits] = matrix_reshaped[:, ::-1, qudits]
         matrix = matrix_reshaped.reshape(-1, 2 * len(self))
-        code = QuditCode(matrix, field=self.field.order, is_subsystem_code=self.is_subsystem_code)
+        code = QuditCode(matrix, field=self.field.order, is_subsystem_code=self._is_subsystem_code)
 
         if self._logical_ops is not None:
             logical_ops = self._logical_ops.copy().reshape(-1, 2, len(self))
@@ -1428,7 +1429,7 @@ class QuditCode(AbstractCode):
 
         # deform this code by transforming its stabilizers
         matrix = deform_strings(self.matrix)
-        new_code = QuditCode(matrix, is_subsystem_code=self.is_subsystem_code)
+        new_code = QuditCode(matrix, is_subsystem_code=self._is_subsystem_code)
 
         # preserve or update logical operators, as applicable
         if preserve_logicals:
@@ -1618,10 +1619,7 @@ class CSSCode(QuditCode):
         if len(self.code_x) != len(self.code_z) or self.code_x.field is not self.code_z.field:
             raise ValueError("The sub-codes provided for this CSSCode are incompatible")
 
-        if is_subsystem_code is not None:
-            self._is_subsystem_code = is_subsystem_code
-        else:
-            self._is_subsystem_code = bool(np.any(self.matrix_x @ self.matrix_z.T))
+        self._is_subsystem_code = is_subsystem_code
         self._equal_distance_xz = promise_equal_distance_xz or self.code_x == self.code_z
 
         if self._distance_x is not None and self._distance_z is not None:
@@ -1713,13 +1711,20 @@ class CSSCode(QuditCode):
         assert pauli in PAULIS_XZ
         return self.graph_x if pauli is Pauli.X else self.graph_z
 
+    @property
+    def is_subsystem_code(self) -> bool:
+        """Is this code a subsystem code?  That is, do all parity checks commute?."""
+        if self._is_subsystem_code is None:
+            self._is_subsystem_code = bool(np.any(self.matrix_x @ self.matrix_z.T))
+        return self._is_subsystem_code
+
     @functools.cached_property
     def canonicalized(self) -> CSSCode:
         """The same code with its parity matrices in reduced row echelon form."""
         return CSSCode(
             self.code_x.canonicalized,
             self.code_z.canonicalized,
-            is_subsystem_code=self.is_subsystem_code,
+            is_subsystem_code=self._is_subsystem_code,
         )
 
     @staticmethod
@@ -2191,7 +2196,7 @@ class CSSCode(QuditCode):
         code = (
             self
             if pauli is Pauli.Z
-            else CSSCode(self.matrix_z, self.matrix_x, is_subsystem_code=self.is_subsystem_code)
+            else CSSCode(self.matrix_z, self.matrix_x, is_subsystem_code=self._is_subsystem_code)
         )
         maxav = bound_kwargs.get("maxav", "fail")
         return external.codes.get_distance_bound(code, num_trials, cutoff=cutoff, maxav=maxav)
