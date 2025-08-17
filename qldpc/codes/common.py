@@ -730,7 +730,7 @@ class QuditCode(AbstractCode):
     _stabilizer_ops: galois.FieldArray | None = None
     _gauge_ops: galois.FieldArray | None = None
     _logical_ops: galois.FieldArray | None = None
-    _is_subsystem_code: bool | None
+    _is_subsystem_code: bool | None = None
 
     def __init__(
         self,
