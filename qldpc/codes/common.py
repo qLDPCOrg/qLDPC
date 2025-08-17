@@ -747,8 +747,9 @@ class QuditCode(AbstractCode):
             self._gauge_ops = matrix._gauge_ops
             self._logical_ops = matrix._logical_ops
             self._is_subsystem_code = matrix._is_subsystem_code
+            assert not (matrix._is_subsystem_code and is_subsystem_code is False)
 
-        else:
+        if is_subsystem_code:
             self._is_subsystem_code = is_subsystem_code
 
     def __eq__(self, other: object) -> bool:
@@ -1621,9 +1622,6 @@ class CSSCode(QuditCode):
 
         self._is_subsystem_code = is_subsystem_code
         self._equal_distance_xz = promise_equal_distance_xz or self.code_x == self.code_z
-
-        if self._distance_x is not None and self._distance_z is not None:
-            self._distance = min(self._distance_x, self._distance_z)
 
     def __eq__(self, other: object) -> bool:
         """Equality test between two code instances."""
