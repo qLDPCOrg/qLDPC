@@ -100,6 +100,25 @@ def get_small_group_structure(order: int, index: int) -> str:
     return name
 
 
+def parse_cycles_from_gap_output(generators_str: str) -> GENERATORS_LIST:
+    generators = []
+    for line in generators_str.splitlines():
+        if not line.strip():
+            continue
+        if not bool(re.search(r"\d", line)):
+            continue
+        # extract list of cycles, where each cycle is a tuple of integers
+        cycles_str = line[1:-1].split(")(")
+        try:
+            cycles = [tuple(map(int, cycle.split(","))) for cycle in cycles_str if cycle]
+        except ValueError:
+            raise ValueError(f"Cannot extract cycles from string: {line}")
+        # decrement integers in the cycle by 1 to account for 0-indexing
+        cycles = [tuple(index - 1 for index in cycle) for cycle in cycles]
+        generators.append(cycles)
+    return generators
+
+
 def get_generators_with_gap(group: str) -> GENERATORS_LIST | None:
     """Retrieve GAP group generators from GAP directly."""
 
@@ -117,24 +136,7 @@ def get_generators_with_gap(group: str) -> GENERATORS_LIST | None:
         r'for gen in gens do Print(gen, "\n"); od;',
     ]
     generators_str = qldpc.external.gap.get_output(*commands)
-    # collect generators
-    generators = []
-    for line in generators_str.splitlines():
-        if not line.strip():
-            continue
-
-        # extract list of cycles, where each cycle is a tuple of integers
-        cycles_str = line[1:-1].split(")(")
-        try:
-            cycles = [tuple(map(int, cycle.split(","))) for cycle in cycles_str if cycle]
-        except ValueError:
-            raise ValueError(f"Cannot extract cycles from string: {line}")
-
-        # decrement integers in the cycle by 1 to account for 0-indexing
-        cycles = [tuple(index - 1 for index in cycle) for cycle in cycles]
-        generators.append(cycles)
-
-    return generators
+    return parse_cycles_from_gap_output(generators_str)
 
 
 def get_generators_from_groupnames(group: str) -> GENERATORS_LIST | None:
@@ -298,31 +300,22 @@ def get_permutation_symmetry_of_matrix(
     """
     Gets all order l permutations for matrix of shape (rows,columns)
     """
-
-    # Parse output, account for zero-based indexing
-    def parse_permutation_output(output: str) -> list[qldpc.abstract.GroupMember]:
-        perm_list = []
-        for perm in output.strip("[] ").split(", "):
-            result = []
-            cycles = re.findall(r"\([^()]+\)", perm)
-            for cycle in cycles:
-                cycle = cycle.strip("()")
-                elements = tuple(int(x) - 1 for x in cycle.split(","))
-                result.append(elements)
-            # Remove trivial permutation
-            if result:
-                perm_list.append(qldpc.abstract.GroupMember.from_sympy(Permutation(result)))
-        return perm_list
-
     row_permutations_output = qldpc.external.gap.get_output(
-        f"row_perms := Filtered(SymmetricGroup({rows}), perm -> Order(perm) = {symmetry_length});Print(row_perms);",
+        f"row_perms := Filtered(SymmetricGroup({rows}), perm -> Order(perm) = {symmetry_length});",
+        r'for perm in row_perms do Print(perm, "\n"); od;',
     )
     col_permutations_output = qldpc.external.gap.get_output(
-        f"col_perms := Filtered(SymmetricGroup({columns}), perm -> Order(perm) = {symmetry_length});Print(col_perms);",
+        f"col_perms := Filtered(SymmetricGroup({columns}), perm -> Order(perm) = {symmetry_length});",
+        r'for perm in col_perms do Print(perm, "\n"); od;',
     )
-    return parse_permutation_output(row_permutations_output), parse_permutation_output(
-        col_permutations_output
-    )
+
+    return [
+        qldpc.abstract.GroupMember.from_sympy(Permutation(perm))
+        for perm in parse_cycles_from_gap_output(row_permutations_output)
+    ], [
+        qldpc.abstract.GroupMember.from_sympy(Permutation(perm))
+        for perm in parse_cycles_from_gap_output(col_permutations_output)
+    ]
 
 
 def get_balanced_permutations_of_matrix(
@@ -346,6 +339,7 @@ def get_balanced_permutations_of_matrix(
                 binaryMatrix @ C.to_matrix(binaryMatrix.shape[1]).T,
             ):
                 return R, C
+
     raise ValueError(
         "Matrix doesn't have any permutations that meet required constraints"
     )  # pragma: no cover
