@@ -7,6 +7,7 @@ from .custom import (
     ILPDecoder,
     LookupDecoder,
     RelayBPDecoder,
+    WeightedLookupDecoder,
 )
 from .decoders import (
     decode,
@@ -30,6 +31,7 @@ __all__ = [
     "ILPDecoder",
     "LookupDecoder",
     "RelayBPDecoder",
+    "WeightedLookupDecoder",
     "decode",
     "get_decoder",
     "get_decoder_BF",

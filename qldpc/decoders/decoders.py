@@ -23,7 +23,15 @@ import numpy as np
 import numpy.typing as npt
 import pymatching
 
-from .custom import BatchDecoder, Decoder, GUFDecoder, ILPDecoder, LookupDecoder, RelayBPDecoder
+from .custom import (
+    BatchDecoder,
+    Decoder,
+    GUFDecoder,
+    ILPDecoder,
+    LookupDecoder,
+    RelayBPDecoder,
+    WeightedLookupDecoder,
+)
 
 PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
@@ -61,6 +69,9 @@ def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder
 
     if decoder_args.pop("with_lookup", False):
         return get_decoder_lookup(matrix, **decoder_args)
+
+    if decoder_args.pop("with_weighted_lookup", False):
+        return get_decoder_weighted_lookup(matrix, **decoder_args)
 
     if decoder_args.pop("with_ILP", False):
         return get_decoder_ILP(matrix, **decoder_args)
@@ -135,15 +146,26 @@ def get_decoder_RBP(
     except ImportError:
         raise ImportError("Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'")
     if not isinstance(name, str) or not hasattr(relay_bp, name):
-        raise ValueError(f"Relay BP decoder name not recognized: {name}")
+        raise ValueError(
+            f"Relay BP decoder name not recognized: {name}\n"
+            "See 'import relay_bp; help(relay_bp.bp)' for available decoders"
+        )
+    check_matrix = matrix.view(np.ndarray) if isinstance(matrix, galois.FieldArray) else matrix
     error_priors = decoder_args.pop("error_priors", [PLACEHOLDER_ERROR_RATE] * matrix.shape[1])
-    decoder = getattr(relay_bp, name)(matrix, np.asarray(error_priors), **decoder_args)
+    decoder = getattr(relay_bp, name)(check_matrix, np.asarray(error_priors), **decoder_args)
     return RelayBPDecoder(decoder)
 
 
 def get_decoder_lookup(matrix: npt.NDArray[np.int_], **decoder_args: object) -> LookupDecoder:
     """Decoder based on a lookup table from errors to syndromes."""
     return LookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
+
+
+def get_decoder_weighted_lookup(
+    matrix: npt.NDArray[np.int_], **decoder_args: object
+) -> WeightedLookupDecoder:
+    """Decoder based on a lookup table from errors to syndromes."""
+    return WeightedLookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
 
 
 def get_decoder_ILP(matrix: npt.NDArray[np.int_], **decoder_args: object) -> ILPDecoder:

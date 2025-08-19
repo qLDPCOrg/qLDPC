@@ -57,6 +57,9 @@ def test_decoding() -> None:
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_ILP=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_GUF=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_lookup=True, max_weight=2))
+    assert np.array_equal(
+        error, decoders.decode(matrix, syndrome, with_weighted_lookup=True, max_weight=2)
+    )
 
     # some decoders can decode in batches
     syndrome_batch = np.array([syndrome])

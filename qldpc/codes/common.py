@@ -1584,6 +1584,115 @@ class QuditCode(AbstractCode):
 
         return outer, inner
 
+    def get_logical_error_rate_func(
+        self,
+        num_samples: int,
+        max_error_rate: float = 0.3,
+        pauli_bias: Sequence[float] | None = None,
+        **decoder_kwargs: Any,
+    ) -> Callable[[float | Sequence[float]], tuple[float, float]]:
+        """Construct a function from physical --> logical error rate in a code capacity model.
+
+        In addition to the logical error rate, the constructed function returns an uncertainty
+        (standard error) in that logical error rate.
+
+        The physical error rate provided to the constructed function is the probability with which
+        each qubit experiences a Pauli error.  The constructed function will throw an error if
+        given a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
+        treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
+        these errors occur with equal probability, corresponding to a depolarizing error.
+
+        The logical error rate returned by the constructed function the probability with which a
+        code error (obtained by sampling independent errors on all qubits) is converted into a
+        logical error by the decoder.
+
+        See ClassicalCode.get_logical_error_rate_func for more details about how this method works.
+        """
+        # collect relative probabilities of Z, X, and Y errors
+        pauli_bias_zxy: npt.NDArray[np.float64] | None
+        if pauli_bias is not None:
+            assert len(pauli_bias) == 3
+            pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
+            pauli_bias_zxy /= np.sum(pauli_bias_zxy)
+        else:
+            pauli_bias_zxy = None
+
+        # construct decoders
+        decoder = decoders.get_decoder(
+            symplectic_conjugate(self.matrix).view(np.ndarray), **decoder_kwargs
+        )
+        if not isinstance(decoder, decoders.DirectDecoder):
+            decoder = decoders.DirectDecoder.from_indirect(
+                decoder, symplectic_conjugate(self.matrix).view(np.ndarray)
+            )
+
+        # identify logical operators
+        logical_ops = self.get_logical_ops()
+
+        # compute decoding fidelities for each error weight
+        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        max_error_weight = len(sample_allocation) - 1
+        fidelities = np.ones(max_error_weight + 1, dtype=float)
+        variances = np.zeros(max_error_weight + 1, dtype=float)
+        for weight in range(1, max_error_weight + 1):
+            fidelities[weight], variances[weight] = self._estimate_decoding_fidelity_and_variance(
+                weight,
+                sample_allocation[weight],
+                decoder,
+                logical_ops,
+                pauli_bias_zxy,
+            )
+
+        @np.vectorize
+        def get_logical_error_rate(error_rate: float) -> tuple[float, float]:
+            """Compute a logical error rate in a code-capacity model."""
+            if error_rate > max_error_rate:
+                raise ValueError(
+                    "Cannot determine logical error rates for physical error rates greater than"
+                    f" {max_error_rate}.  Try running get_logical_error_rate_func with a larger"
+                    " max_error_rate."
+                )
+            probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
+            return 1 - probs @ fidelities, np.sqrt(probs**2 @ variances)
+
+        return get_logical_error_rate
+
+    def _estimate_decoding_fidelity_and_variance(
+        self,
+        error_weight: int,
+        num_samples: int,
+        decoder: decoders.Decoder,
+        logical_ops: npt.NDArray[np.int_],
+        pauli_bias_zxy: npt.NDArray[np.float64] | None,
+    ) -> tuple[float, float]:
+        """Estimate a fidelity and its standard error when decoding a fixed number of errors."""
+        num_failures = 0
+        for _ in range(num_samples):
+            # construct an error
+            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
+            error_paulis = np.random.choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
+
+            # decode errors
+            error_locs_x = error_locations[error_paulis > 1]
+            error_x = np.zeros(len(self), dtype=int)
+            error_x[error_locs_x] = np.random.choice(
+                range(1, self.field.order), size=len(error_locs_x)
+            )
+            error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
+            error_z = np.zeros(len(self), dtype=int)
+            error_z[error_locs_z] = np.random.choice(
+                range(1, self.field.order), size=len(error_locs_z)
+            )
+
+            error = np.concatenate([error_x, error_z])
+            residual = decoder.decode(error).view(self.field)
+            if np.any(logical_ops @ symplectic_conjugate(residual)):
+                num_failures += 1
+
+        infidelity = num_failures / num_samples
+        variance = infidelity * (1 - infidelity) / num_samples
+        return 1 - infidelity, variance
+
 
 class CSSCode(QuditCode):
     """QuditCode with separate X-type and Z-type parity checks.
@@ -2468,14 +2577,16 @@ class CSSCode(QuditCode):
         fidelities = np.ones(max_error_weight + 1, dtype=float)
         variances = np.zeros(max_error_weight + 1, dtype=float)
         for weight in range(1, max_error_weight + 1):
-            fidelities[weight], variances[weight] = self._estimate_decoding_fidelity_and_variance(
-                weight,
-                sample_allocation[weight],
-                decoder_x,
-                decoder_z,
-                logicals_x,
-                logicals_z,
-                pauli_bias_zxy,
+            fidelities[weight], variances[weight] = (
+                self._estimate_css_decoding_fidelity_and_variance(
+                    weight,
+                    sample_allocation[weight],
+                    decoder_x,
+                    decoder_z,
+                    logicals_x,
+                    logicals_z,
+                    pauli_bias_zxy,
+                )
             )
 
         @np.vectorize
@@ -2492,7 +2603,7 @@ class CSSCode(QuditCode):
 
         return get_logical_error_rate
 
-    def _estimate_decoding_fidelity_and_variance(
+    def _estimate_css_decoding_fidelity_and_variance(
         self,
         error_weight: int,
         num_samples: int,
