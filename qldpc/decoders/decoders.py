@@ -23,7 +23,15 @@ import numpy as np
 import numpy.typing as npt
 import pymatching
 
-from .custom import BatchDecoder, Decoder, GUFDecoder, ILPDecoder, LookupDecoder, RelayBPDecoder
+from .custom import (
+    BatchDecoder,
+    Decoder,
+    GUFDecoder,
+    ILPDecoder,
+    LookupDecoder,
+    RelayBPDecoder,
+    WeightedLookupDecoder,
+)
 
 PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
@@ -61,6 +69,9 @@ def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder
 
     if decoder_args.pop("with_lookup", False):
         return get_decoder_lookup(matrix, **decoder_args)
+
+    if decoder_args.pop("with_weighted_lookup", False):
+        return get_decoder_weighted_lookup(matrix, **decoder_args)
 
     if decoder_args.pop("with_ILP", False):
         return get_decoder_ILP(matrix, **decoder_args)
@@ -148,6 +159,13 @@ def get_decoder_RBP(
 def get_decoder_lookup(matrix: npt.NDArray[np.int_], **decoder_args: object) -> LookupDecoder:
     """Decoder based on a lookup table from errors to syndromes."""
     return LookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
+
+
+def get_decoder_weighted_lookup(
+    matrix: npt.NDArray[np.int_], **decoder_args: object
+) -> WeightedLookupDecoder:
+    """Decoder based on a lookup table from errors to syndromes."""
+    return WeightedLookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
 
 
 def get_decoder_ILP(matrix: npt.NDArray[np.int_], **decoder_args: object) -> ILPDecoder:
