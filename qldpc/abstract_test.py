@@ -25,7 +25,9 @@ from collections.abc import Callable
 import numpy as np
 import numpy.typing as npt
 import pytest
+from sympy.combinatorics import Permutation
 
+import qldpc
 from qldpc import abstract
 
 
@@ -383,3 +385,12 @@ def test_small_group() -> None:
         group = abstract.SmallGroup(1, 1)
     assert group == abstract.TrivialGroup()
     assert group.random() == group.identity
+
+
+def test_to_matrix() -> None:
+    perm = qldpc.abstract.GroupMember.from_sympy(Permutation(0, 2, 1))
+    print("\n", perm.to_matrix())
+    perm = qldpc.abstract.GroupMember.from_sympy(Permutation(3)(0, 2, 1))
+    print("\n", perm.to_matrix())
+
+    ...

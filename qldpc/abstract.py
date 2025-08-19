@@ -88,7 +88,7 @@ class GroupMember(comb.Permutation):
         """
         return GroupMember(self.array_form + [val + self.size for val in other.array_form])
 
-    def to_matrix(self, dimension: int | None = None) -> npt.NDArray[np.int_]:
+    def to_matrix(self, size: int | None = None) -> npt.NDArray[np.int_]:
         """Lift this permutation object to a permutation matrix.
 
         For consistency with how SymPy composes permutations, the permutation matrix constructed
@@ -96,16 +96,16 @@ class GroupMember(comb.Permutation):
         convension ensures that this lift is a homomorphism on SymPy Permutation objects, which is
         to say that (p * q).to_matrix() = p.to_matrix() @ q.to_matrix().
 
-        Dimension specifies to final size of the output matrix. Must be strictly larger than original
+        Size specifies to final size of the output matrix. Must be strictly larger than original
         size of the permutation. Each additional element is treated as a fixed point
         """
-        size = dimension if dimension is not None else self.size
-        matrix = np.eye(size, dtype=int)
+        matrix = np.zeros([self.size] * 2, dtype=int)
         for ii in range(self.size):
-            j = self.apply(ii)
-            # Since using identity matrix not zero, have to clear the row
-            matrix[ii, :] = 0
-            matrix[ii, j] = 1
+            matrix[ii, self.apply(ii)] = 1
+
+        if size is not None:
+            if size > len(matrix):
+                matrix = scipy.linalg.block_diag(matrix, np.eye(size - len(matrix), dtype=int))
 
         return matrix
 
