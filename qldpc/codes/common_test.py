@@ -467,6 +467,22 @@ def test_qudit_concatenation() -> None:
         codes.QuditCode.concatenate(code_5q, code_5q, [0, 1, 2])
 
 
+def test_quantum_capacity() -> None:
+    """Logical error rates in a code capacity model."""
+    code = codes.FiveQubitCode()
+
+    logical_error_rate = code.get_logical_error_rate_func(num_samples=10)
+    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
+
+    with pytest.raises(ValueError, match="error rates greater than"):
+        logical_error_rate(1)
+
+    # guaranteed logical X and Z errors
+    for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
+        logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
+        assert logical_error_rate(1)[0] == 1
+
+
 ####################################################################################################
 # CSS code tests
 
@@ -619,9 +635,10 @@ def test_css_concatenation() -> None:
         codes.CSSCode.concatenate(code_c4, codes.FiveQubitCode())
 
 
-def test_quantum_capacity() -> None:
+def test_css_capacity() -> None:
     """Logical error rates in a code capacity model."""
-    code = codes.SurfaceCode(3, field=2)
+    code = codes.SteaneCode()
+
     logical_error_rate = code.get_logical_error_rate_func(num_samples=10)
     assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
 
@@ -632,3 +649,4 @@ def test_quantum_capacity() -> None:
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
         logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate(1)[0] == 1
+
