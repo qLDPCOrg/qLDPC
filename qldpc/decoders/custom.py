@@ -102,11 +102,11 @@ class LookupDecoder(Decoder):
         symplectic: bool = False,
     ) -> None:
         self.shape = matrix.shape
-        self.correction_table = {}
+        self.syndrome_to_correction = {}
         for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
             matrix, max_weight, symplectic
         ):
-            self.correction_table[tuple(syndrome)] = error
+            self.syndrome_to_correction[tuple(syndrome)] = error
 
     @staticmethod
     def iter_errors_and_syndomes(
@@ -149,7 +149,7 @@ class LookupDecoder(Decoder):
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        return self.correction_table.get(
+        return self.syndrome_to_correction.get(
             tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int)
         )
 
@@ -170,13 +170,13 @@ class WeightedLookupDecoder(LookupDecoder):
         symplectic: bool = False,
     ) -> None:
         self.shape = matrix.shape
-        self.candidates_table: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
+        self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
             collections.defaultdict(list)
         )
         for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
             matrix, max_weight, symplectic
         ):
-            self.candidates_table[tuple(syndrome)].append(error)
+            self.syndrome_to_candidates[tuple(syndrome)].append(error)
 
     def decode(
         self,
@@ -184,7 +184,7 @@ class WeightedLookupDecoder(LookupDecoder):
         weight_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        errors = self.candidates_table.get(
+        errors = self.syndrome_to_candidates.get(
             tuple(syndrome.view(np.ndarray)), [np.zeros(self.shape[1], dtype=int)]
         )
         return min(errors, key=weight_func) if weight_func is not None else errors[-1]
