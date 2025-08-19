@@ -94,9 +94,6 @@ class LookupDecoder(Decoder):
     support by the first and second half of their entries.
     """
 
-    shape: tuple[int, ...]  # the shape of the parity check matrix we are decoding
-    table: dict[tuple[int, ...], npt.NDArray[np.int_]]  # the lookup table
-
     def __init__(
         self,
         matrix: npt.NDArray[np.int_],
@@ -105,11 +102,11 @@ class LookupDecoder(Decoder):
         symplectic: bool = False,
     ) -> None:
         self.shape = matrix.shape
-        self.table = {}
+        self.correction_table = {}
         for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
             matrix, max_weight, symplectic
         ):
-            self.table[tuple(syndrome)] = error
+            self.correction_table[tuple(syndrome)] = error
 
     @staticmethod
     def iter_errors_and_syndomes(
@@ -148,11 +145,13 @@ class LookupDecoder(Decoder):
                     error[:, error_site_indices] = np.asarray(local_errors, dtype=int).T
                     error = error.ravel()
                     syndrome = matrix @ error
-                    yield error.view(np.ndarray), tuple(syndrome.view(np.ndarray))
+                    yield error.view(np.ndarray), syndrome.view(np.ndarray)
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        return self.table.get(tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int))
+        return self.correction_table.get(
+            tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int)
+        )
 
 
 class WeightedLookupDecoder(LookupDecoder):
@@ -163,9 +162,6 @@ class WeightedLookupDecoder(LookupDecoder):
     correction when decoding.  See help(LookupDecoder) for additional information.
     """
 
-    shape: tuple[int, ...]  # the shape of the parity check matrix we are decoding
-    table: dict[tuple[int, ...], list[npt.NDArray[np.int_]]]  # the lookup table
-
     def __init__(
         self,
         matrix: npt.NDArray[np.int_],
@@ -174,11 +170,13 @@ class WeightedLookupDecoder(LookupDecoder):
         symplectic: bool = False,
     ) -> None:
         self.shape = matrix.shape
-        self.table = collections.defaultdict(list)
+        self.candidates_table: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
+            collections.defaultdict(list)
+        )
         for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
             matrix, max_weight, symplectic
         ):
-            self.table[tuple(syndrome)].append(error)
+            self.candidates_table[tuple(syndrome)].append(error)
 
     def decode(
         self,
@@ -186,7 +184,7 @@ class WeightedLookupDecoder(LookupDecoder):
         weight_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        errors = self.table.get(
+        errors = self.candidates_table.get(
             tuple(syndrome.view(np.ndarray)), [np.zeros(self.shape[1], dtype=int)]
         )
         return min(errors, key=weight_func) if weight_func is not None else errors[-1]

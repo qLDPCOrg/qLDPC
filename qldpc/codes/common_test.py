@@ -649,4 +649,3 @@ def test_css_capacity() -> None:
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
         logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate(1)[0] == 1
-
