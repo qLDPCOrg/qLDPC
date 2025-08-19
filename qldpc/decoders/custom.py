@@ -80,7 +80,7 @@ class RelayBPDecoder(BatchDecoder):
 
 
 class LookupDecoder(Decoder):
-    """Decoder based on a lookup table mapping syndromes to errors.
+    """Decoder based on a lookup table that maps syndromes to errors.
 
     In addition to a parity check matrix, this decoder can be initialized with a max_weight, in
     which case it builds a lookup table for all errors with weight <= max_weight.  If no max_weight
@@ -156,10 +156,11 @@ class LookupDecoder(Decoder):
 
 
 class WeightedLookupDecoder(LookupDecoder):
-    """Decoder based on a lookup table mapping syndromes to errors.
+    """Decoder based on a lookup table that maps syndromes to errors.
 
-    The .decode method of this decoder accepts a function that maps each candidate correction to a
-    "weight" or "penalty" that is minimized to choose a correction.
+    This decoder is essentially a LookupDecoder, but with a .decode method that accepts a function
+    to assign each candidate correction to a "weight" or "penalty" that is minimized to choose a
+    correction when decoding.  See help(LookupDecoder) for additional information.
     """
 
     shape: tuple[int, ...]  # the shape of the parity check matrix we are decoding
