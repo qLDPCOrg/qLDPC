@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import collections
 import itertools
 import warnings
 from typing import TYPE_CHECKING, Callable, Protocol
@@ -79,7 +80,7 @@ class RelayBPDecoder(BatchDecoder):
 
 
 class LookupDecoder(Decoder):
-    """Decoder based on a lookup table from errors to syndromes.
+    """Decoder based on a lookup table mapping syndromes to errors.
 
     In addition to a parity check matrix, this decoder can be initialized with a max_weight, in
     which case it builds a lookup table for all errors with weight <= max_weight.  If no max_weight
@@ -117,12 +118,12 @@ class LookupDecoder(Decoder):
 
         if max_weight is None:
             warnings.warn(
-                "A LookupDecoder has been initialized without specifying a maximum error weight,"
+                "A lookup decoder has been initialized without specifying a maximum error weight,"
                 " max_weight, so max_weight is being set to (code_distance - 1) // 2, where"
                 " code_distance is the distance of the ClassicalCode (if symplectic is False) or"
                 " QuditCode (if symplectic is True) with the parity check matrix provided to the"
-                " LookupDecoder.  This default choice of max_weight is a poor choice for decoding"
-                " in one sector of a qudit CSSCode, for which the LookupDecoder does not have"
+                " lookup decoder.  This default choice of max_weight is a poor choice for decoding"
+                " in one sector of a qudit CSSCode, for which the lookup decoder does not have"
                 " enough information to automatically determine a reasonable max_weight."
             )
             code_distance = code.get_distance()
@@ -147,6 +148,76 @@ class LookupDecoder(Decoder):
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         return self.table.get(tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int))
+
+
+class WeightedLookupDecoder(Decoder):
+    """Decoder based on a lookup table mapping syndromes to errors."""
+
+    shape: tuple[int, ...]  # the shape of the parity check matrix we are decoding
+    table: dict[tuple[int, ...], list[npt.NDArray[np.int_]]]  # the lookup table
+
+    def __init__(
+        self,
+        matrix: npt.NDArray[np.int_],
+        *,
+        max_weight: int | None = None,
+        symplectic: bool = False,
+    ) -> None:
+        self.shape = matrix.shape
+
+        code: codes.ClassicalCode | codes.QuditCode
+        if not symplectic:
+            code = codes.ClassicalCode(matrix)
+            field = code.field
+            matrix = code.matrix
+        else:
+            code = codes.QuditCode(matrix)
+            field = code.field
+            matrix = symplectic_conjugate(code.matrix)
+
+        if max_weight is None:
+            warnings.warn(
+                "A lookup decoder has been initialized without specifying a maximum error weight,"
+                " max_weight, so max_weight is being set to (code_distance - 1) // 2, where"
+                " code_distance is the distance of the ClassicalCode (if symplectic is False) or"
+                " QuditCode (if symplectic is True) with the parity check matrix provided to the"
+                " lookup decoder.  This default choice of max_weight is a poor choice for decoding"
+                " in one sector of a qudit CSSCode, for which the lookup decoder does not have"
+                " enough information to automatically determine a reasonable max_weight."
+            )
+            code_distance = code.get_distance()
+            max_weight = (code_distance - 1) // 2 if isinstance(code_distance, int) else 0
+
+        # identify the set of local errors that can occur
+        repeat = 2 if symplectic else 1
+        local_errors = tuple(itertools.product(range(field.order), repeat=repeat))[1:]
+
+        self.table: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = collections.defaultdict(
+            list
+        )
+        block_length = matrix.shape[1] // repeat
+        for weight in range(max_weight, 0, -1):
+            for error_sites in itertools.combinations(range(block_length), weight):
+                error_site_indices = list(error_sites)
+                for errors in itertools.product(local_errors, repeat=weight):
+                    code_error = field.Zeros((repeat, block_length))
+                    code_error[:, error_site_indices] = np.asarray(errors, dtype=int).T
+                    code_error = code_error.ravel()
+                    syndrome = matrix @ code_error
+                    self.table[tuple(syndrome.view(np.ndarray))].append(code_error.view(np.ndarray))
+
+    def decode(
+        self,
+        syndrome: npt.NDArray[np.int_],
+        weight_func: Callable[[npt.NDArray[np.int_]], float] = lambda vec: np.count_nonzero(vec),
+    ) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+        errors = self.table.get(tuple(syndrome.view(np.ndarray)))
+        return (
+            min(errors, key=weight_func)
+            if errors is not None
+            else np.zeros(self.shape[1], dtype=int)
+        )
 
 
 class ILPDecoder(Decoder):
