@@ -271,11 +271,13 @@ class CardinalEdgeColoring(SyndromeMeasurementStrategy):
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
+        graph_vert, graph_horz = code.get_cardinal_subgraphs()
+
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
         circuit.append("TICK")
-        circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, strategy)
-        circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(graph_vert, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(graph_horz, qubit_ids, strategy)
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(

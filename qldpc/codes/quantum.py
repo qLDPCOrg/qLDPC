@@ -750,6 +750,25 @@ class HGPCode(CSSCode):
             logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
             self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
+    def get_cardinal_subgraphs(self) -> tuple[nx.DiGraph, nx.DiGraph]:
+        """."""
+        graph_vert = nx.DiGraph()
+        graph_horz = nx.DiGraph()
+        for check, data in self.graph.edges:
+            if check.index < self.num_checks_x:
+                assert self.graph[check][data][Pauli] is Pauli.X
+                if data.index < self.sector_size[0, 0]:
+                    graph_vert.add_edge(check, data, Pauli=Pauli.X)
+                else:
+                    graph_horz.add_edge(check, data, Pauli=Pauli.X)
+            else:
+                assert self.graph[check][data][Pauli] is Pauli.Z
+                if data.index < self.sector_size[0, 0]:
+                    graph_horz.add_edge(check, data, Pauli=Pauli.Z)
+                else:
+                    graph_vert.add_edge(check, data, Pauli=Pauli.Z)
+        return graph_vert, graph_horz
+
     @staticmethod
     def get_matrix_product(
         matrix_a: npt.NDArray[np.int_ | np.object_],

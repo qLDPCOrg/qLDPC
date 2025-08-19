@@ -17,6 +17,7 @@ from .sinter_decoder import (
     SinterDecoder,
 )
 from .syndrome_measurement import (
+    CardinalEdgeColoring,
     EdgeColoring,
     MeasurementRecord,
     QubitIDs,
@@ -43,6 +44,7 @@ __all__ = [
     "CompiledSinterDecoder",
     "DetectorErrorModelArrays",
     "SinterDecoder",
+    "CardinalEdgeColoring",
     "EdgeColoring",
     "MeasurementRecord",
     "QubitIDs",
