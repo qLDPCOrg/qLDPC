@@ -272,7 +272,7 @@ class CardinalEdgeColoring(SyndromeMeasurementStrategy):
             )
         if not hasattr(code, "get_cardinal_subgraphs"):
             raise ValueError(
-                "The provided code does not have a code.get_cardinal_subgraphs method, as required"
+                "The provided code does not have a 'get_cardinal_subgraphs' attribute, as required"
                 " for the CardinalEdgeColoring syndrome measurement strategy"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)

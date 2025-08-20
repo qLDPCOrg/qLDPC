@@ -54,7 +54,7 @@ def test_measurement_record() -> None:
     [
         (codes.FiveQubitCode(), circuits.SerialExtraction),
         (codes.SteaneCode(), circuits.EdgeColoring),
-        (codes.HGPCode(codes.RepetitionCode(3)), circuits.CardinalEdgeColoring),
+        (codes.SurfaceCode(3, rotated=False), circuits.CardinalEdgeColoring),
     ],
 )
 def test_syndrome_measurement(
