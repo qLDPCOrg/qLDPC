@@ -439,9 +439,9 @@ class NoiseModel:
             else:
                 noisy_op, after = rule.noisy_operation(op, immune_qubits=immune_qubits)
                 circuit.append(noisy_op)
-                noise_after_moment.append(after)
+                noise_after_moment += after
 
-        circuit.append(noise_after_moment)
+        circuit += noise_after_moment
 
         if self.idle_error or self.additional_error_waiting_for_m_or_r:
             self._inplace_append_idle_errors(
