@@ -267,7 +267,13 @@ class CardinalEdgeColoring(SyndromeMeasurementStrategy):
         """
         if not isinstance(code, codes.CSSCode):
             raise ValueError(
-                "The EdgeColoring strategy for syndrome measurement does not work for non-CSS codes"
+                "The CardinalEdgeColoring strategy for syndrome measurement does not work for"
+                " non-CSS codes"
+            )
+        if not hasattr(code, "get_cardinal_subgraphs"):
+            raise ValueError(
+                "The provided code does not have a code.get_cardinal_subgraphs method, as required"
+                " for the CardinalEdgeColoring syndrome measurement strategy"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 

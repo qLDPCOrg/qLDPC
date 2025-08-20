@@ -758,15 +758,19 @@ class HGPCode(CSSCode):
             if check.index < self.num_checks_x:
                 assert self.graph[check][data][Pauli] is Pauli.X
                 if data.index < self.sector_size[0, 0]:
-                    graph_vert.add_edge(check, data, Pauli=Pauli.X)
+                    graph_vert.add_edge(check, data)
+                    graph_vert[check][data][Pauli] = Pauli.X
                 else:
-                    graph_horz.add_edge(check, data, Pauli=Pauli.X)
+                    graph_horz.add_edge(check, data)
+                    graph_horz[check][data][Pauli] = Pauli.X
             else:
                 assert self.graph[check][data][Pauli] is Pauli.Z
                 if data.index < self.sector_size[0, 0]:
-                    graph_horz.add_edge(check, data, Pauli=Pauli.Z)
+                    graph_horz.add_edge(check, data)
+                    graph_horz[check][data][Pauli] = Pauli.Z
                 else:
-                    graph_vert.add_edge(check, data, Pauli=Pauli.Z)
+                    graph_vert.add_edge(check, data)
+                    graph_vert[check][data][Pauli] = Pauli.Z
         return graph_vert, graph_horz
 
     @staticmethod
