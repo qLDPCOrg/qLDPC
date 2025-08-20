@@ -71,7 +71,8 @@ def test_syndrome_measurement(
     errors = random.choices([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], k=len(code))
     error_ops = stim.Circuit()
     for qubit, pauli in enumerate(errors):
-        error_ops.append(f"{pauli}_error", [qubit], [1])
+        if pauli is not Pauli.I:  # I_ERROR is only recognized in stim>=1.15.0
+            error_ops.append(f"{pauli}_error", [qubit], [1])
 
     # measure syndromes
     syndrome_extraction, record = strategy.get_circuit(code)
