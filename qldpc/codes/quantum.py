@@ -752,25 +752,16 @@ class HGPCode(CSSCode):
 
     def get_cardinal_subgraphs(self) -> tuple[nx.DiGraph, nx.DiGraph]:
         """."""
-        graph_vert = nx.DiGraph()
-        graph_horz = nx.DiGraph()
-        for check, data in self.graph.edges:
-            if check.index < self.num_checks_x:
-                assert self.graph[check][data][Pauli] is Pauli.X
-                if data.index < self.sector_size[0, 0]:
-                    graph_vert.add_edge(check, data)
-                    graph_vert[check][data][Pauli] = Pauli.X
-                else:
-                    graph_horz.add_edge(check, data)
-                    graph_horz[check][data][Pauli] = Pauli.X
+        edges_vert = []
+        edges_horz = []
+        for edge in self.graph.edges:
+            check, data = edge
+            if (check.index < self.num_checks_x) == (data.index < self.sector_size[0, 0]):
+                edges_vert.append(edge)
             else:
-                assert self.graph[check][data][Pauli] is Pauli.Z
-                if data.index < self.sector_size[0, 0]:
-                    graph_horz.add_edge(check, data)
-                    graph_horz[check][data][Pauli] = Pauli.Z
-                else:
-                    graph_vert.add_edge(check, data)
-                    graph_vert[check][data][Pauli] = Pauli.Z
+                edges_horz.append(edge)
+        graph_vert = self.graph.edge_subgraph(edges_vert)
+        graph_horz = self.graph.edge_subgraph(edges_horz)
         return graph_vert, graph_horz
 
     @staticmethod
