@@ -142,7 +142,7 @@ def get_memory_experiment(
     circuit.append(f"R{basis}", data_ids)
 
     # first round of QEC and detectors
-    circuit.append(one_cycle)
+    circuit += one_cycle
     measurement_record.append(cycle_measurements)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, kk))
@@ -150,7 +150,7 @@ def get_memory_experiment(
     # following repeated rounds of QEC and detectors
     if num_rounds > 1:
         repeat_circuit = stim.Circuit()
-        repeat_circuit.append(one_cycle)
+        repeat_circuit += one_cycle
         measurement_record.append(cycle_measurements)
         for kk, check_id in enumerate(check_ids):
             repeat_circuit.append(
