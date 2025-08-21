@@ -750,19 +750,43 @@ class HGPCode(CSSCode):
             logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
             self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
-    def get_cardinal_subgraphs(self) -> tuple[nx.DiGraph, nx.DiGraph]:
-        """."""
-        edges_vert = []
-        edges_horz = []
-        for edge in self.graph.edges:
-            check, data = edge
-            if (check.index < self.num_checks_x) == (data.index < self.sector_size[0, 0]):
-                edges_vert.append(edge)
-            else:
-                edges_horz.append(edge)
-        graph_vert = self.graph.edge_subgraph(edges_vert)
-        graph_horz = self.graph.edge_subgraph(edges_horz)
-        return graph_vert, graph_horz
+    def get_cardinal_subgraphs(
+        self, strategy: str = "largest_first"
+    ) -> tuple[nx.DiGraph, nx.DiGraph, nx.DiGraph, nx.DiGraph]:
+        """Get the Tanner subgraphs of edges oriented in cardinal directions: N, S, E, W."""
+        node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
+
+        edges_n = []
+        edges_s = []
+        coloring_a = nx.coloring.greedy_color(
+            nx.line_graph(self.code_a.graph.to_undirected()), strategy
+        )
+        for (check_a, data_a), color in coloring_a.items():
+            edges = edges_n if color % 2 == 0 else edges_s
+            for node_b in self.code_b.graph.nodes:
+                node_0 = node_map[check_a, node_b]
+                node_1 = node_map[data_a, node_b]
+                data, check = sorted([node_0, node_1])
+                edges.append((check, data))
+        graph_n = self.graph.edge_subgraph(edges_n)
+        graph_s = self.graph.edge_subgraph(edges_s)
+
+        edges_e = []
+        edges_w = []
+        coloring_b = nx.coloring.greedy_color(
+            nx.line_graph(self.code_b.graph.to_undirected()), strategy
+        )
+        for (check_b, data_b), color in coloring_b.items():
+            edges = edges_e if color % 2 == 0 else edges_w
+            for node_a in self.code_b.graph.nodes:
+                node_0 = node_map[node_a, check_b]
+                node_1 = node_map[node_a, data_b]
+                data, check = sorted([node_0, node_1])
+                edges.append((check, data))
+        graph_e = self.graph.edge_subgraph(edges_e)
+        graph_w = self.graph.edge_subgraph(edges_w)
+
+        return graph_n, graph_s, graph_e, graph_w
 
     @staticmethod
     def get_matrix_product(

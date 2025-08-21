@@ -270,20 +270,24 @@ class CardinalEdgeColoring(SyndromeMeasurementStrategy):
                 "The CardinalEdgeColoring strategy for syndrome measurement does not work for"
                 " non-CSS codes"
             )
-        if not hasattr(code, "get_cardinal_subgraphs"):
+        qubit_ids = qubit_ids or QubitIDs.from_code(code)
+
+        graphs_nsew = code.get_cardinal_subgraphs()
+        if graphs_nsew is NotImplemented:
             raise ValueError(
                 "The provided code does not have a 'get_cardinal_subgraphs' attribute, as required"
                 " for the CardinalEdgeColoring syndrome measurement strategy"
             )
-        qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
-        graph_vert, graph_horz = code.get_cardinal_subgraphs()
+        graph_n, graph_s, graph_e, graph_w = graphs_nsew
 
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
         circuit.append("TICK")
-        circuit += EdgeColoring.graph_to_circuit(graph_vert, qubit_ids, strategy)
-        circuit += EdgeColoring.graph_to_circuit(graph_horz, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(graph_n, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(graph_e, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(graph_w, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(graph_s, qubit_ids, strategy)
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(

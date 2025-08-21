@@ -823,6 +823,10 @@ class QuditCode(AbstractCode):
         field = getattr(graph, "order", DEFAULT_FIELD_ORDER)
         return galois.GF(field)(matrix.reshape(num_checks, 2 * num_qudits))
 
+    def get_cardinal_subgraphs(self) -> tuple[nx.DiGraph, nx.DiGraph, nx.DiGraph, nx.DiGraph]:
+        """Get the Tanner subgraphs of edges oriented in cardinal directions: N, S, E, W."""
+        return NotImplemented
+
     def get_strings(self) -> list[str]:
         """Parity checks checks of this code, represented by strings."""
         matrix = self.matrix.reshape(self.num_checks, 2, self.num_qudits)
