@@ -94,3 +94,6 @@ def test_syndrome_errors() -> None:
     """Not all codes are supported by all syndrome extraction circuits."""
     with pytest.raises(ValueError, match="does not work for non-CSS codes"):
         circuits.EdgeColoring.get_circuit(codes.FiveQubitCode())
+
+    with pytest.raises(ValueError, match="does not work for non-CSS codes"):
+        circuits.CardinalEdgeColoring.get_circuit(codes.SteaneCode())

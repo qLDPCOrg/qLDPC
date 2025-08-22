@@ -271,8 +271,8 @@ class CardinalEdgeColoring(SyndromeMeasurementStrategy):
         """
         if code.cardinal_subgraphs is NotImplemented:
             raise ValueError(
-                "The provided code is not equipped with cardinal_subgraphs, as required for the"
-                " CardinalEdgeColoring syndrome measurement strategy"
+                "The provided code is not equipped with a cardinal_subgraphs property, as required"
+                " for the CardinalEdgeColoring syndrome measurement strategy"
             )
 
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
