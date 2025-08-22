@@ -1424,6 +1424,7 @@ class SurfaceCode(CSSCode):
             cols = rows
         self.rows = rows
         self.cols = cols
+        self.rotated = rotated
 
         # save known distances and dimension
         self._distance_x = cols
@@ -1533,6 +1534,8 @@ class SurfaceCode(CSSCode):
         if self._syndrome_subgraphs is not None:
             return self._syndrome_subgraphs
 
+        assert self.rotated
+
         def get_check_pauli(row: int, col: int) -> PauliXZ:
             """What type of stabilizer does this check measure?"""
             return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
@@ -1612,6 +1615,7 @@ class ToricCode(CSSCode):
             cols = rows
         self.rows = rows
         self.cols = cols
+        self.rotated = rotated
 
         # save known distances and dimension
         self._distance_x = self._distance_z = min(rows, cols)
@@ -1702,6 +1706,8 @@ class ToricCode(CSSCode):
         """
         if self._syndrome_subgraphs is not None:
             return self._syndrome_subgraphs
+
+        assert self.rotated
 
         def get_check_pauli(row: int, col: int) -> PauliXZ:
             """What type of stabilizer does this check measure?"""
