@@ -26,7 +26,7 @@ import networkx as nx
 import stim
 
 from qldpc import codes
-from qldpc.objects import Node, Pauli
+from qldpc.objects import Pauli
 
 from .common import restrict_to_qubits
 

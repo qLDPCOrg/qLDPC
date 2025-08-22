@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import functools
 import io
 import unittest.mock
 
@@ -466,6 +467,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     assert code.num_qudits == rows * cols
     assert codes.CSSCode.get_distance(code, Pauli.X) == cols
     assert codes.CSSCode.get_distance(code, Pauli.Z) == rows
+    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
 
     # test that the conjugated rotated surface code is an XZZX code
     code = codes.SurfaceCode(max(rows, cols), rotated=True)
@@ -497,6 +499,7 @@ def test_toric_codes() -> None:
     assert code.dimension == 2
     assert code.num_qudits == distance**2
     assert codes.CSSCode.get_distance(code) == distance
+    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
 
     # rotated toric code must have even side lengths
     with pytest.raises(ValueError, match="even side lengths"):

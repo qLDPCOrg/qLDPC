@@ -1526,7 +1526,7 @@ class SurfaceCode(CSSCode):
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
-        Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing ancilla-qubit edges.
+        Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing edges of the Tanner graph.
         """
         if self._syndrome_subgraphs is not None:
             return self._syndrome_subgraphs
@@ -1563,24 +1563,21 @@ class SurfaceCode(CSSCode):
         edges_sw = []
         edges_se = []
         for qubit, (row, col) in enumerate(itertools.product(range(self.rows), range(self.cols))):
+            node_data = Node(qubit, is_data=True)
+
             check_nw = (row, col)
             check_ne = (row, col + 1)
             check_sw = (row + 1, col)
             check_se = (row + 1, col + 1)
-
-            node_data = Node(qubit, is_data=True)
             if check_is_used(*check_nw):
-                check_node = node_map[check_nw]
-                edges_nw.append((check_node, node_data))
+                edges_nw.append((node_map[check_nw], node_data))
             if check_is_used(*check_ne):
-                check_node = node_map[check_ne]
-                edges_ne.append((check_node, node_data))
+                edges_ne.append((node_map[check_ne], node_data))
             if check_is_used(*check_sw):
-                check_node = node_map[check_sw]
-                edges_sw.append((check_node, node_data))
+                edges_sw.append((node_map[check_sw], node_data))
             if check_is_used(*check_se):
-                check_node = node_map[check_se]
-                edges_se.append((check_node, node_data))
+                edges_se.append((node_map[check_se], node_data))
+
         subgraph_nw = self.graph.edge_subgraph(edges_nw)
         subgraph_ne = self.graph.edge_subgraph(edges_ne)
         subgraph_sw = self.graph.edge_subgraph(edges_sw)
@@ -1694,15 +1691,52 @@ class ToricCode(CSSCode):
         return np.array(checks_x), np.array(checks_z)
 
     @property
-    def syndrome_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+    def syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
-        If this is an unrotated toric code, return the syndrome subgraphs of the parent HGPCode.
-        Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing ancilla-qubit edges.
+        If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
+        Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing edges of the Tanner graph.
         """
         if self._syndrome_subgraphs is not None:
             return self._syndrome_subgraphs
-        return NotImplemented
+
+        def get_check_pauli(row: int, col: int) -> PauliXZ:
+            """What type of stabilizer does this check measure?"""
+            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
+
+        # identify all coordinates of check qubits, and a map from coordinates to a Node
+        check_node_coords = sorted(
+            [(row, col) for row, col in itertools.product(range(self.rows), range(self.cols))],
+            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+        )
+        node_map = {
+            (row, col): Node(index, is_data=False)
+            for index, (row, col) in enumerate(check_node_coords)
+        }
+
+        # identify the edges of the NW, NE, SW, SE subgraphs
+        edges_nw = []
+        edges_ne = []
+        edges_sw = []
+        edges_se = []
+        for qubit, (row, col) in enumerate(itertools.product(range(self.rows), range(self.cols))):
+            node_data = Node(qubit, is_data=True)
+            check_nw = (row, col)
+            check_ne = (row, (col + 1) % self.cols)
+            check_sw = ((row + 1) % self.rows, col)
+            check_se = ((row + 1) % self.rows, (col + 1) % self.cols)
+            edges_nw.append((node_map[check_nw], node_data))
+            edges_ne.append((node_map[check_ne], node_data))
+            edges_sw.append((node_map[check_sw], node_data))
+            edges_se.append((node_map[check_se], node_data))
+
+        subgraph_nw = self.graph.edge_subgraph(edges_nw)
+        subgraph_ne = self.graph.edge_subgraph(edges_ne)
+        subgraph_sw = self.graph.edge_subgraph(edges_sw)
+        subgraph_se = self.graph.edge_subgraph(edges_se)
+
+        self._syndrome_subgraphs = (subgraph_nw, subgraph_ne, subgraph_sw, subgraph_se)
+        return self._syndrome_subgraphs
 
 
 class GeneralizedSurfaceCode(CSSCode):
