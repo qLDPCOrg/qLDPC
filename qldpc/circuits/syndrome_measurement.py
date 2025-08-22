@@ -283,7 +283,6 @@ class CardinalEdgeColoring(SyndromeMeasurementStrategy):
 
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
-        circuit.append("TICK")
         circuit += EdgeColoring.graph_to_circuit(graph_n, qubit_ids, strategy)
         circuit += EdgeColoring.graph_to_circuit(graph_e, qubit_ids, strategy)
         circuit += EdgeColoring.graph_to_circuit(graph_w, qubit_ids, strategy)

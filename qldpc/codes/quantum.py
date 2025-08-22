@@ -756,35 +756,31 @@ class HGPCode(CSSCode):
         """Get the Tanner subgraphs of edges oriented in cardinal directions: N, S, E, W."""
         node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
 
-        edges_n = []
-        edges_s = []
+        edges_ns = {0: [], 1: []}
         coloring_a = nx.coloring.greedy_color(
             nx.line_graph(self.code_a.graph.to_undirected()), strategy
         )
         for (check_a, data_a), color in coloring_a.items():
-            edges = edges_n if color % 2 == 0 else edges_s
             for node_b in self.code_b.graph.nodes:
                 node_0 = node_map[check_a, node_b]
                 node_1 = node_map[data_a, node_b]
                 data, check = sorted([node_0, node_1])
-                edges.append((check, data))
-        graph_n = self.graph.edge_subgraph(edges_n)
-        graph_s = self.graph.edge_subgraph(edges_s)
+                edges_ns[(color + node_b.is_data) % 2].append((check, data))
+        graph_n = self.graph.edge_subgraph(edges_ns[0])
+        graph_s = self.graph.edge_subgraph(edges_ns[1])
 
-        edges_e = []
-        edges_w = []
+        edges_ew = {0: [], 1: []}
         coloring_b = nx.coloring.greedy_color(
             nx.line_graph(self.code_b.graph.to_undirected()), strategy
         )
         for (check_b, data_b), color in coloring_b.items():
-            edges = edges_e if color % 2 == 0 else edges_w
             for node_a in self.code_b.graph.nodes:
                 node_0 = node_map[node_a, check_b]
                 node_1 = node_map[node_a, data_b]
                 data, check = sorted([node_0, node_1])
-                edges.append((check, data))
-        graph_e = self.graph.edge_subgraph(edges_e)
-        graph_w = self.graph.edge_subgraph(edges_w)
+                edges_ew[(color + node_a.is_data) % 2].append((check, data))
+        graph_e = self.graph.edge_subgraph(edges_ew[0])
+        graph_w = self.graph.edge_subgraph(edges_ew[1])
 
         return graph_n, graph_s, graph_e, graph_w
 
