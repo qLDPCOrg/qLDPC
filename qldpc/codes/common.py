@@ -826,7 +826,7 @@ class QuditCode(AbstractCode):
     @functools.cached_property
     def cardinal_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of Tanner graph subgraphs that induces a syndrome measurement sequence."""
-        return NotImplemented
+        return NotImplemented  # pragma: no cover
 
     def get_strings(self) -> list[str]:
         """Parity checks checks of this code, represented by strings."""
