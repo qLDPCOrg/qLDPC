@@ -756,7 +756,7 @@ class HGPCode(CSSCode):
         """Get the Tanner subgraphs of edges oriented in cardinal directions: N, S, E, W."""
         node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
 
-        edges_ns = {0: [], 1: []}
+        edges_ns: dict[int, list[tuple[Node, Node]]] = {0: [], 1: []}
         coloring_a = nx.coloring.greedy_color(
             nx.line_graph(self.code_a.graph.to_undirected()), strategy
         )
@@ -769,7 +769,7 @@ class HGPCode(CSSCode):
         graph_n = self.graph.edge_subgraph(edges_ns[0])
         graph_s = self.graph.edge_subgraph(edges_ns[1])
 
-        edges_ew = {0: [], 1: []}
+        edges_ew: dict[int, list[tuple[Node, Node]]] = {0: [], 1: []}
         coloring_b = nx.coloring.greedy_color(
             nx.line_graph(self.code_b.graph.to_undirected()), strategy
         )
