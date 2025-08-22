@@ -1568,6 +1568,9 @@ class ToricCode(CSSCode):
             matrix_z = code_ab.matrix_z
             self._default_conjugate = slice(code_ab.sector_size[0, 0], None)
 
+            # save cardinality data about check/data qubit connections
+            setattr(self, "cardinal_subgraphs", code_ab.cardinal_subgraphs)
+
         CSSCode.__init__(
             self, matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols
         )
