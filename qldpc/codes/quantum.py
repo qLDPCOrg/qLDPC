@@ -1489,10 +1489,22 @@ class SurfaceCode(CSSCode):
         - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
         """
 
-        def get_check(
-            row_indices: Sequence[int], col_indices: Sequence[int]
-        ) -> npt.NDArray[np.int_]:
+        def get_check_pauli(row: int, col: int) -> PauliXZ:
+            """What type of stabilizer does this check measure?"""
+            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
+
+        def check_is_used(row: int, col: int) -> bool:
+            """Is the check qubit with these coordinates used?"""
+            if row == 0 or row == rows:
+                return 0 < col < cols and get_check_pauli(row, col) is Pauli.Z
+            if col == 0 or col == cols:
+                return 0 < row < rows and get_check_pauli(row, col) is Pauli.X
+            return 0 < row < rows and 0 < col < cols
+
+        def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
             """Check on the qubits with the given indices, dropping any that are out of bounds."""
+            row_indices = [row - 1, row, row - 1, row]
+            col_indices = [col - 1, col - 1, col, col]
             check = np.zeros((rows, cols), dtype=int)
             for row, col in zip(row_indices, col_indices):
                 if 0 <= row < rows and 0 <= col < cols:
@@ -1501,22 +1513,12 @@ class SurfaceCode(CSSCode):
 
         checks_x = []
         checks_z = []
-        for row in range(-1, rows):
-            for col in range(-1, cols):
-                row_indices = [row, row + 1, row, row + 1]
-                col_indices = [col, col, col + 1, col + 1]
-                check = get_check(row_indices, col_indices)
-
-                # exclude exterior corner tiles that only touch one data qubit
-                if np.count_nonzero(check) == 1:
-                    continue
-
-                if row % 2 == col % 2:
-                    if 0 <= row < rows - 1:
-                        # no X-type parity checks on the top/bottom boundaries
-                        checks_x.append(check)
-                elif 0 <= col < cols - 1:
-                    # no Z-type parity checks on the left/right boundaries
+        for row, col in itertools.product(range(rows + 1), range(cols + 1)):
+            if check_is_used(row, col):
+                check = get_check(row, col)
+                if get_check_pauli(row, col) is Pauli.X:
+                    checks_x.append(check)
+                else:
                     checks_z.append(check)
 
         return np.array(checks_x), np.array(checks_z)
@@ -1667,26 +1669,27 @@ class ToricCode(CSSCode):
         Same as in SurfaceCode.get_rotated_checks, but with periodic boundary conditions.
         """
 
-        def get_check(
-            row_indices: Sequence[int], col_indices: Sequence[int]
-        ) -> npt.NDArray[np.int_]:
-            """Check on the qubits with the given indices, with periodic boundary conditions."""
+        def get_check_pauli(row: int, col: int) -> PauliXZ:
+            """What type of stabilizer does this check measure?"""
+            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
+
+        def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
+            """Check on the qubits with the given indices, dropping any that are out of bounds."""
+            row_indices = np.array([row - 1, row, row - 1, row]) % rows
+            col_indices = np.array([col - 1, col - 1, col, col]) % cols
             check = np.zeros((rows, cols), dtype=int)
             for row, col in zip(row_indices, col_indices):
-                check[row % rows, col % cols] = 1
+                check[row, col] = 1
             return check.ravel()
 
         checks_x = []
         checks_z = []
-        for row in range(rows):
-            for col in range(cols):
-                row_indices = [row, row + 1, row, row + 1]
-                col_indices = [col, col, col + 1, col + 1]
-                check = get_check(row_indices, col_indices)
-                if row % 2 == col % 2:
-                    checks_x.append(check)
-                else:
-                    checks_z.append(check)
+        for row, col in itertools.product(range(rows), range(cols)):
+            check = get_check(row, col)
+            if get_check_pauli(row, col) is Pauli.X:
+                checks_x.append(check)
+            else:
+                checks_z.append(check)
 
         return np.array(checks_x), np.array(checks_z)
 
