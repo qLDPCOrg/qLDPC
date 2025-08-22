@@ -823,8 +823,9 @@ class QuditCode(AbstractCode):
         field = getattr(graph, "order", DEFAULT_FIELD_ORDER)
         return galois.GF(field)(matrix.reshape(num_checks, 2 * num_qudits))
 
-    def get_cardinal_subgraphs(self) -> tuple[nx.DiGraph, nx.DiGraph, nx.DiGraph, nx.DiGraph]:
-        """Get the Tanner subgraphs of edges oriented in cardinal directions: N, S, E, W."""
+    @functools.cached_property
+    def cardinal_subgraphs(self) -> tuple[nx.DiGraph, ...]:
+        """Sequence of Tanner graph subgraphs that induces a syndrome measurement sequence."""
         return NotImplemented
 
     def get_strings(self) -> list[str]:

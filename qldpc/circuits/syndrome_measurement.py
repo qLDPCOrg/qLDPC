@@ -194,8 +194,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             raise ValueError(
                 "The EdgeColoring strategy for syndrome measurement does not work for non-CSS codes"
             )
-        qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
+        qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
         circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, strategy)
@@ -234,15 +234,19 @@ class EdgeColoring(SyndromeMeasurementStrategy):
 
 
 class CardinalEdgeColoring(SyndromeMeasurementStrategy):
-    """Cardinal edge coloration syndrome measurement strategy in Algorithm 2 of arXiv:2109.14609.
+    """Edge coloration syndrome measurement strategy inspired by Algorithm 2 of arXiv:2109.14609.
 
-    For a CSS code with Tanner graph T, this strategy is as follows:
+    For a CSS code with Tanner graph T, Algorithm 2 of arXiv:2109.14609 proceeds as follows:
     1. Assign each edge in T a cardinal direction D in {E, N, S, W}.
     2. For each D in (E, N, S, W), consider the subgraph T_D, color the edges of T_D, and apply the
         corresponding gates one color at a time.
-
     This strategy can achieve a lower depth than the EdgeColoring strategy by interleaving many of
     the X and Z syndrome measurements.
+
+    This syndrome measurement strategy slightly generalizes that in Algorithm 2 of arXiv:2109.14609.
+    Specifically, this strategy delegates the division of the Tanner graph T into subgraphs T_D
+    (i.e., step 1 above) to the error-correcting code, and in step 2 above iterates over each
+    subgraph T_D in code.cardinal_subgraphs.
 
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
@@ -265,28 +269,17 @@ class CardinalEdgeColoring(SyndromeMeasurementStrategy):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        if not isinstance(code, codes.CSSCode):
+        if code.cardinal_subgraphs is NotImplemented:
             raise ValueError(
-                "The CardinalEdgeColoring strategy for syndrome measurement does not work for"
-                " non-CSS codes"
+                "The provided code is not equipped with cardinal_subgraphs, as required for the"
+                " CardinalEdgeColoring syndrome measurement strategy"
             )
+
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
-
-        graphs_nsew = code.get_cardinal_subgraphs()
-        if graphs_nsew is NotImplemented:
-            raise ValueError(
-                "The provided code does not have a 'get_cardinal_subgraphs' attribute, as required"
-                " for the CardinalEdgeColoring syndrome measurement strategy"
-            )
-
-        graph_n, graph_s, graph_e, graph_w = graphs_nsew
-
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
-        circuit += EdgeColoring.graph_to_circuit(graph_n, qubit_ids, strategy)
-        circuit += EdgeColoring.graph_to_circuit(graph_e, qubit_ids, strategy)
-        circuit += EdgeColoring.graph_to_circuit(graph_w, qubit_ids, strategy)
-        circuit += EdgeColoring.graph_to_circuit(graph_s, qubit_ids, strategy)
+        for graph in code.cardinal_subgraphs:
+            circuit += EdgeColoring.graph_to_circuit(graph, qubit_ids, strategy)
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(

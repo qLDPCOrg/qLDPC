@@ -24,6 +24,7 @@ from qldpc.objects import Pauli, PauliXZ
 from .common import restrict_to_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import (
+    CardinalEdgeColoring,
     EdgeColoring,
     MeasurementRecord,
     QubitIDs,
@@ -34,10 +35,10 @@ from .syndrome_measurement import (
 @restrict_to_qubits
 def get_memory_experiment(
     code: codes.AbstractCode,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
+    *,
     num_rounds: int = 1,
     basis: PauliXZ = Pauli.X,
-    *,
     qubit_ids: QubitIDs | None = None,
     noise_model: NoiseModel | None = None,
 ) -> stim.Circuit:
@@ -69,7 +70,9 @@ def get_memory_experiment(
             (non-subsystem) qubit codes are supported at the moment (generalization to non-CSS and
             subsystem codes pending).
         syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
-            each round of QEC measures all parity checks of the code.  Default: EdgeColoring().
+            each round of QEC measures all parity checks of the code.
+            Default: circuits.CardinalEdgeColoring() if cardinal subgraphs are defined for the code,
+            and circuits.EdgeColoring() otherwise.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         basis: Should be Pauli.X or Pauli.Z, depending the desired logical operators to track.  A
             logical error in a noisy simulation of the circuit corresponds to a logical error in one
@@ -116,6 +119,14 @@ def get_memory_experiment(
         raise ValueError("Memory experiments are currently not supported for non-CSS codes")
     if code.is_subsystem_code:
         raise ValueError("Memory experiments are currently not supported for subsystem codes")
+
+    # if necessary, set default syndrome measurement strategy
+    if syndrome_measurement_strategy is None:
+        syndrome_measurement_strategy = (
+            CardinalEdgeColoring()
+            if code.cardinal_subgraphs is not NotImplemented
+            else EdgeColoring()
+        )
 
     # identify all data and check qubit indices
     qubit_ids = qubit_ids or QubitIDs.from_code(code)

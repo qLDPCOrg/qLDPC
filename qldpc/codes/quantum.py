@@ -750,12 +750,16 @@ class HGPCode(CSSCode):
             logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
             self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
-    def get_cardinal_subgraphs(
-        self, strategy: str = "largest_first"
-    ) -> tuple[nx.DiGraph, nx.DiGraph, nx.DiGraph, nx.DiGraph]:
-        """Get the Tanner subgraphs of edges oriented in cardinal directions: N, S, E, W."""
+    @functools.cached_property
+    def cardinal_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+        """Sequence of Tanner graph subgraphs that induces a syndrome measurement sequence.
+
+        The sequence here is a modified version of that in arXiv:2109.14609, modified to obviate the
+        need to find a balanced ordering of Tanner graph vertices.
+        """
         node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
 
+        # collect subgraphs of North and South edges
         edges_ns: dict[int, list[tuple[Node, Node]]] = {0: [], 1: []}
         coloring_a = nx.coloring.greedy_color(
             nx.line_graph(self.code_a.graph.to_undirected()), strategy
@@ -769,6 +773,7 @@ class HGPCode(CSSCode):
         graph_n = self.graph.edge_subgraph(edges_ns[0])
         graph_s = self.graph.edge_subgraph(edges_ns[1])
 
+        # collect subgraphs of East and West edges
         edges_ew: dict[int, list[tuple[Node, Node]]] = {0: [], 1: []}
         coloring_b = nx.coloring.greedy_color(
             nx.line_graph(self.code_b.graph.to_undirected()), strategy
@@ -782,7 +787,7 @@ class HGPCode(CSSCode):
         graph_e = self.graph.edge_subgraph(edges_ew[0])
         graph_w = self.graph.edge_subgraph(edges_ew[1])
 
-        return graph_n, graph_s, graph_e, graph_w
+        return graph_e, graph_n, graph_s, graph_w
 
     @staticmethod
     def get_matrix_product(
@@ -1433,7 +1438,7 @@ class SurfaceCode(CSSCode):
             self._default_conjugate = slice(code_ab.sector_size[0, 0], None)
 
             # save cardinality data about check/data qubit connections
-            setattr(self, "get_cardinal_subgraphs", code_ab.get_cardinal_subgraphs)
+            setattr(self, "cardinal_subgraphs", code_ab.cardinal_subgraphs)
 
         CSSCode.__init__(
             self, matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols
