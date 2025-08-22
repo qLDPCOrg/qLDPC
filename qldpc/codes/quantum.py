@@ -1403,6 +1403,11 @@ class SurfaceCode(CSSCode):
 
     Actually, there are two variants: "ordinary" and "rotated" surface codes.
     The rotated code is more qubit-efficient.
+
+    References:
+    - https://errorcorrectionzoo.org/c/toric
+    - https://errorcorrectionzoo.org/c/surface
+    - https://errorcorrectionzoo.org/c/rotated_surface
     """
 
     _syndrome_subgraphs: tuple[nx.DiGraph, ...] | None = None
@@ -1520,22 +1525,102 @@ class SurfaceCode(CSSCode):
         return np.array(checks_x), np.array(checks_z)
 
     @property
-    def syndrome_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+    def syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
         Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing ancilla-qubit edges.
+
+        Example 5x5 rotated surface code layout:
+
+             ―――     ―――
+            | ⋅ |   | ⋅ |
+            ○―――○―――○―――○―――○―――
+            | × | ⋅ | × | ⋅ | × |
+         ―――○―――○―――○―――○―――○―――
+        | × | ⋅ | × | ⋅ | × |
+         ―――○―――○―――○―――○―――○―――
+            | × | ⋅ | × | ⋅ | × |
+         ―――○―――○―――○―――○―――○―――
+        | × | ⋅ | × | ⋅ | × |
+         ―――○―――○―――○―――○―――○
+                | ⋅ |   | ⋅ |
+                 ―――     ―――
+
+        Here:
+        - Circles (○) denote data qubits (of which there are 5×5 = 25 total).
+        - Tiles with a cross (×) denote X-type parity checks (12 total).
+        - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
         """
         if self._syndrome_subgraphs is not None:
             return self._syndrome_subgraphs
-        return NotImplemented
+
+        def get_check_pauli(row: int, col: int) -> PauliXZ:
+            """What type of stabilizer does this check measure?"""
+            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
+
+        def check_is_used(row: int, col: int) -> bool:
+            """Is the check qubit with these coordinates used?"""
+            if row == 0 or row == self.rows:
+                return 0 < col < self.cols and get_check_pauli(row, col) is Pauli.Z
+            if col == 0 or col == self.cols:
+                return 0 < row < self.rows and get_check_pauli(row, col) is Pauli.X
+            return 0 < row < self.rows and 0 < col < self.cols
+
+        # identify all coordinates of check qubits, and a map from coordinates to a Node
+        check_node_coords = sorted(
+            [
+                (row, col)
+                for row, col in itertools.product(range(self.rows + 1), range(self.cols + 1))
+                if check_is_used(row, col)
+            ],
+            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+        )
+        node_map = {
+            (row, col): Node(index, is_data=False)
+            for index, (row, col) in enumerate(check_node_coords)
+        }
+
+        # build all subgraphs
+        subgraph_nw = nx.DiGraph()
+        subgraph_ne = nx.DiGraph()
+        subgraph_sw = nx.DiGraph()
+        subgraph_se = nx.DiGraph()
+        for qubit, (row, col) in enumerate(itertools.product(range(self.rows), range(self.cols))):
+            check_nw = (row, col)
+            check_ne = (row, col + 1)
+            check_sw = (row + 1, col)
+            check_se = (row + 1, col + 1)
+
+            node_data = Node(qubit, is_data=True)
+            if check_is_used(*check_nw):
+                check_node = node_map[check_nw]
+                subgraph_nw.add_edge(check_node, node_data)
+                subgraph_nw[check_node][node_data][Pauli] = get_check_pauli(*check_nw)
+            if check_is_used(*check_ne):
+                check_node = node_map[check_ne]
+                subgraph_ne.add_edge(check_node, node_data)
+                subgraph_ne[check_node][node_data][Pauli] = get_check_pauli(*check_ne)
+            if check_is_used(*check_sw):
+                check_node = node_map[check_sw]
+                subgraph_sw.add_edge(check_node, node_data)
+                subgraph_sw[check_node][node_data][Pauli] = get_check_pauli(*check_sw)
+            if check_is_used(*check_se):
+                check_node = node_map[check_se]
+                subgraph_se.add_edge(check_node, node_data)
+                subgraph_se[check_node][node_data][Pauli] = get_check_pauli(*check_se)
+
+        self._syndrome_subgraphs = (subgraph_nw, subgraph_ne, subgraph_sw, subgraph_se)
+        return self._syndrome_subgraphs
 
 
 class ToricCode(CSSCode):
     """Surface code with periodic boundary conditions, encoding two logical qudits.
 
     References:
+    - https://errorcorrectionzoo.org/c/toric
     - https://errorcorrectionzoo.org/c/surface
+    - https://errorcorrectionzoo.org/c/rotated_surface
     """
 
     _syndrome_subgraphs: tuple[nx.DiGraph, ...] | None = None
