@@ -1487,9 +1487,6 @@ class SurfaceCode(CSSCode):
         - Circles (○) denote data qubits (of which there are 5×5 = 25 total).
         - Tiles with a cross (×) denote X-type parity checks (12 total).
         - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
-
-        References:
-        - https://errorcorrectionzoo.org/c/rotated_surface
         """
 
         def get_check(
@@ -1530,27 +1527,6 @@ class SurfaceCode(CSSCode):
 
         If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
         Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing ancilla-qubit edges.
-
-        Example 5x5 rotated surface code layout:
-
-             ―――     ―――
-            | ⋅ |   | ⋅ |
-            ○―――○―――○―――○―――○―――
-            | × | ⋅ | × | ⋅ | × |
-         ―――○―――○―――○―――○―――○―――
-        | × | ⋅ | × | ⋅ | × |
-         ―――○―――○―――○―――○―――○―――
-            | × | ⋅ | × | ⋅ | × |
-         ―――○―――○―――○―――○―――○―――
-        | × | ⋅ | × | ⋅ | × |
-         ―――○―――○―――○―――○―――○
-                | ⋅ |   | ⋅ |
-                 ―――     ―――
-
-        Here:
-        - Circles (○) denote data qubits (of which there are 5×5 = 25 total).
-        - Tiles with a cross (×) denote X-type parity checks (12 total).
-        - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
         """
         if self._syndrome_subgraphs is not None:
             return self._syndrome_subgraphs
@@ -1581,11 +1557,11 @@ class SurfaceCode(CSSCode):
             for index, (row, col) in enumerate(check_node_coords)
         }
 
-        # build all subgraphs
-        subgraph_nw = nx.DiGraph()
-        subgraph_ne = nx.DiGraph()
-        subgraph_sw = nx.DiGraph()
-        subgraph_se = nx.DiGraph()
+        # identify the edges of the NW, NE, SW, SE subgraphs
+        edges_nw = []
+        edges_ne = []
+        edges_sw = []
+        edges_se = []
         for qubit, (row, col) in enumerate(itertools.product(range(self.rows), range(self.cols))):
             check_nw = (row, col)
             check_ne = (row, col + 1)
@@ -1595,20 +1571,20 @@ class SurfaceCode(CSSCode):
             node_data = Node(qubit, is_data=True)
             if check_is_used(*check_nw):
                 check_node = node_map[check_nw]
-                subgraph_nw.add_edge(check_node, node_data)
-                subgraph_nw[check_node][node_data][Pauli] = get_check_pauli(*check_nw)
+                edges_nw.append((check_node, node_data))
             if check_is_used(*check_ne):
                 check_node = node_map[check_ne]
-                subgraph_ne.add_edge(check_node, node_data)
-                subgraph_ne[check_node][node_data][Pauli] = get_check_pauli(*check_ne)
+                edges_ne.append((check_node, node_data))
             if check_is_used(*check_sw):
                 check_node = node_map[check_sw]
-                subgraph_sw.add_edge(check_node, node_data)
-                subgraph_sw[check_node][node_data][Pauli] = get_check_pauli(*check_sw)
+                edges_sw.append((check_node, node_data))
             if check_is_used(*check_se):
                 check_node = node_map[check_se]
-                subgraph_se.add_edge(check_node, node_data)
-                subgraph_se[check_node][node_data][Pauli] = get_check_pauli(*check_se)
+                edges_se.append((check_node, node_data))
+        subgraph_nw = self.graph.edge_subgraph(edges_nw)
+        subgraph_ne = self.graph.edge_subgraph(edges_ne)
+        subgraph_sw = self.graph.edge_subgraph(edges_sw)
+        subgraph_se = self.graph.edge_subgraph(edges_se)
 
         self._syndrome_subgraphs = (subgraph_nw, subgraph_ne, subgraph_sw, subgraph_se)
         return self._syndrome_subgraphs
