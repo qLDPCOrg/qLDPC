@@ -1405,6 +1405,8 @@ class SurfaceCode(CSSCode):
     The rotated code is more qubit-efficient.
     """
 
+    _syndrome_subgraphs: tuple[nx.DiGraph, ...] | None = None
+
     def __init__(
         self,
         rows: int,
@@ -1433,7 +1435,7 @@ class SurfaceCode(CSSCode):
             self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
 
             # save cardinality data about check/data qubit connections
-            setattr(self, "syndrome_subgraphs", code_ab.syndrome_subgraphs)
+            self._syndrome_subgraphs = code_ab.syndrome_subgraphs
 
         else:
             # rotated surface code
@@ -1517,6 +1519,17 @@ class SurfaceCode(CSSCode):
 
         return np.array(checks_x), np.array(checks_z)
 
+    @property
+    def syndrome_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
+        Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing ancilla-qubit edges.
+        """
+        if self._syndrome_subgraphs is not None:
+            return self._syndrome_subgraphs
+        return NotImplemented
+
 
 class ToricCode(CSSCode):
     """Surface code with periodic boundary conditions, encoding two logical qudits.
@@ -1524,6 +1537,8 @@ class ToricCode(CSSCode):
     References:
     - https://errorcorrectionzoo.org/c/surface
     """
+
+    _syndrome_subgraphs: tuple[nx.DiGraph, ...] | None = None
 
     def __init__(
         self,
@@ -1552,7 +1567,7 @@ class ToricCode(CSSCode):
             self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
 
             # save cardinality data about check/data qubit connections
-            setattr(self, "syndrome_subgraphs", code_ab.syndrome_subgraphs)
+            self._syndrome_subgraphs = code_ab.syndrome_subgraphs
 
         else:
             # rotated toric code
@@ -1616,6 +1631,17 @@ class ToricCode(CSSCode):
                     checks_z.append(check)
 
         return np.array(checks_x), np.array(checks_z)
+
+    @property
+    def syndrome_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        If this is an unrotated toric code, return the syndrome subgraphs of the parent HGPCode.
+        Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing ancilla-qubit edges.
+        """
+        if self._syndrome_subgraphs is not None:
+            return self._syndrome_subgraphs
+        return NotImplemented
 
 
 class GeneralizedSurfaceCode(CSSCode):

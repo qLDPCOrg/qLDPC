@@ -823,7 +823,7 @@ class QuditCode(AbstractCode):
         field = getattr(graph, "order", DEFAULT_FIELD_ORDER)
         return galois.GF(field)(matrix.reshape(num_checks, 2 * num_qudits))
 
-    @functools.cached_property
+    @property
     def syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence."""
         return NotImplemented  # pragma: no cover
