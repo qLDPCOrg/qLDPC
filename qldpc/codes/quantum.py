@@ -756,11 +756,20 @@ class HGPCode(CSSCode):
 
         The sequence here is essentially that in arXiv:2109.14609, modified slightly to obviate the
         need to find a balanced ordering of Tanner graph vertices.
+
+        More specifically, this method constructs Tanner subgraphs as follows:
+        1. For the classical seed code that defines vertical edges of this HGPCode (self.code_a),
+            color the edges of its Tanner graph, and number these colors starting at zero.
+        2. Even edges get assigned a "north" or "south" direction if they are associated,
+            respectively, with X-type or Z-type parity checks.  Odd edges get assigned the opposite
+            direction.
+        3. Steps 1 and 2 are repeated for the horizontal code (self.code_b), with (north, south)
+            replaced by (east, west).
         """
         node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
 
         # collect subgraphs of North and South edges
-        edges_ns: dict[int, list[tuple[Node, Node]]] = {0: [], 1: []}
+        edges_sn: dict[int, list[tuple[Node, Node]]] = {0: [], 1: []}
         coloring_a = nx.coloring.greedy_color(
             nx.line_graph(self.code_a.graph.to_undirected()), strategy
         )
@@ -769,9 +778,9 @@ class HGPCode(CSSCode):
                 node_0 = node_map[check_a, node_b]
                 node_1 = node_map[data_a, node_b]
                 data, check = sorted([node_0, node_1])
-                edges_ns[(color + node_b.is_data) % 2].append((check, data))
-        graph_n = self.graph.edge_subgraph(edges_ns[0])
-        graph_s = self.graph.edge_subgraph(edges_ns[1])
+                edges_sn[(color + node_b.is_data) % 2].append((check, data))
+        graph_s = self.graph.edge_subgraph(edges_sn[0])
+        graph_n = self.graph.edge_subgraph(edges_sn[1])
 
         # collect subgraphs of East and West edges
         edges_ew: dict[int, list[tuple[Node, Node]]] = {0: [], 1: []}
