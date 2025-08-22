@@ -12,4 +12,4 @@ EXCLUDE = (
 )
 
 if __name__ == "__main__":
-    exit(checks_superstaq.pytest_.run(*sys.argv[1:], exclude=EXCLUDE))
+    exit(checks_superstaq.pytest_.run(*sys.argv[1:], "-n", "auto", exclude=EXCLUDE))

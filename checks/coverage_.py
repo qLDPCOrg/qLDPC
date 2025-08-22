@@ -7,6 +7,11 @@ import pytest_
 if __name__ == "__main__":
     exit(
         checks_superstaq.coverage_.run(
-            *sys.argv[1:], "--modular", "--sysmon", exclude=pytest_.EXCLUDE
+            *sys.argv[1:],
+            "--modular",
+            "--sysmon",
+            "-n",
+            "auto",
+            exclude=pytest_.EXCLUDE,
         )
     )
