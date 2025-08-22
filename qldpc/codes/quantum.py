@@ -754,7 +754,7 @@ class HGPCode(CSSCode):
     def cardinal_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
         """Sequence of Tanner graph subgraphs that induces a syndrome measurement sequence.
 
-        The sequence here is a modified version of that in arXiv:2109.14609, modified to obviate the
+        The sequence here is essentially that in arXiv:2109.14609, modified slightly to obviate the
         need to find a balanced ordering of Tanner graph vertices.
         """
         node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
