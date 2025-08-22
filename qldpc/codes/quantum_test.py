@@ -456,6 +456,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     ):
         assert cols <= code.get_distance(Pauli.X, bound=True) <= len(code)
         assert rows <= code.get_distance(Pauli.Z, bound=True) <= len(code)
+    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
 
     # un-rotated SurfaceCode = HGPCode
     rep_codes = (codes.RepetitionCode(rows), codes.RepetitionCode(cols))
@@ -484,6 +485,7 @@ def test_toric_codes() -> None:
     code = codes.ToricCode(distance, rotated=False)
     assert code.dimension == 2
     assert code.num_qudits == 2 * distance**2
+    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
 
     # check minimal logical operator weights
     code.reduce_logical_ops(with_ILP=True)
