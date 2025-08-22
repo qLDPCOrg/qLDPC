@@ -751,8 +751,8 @@ class HGPCode(CSSCode):
             self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
     @functools.cached_property
-    def cardinal_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
-        """Sequence of Tanner graph subgraphs that induces a syndrome measurement sequence.
+    def syndrome_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         The sequence here is essentially that in arXiv:2109.14609, modified slightly to obviate the
         need to find a balanced ordering of Tanner graph vertices.
@@ -1433,7 +1433,7 @@ class SurfaceCode(CSSCode):
             self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
 
             # save cardinality data about check/data qubit connections
-            setattr(self, "cardinal_subgraphs", code_ab.cardinal_subgraphs)
+            setattr(self, "syndrome_subgraphs", code_ab.syndrome_subgraphs)
 
         else:
             # rotated surface code
@@ -1552,7 +1552,7 @@ class ToricCode(CSSCode):
             self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
 
             # save cardinality data about check/data qubit connections
-            setattr(self, "cardinal_subgraphs", code_ab.cardinal_subgraphs)
+            setattr(self, "syndrome_subgraphs", code_ab.syndrome_subgraphs)
 
         else:
             # rotated toric code

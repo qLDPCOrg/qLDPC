@@ -124,7 +124,7 @@ def get_memory_experiment(
     if syndrome_measurement_strategy is None:
         syndrome_measurement_strategy = (
             CardinalEdgeColoring()
-            if code.cardinal_subgraphs is not NotImplemented
+            if code.syndrome_subgraphs is not NotImplemented
             else EdgeColoring()
         )
 
