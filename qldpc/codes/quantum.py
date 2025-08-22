@@ -1409,14 +1409,27 @@ class SurfaceCode(CSSCode):
         self.rows = rows
         self.cols = cols
 
-        # save known distances
+        # save known distances and dimension
         self._distance_x = cols
         self._distance_z = rows
+        self._dimension = 1
 
-        if rotated:
+        if not rotated:
+            # "original" surface code
+            code_a = RepetitionCode(rows, field)
+            code_b = RepetitionCode(cols, field)
+            code_ab = HGPCode(code_a, code_b, field)
+            matrix_x = code_ab.matrix_x.view(np.ndarray)
+            matrix_z = code_ab.matrix_z.view(np.ndarray)
+            self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
+
+            # save cardinality data about check/data qubit connections
+            setattr(self, "cardinal_subgraphs", code_ab.cardinal_subgraphs)
+
+        else:
             # rotated surface code
             matrix_x, matrix_z = SurfaceCode.get_rotated_checks(rows, cols)
-            self._default_conjugate: list[int] | slice = [
+            self._default_conjugate = [
                 idx
                 for idx, (row, col) in enumerate(np.ndindex(self.rows, self.cols))
                 if (row + col) % 2
@@ -1428,22 +1441,9 @@ class SurfaceCode(CSSCode):
                 matrix_z = matrix_z.view(code_field)
                 matrix_z[:, self._default_conjugate] *= -1
 
-        else:
-            # "original" surface code
-            code_a = RepetitionCode(rows, field)
-            code_b = RepetitionCode(cols, field)
-            code_ab = HGPCode(code_a, code_b, field)
-            matrix_x = code_ab.matrix_x
-            matrix_z = code_ab.matrix_z
-            self._default_conjugate = slice(code_ab.sector_size[0, 0], None)
-
-            # save cardinality data about check/data qubit connections
-            setattr(self, "cardinal_subgraphs", code_ab.cardinal_subgraphs)
-
         CSSCode.__init__(
             self, matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols
         )
-        self._dimension = 1
 
     @staticmethod
     def get_rotated_checks(
@@ -1529,18 +1529,31 @@ class ToricCode(CSSCode):
         self.rows = rows
         self.cols = cols
 
-        # save known distances
+        # save known distances and dimension
         self._distance_x = self._distance_z = min(rows, cols)
+        self._dimension = 2
 
-        if rotated:
+        if not rotated:
+            # "original" toric code
+            code_a = RingCode(rows, field)
+            code_b = RingCode(cols, field)
+            code_ab = HGPCode(code_a, code_b, field)
+            matrix_x = code_ab.matrix_x.view(np.ndarray)
+            matrix_z = code_ab.matrix_z.view(np.ndarray)
+            self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
+
+            # save cardinality data about check/data qubit connections
+            setattr(self, "cardinal_subgraphs", code_ab.cardinal_subgraphs)
+
+        else:
+            # rotated toric code
             if rows % 2 or cols % 2:
                 raise ValueError(
                     f"Rotated toric code must have even side lengths, not {rows} and {cols}"
                 )
 
-            # rotated toric code
             matrix_x, matrix_z = ToricCode.get_rotated_checks(rows, cols)
-            self._default_conjugate: list[int] | slice = [
+            self._default_conjugate = [
                 idx
                 for idx, (row, col) in enumerate(np.ndindex(self.rows, self.cols))
                 if (row + col) % 2
@@ -1559,22 +1572,9 @@ class ToricCode(CSSCode):
                 matrix_x = matrix_x[:-1]
                 matrix_z = matrix_z[:-1]
 
-        else:
-            # "original" toric code
-            code_a = RingCode(rows, field)
-            code_b = RingCode(cols, field)
-            code_ab = HGPCode(code_a, code_b, field)
-            matrix_x = code_ab.matrix_x
-            matrix_z = code_ab.matrix_z
-            self._default_conjugate = slice(code_ab.sector_size[0, 0], None)
-
-            # save cardinality data about check/data qubit connections
-            setattr(self, "cardinal_subgraphs", code_ab.cardinal_subgraphs)
-
         CSSCode.__init__(
             self, matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols
         )
-        self._dimension = 2
 
     @staticmethod
     def get_rotated_checks(
