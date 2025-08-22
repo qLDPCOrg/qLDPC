@@ -95,5 +95,5 @@ def test_syndrome_errors() -> None:
     with pytest.raises(ValueError, match="does not work for non-CSS codes"):
         circuits.EdgeColoring.get_circuit(codes.FiveQubitCode())
 
-    with pytest.raises(ValueError, match="does not work for non-CSS codes"):
+    with pytest.raises(ValueError, match="not equipped with a cardinal_subgraphs property"):
         circuits.CardinalEdgeColoring.get_circuit(codes.SteaneCode())
