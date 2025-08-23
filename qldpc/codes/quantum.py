@@ -1567,33 +1567,44 @@ class SurfaceCode(CSSCode):
             for index, (row, col) in enumerate(check_node_coords)
         }
 
-        # identify the edges of the NW, NE, SW, SE subgraphs
-        edges_nw = []
-        edges_ne = []
-        edges_sw = []
-        edges_se = []
+        # collect edges of the Tanner graph by type: (pauli, orientation)
+        edges: dict[tuple[Pauli, str], list[tuple[Node, Node]]] = collections.defaultdict(list)
         for qubit, (row, col) in enumerate(itertools.product(range(self.rows), range(self.cols))):
-            node_data = Node(qubit, is_data=True)
+            data_node = Node(qubit, is_data=True)
 
             check_nw = (row, col)
             check_ne = (row, col + 1)
             check_sw = (row + 1, col)
             check_se = (row + 1, col + 1)
             if check_is_used(*check_nw):
-                edges_nw.append((node_map[check_nw], node_data))
+                check_pauli = get_check_pauli(*check_nw)
+                check_node = node_map[check_nw]
+                edges[check_pauli, "nw"].append((check_node, data_node))
             if check_is_used(*check_ne):
-                edges_ne.append((node_map[check_ne], node_data))
+                check_pauli = get_check_pauli(*check_ne)
+                check_node = node_map[check_ne]
+                edges[check_pauli, "ne"].append((check_node, data_node))
             if check_is_used(*check_sw):
-                edges_sw.append((node_map[check_sw], node_data))
+                check_pauli = get_check_pauli(*check_sw)
+                check_node = node_map[check_sw]
+                edges[check_pauli, "sw"].append((check_node, data_node))
             if check_is_used(*check_se):
-                edges_se.append((node_map[check_se], node_data))
+                check_pauli = get_check_pauli(*check_se)
+                check_node = node_map[check_se]
+                edges[check_pauli, "se"].append((check_node, data_node))
 
-        subgraph_nw = self.graph.edge_subgraph(edges_nw)
-        subgraph_ne = self.graph.edge_subgraph(edges_ne)
-        subgraph_sw = self.graph.edge_subgraph(edges_sw)
-        subgraph_se = self.graph.edge_subgraph(edges_se)
-
-        self._syndrome_subgraphs = (subgraph_nw, subgraph_ne, subgraph_sw, subgraph_se)
+        # return subgraphs in the order that minimizes hook errors
+        subgraphs = {key: self.graph.edge_subgraph(edge_group) for key, edge_group in edges.items()}
+        self._syndrome_subgraphs = (
+            subgraphs[Pauli.X, "nw"],
+            subgraphs[Pauli.Z, "nw"],
+            subgraphs[Pauli.X, "sw"],
+            subgraphs[Pauli.X, "ne"],
+            subgraphs[Pauli.Z, "ne"],
+            subgraphs[Pauli.Z, "sw"],
+            subgraphs[Pauli.X, "se"],
+            subgraphs[Pauli.Z, "se"],
+        )
         return self._syndrome_subgraphs
 
 
@@ -1728,28 +1739,22 @@ class ToricCode(CSSCode):
             for index, (row, col) in enumerate(check_node_coords)
         }
 
-        # identify the edges of the NW, NE, SW, SE subgraphs
-        edges_nw = []
-        edges_ne = []
-        edges_sw = []
-        edges_se = []
+        # collect edges of the Tanner graph by type (orientation)
+        edges: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
         for qubit, (row, col) in enumerate(itertools.product(range(self.rows), range(self.cols))):
             node_data = Node(qubit, is_data=True)
-            check_nw = (row, col)
-            check_ne = (row, (col + 1) % self.cols)
-            check_sw = ((row + 1) % self.rows, col)
-            check_se = ((row + 1) % self.rows, (col + 1) % self.cols)
-            edges_nw.append((node_map[check_nw], node_data))
-            edges_ne.append((node_map[check_ne], node_data))
-            edges_sw.append((node_map[check_sw], node_data))
-            edges_se.append((node_map[check_se], node_data))
+            edges["nw"].append((node_map[row, col], node_data))
+            edges["ne"].append((node_map[row, (col + 1) % self.cols], node_data))
+            edges["sw"].append((node_map[(row + 1) % self.rows, col], node_data))
+            edges["se"].append((node_map[(row + 1) % self.rows, (col + 1) % self.cols], node_data))
 
-        subgraph_nw = self.graph.edge_subgraph(edges_nw)
-        subgraph_ne = self.graph.edge_subgraph(edges_ne)
-        subgraph_sw = self.graph.edge_subgraph(edges_sw)
-        subgraph_se = self.graph.edge_subgraph(edges_se)
-
-        self._syndrome_subgraphs = (subgraph_nw, subgraph_ne, subgraph_sw, subgraph_se)
+        subgraphs = {key: self.graph.edge_subgraph(edge_group) for key, edge_group in edges.items()}
+        self._syndrome_subgraphs = (
+            subgraphs["nw"],
+            subgraphs["ne"],
+            subgraphs["sw"],
+            subgraphs["se"],
+        )
         return self._syndrome_subgraphs
 
 
