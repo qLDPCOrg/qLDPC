@@ -788,7 +788,7 @@ class HGPCode(CSSCode):
             nx.line_graph(self.code_b.graph.to_undirected()), strategy
         )
         for (check_b, data_b), color in coloring_b.items():
-            for node_a in self.code_b.graph.nodes:
+            for node_a in self.code_a.graph.nodes:
                 node_0 = node_map[node_a, check_b]
                 node_1 = node_map[node_a, data_b]
                 data, check = sorted([node_0, node_1])

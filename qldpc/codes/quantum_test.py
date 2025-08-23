@@ -224,6 +224,7 @@ def test_hypergraph_product(
     assert np.array_equal(code.matrix, codes.QuditCode.graph_to_matrix(graph))
     assert np.array_equal(code.matrix_x, matrix_x)
     assert np.array_equal(code.matrix_z, matrix_z)
+    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
 
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), validate=True)
