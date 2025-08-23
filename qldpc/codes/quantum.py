@@ -770,8 +770,8 @@ class HGPCode(CSSCode):
         node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
 
         # collect subgraphs of vertical edges
-        edges_vert_0: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
-        edges_vert_1: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_n: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_s: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
         coloring_a = nx.coloring.greedy_color(
             nx.line_graph(self.code_a.graph.to_undirected()), strategy
         )
@@ -780,14 +780,14 @@ class HGPCode(CSSCode):
                 node_0 = node_map[check_a, node_b]
                 node_1 = node_map[data_a, node_b]
                 data, check = sorted([node_0, node_1])
-                edges_vert = edges_vert_0 if (color + node_b.is_data) % 2 == 0 else edges_vert_1
-                edges_vert[color].append((check, data))
-        graphs_vert_0 = tuple(self.graph.edge_subgraph(edges) for edges in edges_vert_0.values())
-        graphs_vert_1 = tuple(self.graph.edge_subgraph(edges) for edges in edges_vert_1.values())
+                edges_ns = edges_s if (color + node_b.is_data) % 2 == 0 else edges_n
+                edges_ns[color].append((check, data))
+        graphs_n = tuple(self.graph.edge_subgraph(edges) for edges in edges_n.values())
+        graphs_s = tuple(self.graph.edge_subgraph(edges) for edges in edges_s.values())
 
         # collect subgraphs of horizontal edges
-        edges_horz_0: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
-        edges_horz_1: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_e: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_w: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
         coloring_b = nx.coloring.greedy_color(
             nx.line_graph(self.code_b.graph.to_undirected()), strategy
         )
@@ -796,12 +796,12 @@ class HGPCode(CSSCode):
                 node_0 = node_map[node_a, check_b]
                 node_1 = node_map[node_a, data_b]
                 data, check = sorted([node_0, node_1])
-                edges_horz = edges_horz_0 if (color + node_b.is_data) % 2 == 0 else edges_horz_1
-                edges_horz[color].append((check, data))
-        graphs_horz_0 = tuple(self.graph.edge_subgraph(edges) for edges in edges_horz_0.values())
-        graphs_horz_1 = tuple(self.graph.edge_subgraph(edges) for edges in edges_horz_1.values())
+                edges_ew = edges_e if (color + node_b.is_data) % 2 == 0 else edges_w
+                edges_ew[color].append((check, data))
+        graphs_e = tuple(self.graph.edge_subgraph(edges) for edges in edges_e.values())
+        graphs_w = tuple(self.graph.edge_subgraph(edges) for edges in edges_w.values())
 
-        return graphs_vert_0 + graphs_horz_0 + graphs_horz_1 + graphs_vert_1
+        return graphs_n + graphs_e + graphs_w + graphs_s
 
     @staticmethod
     def get_matrix_product(
