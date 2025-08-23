@@ -791,8 +791,9 @@ def _iter_moments_and_repeat_blocks(
                 current_moment = []
             yield op
         elif op.name == "TICK":
-            yield current_moment
-            current_moment = []
+            if current_moment:
+                yield current_moment
+                current_moment = []
         else:
             current_moment.extend(_split_targets_if_needed(op, immune_qubits))
     if current_moment:
