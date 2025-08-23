@@ -754,8 +754,8 @@ class HGPCode(CSSCode):
     def syndrome_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
-        The sequence here is essentially that in arXiv:2109.14609, modified slightly to obviate the
-        need to find a balanced ordering of Tanner graph vertices.
+        The sequence here is essentially that for hypergraph product codes in arXiv:2109.14609,
+        modified to obviate the need to find a balanced ordering of Tanner graph vertices.
 
         More specifically, this method constructs Tanner subgraphs as follows:
         1. For the classical seed code that defines vertical edges of this HGPCode (self.code_a),
