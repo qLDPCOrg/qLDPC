@@ -49,45 +49,44 @@ def test_measurement_record() -> None:
         record.get_target_rec(0, 2)
 
 
-@pytest.mark.parametrize(
-    "code,strategy",
-    [
-        (codes.FiveQubitCode(), circuits.SerialExtraction),
-        (codes.SteaneCode(), circuits.EdgeColoring),
-        (codes.SurfaceCode(2), circuits.CardinalEdgeColoring),
-    ],
-)
-def test_syndrome_measurement(
-    code: codes.QuditCode,
-    strategy: circuits.SyndromeMeasurementStrategy,
-    pytestconfig: pytest.Config,
-) -> None:
+def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     """Syndrome extraction by Tanner graph edge coloring."""
     random.seed(pytestconfig.getoption("randomly_seed"))
 
-    # prepare a logical |0> state
-    state_prep = circuits.get_encoding_circuit(code)
+    # classical seed codes for a random HGPCode
+    code_a = codes.ClassicalCode.random(5, 3, seed=random.randint(0, 2**32))
+    code_b = codes.ClassicalCode.random(3, 2, seed=random.randint(0, 2**32))
 
-    # apply random Pauli errors to the data qubits
-    errors = random.choices([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], k=len(code))
-    error_ops = stim.Circuit()
-    for qubit, pauli in enumerate(errors):
-        if pauli is not Pauli.I:  # I_ERROR is only recognized in stim>=1.15.0
-            error_ops.append(f"{pauli}_error", [qubit], [1])
+    for code, strategy in [
+        (codes.FiveQubitCode(), circuits.SerialExtraction),
+        (codes.SteaneCode(), circuits.EdgeColoring),
+        (codes.SurfaceCode(2, rotated=True), circuits.CardinalEdgeColoring),
+        (codes.ToricCode(2, rotated=True), circuits.CardinalEdgeColoring),
+        (codes.HGPCode(code_a, code_b), circuits.CardinalEdgeColoring),
+    ]:
+        # prepare a logical |0> state
+        state_prep = circuits.get_encoding_circuit(code)
 
-    # measure syndromes
-    syndrome_extraction, record = strategy.get_circuit(code)
-    for check in range(len(code), len(code) + code.num_checks):
-        syndrome_extraction.append("DETECTOR", record.get_target_rec(check))
+        # apply random Pauli errors to the data qubits
+        errors = random.choices([Pauli.I, Pauli.X, Pauli.Y, Pauli.Z], k=len(code))
+        error_ops = stim.Circuit()
+        for qubit, pauli in enumerate(errors):
+            if pauli is not Pauli.I:  # I_ERROR is only recognized in stim>=1.15.0
+                error_ops.append(f"{pauli}_error", [qubit], [1])
 
-    # sample the circuit to obtain a syndrome vector
-    circuit = state_prep + error_ops + syndrome_extraction
-    syndrome = circuit.compile_detector_sampler().sample(1).ravel()
+        # measure syndromes
+        syndrome_extraction, record = strategy.get_circuit(code)
+        for check in range(len(code), len(code) + code.num_checks):
+            syndrome_extraction.append("DETECTOR", record.get_target_rec(check))
 
-    # compare against the expected syndrome
-    error_xz = code.field([pauli.value for pauli in errors]).T.ravel()
-    expected_syndrome = code.matrix @ symplectic_conjugate(error_xz)
-    assert np.array_equal(expected_syndrome, syndrome)
+        # sample the circuit to obtain a syndrome vector
+        circuit = state_prep + error_ops + syndrome_extraction
+        syndrome = circuit.compile_detector_sampler().sample(1).ravel()
+
+        # compare against the expected syndrome
+        error_xz = code.field([pauli.value for pauli in errors]).T.ravel()
+        expected_syndrome = code.matrix @ symplectic_conjugate(error_xz)
+        assert np.array_equal(expected_syndrome, syndrome)
 
 
 def test_syndrome_errors() -> None:
