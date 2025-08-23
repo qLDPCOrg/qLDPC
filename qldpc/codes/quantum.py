@@ -752,7 +752,7 @@ class HGPCode(CSSCode):
             self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
     @functools.cached_property
-    def syndrome_subgraphs(self, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+    def syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         The sequence here is essentially that for hypergraph product codes in arXiv:2109.14609,
