@@ -769,7 +769,7 @@ class HGPCode(CSSCode):
         """
         node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
 
-        # collect subgraphs of vertical edges
+        # collect subgraphs of North and South edges
         edges_n: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
         edges_s: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
         coloring_a = nx.coloring.greedy_color(
@@ -785,7 +785,7 @@ class HGPCode(CSSCode):
         graphs_n = tuple(self.graph.edge_subgraph(edges) for edges in edges_n.values())
         graphs_s = tuple(self.graph.edge_subgraph(edges) for edges in edges_s.values())
 
-        # collect subgraphs of horizontal edges
+        # collect subgraphs of East and West edges
         edges_e: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
         edges_w: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
         coloring_b = nx.coloring.greedy_color(
