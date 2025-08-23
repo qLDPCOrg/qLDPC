@@ -48,7 +48,7 @@ class BatchDecoder(Protocol):
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
 
-    def decode_batch(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+    def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes and return inferred errors."""
 
 
