@@ -71,12 +71,12 @@ def test_sinter_decoder() -> None:
     expected_flips = np.packbits(observable_flips, bitorder="little", axis=1)
 
     # try decoders with and without a decode_batch method
-    for sinter_decoder, probs_arg in [
+    for sinter_decoder, priors_arg in [
         (circuits.SinterDecoder(with_BP_OSD=True), "error_channel"),
         (circuits.SinterDecoder(with_RBP="MinSumBPDecoderF32"), "error_priors"),
         (circuits.SinterDecoder(with_MWPM=True), "weights"),
     ]:
-        assert sinter_decoder.error_probs_arg == probs_arg
+        assert sinter_decoder.priors_arg == priors_arg
 
         compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
         predicted_flips = compiled_sinter_decoder.decode_shots_bit_packed(bit_packed_shots)
