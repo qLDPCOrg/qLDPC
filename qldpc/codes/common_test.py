@@ -515,6 +515,7 @@ def test_css_code() -> None:
         code_z = codes.ClassicalCode.random(3, 2, field=code_x.field.order**2)
         codes.CSSCode(code_x, code_z)
 
+    assert nx.utils.misc.graphs_equal(code.graph, nx.compose(*code.syndrome_subgraphs))
     assert nx.utils.misc.graphs_equal(
         code.graph, nx.compose(code.get_graph(Pauli.X), code.get_graph(Pauli.Z))
     )

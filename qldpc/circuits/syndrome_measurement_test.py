@@ -59,10 +59,10 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
 
     for code, strategy in [
         (codes.FiveQubitCode(), circuits.SerialExtraction),
-        (codes.SteaneCode(), circuits.EdgeColoring),
-        (codes.SurfaceCode(2, rotated=True), circuits.CardinalEdgeColoring),
-        (codes.ToricCode(2, rotated=True), circuits.CardinalEdgeColoring),
-        (codes.HGPCode(code_a, code_b), circuits.CardinalEdgeColoring),
+        (codes.SteaneCode(), circuits.EdgeColoringXZ),
+        (codes.SurfaceCode(2, rotated=True), circuits.EdgeColoring),
+        (codes.ToricCode(2, rotated=True), circuits.EdgeColoring),
+        (codes.HGPCode(code_a, code_b), circuits.EdgeColoring),
     ]:
         # prepare a logical |0> state
         state_prep = circuits.get_encoding_circuit(code)
@@ -91,8 +91,7 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
 
 def test_syndrome_errors() -> None:
     """Not all codes are supported by all syndrome extraction circuits."""
-    with pytest.raises(ValueError, match="does not work for non-CSS codes"):
-        circuits.EdgeColoring.get_circuit(codes.FiveQubitCode())
-
     with pytest.raises(ValueError, match="not equipped with a syndrome_subgraphs property"):
-        circuits.CardinalEdgeColoring.get_circuit(codes.SteaneCode())
+        circuits.EdgeColoring.get_circuit(codes.FiveQubitCode())
+    with pytest.raises(ValueError, match="only supports CSS codes"):
+        circuits.EdgeColoringXZ.get_circuit(codes.FiveQubitCode())

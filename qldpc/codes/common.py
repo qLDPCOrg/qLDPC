@@ -1828,6 +1828,11 @@ class CSSCode(QuditCode):
         return self.graph_x if pauli is Pauli.X else self.graph_z
 
     @property
+    def syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence."""
+        return self.graphs_xz
+
+    @property
     def is_subsystem_code(self) -> bool:
         """Is this code a subsystem code?  That is, do all parity checks commute?."""
         if self._is_subsystem_code is None:

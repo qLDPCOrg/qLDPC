@@ -24,8 +24,8 @@ from qldpc.objects import Pauli, PauliXZ
 from .common import restrict_to_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import (
-    CardinalEdgeColoring,
     EdgeColoring,
+    EdgeColoringXZ,
     MeasurementRecord,
     QubitIDs,
     SyndromeMeasurementStrategy,
@@ -71,8 +71,8 @@ def get_memory_experiment(
             subsystem codes pending).
         syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
             each round of QEC measures all parity checks of the code.
-            Default: circuits.CardinalEdgeColoring() if cardinal subgraphs are defined for the code,
-            and circuits.EdgeColoring() otherwise.
+            Default: circuits.EdgeColoring() if cardinal subgraphs are defined for the code,
+            and circuits.EdgeColoringXZ() otherwise.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         basis: Should be Pauli.X or Pauli.Z, depending the desired logical operators to track.  A
             logical error in a noisy simulation of the circuit corresponds to a logical error in one
@@ -123,9 +123,7 @@ def get_memory_experiment(
     # if necessary, set default syndrome measurement strategy
     if syndrome_measurement_strategy is None:
         syndrome_measurement_strategy = (
-            CardinalEdgeColoring()
-            if code.syndrome_subgraphs is not NotImplemented
-            else EdgeColoring()
+            EdgeColoring() if code.syndrome_subgraphs is not NotImplemented else EdgeColoringXZ()
         )
 
     # identify all data and check qubit indices
