@@ -168,13 +168,11 @@ class EdgeColoring(SyndromeMeasurementStrategy):
     1. Assign each edge in T a cardinal direction D in {E, N, S, W}.
     2. For each D in (E, N, S, W), consider the subgraph T_D, color the edges of T_D, and apply the
         corresponding gates one color at a time.
-    This strategy can achieve a lower depth than the EdgeColoringXZ strategy by interleaving many of
-    the X and Z syndrome measurements.
 
-    This syndrome measurement strategy slightly generalizes that in Algorithm 2 of arXiv:2109.14609.
-    Specifically, this strategy delegates the division of the Tanner graph T into subgraphs T_D
-    (i.e., step 1 above) to the error-correcting code, and in step 2 above iterates over each
-    subgraph T_D in code.syndrome_subgraphs.
+    The EdgeColoring syndrome measurement strategy here slightly generalizes that in Algorithm 2 of
+    arXiv:2109.14609.  Specifically, this strategy delegates the division of the Tanner graph T into
+    subgraphs T_D (i.e., step 1 above) to the error-correcting code, and in step 2 above iterates
+    over each subgraph T_D in code.syndrome_subgraphs.
 
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
