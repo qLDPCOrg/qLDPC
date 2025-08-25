@@ -310,10 +310,4 @@ def get_memory_simulation(
     # TODO: UPDATE MEASUREMENT RECORD
     # TODO: ANNOTATE LOGICAL OBSERVABLES
 
-    ##################################################
-    # TODO: REMOVE PLACEHOLDERS
-    noisy_cycle
-    measurement_record
-    ##################################################
-
     return NotImplemented
