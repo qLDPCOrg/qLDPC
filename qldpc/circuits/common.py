@@ -41,39 +41,6 @@ def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.
     return qubit_func
 
 
-@dataclasses.dataclass
-class QubitIDs:
-    """Container for qubit indices."""
-
-    data: list[int]  # data qubit indices
-    check: list[int]  # check (syndrome readout) qubit indices
-    flag: list[int]  # flag qubits whose noiseless measurement should always be 0
-    ancilla: list[int]  # miscellaneous ancilla qubits
-
-    @staticmethod
-    def from_code(code: codes.QuditCode) -> QubitIDs:
-        """Initialize from an error-correcting code with specific parity checks."""
-        data = list(range(len(code)))
-        check = list(range(len(code), len(code) + code.num_checks))
-        return QubitIDs(data, check, [], [])
-
-    def __iter__(self) -> Iterator[list[int]]:
-        """Iterate over the collections of qubits tracked by this QubitIDs object."""
-        yield from (self.data, self.check, self.flag, self.ancilla)
-
-    def get_new_flag(self) -> int:
-        """Add an ancilla qubit and return its index."""
-        new_index = max(itertools.chain(*self)) + 1
-        self.flag.append(new_index)
-        return new_index
-
-    def get_new_ancilla(self) -> int:
-        """Add an ancilla qubit and return its index."""
-        new_index = max(itertools.chain(*self)) + 1
-        self.ancilla.append(new_index)
-        return new_index
-
-
 @restrict_to_qubits
 def get_encoding_tableau(code: codes.QuditCode) -> stim.Tableau:
     """Tableau to encode physical states at its input into logical states of the given code.
@@ -202,3 +169,36 @@ def get_logical_tableau_from_code_data(
     assert not np.any(z2z[sector_g, sector_l])
 
     return logical_tableau
+
+
+@dataclasses.dataclass
+class QubitIDs:
+    """Container for qubit indices."""
+
+    data: list[int]  # data qubit indices
+    check: list[int]  # check (syndrome readout) qubit indices
+    flag: list[int]  # flag qubits whose noiseless measurement should always be 0
+    ancilla: list[int]  # miscellaneous ancilla qubits
+
+    @staticmethod
+    def from_code(code: codes.QuditCode) -> QubitIDs:
+        """Initialize from an error-correcting code with specific parity checks."""
+        data = list(range(len(code)))
+        check = list(range(len(code), len(code) + code.num_checks))
+        return QubitIDs(data, check, [], [])
+
+    def __iter__(self) -> Iterator[list[int]]:
+        """Iterate over the collections of qubits tracked by this QubitIDs object."""
+        yield from (self.data, self.check, self.flag, self.ancilla)
+
+    def get_new_flag(self) -> int:
+        """Add an ancilla qubit and return its index."""
+        new_index = max(itertools.chain(*self)) + 1
+        self.flag.append(new_index)
+        return new_index
+
+    def get_new_ancilla(self) -> int:
+        """Add an ancilla qubit and return its index."""
+        new_index = max(itertools.chain(*self)) + 1
+        self.ancilla.append(new_index)
+        return new_index

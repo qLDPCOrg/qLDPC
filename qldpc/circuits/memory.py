@@ -130,7 +130,7 @@ def get_memory_experiment(
 
     # build one noiseless QEC cycle and initialize a measurement record
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    measurement_record = MeasurementRecord(qubit_ids=cycle_measurements.qubit_ids)
+    measurement_record = MeasurementRecord()
 
     # set coordinates for all qubits
     circuit = stim.Circuit()
@@ -248,8 +248,8 @@ def get_memory_simulation(
 
     # build one noiseless QEC cycle and initialize a measurement record
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    measurement_record = MeasurementRecord(qubit_ids=cycle_measurements.qubit_ids)
-    measurement_record
+    measurement_record = MeasurementRecord()
+    measurement_record  # TODO: REMOVE PLACEHOLDER
 
     # set coordinates for all qubits
     circuit = stim.Circuit()

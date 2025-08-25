@@ -35,7 +35,6 @@ class MeasurementRecord:
 
     num_measurements: int
     qubit_to_measurements: dict[int, list[int]]
-    qubit_ids: QubitIDs | None = None
 
     def __init__(
         self,
@@ -49,7 +48,6 @@ class MeasurementRecord:
         self.num_measurements = sum(
             len(measurements) for measurements in self.qubit_to_measurements.values()
         )
-        self.qubit_ids = qubit_ids
 
     def items(self) -> Iterator[tuple[int, list[int]]]:
         """Iterator over qubits and their measurements."""
