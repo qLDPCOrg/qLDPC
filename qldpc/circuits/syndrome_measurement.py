@@ -172,7 +172,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
     The EdgeColoring syndrome measurement strategy here slightly generalizes that in Algorithm 2 of
     arXiv:2109.14609.  Specifically, this strategy delegates the division of the Tanner graph T into
     subgraphs T_D (i.e., step 1 above) to the error-correcting code, and in step 2 above iterates
-    over each subgraph T_D in code.syndrome_subgraphs.
+    over each subgraph T_D in code.get_syndrome_subgraphs().
 
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
@@ -195,7 +195,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        if code.syndrome_subgraphs is NotImplemented:
+        subgraphs = code.get_syndrome_subgraphs()
+        if subgraphs is NotImplemented:
             raise ValueError(
                 "The provided code is not equipped with a syndrome_subgraphs property, as required"
                 " for the EdgeColoring syndrome measurement strategy"
@@ -204,7 +205,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
-        for graph in code.syndrome_subgraphs:
+        for graph in subgraphs:
             circuit += EdgeColoring.graph_to_circuit(graph, qubit_ids, strategy)
         circuit.append("MX", qubit_ids.check)
 

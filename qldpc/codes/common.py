@@ -816,8 +816,7 @@ class QuditCode(AbstractCode):
         field = getattr(graph, "field", galois.GF(DEFAULT_FIELD_ORDER))
         return field(matrix.reshape(num_checks, 2 * num_qudits))
 
-    @property
-    def syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence."""
         return NotImplemented  # pragma: no cover
 
@@ -1814,8 +1813,7 @@ class CSSCode(QuditCode):
         assert pauli in PAULIS_XZ
         return self.graph_x if pauli is Pauli.X else self.graph_z
 
-    @property
-    def syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence."""
         return self.graph_x, self.graph_z
 

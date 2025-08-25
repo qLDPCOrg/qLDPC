@@ -224,7 +224,9 @@ def test_hypergraph_product(
     assert np.array_equal(code.matrix, codes.QuditCode.graph_to_matrix(graph))
     assert np.array_equal(code.matrix_x, matrix_x)
     assert np.array_equal(code.matrix_z, matrix_z)
-    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
+    assert nx.utils.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
 
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), validate=True)
@@ -457,7 +459,9 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     ):
         assert cols <= code.get_distance(Pauli.X, bound=True) <= len(code)
         assert rows <= code.get_distance(Pauli.Z, bound=True) <= len(code)
-    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
+    assert nx.utils.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
 
     # un-rotated SurfaceCode = HGPCode
     rep_codes = (codes.RepetitionCode(rows), codes.RepetitionCode(cols))
@@ -469,7 +473,9 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     assert code.num_qudits == rows * cols
     assert codes.CSSCode.get_distance(code, Pauli.X) == cols
     assert codes.CSSCode.get_distance(code, Pauli.Z) == rows
-    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
+    assert nx.utils.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
 
     # test that the conjugated rotated surface code is an XZZX code
     code = codes.SurfaceCode(max(rows, cols), rotated=True)
@@ -486,7 +492,9 @@ def test_toric_codes() -> None:
     code = codes.ToricCode(distance, rotated=False)
     assert code.dimension == 2
     assert code.num_qudits == 2 * distance**2
-    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
+    assert nx.utils.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
 
     # check minimal logical operator weights
     code.reduce_logical_ops(with_ILP=True)
@@ -502,7 +510,9 @@ def test_toric_codes() -> None:
     assert code.dimension == 2
     assert code.num_qudits == distance**2
     assert codes.CSSCode.get_distance(code) == distance
-    assert nx.utils.graphs_equal(code.graph, functools.reduce(nx.compose, code.syndrome_subgraphs))
+    assert nx.utils.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
 
     # rotated toric code must have even side lengths
     with pytest.raises(ValueError, match="even side lengths"):

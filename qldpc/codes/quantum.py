@@ -751,21 +751,21 @@ class HGPCode(CSSCode):
             logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
             self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
-    @functools.cached_property
-    def syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
-        The sequence here is essentially that for hypergraph product codes in arXiv:2109.14609,
-        modified to obviate the need to find a balanced ordering of Tanner graph vertices.
+        The sequence here is essentially the sequence used for hypergraph product codes in Algorithm
+        2 of arXiv:2109.14609, modified to obviate the need to find a balanced ordering of Tanner
+        graph vertices.
 
         More specifically, this method constructs Tanner subgraphs as follows:
         1. For the classical seed code that defines vertical edges of this HGPCode (self.code_a),
-            color the edges of its Tanner graph, and number these colors starting at zero.
+            color the edges of its Tanner graph, and number these colors starting from zero.
         2. Even edges get assigned a "north" or "south" direction if they are associated,
             respectively, with X-type or Z-type parity checks.  Odd edges get assigned the opposite
             direction.
-        3. Steps 1 and 2 are repeated for the horizontal code (self.code_b), with (north, south)
-            replaced by (east, west).
+        3. Steps 1 and 2 are repeated for (horizontal, self.code_b, east, west) in place of
+            (vertical, self.code_a, north, south).
         """
         node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
 
@@ -1440,7 +1440,7 @@ class SurfaceCode(CSSCode):
             self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
 
             # save cardinality data about check/data qubit connections
-            self._syndrome_subgraphs = code_ab.syndrome_subgraphs
+            self._syndrome_subgraphs = code_ab.get_syndrome_subgraphs()
 
         else:
             # rotated surface code
@@ -1523,12 +1523,13 @@ class SurfaceCode(CSSCode):
 
         return np.array(checks_x), np.array(checks_z)
 
-    @property
-    def syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
-        Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing edges of the Tanner graph.
+        Otherwise, organize edges of the Tanner graph by an orientation in {NW, NE, SW, SE}, and by
+        whether they are used for the readout of X-type or Z-type syndromes.  Interleave these edges
+        in such a way as to minimize circuit depth and avoid hook errors.
         """
         if self._syndrome_subgraphs is not None:
             return self._syndrome_subgraphs
@@ -1593,8 +1594,8 @@ class SurfaceCode(CSSCode):
             subgraphs[Pauli.X, "nw"],
             subgraphs[Pauli.Z, "nw"],
             subgraphs[Pauli.X, "sw"],
-            subgraphs[Pauli.X, "ne"],
             subgraphs[Pauli.Z, "ne"],
+            subgraphs[Pauli.X, "ne"],
             subgraphs[Pauli.Z, "sw"],
             subgraphs[Pauli.X, "se"],
             subgraphs[Pauli.Z, "se"],
@@ -1641,7 +1642,7 @@ class ToricCode(CSSCode):
             self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
 
             # save cardinality data about check/data qubit connections
-            self._syndrome_subgraphs = code_ab.syndrome_subgraphs
+            self._syndrome_subgraphs = code_ab.get_syndrome_subgraphs()
 
         else:
             # rotated toric code
@@ -1707,12 +1708,11 @@ class ToricCode(CSSCode):
 
         return np.array(checks_x), np.array(checks_z)
 
-    @property
-    def syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
-        If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
-        Otherwise, return the subgraphs of (NW, NE, SW, SE)-facing edges of the Tanner graph.
+        If this is an unrotated toric code, return the syndrome subgraphs of the parent HGPCode.
+        Otherwise, return the subgraphs of edges oriented along (NW, NE, SW, SE) directions.
         """
         if self._syndrome_subgraphs is not None:
             return self._syndrome_subgraphs
