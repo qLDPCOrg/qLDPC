@@ -825,8 +825,14 @@ class QuditCode(AbstractCode):
         which is used by qldpc.circuits.EdgeColoring to construct a syndrome measurement circuit.
 
         Subclasses of QuditCode can override this method to define a code-specific syndrome
-        measurement sequence.  The subgraphs returned by this method must be edge-disjoint, and
-        their union (with nx.compose) must equal the entire Tanner graph of the code.
+        measurement sequence, so long as the following requirements are satisfied:
+        1. Any pair of subgraphs must be edge-disjoint.
+        2. The union of all subgraphs (with nx.compose) must equal the Tanner graph of the code.
+        3. For every subgraph, all two-qubit gates associated with its edges must commute.
+
+        The sequence here colors parity checks in such a way that any two parity checks with
+        overlapping support have different colors.  Each color induces a subgraph of all edges
+        incident to that color.  These subgraphs are returned in arbitrary order.
         """
         return NotImplemented  # pragma: no cover
 

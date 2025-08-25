@@ -751,7 +751,7 @@ class HGPCode(CSSCode):
             logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
             self.set_logical_ops_xz(*logical_ops_xz, validate=False)
 
-    def get_syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
@@ -1522,7 +1522,7 @@ class SurfaceCode(CSSCode):
 
         return np.array(checks_x), np.array(checks_z)
 
-    def get_syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
@@ -1537,7 +1537,7 @@ class SurfaceCode(CSSCode):
                 HGPCode.  Only used if self.rotated is False.  Default: "smallest_last".
         """
         if not self.rotated:
-            return self.parent_code.get_syndrome_subgraphs(strategy)
+            return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
 
         def get_check_pauli(row: int, col: int) -> PauliXZ:
             """What type of stabilizer does this check measure?"""
@@ -1707,7 +1707,7 @@ class ToricCode(CSSCode):
 
         return np.array(checks_x), np.array(checks_z)
 
-    def get_syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         If this is an unrotated toric code, return the syndrome subgraphs of the parent HGPCode.
@@ -1718,7 +1718,7 @@ class ToricCode(CSSCode):
                 HGPCode.  Only used if self.rotated is False.  Default: "smallest_last".
         """
         if not self.rotated:
-            return self.parent_code.get_syndrome_subgraphs(strategy)
+            return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
 
         def get_check_pauli(row: int, col: int) -> PauliXZ:
             """What type of stabilizer does this check measure?"""
