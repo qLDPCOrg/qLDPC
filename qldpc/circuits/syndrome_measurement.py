@@ -33,20 +33,22 @@ from .common import restrict_to_qubits
 
 @dataclasses.dataclass
 class QubitIDs:
-    """Container for data qubit and check (syndrome readout) qubit indices."""
+    """Container for qubit indices."""
 
     data: list[int]  # data qubit indices
     check: list[int]  # check (syndrome readout) qubit indices
+    flag: list[int]  # flag qubits whose noiseless measurement should always be 0
+    ancilla: list[int]  # miscellaneous ancilla qubits
 
     @staticmethod
     def from_code(code: codes.QuditCode) -> QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
         data = list(range(len(code)))
         check = list(range(len(code), len(code) + code.num_checks))
-        return QubitIDs(data, check)
+        return QubitIDs(data, check, [], [])
 
     def __iter__(self) -> Iterator[list[int]]:
-        yield from (self.data, self.check)
+        yield from (self.data, self.check, self.flag, self.ancilla)
 
 
 class MeasurementRecord:

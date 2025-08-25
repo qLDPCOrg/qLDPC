@@ -21,7 +21,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
-from .common import restrict_to_qubits
+from .common import get_encoding_circuit, restrict_to_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import (
     EdgeColoring,
@@ -121,7 +121,7 @@ def get_memory_experiment(
     # set default syndrome measurement strategy and qubit IDs, if necessary
     syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
-    data_ids, check_ids = qubit_ids
+    data_ids, check_ids, *_ = qubit_ids
 
     # identify the support and indices of basis-type parity checks
     check_support = code.get_matrix(basis)
@@ -228,7 +228,7 @@ def get_memory_simulation(
             that protects only basis-type logical operators.  Otherwise, only CSS stabilizer
             (non-subsystem) qubit codes are supported at the moment (generalization to non-CSS and
             subsystem codes pending).
-        noise_model: The noise model to apply to the circuit after construction.
+        noise_model: The noise model to apply to the the QEC cycles of the circuit.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
             each round of QEC measures all parity checks of the code.
@@ -245,6 +245,9 @@ def get_memory_simulation(
     # set default syndrome measurement strategy and qubit IDs, if necessary
     syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
-    data_ids, check_ids = qubit_ids
+    data_ids, check_ids, *_ = qubit_ids
+
+    # initialize a logical all-|0> state of the code
+    state_prep_circuit = get_encoding_circuit(code)
 
     return NotImplemented
