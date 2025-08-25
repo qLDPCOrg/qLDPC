@@ -19,7 +19,7 @@ import numpy as np
 import stim
 
 from qldpc import codes
-from qldpc.objects import Node, Pauli, PauliXZ
+from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ
 
 from .common import QubitIDs, get_encoding_circuit, restrict_to_qubits
 from .noise_model import NoiseModel
@@ -240,6 +240,14 @@ def get_memory_simulation(
     qubit_ids = QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
 
+    # identify logical operators
+    kwargs = dict(symplectic=True) if isinstance(code, codes.CSSCode) else {}
+    logical_op_matrix = {pauli: code.get_logical_ops(pauli, **kwargs) for pauli in PAULIS_XZ}
+    logical_op_graph = {
+        pauli: codes.QuditCode.matrix_to_graph(matrix)
+        for pauli, matrix in logical_op_matrix.items()
+    }
+
     # build a noisy QEC cycle and initialize a measurement record
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
     noisy_cycle = noise_model.noisy_circuit(one_cycle)
@@ -261,7 +269,6 @@ def get_memory_simulation(
     circuit.append("H", qubit_ids.ancilla)
 
     # apply a controlled-logical-not from each ancilla onto its respective logical qubit
-    logical_op_graph = codes.QuditCode.matrix_to_graph(code.get_logical_ops())
     for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
         ancilla_node = Node(logical_qubit_index, is_data=False)
         for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
@@ -295,17 +302,17 @@ def get_memory_simulation(
             measurement_record.append(cycle_measurements)
 
     # noiselessly measure XX and ZZ operators
-    for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
-        for ancilla_node, pauli in [
-            (Node(logical_qubit_index, is_data=False), Pauli.X),
-            (Node(logical_qubit_index + code.dimension, is_data=False), Pauli.Z),
-        ]:
+    for pauli in PAULIS_XZ:
+        for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
+            ancilla_node = Node(logical_qubit_index, is_data=False)
             op_support = [
                 f"{edge_data[Pauli]}{data_node.index}"
-                for _, data_node, edge_data in logical_op_graph.edges(ancilla_node, data=True)
+                for _, data_node, edge_data in logical_op_graph[pauli].edges(
+                    ancilla_node, data=True
+                )
             ]
             op = "*".join(op_support)
-            circuit.append(f"MPP X{ancilla_id}*{op}")
+            circuit.append(f"MPP {pauli}{ancilla_id}*{op}")
 
     # TODO: UPDATE MEASUREMENT RECORD
     # TODO: ANNOTATE LOGICAL OBSERVABLES
