@@ -36,12 +36,7 @@ class MeasurementRecord:
     num_measurements: int
     qubit_to_measurements: dict[int, list[int]]
 
-    def __init__(
-        self,
-        initial_record: dict[int, list[int]] | None = None,
-        *,
-        qubit_ids: QubitIDs | None = None,
-    ) -> None:
+    def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
         self.qubit_to_measurements = collections.defaultdict(
             list, initial_record if initial_record else {}
         )
