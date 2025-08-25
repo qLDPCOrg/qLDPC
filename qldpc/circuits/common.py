@@ -35,7 +35,6 @@ class QubitIDs:
 
     data: list[int]  # indices of data qubits in an error-correcting code
     check: list[int]  # indices of qubits used to measure parity checks in an error-correcting code
-    flag: list[int]  # flag qubits whose noiseless measurement outcomes should always be 0
     ancilla: list[int]  # miscellaneous ancilla qubits
 
     @staticmethod
@@ -43,17 +42,11 @@ class QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
         data = list(range(len(code)))
         check = list(range(len(code), len(code) + code.num_checks))
-        return QubitIDs(data, check, [], [])
+        return QubitIDs(data, check, [])
 
     def __iter__(self) -> Iterator[list[int]]:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
-        yield from (self.data, self.check, self.flag, self.ancilla)
-
-    def get_new_flag(self) -> int:
-        """Add an ancilla qubit and return its index."""
-        new_index = max(itertools.chain(*self)) + 1
-        self.flag.append(new_index)
-        return new_index
+        yield from (self.data, self.check, self.ancilla)
 
     def get_new_ancilla(self) -> int:
         """Add an ancilla qubit and return its index."""
