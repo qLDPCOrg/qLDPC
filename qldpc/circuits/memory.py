@@ -252,8 +252,7 @@ def get_memory_simulation(
         circuit.append("QUBIT_COORDS", check_id, (1, check_id))
 
     # initialize a logical all-|0> state of the code
-    qubit_map = dict(zip(range(len(code)), data_ids))
-    circuit += with_remapped_qubits(get_encoding_circuit(code), qubit_map)
+    circuit += get_encoding_circuit(code)
 
     # entangle logical qubits with ancilla qubits
     ...
