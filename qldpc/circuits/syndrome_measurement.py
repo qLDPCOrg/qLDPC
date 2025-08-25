@@ -147,8 +147,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)},
-            qubit_ids=qubit_ids,
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
         )
         return circuit, measurement_record
 
@@ -226,7 +225,6 @@ class EdgeColoringXZ(SyndromeMeasurementStrategy):
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)},
-            qubit_ids=qubit_ids,
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
         )
         return circuit, measurement_record
