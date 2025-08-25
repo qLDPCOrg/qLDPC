@@ -19,7 +19,7 @@ import numpy as np
 import stim
 
 from qldpc import codes
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import Node, Pauli, PauliXZ
 
 from .common import QubitIDs, get_encoding_circuit, restrict_to_qubits
 from .noise_model import NoiseModel
@@ -240,8 +240,9 @@ def get_memory_simulation(
     qubit_ids = QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
 
-    # build one noiseless QEC cycle and initialize a measurement record
+    # build a noisy QEC cycle and initialize a measurement record
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
+    noisy_cycle = noise_model.noisy_circuit(one_cycle)
     measurement_record = MeasurementRecord()
 
     # set coordinates for all qubits
@@ -254,8 +255,65 @@ def get_memory_simulation(
     # initialize a logical all-|0> state of the code
     circuit += get_encoding_circuit(code)
 
-    # entangle logical qubits with ancilla qubits
-    ...
+    # for each logical qubit, prepare an ancilla qubit in the |+>
+    for _ in range(code.dimension):
+        qubit_ids.get_new_ancilla()
+    circuit.append("H", qubit_ids.ancilla)
 
-    measurement_record  # TODO: REMOVE PLACEHOLDER
+    # apply a controlled-logical-not from each ancilla onto its respective logical qubit
+    logical_op_graph = codes.QuditCode.matrix_to_graph(code.get_logical_ops())
+    for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
+        ancilla_node = Node(logical_qubit_index, is_data=False)
+        for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
+            circuit.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
+
+    # first round of QEC and detectors
+    circuit += noisy_cycle
+    measurement_record.append(cycle_measurements)
+    for kk, check_id in enumerate(check_ids):
+        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, kk))
+
+    # following repeated rounds of QEC and detectors
+    if num_rounds > 1:
+        repeat_circuit = stim.Circuit()
+        repeat_circuit += noisy_cycle
+        measurement_record.append(cycle_measurements)
+        for kk, check_id in enumerate(check_ids):
+            repeat_circuit.append(
+                "DETECTOR",
+                [
+                    measurement_record.get_target_rec(check_id, -1),
+                    measurement_record.get_target_rec(check_id, -2),
+                ],
+                (1, kk),
+            )
+        repeat_circuit.append("SHIFT_COORDS", [], (1, 0))
+        circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
+
+        # make the measurement_record account for repeated measurements
+        for _ in range(num_rounds - 2):
+            measurement_record.append(cycle_measurements)
+
+    # noiselessly measure XX and ZZ operators
+    for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
+        for ancilla_node, pauli in [
+            (Node(logical_qubit_index, is_data=False), Pauli.X),
+            (Node(logical_qubit_index + code.dimension, is_data=False), Pauli.Z),
+        ]:
+            op_support = [
+                f"{edge_data[Pauli]}{data_node.index}"
+                for _, data_node, edge_data in logical_op_graph.edges(ancilla_node, data=True)
+            ]
+            op = "*".join(op_support)
+            circuit.append(f"MPP X{ancilla_id}*{op}")
+
+    # TODO: UPDATE MEASUREMENT RECORD
+    # TODO: ANNOTATE LOGICAL OBSERVABLES
+
+    ##################################################
+    # TODO: REMOVE PLACEHOLDERS
+    noisy_cycle
+    measurement_record
+    ##################################################
+
     return NotImplemented
