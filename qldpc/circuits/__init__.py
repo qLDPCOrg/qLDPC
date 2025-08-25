@@ -16,7 +16,6 @@ from .syndrome_measurement import (
     EdgeColoringXZ,
     MeasurementRecord,
     QubitIDs,
-    SerialExtraction,
     SyndromeMeasurementStrategy,
 )
 from .transversal import (
@@ -40,7 +39,6 @@ __all__ = [
     "EdgeColoringXZ",
     "MeasurementRecord",
     "QubitIDs",
-    "SerialExtraction",
     "SyndromeMeasurementStrategy",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",

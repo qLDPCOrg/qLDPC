@@ -50,19 +50,19 @@ def test_measurement_record() -> None:
 
 
 def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
-    """Syndrome extraction by Tanner graph edge coloring."""
+    """Verify that syndromes are read out correctly."""
     random.seed(pytestconfig.getoption("randomly_seed"))
 
     # classical seed codes for a random HGPCode
     code_a = codes.ClassicalCode.random(5, 3, seed=random.randint(0, 2**32))
     code_b = codes.ClassicalCode.random(3, 2, seed=random.randint(0, 2**32))
 
-    for code, strategy in [
-        (codes.FiveQubitCode(), circuits.SerialExtraction),
-        (codes.SteaneCode(), circuits.EdgeColoringXZ),
-        (codes.SurfaceCode(2, rotated=True), circuits.EdgeColoring),
-        (codes.ToricCode(2, rotated=True), circuits.EdgeColoring),
-        (codes.HGPCode(code_a, code_b), circuits.EdgeColoring),
+    for code in [
+        codes.FiveQubitCode(),
+        codes.SteaneCode(),
+        codes.HGPCode(code_a, code_b),
+        codes.ToricCode(2, rotated=True),
+        codes.SurfaceCode(2, rotated=True),
     ]:
         # prepare a logical |0> state
         state_prep = circuits.get_encoding_circuit(code)
@@ -75,7 +75,7 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
                 error_ops.append(f"{pauli}_error", [qubit], [1])
 
         # measure syndromes
-        syndrome_extraction, record = strategy.get_circuit(code)
+        syndrome_extraction, record = circuits.EdgeColoring().get_circuit(code)
         for check in range(len(code), len(code) + code.num_checks):
             syndrome_extraction.append("DETECTOR", record.get_target_rec(check))
 
@@ -88,10 +88,5 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         expected_syndrome = code.matrix @ symplectic_conjugate(error_xz)
         assert np.array_equal(expected_syndrome, syndrome)
 
-
-def test_syndrome_errors() -> None:
-    """Not all codes are supported by all syndrome extraction circuits."""
-    with pytest.raises(ValueError, match="not equipped with a syndrome_subgraphs property"):
-        circuits.EdgeColoring.get_circuit(codes.FiveQubitCode())
     with pytest.raises(ValueError, match="only supports CSS codes"):
         circuits.EdgeColoringXZ.get_circuit(codes.FiveQubitCode())

@@ -120,47 +120,6 @@ class SyndromeMeasurementStrategy(abc.ABC):
         """
 
 
-class SerialExtraction(SyndromeMeasurementStrategy):
-    """Serialize syndrome extraction according to a code's parity check matrix.
-
-    WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
-    """
-
-    @staticmethod
-    @restrict_to_qubits
-    def get_circuit(
-        code: codes.QuditCode, qubit_ids: QubitIDs | None = None
-    ) -> tuple[stim.Circuit, MeasurementRecord]:
-        """Construct a syndrome measurement circuit using Algorithm 1 of arXiv:2109.14609.
-
-        Args:
-            codes.QuditCode: The code whose syndromes we want to measure.
-            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
-                Defaults to QubitIDs.from_code(code).
-
-        Returns:
-            stim.Circuit: A syndrome measurement circuit.
-            circuits.MeasurementRecord: The record of measurements in the circuit.
-        """
-        qubit_ids = qubit_ids or QubitIDs.from_code(code)
-
-        circuit = stim.Circuit()
-        circuit.append("RX", qubit_ids.check)
-
-        # write syndromes to ancilla qubits one at a time
-        for check_qubit, check in enumerate(code.matrix, start=len(code)):
-            for data_qubit, pauli_xz in enumerate(check.reshape(2, len(code)).T):
-                pauli = Pauli(tuple(pauli_xz))
-                if pauli is not Pauli.I:
-                    circuit.append(f"C{pauli}", [check_qubit, data_qubit])
-
-        circuit.append("MX", qubit_ids.check)
-        measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
-        )
-        return circuit, measurement_record
-
-
 class EdgeColoring(SyndromeMeasurementStrategy):
     """Edge coloration syndrome measurement strategy inspired by Algorithm 2 of arXiv:2109.14609.
 
@@ -195,17 +154,10 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        subgraphs = code.get_syndrome_subgraphs()
-        if subgraphs is NotImplemented:
-            raise ValueError(
-                "The provided code is not equipped with a syndrome_subgraphs property, as required"
-                " for the EdgeColoring syndrome measurement strategy"
-            )
-
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
-        for graph in subgraphs:
+        for graph in code.get_syndrome_subgraphs():
             circuit += EdgeColoring.graph_to_circuit(graph, qubit_ids, strategy)
         circuit.append("MX", qubit_ids.check)
 
