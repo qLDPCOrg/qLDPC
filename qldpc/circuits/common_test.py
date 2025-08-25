@@ -32,6 +32,20 @@ def test_restriction() -> None:
         circuits.get_encoding_circuit(code)
 
 
+def test_qubit_ids() -> None:
+    """Default qubit indices."""
+    code = codes.FiveQubitCode()
+    qubit_ids = circuits.QubitIDs.from_code(code)
+    data_ids, check_ids, flag_ids, ancilla_ids = qubit_ids
+    assert data_ids == list(range(len(code)))
+    assert check_ids == list(range(len(code), len(code) + code.num_checks))
+    assert not flag_ids
+    assert not ancilla_ids
+
+    assert qubit_ids.get_new_flag() == qubit_ids.flag[0] == len(code) + code.num_checks
+    assert qubit_ids.get_new_ancilla() == qubit_ids.ancilla[0] == len(code) + code.num_checks + 1
+
+
 def test_state_prep() -> None:
     """Prepare all-0 logical states of qubit codes."""
     for code in [

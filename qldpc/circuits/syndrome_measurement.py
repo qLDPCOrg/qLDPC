@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import abc
 import collections
-import dataclasses
 from collections.abc import Iterator
 
 import networkx as nx
@@ -28,27 +27,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli
 
-from .common import restrict_to_qubits
-
-
-@dataclasses.dataclass
-class QubitIDs:
-    """Container for qubit indices."""
-
-    data: list[int]  # data qubit indices
-    check: list[int]  # check (syndrome readout) qubit indices
-    flag: list[int]  # flag qubits whose noiseless measurement should always be 0
-    ancilla: list[int]  # miscellaneous ancilla qubits
-
-    @staticmethod
-    def from_code(code: codes.QuditCode) -> QubitIDs:
-        """Initialize from an error-correcting code with specific parity checks."""
-        data = list(range(len(code)))
-        check = list(range(len(code), len(code) + code.num_checks))
-        return QubitIDs(data, check, [], [])
-
-    def __iter__(self) -> Iterator[list[int]]:
-        yield from (self.data, self.check, self.flag, self.ancilla)
+from .common import QubitIDs, restrict_to_qubits
 
 
 class MeasurementRecord:
@@ -56,14 +35,21 @@ class MeasurementRecord:
 
     num_measurements: int
     qubit_to_measurements: dict[int, list[int]]
+    qubit_ids: QubitIDs | None = None
 
-    def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
+    def __init__(
+        self,
+        initial_record: dict[int, list[int]] | None = None,
+        *,
+        qubit_ids: QubitIDs | None = None,
+    ) -> None:
         self.qubit_to_measurements = collections.defaultdict(
             list, initial_record if initial_record else {}
         )
         self.num_measurements = sum(
             len(measurements) for measurements in self.qubit_to_measurements.values()
         )
+        self.qubit_ids = qubit_ids
 
     def items(self) -> Iterator[tuple[int, list[int]]]:
         """Iterator over qubits and their measurements."""
@@ -168,7 +154,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)},
+            qubit_ids=qubit_ids,
         )
         return circuit, measurement_record
 
@@ -246,6 +233,7 @@ class EdgeColoringXZ(SyndromeMeasurementStrategy):
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)},
+            qubit_ids=qubit_ids,
         )
         return circuit, measurement_record

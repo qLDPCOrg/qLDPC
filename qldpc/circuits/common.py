@@ -15,8 +15,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+from __future__ import annotations
+
+import dataclasses
 import functools
-from collections.abc import Callable
+import itertools
+from collections.abc import Callable, Iterator
 
 import numpy as np
 import stim
@@ -35,6 +39,39 @@ def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.
         return func(*args, **kwargs)
 
     return qubit_func
+
+
+@dataclasses.dataclass
+class QubitIDs:
+    """Container for qubit indices."""
+
+    data: list[int]  # data qubit indices
+    check: list[int]  # check (syndrome readout) qubit indices
+    flag: list[int]  # flag qubits whose noiseless measurement should always be 0
+    ancilla: list[int]  # miscellaneous ancilla qubits
+
+    @staticmethod
+    def from_code(code: codes.QuditCode) -> QubitIDs:
+        """Initialize from an error-correcting code with specific parity checks."""
+        data = list(range(len(code)))
+        check = list(range(len(code), len(code) + code.num_checks))
+        return QubitIDs(data, check, [], [])
+
+    def __iter__(self) -> Iterator[list[int]]:
+        """Iterate over the collections of qubits tracked by this QubitIDs object."""
+        yield from (self.data, self.check, self.flag, self.ancilla)
+
+    def get_new_flag(self) -> int:
+        """Add an ancilla qubit and return its index."""
+        new_index = max(itertools.chain(*self)) + 1
+        self.flag.append(new_index)
+        return new_index
+
+    def get_new_ancilla(self) -> int:
+        """Add an ancilla qubit and return its index."""
+        new_index = max(itertools.chain(*self)) + 1
+        self.ancilla.append(new_index)
+        return new_index
 
 
 @restrict_to_qubits

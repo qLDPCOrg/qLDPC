@@ -21,12 +21,11 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
-from .common import get_encoding_circuit, restrict_to_qubits
+from .common import QubitIDs, get_encoding_circuit, restrict_to_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import (
     EdgeColoring,
     MeasurementRecord,
-    QubitIDs,
     SyndromeMeasurementStrategy,
 )
 
@@ -123,15 +122,15 @@ def get_memory_experiment(
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
 
-    # identify the support and indices of basis-type parity checks
+    # identify the indices of ancilla qubits that read out basis-type parity checks
     check_support = code.get_matrix(basis)
-    check_ids = (
+    basis_check_ids = (
         check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
     )
 
-    # build one QEC cycle and initialize a measurement record
+    # build one noiseless QEC cycle and initialize a measurement record
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    measurement_record = MeasurementRecord()
+    measurement_record = MeasurementRecord(qubit_ids=cycle_measurements.qubit_ids)
 
     # set coordinates for all qubits
     circuit = stim.Circuit()
@@ -146,7 +145,7 @@ def get_memory_experiment(
     # first round of QEC and detectors
     circuit += one_cycle
     measurement_record.append(cycle_measurements)
-    for kk, check_id in enumerate(check_ids):
+    for kk, check_id in enumerate(basis_check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, kk))
 
     # following repeated rounds of QEC and detectors
@@ -154,7 +153,7 @@ def get_memory_experiment(
         repeat_circuit = stim.Circuit()
         repeat_circuit += one_cycle
         measurement_record.append(cycle_measurements)
-        for kk, check_id in enumerate(check_ids):
+        for kk, check_id in enumerate(basis_check_ids):
             repeat_circuit.append(
                 "DETECTOR",
                 [
@@ -175,7 +174,7 @@ def get_memory_experiment(
     measurement_record.append({qubit: [qubit] for qubit in range(len(code))})
 
     # detectors for all stabilizers that can be inferred from the data qubit measurements
-    for jj, check_id in enumerate(check_ids):
+    for jj, check_id in enumerate(basis_check_ids):
         data_support = np.where(check_support[jj])[0]
         circuit.append(
             "DETECTOR",
@@ -247,7 +246,19 @@ def get_memory_simulation(
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
 
+    # build one noiseless QEC cycle and initialize a measurement record
+    one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
+    measurement_record = MeasurementRecord(qubit_ids=cycle_measurements.qubit_ids)
+    measurement_record
+
+    # set coordinates for all qubits
+    circuit = stim.Circuit()
+    for data_id in qubit_ids.data:
+        circuit.append("QUBIT_COORDS", data_id, (0, data_id))
+    for check_id in qubit_ids.check:
+        circuit.append("QUBIT_COORDS", check_id, (1, check_id))
+
     # initialize a logical all-|0> state of the code
-    state_prep_circuit = get_encoding_circuit(code)
+    circuit = get_encoding_circuit(code)
 
     return NotImplemented
