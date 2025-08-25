@@ -1109,8 +1109,8 @@ class SLPCode(CSSCode):
     """Subsystem lifted product code.
 
     The subsystem lifted product code is a lifted version of the subsystem hypergraph product code.
-    That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.  See the docstring for
-    the LPCode for additional information.
+    That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.
+    See help(qldpc.codes.LPCode) for additional information.
 
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
     constructed by

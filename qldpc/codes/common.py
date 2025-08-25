@@ -2556,7 +2556,8 @@ class CSSCode(QuditCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
-        See ClassicalCode.get_logical_error_rate_func for more details about how this method works.
+        See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
+        this method works.
         """
         # collect relative probabilities of Z, X, and Y errors
         pauli_bias_zxy: npt.NDArray[np.float64] | None
