@@ -20,7 +20,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import itertools
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 
 import numpy as np
 import stim
@@ -60,6 +60,34 @@ class QubitIDs:
         new_index = max(itertools.chain(*self)) + 1
         self.ancilla.append(new_index)
         return new_index
+
+
+def with_remapped_qubits(circuit: stim.Circuit, qubit_map: Mapping[int, int]) -> stim.Circuit:
+    """The same circuit as provided, but with qubit indices remapped according to qubit_map.
+
+    If any qubit does not appear in the qubit_map, its index remains unchanged.
+    """
+    new_circuit = stim.Circuit()
+    for instruction in circuit:
+        if isinstance(instruction, stim.CircuitRepeatBlock):
+            new_body = with_remapped_qubits(instruction.body_copy(), qubit_map)
+            new_circuit += stim.CircuitRepeatBlock(
+                repeat_count=instruction.repeat_count, body=new_body, tag=instruction.tag
+            )
+        targets = [
+            stim.GateTarget(qubit_map.get(target.value, target.value))
+            if target.is_qubit_target
+            else target
+            for target in instruction.targets_copy()
+        ]
+        new_instruction = stim.CircuitInstruction(
+            name=instruction.name,
+            targets=targets,
+            gate_args=instruction.gate_args_copy(),
+            tag=instruction.tag,
+        )
+        new_circuit.append(new_instruction)
+    return new_circuit
 
 
 def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.Circuit]:

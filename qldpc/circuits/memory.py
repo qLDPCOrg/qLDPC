@@ -21,7 +21,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
-from .common import QubitIDs, get_encoding_circuit, restrict_to_qubits
+from .common import QubitIDs, get_encoding_circuit, restrict_to_qubits, with_remapped_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import (
     EdgeColoring,
@@ -249,7 +249,6 @@ def get_memory_simulation(
     # build one noiseless QEC cycle and initialize a measurement record
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
     measurement_record = MeasurementRecord()
-    measurement_record  # TODO: REMOVE PLACEHOLDER
 
     # set coordinates for all qubits
     circuit = stim.Circuit()
@@ -259,6 +258,11 @@ def get_memory_simulation(
         circuit.append("QUBIT_COORDS", check_id, (1, check_id))
 
     # initialize a logical all-|0> state of the code
-    circuit = get_encoding_circuit(code)
+    qubit_map = dict(zip(range(len(code)), data_ids))
+    circuit += with_remapped_qubits(get_encoding_circuit(code), qubit_map)
 
+    # entangle logical qubits with ancilla qubits
+    ...
+
+    measurement_record  # TODO: REMOVE PLACEHOLDER
     return NotImplemented
