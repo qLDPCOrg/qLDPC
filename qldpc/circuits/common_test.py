@@ -25,13 +25,6 @@ from qldpc.math import op_to_string
 from qldpc.objects import Pauli
 
 
-def test_restriction() -> None:
-    """Raise an error for non-qubit codes."""
-    code = codes.SurfaceCode(2, field=3)
-    with pytest.raises(ValueError, match="only supported for qubit codes"):
-        circuits.get_encoding_circuit(code)
-
-
 def test_qubit_ids() -> None:
     """Default qubit indices."""
     code = codes.FiveQubitCode()
@@ -44,6 +37,13 @@ def test_qubit_ids() -> None:
 
     assert qubit_ids.get_new_flag() == qubit_ids.flag[0] == len(code) + code.num_checks
     assert qubit_ids.get_new_ancilla() == qubit_ids.ancilla[0] == len(code) + code.num_checks + 1
+
+
+def test_restriction() -> None:
+    """Raise an error for non-qubit codes."""
+    code = codes.SurfaceCode(2, field=3)
+    with pytest.raises(ValueError, match="only supported for qubit codes"):
+        circuits.get_encoding_circuit(code)
 
 
 def test_state_prep() -> None:
