@@ -1411,8 +1411,6 @@ class SurfaceCode(CSSCode):
     - https://errorcorrectionzoo.org/c/rotated_surface
     """
 
-    _syndrome_subgraphs: tuple[nx.DiGraph, ...] | None = None
-
     def __init__(
         self,
         rows: int,
@@ -1436,13 +1434,12 @@ class SurfaceCode(CSSCode):
             # "original" surface code
             code_a = RepetitionCode(rows, field)
             code_b = RepetitionCode(cols, field)
-            code_ab = HGPCode(code_a, code_b, field)
-            matrix_x = code_ab.matrix_x.view(np.ndarray)
-            matrix_z = code_ab.matrix_z.view(np.ndarray)
-            self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
-
-            # save cardinality data about check/data qubit connections
-            self._syndrome_subgraphs = code_ab.get_syndrome_subgraphs()
+            self.parent_code = HGPCode(code_a, code_b)
+            matrix_x = self.parent_code.matrix_x.view(np.ndarray)
+            matrix_z = self.parent_code.matrix_z.view(np.ndarray)
+            self._default_conjugate: list[int] | slice = slice(
+                self.parent_code.sector_size[0, 0], None
+            )
 
         else:
             # rotated surface code
@@ -1525,7 +1522,7 @@ class SurfaceCode(CSSCode):
 
         return np.array(checks_x), np.array(checks_z)
 
-    def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
@@ -1534,11 +1531,13 @@ class SurfaceCode(CSSCode):
         Otherwise, organize edges of the Tanner graph by an orientation in {NW, NE, SW, SE}, and by
         whether they are used for the readout of X-type or Z-type syndromes.  Interleave these edges
         in such a way as to minimize circuit depth and avoid hook errors.
-        """
-        if self._syndrome_subgraphs is not None:
-            return self._syndrome_subgraphs
 
-        assert self.rotated
+        Args:
+            strategy: The edge coloring strategy used to construct syndrome subgraphs of a parent
+                HGPCode.  Only used if self.rotated is False.  Default: "smallest_last".
+        """
+        if not self.rotated:
+            return self.parent_code.get_syndrome_subgraphs(strategy)
 
         def get_check_pauli(row: int, col: int) -> PauliXZ:
             """What type of stabilizer does this check measure?"""
@@ -1594,7 +1593,7 @@ class SurfaceCode(CSSCode):
 
         # return subgraphs in the order that minimizes hook errors
         subgraphs = {key: self.graph.edge_subgraph(edge_group) for key, edge_group in edges.items()}
-        self._syndrome_subgraphs = (
+        return (
             subgraphs[Pauli.X, "nw"],
             subgraphs[Pauli.Z, "nw"],
             subgraphs[Pauli.X, "sw"],
@@ -1604,7 +1603,6 @@ class SurfaceCode(CSSCode):
             subgraphs[Pauli.X, "se"],
             subgraphs[Pauli.Z, "se"],
         )
-        return self._syndrome_subgraphs
 
 
 class ToricCode(CSSCode):
@@ -1615,8 +1613,6 @@ class ToricCode(CSSCode):
     - https://errorcorrectionzoo.org/c/surface
     - https://errorcorrectionzoo.org/c/rotated_surface
     """
-
-    _syndrome_subgraphs: tuple[nx.DiGraph, ...] | None = None
 
     def __init__(
         self,
@@ -1640,13 +1636,12 @@ class ToricCode(CSSCode):
             # "original" toric code
             code_a = RingCode(rows, field)
             code_b = RingCode(cols, field)
-            code_ab = HGPCode(code_a, code_b, field)
-            matrix_x = code_ab.matrix_x.view(np.ndarray)
-            matrix_z = code_ab.matrix_z.view(np.ndarray)
-            self._default_conjugate: list[int] | slice = slice(code_ab.sector_size[0, 0], None)
-
-            # save cardinality data about check/data qubit connections
-            self._syndrome_subgraphs = code_ab.get_syndrome_subgraphs()
+            self.parent_code = HGPCode(code_a, code_b)
+            matrix_x = self.parent_code.matrix_x.view(np.ndarray)
+            matrix_z = self.parent_code.matrix_z.view(np.ndarray)
+            self._default_conjugate: list[int] | slice = slice(
+                self.parent_code.sector_size[0, 0], None
+            )
 
         else:
             # rotated toric code
@@ -1712,16 +1707,18 @@ class ToricCode(CSSCode):
 
         return np.array(checks_x), np.array(checks_z)
 
-    def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         If this is an unrotated toric code, return the syndrome subgraphs of the parent HGPCode.
         Otherwise, return the subgraphs of edges oriented along (NW, NE, SW, SE) directions.
-        """
-        if self._syndrome_subgraphs is not None:
-            return self._syndrome_subgraphs
 
-        assert self.rotated
+        Args:
+            strategy: The edge coloring strategy used to construct syndrome subgraphs of a parent
+                HGPCode.  Only used if self.rotated is False.  Default: "smallest_last".
+        """
+        if not self.rotated:
+            return self.parent_code.get_syndrome_subgraphs(strategy)
 
         def get_check_pauli(row: int, col: int) -> PauliXZ:
             """What type of stabilizer does this check measure?"""
@@ -1747,13 +1744,7 @@ class ToricCode(CSSCode):
             edges["se"].append((node_map[(row + 1) % self.rows, (col + 1) % self.cols], node_data))
 
         subgraphs = {key: self.graph.edge_subgraph(edge_group) for key, edge_group in edges.items()}
-        self._syndrome_subgraphs = (
-            subgraphs["nw"],
-            subgraphs["ne"],
-            subgraphs["sw"],
-            subgraphs["se"],
-        )
-        return self._syndrome_subgraphs
+        return subgraphs["nw"], subgraphs["ne"], subgraphs["sw"], subgraphs["se"]
 
 
 class GeneralizedSurfaceCode(CSSCode):
