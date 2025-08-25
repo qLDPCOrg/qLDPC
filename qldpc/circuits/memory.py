@@ -38,7 +38,6 @@ def get_memory_experiment(
     *,
     noise_model: NoiseModel | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
-    qubit_ids: QubitIDs | None = None,
 ) -> stim.Circuit:
     """Construct a circuit for testing the performance of a code as a quantum memory.
 
@@ -76,8 +75,6 @@ def get_memory_experiment(
         syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
             each round of QEC measures all parity checks of the code.
             Default: circuits.EdgeColoring().
-        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
-            labeling qubits by their corresponding column/row of the parity check matrix.
 
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
@@ -117,9 +114,9 @@ def get_memory_experiment(
     if code.is_subsystem_code:
         raise ValueError("Memory experiments are currently not supported for subsystem codes")
 
-    # set default syndrome measurement strategy and qubit IDs, if necessary
+    # set default syndrome measurement strategy, if necessary, and identify qubit IDs
     syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
-    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    qubit_ids = QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
 
     # identify the indices of ancilla qubits that read out basis-type parity checks
@@ -202,7 +199,6 @@ def get_memory_simulation(
     num_rounds: int = 1,
     *,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
-    qubit_ids: QubitIDs | None = None,
 ) -> stim.Circuit:
     """Construct a circuit for testing the performance of a code as a quantum memory.
 
@@ -232,8 +228,6 @@ def get_memory_simulation(
         syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
             each round of QEC measures all parity checks of the code.
             Default: circuits.EdgeColoring().
-        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
-            labeling qubits by their corresponding column/row of the parity check matrix.
 
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
@@ -241,9 +235,9 @@ def get_memory_simulation(
     if code.is_subsystem_code:
         raise ValueError("Memory simulations are currently not supported for subsystem codes")
 
-    # set default syndrome measurement strategy and qubit IDs, if necessary
+    # set default syndrome measurement strategy, if necessary, and identify qubit IDs
     syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
-    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    qubit_ids = QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
 
     # build one noiseless QEC cycle and initialize a measurement record
