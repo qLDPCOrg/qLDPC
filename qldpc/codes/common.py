@@ -817,7 +817,7 @@ class QuditCode(AbstractCode):
         field = getattr(graph, "field", galois.GF(DEFAULT_FIELD_ORDER))
         return field(matrix.reshape(num_checks, 2 * num_qudits))
 
-    def get_syndrome_subgraphs(self, *, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         Every edge of the Tanner graph is associated with a two-qubit gate that needs to be applied
@@ -1843,7 +1843,7 @@ class CSSCode(QuditCode):
         assert pauli in PAULIS_XZ
         return self.graph_x if pauli is Pauli.X else self.graph_z
 
-    def get_syndrome_subgraphs(self, *, strategy: str = "largest_first") -> tuple[nx.DiGraph, ...]:
+    def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
         The sequence here enforces that X-type stabilizers are read out before Z-type stabilizers.
