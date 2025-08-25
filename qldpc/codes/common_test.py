@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import unittest.mock
 from typing import Iterator
@@ -246,6 +247,9 @@ def test_qudit_code() -> None:
     assert code.get_weight() == 4
     assert code.get_logical_ops(Pauli.X).shape == code.get_logical_ops(Pauli.Z).shape
     assert codes.QuditCode.equiv(code, codes.QuditCode(code))
+    assert nx.utils.misc.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
 
     # equivlence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
@@ -515,7 +519,9 @@ def test_css_code() -> None:
         code_z = codes.ClassicalCode.random(3, 2, field=code_x.field.order**2)
         codes.CSSCode(code_x, code_z)
 
-    assert nx.utils.misc.graphs_equal(code.graph, nx.compose(*code.get_syndrome_subgraphs()))
+    assert nx.utils.misc.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
     assert nx.utils.misc.graphs_equal(
         code.graph, nx.compose(code.get_graph(Pauli.X), code.get_graph(Pauli.Z))
     )

@@ -57,12 +57,13 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     code_a = codes.ClassicalCode.random(5, 3, seed=random.randint(0, 2**32))
     code_b = codes.ClassicalCode.random(3, 2, seed=random.randint(0, 2**32))
 
-    for code in [
-        codes.FiveQubitCode(),
-        codes.SteaneCode(),
-        codes.HGPCode(code_a, code_b),
-        codes.ToricCode(2, rotated=True),
-        codes.SurfaceCode(2, rotated=True),
+    for code, strategy in [
+        (codes.FiveQubitCode(), circuits.EdgeColoring()),
+        (codes.SteaneCode(), circuits.EdgeColoring()),
+        (codes.SteaneCode(), circuits.EdgeColoringXZ()),
+        (codes.HGPCode(code_a, code_b), circuits.EdgeColoring()),
+        (codes.ToricCode(2, rotated=True), circuits.EdgeColoring()),
+        (codes.SurfaceCode(2, rotated=True), circuits.EdgeColoring()),
     ]:
         # prepare a logical |0> state
         state_prep = circuits.get_encoding_circuit(code)
@@ -75,7 +76,7 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
                 error_ops.append(f"{pauli}_error", [qubit], [1])
 
         # measure syndromes
-        syndrome_extraction, record = circuits.EdgeColoring().get_circuit(code)
+        syndrome_extraction, record = strategy.get_circuit(code)
         for check in range(len(code), len(code) + code.num_checks):
             syndrome_extraction.append("DETECTOR", record.get_target_rec(check))
 
