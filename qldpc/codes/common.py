@@ -817,7 +817,17 @@ class QuditCode(AbstractCode):
         return field(matrix.reshape(num_checks, 2 * num_qudits))
 
     def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
-        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence."""
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        Every edge of the Tanner graph is associated with a two-qubit gate that needs to be applied
+        to "write" parity checks onto ancilla qubits (i.e., for syndrome extraction).  The sequence
+        of subgraphs returned by this method induces a (possibly partial) ordering on these gates,
+        which is used by qldpc.circuits.EdgeColoring to construct a syndrome measurement circuit.
+
+        Subclasses of QuditCode can override this method to define a code-specific syndrome
+        measurement sequence.  The subgraphs returned by this method must be edge-disjoint, and
+        their union (with nx.compose) must equal the entire Tanner graph of the code.
+        """
         return NotImplemented  # pragma: no cover
 
     def get_strings(self) -> list[str]:
@@ -1602,7 +1612,8 @@ class QuditCode(AbstractCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
-        See ClassicalCode.get_logical_error_rate_func for more details about how this method works.
+        See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
+        this method works.
         """
         # collect relative probabilities of Z, X, and Y errors
         pauli_bias_zxy: npt.NDArray[np.float64] | None
@@ -1814,7 +1825,11 @@ class CSSCode(QuditCode):
         return self.graph_x if pauli is Pauli.X else self.graph_z
 
     def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
-        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence."""
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        The sequence here enforces that X-type stabilizers are read out before Z-type stabilizers.
+        See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
+        """
         return self.graph_x, self.graph_z
 
     @property
@@ -1970,8 +1985,9 @@ class CSSCode(QuditCode):
     ]:
         """Construct the standard form X/Z parity check matrices with Gaussian elimination.
 
-        See QuditCode.get_standard_form_data for additional information.  The primary difference
-        here is that this method returns the standard forms of matrix_x and matrix_z separately.
+        See help(qldpc.codes.QuditCode.get_standard_form_data) for additional information.  The
+        primary difference here is that this method returns the standard forms of matrix_x and
+        matrix_z separately.
         """
         cols_lx: Slice
         cols_lz: Slice
