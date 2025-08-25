@@ -48,11 +48,10 @@ class QubitIDs:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
         yield from (self.data, self.check, self.ancilla)
 
-    def get_new_ancilla(self) -> int:
-        """Add an ancilla qubit and return its index."""
-        new_index = max(itertools.chain(*self)) + 1
-        self.ancilla.append(new_index)
-        return new_index
+    def add_ancilla(self, number: int = 1) -> None:
+        """Add (one or more) ancilla qubits."""
+        start = max(itertools.chain(*self)) + 1
+        self.ancilla.extend(range(start, start + number))
 
 
 def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.Circuit]:

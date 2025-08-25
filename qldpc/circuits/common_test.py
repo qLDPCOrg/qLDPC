@@ -34,8 +34,8 @@ def test_qubit_ids() -> None:
     assert check_ids == list(range(len(code), len(code) + code.num_checks))
     assert not ancilla_ids
 
-    assert qubit_ids.get_new_ancilla() == qubit_ids.ancilla[0] == len(code) + code.num_checks
-    assert len(qubit_ids.ancilla) == 1
+    qubit_ids.add_ancilla(3)
+    assert qubit_ids.ancilla == [9, 10, 11]
 
 
 def test_restriction() -> None:

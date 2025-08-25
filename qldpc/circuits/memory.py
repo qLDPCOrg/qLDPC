@@ -264,8 +264,7 @@ def get_memory_simulation(
     circuit += get_encoding_circuit(code)
 
     # for each logical qubit, prepare an ancilla qubit in the |+>
-    for _ in range(code.dimension):
-        qubit_ids.get_new_ancilla()
+    qubit_ids.add_ancilla(code.dimension)
     circuit.append("H", qubit_ids.ancilla)
 
     # apply a controlled-logical-not from each ancilla onto its respective logical qubit
