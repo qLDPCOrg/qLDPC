@@ -754,6 +754,8 @@ class HGPCode(CSSCode):
     def get_syndrome_subgraphs(self, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
+        See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
+
         The sequence here is essentially the sequence used for hypergraph product codes in Algorithm
         2 of arXiv:2109.14609, modified to obviate the need to find a balanced ordering of Tanner
         graph vertices.
@@ -1525,6 +1527,8 @@ class SurfaceCode(CSSCode):
 
     def get_syndrome_subgraphs(self) -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
 
         If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
         Otherwise, organize edges of the Tanner graph by an orientation in {NW, NE, SW, SE}, and by
