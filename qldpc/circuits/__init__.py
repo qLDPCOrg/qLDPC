@@ -11,11 +11,6 @@ from .noise_model import (
     NoiseRule,
     SI1000NoiseModel,
 )
-from .sinter_decoder import (
-    CompiledSinterDecoder,
-    DetectorErrorModelArrays,
-    SinterDecoder,
-)
 from .syndrome_measurement import (
     EdgeColoring,
     EdgeColoringXZ,
@@ -41,9 +36,6 @@ __all__ = [
     "NoiseModel",
     "NoiseRule",
     "SI1000NoiseModel",
-    "CompiledSinterDecoder",
-    "DetectorErrorModelArrays",
-    "SinterDecoder",
     "EdgeColoring",
     "EdgeColoringXZ",
     "MeasurementRecord",

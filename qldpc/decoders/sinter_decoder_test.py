@@ -18,7 +18,7 @@ limitations under the License.
 import numpy as np
 import stim
 
-from qldpc import circuits
+from qldpc import decoders
 
 
 def test_dem_arrays() -> None:
@@ -30,7 +30,7 @@ def test_dem_arrays() -> None:
         error(0.002) D0 D1
         error(0.003) D2 L1
     """)
-    dem_arrays = circuits.DetectorErrorModelArrays(dem)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-10)
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 3
@@ -51,7 +51,7 @@ def test_dem_arrays() -> None:
         error(0.006) D0 D3
         error(0.005) L1
     """)
-    dem_arrays = circuits.DetectorErrorModelArrays(dem)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 4
@@ -72,9 +72,9 @@ def test_sinter_decoder() -> None:
 
     # try decoders with and without a decode_batch method
     for sinter_decoder, priors_arg in [
-        (circuits.SinterDecoder(with_BP_OSD=True), "error_channel"),
-        (circuits.SinterDecoder(with_RBP="MinSumBPDecoderF32"), "error_priors"),
-        (circuits.SinterDecoder(with_MWPM=True), "weights"),
+        (decoders.SinterDecoder(with_BP_OSD=True), "error_channel"),
+        (decoders.SinterDecoder(with_RBP="MinSumBPDecoderF32"), "error_priors"),
+        (decoders.SinterDecoder(with_MWPM=True), "weights"),
     ]:
         assert sinter_decoder.priors_arg == priors_arg
 
