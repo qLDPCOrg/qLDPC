@@ -127,9 +127,13 @@ def get_memory_experiment(
         check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
     )
 
-    # build one noiseless QEC cycle and initialize a measurement record
+    # build one QEC cycle and initialize a measurement record
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
     measurement_record = MeasurementRecord()
+
+    ####################
+    # INITIALIZATION
+    ####################
 
     # set coordinates for all qubits
     circuit = stim.Circuit()
@@ -141,13 +145,17 @@ def get_memory_experiment(
     # reset data qubits to appropriate basis
     circuit.append(f"R{basis}", data_ids)
 
-    # first round of QEC and detectors
+    ####################
+    # QEC CYCLES
+    ####################
+
+    # apply first round of QEC and detectors
     circuit.append(one_cycle)
     measurement_record.append(cycle_measurements)
     for kk, check_id in enumerate(basis_check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
 
-    # following repeated rounds of QEC and detectors
+    # apply following rounds of QEC and detectors
     if num_rounds > 1:
         repeat_circuit = one_cycle.copy()
         measurement_record.append(cycle_measurements)
@@ -164,8 +172,11 @@ def get_memory_experiment(
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
         # make the measurement_record account for repeated measurements
-        for _ in range(num_rounds - 2):
-            measurement_record.append(cycle_measurements)
+        measurement_record.append(cycle_measurements, repeat=num_rounds - 2)
+
+    ####################
+    # READOUT
+    ####################
 
     # measure out the data qubits
     circuit.append(f"M{basis}", data_ids)
@@ -191,10 +202,6 @@ def get_memory_experiment(
         )
 
     return noise_model.noisy_circuit(circuit) if noise_model else circuit
-
-
-# TODO:
-# - sort out the SurfaceCode not having a matching graph with get_memory_simulation
 
 
 @restrict_to_qubits
@@ -254,10 +261,25 @@ def get_memory_simulation(
         for pauli, matrix in logical_op_matrix.items()
     }
 
+    # stim observable annotations
+    observables = stim.Circuit()
+    for op_index, (pauli, logical_qubit_index) in enumerate(
+        itertools.product(PAULIS_XZ, range(code.dimension))
+    ):
+        ancilla_node = Node(logical_qubit_index, is_data=False)
+        qubit_paulis = [
+            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+            for _, data_node, edge_data in logical_op_graph[pauli].edges(ancilla_node, data=True)
+        ]
+        observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
+
     # build a noisy QEC cycle and initialize a measurement record
     one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    noisy_cycle = noise_model.noisy_circuit(one_cycle)
     measurement_record = MeasurementRecord()
+
+    ####################
+    # INITIALIZATION
+    ####################
 
     # set coordinates for all qubits
     circuit = stim.Circuit()
@@ -278,13 +300,21 @@ def get_memory_simulation(
         for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
             circuit.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
 
-    # first round of QEC and detectors
+    ####################
+    # QEC CYCLES
+    ####################
+
+    # annotate initial observables
+    circuit.append(observables)
+
+    # apply following rounds of QEC and detectors
+    noisy_cycle = noise_model.noisy_circuit(one_cycle)
     circuit.append(noisy_cycle)
     measurement_record.append(cycle_measurements)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
 
-    # following repeated rounds of QEC and detectors
+    # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
         repeat_circuit = noisy_cycle.copy()
         measurement_record.append(cycle_measurements)
@@ -300,16 +330,10 @@ def get_memory_simulation(
         repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
-    # annotate the logical XX and ZZ operators of all Bell pairs
-    for op_index, (pauli, logical_qubit_index) in enumerate(
-        itertools.product(PAULIS_XZ, range(code.dimension))
-    ):
-        ancilla_node = Node(logical_qubit_index, is_data=False)
-        qubit_paulis = [
-            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
-            for _, data_node, edge_data in logical_op_graph[pauli].edges(ancilla_node, data=True)
-        ]
-        ancilla_pauli = stim.target_pauli(qubit_ids.ancilla[logical_qubit_index], str(pauli))
-        circuit.append("OBSERVABLE_INCLUDE", qubit_paulis + [ancilla_pauli], [op_index])
+        # make the measurement_record account for repeated measurements
+        measurement_record.append(cycle_measurements, repeat=num_rounds - 2)
+
+    # annotate final observables
+    circuit.append(observables)
 
     return circuit
