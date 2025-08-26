@@ -236,8 +236,7 @@ def get_memory_simulation(
     attribute an error in XX or ZZ to a logical qubit error.
 
     Args:
-        code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported
-            at the moment.
+        code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
         noise_model: The noise model to apply to the the QEC cycles of the circuit.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
