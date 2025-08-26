@@ -104,7 +104,7 @@ def get_memory_experiment(
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(
-            "Memory experiments require choosing a Pauli.X or Pauli.X basis of logical operators to"
+            "Memory experiments require choosing a Pauli.X or Pauli.Z basis of logical operators to"
             f" track (provided: {basis})"
         )
     if isinstance(code, codes.ClassicalCode):
@@ -224,8 +224,6 @@ def get_memory_simulation(
     2. Noiselessly entangle each logical qubit with its own noiseless physical ancilla qubit,
         thereby preparing code.dimension Bell pairs.
     3. Perform num_rounds noisy QEC cycles, identically to qldpc.circuits.get_memory_experiment.
-
-
 
     Args:
         code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
