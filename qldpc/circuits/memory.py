@@ -332,14 +332,11 @@ def _get_qec_cycles(
         repeat_circuit = one_cycle.copy()
         measurement_record.append(cycle_measurement_record)
         for kk, check_id in enumerate(check_ids):
-            repeat_circuit.append(
-                "DETECTOR",
-                [
-                    measurement_record.get_target_rec(check_id, -1),
-                    measurement_record.get_target_rec(check_id, -2),
-                ],
-                (1, 0, kk),
-            )
+            targets = [
+                measurement_record.get_target_rec(check_id, -1),
+                measurement_record.get_target_rec(check_id, -2),
+            ]
+            repeat_circuit.append("DETECTOR", targets, (1, 0, kk))
         repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
