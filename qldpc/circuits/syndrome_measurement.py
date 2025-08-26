@@ -50,13 +50,13 @@ class MeasurementRecord:
 
     def append(self, record: MeasurementRecord | dict[int, list[int]], repeat: int = 1) -> None:
         """Append the given record to this one."""
-        record_size = sum(len(measurements) for _, measurements in record.items())
+        num_measurements_in_record = sum(len(measurements) for _, measurements in record.items())
         for _ in range(repeat):
             for qubit, measurements in record.items():
                 self.qubit_to_measurements[qubit].extend(
                     [self.num_measurements + measurement for measurement in measurements]
                 )
-            self.num_measurements += record_size
+            self.num_measurements += num_measurements_in_record
 
     def get_target_rec(self, qubit: int, measurement_index: int = -1) -> stim.target_rec:
         """Retrieve a Stim measurement record target for the given qubit.
