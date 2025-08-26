@@ -317,7 +317,7 @@ def get_memory_simulation(
     # annotate initial observables
     circuit.append(observables)
 
-    # apply following rounds of QEC and detectors
+    # apply first round of QEC and detectors
     noisy_cycle = noise_model.noisy_circuit(one_cycle)
     circuit.append(noisy_cycle)
     measurement_record.append(cycle_measurements)
