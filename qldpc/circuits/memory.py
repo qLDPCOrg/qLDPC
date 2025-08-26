@@ -15,6 +15,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import itertools
+
 import numpy as np
 import stim
 
@@ -301,7 +303,7 @@ def get_memory_simulation(
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
     # noiselessly measure XX and ZZ operators
-    for pauli in PAULIS_XZ:
+    for pp, pauli in enumerate(PAULIS_XZ):
         for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
             ancilla_node = Node(logical_qubit_index, is_data=False)
             op_support = [
@@ -314,7 +316,8 @@ def get_memory_simulation(
             circuit.append(stim.CircuitInstruction(f"MPP {pauli}{ancilla_id}*{op}"))
 
     # add detectors for the logical observables
-    for logical_op_rec in range(-2 * code.dimension, 0):
-        circuit.append("DETECTOR", stim.target_rec(logical_op_rec))
+    for logical_op_index in range(2 * code.dimension):
+        logical_op_rec = logical_op_index - 2 * code.dimension
+        circuit.append("OBSERVABLE_INCLUDE", stim.target_rec(logical_op_rec), [logical_op_index])
 
     return circuit
