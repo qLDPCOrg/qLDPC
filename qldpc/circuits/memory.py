@@ -266,12 +266,8 @@ def get_memory_simulation(
     circuit.append("H", qubit_ids.ancilla)
     circuit.append(get_encoding_circuit(code))
 
-    # for each logical qubit, prepare an ancilla qubit in the |+>
+    # prepare each logical qubit in a Bell pair with its own ancilla
     circuit.append("H", qubit_ids.ancilla)
-    for kk, ancilla_id in enumerate(qubit_ids.ancilla):
-        circuit.append("QUBIT_COORDS", ancilla_id, (2, kk))
-
-    # apply a controlled-logical-not from each ancilla onto its respective logical qubit
     for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
         ancilla_node = Node(logical_qubit_index, is_data=False)
         for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
