@@ -217,7 +217,8 @@ def get_memory_simulation(
     However, the circuit constructed here noiselessly initializes each logical qubit of the code in
     a maximally entangled state with an (unphysical) noiseless ancilla qubit before running noisy
     QEC cycles, which enables meaningfully tracking errors in both X-type and Z-type logical
-    operators.
+    operators.  The probability of an error in any logical operator is then essentially the process
+    infidelity (or entanglement infidelity) of the noisy QEC cycles.
 
     See help(qldpc.circuits.get_memory_experiment) for background and context.
 
