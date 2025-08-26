@@ -55,33 +55,36 @@ class QubitIDs:
         self.ancilla.extend(range(start, start + number))
 
 
-class MeasurementRecord:
-    """An record of measurements in a Stim circuit, organized by qubit index."""
+class Record:
+    """An organized record of events in a Stim circuit.
 
-    num_measurements: int
-    qubit_to_measurements: dict[int, list[int]]
+    Subclassed by MeasurementRecord and DetectorRecord.
+    """
+
+    num_events: int
+    key_to_events: dict[int, list[int]]
 
     def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
-        self.qubit_to_measurements = collections.defaultdict(
-            list, initial_record if initial_record else {}
-        )
-        self.num_measurements = sum(
-            len(measurements) for measurements in self.qubit_to_measurements.values()
-        )
+        self.key_to_events = collections.defaultdict(list, initial_record if initial_record else {})
+        self.num_events = sum(len(events) for events in self.key_to_events.values())
 
     def items(self) -> Iterator[tuple[int, list[int]]]:
-        """Iterator over qubits and their measurements."""
-        yield from self.qubit_to_measurements.items()
+        """Iterator over keys and their events."""
+        yield from self.key_to_events.items()
 
-    def append(self, record: MeasurementRecord | dict[int, list[int]], repeat: int = 1) -> None:
+    def append(self, record: Record | dict[int, list[int]], repeat: int = 1) -> None:
         """Append the given record to this one."""
-        num_measurements_in_record = sum(len(measurements) for _, measurements in record.items())
+        num_events_in_record = sum(len(events) for _, events in record.items())
         for _ in range(repeat):
-            for qubit, measurements in record.items():
-                self.qubit_to_measurements[qubit].extend(
-                    [self.num_measurements + measurement for measurement in measurements]
+            for key, events in record.items():
+                self.key_to_events[key].extend(
+                    [self.num_events + measurement for measurement in events]
                 )
-            self.num_measurements += num_measurements_in_record
+            self.num_events += num_events_in_record
+
+
+class MeasurementRecord(Record):
+    """An record of measurements in a Stim circuit, organized by qubit index."""
 
     def get_target_rec(self, qubit: int, measurement_index: int = -1) -> stim.target_rec:
         """Retrieve a Stim measurement record target for the given qubit.
@@ -95,42 +98,19 @@ class MeasurementRecord:
         Returns:
             stim.target_rec: A Stim measurement record target.
         """
-        if qubit not in self.qubit_to_measurements:
+        if qubit not in self.key_to_events:
             raise ValueError(f"Qubit {qubit} not found in measurement record")
-        measurements = self.qubit_to_measurements[qubit]
+        measurements = self.key_to_events[qubit]
         if not -len(measurements) <= measurement_index < len(measurements):
             raise ValueError(
                 f"Invalid measurement index {measurement_index} for qubit {qubit} with "
                 f"{len(measurements)} measurements"
             )
-        return stim.target_rec(measurements[measurement_index] - self.num_measurements)
+        return stim.target_rec(measurements[measurement_index] - self.num_events)
 
 
-class DetectorRecord:
+class DetectorRecord(Record):
     """An record of detectors in a Stim circuit, organized by parity check index."""
-
-    num_detectors: int
-    check_to_detectors: dict[int, list[int]]
-
-    def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
-        self.check_to_detectors = collections.defaultdict(
-            list, initial_record if initial_record else {}
-        )
-        self.num_detectors = sum(len(detectors) for detectors in self.check_to_detectors.values())
-
-    def items(self) -> Iterator[tuple[int, list[int]]]:
-        """Iterator over qubits and their measurements."""
-        yield from self.check_to_detectors.items()
-
-    def append(self, record: DetectorRecord | dict[int, list[int]], repeat: int = 1) -> None:
-        """Append the given record to this one."""
-        num_detectors_in_record = sum(len(detectors) for _, detectors in record.items())
-        for _ in range(repeat):
-            for check, detectors in record.items():
-                self.check_to_detectors[check].extend(
-                    [self.num_detectors + detector for detector in detectors]
-                )
-            self.num_detectors += num_detectors_in_record
 
     def get_detector(self, check: int, detection_index: int = -1) -> int:
         """Retrieve a Stim detector (by index) for the given parity check.
@@ -144,9 +124,9 @@ class DetectorRecord:
         Returns:
             int: The index of the detector we want.
         """
-        if check not in self.check_to_detectors:
+        if check not in self.key_to_events:
             raise ValueError(f"Parity check {check} not found in measurement record")
-        detectors = self.check_to_detectors[check]
+        detectors = self.key_to_events[check]
         if not -len(detectors) <= detection_index < len(detectors):
             raise ValueError(
                 f"Invalid detection index {detection_index} for parity check {check} with "
