@@ -39,29 +39,30 @@ def get_memory_experiment(
     num_rounds: int = 1,
     *,
     noise_model: NoiseModel | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> stim.Circuit:
     """Construct a circuit for testing the performance of a code as a quantum memory.
 
-    The circuit consists of (generally multiple) quantum error correction (QEC) cycles for the code,
-    using a particular syndrome measurement strategy.  Each QEC cycle measures all parity checks of
-    the code, and detectors are added to enforce that (a) the syndrome from the first QEC cycle is
-    trivial, and (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
+    In words, the circuit constructed by this method performs (generally multiple) rounds quantum
+    error correction (QEC) for the given code.  Each QEC round, or cycle, measures all parity checks
+    of the code, and detectors are added to enforce that
+    (a) the syndrome from the first QEC cycle is trivial, and
+    (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
     The "basis" argument determines whether the circuit tracks logical X or Z operators.
 
     In total, the circuit performs the following:
     1. Initialize all data qubits to |0> (if basis is Pauli.Z) or |+> (if basis is Pauli.X).
     2. Perform an initial QEC cycle, adding detectors for the basis-type stabilizers.
-    3. Repeat num_rounds - 1 QEC cycles, adding detectors to enforce that basis-type stabilizers
-        have not changed between adjacent QEC cycles.
+    3. Perform num_rounds - 1 additional QEC cycles, adding detectors to enforce that basis-type
+        stabilizers have not changed between adjacent QEC cycles.
     4. Measure all data qubits in the specified basis.
-    5. Add detectors for basis-type parity checks on the final data qubit measurements.
+    5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
     6. Use the final data qubit measurements to define all basis-type logical observables.
 
     Qubits and detectors are assigned coordinates as follows:
     - The data qubit addressed by column c of the parity check matrix gets coordinate (0, c).
     - The check qubit associated with row r of the parity check matrix gets coordinate (1, r).
-    - The k-th detector in measurement round m gets coordinate (m, k).
+    - The k-th detector in measurement round m gets coordinate (m, 0, k).
 
     Args:
         code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
@@ -74,9 +75,8 @@ def get_memory_experiment(
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
-        syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
-            each round of QEC measures all parity checks of the code.
-            Default: circuits.EdgeColoring().
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
+            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
@@ -104,20 +104,19 @@ def get_memory_experiment(
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(
-            "Memory experiments currently only support tracking logical operators in the X or Z"
-            f" basis (provided: {basis})"
+            "Memory experiments require choosing a Pauli.X or Pauli.X basis of logical operators to"
+            f" track (provided: {basis})"
         )
     if isinstance(code, codes.ClassicalCode):
         matrix_x = code.matrix if basis is Pauli.X else code.field.Zeros((0, len(code)))
         matrix_z = code.field.Zeros((0, len(code))) if basis is Pauli.X else code.matrix
         code = codes.CSSCode(matrix_x, matrix_z)
-    if not isinstance(code, codes.CSSCode):
-        raise ValueError("Memory experiments are currently not supported for non-CSS codes")
-    if code.is_subsystem_code:
-        raise ValueError("Memory experiments are currently not supported for subsystem codes")
+    if not isinstance(code, codes.CSSCode) or code.is_subsystem_code:
+        raise ValueError(
+            "Memory experiments currently only support stabilizer (non-subsystem) CSS codes"
+        )
 
-    # set default syndrome measurement strategy, if necessary, and identify qubit IDs
-    syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
+    # identify all qubits by index
     qubit_ids = QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
 
@@ -210,7 +209,7 @@ def get_memory_simulation(
     noise_model: NoiseModel,
     num_rounds: int = 1,
     *,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy | None = None,
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> stim.Circuit:
     """Construct a circuit for testing the performance of a code as a quantum memory.
 
@@ -225,10 +224,8 @@ def get_memory_simulation(
     2. Noiselessly entangle each logical qubit with its own noiseless physical ancilla qubit,
         thereby preparing code.dimension Bell pairs.
     3. Perform num_rounds noisy QEC cycles, identically to qldpc.circuits.get_memory_experiment.
-    4. Noiselessly measure the logical XX and ZZ operators of every Bell pair.
 
-    Since the ancilla qubits of the Bell pairs are noiseless, an error in any XX or ZZ operator can
-    be attributed to an error of the corresponding logical qubit of the code.
+
 
     Args:
         code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
@@ -237,9 +234,8 @@ def get_memory_simulation(
             subsystem codes pending).
         noise_model: The noise model to apply to the the QEC cycles of the circuit.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
-        syndrome_measurement_strategy: The syndrome measurement strategy to use, which defines how
-            each round of QEC measures all parity checks of the code.
-            Default: circuits.EdgeColoring().
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
+            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
@@ -247,8 +243,7 @@ def get_memory_simulation(
     if code.is_subsystem_code:
         raise ValueError("Memory simulations are currently not supported for subsystem codes")
 
-    # set default syndrome measurement strategy, if necessary, and identify qubit IDs
-    syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
+    # identify all qubits by index
     qubit_ids = QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
     qubit_ids.add_ancilla(code.dimension)
