@@ -131,10 +131,10 @@ def get_memory_experiment(
 
     # set coordinates for all qubits
     circuit = stim.Circuit()
-    for data_id in qubit_ids.data:
-        circuit.append("QUBIT_COORDS", data_id, (0, data_id))
-    for check_id in qubit_ids.check:
-        circuit.append("QUBIT_COORDS", check_id, (1, check_id))
+    for kk, data_id in enumerate(qubit_ids.data):
+        circuit.append("QUBIT_COORDS", data_id, (0, kk))
+    for kk, check_id in enumerate(qubit_ids.check):
+        circuit.append("QUBIT_COORDS", check_id, (1, kk))
 
     # reset data qubits to appropriate basis
     circuit.append(f"R{basis}", data_ids)
@@ -143,7 +143,7 @@ def get_memory_experiment(
     circuit.append(one_cycle)
     measurement_record.append(cycle_measurements)
     for kk, check_id in enumerate(basis_check_ids):
-        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, kk))
+        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
 
     # following repeated rounds of QEC and detectors
     if num_rounds > 1:
@@ -156,9 +156,9 @@ def get_memory_experiment(
                     measurement_record.get_target_rec(check_id, -1),
                     measurement_record.get_target_rec(check_id, -2),
                 ],
-                (1, kk),
+                (1, 0, kk),
             )
-        repeat_circuit.append("SHIFT_COORDS", [], (1, 0))
+        repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
         # make the measurement_record account for repeated measurements
@@ -170,13 +170,13 @@ def get_memory_experiment(
     measurement_record.append({qubit: [qubit] for qubit in range(len(code))})
 
     # detectors for all stabilizers that can be inferred from the data qubit measurements
-    for jj, check_id in enumerate(basis_check_ids):
-        data_support = np.where(check_support[jj])[0]
+    for kk, check_id in enumerate(basis_check_ids):
+        data_support = np.where(check_support[kk])[0]
         circuit.append(
             "DETECTOR",
             [measurement_record.get_target_rec(qq) for qq in data_support]
             + [measurement_record.get_target_rec(check_id)],
-            (num_rounds, jj),
+            (num_rounds, 0, kk),
         )
 
     # add all basis-type observables
@@ -254,10 +254,10 @@ def get_memory_simulation(
 
     # set coordinates for all qubits
     circuit = stim.Circuit()
-    for data_id in qubit_ids.data:
-        circuit.append("QUBIT_COORDS", data_id, (0, data_id))
-    for check_id in qubit_ids.check:
-        circuit.append("QUBIT_COORDS", check_id, (1, check_id))
+    for kk, data_id in enumerate(qubit_ids.data):
+        circuit.append("QUBIT_COORDS", data_id, (0, kk))
+    for kk, check_id in enumerate(qubit_ids.check):
+        circuit.append("QUBIT_COORDS", check_id, (1, kk))
 
     # initialize a logical all-|0> state of the code
     circuit.append(get_encoding_circuit(code))
@@ -265,6 +265,8 @@ def get_memory_simulation(
     # for each logical qubit, prepare an ancilla qubit in the |+>
     qubit_ids.add_ancilla(code.dimension)
     circuit.append("H", qubit_ids.ancilla)
+    for kk, ancilla_id in enumerate(qubit_ids.ancilla):
+        circuit.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
     # apply a controlled-logical-not from each ancilla onto its respective logical qubit
     for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
@@ -276,7 +278,7 @@ def get_memory_simulation(
     circuit.append(noisy_cycle)
     measurement_record.append(cycle_measurements)
     for kk, check_id in enumerate(check_ids):
-        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, kk))
+        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
 
     # following repeated rounds of QEC and detectors
     if num_rounds > 1:
@@ -289,9 +291,9 @@ def get_memory_simulation(
                     measurement_record.get_target_rec(check_id, -1),
                     measurement_record.get_target_rec(check_id, -2),
                 ],
-                (1, kk),
+                (1, 0, kk),
             )
-        repeat_circuit.append("SHIFT_COORDS", [], (1, 0))
+        repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
     # noiselessly measure XX and ZZ operators
