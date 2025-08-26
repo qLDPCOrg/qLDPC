@@ -151,7 +151,7 @@ def get_memory_experiment_parts(
     qubit_ids = QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
 
-    # identify the indices of ancilla qubits that read out basis-type parity checks
+    # identify the indices of check qubits that read out basis-type parity checks
     check_support = code.get_matrix(basis)
     basis_check_ids = (
         check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
@@ -175,9 +175,8 @@ def get_memory_experiment_parts(
     # QEC CYCLES
     ####################
 
-    one_cycle, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    all_cycles, measurement_record = _get_qec_cycles(
-        one_cycle, cycle_measurement_record, num_rounds, qubit_ids.check
+    qec_cycles, measurement_record = _get_qec_cycles(
+        code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
     )
 
     ####################
@@ -208,7 +207,11 @@ def get_memory_experiment_parts(
             kk,
         )
 
-    return initialization, all_cycles + readout, measurement_record
+    return (
+        initialization,
+        qec_cycles + readout,
+        measurement_record,
+    )
 
 
 @restrict_to_qubits
@@ -304,18 +307,6 @@ def get_memory_simulation_parts(
         for pauli, matrix in logical_op_matrix.items()
     }
 
-    # identify observables
-    observables = stim.Circuit()
-    for op_index, (pauli, logical_qubit_index) in enumerate(
-        itertools.product(PAULIS_XZ, range(code.dimension))
-    ):
-        ancilla_node = Node(logical_qubit_index, is_data=False)
-        qubit_paulis = [
-            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
-            for _, data_node, edge_data in logical_op_graph[pauli].edges(ancilla_node, data=True)
-        ]
-        observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
-
     ####################
     # INITIALIZATION
     ####################
@@ -343,36 +334,55 @@ def get_memory_simulation_parts(
     # QEC CYCLES
     ####################
 
-    # annotate initial observables
-    qec_cycles = observables.copy()
-
-    # add QEC cycles
-    one_cycle, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    all_cycles, measurement_record = _get_qec_cycles(
-        one_cycle, cycle_measurement_record, num_rounds, qubit_ids.check
+    qec_cycles, measurement_record = _get_qec_cycles(
+        code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
     )
-    qec_cycles.append(all_cycles)
 
-    # annotate final observables
-    qec_cycles.append(observables)
+    ####################
+    # OBSERVABLES
+    ####################
 
-    return initialization, qec_cycles, measurement_record
+    observables = stim.Circuit()
+    for op_index, (pauli, logical_qubit_index) in enumerate(
+        itertools.product(PAULIS_XZ, range(code.dimension))
+    ):
+        ancilla_node = Node(logical_qubit_index, is_data=False)
+        qubit_paulis = [
+            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+            for _, data_node, edge_data in logical_op_graph[pauli].edges(ancilla_node, data=True)
+        ]
+        observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
+
+    return (
+        initialization,
+        observables + qec_cycles + observables,
+        measurement_record,
+    )
 
 
 def _get_qec_cycles(
-    one_cycle: stim.Circuit,
-    cycle_measurement_record: MeasurementRecord,
+    code: codes.QuditCode,
     num_rounds: int,
+    qubit_ids: QubitIDs,
     check_ids: Collection[int],
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy,
 ) -> tuple[stim.Circuit, MeasurementRecord]:
-    """Given a circuit for a single QEC cycle, return the circuit for many QEC cycles.
+    """Build a circuit for num_rounds noiseless QEC cycles of a given code.
 
     Args:
-        one_cycle: The circuit for one QEC cycle (one round of parity check measurements).
-        cycle_measurement_record: The measurement record for one_cycle.
+        code: The code for which we are building QEC cycles.
         num_rounds: The number of QEC cycles in the final circuit.
-        check_ids: The indices of check qubits for which to add detectors.
+        qubit_ids: The identity of all qubits that may be used in the circuit.
+        check_ids: The check qubits that measure stabilizers to annotate with detectors.
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
+            round of QEC measures the parity checks of the code.
+
+    Returns:
+        stim.Circuit: The noiseless circuit of num_rounds QEC cycles.
+        MeasurementRecord: The record of measurements in the constructed circuit.
     """
+    one_cycle, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
+
     circuit = stim.Circuit()
     measurement_record = MeasurementRecord()
 
