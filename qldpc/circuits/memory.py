@@ -263,7 +263,6 @@ def get_memory_simulation(
         circuit.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
     # initialize a logical all-|0> state of the code
-    circuit.append("H", qubit_ids.ancilla)
     circuit.append(get_encoding_circuit(code))
 
     # prepare each logical qubit in a Bell pair with its own ancilla
