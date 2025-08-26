@@ -296,7 +296,7 @@ def get_memory_simulation(
     all_cycles, measurement_record = _get_qec_cycles(
         one_cycle, cycle_measurement_record, num_rounds, qubit_ids.check
     )
-    circuit.append(all_cycles)
+    circuit.append(noise_model.noisy_circuit(all_cycles))
 
     # annotate final observables
     circuit.append(observables)
