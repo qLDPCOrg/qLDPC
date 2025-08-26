@@ -103,6 +103,36 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
+    initialization, qec_cycles_and_readout, *_ = get_memory_experiment_parts(
+        code,
+        basis=basis,
+        num_rounds=num_rounds,
+        syndrome_measurement_strategy=syndrome_measurement_strategy,
+    )
+    circuit = initialization + qec_cycles_and_readout
+    return noise_model.noisy_circuit(circuit) if noise_model is not None else circuit
+
+
+@restrict_to_qubits
+def get_memory_experiment_parts(
+    code: codes.AbstractCode,
+    basis: PauliXZ = Pauli.X,
+    num_rounds: int = 1,
+    *,
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord]:
+    """Noiseless components of a memory experiment.
+
+    See help(qldpc.circuits.get_memory_experiment) for additional information.
+
+    Returns:
+        initialization: A circuit that sets all qubit coordinates and resets data qubits to the
+            appropriate basis.
+        qec_cycles_and_readout: A circuit of num_rounds QEC cycles followed by data qubit
+            measurements in the specified basis.  Includes detectors for basis-type stabilizers and
+            declares basis-type logical observables.
+        measurement_record: A record of the measurements in qec_cycles_and_readout.
+    """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(
             "Memory experiments require choosing a Pauli.X or Pauli.Z basis of logical operators to"
@@ -132,14 +162,14 @@ def get_memory_experiment(
     ####################
 
     # set coordinates for all qubits
-    circuit = stim.Circuit()
+    initialization = stim.Circuit()
     for kk, data_id in enumerate(qubit_ids.data):
-        circuit.append("QUBIT_COORDS", data_id, (0, kk))
+        initialization.append("QUBIT_COORDS", data_id, (0, kk))
     for kk, check_id in enumerate(qubit_ids.check):
-        circuit.append("QUBIT_COORDS", check_id, (1, kk))
+        initialization.append("QUBIT_COORDS", check_id, (1, kk))
 
     # reset data qubits to appropriate basis
-    circuit.append(f"R{basis}", data_ids)
+    initialization.append(f"R{basis}", data_ids)
 
     ####################
     # QEC CYCLES
@@ -149,20 +179,20 @@ def get_memory_experiment(
     all_cycles, measurement_record = _get_qec_cycles(
         one_cycle, cycle_measurement_record, num_rounds, qubit_ids.check
     )
-    circuit.append(all_cycles)
 
     ####################
-    # READOUT
+    # DATA QUBIT READOUT
     ####################
 
     # measure out the data qubits
-    circuit.append(f"M{basis}", data_ids)
+    readout = stim.Circuit()
+    readout.append(f"M{basis}", data_ids)
     measurement_record.append({qubit: [qubit] for qubit in range(len(code))})
 
     # detectors for all stabilizers that can be inferred from the data qubit measurements
     for kk, check_id in enumerate(basis_check_ids):
         data_support = np.where(check_support[kk])[0]
-        circuit.append(
+        readout.append(
             "DETECTOR",
             [measurement_record.get_target_rec(qq) for qq in data_support]
             + [measurement_record.get_target_rec(check_id)],
@@ -172,13 +202,13 @@ def get_memory_experiment(
     # add all basis-type observables
     for kk, observable in enumerate(code.get_logical_ops(basis)):
         data_support = np.where(observable)[0]
-        circuit.append(
+        readout.append(
             "OBSERVABLE_INCLUDE",
             [measurement_record.get_target_rec(qq) for qq in data_support],
             kk,
         )
 
-    return noise_model.noisy_circuit(circuit) if noise_model else circuit
+    return initialization, all_cycles + readout, measurement_record
 
 
 @restrict_to_qubits
@@ -232,6 +262,30 @@ def get_memory_simulation(
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
     """
+    initialization, qec_cycles, *_ = get_memory_simulation_parts(
+        code, num_rounds=num_rounds, syndrome_measurement_strategy=syndrome_measurement_strategy
+    )
+    return initialization + noise_model.noisy_circuit(qec_cycles)
+
+
+@restrict_to_qubits
+def get_memory_simulation_parts(
+    code: codes.QuditCode,
+    num_rounds: int = 1,
+    *,
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord]:
+    """Noiseless components of a memory simulation.
+
+    See help(qldpc.circuits.get_memory_simulation) for additional information.
+
+    Returns:
+        initialization: A circuit that sets all qubit coordinates and initializes every logical
+            qubit into a Bell pair with its associated ancilla.
+        qec_cycles: A circuit of num_rounds QEC cycles.  Includes detectors for all stabilizers and
+            declares all logical observables.
+        measurement_record: A record of the measurements in qec_cycles.
+    """
     if code.is_subsystem_code:
         raise ValueError(
             "Memory simulations currently only support stabilizer (non-subsystem) codes"
@@ -267,42 +321,42 @@ def get_memory_simulation(
     ####################
 
     # set coordinates for all qubits
-    circuit = stim.Circuit()
+    initialization = stim.Circuit()
     for kk, data_id in enumerate(qubit_ids.data):
-        circuit.append("QUBIT_COORDS", data_id, (0, kk))
+        initialization.append("QUBIT_COORDS", data_id, (0, kk))
     for kk, check_id in enumerate(qubit_ids.check):
-        circuit.append("QUBIT_COORDS", check_id, (1, kk))
+        initialization.append("QUBIT_COORDS", check_id, (1, kk))
     for kk, ancilla_id in enumerate(qubit_ids.ancilla):
-        circuit.append("QUBIT_COORDS", ancilla_id, (2, kk))
+        initialization.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
     # initialize a logical all-|0> state of the code, and intialize ancilla qubits in |+>
-    circuit.append(get_encoding_circuit(code))
-    circuit.append("H", qubit_ids.ancilla)
+    initialization.append(get_encoding_circuit(code))
+    initialization.append("H", qubit_ids.ancilla)
 
     # apply ancilla-controlled-logical-NOT gates to prepare Bell states
     for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
         ancilla_node = Node(logical_qubit_index, is_data=False)
         for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
-            circuit.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
+            initialization.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
 
     ####################
     # QEC CYCLES
     ####################
 
     # annotate initial observables
-    circuit.append(observables)
+    qec_cycles = observables.copy()
 
     # add QEC cycles
     one_cycle, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
     all_cycles, measurement_record = _get_qec_cycles(
         one_cycle, cycle_measurement_record, num_rounds, qubit_ids.check
     )
-    circuit.append(noise_model.noisy_circuit(all_cycles))
+    qec_cycles.append(all_cycles)
 
     # annotate final observables
-    circuit.append(observables)
+    qec_cycles.append(observables)
 
-    return circuit
+    return initialization, qec_cycles, measurement_record
 
 
 def _get_qec_cycles(
