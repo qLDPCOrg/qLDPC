@@ -249,20 +249,21 @@ def get_memory_simulation(
         |00> + |11> of logical qubits with their respective ancillas.
     3. Perform num_rounds noisy QEC cycles, identically to qldpc.circuits.get_memory_experiment.
 
-    Remembering that logical operators in Stim are formally detectors, or circuit-level parity
-    checks that should evaluate to 0 in the absence of errors, the preparation of Bell pairs allows
-    us to annotate XX and ZZ observables for each Bell pair.  Here one of the "X"s in XX is a
-    logical X for one of the logical qubit of the code, and the other "X" is a physical X on the
-    associated ancilla qubit; likewise with ZZ.  Since the ancilla qubit is noiseless, we can
-    attribute an error in XX or ZZ to a logical qubit error.
+    Remembering that observables in Stim are formally detectors, or circuit-level parity checks that
+    must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
+    XX and ZZ observables for each Bell pair.  Here one of the "X"s in XX is a logical X for a
+    logical qubit of the code, and the other "X" is a physical X on an associated ancilla qubit;
+    likewise with ZZ.  Since the ancilla qubit is noiseless, we can attribute an error in XX or ZZ to
+    a logical qubit error.
 
-    Having said all of that, we do not actually annotate the circuit with these XX and ZZ
-    observables.  Instead, we recognize that Bell-pair XX and ZZ operators are stabilizers of the
-    circuit immediately after noiseless initialization, which allows us to freely multiply the XX and
-    ZZ operators at the end of the circuit by XX and ZZ operators before the QEC cycles, thereby
-    obtaining two-time XXXX and ZZZZ observables.  The chief benefit to this trick is that the
-    support of these observables on the ancilla qubits cancels out, leaving us with two-time logical
-    XX and ZZ observables that are supported entirely on the data qubits of the code.
+    Having said all of that, we do not actually annotate memory simulation circuits with the XX and
+    ZZ observables described above.  Instead, we recognize that Bell-pair XX and ZZ operators are
+    exact stabilizers of the circuit immediately after noiseless initialization, which allows us to
+    freely multiply the XX and ZZ operators at the end of the circuit by XX and ZZ operators before
+    the QEC cycles, thereby obtaining two-time XXXX and ZZZZ observables.  The chief benefit to this
+    trick is that the support of these observables on the (noiseless) ancilla qubits cancels out,
+    leaving us with two-time logical XX and ZZ observables that are supported entirely on the data
+    qubits of the code.
 
     Args:
         code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
