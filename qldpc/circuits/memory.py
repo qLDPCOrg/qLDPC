@@ -306,15 +306,12 @@ def get_memory_simulation(
     for op_index, (pauli, logical_qubit_index) in enumerate(
         itertools.product(PAULIS_XZ, range(code.dimension))
     ):
-        ancailla_index = qubit_ids.ancilla[logical_qubit_index]
         ancilla_node = Node(logical_qubit_index, is_data=False)
         qubit_paulis = [
-            f"{edge_data[Pauli]}{data_node.index}"
+            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
             for _, data_node, edge_data in logical_op_graph[pauli].edges(ancilla_node, data=True)
         ]
-        pauli_string = " ".join(qubit_paulis)
-        ancialla_pauli = f"{pauli}{ancailla_index}"
-        instruction = f"OBSERVABLE_INCLUDE({op_index}) {ancialla_pauli} {pauli_string}"
-        circuit.append(stim.CircuitInstruction(instruction))
+        ancilla_pauli = stim.target_pauli(qubit_ids.ancilla[logical_qubit_index], str(pauli))
+        circuit.append("OBSERVABLE_INCLUDE", qubit_paulis + [ancilla_pauli], [op_index])
 
     return circuit
