@@ -214,8 +214,9 @@ def get_memory_simulation(
     """Construct a circuit for testing the performance of a code as a quantum memory.
 
     This method constructs a circuit similar to that in qldpc.circuits.get_memory_experiment.
-    However, the circuit constructed here makes use of noiseless (unphysical) ancilla qubits to
-    track the error rates of both X-type and Z-type logical operators of an error-correcting code.
+    However, the circuit constructed here noiselessly initializes each logical qubit of the code in
+    a maximally entangled state with an (unphysical) noiseless ancilla qubit before running noisy
+    QEC cycles, which enables tracking errors in both X-type and Z-type logical operators.
 
     See help(qldpc.circuits.get_memory_experiment) for background and context.
 
@@ -225,11 +226,16 @@ def get_memory_simulation(
         thereby preparing code.dimension Bell pairs.
     3. Perform num_rounds noisy QEC cycles, identically to qldpc.circuits.get_memory_experiment.
 
+    Remembering that logical operators in Stim are formally detectors, or circuit-level parity
+    checks that should evaluate to 0 in the absence of errors, the preparation of Bell pairs allows
+    us to annotate XX and ZZ observables for each Bell pair.  Here one of the "X"s in XX is a
+    logical X for one of the logical qubit of the code, and the other "X" is a physical X on the
+    associated ancilla qubit; likewise with ZZ.  Since the ancilla qubit is noiseless, we can
+    attribute an error in XX or ZZ to a logical qubit error.
+
     Args:
-        code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
-            that protects only basis-type logical operators.  Otherwise, only CSS stabilizer
-            (non-subsystem) qubit codes are supported at the moment (generalization to non-CSS and
-            subsystem codes pending).
+        code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported
+            at the moment.
         noise_model: The noise model to apply to the the QEC cycles of the circuit.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
@@ -239,7 +245,9 @@ def get_memory_simulation(
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
     """
     if code.is_subsystem_code:
-        raise ValueError("Memory simulations are currently not supported for subsystem codes")
+        raise ValueError(
+            "Memory simulations currently only support stabilizer (non-subsystem) codes"
+        )
 
     # identify all qubits by index
     qubit_ids = QubitIDs.from_code(code)
