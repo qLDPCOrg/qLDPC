@@ -40,11 +40,11 @@ def test_memory_experiment() -> None:
     assert observables.shape[1] == rep_code.dimension
 
     # only Pauli.X and Pauli.Z basis measurements are supported
-    with pytest.raises(ValueError, match="X or Z basis"):
+    with pytest.raises(ValueError, match="Pauli.X or Pauli.Z"):
         circuits.get_memory_experiment(rep_code, basis=Pauli.Y)
 
     # non-CSS and subsystem codes are not yet supported
-    with pytest.raises(ValueError, match="non-CSS codes"):
+    with pytest.raises(ValueError, match=r"only support stabilizer \(non-subsystem\) CSS codes"):
         circuits.get_memory_experiment(codes.FiveQubitCode())
-    with pytest.raises(ValueError, match="subsystem codes"):
+    with pytest.raises(ValueError, match=r"only support stabilizer \(non-subsystem\) CSS codes"):
         circuits.get_memory_experiment(codes.BaconShorCode(2))

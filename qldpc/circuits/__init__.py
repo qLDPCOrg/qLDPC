@@ -8,6 +8,7 @@ from .common import (
 )
 from .memory import (
     get_memory_experiment,
+    get_memory_experiment_parts,
 )
 from .noise_model import (
     DepolarizingNoiseModel,
