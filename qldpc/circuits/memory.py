@@ -125,6 +125,18 @@ def get_memory_experiment_parts(
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
 
+    Args:
+        code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
+            that protects only basis-type logical operators.  Otherwise, only CSS stabilizer
+            (non-subsystem) qubit codes are supported at the moment (generalization to non-CSS and
+            subsystem codes pending).
+        basis: Should be Pauli.X or Pauli.Z, depending the desired logical operators to track.  A
+            logical error in a noisy simulation of the circuit corresponds to a logical error in one
+            of these operators.  Default: Pauli.X.
+        num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
+            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
+
     Returns:
         initialization: A circuit that sets all qubit coordinates and resets data qubits to the
             appropriate basis.
@@ -282,6 +294,12 @@ def get_memory_simulation_parts(
     """Noiseless components of a memory simulation.
 
     See help(qldpc.circuits.get_memory_simulation) for additional information.
+
+    Args:
+        code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
+        num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
+            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
     Returns:
         initialization: A circuit that sets all qubit coordinates and initializes every logical
