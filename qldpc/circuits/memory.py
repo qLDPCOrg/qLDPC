@@ -308,7 +308,7 @@ def get_memory_simulation(
             circuit.append(stim.Circuit(f"MPP {pauli}{ancilla_id}*{op}"))
 
     # add detectors for the logical observables
-    for logical_qubit_index in range(2 * code.dimension):
-        circuit.append("DETECTOR", stim.target_rec(logical_qubit_index - 2 * code.dimension))
+    for logical_op_rec in range(-2 * code.dimension, 0):
+        circuit.append("DETECTOR", stim.target_rec(logical_op_rec))
 
     return circuit
