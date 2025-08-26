@@ -1,4 +1,5 @@
 from .common import (
+    DetectorRecord,
     MeasurementRecord,
     QubitIDs,
     get_encoder_and_decoder,
@@ -31,6 +32,7 @@ from .transversal import (
 )
 
 __all__ = [
+    "DetectorRecord",
     "MeasurementRecord",
     "QubitIDs",
     "get_encoder_and_decoder",

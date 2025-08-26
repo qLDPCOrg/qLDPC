@@ -106,6 +106,55 @@ class MeasurementRecord:
         return stim.target_rec(measurements[measurement_index] - self.num_measurements)
 
 
+class DetectorRecord:
+    """An record of detectors in a Stim circuit, organized by parity check index."""
+
+    num_detectors: int
+    check_to_detectors: dict[int, list[int]]
+
+    def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
+        self.check_to_detectors = collections.defaultdict(
+            list, initial_record if initial_record else {}
+        )
+        self.num_detectors = sum(len(detectors) for detectors in self.check_to_detectors.values())
+
+    def items(self) -> Iterator[tuple[int, list[int]]]:
+        """Iterator over qubits and their measurements."""
+        yield from self.check_to_detectors.items()
+
+    def append(self, record: DetectorRecord | dict[int, list[int]], repeat: int = 1) -> None:
+        """Append the given record to this one."""
+        num_detectors_in_record = sum(len(detectors) for _, detectors in record.items())
+        for _ in range(repeat):
+            for check, detectors in record.items():
+                self.check_to_detectors[check].extend(
+                    [self.num_detectors + detector for detector in detectors]
+                )
+            self.num_detectors += num_detectors_in_record
+
+    def get_detector(self, check: int, detection_index: int = -1) -> int:
+        """Retrieve a Stim detector (by index) for the given parity check.
+
+        Args:
+            check: The parity check (by index) whose detector we want.
+            detection_index: An index specifying which detector of the specified parity check we
+                want.  A detection_index of 0 would be the first detector of the parity check, while
+                a detection_index of -1 would be the most recent detector.  Default value: -1.
+
+        Returns:
+            int: The index of the detector we want.
+        """
+        if check not in self.check_to_detectors:
+            raise ValueError(f"Parity check {check} not found in measurement record")
+        detectors = self.check_to_detectors[check]
+        if not -len(detectors) <= detection_index < len(detectors):
+            raise ValueError(
+                f"Invalid detection index {detection_index} for parity check {check} with "
+                f"{len(detectors)} detectors"
+            )
+        return detectors[detection_index]
+
+
 def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.Circuit]:
     """Restrict a circuit constructor to qubit-based codes."""
 

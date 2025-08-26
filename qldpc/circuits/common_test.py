@@ -38,18 +38,29 @@ def test_qubit_ids() -> None:
     assert qubit_ids.ancilla == [9, 10, 11]
 
 
-def test_measurement_record() -> None:
-    """Build and use a MeasurementRecord."""
-    record = circuits.MeasurementRecord()
-    record.append({0: [0, 1], 2: [2]})
-    assert record.num_measurements == 3
-    assert dict(record.items()) == record.qubit_to_measurements
-    assert record.get_target_rec(2) == stim.target_rec(-1)
-    assert record.get_target_rec(0) == stim.target_rec(-2)
+def test_records() -> None:
+    """Measurement and detector records."""
+    measurement_record = circuits.MeasurementRecord()
+    measurement_record.append({0: [0, 1], 2: [2]})
+    assert measurement_record.num_measurements == 3
+    assert dict(measurement_record.items()) == measurement_record.qubit_to_measurements
+    assert measurement_record.get_target_rec(2) == stim.target_rec(-1)
+    assert measurement_record.get_target_rec(0) == stim.target_rec(-2)
     with pytest.raises(ValueError, match="Qubit 1 not found"):
-        record.get_target_rec(1)
+        measurement_record.get_target_rec(1)
     with pytest.raises(ValueError, match="Invalid measurement index"):
-        record.get_target_rec(0, 2)
+        measurement_record.get_target_rec(0, 2)
+
+    detector_record = circuits.DetectorRecord()
+    detector_record.append({0: [0, 1], 2: [2]})
+    assert detector_record.num_detectors == 3
+    assert dict(detector_record.items()) == detector_record.check_to_detectors
+    assert detector_record.get_detector(2) == 2
+    assert detector_record.get_detector(0) == 1
+    with pytest.raises(ValueError, match="Parity check 1 not found"):
+        detector_record.get_detector(1)
+    with pytest.raises(ValueError, match="Invalid detection index"):
+        detector_record.get_detector(0, 2)
 
 
 def test_restriction() -> None:

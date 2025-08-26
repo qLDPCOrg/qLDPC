@@ -24,7 +24,13 @@ import stim
 from qldpc import codes
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ
 
-from .common import MeasurementRecord, QubitIDs, get_encoding_circuit, restrict_to_qubits
+from .common import (
+    DetectorRecord,
+    MeasurementRecord,
+    QubitIDs,
+    get_encoding_circuit,
+    restrict_to_qubits,
+)
 from .noise_model import NoiseModel
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
@@ -116,7 +122,7 @@ def get_memory_experiment_parts(
     num_rounds: int = 1,
     *,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord]:
+) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord]:
     """Noiseless components of a memory experiment.
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
@@ -184,7 +190,7 @@ def get_memory_experiment_parts(
     # QEC CYCLES
     ####################
 
-    qec_cycles, measurement_record = _get_qec_cycles(
+    qec_cycles, measurement_record, detector_record = _get_qec_cycles(
         code, num_rounds, qubit_ids, basis_check_ids, syndrome_measurement_strategy
     )
 
@@ -195,7 +201,7 @@ def get_memory_experiment_parts(
     # measure out the data qubits
     readout = stim.Circuit()
     readout.append(f"M{basis}", data_ids)
-    measurement_record.append({qubit: [qubit] for qubit in range(len(code))})
+    measurement_record.append({data_id: [kk] for kk, data_id in enumerate(qubit_ids.data)})
 
     # detectors for all stabilizers that can be inferred from the data qubit measurements
     for kk, check_id in enumerate(basis_check_ids):
@@ -206,6 +212,7 @@ def get_memory_experiment_parts(
             + [measurement_record.get_target_rec(check_id)],
             (num_rounds, 0, kk),
         )
+    detector_record.append({check_id: [kk] for kk, check_id in enumerate(check_ids)})
 
     # add all basis-type observables
     for kk, observable in enumerate(code.get_logical_ops(basis)):
@@ -220,6 +227,7 @@ def get_memory_experiment_parts(
         coordinates + state_prep,
         qec_cycles + readout,
         measurement_record,
+        detector_record,
     )
 
 
@@ -287,7 +295,7 @@ def get_memory_simulation_parts(
     num_rounds: int = 1,
     *,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord]:
+) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord]:
     """Noiseless components of a memory simulation.
 
     See help(qldpc.circuits.get_memory_simulation) for additional information.
@@ -351,7 +359,7 @@ def get_memory_simulation_parts(
     # QEC CYCLES
     ####################
 
-    qec_cycles, measurement_record = _get_qec_cycles(
+    qec_cycles, measurement_record, detector_record = _get_qec_cycles(
         code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
     )
 
@@ -374,6 +382,7 @@ def get_memory_simulation_parts(
         coordinates + state_prep,
         observables + qec_cycles + observables,
         measurement_record,
+        detector_record,
     )
 
 
@@ -383,7 +392,7 @@ def _get_qec_cycles(
     qubit_ids: QubitIDs,
     check_ids: Collection[int],
     syndrome_measurement_strategy: SyndromeMeasurementStrategy,
-) -> tuple[stim.Circuit, MeasurementRecord]:
+) -> tuple[stim.Circuit, MeasurementRecord, DetectorRecord]:
     """Build a circuit for num_rounds noiseless QEC cycles of a given code.
 
     Args:
@@ -402,12 +411,14 @@ def _get_qec_cycles(
 
     circuit = stim.Circuit()
     measurement_record = MeasurementRecord()
+    detector_record = DetectorRecord()
 
     # apply first round of QEC and detectors
     circuit.append(one_cycle)
     measurement_record.append(cycle_measurement_record)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
+    detector_record.append({check_id: [kk] for kk, check_id in enumerate(check_ids)})
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
@@ -425,4 +436,7 @@ def _get_qec_cycles(
         # make the measurement_record account for repeated measurements
         measurement_record.append(cycle_measurement_record, repeat=num_rounds - 2)
 
-    return circuit, measurement_record
+        # update the detector record
+        detector_record.append({check_id: [kk] for kk, check_id in enumerate(check_ids)})
+
+    return circuit, measurement_record, detector_record
