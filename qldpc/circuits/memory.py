@@ -216,7 +216,8 @@ def get_memory_simulation(
     This method constructs a circuit similar to that in qldpc.circuits.get_memory_experiment.
     However, the circuit constructed here noiselessly initializes each logical qubit of the code in
     a maximally entangled state with an (unphysical) noiseless ancilla qubit before running noisy
-    QEC cycles, which enables tracking errors in both X-type and Z-type logical operators.
+    QEC cycles, which enables meaningfully tracking errors in both X-type and Z-type logical
+    operators.
 
     See help(qldpc.circuits.get_memory_experiment) for background and context.
 
