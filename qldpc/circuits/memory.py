@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 import itertools
+from collections.abc import Collection
 
 import numpy as np
 import stim
@@ -126,10 +127,6 @@ def get_memory_experiment(
         check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
     )
 
-    # build one QEC cycle and initialize a measurement record
-    one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    measurement_record = MeasurementRecord()
-
     ####################
     # INITIALIZATION
     ####################
@@ -148,30 +145,11 @@ def get_memory_experiment(
     # QEC CYCLES
     ####################
 
-    # apply first round of QEC and detectors
-    circuit.append(one_cycle)
-    measurement_record.append(cycle_measurements)
-    for kk, check_id in enumerate(basis_check_ids):
-        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
-
-    # apply following rounds of QEC and detectors
-    if num_rounds > 1:
-        repeat_circuit = one_cycle.copy()
-        measurement_record.append(cycle_measurements)
-        for kk, check_id in enumerate(basis_check_ids):
-            repeat_circuit.append(
-                "DETECTOR",
-                [
-                    measurement_record.get_target_rec(check_id, -1),
-                    measurement_record.get_target_rec(check_id, -2),
-                ],
-                (1, 0, kk),
-            )
-        repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
-        circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
-
-        # make the measurement_record account for repeated measurements
-        measurement_record.append(cycle_measurements, repeat=num_rounds - 2)
+    one_cycle, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
+    all_cycles, measurement_record = _get_qec_cycles(
+        one_cycle, cycle_measurement_record, num_rounds, qubit_ids.check
+    )
+    circuit.append(all_cycles)
 
     ####################
     # READOUT
@@ -283,10 +261,6 @@ def get_memory_simulation(
         ]
         observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
 
-    # build a noisy QEC cycle and initialize a measurement record
-    one_cycle, cycle_measurements = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
-    measurement_record = MeasurementRecord()
-
     ####################
     # INITIALIZATION
     ####################
@@ -317,17 +291,39 @@ def get_memory_simulation(
     # annotate initial observables
     circuit.append(observables)
 
+    # add QEC cycles
+    one_cycle, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
+    all_cycles, measurement_record = _get_qec_cycles(
+        one_cycle, cycle_measurement_record, num_rounds, qubit_ids.check
+    )
+    circuit.append(all_cycles)
+
+    # annotate final observables
+    circuit.append(observables)
+
+    return circuit
+
+
+def _get_qec_cycles(
+    one_cycle: stim.Circuit,
+    cycle_measurement_record: MeasurementRecord,
+    num_rounds: int,
+    check_ids: Collection[int],
+) -> tuple[stim.Circuit, MeasurementRecord]:
+    """Given a circuit for a single QEC cycle, return the circuit for many cycles."""
+    circuit = stim.Circuit()
+    measurement_record = MeasurementRecord()
+
     # apply first round of QEC and detectors
-    noisy_cycle = noise_model.noisy_circuit(one_cycle)
-    circuit.append(noisy_cycle)
-    measurement_record.append(cycle_measurements)
+    circuit.append(one_cycle)
+    measurement_record.append(cycle_measurement_record)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
-        repeat_circuit = noisy_cycle.copy()
-        measurement_record.append(cycle_measurements)
+        repeat_circuit = one_cycle.copy()
+        measurement_record.append(cycle_measurement_record)
         for kk, check_id in enumerate(check_ids):
             repeat_circuit.append(
                 "DETECTOR",
@@ -341,9 +337,6 @@ def get_memory_simulation(
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
         # make the measurement_record account for repeated measurements
-        measurement_record.append(cycle_measurements, repeat=num_rounds - 2)
+        measurement_record.append(cycle_measurement_record, repeat=num_rounds - 2)
 
-    # annotate final observables
-    circuit.append(observables)
-
-    return circuit
+    return circuit, measurement_record
