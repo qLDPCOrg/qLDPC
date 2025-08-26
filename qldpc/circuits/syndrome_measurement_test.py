@@ -26,29 +26,6 @@ from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
 
 
-def test_qubit_ids() -> None:
-    """Default qubit indices."""
-    code = codes.FiveQubitCode()
-    qubit_ids = circuits.QubitIDs.from_code(code)
-    data_ids, check_ids = qubit_ids
-    assert data_ids == list(range(len(code)))
-    assert check_ids == list(range(len(code), len(code) + code.num_checks))
-
-
-def test_measurement_record() -> None:
-    """Build and use a MeasurementRecord."""
-    record = circuits.MeasurementRecord()
-    record.append({0: [0, 1], 2: [2]})
-    assert record.num_measurements == 3
-    assert dict(record.items()) == record.qubit_to_measurements
-    assert record.get_target_rec(2) == stim.target_rec(-1)
-    assert record.get_target_rec(0) == stim.target_rec(-2)
-    with pytest.raises(ValueError, match="Qubit 1 not found"):
-        record.get_target_rec(1)
-    with pytest.raises(ValueError, match="Invalid measurement index"):
-        record.get_target_rec(0, 2)
-
-
 def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     """Verify that syndromes are read out correctly."""
     random.seed(pytestconfig.getoption("randomly_seed"))
@@ -90,4 +67,4 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         assert np.array_equal(expected_syndrome, syndrome)
 
     with pytest.raises(ValueError, match="only supports CSS codes"):
-        circuits.EdgeColoringXZ.get_circuit(codes.FiveQubitCode())
+        circuits.EdgeColoringXZ().get_circuit(codes.FiveQubitCode())

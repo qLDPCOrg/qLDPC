@@ -19,8 +19,6 @@ from __future__ import annotations
 
 import abc
 import collections
-import dataclasses
-from collections.abc import Iterator
 
 import networkx as nx
 import stim
@@ -28,84 +26,16 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli
 
-from .common import restrict_to_qubits
-
-
-@dataclasses.dataclass
-class QubitIDs:
-    """Container for data qubit and check (syndrome readout) qubit indices."""
-
-    data: list[int]  # data qubit indices
-    check: list[int]  # check (syndrome readout) qubit indices
-
-    @staticmethod
-    def from_code(code: codes.QuditCode) -> QubitIDs:
-        """Initialize from an error-correcting code with specific parity checks."""
-        data = list(range(len(code)))
-        check = list(range(len(code), len(code) + code.num_checks))
-        return QubitIDs(data, check)
-
-    def __iter__(self) -> Iterator[list[int]]:
-        yield from (self.data, self.check)
-
-
-class MeasurementRecord:
-    """Store a measurement record in a Stim circuit."""
-
-    num_measurements: int
-    qubit_to_measurements: dict[int, list[int]]
-
-    def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
-        self.qubit_to_measurements = collections.defaultdict(
-            list, initial_record if initial_record else {}
-        )
-        self.num_measurements = sum(
-            len(measurements) for measurements in self.qubit_to_measurements.values()
-        )
-
-    def items(self) -> Iterator[tuple[int, list[int]]]:
-        """Iterator over qubits and their measurements."""
-        yield from self.qubit_to_measurements.items()
-
-    def append(self, record: MeasurementRecord | dict[int, list[int]]) -> None:
-        """Append the given record to this one."""
-        for qubit, measurements in record.items():
-            self.qubit_to_measurements[qubit].extend(
-                [self.num_measurements + measurement for measurement in measurements]
-            )
-        self.num_measurements += sum(len(measurements) for _, measurements in record.items())
-
-    def get_target_rec(self, qubit: int, measurement_index: int = -1) -> stim.target_rec:
-        """Retrieve a Stim measurement record target for the given qubit.
-
-        Args:
-            qubit: the qubit (by index) whose measurement record we want.
-            measurement_index: an index specifying which measurement of the specified qubit we want.
-                A measurement_index of 0 would be the first measurement of the qubit, while a
-                measurement_index of -1 would be the most recent measurement.  Default value: -1.
-
-        Returns:
-            stim.target_rec: a Stim measurement record target.
-        """
-        if qubit not in self.qubit_to_measurements:
-            raise ValueError(f"Qubit {qubit} not found in measurement record")
-        measurements = self.qubit_to_measurements[qubit]
-        if not -len(measurements) <= measurement_index < len(measurements):
-            raise ValueError(
-                f"Invalid measurement index {measurement_index} for qubit {qubit} with "
-                f"{len(measurements)} measurements"
-            )
-        return stim.target_rec(measurements[measurement_index] - self.num_measurements)
+from .common import MeasurementRecord, QubitIDs, restrict_to_qubits
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
     """Base class for a syndrome measurement strategy."""
 
-    @staticmethod
     @restrict_to_qubits
     @abc.abstractmethod
     def get_circuit(
-        code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
@@ -133,36 +63,40 @@ class EdgeColoring(SyndromeMeasurementStrategy):
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
 
-    @staticmethod
-    @restrict_to_qubits
-    def get_circuit(
-        code: codes.QuditCode,
-        qubit_ids: QubitIDs | None = None,
-        *,
-        strategy: str = "smallest_last",
-        **subgraph_kwargs: object,
-    ) -> tuple[stim.Circuit, MeasurementRecord]:
-        """Construct a syndrome measurement circuit.
+    def __init__(self, strategy: str = "smallest_last", **subgraph_kwargs: object) -> None:
+        """Initialize an EdgeColoring syndrome measurement strategy.
 
         Args:
-            code: The code whose syndromes we want to measure.
-            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
-                Defaults to QubitIDs.from_code(code).
-            strategy: The graph coloration stratepy passed to nx.greedy_color.
+            strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
                 Defaults to "smallest_last".
-            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs.
+            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs when retrieving
+                the Tanner subgraphs of a code.
+        """
+        self.strategy = strategy
+        self.subgraph_kwargs = subgraph_kwargs
+
+    @restrict_to_qubits
+    def get_circuit(
+        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Construct a circuit to measure the syndromes of a quantum error-correcting code.
+
+        Args:
+            codes.QuditCode: The code whose syndromes we want to measure.
+            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+                Defaults to QubitIDs.from_code(code).
 
         Returns:
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        subgraphs = code.get_syndrome_subgraphs(**subgraph_kwargs)  # type:ignore[arg-type]
+        subgraphs = code.get_syndrome_subgraphs(**self.subgraph_kwargs)  # type:ignore[arg-type]
 
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
         for subgraph in subgraphs:
-            circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, strategy)
+            circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, self.strategy)
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
@@ -202,7 +136,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         return circuit
 
 
-class EdgeColoringXZ(SyndromeMeasurementStrategy):
+class EdgeColoringXZ(EdgeColoring):
     """Edge coloration syndrome measurement strategy in Algorithm 1 of arXiv:2109.14609.
 
     For a CSS code with Tanner graph T, this strategy is as follows:
@@ -213,19 +147,25 @@ class EdgeColoringXZ(SyndromeMeasurementStrategy):
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
 
-    @staticmethod
+    def __init__(self, strategy: str = "smallest_last") -> None:
+        """Initialize an EdgeColoringXZ syndrome measurement strategy.
+
+        Args:
+            strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
+                Defaults to "smallest_last".
+        """
+        self.strategy = strategy
+
     @restrict_to_qubits
     def get_circuit(
-        code: codes.QuditCode, qubit_ids: QubitIDs | None = None, *, strategy: str = "smallest_last"
+        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
-        """Construct a syndrome measurement circuit using Algorithm 1 of arXiv:2109.14609.
+        """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
             codes.QuditCode: The code whose syndromes we want to measure.
             circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
                 Defaults to QubitIDs.from_code(code).
-            strategy: The graph coloration stratepy passed to nx.greedy_color.
-                Defaults to "smallest_last".
 
         Returns:
             stim.Circuit: A syndrome measurement circuit.
@@ -239,8 +179,8 @@ class EdgeColoringXZ(SyndromeMeasurementStrategy):
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
-        circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, strategy)
-        circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, self.strategy)
+        circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, self.strategy)
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(

@@ -21,14 +21,9 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
-from .common import restrict_to_qubits
+from .common import MeasurementRecord, QubitIDs, restrict_to_qubits
 from .noise_model import NoiseModel
-from .syndrome_measurement import (
-    EdgeColoring,
-    MeasurementRecord,
-    QubitIDs,
-    SyndromeMeasurementStrategy,
-)
+from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 
 @restrict_to_qubits
@@ -123,7 +118,7 @@ def get_memory_experiment(
 
     # identify all data and check qubit indices
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
-    data_ids, check_ids = qubit_ids
+    data_ids, check_ids, *_ = qubit_ids
 
     # identify the support and indices of basis-type parity checks
     check_support = code.get_matrix(basis)
