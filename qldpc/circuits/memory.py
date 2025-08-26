@@ -238,6 +238,7 @@ def get_memory_simulation(
     syndrome_measurement_strategy = syndrome_measurement_strategy or EdgeColoring()
     qubit_ids = QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
+    qubit_ids.add_ancilla(code.dimension)
 
     # identify logical operators
     kwargs = dict(symplectic=True) if isinstance(code, codes.CSSCode) else {}
@@ -258,8 +259,11 @@ def get_memory_simulation(
         circuit.append("QUBIT_COORDS", data_id, (0, kk))
     for kk, check_id in enumerate(qubit_ids.check):
         circuit.append("QUBIT_COORDS", check_id, (1, kk))
+    for kk, ancilla_id in enumerate(qubit_ids.ancilla):
+        circuit.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
     # initialize a logical all-|0> state of the code
+    circuit.append("H", qubit_ids.ancilla)
     circuit.append(get_encoding_circuit(code))
 
     # for each logical qubit, prepare an ancilla qubit in the |+>
