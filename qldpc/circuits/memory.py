@@ -169,14 +169,15 @@ def get_memory_experiment_parts(
         coordinates.append("QUBIT_COORDS", check_id, (1, kk))
 
     # reset data qubits to appropriate basis
-    state_prep = stim.CircuitInstruction(f"R{basis}", data_ids)
+    state_prep = stim.Circuit()
+    state_prep.append(f"R{basis}", data_ids)
 
     ####################
     # QEC CYCLES
     ####################
 
     qec_cycles, measurement_record = _get_qec_cycles(
-        code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
+        code, num_rounds, qubit_ids, basis_check_ids, syndrome_measurement_strategy
     )
 
     ####################
