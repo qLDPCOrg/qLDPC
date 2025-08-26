@@ -305,7 +305,7 @@ def get_memory_simulation(
                 )
             ]
             op = "*".join(op_support)
-            circuit.append(stim.Circuit(f"MPP {pauli}{ancilla_id}*{op}"))
+            circuit.append(stim.CircuitInstruction(f"MPP {pauli}{ancilla_id}*{op}"))
 
     # add detectors for the logical observables
     for logical_op_rec in range(-2 * code.dimension, 0):
