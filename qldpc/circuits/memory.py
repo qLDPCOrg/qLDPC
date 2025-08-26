@@ -280,6 +280,21 @@ def get_memory_simulation(
         for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
             circuit.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
 
+    # annotate logical X and Z operators
+    observables = stim.Circuit()
+    for op_index, (pauli, logical_qubit_index) in enumerate(
+        itertools.product(PAULIS_XZ, range(code.dimension))
+    ):
+        ancilla_node = Node(logical_qubit_index, is_data=False)
+        qubit_paulis = [
+            f"{edge_data[Pauli]}{data_node.index}"
+            for _, data_node, edge_data in logical_op_graph[pauli].edges(ancilla_node, data=True)
+        ]
+        pauli_string = " ".join(qubit_paulis)
+        instruction = f"OBSERVABLE_INCLUDE({op_index}) {pauli_string}"
+        observables.append(stim.CircuitInstruction(instruction))
+    circuit.append(observables)
+
     # first round of QEC and detectors
     circuit.append(noisy_cycle)
     measurement_record.append(cycle_measurements)
@@ -302,22 +317,7 @@ def get_memory_simulation(
         repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
-    # noiselessly measure XX and ZZ operators
-    for pp, pauli in enumerate(PAULIS_XZ):
-        for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
-            ancilla_node = Node(logical_qubit_index, is_data=False)
-            op_support = [
-                f"{edge_data[Pauli]}{data_node.index}"
-                for _, data_node, edge_data in logical_op_graph[pauli].edges(
-                    ancilla_node, data=True
-                )
-            ]
-            op = "*".join(op_support)
-            circuit.append(stim.CircuitInstruction(f"MPP {pauli}{ancilla_id}*{op}"))
-
-    # add detectors for the logical observables
-    for logical_op_index in range(2 * code.dimension):
-        logical_op_rec = logical_op_index - 2 * code.dimension
-        circuit.append("OBSERVABLE_INCLUDE", stim.target_rec(logical_op_rec), [logical_op_index])
+    # annotate logical X and Z operators
+    circuit.append(observables)
 
     return circuit
