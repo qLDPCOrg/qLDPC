@@ -162,14 +162,14 @@ def get_memory_experiment_parts(
     ####################
 
     # set coordinates for all qubits
-    initialization = stim.Circuit()
+    coordinates = stim.Circuit()
     for kk, data_id in enumerate(qubit_ids.data):
-        initialization.append("QUBIT_COORDS", data_id, (0, kk))
+        coordinates.append("QUBIT_COORDS", data_id, (0, kk))
     for kk, check_id in enumerate(qubit_ids.check):
-        initialization.append("QUBIT_COORDS", check_id, (1, kk))
+        coordinates.append("QUBIT_COORDS", check_id, (1, kk))
 
     # reset data qubits to appropriate basis
-    initialization.append(f"R{basis}", data_ids)
+    state_prep = stim.CircuitInstruction(f"R{basis}", data_ids)
 
     ####################
     # QEC CYCLES
@@ -208,7 +208,7 @@ def get_memory_experiment_parts(
         )
 
     return (
-        initialization,
+        coordinates + state_prep,
         qec_cycles + readout,
         measurement_record,
     )
@@ -312,23 +312,24 @@ def get_memory_simulation_parts(
     ####################
 
     # set coordinates for all qubits
-    initialization = stim.Circuit()
+    coordinates = stim.Circuit()
     for kk, data_id in enumerate(qubit_ids.data):
-        initialization.append("QUBIT_COORDS", data_id, (0, kk))
+        coordinates.append("QUBIT_COORDS", data_id, (0, kk))
     for kk, check_id in enumerate(qubit_ids.check):
-        initialization.append("QUBIT_COORDS", check_id, (1, kk))
+        coordinates.append("QUBIT_COORDS", check_id, (1, kk))
     for kk, ancilla_id in enumerate(qubit_ids.ancilla):
-        initialization.append("QUBIT_COORDS", ancilla_id, (2, kk))
+        coordinates.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
     # initialize a logical all-|0> state of the code, and intialize ancilla qubits in |+>
-    initialization.append(get_encoding_circuit(code))
-    initialization.append("H", qubit_ids.ancilla)
+    state_prep = stim.Circuit()
+    state_prep.append(get_encoding_circuit(code))
+    state_prep.append("H", qubit_ids.ancilla)
 
     # apply ancilla-controlled-logical-NOT gates to prepare Bell states
     for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
         ancilla_node = Node(logical_qubit_index, is_data=False)
         for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
-            initialization.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
+            state_prep.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
 
     ####################
     # QEC CYCLES
@@ -354,7 +355,7 @@ def get_memory_simulation_parts(
         observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
 
     return (
-        initialization,
+        coordinates + state_prep,
         observables + qec_cycles + observables,
         measurement_record,
     )
