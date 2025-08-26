@@ -191,6 +191,12 @@ def get_memory_experiment(
     return noise_model.noisy_circuit(circuit) if noise_model else circuit
 
 
+# TODO:
+# - annotate logical observables in get_memory_simulation with Pauli gates, eliminating the need for ancilla qubits:
+#   https://github.com/quantumlib/Stim/blob/main/doc/gates.md#OBSERVABLE_INCLUDE
+# - sort out the SurfaceCode not having a mathing graph with get_memory_simulation
+
+
 @restrict_to_qubits
 def get_memory_simulation(
     code: codes.QuditCode,
