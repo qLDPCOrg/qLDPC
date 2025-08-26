@@ -87,13 +87,13 @@ class MeasurementRecord:
         """Retrieve a Stim measurement record target for the given qubit.
 
         Args:
-            qubit: the qubit (by index) whose measurement record we want.
-            measurement_index: an index specifying which measurement of the specified qubit we want.
+            qubit: The qubit (by index) whose measurement record we want.
+            measurement_index: An index specifying which measurement of the specified qubit we want.
                 A measurement_index of 0 would be the first measurement of the qubit, while a
                 measurement_index of -1 would be the most recent measurement.  Default value: -1.
 
         Returns:
-            stim.target_rec: a Stim measurement record target.
+            stim.target_rec: A Stim measurement record target.
         """
         if qubit not in self.qubit_to_measurements:
             raise ValueError(f"Qubit {qubit} not found in measurement record")
