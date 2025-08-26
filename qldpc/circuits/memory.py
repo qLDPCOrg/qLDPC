@@ -267,7 +267,6 @@ def get_memory_simulation(
     circuit.append(get_encoding_circuit(code))
 
     # for each logical qubit, prepare an ancilla qubit in the |+>
-    qubit_ids.add_ancilla(code.dimension)
     circuit.append("H", qubit_ids.ancilla)
     for kk, ancilla_id in enumerate(qubit_ids.ancilla):
         circuit.append("QUBIT_COORDS", ancilla_id, (2, kk))
