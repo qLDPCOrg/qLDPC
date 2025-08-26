@@ -81,4 +81,4 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         assert np.array_equal(expected_syndrome, syndrome)
 
     with pytest.raises(ValueError, match="only supports CSS codes"):
-        circuits.EdgeColoringXZ.get_circuit(codes.FiveQubitCode())
+        circuits.EdgeColoringXZ().get_circuit(codes.FiveQubitCode())

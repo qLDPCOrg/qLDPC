@@ -84,11 +84,10 @@ class MeasurementRecord:
 class SyndromeMeasurementStrategy(abc.ABC):
     """Base class for a syndrome measurement strategy."""
 
-    @staticmethod
     @restrict_to_qubits
     @abc.abstractmethod
     def get_circuit(
-        code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
@@ -116,36 +115,40 @@ class EdgeColoring(SyndromeMeasurementStrategy):
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
 
-    @staticmethod
-    @restrict_to_qubits
-    def get_circuit(
-        code: codes.QuditCode,
-        qubit_ids: QubitIDs | None = None,
-        *,
-        strategy: str = "smallest_last",
-        **subgraph_kwargs: object,
-    ) -> tuple[stim.Circuit, MeasurementRecord]:
-        """Construct a syndrome measurement circuit.
+    def __init__(self, strategy: str = "smallest_last", **subgraph_kwargs: object) -> None:
+        """Initialize an EdgeColoring syndrome measurement strategy.
 
         Args:
-            code: The code whose syndromes we want to measure.
-            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
-                Defaults to QubitIDs.from_code(code).
-            strategy: The graph coloration stratepy passed to nx.greedy_color.
+            strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
                 Defaults to "smallest_last".
-            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs.
+            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs when retrieving
+                the Tanner subgraphs of a code.
+        """
+        self.strategy = strategy
+        self.subgraph_kwargs = subgraph_kwargs
+
+    @restrict_to_qubits
+    def get_circuit(
+        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Construct a circuit to measure the syndromes of a quantum error-correcting code.
+
+        Args:
+            codes.QuditCode: The code whose syndromes we want to measure.
+            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+                Defaults to QubitIDs.from_code(code).
 
         Returns:
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        subgraphs = code.get_syndrome_subgraphs(**subgraph_kwargs)  # type:ignore[arg-type]
+        subgraphs = code.get_syndrome_subgraphs(**self.subgraph_kwargs)  # type:ignore[arg-type]
 
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
         for subgraph in subgraphs:
-            circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, strategy)
+            circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, self.strategy)
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
@@ -185,7 +188,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         return circuit
 
 
-class EdgeColoringXZ(SyndromeMeasurementStrategy):
+class EdgeColoringXZ(EdgeColoring):
     """Edge coloration syndrome measurement strategy in Algorithm 1 of arXiv:2109.14609.
 
     For a CSS code with Tanner graph T, this strategy is as follows:
@@ -196,19 +199,25 @@ class EdgeColoringXZ(SyndromeMeasurementStrategy):
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
 
-    @staticmethod
+    def __init__(self, strategy: str = "smallest_last") -> None:
+        """Initialize an EdgeColoringXZ syndrome measurement strategy.
+
+        Args:
+            strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
+                Defaults to "smallest_last".
+        """
+        self.strategy = strategy
+
     @restrict_to_qubits
     def get_circuit(
-        code: codes.QuditCode, qubit_ids: QubitIDs | None = None, *, strategy: str = "smallest_last"
+        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
-        """Construct a syndrome measurement circuit using Algorithm 1 of arXiv:2109.14609.
+        """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
             codes.QuditCode: The code whose syndromes we want to measure.
             circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
                 Defaults to QubitIDs.from_code(code).
-            strategy: The graph coloration stratepy passed to nx.greedy_color.
-                Defaults to "smallest_last".
 
         Returns:
             stim.Circuit: A syndrome measurement circuit.
@@ -222,8 +231,8 @@ class EdgeColoringXZ(SyndromeMeasurementStrategy):
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
-        circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, strategy)
-        circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, strategy)
+        circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, self.strategy)
+        circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, self.strategy)
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
