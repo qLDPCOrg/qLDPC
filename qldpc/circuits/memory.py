@@ -304,7 +304,7 @@ def get_memory_simulation_parts(
         for pauli, matrix in logical_op_matrix.items()
     }
 
-    # stim observable annotations
+    # identify observables
     observables = stim.Circuit()
     for op_index, (pauli, logical_qubit_index) in enumerate(
         itertools.product(PAULIS_XZ, range(code.dimension))
