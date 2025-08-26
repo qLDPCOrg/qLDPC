@@ -44,7 +44,6 @@ def test_records() -> None:
     assert measurement_record.num_events == 1
     measurement_record.append({0: [1], 2: [0]})
     assert measurement_record.num_events == 3
-
     assert dict(measurement_record.items()) == measurement_record.key_to_events
     assert measurement_record.get_target_rec(2) == stim.target_rec(-2)
     assert measurement_record.get_target_rec(0) == stim.target_rec(-1)
@@ -54,11 +53,8 @@ def test_records() -> None:
     with pytest.raises(ValueError, match="Invalid measurement index"):
         measurement_record.get_target_rec(0, 2)
 
-    detector_record = circuits.DetectorRecord({0: [0]})
-    assert detector_record.num_events == 1
-    detector_record.append({0: [1], 2: [0]})
+    detector_record = circuits.DetectorRecord(measurement_record.key_to_events)
     assert detector_record.num_events == 3
-
     assert dict(detector_record.items()) == detector_record.key_to_events
     assert detector_record.get_detector(2) == 1
     assert detector_record.get_detector(0) == 2
