@@ -310,7 +310,14 @@ def _get_qec_cycles(
     num_rounds: int,
     check_ids: Collection[int],
 ) -> tuple[stim.Circuit, MeasurementRecord]:
-    """Given a circuit for a single QEC cycle, return the circuit for many cycles."""
+    """Given a circuit for a single QEC cycle, return the circuit for many QEC cycles.
+
+    Args:
+        one_cycle: The circuit for one QEC cycle (one round of parity check measurements).
+        cycle_measurement_record: The measurement record for one_cycle.
+        num_rounds: The number of QEC cycles in the final circuit.
+        check_ids: The indices of check qubits for which to add detectors.
+    """
     circuit = stim.Circuit()
     measurement_record = MeasurementRecord()
 
