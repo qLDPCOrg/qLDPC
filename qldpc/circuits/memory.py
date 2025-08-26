@@ -24,13 +24,9 @@ import stim
 from qldpc import codes
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ
 
-from .common import QubitIDs, get_encoding_circuit, restrict_to_qubits
+from .common import MeasurementRecord, QubitIDs, get_encoding_circuit, restrict_to_qubits
 from .noise_model import NoiseModel
-from .syndrome_measurement import (
-    EdgeColoring,
-    MeasurementRecord,
-    SyndromeMeasurementStrategy,
-)
+from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 
 @restrict_to_qubits

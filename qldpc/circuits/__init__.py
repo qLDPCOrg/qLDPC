@@ -1,4 +1,5 @@
 from .common import (
+    MeasurementRecord,
     QubitIDs,
     get_encoder_and_decoder,
     get_encoding_circuit,
@@ -15,7 +16,6 @@ from .noise_model import (
 from .syndrome_measurement import (
     EdgeColoring,
     EdgeColoringXZ,
-    MeasurementRecord,
     SyndromeMeasurementStrategy,
 )
 from .transversal import (
@@ -26,6 +26,7 @@ from .transversal import (
 )
 
 __all__ = [
+    "MeasurementRecord",
     "QubitIDs",
     "get_encoder_and_decoder",
     "get_encoding_circuit",
@@ -39,7 +40,6 @@ __all__ = [
     "SI1000NoiseModel",
     "EdgeColoring",
     "EdgeColoringXZ",
-    "MeasurementRecord",
     "SyndromeMeasurementStrategy",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",

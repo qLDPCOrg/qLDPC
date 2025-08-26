@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import abc
 import collections
-from collections.abc import Iterator
 
 import networkx as nx
 import stim
@@ -27,58 +26,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli
 
-from .common import QubitIDs, restrict_to_qubits
-
-
-class MeasurementRecord:
-    """Store a measurement record in a Stim circuit."""
-
-    num_measurements: int
-    qubit_to_measurements: dict[int, list[int]]
-
-    def __init__(self, initial_record: dict[int, list[int]] | None = None) -> None:
-        self.qubit_to_measurements = collections.defaultdict(
-            list, initial_record if initial_record else {}
-        )
-        self.num_measurements = sum(
-            len(measurements) for measurements in self.qubit_to_measurements.values()
-        )
-
-    def items(self) -> Iterator[tuple[int, list[int]]]:
-        """Iterator over qubits and their measurements."""
-        yield from self.qubit_to_measurements.items()
-
-    def append(self, record: MeasurementRecord | dict[int, list[int]], repeat: int = 1) -> None:
-        """Append the given record to this one."""
-        num_measurements_in_record = sum(len(measurements) for _, measurements in record.items())
-        for _ in range(repeat):
-            for qubit, measurements in record.items():
-                self.qubit_to_measurements[qubit].extend(
-                    [self.num_measurements + measurement for measurement in measurements]
-                )
-            self.num_measurements += num_measurements_in_record
-
-    def get_target_rec(self, qubit: int, measurement_index: int = -1) -> stim.target_rec:
-        """Retrieve a Stim measurement record target for the given qubit.
-
-        Args:
-            qubit: the qubit (by index) whose measurement record we want.
-            measurement_index: an index specifying which measurement of the specified qubit we want.
-                A measurement_index of 0 would be the first measurement of the qubit, while a
-                measurement_index of -1 would be the most recent measurement.  Default value: -1.
-
-        Returns:
-            stim.target_rec: a Stim measurement record target.
-        """
-        if qubit not in self.qubit_to_measurements:
-            raise ValueError(f"Qubit {qubit} not found in measurement record")
-        measurements = self.qubit_to_measurements[qubit]
-        if not -len(measurements) <= measurement_index < len(measurements):
-            raise ValueError(
-                f"Invalid measurement index {measurement_index} for qubit {qubit} with "
-                f"{len(measurements)} measurements"
-            )
-        return stim.target_rec(measurements[measurement_index] - self.num_measurements)
+from .common import MeasurementRecord, QubitIDs, restrict_to_qubits
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
