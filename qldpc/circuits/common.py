@@ -262,7 +262,7 @@ def get_logical_tableau_from_code_data(
     physical_circuit: stim.Circuit,
 ) -> stim.Tableau:
     """Identify the logical tableau implemented by the physical circuit."""
-    assert len(encoder) == len(decoder) >= dimension
+    assert len(encoder) == len(decoder) >= dimension + gauge_dimension
     identity_phys = stim.Circuit(f"I {len(encoder) - 1}")
     physical_tableau = (physical_circuit + identity_phys).to_tableau()
 
