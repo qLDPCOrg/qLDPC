@@ -235,6 +235,14 @@ def get_memory_simulation(
     associated ancilla qubit; likewise with ZZ.  Since the ancilla qubit is noiseless, we can
     attribute an error in XX or ZZ to a logical qubit error.
 
+    Having said all of that, we do not actually annotate the circuit with these XX and ZZ
+    observables.  Instead, we recognize that Bell-pair XX and ZZ operators are stabilizers of the
+    circuit immediately after noiseless initialization, allowing us to freely multiply the XX and ZZ
+    operators at the end of the circuit by XX and ZZ operators before QEC cycles, thereby obtaining
+    two-time observables.  The chief benefit to this trick is that the support of our observables on
+    the ancilla qubits cancel out, such that our observables are supported entirely on the data
+    qubits of the code.
+
     Args:
         code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
         noise_model: The noise model to apply to the the QEC cycles of the circuit.
