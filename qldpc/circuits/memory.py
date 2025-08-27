@@ -344,7 +344,7 @@ def get_memory_simulation_parts(
     for kk, ancilla_id in enumerate(qubit_ids.ancilla):
         coordinates.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
-    # initialize a logical all-|0> state of the code, and intialize ancilla qubits in |+>
+    # initialize all logical qubits in |0>, and associated ancilla qubits in |+>
     state_prep = stim.Circuit()
     state_prep.append(get_encoding_circuit(code))
     state_prep.append("H", qubit_ids.ancilla)
