@@ -21,43 +21,6 @@ import stim
 from qldpc import decoders
 
 
-def test_dem_arrays() -> None:
-    """Basic functionality of DetectorErrorModelArrays."""
-
-    # convert from/to a stim.DetectorErrorModel
-    dem = stim.DetectorErrorModel("""
-        error(0.001) D0
-        error(0.002) D0 D1
-        error(0.003) D2 L1
-    """)
-    dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    assert dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-10)
-    assert dem_arrays.num_errors == 3
-    assert dem_arrays.num_detectors == 3
-    assert dem_arrays.num_observables == 2
-
-    # simplify and merge errors
-    dem = stim.DetectorErrorModel("""
-        error(0.001) D0 D0 D0
-        error(0.002) D0 D3
-        error(0.003) D0
-        error(0.004) D0 D3
-        error(0.005) L1
-        error(0.5) D2 D2
-        error(0) D1
-    """)
-    simplified_dem = stim.DetectorErrorModel("""
-        error(0.004) D0
-        error(0.006) D0 D3
-        error(0.005) L1
-    """)
-    dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
-    assert dem_arrays.num_errors == 3
-    assert dem_arrays.num_detectors == 4
-    assert dem_arrays.num_observables == 2
-
-
 def test_sinter_decoder() -> None:
     """Try out a simple decoding problem."""
     dem = stim.DetectorErrorModel("""

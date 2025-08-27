@@ -21,11 +21,8 @@ from .decoders import (
     get_decoder_MWPM,
     get_decoder_RBP,
 )
-from .sinter_decoder import (
-    CompiledSinterDecoder,
-    DetectorErrorModelArrays,
-    SinterDecoder,
-)
+from .dem_arrays import DetectorErrorModelArrays
+from .sinter_decoder import CompiledSinterDecoder, SinterDecoder
 
 __all__ = [
     "BatchDecoder",
@@ -47,7 +44,7 @@ __all__ = [
     "get_decoder_lookup",
     "get_decoder_MWPM",
     "get_decoder_RBP",
-    "CompiledSinterDecoder",
     "DetectorErrorModelArrays",
+    "CompiledSinterDecoder",
     "SinterDecoder",
 ]
