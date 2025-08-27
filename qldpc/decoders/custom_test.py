@@ -87,7 +87,7 @@ def test_block_decoder() -> None:
 
     block_error = np.concatenate([error, error])
     block_syndrome = np.concatenate([syndrome, syndrome])
-    block_decoder = decoders.BlockDecoder(syndrome.size, decoder)
+    block_decoder = decoders.StackDecoder(syndrome.size, decoder)
     assert np.array_equal(block_error, block_decoder.decode(block_syndrome))
 
 

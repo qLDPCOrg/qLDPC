@@ -408,13 +408,13 @@ class GUFDecoder(Decoder):
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
 
 
-class BlockDecoder(Decoder):
-    """Decoder for a composite syndrome built from independent identical code blocks.
+class StackDecoder(Decoder):
+    """Decoder for a composite syndrome from a stack of identical code blocks.
 
-    A BlockDecoder is instantiated from:
+    A StackDecoder is instantiated from:
     - the length of a syndrome vector for one code block (syndrome_length), and
     - a decoder for a one code block.
-    When asked to decode a syndrome, a BlockDecdoer breaks the syndrome into sections of size
+    When asked to decode a syndrome, a StackDecoder breaks the syndrome into sections of size
     syndrome_length, and decodes each section using the single-code-block decoder that it was
     instantiated with.
     """

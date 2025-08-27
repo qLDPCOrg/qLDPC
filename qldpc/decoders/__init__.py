@@ -1,12 +1,12 @@
 from .custom import (
     BatchDecoder,
-    BlockDecoder,
     Decoder,
     DirectDecoder,
     GUFDecoder,
     ILPDecoder,
     LookupDecoder,
     RelayBPDecoder,
+    StackDecoder,
     WeightedLookupDecoder,
 )
 from .decoders import (
@@ -26,13 +26,13 @@ from .sinter_decoder import CompiledSinterDecoder, SinterDecoder
 
 __all__ = [
     "BatchDecoder",
-    "BlockDecoder",
     "Decoder",
     "DirectDecoder",
     "GUFDecoder",
     "ILPDecoder",
     "LookupDecoder",
     "RelayBPDecoder",
+    "StackDecoder",
     "WeightedLookupDecoder",
     "decode",
     "get_decoder",
