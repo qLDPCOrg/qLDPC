@@ -59,7 +59,7 @@ class Record:
     """An organized record of events in a Stim circuit.
 
     This record assumes that the events it keeps track of (such as measurements or detectors) are
-    numbered from zero.  The record is essentially a dictionary that maps a *key* (such as a qubit
+    indexed from zero.  The record is essentially a dictionary that maps some key (such as a qubit
     index) to an ordered list of the events associated with that key.
 
     Record is subclassed by MeasurementRecord to keep track of measurements in a circuit, and
