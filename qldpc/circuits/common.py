@@ -58,7 +58,12 @@ class QubitIDs:
 class Record:
     """An organized record of events in a Stim circuit.
 
-    Subclassed by MeasurementRecord and DetectorRecord.
+    This record assumes that the events it keeps track of (such as measurements or detectors) are
+    numbered from zero.  The record is essentially a dictionary that maps a *key* (such as a qubit
+    index) to an ordered list of the events associated with that key.
+
+    Record is subclassed by MeasurementRecord to keep track of measurements in a circuit, and
+    by DetectorRecord to keep track of the detectors in a circuit.
     """
 
     num_events: int
@@ -69,18 +74,22 @@ class Record:
         self.num_events = sum(len(events) for events in self.key_to_events.values())
 
     def items(self) -> Iterator[tuple[int, list[int]]]:
-        """Iterator over keys and their events."""
+        """Iterator over keys and their associated events."""
         yield from self.key_to_events.items()
 
     def append(self, record: Record | dict[int, list[int]], repeat: int = 1) -> None:
         """Append the given record to this one."""
+        assert repeat >= 0
         num_events_in_record = sum(len(events) for _, events in record.items())
-        for _ in range(repeat):
-            for key, events in record.items():
-                self.key_to_events[key].extend(
-                    [self.num_events + measurement for measurement in events]
-                )
-            self.num_events += num_events_in_record
+        for key, events in record.items():
+            self.key_to_events[key].extend(
+                [
+                    self.num_events + measurement + repetition * num_events_in_record
+                    for repetition in range(repeat)
+                    for measurement in events
+                ]
+            )
+        self.num_events += num_events_in_record * repeat
 
 
 class MeasurementRecord(Record):
