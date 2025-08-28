@@ -38,7 +38,7 @@ from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 @restrict_to_qubits
 def get_memory_experiment(
     code: codes.AbstractCode,
-    basis: PauliXZ = Pauli.X,
+    basis: PauliXZ | None = Pauli.X,
     num_rounds: int = 1,
     *,
     noise_model: NoiseModel | None = None,
@@ -52,9 +52,11 @@ def get_memory_experiment(
     measures all parity checks of the code, and detectors are added to enforce that
     (a) the syndrome from the first QEC cycle is trivial, and
     (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
-    The "basis" argument determines whether the circuit tracks logical X or Z operators.
 
-    More specifically, the circuit performs the following:
+    If the basis is Pauli.X or Pauli.Z, this argument determines whether this circuit tracks logical
+    X or Z operators.
+
+    More specifically, if basis is Pauli.X or Pauli.Z, the circuit performs the following:
     1. Initialize all data qubits to |0> (if basis is Pauli.Z) or |+> (if basis is Pauli.X).
     2. Perform an initial QEC cycle, adding detectors for the basis-type stabilizers.
     3. Perform num_rounds - 1 additional QEC cycles, adding detectors to enforce that basis-type
@@ -64,9 +66,10 @@ def get_memory_experiment(
     6. Use the final data qubit measurements to define all basis-type logical observables.
 
     Qubits and detectors are assigned coordinates as follows:
-    - The data qubit addressed by column c of the parity check matrix gets coordinate (0, c).
-    - The check qubit associated with row r of the parity check matrix gets coordinate (1, r).
-    - The k-th detector in measurement round m gets coordinate (m, 0, k).
+    - The data qubit addressed by column C of the parity check matrix gets coordinate (0, C).
+    - The check qubit associated with row R of the parity check matrix gets coordinate (1, R).
+    - The ancilla qubit associated with logical qubit L of the code gets coordinate (2, L).
+    - The K-th detector in measurement round M gets coordinate (M, 0, K).
 
     Args:
         code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
@@ -108,6 +111,7 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
+    assert basis is not None
     initialization, qec_cycles_and_readout, *_ = get_memory_experiment_parts(
         code,
         basis=basis,
