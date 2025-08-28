@@ -174,10 +174,12 @@ class SinterSegmentDecoder(SinterDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.detectors_and_observables = [
-            (list(detectors), list(observables))
-            for detectors, observables in detectors_and_observables
-        ]
+        self.segment_detectors, self.segment_observables = zip(
+            *[
+                (list(detectors), list(observables))
+                for detectors, observables in detectors_and_observables
+            ]
+        )
         SinterDecoder.__init__(
             self,
             priors_arg=priors_arg,
@@ -199,18 +201,13 @@ class SinterSegmentDecoder(SinterDecoder):
             )
             .simplify()
             .to_detector_error_model()
-            for detectors, observables in self.detectors_and_observables
+            for detectors, observables in zip(self.segment_detectors, self.segment_observables)
         ]
         compiled_decoders = [
             SinterDecoder.compile_decoder_for_dem(self, segment_dem) for segment_dem in segment_dems
         ]
         return CompiledSinterSegmentDecoder(
-            *[
-                (detectors, observables, decoder)
-                for (detectors, observables), decoder in zip(
-                    self.detectors_and_observables, compiled_decoders
-                )
-            ]
+            self.segment_detectors, self.segment_observables, compiled_decoders
         )
 
 
@@ -223,15 +220,18 @@ class CompiledSinterSegmentDecoder(CompiledSinterDecoder):
 
     def __init__(
         self,
-        *detectors_observables_decoders: tuple[list[int], list[int], CompiledSinterDecoder],
+        segment_detectors: list[int],
+        segment_observables: list[int],
+        segment_decoders: list[CompiledSinterDecoder],
     ) -> None:
-        self.segment_detectors, self.segment_observables, self.segment_decoders = zip(
-            *detectors_observables_decoders
-        )
+        assert len(segment_detectors) == len(segment_observables) == len(segment_decoders)
+        self.segment_detectors = segment_detectors
+        self.segment_observables = segment_observables
+        self.segment_decoders = segment_decoders
+
         self.num_detectors = sum(
             decoder.dem_arrays.num_detectors for decoder in self.segment_decoders
         )
-
         self.permutation_to_sort_observables = np.argsort(
             functools.reduce(operator.add, self.segment_observables)
         )
