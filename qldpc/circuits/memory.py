@@ -52,8 +52,9 @@ def get_memory_experiment(
     (a) the syndrome from the first QEC cycle is trivial, and
     (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
 
-    If the basis is Pauli.X or Pauli.Z, the circuit only tracks errors in the logical operators of
-    that type.  We expand on the case that basis is None below.
+    If the basis is Pauli.X or Pauli.Z, then the memory experiment only tracks errors in the logical
+    Pauli operators of that type.  If basis is None, the circuit entangles the code with a noiseless
+    ancilla to track errors in all logical Pauli operators.
 
     More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
     following:
