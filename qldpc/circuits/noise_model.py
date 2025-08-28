@@ -146,6 +146,9 @@ MEASURE_AND_RESET_OPS = {op for op, op_type in OP_TYPES.items() if op_type == ME
 COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
 
+DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
+
+
 class NoiseRule:
     """Describes how to add noise to an operation.
 
@@ -236,7 +239,7 @@ class NoiseRule:
                 # combine bit-flip probabilities
                 args = [1 - (1 - self.readout_error) * (1 - args[0])]
 
-        noisy_op = stim.CircuitInstruction(op.name, targets, args)
+        noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
         noise_after = stim.Circuit()
 
         qubit_targets = [target.value for target in targets if not target.is_combiner]
@@ -352,9 +355,10 @@ class NoiseModel:
         *,
         system_qubits: Collection[int] | None = None,
         immune_qubits: Collection[int] | None = None,
+        immune_op_tag: str = DEFAULT_IMMUNE_OP_TAG,
         insert_ticks: bool = True,
     ) -> stim.Circuit:
-        """Construct a noisy version of the given circuit.
+        f"""Construct a noisy version of the given circuit.
 
         This method first uses TICKs to split the input circuit into moments of operations that can
         be applied in parallel, thereby preventing qubit reuse conflicts.  Noise is then applied to
@@ -366,6 +370,8 @@ class NoiseModel:
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
             immune_qubits: All qubits that are declared immune to noise, even if they are operated
                 on.  If None, defaults to the empty set.
+            immune_op_tag: If an operation contains this string in its tag, that operation is
+                noiseless.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
             insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes that this preprocessing is not necessary.
 
@@ -391,23 +397,29 @@ class NoiseModel:
                 noisy_circuit.append("TICK")
 
             if isinstance(moment_or_repeat_block, stim.CircuitRepeatBlock):
-                noisy_body = self.noisy_circuit(
-                    moment_or_repeat_block.body_copy(),
-                    system_qubits=system_qubits,
-                    immune_qubits=immune_qubits,
-                )
-                noisy_body.append("TICK")
-                noisy_circuit.append(
-                    stim.CircuitRepeatBlock(
-                        repeat_count=moment_or_repeat_block.repeat_count, body=noisy_body
+                if immune_op_tag in moment_or_repeat_block.tag:
+                    noisy_circuit.append(moment_or_repeat_block)
+                else:
+                    noisy_body = self.noisy_circuit(
+                        moment_or_repeat_block.body_copy(),
+                        system_qubits=system_qubits,
+                        immune_qubits=immune_qubits,
                     )
-                )
+                    noisy_body.append("TICK")
+                    noisy_circuit.append(
+                        stim.CircuitRepeatBlock(
+                            repeat_count=moment_or_repeat_block.repeat_count,
+                            body=noisy_body,
+                            tag=moment_or_repeat_block.tag,
+                        )
+                    )
             else:
                 self._inplace_append_noisy_moment(
                     circuit=noisy_circuit,
                     moment=moment_or_repeat_block,
                     system_qubits=system_qubits,
                     immune_qubits=immune_qubits,
+                    immune_op_tag=immune_op_tag,
                 )
 
         return noisy_circuit
@@ -419,6 +431,7 @@ class NoiseModel:
         moment: Collection[stim.CircuitInstruction],
         system_qubits: set[int],
         immune_qubits: set[int],
+        immune_op_tag: str,
     ) -> None:
         """Apps noise to a moment and appends it to a circuit (in-place).
 
@@ -430,11 +443,12 @@ class NoiseModel:
             moment: Collection of operations happening during the moment in question.
             system_qubits: Set of all qubits in the system that may experience idle errors.
             immune_qubits: Set of all qubits that should not have noise applied to them.
+            immune_op_tag: If an operation contains this string in its tag, that operation is
+                noiseless.
         """
         noise_after_moment = stim.Circuit()
         for op in moment:
-            rule = self.get_noise_rule(op=op)
-            if rule is None:
+            if immune_op_tag in op.tag or (rule := self.get_noise_rule(op)) is None:
                 circuit.append(op)
             else:
                 noisy_op, after = rule.noisy_operation(op, immune_qubits=immune_qubits)
@@ -443,7 +457,8 @@ class NoiseModel:
 
         circuit += noise_after_moment
 
-        if self.idle_error or self.additional_error_waiting_for_m_or_r:
+        moment_was_noisy = any(immune_op_tag not in op.tag for op in moment)
+        if moment_was_noisy and self.idle_error or self.additional_error_waiting_for_m_or_r:
             self._inplace_append_idle_errors(
                 circuit=circuit,
                 moment=moment,
@@ -706,7 +721,7 @@ def _split_targets_clifford_1q(
     if immune_qubits:
         args = op.gate_args_copy()
         for target in op.targets_copy():
-            yield stim.CircuitInstruction(op.name, [target], args)
+            yield stim.CircuitInstruction(op.name, [target], args, tag=op.tag)
     else:
         yield op
 
@@ -731,7 +746,7 @@ def _split_targets_clifford_2q(
     if immune_qubits or any(target.is_measurement_record_target for target in targets):
         args = op.gate_args_copy()
         for k in range(0, len(targets), 2):
-            yield stim.CircuitInstruction(op.name, targets[k : k + 2], args)
+            yield stim.CircuitInstruction(op.name, targets[k : k + 2], args, tag=op.tag)
     else:
         yield op
 
@@ -755,7 +770,7 @@ def _split_targets_mpp(
     start = end = 0
     while end < len(targets):
         if end + 1 == len(targets) or not targets[end + 1].is_combiner:
-            yield stim.CircuitInstruction(op.name, targets[start : end + 1], args)
+            yield stim.CircuitInstruction(op.name, targets[start : end + 1], args, tag=op.tag)
             end += 1
             start = end
         else:

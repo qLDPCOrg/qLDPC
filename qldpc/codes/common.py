@@ -913,7 +913,7 @@ class QuditCode(AbstractCode):
         return np.max(np.count_nonzero(matrix_x | matrix_z, axis=1))
 
     def get_logical_ops(
-        self, pauli: PauliXZ | None = None, *, recompute: bool = False
+        self, pauli: PauliXZ | None = None, *, recompute: bool = False, symplectic: bool = True
     ) -> galois.FieldArray:
         """Basis of nontrivial logical Pauli operators for this code.
 
@@ -940,7 +940,11 @@ class QuditCode(AbstractCode):
         check matrix when written in standard form (see QuditCode.get_standard_form_data), and then
         fill in the remaining entries of the logical operator matrix as required by parity check
         constraints.
+
+        The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
+        always be True for a non-CSS code.
         """
+        assert symplectic is True
         assert pauli is None or pauli in PAULIS_XZ
 
         # if requested, retrieve logical operators of one type only
@@ -1222,13 +1226,22 @@ class QuditCode(AbstractCode):
         self._dimension = len(logical_ops) // 2
 
     def get_stabilizer_ops(
-        self, pauli: PauliXZ | None = None, *, recompute: bool = False, canonicalized: bool = False
+        self,
+        pauli: PauliXZ | None = None,
+        *,
+        canonicalized: bool = False,
+        recompute: bool = False,
+        symplectic: bool = True,
     ) -> galois.FieldArray:
         """Basis of stabilizer group generators for this code.
 
         If canonicalized is True, guarantee that the stabilizer matrix is canonicalized (i.e., row
         reduced) such that its rows are a minimal generating set for the stabilizer group.
+
+        The symplectic argument is provided for compatibility with CSSCode.get_stabilizer_ops, and
+        must always be True for a non-CSS code.
         """
+        assert symplectic is True
         assert pauli is None or pauli in PAULIS_XZ
 
         # if requested, retrieve stabilizer operators of one type only
@@ -1252,12 +1265,18 @@ class QuditCode(AbstractCode):
 
         return self._stabilizer_ops
 
-    def get_gauge_ops(self, pauli: PauliXZ | None = None) -> galois.FieldArray:
+    def get_gauge_ops(
+        self, pauli: PauliXZ | None = None, *, symplectic: bool = True
+    ) -> galois.FieldArray:
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
         logical Pauli operators computed by QuditCode.get_logical_ops.
+
+        The symplectic argument is provided for compatibility with CSSCode.get_gauge_ops, and must
+        always be True for a non-CSS code.
         """
+        assert symplectic is True
         assert pauli is None or pauli in PAULIS_XZ
 
         if not self.is_subsystem_code:
@@ -1490,16 +1509,16 @@ class QuditCode(AbstractCode):
         code = QuditCode(matrix, is_subsystem_code=is_subsystem_code)
         if inherit_logicals:
             logicals_xx = [
-                QuditCode.get_logical_ops(code, Pauli.X)[:, : len(code)] for code in codes
+                code.get_logical_ops(Pauli.X, symplectic=True)[:, : len(code)] for code in codes
             ]
             logicals_zx = [
-                QuditCode.get_logical_ops(code, Pauli.Z)[:, : len(code)] for code in codes
+                code.get_logical_ops(Pauli.Z, symplectic=True)[:, : len(code)] for code in codes
             ]
             logicals_xz = [
-                QuditCode.get_logical_ops(code, Pauli.X)[:, len(code) :] for code in codes
+                code.get_logical_ops(Pauli.X, symplectic=True)[:, len(code) :] for code in codes
             ]
             logicals_zz = [
-                QuditCode.get_logical_ops(code, Pauli.Z)[:, len(code) :] for code in codes
+                code.get_logical_ops(Pauli.Z, symplectic=True)[:, len(code) :] for code in codes
             ]
             logical_ops = np.block(
                 [
@@ -1911,7 +1930,7 @@ class CSSCode(QuditCode):
         return self.code_x.rank + self.code_z.rank
 
     def get_logical_ops(
-        self, pauli: PauliXZ | None = None, *, symplectic: bool = False, recompute: bool = False
+        self, pauli: PauliXZ | None = None, *, recompute: bool = False, symplectic: bool = False
     ) -> galois.FieldArray:
         """Basis of nontrivial logical Pauli operators for this code.
 
@@ -2141,8 +2160,8 @@ class CSSCode(QuditCode):
         self,
         pauli: PauliXZ | None = None,
         *,
-        recompute: bool = False,
         canonicalized: bool = False,
+        recompute: bool = False,
         symplectic: bool = False,
     ) -> galois.FieldArray:
         """Basis of stabilizer group generators for this code.
