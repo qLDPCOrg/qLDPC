@@ -36,8 +36,8 @@ class QubitIDs:
     """Container to keep track of the identity of qubits in a circuit."""
 
     data: list[int]  # indices of data qubits in an error-correcting code
-    checks: list[int]  # indices of qubits used to measure parity checks in an error-correcting code
-    ancillas: list[int]  # miscellaneous ancilla qubits
+    check: list[int]  # indices of qubits used to measure parity checks in an error-correcting code
+    ancilla: list[int]  # miscellaneous ancilla qubits
 
     # identify X-check and Z-check qubits for CSS codes
     checks_x: list[int] = dataclasses.field(default_factory=list)
@@ -47,19 +47,19 @@ class QubitIDs:
     def from_code(code: codes.QuditCode) -> QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
         data = list(range(len(code)))
-        checks = list(range(len(code), len(code) + code.num_checks))
-        checks_x = checks[: code.num_checks_x] if isinstance(code, codes.CSSCode) else []
-        checks_z = checks[code.num_checks_x :] if isinstance(code, codes.CSSCode) else []
-        return QubitIDs(data, checks, [], checks_x, checks_z)
+        check = list(range(len(code), len(code) + code.num_checks))
+        checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else []
+        checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else []
+        return QubitIDs(data, check, [], checks_x, checks_z)
 
     def __iter__(self) -> Iterator[list[int]]:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
-        yield from (self.data, self.checks, self.ancillas)
+        yield from (self.data, self.check, self.ancilla)
 
     def add_ancilla(self, number: int = 1) -> None:
         """Add (one or more) ancilla qubits."""
         start = max(itertools.chain(*self)) + 1
-        self.ancillas.extend(range(start, start + number))
+        self.ancilla.extend(range(start, start + number))
 
 
 class Record:

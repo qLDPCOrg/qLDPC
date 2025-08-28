@@ -35,7 +35,7 @@ def test_qubit_ids() -> None:
     assert not ancilla_ids
 
     qubit_ids.add_ancilla(3)
-    assert qubit_ids.ancillas == [9, 10, 11]
+    assert qubit_ids.ancilla == [9, 10, 11]
 
 
 def test_records() -> None:

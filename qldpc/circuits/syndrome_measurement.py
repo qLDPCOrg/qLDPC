@@ -94,13 +94,13 @@ class EdgeColoring(SyndromeMeasurementStrategy):
 
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
-        circuit.append("RX", qubit_ids.checks)
+        circuit.append("RX", qubit_ids.check)
         for subgraph in subgraphs:
             circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, self.strategy)
-        circuit.append("MX", qubit_ids.checks)
+        circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.checks)}
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
         )
         return circuit, measurement_record
 
@@ -124,7 +124,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         for edge, color in coloring.items():
             data_node, check_node = sorted(edge)
             data_qubit = qubit_ids.data[data_node.index]
-            check_qubit = qubit_ids.checks[check_node.index]
+            check_qubit = qubit_ids.check[check_node.index]
             pauli = graph[check_node][data_node][Pauli]
             color_to_ops[color].append((f"C{pauli}", check_qubit, data_qubit))
 
@@ -178,12 +178,12 @@ class EdgeColoringXZ(EdgeColoring):
 
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
-        circuit.append("RX", qubit_ids.checks)
+        circuit.append("RX", qubit_ids.check)
         circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, self.strategy)
         circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, self.strategy)
-        circuit.append("MX", qubit_ids.checks)
+        circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.checks)}
+            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
         )
         return circuit, measurement_record
