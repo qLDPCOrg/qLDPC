@@ -58,7 +58,7 @@ def get_memory_experiment(
 
     More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
     following:
-    1. Initialize all data qubits to |0> (if basis is Pauli.Z) or |+> (if basis is Pauli.X).
+    1. Initialize all data qubits to a +1 eigenstate of the specified basis: |0> for Z, |+> for X.
     2. Perform an initial QEC cycle, adding detectors for the basis-type stabilizers.
     3. Perform num_rounds - 1 additional QEC cycles, adding detectors to enforce that basis-type
         stabilizers have not changed between adjacent QEC cycles.
