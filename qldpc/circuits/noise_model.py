@@ -146,6 +146,9 @@ MEASURE_AND_RESET_OPS = {op for op, op_type in OP_TYPES.items() if op_type == ME
 COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
 
+DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
+
+
 class NoiseRule:
     """Describes how to add noise to an operation.
 
@@ -352,10 +355,10 @@ class NoiseModel:
         *,
         system_qubits: Collection[int] | None = None,
         immune_qubits: Collection[int] | None = None,
-        immune_op_tag: str = "__IMMUNE_TO_NOISE__",
+        immune_op_tag: str = DEFAULT_IMMUNE_OP_TAG,
         insert_ticks: bool = True,
     ) -> stim.Circuit:
-        """Construct a noisy version of the given circuit.
+        f"""Construct a noisy version of the given circuit.
 
         This method first uses TICKs to split the input circuit into moments of operations that can
         be applied in parallel, thereby preventing qubit reuse conflicts.  Noise is then applied to
@@ -368,7 +371,7 @@ class NoiseModel:
             immune_qubits: All qubits that are declared immune to noise, even if they are operated
                 on.  If None, defaults to the empty set.
             immune_op_tag: If an operation contains this string in its tag, that operation is
-                noiseless.  Default: "__IMMUNE_TO_NOISE__".
+                noiseless.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
             insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes that this preprocessing is not necessary.
 
