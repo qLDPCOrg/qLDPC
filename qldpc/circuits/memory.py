@@ -48,8 +48,8 @@ def get_memory_experiment(
     """Construct a circuit for testing the performance of a code as a quantum memory.
 
     In a nutshell, the circuit constructed by this method performs (generally multiple) rounds
-    quantum error correction (QEC) for the given code.  Each QEC round, or cycle, measures all parity
-    checks of the code, and detectors are added to enforce that
+    quantum error correction (QEC) for the given code.  Each round of QEC round, or QEC cycle,
+    measures all parity checks of the code, and detectors are added to enforce that
     (a) the syndrome from the first QEC cycle is trivial, and
     (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
     The "basis" argument determines whether the circuit tracks logical X or Z operators.
