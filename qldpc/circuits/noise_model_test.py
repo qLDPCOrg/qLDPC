@@ -78,11 +78,11 @@ def test_gate_errors() -> None:
     # compose gate errors
     p_m = 0.1
     double_p_m = 1 - (1 - p_m) ** 2
+    noise_model = circuits.NoiseModel(readout_error=p_m)
     circuit = stim.Circuit("""
         H 0
         M 0
     """)
-    noise_model = circuits.NoiseModel(readout_error=p_m)
     noisy_circuit = stim.Circuit(f"""
         H 0
         MZ({p_m}) 0
@@ -127,8 +127,9 @@ def test_idle_errors() -> None:
 
 
 def test_immunity() -> None:
-    """Qubits can be immune to errors."""
+    """Qubits and operations can be immune to errors."""
 
+    # qubits can be immune to errors
     circuit = stim.Circuit("""
         H 0 1
     """)
@@ -145,6 +146,27 @@ def test_immunity() -> None:
         assert _circuits_are_equivalent(
             noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=True)
         )
+
+    # operations can be immune to errors
+    immune_op_tag = "_TEST_"
+    circuit = stim.Circuit(f"""
+        H['{immune_op_tag}'] 0
+        CX 0 1
+        H['{immune_op_tag}'] 0
+        X 1
+    """)
+    noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=True)
+    noisy_circuit = stim.Circuit(f"""
+        H['{immune_op_tag}'] 0
+        CX 0 1
+        DEPOLARIZE2(0.1) 0 1
+        H['{immune_op_tag}'] 0
+        X 1
+        DEPOLARIZE1(0.1) 1
+    """)
+    assert _circuits_are_equivalent(
+        noisy_circuit, noise_model.noisy_circuit(circuit, immune_op_tag=immune_op_tag)
+    )
 
 
 def test_classical_controls() -> None:
@@ -228,6 +250,26 @@ def test_repeat_blocks() -> None:
     """)
     assert _circuits_are_equivalent(
         noisy_circuit, noise_model.noisy_circuit(circuit, insert_ticks=False)
+    )
+
+    immune_op_tag = "_TEST_"
+    circuit = stim.Circuit(f"""
+        H 0
+        REPEAT['{immune_op_tag}'] 3 {{
+            CX 0 1
+        }}
+    """)
+    noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
+    noisy_circuit = stim.Circuit(f"""
+        H 0
+        DEPOLARIZE1(0.1) 0
+        REPEAT['{immune_op_tag}'] 3 {{
+            CX 0 1
+        }}
+    """)
+    assert _circuits_are_equivalent(
+        noisy_circuit,
+        noise_model.noisy_circuit(circuit, immune_op_tag=immune_op_tag, insert_ticks=False),
     )
 
 
