@@ -112,7 +112,8 @@ def get_memory_experiment(
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
-            labeling qubits by their corresponding column/row of the parity check matrix.
+            labeling data and check qubits according to their correspnding column/row of the parity
+            check matrix, with data qubits numbered from 0 and check qubits numbered from len(code).
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
@@ -168,8 +169,8 @@ def get_memory_experiment_parts(
         initialization: A circuit that sets the coordinates and initializes the state of data qubits.
         qec_cycles: A circuit of num_rounds QEC cycles.
         readout: A circuit that reads out final stabilizers.
-        measurement_record: A record of the measurements in the above circuits.
-        detector_record: A record of the detectors in the above circuits.
+        measurement_record: A record of all measurements in the above circuits.
+        detector_record: A record of all detectors in the above circuits.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
     if isinstance(code, codes.ClassicalCode):
