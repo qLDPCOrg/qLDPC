@@ -333,7 +333,6 @@ def get_memory_simulation_parts(
 
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
-    data_ids, check_ids, *_ = qubit_ids
     qubit_ids.add_ancilla(code.dimension)
 
     # identify logical operators
@@ -373,7 +372,7 @@ def get_memory_simulation_parts(
     ####################
 
     qec_cycles, measurement_record, detector_record = _get_qec_cycles(
-        code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
+        code, num_rounds, qubit_ids, qubit_ids.check, syndrome_measurement_strategy
     )
 
     ####################
