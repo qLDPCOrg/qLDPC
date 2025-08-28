@@ -30,12 +30,15 @@ def test_qubit_ids() -> None:
     code = codes.FiveQubitCode()
     qubit_ids = circuits.QubitIDs.from_code(code)
     data_ids, check_ids, ancilla_ids = qubit_ids
-    assert data_ids == list(range(len(code)))
-    assert check_ids == list(range(len(code), len(code) + code.num_checks))
+    assert data_ids == tuple(range(len(code)))
+    assert check_ids == tuple(range(len(code), len(code) + code.num_checks))
     assert not ancilla_ids
 
     qubit_ids.add_ancilla(3)
-    assert qubit_ids.ancilla == [9, 10, 11]
+    assert qubit_ids.ancilla == (9, 10, 11)
+
+    with pytest.raises(ValueError, match="invalid for the given code"):
+        circuits.QubitIDs.validated(circuits.QubitIDs((), (), ()), code)
 
 
 def test_records() -> None:

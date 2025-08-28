@@ -170,7 +170,7 @@ def get_memory_experiment_parts(
         )
 
     # identify all qubits by index
-    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
     check_ids_xz = qubit_ids.checks_x if basis is Pauli.X else qubit_ids.checks_z
 
     ####################
@@ -333,7 +333,7 @@ def get_memory_simulation_parts(
         )
 
     # identify all qubits by index
-    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
     qubit_ids.add_ancilla(code.dimension)
 

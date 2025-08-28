@@ -33,33 +33,50 @@ from qldpc.math import op_to_string, symplectic_conjugate
 
 @dataclasses.dataclass
 class QubitIDs:
-    """Container to keep track of the identity of qubits in a circuit."""
+    """Container to keep track of the indices of qubits in a circuit."""
 
-    data: list[int]  # indices of data qubits in an error-correcting code
-    check: list[int]  # indices of qubits used to measure parity checks in an error-correcting code
-    ancilla: list[int]  # miscellaneous ancilla qubits
+    data: tuple[int, ...]  # data qubits in an error-correcting code
+    check: tuple[int, ...]  # qubits used to measure parity checks in an error-correcting code
+    ancilla: tuple[int, ...]  # miscellaneous ancilla qubits
 
     # identify X-check and Z-check qubits for CSS codes
-    checks_x: list[int] = dataclasses.field(default_factory=list)
-    checks_z: list[int] = dataclasses.field(default_factory=list)
+    checks_x: tuple[int, ...] = ()
+    checks_z: tuple[int, ...] = ()
 
     @staticmethod
     def from_code(code: codes.QuditCode) -> QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
-        data = list(range(len(code)))
-        check = list(range(len(code), len(code) + code.num_checks))
-        checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else []
-        checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else []
-        return QubitIDs(data, check, [], checks_x, checks_z)
+        data = tuple(range(len(code)))
+        check = tuple(range(len(code), len(code) + code.num_checks))
+        checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else ()
+        checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else ()
+        return QubitIDs(data, check, (), checks_x, checks_z)
 
-    def __iter__(self) -> Iterator[list[int]]:
+    @staticmethod
+    def validated(qubit_ids: QubitIDs, code: codes.QuditCode) -> QubitIDs:
+        """Validate qubit IDs for the given code and return."""
+        if (
+            len(qubit_ids.data) != len(code)
+            or len(qubit_ids.check) != code.dimension
+            or (
+                isinstance(code, codes.CSSCode)
+                and (
+                    len(qubit_ids.checks_x) != code.num_checks_x
+                    or len(qubit_ids.checks_z) != code.num_checks_z
+                )
+            )
+        ):
+            raise ValueError("Qubit IDs are invalid for the given code")
+        return qubit_ids
+
+    def __iter__(self) -> Iterator[tuple[int, ...]]:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
         yield from (self.data, self.check, self.ancilla)
 
     def add_ancilla(self, number: int = 1) -> None:
         """Add (one or more) ancilla qubits."""
         start = max(itertools.chain(*self)) + 1
-        self.ancilla.extend(range(start, start + number))
+        self.ancilla += tuple(range(start, start + number))
 
 
 class Record:
