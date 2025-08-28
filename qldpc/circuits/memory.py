@@ -36,7 +36,7 @@ from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 
 def get_memory_experiment(
-    code: codes.AbstractCode,
+    code: codes.QuditCode | codes.ClassicalCode,
     basis: PauliXZ | None = Pauli.X,
     num_rounds: int = 1,
     *,
@@ -52,17 +52,48 @@ def get_memory_experiment(
     (a) the syndrome from the first QEC cycle is trivial, and
     (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
 
-    If the basis is Pauli.X or Pauli.Z, this argument determines whether this circuit tracks logical
-    X or Z operators.
+    If the basis is Pauli.X or Pauli.Z, the circuit only tracks errors in the logical operators of
+    that type.  We expand on the case that basis is None below.
 
-    More specifically, if basis is Pauli.X or Pauli.Z, the circuit performs the following:
+    More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
+    following:
     1. Initialize all data qubits to |0> (if basis is Pauli.Z) or |+> (if basis is Pauli.X).
     2. Perform an initial QEC cycle, adding detectors for the basis-type stabilizers.
     3. Perform num_rounds - 1 additional QEC cycles, adding detectors to enforce that basis-type
         stabilizers have not changed between adjacent QEC cycles.
     4. Measure all data qubits in the specified basis.
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
-    6. Use the final data qubit measurements to define all basis-type logical observables.
+
+    If basis is None, then the memory experiment noiselesly initializes each logical qubit of the
+    code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
+    noisy QEC cycles.  This initialization makes it possible to meaningfully track errors in both
+    X-type and Z-type logical operators of a code.  The probability of an error in any logical
+    operator is then essentially the process infidelity (or entanglement infidelity) of the noisy QEC
+    cycles.
+
+    More specifically, if basis is None then the memory experiment performs the following:
+    1. Noiselessly prepare a logical all-|0> state of the code.
+    2. For each logical qubit of the code, noiselessly prepare an ancilla qubit in |+>, and apply an
+        ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
+        |00> + |11> of logical qubits with their respective ancillas.
+    3. Perform num_rounds noisy QEC cycles as before, but now adding detectors for all stabilizers.
+    4. [READOUT] ...
+
+    Remembering that observables in Stim are formally detectors, or circuit-level parity checks that
+    must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
+    XX and ZZ observables for each Bell pair.  Here one of the "X"s in XX is a logical X for a
+    logical qubit of the code, and the other "X" is a physical X on an associated ancilla qubit;
+    likewise with ZZ.  Since the ancilla qubit is noiseless, we can attribute an error in XX or ZZ to
+    a logical qubit error.
+
+    Having said all of that, we do not actually annotate memory simulation circuits with the XX and
+    ZZ observables described above.  Instead, we recognize that Bell-pair XX and ZZ operators are
+    exact stabilizers of the circuit immediately after noiseless initialization, which allows us to
+    freely multiply the XX and ZZ operators at the end of the circuit by XX and ZZ operators before
+    the QEC cycles, thereby obtaining two-time XXXX and ZZZZ observables.  The chief (albeit perhaps
+    aesthetic) benefit to this trick is that the support of these observables on the (noiseless)
+    ancilla qubits cancels out, leaving us with two-time logical XX and ZZ observables supported on
+    the data qubits alone.
 
     Qubits and detectors are assigned coordinates as follows:
     - The data qubit addressed by column C of the parity check matrix gets coordinate (0, C).
@@ -71,13 +102,11 @@ def get_memory_experiment(
     - The K-th detector in measurement round M gets coordinate (M, 0, K).
 
     Args:
-        code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
-            that protects only basis-type logical operators.  Otherwise, only CSS stabilizer
-            (non-subsystem) qubit codes are supported at the moment (generalization to non-CSS and
-            subsystem codes pending).
-        basis: Should be Pauli.X or Pauli.Z, depending the desired logical operators to track.  A
-            logical error in a noisy simulation of the circuit corresponds to a logical error in one
-            of these operators.  Default: Pauli.X.
+        code: An error-correcting code.  Must be a qubit stabilizer (non-subsystem) codes.  If
+            passed a classical code, treat it as a quantum CSS code that protects only basis-type
+            logical operators (or X-type logicals, if basis is None).
+        basis: Should be Pauli.X, Pauli.Z, or None to indicate which type of logical operators to
+            track (where "None" means "both X and Z").  Default: Pauli.X.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
@@ -123,7 +152,7 @@ def get_memory_experiment(
 
 @restrict_to_qubits
 def get_memory_experiment_parts(
-    code: codes.AbstractCode,
+    code: codes.QuditCode | codes.ClassicalCode,
     basis: PauliXZ | None = Pauli.X,
     num_rounds: int = 1,
     *,
@@ -143,11 +172,10 @@ def get_memory_experiment_parts(
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
     if isinstance(code, codes.ClassicalCode):
-        matrix_x = code.matrix if basis is Pauli.X else code.field.Zeros((0, len(code)))
-        matrix_z = code.field.Zeros((0, len(code))) if basis is Pauli.X else code.matrix
+        matrix_z = code.matrix if basis is Pauli.Z else code.field.Zeros((0, len(code)))
+        matrix_x = code.field.Zeros((0, len(code))) if basis is Pauli.Z else code.matrix
         code = codes.CSSCode(matrix_x, matrix_z)
 
-    assert isinstance(code, codes.QuditCode)
     if code.is_subsystem_code:
         raise ValueError(
             "Memory simulations currently only support stabilizer (non-subsystem) codes"
@@ -179,31 +207,7 @@ def _get_basis_memory_experiment_parts(
 ) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
     """Noiseless components of a memory experiment that tracks logical operators in a fixed basis.
 
-    See help(qldpc.circuits.get_memory_experiment) for additional information.
-
-    ################################################################################################
-    Args:
-        code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
-            that protects only basis-type logical operators.  Otherwise, only CSS stabilizer
-            (non-subsystem) qubit codes are supported at the moment (generalization to non-CSS and
-            subsystem codes pending).
-        basis: Should be Pauli.X or Pauli.Z, depending the desired logical operators to track.  A
-            logical error in a noisy simulation of the circuit corresponds to a logical error in one
-            of these operators.  Default: Pauli.X.
-        num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
-        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
-            labeling qubits by their corresponding column/row of the parity check matrix.
-        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
-            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
-
-    Returns:
-        initialization: A circuit that sets all qubit coordinates and resets data qubits to the
-            given basis.
-        qec_cycles: A circuit of num_rounds QEC cycles followed by stabilizer measurements.
-        measurement_record: A record of the measurements in qec_cycles_and_readout.
-        detector_record: A record of the detectors in qec_cycles_and_readout.
-        qubit_ids: A QubitIDs object specifying the index of data and check qubits.
-    ################################################################################################
+    See help(qldpc.circuits.get_memory_experiment_parts) for additional information.
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(
@@ -280,63 +284,6 @@ def _get_basis_memory_experiment_parts(
     )
 
 
-def get_memory_simulation(
-    code: codes.QuditCode,
-    noise_model: NoiseModel,
-    num_rounds: int = 1,
-    *,
-    qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> stim.Circuit:
-    """Construct a circuit for testing the performance of a code as a quantum memory.
-
-    This method constructs a circuit similar to that in qldpc.circuits.get_memory_experiment.
-    However, the circuit constructed here noiselessly initializes each logical qubit of the code in
-    a maximally entangled state with an (unphysical) noiseless ancilla qubit before running noisy
-    QEC cycles.  This initialization makes it possible to meaningfully track errors in both X-type
-    and Z-type logical operators of a code.  The probability of an error in any logical operator is
-    then essentially the process infidelity (or entanglement infidelity) of the noisy QEC cycles.
-
-    See help(qldpc.circuits.get_memory_experiment) for background and context.
-
-    The circuit constructed by this method performs the following:
-    1. Noiselessly prepare a logical all-|0> state of the code.
-    2. For each logical qubit of the code, noiselessly prepare an ancilla qubit in |+>, and apply an
-        ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
-        |00> + |11> of logical qubits with their respective ancillas.
-    3. Perform num_rounds noisy QEC cycles, identically to qldpc.circuits.get_memory_experiment.
-
-    Remembering that observables in Stim are formally detectors, or circuit-level parity checks that
-    must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
-    XX and ZZ observables for each Bell pair.  Here one of the "X"s in XX is a logical X for a
-    logical qubit of the code, and the other "X" is a physical X on an associated ancilla qubit;
-    likewise with ZZ.  Since the ancilla qubit is noiseless, we can attribute an error in XX or ZZ to
-    a logical qubit error.
-
-    Having said all of that, we do not actually annotate memory simulation circuits with the XX and
-    ZZ observables described above.  Instead, we recognize that Bell-pair XX and ZZ operators are
-    exact stabilizers of the circuit immediately after noiseless initialization, which allows us to
-    freely multiply the XX and ZZ operators at the end of the circuit by XX and ZZ operators before
-    the QEC cycles, thereby obtaining two-time XXXX and ZZZZ observables.  The chief (albeit perhaps
-    aesthetic) benefit to this trick is that the support of these observables on the (noiseless)
-    ancilla qubits cancels out, leaving us with two-time logical XX and ZZ observables supported on
-    the data qubits alone.
-
-    Args:
-        code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
-        noise_model: The noise model to apply to the the QEC cycles of the circuit.
-        num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
-        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
-            labeling qubits by their corresponding column/row of the parity check matrix.
-        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
-            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
-
-    Returns:
-        stim.Circuit: A circuit ready for simulation via Stim or Sinter.
-    """
-    return NotImplemented
-
-
 def _get_combined_memory_simulation_parts(
     code: codes.QuditCode,
     num_rounds: int = 1,
@@ -346,27 +293,8 @@ def _get_combined_memory_simulation_parts(
 ) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
     """Noiseless components of a memory experiment tracking all logical operators.
 
-    See help(qldpc.circuits.get_memory_experiment) for additional information.
-
-    ################################################################################################
-    Args:
-        code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
-        num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
-        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
-            labeling qubits by their corresponding column/row of the parity check matrix.
-        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
-            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
-
-    Returns:
-        initialization: A circuit that sets all qubit coordinates and initializes every logical
-            qubit into a Bell pair with its associated ancilla.
-        qec_cycles: A circuit of num_rounds QEC cycles followed by stabilizer measurements.
-        measurement_record: A record of the measurements in qec_cycles.
-        detector_record: A record of the detectors in qec_cycles.
-        qubit_ids: A QubitIDs object specifying the index of data and check qubits.
-    ################################################################################################
+    See help(qldpc.circuits.get_memory_experiment_parts) for additional information.
     """
-
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
     qubit_ids.add_ancilla(code.dimension)
