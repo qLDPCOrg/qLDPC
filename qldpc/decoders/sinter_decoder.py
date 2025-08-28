@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 import operator
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -220,9 +220,9 @@ class CompiledSegmentSinterDecoder(CompiledSinterDecoder):
 
     def __init__(
         self,
-        segment_detectors: list[int],
-        segment_observables: list[int],
-        segment_decoders: list[CompiledSinterDecoder],
+        segment_detectors: Sequence[list[int]],
+        segment_observables: Sequence[list[int]],
+        segment_decoders: Sequence[CompiledSinterDecoder],
     ) -> None:
         assert len(segment_detectors) == len(segment_observables) == len(segment_decoders)
         self.segment_detectors = segment_detectors

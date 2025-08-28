@@ -42,6 +42,7 @@ def get_memory_experiment(
     num_rounds: int = 1,
     *,
     noise_model: NoiseModel | None = None,
+    qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> stim.Circuit:
     """Construct a circuit for testing the performance of a code as a quantum memory.
@@ -78,6 +79,8 @@ def get_memory_experiment(
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
+            labeling qubits by their corresponding column/row of the parity check matrix.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
@@ -109,6 +112,7 @@ def get_memory_experiment(
         code,
         basis=basis,
         num_rounds=num_rounds,
+        qubit_ids=qubit_ids,
         syndrome_measurement_strategy=syndrome_measurement_strategy,
     )
     circuit = initialization + qec_cycles_and_readout
@@ -121,6 +125,7 @@ def get_memory_experiment_parts(
     basis: PauliXZ = Pauli.X,
     num_rounds: int = 1,
     *,
+    qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
     """Noiseless components of a memory experiment.
@@ -136,6 +141,8 @@ def get_memory_experiment_parts(
             logical error in a noisy simulation of the circuit corresponds to a logical error in one
             of these operators.  Default: Pauli.X.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
+            labeling qubits by their corresponding column/row of the parity check matrix.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
@@ -146,7 +153,7 @@ def get_memory_experiment_parts(
             measurements in the specified basis.  Includes detectors for basis-type stabilizers and
             declares basis-type logical observables.
         measurement_record: A record of the measurements in qec_cycles_and_readout.
-        qubit_ids: The identity of all qubits that are used in the circuits.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(
@@ -239,6 +246,7 @@ def get_memory_simulation(
     noise_model: NoiseModel,
     num_rounds: int = 1,
     *,
+    qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> stim.Circuit:
     """Construct a circuit for testing the performance of a code as a quantum memory.
@@ -279,6 +287,8 @@ def get_memory_simulation(
         code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
         noise_model: The noise model to apply to the the QEC cycles of the circuit.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
+            labeling qubits by their corresponding column/row of the parity check matrix.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
@@ -296,6 +306,7 @@ def get_memory_simulation_parts(
     code: codes.QuditCode,
     num_rounds: int = 1,
     *,
+    qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
     """Noiseless components of a memory simulation.
@@ -305,6 +316,8 @@ def get_memory_simulation_parts(
     Args:
         code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
+            labeling qubits by their corresponding column/row of the parity check matrix.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
@@ -314,7 +327,7 @@ def get_memory_simulation_parts(
         qec_cycles: A circuit of num_rounds QEC cycles.  Includes detectors for all stabilizers and
             declares all logical observables.
         measurement_record: A record of the measurements in qec_cycles.
-        qubit_ids: The identity of all qubits that are used in the circuits.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
     if code.is_subsystem_code:
         raise ValueError(
@@ -402,8 +415,10 @@ def _get_qec_cycles(
     Args:
         code: The code for which we are building QEC cycles.
         num_rounds: The number of QEC cycles in the final circuit.
-        qubit_ids: The identity of all qubits that may be used in the circuit.
-        check_ids: The check qubits that measure stabilizers to annotate with detectors.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
+            labeling qubits by their corresponding column/row of the parity check matrix.
+        check_ids: The check qubits that measure stabilizers to annotate with detectors.  Must be a
+            subset of qubit_ids.checks.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.
 
