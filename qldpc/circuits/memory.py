@@ -17,7 +17,6 @@ limitations under the License.
 
 import itertools
 from collections.abc import Collection
-from typing import Literal, Union
 
 import numpy as np
 import stim
