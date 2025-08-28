@@ -114,8 +114,8 @@ def get_memory_experiment(
         code: An error-correcting code.  Must be a qubit stabilizer (non-subsystem) codes.  If
             passed a classical code, treat it as a quantum CSS code that protects only basis-type
             logical operators (or X-type logicals, if basis is None).
-        basis: Should be Pauli.X, Pauli.Z, or PauliXZ to indicate which type of logical operators to
-            track (where "PauliXZ" means "both X and Z").  Default: Pauli.X.
+        basis: Should be Pauli.X, Pauli.Z, or None to indicate which type of logical operators to
+            track (where "None" means "both X and Z").  Default: Pauli.X.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
@@ -158,7 +158,7 @@ def get_memory_experiment(
     )
 
     # add noise to all parts of an experiment with a fixed basis
-    if basis is not PauliXZ and noise_model is not None:
+    if basis is not None and noise_model is not None:
         initialization = noise_model.noisy_circuit(initialization)
         qec_cycles = noise_model.noisy_circuit(qec_cycles)
         readout = noise_model.noisy_circuit(readout)

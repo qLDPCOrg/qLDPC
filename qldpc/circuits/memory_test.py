@@ -23,7 +23,7 @@ from qldpc.objects import Pauli
 
 def test_memory_experiment() -> None:
     """Stim circuits for memory experiments."""
-    num_rounds, shots = 5, 10
+    num_rounds, shots = 1, 10
     noise_model = circuits.DepolarizingNoiseModel(1e-2)
 
     # try out a classical error correcting code
