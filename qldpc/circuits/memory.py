@@ -388,7 +388,8 @@ def _get_qec_cycles(
 
     Returns:
         stim.Circuit: The noiseless circuit of num_rounds QEC cycles.
-        MeasurementRecord: The record of measurements in the constructed circuit.
+        MeasurementRecord: The record of all measurements in the constructed circuit.
+        DetectorRecord: The record of all detectors in the constructed circuit.
     """
     one_cycle, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
 
