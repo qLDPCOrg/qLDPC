@@ -35,7 +35,7 @@ def test_qubit_ids() -> None:
     assert not ancilla_ids
 
     qubit_ids.add_ancilla(3)
-    assert qubit_ids.ancilla == [9, 10, 11]
+    assert qubit_ids.ancillas == [9, 10, 11]
 
 
 def test_records() -> None:
@@ -53,7 +53,8 @@ def test_records() -> None:
     assert measurement_record.get_target_rec(2) == stim.target_rec(-8)
     assert measurement_record.get_target_rec(0) == stim.target_rec(-7)
     assert measurement_record.get_target_rec(0, -2) == stim.target_rec(-9)
-    with pytest.raises(ValueError, match="Qubit 3 not found"):
+
+    with pytest.raises(ValueError, match="Invalid measurement index"):
         measurement_record.get_target_rec(3)
     with pytest.raises(ValueError, match="Invalid measurement index"):
         measurement_record.get_target_rec(0, 2)
@@ -63,7 +64,8 @@ def test_records() -> None:
     assert detector_record.get_detector(2) == 1
     assert detector_record.get_detector(0) == 2
     assert detector_record.get_detector(0, -2) == 0
-    with pytest.raises(ValueError, match="Parity check 3 not found"):
+
+    with pytest.raises(ValueError, match="Invalid detection index"):
         detector_record.get_detector(3)
     with pytest.raises(ValueError, match="Invalid detection index"):
         detector_record.get_detector(0, 2)

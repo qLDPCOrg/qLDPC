@@ -21,6 +21,7 @@ import collections
 import dataclasses
 import functools
 import itertools
+import operator
 from collections.abc import Callable, Iterator
 
 import numpy as np
@@ -35,24 +36,30 @@ class QubitIDs:
     """Container to keep track of the identity of qubits in a circuit."""
 
     data: list[int]  # indices of data qubits in an error-correcting code
-    check: list[int]  # indices of qubits used to measure parity checks in an error-correcting code
-    ancilla: list[int]  # miscellaneous ancilla qubits
+    checks: list[int]  # indices of qubits used to measure parity checks in an error-correcting code
+    ancillas: list[int]  # miscellaneous ancilla qubits
+
+    # identify X-check and Z-check qubits for CSS codes
+    checks_x: list[int] = dataclasses.field(default_factory=list)
+    checks_z: list[int] = dataclasses.field(default_factory=list)
 
     @staticmethod
     def from_code(code: codes.QuditCode) -> QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
         data = list(range(len(code)))
-        check = list(range(len(code), len(code) + code.num_checks))
-        return QubitIDs(data, check, [])
+        checks = list(range(len(code), len(code) + code.num_checks))
+        checks_x = checks[: code.num_checks_x] if isinstance(code, codes.CSSCode) else []
+        checks_z = checks[code.num_checks_x :] if isinstance(code, codes.CSSCode) else []
+        return QubitIDs(data, checks, [], checks_x, checks_z)
 
     def __iter__(self) -> Iterator[list[int]]:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
-        yield from (self.data, self.check, self.ancilla)
+        yield from (self.data, self.checks, self.ancillas)
 
     def add_ancilla(self, number: int = 1) -> None:
         """Add (one or more) ancilla qubits."""
         start = max(itertools.chain(*self)) + 1
-        self.ancilla.extend(range(start, start + number))
+        self.ancillas.extend(range(start, start + number))
 
 
 class Record:
@@ -76,6 +83,10 @@ class Record:
     def items(self) -> Iterator[tuple[int, list[int]]]:
         """Iterator over keys and their associated events."""
         yield from self.key_to_events.items()
+
+    def get_events(self, *keys: int) -> list[int]:
+        """The events associated with a key."""
+        return functools.reduce(operator.add, (self.key_to_events.get(key, []) for key in keys))
 
     def append(self, record: Record | dict[int, list[int]], repeat: int = 1) -> None:
         """Append the given record to this one."""
@@ -107,9 +118,7 @@ class MeasurementRecord(Record):
         Returns:
             stim.target_rec: A Stim measurement record target.
         """
-        if qubit not in self.key_to_events:
-            raise ValueError(f"Qubit {qubit} not found in measurement record")
-        measurements = self.key_to_events[qubit]
+        measurements = self.get_events(qubit)
         if not -len(measurements) <= measurement_index < len(measurements):
             raise ValueError(
                 f"Invalid measurement index {measurement_index} for qubit {qubit} with "
@@ -133,9 +142,7 @@ class DetectorRecord(Record):
         Returns:
             int: The index of the detector we want.
         """
-        if check not in self.key_to_events:
-            raise ValueError(f"Parity check {check} not found in measurement record")
-        detectors = self.key_to_events[check]
+        detectors = self.get_events(check)
         if not -len(detectors) <= detection_index < len(detectors):
             raise ValueError(
                 f"Invalid detection index {detection_index} for parity check {check} with "

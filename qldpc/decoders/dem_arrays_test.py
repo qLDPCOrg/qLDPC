@@ -55,3 +55,12 @@ def test_dem_arrays() -> None:
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 4
     assert dem_arrays.num_observables == 2
+
+    other_dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+        dem_arrays.detector_flip_matrix,
+        dem_arrays.observable_flip_matrix,
+        dem_arrays.error_probs,
+    )
+    assert other_dem_arrays.detector_flip_matrix is dem_arrays.detector_flip_matrix
+    assert other_dem_arrays.observable_flip_matrix is dem_arrays.observable_flip_matrix
+    assert other_dem_arrays.error_probs is dem_arrays.error_probs
