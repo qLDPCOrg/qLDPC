@@ -291,7 +291,10 @@ def get_memory_simulation(
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
     """
     initialization, qec_cycles, *_ = get_memory_simulation_parts(
-        code, num_rounds=num_rounds, syndrome_measurement_strategy=syndrome_measurement_strategy
+        code,
+        num_rounds=num_rounds,
+        qubit_ids=qubit_ids,
+        syndrome_measurement_strategy=syndrome_measurement_strategy,
     )
     return initialization + noise_model.noisy_circuit(qec_cycles)
 
