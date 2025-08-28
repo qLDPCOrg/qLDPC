@@ -17,12 +17,13 @@ limitations under the License.
 
 import itertools
 from collections.abc import Collection
+from typing import Literal, Union
 
 import numpy as np
 import stim
 
 from qldpc import codes
-from qldpc.objects import PAULIS_XZ, Literal, Node, Pauli, PauliXZ
+from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ
 
 from .common import (
     DetectorRecord,
@@ -37,7 +38,7 @@ from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 def get_memory_experiment(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ | Literal[PauliXZ] = Pauli.X,
+    basis: PauliXZ = Pauli.X,
     num_rounds: int = 1,
     *,
     noise_model: NoiseModel | None = None,
@@ -187,7 +188,7 @@ def get_memory_experiment(
 @restrict_to_qubits
 def get_memory_experiment_parts(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ | Literal[PauliXZ],
+    basis: PauliXZ,
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
