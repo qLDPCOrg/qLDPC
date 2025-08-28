@@ -18,7 +18,7 @@ limitations under the License.
 import pytest
 
 from qldpc import circuits, codes
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import Pauli
 
 
 def test_memory_experiment() -> None:
