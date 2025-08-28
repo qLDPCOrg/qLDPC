@@ -362,7 +362,7 @@ def get_memory_simulation_parts(
 
     # initialize all logical qubits in |0>, and associated ancilla qubits in |+>
     state_prep = stim.Circuit()
-    state_prep.append(get_encoding_circuit(code))
+    state_prep.append(get_encoding_circuit(code, only_zero=True))
     state_prep.append("H", qubit_ids.ancilla)
 
     # apply ancilla-controlled-logical-NOT gates to prepare Bell states
