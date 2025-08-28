@@ -628,7 +628,9 @@ def _split_moments_with_ticks(circuit: stim.Circuit) -> stim.Circuit:
                 used_qubits.clear()
             processed_body = _split_moments_with_ticks(op.body_copy())
             result.append(
-                stim.CircuitRepeatBlock(repeat_count=op.repeat_count, body=processed_body)
+                stim.CircuitRepeatBlock(
+                    repeat_count=op.repeat_count, body=processed_body, tag=op.tag
+                )
             )
             continue
 

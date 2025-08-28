@@ -18,19 +18,20 @@ limitations under the License.
 import pytest
 
 from qldpc import circuits, codes
-from qldpc.objects import Pauli
+from qldpc.objects import Pauli, PauliXZ
 
 
 def test_memory_experiment() -> None:
     """Stim circuits for memory experiments."""
-    # try out a classical error correcting code
     num_rounds, shots = 5, 10
-    rep_code = codes.RepetitionCode(3)
     noise_model = circuits.DepolarizingNoiseModel(1e-2)
+
+    # try out a classical error correcting code
+    rep_code = codes.RepetitionCode(3, field=2)
     circuit = circuits.get_memory_experiment(
         rep_code,
-        num_rounds=num_rounds,
         basis=Pauli.Z,
+        num_rounds=num_rounds,
         noise_model=noise_model,
     )
     sampler = circuit.compile_detector_sampler()
@@ -38,6 +39,31 @@ def test_memory_experiment() -> None:
     assert detectors.shape[0] == observables.shape[0] == shots
     assert detectors.shape[1] == circuit.num_detectors == rep_code.num_checks * (num_rounds + 1)
     assert observables.shape[1] == rep_code.dimension
+
+    # try tracking both operators in a quantum code
+    code = codes.RepetitionCode(2, field=2)
+    circuit = circuits.get_memory_experiment(
+        code,
+        basis=PauliXZ,
+        num_rounds=num_rounds,
+        noise_model=noise_model,
+    )
+    sampler = circuit.compile_detector_sampler()
+    detectors, observables = sampler.sample(shots=shots, separate_observables=True)
+    assert detectors.shape[0] == observables.shape[0] == shots
+    assert detectors.shape[1] == circuit.num_detectors == code.num_checks * (num_rounds + 1)
+    assert observables.shape[1] == code.dimension * 2
+
+    # we can also ask for a noisy circuit, and inject noise later
+    noiseless_circuit = circuits.get_memory_experiment(
+        code,
+        basis=PauliXZ,
+        num_rounds=num_rounds,
+        noise_model=None,
+    )
+    dem_1 = circuit.detector_error_model()
+    dem_2 = noise_model.noisy_circuit(noiseless_circuit).detector_error_model()
+    assert dem_1 == dem_2
 
     # only Pauli.X and Pauli.Z basis measurements are supported
     with pytest.raises(ValueError, match="Pauli.X or Pauli.Z"):

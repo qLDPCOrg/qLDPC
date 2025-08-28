@@ -169,14 +169,17 @@ def get_memory_experiment(
             qec_cycles = noise_model.noisy_circuit(qec_cycles)
         else:
             # noise will be added later, so annotate initialization and readout as noiseless
-            initialization = stim.Circuit(
-                stim.CircuitRepeatBlock(
-                    repeat_count=1, body=initialization, tag=DEFAULT_IMMUNE_OP_TAG
-                )
+            initialization_block = stim.CircuitRepeatBlock(
+                repeat_count=1, body=initialization, tag=DEFAULT_IMMUNE_OP_TAG
             )
-            readout = stim.Circuit(
-                stim.CircuitRepeatBlock(repeat_count=1, body=readout, tag=DEFAULT_IMMUNE_OP_TAG)
+            initialization = stim.Circuit()
+            initialization.append(initialization_block)
+
+            readout_block = stim.CircuitRepeatBlock(
+                repeat_count=1, body=readout, tag=DEFAULT_IMMUNE_OP_TAG
             )
+            readout = stim.Circuit()
+            readout.append(readout_block)
 
     return initialization + qec_cycles + readout
 
