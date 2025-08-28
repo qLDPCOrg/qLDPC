@@ -28,6 +28,7 @@ import stim
 
 from qldpc import codes
 from qldpc.math import op_to_string, symplectic_conjugate
+from qldpc.objects import Pauli
 
 
 @dataclasses.dataclass
@@ -119,14 +120,24 @@ def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.
 
 
 @restrict_to_qubits
-def get_encoding_tableau(code: codes.QuditCode) -> stim.Tableau:
+def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Tableau:
     """Tableau to encode physical states at its input into logical states of the given code.
 
-    For all j in {0, 1, ..., code.dimension - 1}, this tableau maps weight-one X_j and Z_j operators
-    at its input to the logical X and Z operators of the j-th logical qubit of the code.  Weight-one
-    Z_j operators for j >= code.dimension get mapped to "Z-type" gauge operators and stabilizers,
-    and their conjugate X_j get mapped to "X-type" gauge operators and destabilizers.
+    If only_zero is True, this tableau maps an all-0 physical state at its input to an all-0 logical
+    state at its output.  Otherwise, for all j in {0, 1, ..., code.dimension - 1}, this tableau maps
+    weight-one X_j and Z_j operators at its input to the logical X and Z operators of the j-th
+    logical qubit of the code.  Weight-one Z_j operators for j >= code.dimension get mapped to
+    "Z-type" gauge operators and stabilizers, and their conjugate X_j get mapped to "X-type" gauge
+    operators and destabilizers.
     """
+    if only_zero:
+        return stim.Tableau.from_stabilizers(
+            [op_to_string(op) for op in code.get_stabilizer_ops(symplectic=True)]
+            + [op_to_string(op) for op in code.get_logical_ops(Pauli.Z, symplectic=True)],
+            allow_redundant=True,
+            allow_underconstrained=True,
+        )
+
     # identify stabilizers, logical operators, and gauge operators
     stab_ops = code.get_stabilizer_ops(canonicalized=True)
     logical_ops = code.get_logical_ops()
@@ -164,15 +175,17 @@ def get_encoding_tableau(code: codes.QuditCode) -> stim.Tableau:
 
 
 @restrict_to_qubits
-def get_encoding_circuit(code: codes.QuditCode) -> stim.Circuit:
+def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Circuit:
     """Circuit to encode physical states at its input into logical states of the given code.
 
-    For all j in {0, 1, ..., code.dimension - 1}, this tableau maps weight-one X_j and Z_j operators
-    at its input to the logical X and Z operators of the j-th logical qubit of the code.  Weight-one
-    Z_j operators for j >= code.dimension get mapped to "Z-type" gauge operators and stabilizers,
-    and their conjugate X_j get mapped to "X-type" gauge operators and destabilizers.
+    If only_zero is True, this circuit maps an all-0 physical state at its input to an all-0 logical
+    state at its output.  Otherwise, for all j in {0, 1, ..., code.dimension - 1}, this circuit maps
+    weight-one X_j and Z_j operators at its input to the logical X and Z operators of the j-th
+    logical qubit of the code.  Weight-one Z_j operators for j >= code.dimension get mapped to
+    "Z-type" gauge operators and stabilizers, and their conjugate X_j get mapped to "X-type" gauge
+    operators and destabilizers.
     """
-    return get_encoding_tableau(code).to_circuit()
+    return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
 
 
 @restrict_to_qubits

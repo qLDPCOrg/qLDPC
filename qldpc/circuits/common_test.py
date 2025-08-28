@@ -17,6 +17,9 @@ limitations under the License.
 
 from __future__ import annotations
 
+import itertools
+
+import numpy as np
 import pytest
 import stim
 
@@ -59,14 +62,18 @@ def test_restriction() -> None:
         circuits.get_encoding_circuit(code)
 
 
-def test_state_prep() -> None:
+def test_state_prep(pytestconfig: pytest.Config) -> None:
     """Prepare all-0 logical states of qubit codes."""
-    for code in [
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
+
+    codes_to_test = [
         codes.FiveQubitCode(),
         codes.BaconShorCode(3, field=2),
-        codes.HGPCode(codes.ClassicalCode.random(5, 3, field=2)),
-    ]:
-        encoder = circuits.get_encoding_circuit(code)
+        codes.HGPCode(codes.ClassicalCode.random(5, 3, field=2, seed=np.random.randint(2**32 - 1))),
+    ]
+
+    for code, only_zero in itertools.product(codes_to_test, [True, False]):
+        encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
         simulator = stim.TableauSimulator()
         simulator.do(encoder)
 
@@ -76,24 +83,25 @@ def test_state_prep() -> None:
             assert simulator.peek_observable_expectation(string) == 1
 
         # logical Z operators have expectation value +1
-        for op in codes.QuditCode.get_logical_ops(code, Pauli.Z):
+        for op in code.get_logical_ops(Pauli.Z, symplectic=True):
             string = op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 1
 
         # logical Z operators have expectation value 0
-        for op in codes.QuditCode.get_logical_ops(code, Pauli.X):
+        for op in code.get_logical_ops(Pauli.X, symplectic=True):
             string = op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 0
 
-        # gauge Z operators have expectation value +1
-        for op in codes.QuditCode.get_gauge_ops(code, Pauli.Z):
-            string = op_to_string(op)
-            assert simulator.peek_observable_expectation(string) == 1
+        if only_zero is False:
+            # gauge Z operators have expectation value +1
+            for op in code.get_gauge_ops(Pauli.Z, symplectic=True):
+                string = op_to_string(op)
+                assert simulator.peek_observable_expectation(string) == 1
 
-        # gauge X operators have expectation value 0
-        for op in codes.QuditCode.get_gauge_ops(code, Pauli.X):
-            string = op_to_string(op)
-            assert simulator.peek_observable_expectation(string) == 0
+            # gauge X operators have expectation value 0
+            for op in code.get_gauge_ops(Pauli.X, symplectic=True):
+                string = op_to_string(op)
+                assert simulator.peek_observable_expectation(string) == 0
 
 
 def test_logical_tableau() -> None:
