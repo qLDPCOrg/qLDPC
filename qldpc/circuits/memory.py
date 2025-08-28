@@ -80,6 +80,9 @@ def get_memory_experiment(
         |00> + |11> of logical qubits with their respective ancillas.
     3. Perform num_rounds QEC cycles as before, but now adding detectors for all stabilizers.
     4. Measure all stabilizers (with MPP gates).
+    Unlike the fixed-basis experiment, the combined basis experiment only makes sense when starting
+    from the Bell state.  It is also no longer possible to measure out all data qubits to infer all
+    stabilizers.  Initialization and readout (measuring final stabilizers) are therefore noiseless.
     If a noise_model is provided, then noise is added to the QEC cycles alone.  Otherwise, the
     initialization and readout sub-circuits are wrapped in a single-repetition
     stim.CircuitRepeatBlock tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate that these
