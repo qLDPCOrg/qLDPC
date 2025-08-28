@@ -11,8 +11,6 @@ from .common import (
 from .memory import (
     get_memory_experiment,
     get_memory_experiment_parts,
-    get_memory_simulation,
-    get_memory_simulation_parts,
 )
 from .noise_model import (
     DepolarizingNoiseModel,
@@ -43,8 +41,6 @@ __all__ = [
     "get_logical_tableau",
     "get_memory_experiment",
     "get_memory_experiment_parts",
-    "get_memory_simulation",
-    "get_memory_simulation_parts",
     "DepolarizingNoiseModel",
     "NoiseModel",
     "NoiseRule",

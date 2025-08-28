@@ -41,10 +41,10 @@ def test_memory_experiment() -> None:
 
     # only Pauli.X and Pauli.Z basis measurements are supported
     with pytest.raises(ValueError, match="Pauli.X or Pauli.Z"):
-        circuits.get_memory_experiment(rep_code, basis=Pauli.Y)
+        circuits.get_memory_experiment(rep_code, basis=Pauli.Y)  # type:ignore[arg-type]
 
-    # non-CSS and subsystem codes are not yet supported
-    with pytest.raises(ValueError, match=r"only support stabilizer \(non-subsystem\) CSS codes"):
-        circuits.get_memory_experiment(codes.FiveQubitCode())
-    with pytest.raises(ValueError, match=r"only support stabilizer \(non-subsystem\) CSS codes"):
+    # non-CSS and subsystem codes are not always supported
+    with pytest.raises(ValueError, match=r"only support stabilizer \(non-subsystem\) codes"):
         circuits.get_memory_experiment(codes.BaconShorCode(2))
+    with pytest.raises(ValueError, match=r"only support CSS codes"):
+        circuits.get_memory_experiment(codes.FiveQubitCode())

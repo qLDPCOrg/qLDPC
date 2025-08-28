@@ -35,7 +35,6 @@ from .noise_model import NoiseModel
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 
-@restrict_to_qubits
 def get_memory_experiment(
     code: codes.AbstractCode,
     basis: PauliXZ | None = Pauli.X,
@@ -111,31 +110,78 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
-    assert basis is not None
-    initialization, qec_cycles_and_readout, *_ = get_memory_experiment_parts(
+    initialization, qec_cycles, readout, *_ = get_memory_experiment_parts(
         code,
         basis=basis,
         num_rounds=num_rounds,
         qubit_ids=qubit_ids,
         syndrome_measurement_strategy=syndrome_measurement_strategy,
     )
-    circuit = initialization + qec_cycles_and_readout
-    return noise_model.noisy_circuit(circuit) if noise_model is not None else circuit
+    qec_cycles = noise_model.noisy_circuit(qec_cycles) if noise_model is not None else qec_cycles
+    return initialization + qec_cycles + readout
 
 
 @restrict_to_qubits
 def get_memory_experiment_parts(
     code: codes.AbstractCode,
-    basis: PauliXZ = Pauli.X,
+    basis: PauliXZ | None = Pauli.X,
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
     """Noiseless components of a memory experiment.
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
 
+    Returns:
+        initialization: A circuit that sets the coordinates and initializes the state of data qubits.
+        qec_cycles: A circuit of num_rounds QEC cycles.
+        readout: A circuit that reads out final stabilizers.
+        measurement_record: A record of the measurements in the above circuits.
+        detector_record: A record of the detectors in the above circuits.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.
+    """
+    if isinstance(code, codes.ClassicalCode):
+        matrix_x = code.matrix if basis is Pauli.X else code.field.Zeros((0, len(code)))
+        matrix_z = code.field.Zeros((0, len(code))) if basis is Pauli.X else code.matrix
+        code = codes.CSSCode(matrix_x, matrix_z)
+
+    assert isinstance(code, codes.QuditCode)
+    if code.is_subsystem_code:
+        raise ValueError(
+            "Memory simulations currently only support stabilizer (non-subsystem) codes"
+        )
+
+    if basis is not None:
+        return _get_basis_memory_experiment_parts(
+            code,
+            basis=basis,
+            num_rounds=num_rounds,
+            qubit_ids=qubit_ids,
+            syndrome_measurement_strategy=syndrome_measurement_strategy,
+        )
+    return _get_combined_memory_simulation_parts(
+        code,
+        num_rounds=num_rounds,
+        qubit_ids=qubit_ids,
+        syndrome_measurement_strategy=syndrome_measurement_strategy,
+    )
+
+
+def _get_basis_memory_experiment_parts(
+    code: codes.QuditCode,
+    basis: PauliXZ,
+    num_rounds: int = 1,
+    *,
+    qubit_ids: QubitIDs | None = None,
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+    """Noiseless components of a memory experiment that tracks logical operators in a fixed basis.
+
+    See help(qldpc.circuits.get_memory_experiment) for additional information.
+
+    ################################################################################################
     Args:
         code: An error-correcting code.  If passed a classical code, treat it as a quantum CSS code
             that protects only basis-type logical operators.  Otherwise, only CSS stabilizer
@@ -157,20 +203,15 @@ def get_memory_experiment_parts(
         measurement_record: A record of the measurements in qec_cycles_and_readout.
         detector_record: A record of the detectors in qec_cycles_and_readout.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
+    ################################################################################################
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(
-            "Memory experiments require choosing a Pauli.X or Pauli.Z basis of logical operators to"
-            f" track (provided: {basis})"
+            "Memory experiments in a fixed basis require the basis to be Pauli.X or Pauli.Z,"
+            f" not {basis}"
         )
-    if isinstance(code, codes.ClassicalCode):
-        matrix_x = code.matrix if basis is Pauli.X else code.field.Zeros((0, len(code)))
-        matrix_z = code.field.Zeros((0, len(code))) if basis is Pauli.X else code.matrix
-        code = codes.CSSCode(matrix_x, matrix_z)
-    if not isinstance(code, codes.CSSCode) or code.is_subsystem_code:
-        raise ValueError(
-            "Memory experiments currently only support stabilizer (non-subsystem) CSS codes"
-        )
+    if not isinstance(code, codes.CSSCode):
+        raise ValueError("Memory experiments in a fixed basis only support CSS codes")
 
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
@@ -231,14 +272,14 @@ def get_memory_experiment_parts(
 
     return (
         coordinates + state_prep,
-        qec_cycles + readout,
+        qec_cycles,
+        readout,
         measurement_record,
         detector_record,
         qubit_ids,
     )
 
 
-@restrict_to_qubits
 def get_memory_simulation(
     code: codes.QuditCode,
     noise_model: NoiseModel,
@@ -293,27 +334,21 @@ def get_memory_simulation(
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
     """
-    initialization, qec_cycles, *_ = get_memory_simulation_parts(
-        code,
-        num_rounds=num_rounds,
-        qubit_ids=qubit_ids,
-        syndrome_measurement_strategy=syndrome_measurement_strategy,
-    )
-    return initialization + noise_model.noisy_circuit(qec_cycles)
+    return NotImplemented
 
 
-@restrict_to_qubits
-def get_memory_simulation_parts(
+def _get_combined_memory_simulation_parts(
     code: codes.QuditCode,
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
-    """Noiseless components of a memory simulation.
+) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+    """Noiseless components of a memory experiment tracking all logical operators.
 
-    See help(qldpc.circuits.get_memory_simulation) for additional information.
+    See help(qldpc.circuits.get_memory_experiment) for additional information.
 
+    ################################################################################################
     Args:
         code: A quantum error-correcting code.  Only stabilizer (non-subsystem) codes are supported.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
@@ -329,11 +364,8 @@ def get_memory_simulation_parts(
         measurement_record: A record of the measurements in qec_cycles.
         detector_record: A record of the detectors in qec_cycles.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
+    ################################################################################################
     """
-    if code.is_subsystem_code:
-        raise ValueError(
-            "Memory simulations currently only support stabilizer (non-subsystem) codes"
-        )
 
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
@@ -394,9 +426,12 @@ def get_memory_simulation_parts(
         ]
         observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
 
+    readout = stim.Circuit()
+
     return (
         coordinates + state_prep,
         observables + qec_cycles + observables,
+        readout,
         measurement_record,
         detector_record,
         qubit_ids,
