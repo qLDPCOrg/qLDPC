@@ -85,7 +85,7 @@ class AbstractCode(abc.ABC):
 
     def __init__(
         self,
-        matrix: AbstractCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        matrix: AbstractCode | IntegerArray | Sequence[Sequence[int]],
         field: int | None = None,
     ) -> None:
         """Construct a code from a parity check matrix over a finite field.
@@ -214,7 +214,7 @@ class ClassicalCode(AbstractCode):
 
     def __init__(
         self,
-        matrix: AbstractCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        matrix: AbstractCode | IntegerArray | Sequence[Sequence[int]],
         field: int | None = None,
     ) -> None:
         """Construct a classical code from a parity check matrix over a finite field."""
@@ -734,7 +734,7 @@ class QuditCode(AbstractCode):
 
     def __init__(
         self,
-        matrix: AbstractCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        matrix: AbstractCode | IntegerArray | Sequence[Sequence[int]],
         field: int | None = None,
         *,
         is_subsystem_code: bool | None = None,

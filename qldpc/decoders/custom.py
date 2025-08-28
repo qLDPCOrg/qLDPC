@@ -28,7 +28,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc import codes
-from qldpc.math import symplectic_conjugate, symplectic_weight
+from qldpc.math import IntegerArray, symplectic_conjugate, symplectic_weight
 from qldpc.objects import Node
 
 if TYPE_CHECKING:
@@ -96,12 +96,12 @@ class LookupDecoder(Decoder):
 
     def __init__(
         self,
-        matrix: npt.NDArray[np.int_],
+        matrix: IntegerArray,
         *,
         max_weight: int | None = None,
         symplectic: bool = False,
     ) -> None:
-        self.shape = matrix.shape
+        self.shape: tuple[int, ...] = matrix.shape
         self.syndrome_to_correction = {}
         for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
             matrix, max_weight, symplectic
@@ -110,12 +110,14 @@ class LookupDecoder(Decoder):
 
     @staticmethod
     def iter_errors_and_syndomes(
-        matrix: npt.NDArray[np.int_], max_weight: int | None, symplectic: bool
+        matrix: IntegerArray, max_weight: int | None, symplectic: bool
     ) -> Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
 
         Errors are sorted in decreasing weight (number of bits/qudits addressed nontrivially).
         """
+        matrix = np.asanyarray(matrix)
+
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else symplectic_conjugate(code.matrix)
 
@@ -164,12 +166,12 @@ class WeightedLookupDecoder(LookupDecoder):
 
     def __init__(
         self,
-        matrix: npt.NDArray[np.int_],
+        matrix: IntegerArray,
         *,
         max_weight: int | None = None,
         symplectic: bool = False,
     ) -> None:
-        self.shape = matrix.shape
+        self.shape: tuple[int, ...] = matrix.shape
         self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
             collections.defaultdict(list)
         )
@@ -196,12 +198,12 @@ class ILPDecoder(Decoder):
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
     """
 
-    def __init__(self, matrix: npt.NDArray[np.int_], **decoder_args: object) -> None:
+    def __init__(self, matrix: IntegerArray, **decoder_args: object) -> None:
         self.modulus = type(matrix).order if isinstance(matrix, galois.FieldArray) else 2
         if not galois.is_prime(self.modulus):
             raise ValueError("ILP decoding only supports prime number fields")
 
-        self.matrix = np.asarray(matrix, dtype=int) % self.modulus
+        self.matrix = np.array(matrix, dtype=int) % self.modulus
         num_checks, num_variables = self.matrix.shape
 
         # variables, their constraints, and the objective (minimizing number of nonzero variables)
@@ -290,11 +292,13 @@ class GUFDecoder(Decoder):
 
     def __init__(
         self,
-        matrix: npt.NDArray[np.int_],
+        matrix: IntegerArray,
         *,
         max_weight: int | None = None,
         symplectic: bool = False,
     ) -> None:
+        matrix = np.asanyarray(matrix)
+
         self.default_max_weight = max_weight
         self.symplectic = symplectic
 
@@ -453,7 +457,7 @@ class DirectDecoder(Decoder):
         return self.decode_func(word)
 
     @staticmethod
-    def from_indirect(decoder: Decoder, matrix: npt.NDArray[np.int_]) -> DirectDecoder:
+    def from_indirect(decoder: Decoder, matrix: IntegerArray) -> DirectDecoder:
         """Instantiate a DirectDecoder from an indirect decoder and a parity check matrix."""
         field = type(matrix) if isinstance(matrix, galois.FieldArray) else None
 

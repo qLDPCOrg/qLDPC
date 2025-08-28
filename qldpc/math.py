@@ -23,12 +23,21 @@ from typing import TypeVar
 import galois
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
 import scipy.special
 import stim
 
 from qldpc.objects import Pauli
 
-IntegerArray = TypeVar("IntegerArray", npt.NDArray[np.int_], galois.FieldArray)
+IntegerArray = TypeVar(
+    "IntegerArray",
+    npt.NDArray[np.int_],
+    galois.FieldArray,
+    scipy.sparse.spmatrix,
+    scipy.sparse.sparray,
+)
+
+DenseIntegerArray = TypeVar("DenseIntegerArray", npt.NDArray[np.int_], galois.FieldArray)
 
 
 def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
@@ -49,7 +58,7 @@ def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
     return stim.PauliString(paulis)
 
 
-def symplectic_conjugate(vectors: IntegerArray) -> IntegerArray:
+def symplectic_conjugate(vectors: DenseIntegerArray) -> DenseIntegerArray:
     """Take symplectic vectors to their duals.
 
     The symplectic conjugate of a Pauli string swaps its X and Z support, and multiplies its X

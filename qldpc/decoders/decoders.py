@@ -23,6 +23,8 @@ import numpy as np
 import numpy.typing as npt
 import pymatching
 
+from qldpc.math import IntegerArray
+
 from .custom import (
     BatchDecoder,
     Decoder,
@@ -37,14 +39,16 @@ PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
 
 def decode(
-    matrix: npt.NDArray[np.int_], syndrome: npt.NDArray[np.int_], **decoder_args: object
+    matrix: IntegerArray,
+    syndrome: npt.NDArray[np.int_],
+    **decoder_args: object,
 ) -> npt.NDArray[np.int_]:
     """Find a `vector` that solves `matrix @ vector == syndrome mod 2`."""
     decoder = get_decoder(matrix, **decoder_args)
     return decoder.decode(syndrome)
 
 
-def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
+def get_decoder(matrix: IntegerArray, **decoder_args: object) -> Decoder:
     """Retrieve a decoder."""
     if constructor := decoder_args.pop("decoder_constructor", None):
         assert callable(constructor)
@@ -88,7 +92,7 @@ def get_decoder(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder
     return get_decoder_BP_OSD(matrix, **decoder_args)
 
 
-def get_decoder_BP_OSD(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
+def get_decoder_BP_OSD(matrix: IntegerArray, **decoder_args: object) -> Decoder:
     """Decoder based on belief propagation with ordered statistics (BP+OSD).
 
     For details about the BD-OSD decoder and its arguments, see:
@@ -100,7 +104,7 @@ def get_decoder_BP_OSD(matrix: npt.NDArray[np.int_], **decoder_args: object) -> 
     return ldpc.BpOsdDecoder(matrix, **decoder_args)
 
 
-def get_decoder_BP_LSD(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
+def get_decoder_BP_LSD(matrix: IntegerArray, **decoder_args: object) -> Decoder:
     """Decoder based on belief propagation with localized statistics (BP+LSD).
 
     For details about the BD-LSD decoder and its arguments, see:
@@ -112,7 +116,7 @@ def get_decoder_BP_LSD(matrix: npt.NDArray[np.int_], **decoder_args: object) -> 
     return ldpc.bplsd_decoder.BpLsdDecoder(matrix, **decoder_args)
 
 
-def get_decoder_BF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Decoder:
+def get_decoder_BF(matrix: IntegerArray, **decoder_args: object) -> Decoder:
     """Decoder based on belief finding (BF).
 
     For details about the BF decoder and its arguments, see:
@@ -127,14 +131,12 @@ def get_decoder_BF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> Deco
     return ldpc.BeliefFindDecoder(matrix, **decoder_args)
 
 
-def get_decoder_MWPM(matrix: npt.NDArray[np.int_], **decoder_args: object) -> BatchDecoder:
+def get_decoder_MWPM(matrix: IntegerArray, **decoder_args: object) -> BatchDecoder:
     """Decoder based on minimum weight perfect matching (MWPM)."""
     return pymatching.Matching.from_check_matrix(matrix, **decoder_args)
 
 
-def get_decoder_RBP(
-    name: object, matrix: npt.NDArray[np.int_], **decoder_args: object
-) -> RelayBPDecoder:
+def get_decoder_RBP(name: object, matrix: IntegerArray, **decoder_args: object) -> RelayBPDecoder:
     """Relay-BP decoders.
 
     For details about Relay-BP decoders, see:
@@ -156,19 +158,19 @@ def get_decoder_RBP(
     return RelayBPDecoder(decoder)
 
 
-def get_decoder_lookup(matrix: npt.NDArray[np.int_], **decoder_args: object) -> LookupDecoder:
+def get_decoder_lookup(matrix: IntegerArray, **decoder_args: object) -> LookupDecoder:
     """Decoder based on a lookup table from errors to syndromes."""
     return LookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
 
 
 def get_decoder_weighted_lookup(
-    matrix: npt.NDArray[np.int_], **decoder_args: object
+    matrix: IntegerArray, **decoder_args: object
 ) -> WeightedLookupDecoder:
     """Decoder based on a lookup table from errors to syndromes."""
     return WeightedLookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
 
 
-def get_decoder_ILP(matrix: npt.NDArray[np.int_], **decoder_args: object) -> ILPDecoder:
+def get_decoder_ILP(matrix: IntegerArray, **decoder_args: object) -> ILPDecoder:
     """Decoder based on solving an integer linear program (ILP).
 
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
@@ -176,6 +178,6 @@ def get_decoder_ILP(matrix: npt.NDArray[np.int_], **decoder_args: object) -> ILP
     return ILPDecoder(matrix, **decoder_args)
 
 
-def get_decoder_GUF(matrix: npt.NDArray[np.int_], **decoder_args: object) -> GUFDecoder:
+def get_decoder_GUF(matrix: IntegerArray, **decoder_args: object) -> GUFDecoder:
     """Decoder based on a generalization of Union-Find, described in arXiv:2103.08049."""
     return GUFDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
