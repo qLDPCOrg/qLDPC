@@ -170,14 +170,8 @@ def get_memory_experiment_parts(
         )
 
     # identify all qubits by index
-    qubit_ids = QubitIDs.from_code(code)
-    data_ids, check_ids, *_ = qubit_ids
-
-    # identify the indices of check qubits that read out basis-type parity checks
-    check_support = code.get_matrix(basis)
-    basis_check_ids = (
-        check_ids[: code.num_checks_x] if basis is Pauli.X else check_ids[code.num_checks_x :]
-    )
+    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    check_ids_xz = qubit_ids.checks_x if basis is Pauli.X else qubit_ids.checks_z
 
     ####################
     # INITIALIZATION
@@ -192,14 +186,14 @@ def get_memory_experiment_parts(
 
     # reset data qubits to appropriate basis
     state_prep = stim.Circuit()
-    state_prep.append(f"R{basis}", data_ids)
+    state_prep.append(f"R{basis}", qubit_ids.data)
 
     ####################
     # QEC CYCLES
     ####################
 
     qec_cycles, measurement_record, detector_record = _get_qec_cycles(
-        code, num_rounds, qubit_ids, basis_check_ids, syndrome_measurement_strategy
+        code, num_rounds, qubit_ids, check_ids_xz, syndrome_measurement_strategy
     )
 
     ####################
@@ -208,11 +202,12 @@ def get_memory_experiment_parts(
 
     # measure out the data qubits
     readout = stim.Circuit()
-    readout.append(f"M{basis}", data_ids)
+    readout.append(f"M{basis}", qubit_ids.data)
     measurement_record.append({data_id: [kk] for kk, data_id in enumerate(qubit_ids.data)})
 
     # detectors for all stabilizers that can be inferred from the data qubit measurements
-    for kk, check_id in enumerate(basis_check_ids):
+    check_support = code.get_matrix(basis)
+    for kk, check_id in enumerate(check_ids_xz):
         data_support = np.where(check_support[kk])[0]
         readout.append(
             "DETECTOR",
@@ -220,7 +215,7 @@ def get_memory_experiment_parts(
             + [measurement_record.get_target_rec(check_id)],
             (num_rounds, 0, kk),
         )
-    detector_record.append({check_id: [kk] for kk, check_id in enumerate(check_ids)})
+    detector_record.append({check_id: [kk] for kk, check_id in enumerate(check_ids_xz)})
 
     # add all basis-type observables
     for kk, observable in enumerate(code.get_logical_ops(basis)):
@@ -335,7 +330,7 @@ def get_memory_simulation_parts(
         )
 
     # identify all qubits by index
-    qubit_ids = QubitIDs.from_code(code)
+    qubit_ids = qubit_ids or QubitIDs.from_code(code)
     data_ids, check_ids, *_ = qubit_ids
     qubit_ids.add_ancilla(code.dimension)
 
