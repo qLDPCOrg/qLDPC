@@ -37,7 +37,7 @@ from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 def get_memory_experiment(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ = Pauli.X,
+    basis: PauliXZ | None = Pauli.X,
     num_rounds: int = 1,
     *,
     noise_model: NoiseModel | None = None,
@@ -53,8 +53,8 @@ def get_memory_experiment(
     (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
 
     If the basis is Pauli.X or Pauli.Z, then the memory experiment only tracks errors in the logical
-    Pauli operators of that type.  If basis is PauliXZ, the circuit entangles the code with a
-    noiseless ancilla to track errors in all logical Pauli operators.
+    Pauli operators of that type.  If basis is None, the circuit entangles the code with a noiseless
+    ancilla to track errors in all logical Pauli operators.
 
     More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
     following:
@@ -66,14 +66,14 @@ def get_memory_experiment(
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
     If a noise_model is provided, then noise is added to all parts of the circuit.
 
-    If basis is PauliXZ, then the memory experiment noiselesly initializes each logical qubit of the
+    If basis is None, then the memory experiment noiselesly initializes each logical qubit of the
     code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
     noisy QEC cycles.  This initialization makes it possible to meaningfully track errors in both
     X-type and Z-type logical operators of a code.  The probability of an error in any logical
     operator is then essentially the process infidelity (or entanglement infidelity) of the noisy QEC
     cycles.
 
-    More specifically, if basis is PauliXZ then the memory experiment performs the following:
+    More specifically, if basis is None then the memory experiment performs the following:
     1. Prepare a logical all-|0> state of the code.
     2. For each logical qubit of the code, prepare an ancilla qubit in |+>, and apply an
         ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
@@ -113,7 +113,7 @@ def get_memory_experiment(
     Args:
         code: An error-correcting code.  Must be a qubit stabilizer (non-subsystem) codes.  If
             passed a classical code, treat it as a quantum CSS code that protects only basis-type
-            logical operators (or X-type logicals, if basis is PauliXZ).
+            logical operators (or X-type logicals, if basis is None).
         basis: Should be Pauli.X, Pauli.Z, or PauliXZ to indicate which type of logical operators to
             track (where "PauliXZ" means "both X and Z").  Default: Pauli.X.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
@@ -164,7 +164,7 @@ def get_memory_experiment(
         readout = noise_model.noisy_circuit(readout)
 
     # if tracking all logical operators, only the QEC cycles are noisy
-    if basis is PauliXZ:
+    if basis is None:
         if noise_model is not None:
             qec_cycles = noise_model.noisy_circuit(qec_cycles)
         else:
@@ -187,7 +187,7 @@ def get_memory_experiment(
 @restrict_to_qubits
 def get_memory_experiment_parts(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ,
+    basis: PauliXZ | None,
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
@@ -215,7 +215,7 @@ def get_memory_experiment_parts(
             "Memory simulations currently only support stabilizer (non-subsystem) codes"
         )
 
-    if basis is PauliXZ:
+    if basis is None:
         return _get_combined_memory_simulation_parts(
             code,
             num_rounds=num_rounds,
