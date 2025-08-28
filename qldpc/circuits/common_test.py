@@ -40,6 +40,7 @@ def test_qubit_ids() -> None:
     qubit_ids.add_ancilla(3)
     assert qubit_ids.ancilla == (9, 10, 11)
 
+    assert qubit_ids == circuits.QubitIDs.validated(qubit_ids, code)
     with pytest.raises(ValueError, match="invalid for the given code"):
         circuits.QubitIDs.validated(circuits.QubitIDs((), (), ()), code)
 

@@ -58,7 +58,7 @@ class QubitIDs:
         """Validate qubit IDs for the given code and return."""
         if (
             len(qubit_ids.data) != len(code)
-            or len(qubit_ids.check) != code.dimension
+            or len(qubit_ids.check) != code.num_checks
             or (
                 isinstance(code, codes.CSSCode)
                 and (
