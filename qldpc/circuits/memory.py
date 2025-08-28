@@ -437,10 +437,10 @@ def _get_qec_cycles(
         repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
-        # make the measurement_record account for repeated measurements
+        # update the measurement and detector records to account for repetitions
         measurement_record.append(cycle_measurement_record, repeat=num_rounds - 2)
-
-        # update the detector record
-        detector_record.append({check_id: [kk] for kk, check_id in enumerate(check_ids)})
+        detector_record.append(
+            {check_id: [kk] for kk, check_id in enumerate(check_ids)}, repeat=num_rounds - 1
+        )
 
     return circuit, measurement_record, detector_record
