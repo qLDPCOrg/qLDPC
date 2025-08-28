@@ -148,11 +148,10 @@ def get_memory_experiment_parts(
 
     Returns:
         initialization: A circuit that sets all qubit coordinates and resets data qubits to the
-            appropriate basis.
-        qec_cycles_and_readout: A circuit of num_rounds QEC cycles followed by data qubit
-            measurements in the specified basis.  Includes detectors for basis-type stabilizers and
-            declares basis-type logical observables.
+            given basis.
+        qec_cycles: A circuit of num_rounds QEC cycles followed by stabilizer measurements.
         measurement_record: A record of the measurements in qec_cycles_and_readout.
+        detector_record: A record of the detectors in qec_cycles_and_readout.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
@@ -322,9 +321,9 @@ def get_memory_simulation_parts(
     Returns:
         initialization: A circuit that sets all qubit coordinates and initializes every logical
             qubit into a Bell pair with its associated ancilla.
-        qec_cycles: A circuit of num_rounds QEC cycles.  Includes detectors for all stabilizers and
-            declares all logical observables.
+        qec_cycles: A circuit of num_rounds QEC cycles followed by stabilizer measurements.
         measurement_record: A record of the measurements in qec_cycles.
+        detector_record: A record of the detectors in qec_cycles.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
     if code.is_subsystem_code:
@@ -413,8 +412,7 @@ def _get_qec_cycles(
     Args:
         code: The code for which we are building QEC cycles.
         num_rounds: The number of QEC cycles in the final circuit.
-        qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
-            labeling qubits by their corresponding column/row of the parity check matrix.
+        qubit_ids: A QubitIDs object specifying the index of data and check qubits.
         check_ids: The check qubits that measure stabilizers to annotate with detectors.  Must be a
             subset of qubit_ids.check.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
