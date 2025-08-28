@@ -207,9 +207,9 @@ def _get_basis_memory_experiment_parts(
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
-    """Noiseless components of a memory experiment that tracks logical operators in a fixed basis.
+    """Components of a memory experiment that tracks logical operators of a fixed type (basis).
 
-    See help(qldpc.circuits.get_memory_experiment_parts) for additional information.
+    See help(qldpc.circuits.get_memory_experiment) for additional information.
     """
     if basis is not Pauli.X and basis is not Pauli.Z:
         raise ValueError(
@@ -293,9 +293,9 @@ def _get_combined_memory_simulation_parts(
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
-    """Noiseless components of a memory experiment tracking all logical operators.
+    """Components of a memory experiment that tracks all logical operators.
 
-    See help(qldpc.circuits.get_memory_experiment_parts) for additional information.
+    See help(qldpc.circuits.get_memory_experiment) for additional information.
     """
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
