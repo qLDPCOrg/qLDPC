@@ -22,7 +22,7 @@ import numpy as np
 import stim
 
 from qldpc import codes
-from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ
+from qldpc.objects import PAULIS_XZ, Literal, Node, Pauli, PauliXZ
 
 from .common import (
     DetectorRecord,
@@ -31,13 +31,13 @@ from .common import (
     get_encoding_circuit,
     restrict_to_qubits,
 )
-from .noise_model import NoiseModel, DEFAULT_IMMUNE_OP_TAG
+from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 
 def get_memory_experiment(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ | None = Pauli.X,
+    basis: PauliXZ | Literal[PauliXZ] = Pauli.X,
     num_rounds: int = 1,
     *,
     noise_model: NoiseModel | None = None,
@@ -53,8 +53,8 @@ def get_memory_experiment(
     (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
 
     If the basis is Pauli.X or Pauli.Z, then the memory experiment only tracks errors in the logical
-    Pauli operators of that type.  If basis is None, the circuit entangles the code with a noiseless
-    ancilla to track errors in all logical Pauli operators.
+    Pauli operators of that type.  If basis is PauliXZ, the circuit entangles the code with a
+    noiseless ancilla to track errors in all logical Pauli operators.
 
     More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
     following:
@@ -66,14 +66,14 @@ def get_memory_experiment(
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
     If a noise_model is provided, then noise is added to all parts of the circuit.
 
-    If basis is None, then the memory experiment noiselesly initializes each logical qubit of the
+    If basis is PauliXZ, then the memory experiment noiselesly initializes each logical qubit of the
     code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
     noisy QEC cycles.  This initialization makes it possible to meaningfully track errors in both
     X-type and Z-type logical operators of a code.  The probability of an error in any logical
     operator is then essentially the process infidelity (or entanglement infidelity) of the noisy QEC
     cycles.
 
-    More specifically, if basis is None then the memory experiment performs the following:
+    More specifically, if basis is PauliXZ then the memory experiment performs the following:
     1. Prepare a logical all-|0> state of the code.
     2. For each logical qubit of the code, prepare an ancilla qubit in |+>, and apply an
         ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
@@ -81,8 +81,9 @@ def get_memory_experiment(
     3. Perform num_rounds QEC cycles as before, but now adding detectors for all stabilizers.
     4. Measure all stabilizers (with MPP gates).
     If a noise_model is provided, then noise is added to the QEC cycles alone.  Otherwise, the
-    initialization and readout sub-circuits are tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate
-    that they should be immune to noise.
+    initialization and readout sub-circuits are wrapped in a single-repetition
+    stim.CircuitRepeatBlock tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate that these
+    sub-circuits should be immune to noise.
 
     Remembering that observables in Stim are formally detectors, or circuit-level parity checks that
     must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
@@ -109,9 +110,9 @@ def get_memory_experiment(
     Args:
         code: An error-correcting code.  Must be a qubit stabilizer (non-subsystem) codes.  If
             passed a classical code, treat it as a quantum CSS code that protects only basis-type
-            logical operators (or X-type logicals, if basis is None).
-        basis: Should be Pauli.X, Pauli.Z, or None to indicate which type of logical operators to
-            track (where "None" means "both X and Z").  Default: Pauli.X.
+            logical operators (or X-type logicals, if basis is PauliXZ).
+        basis: Should be Pauli.X, Pauli.Z, or PauliXZ to indicate which type of logical operators to
+            track (where "PauliXZ" means "both X and Z").  Default: Pauli.X.
         num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
@@ -153,15 +154,18 @@ def get_memory_experiment(
         syndrome_measurement_strategy=syndrome_measurement_strategy,
     )
 
-    if basis is not None and noise_model is not None:
+    # add noise to all parts of an experiment with a fixed basis
+    if basis is not PauliXZ and noise_model is not None:
         initialization = noise_model.noisy_circuit(initialization)
         qec_cycles = noise_model.noisy_circuit(qec_cycles)
         readout = noise_model.noisy_circuit(readout)
 
-    if basis is None:
+    # if tracking all logical operators, only the QEC cycles are noisy
+    if basis is PauliXZ:
         if noise_model is not None:
             qec_cycles = noise_model.noisy_circuit(qec_cycles)
         else:
+            # noise will be added later, so annotate initialization and readout as noiseless
             initialization = stim.Circuit(
                 stim.CircuitRepeatBlock(
                     repeat_count=1, body=initialization, tag=DEFAULT_IMMUNE_OP_TAG
@@ -177,7 +181,7 @@ def get_memory_experiment(
 @restrict_to_qubits
 def get_memory_experiment_parts(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ | None = Pauli.X,
+    basis: PauliXZ | Literal[PauliXZ],
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
@@ -205,16 +209,16 @@ def get_memory_experiment_parts(
             "Memory simulations currently only support stabilizer (non-subsystem) codes"
         )
 
-    if basis is not None:
-        return _get_basis_memory_experiment_parts(
+    if basis is PauliXZ:
+        return _get_combined_memory_simulation_parts(
             code,
-            basis=basis,
             num_rounds=num_rounds,
             qubit_ids=qubit_ids,
             syndrome_measurement_strategy=syndrome_measurement_strategy,
         )
-    return _get_combined_memory_simulation_parts(
+    return _get_basis_memory_experiment_parts(
         code,
+        basis=basis,
         num_rounds=num_rounds,
         qubit_ids=qubit_ids,
         syndrome_measurement_strategy=syndrome_measurement_strategy,
@@ -269,7 +273,7 @@ def _get_basis_memory_experiment_parts(
     )
 
     ####################
-    # READOUT
+    # DATA QUBIT READOUT
     ####################
 
     # measure out the data qubits
@@ -379,7 +383,7 @@ def _get_combined_memory_simulation_parts(
     )
 
     ####################
-    # READOUT
+    # STABILIZER READOUT
     ####################
 
     # TODO: measure stabilizers
