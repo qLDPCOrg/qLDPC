@@ -24,24 +24,30 @@ import itertools
 import random
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Iterator, TypeVar, cast
+from typing import Any, Iterator, cast
 
 import galois
 import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import scipy.linalg
+import scipy.sparse
 import scipy.special
 import stim
 
 from qldpc import abstract, decoders, external
 from qldpc.abstract import DEFAULT_FIELD_ORDER
-from qldpc.math import first_nonzero_cols, log_choose, op_to_string, symplectic_conjugate
+from qldpc.math import (
+    IntegerArray,
+    first_nonzero_cols,
+    log_choose,
+    op_to_string,
+    symplectic_conjugate,
+)
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
 from .distance import get_distance_classical, get_distance_quantum
 
-IntegerArray = TypeVar("IntegerArray", npt.NDArray[np.int_], galois.FieldArray)
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
 
@@ -113,7 +119,10 @@ class AbstractCode(abc.ABC):
                 matrix.todense() if scipy.sparse.issparse(matrix) else np.asarray(matrix, dtype=int)
             )
             self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
-            self._matrix = np.asarray(matrix, dtype=int).view(self.field)
+            self._matrix = np.asarray(
+                matrix.todense() if scipy.sparse.issparse(matrix) else matrix,  # type:ignore[union-attr,attr-defined]
+                dtype=int,
+            ).view(self.field)
 
     @property
     def name(self) -> str:

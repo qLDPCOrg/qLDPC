@@ -116,8 +116,6 @@ class LookupDecoder(Decoder):
 
         Errors are sorted in decreasing weight (number of bits/qudits addressed nontrivially).
         """
-        matrix = np.asanyarray(matrix)
-
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else symplectic_conjugate(code.matrix)
 
