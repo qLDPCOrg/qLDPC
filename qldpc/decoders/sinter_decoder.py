@@ -144,7 +144,7 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
         )
 
 
-class SinterSegmentDecoder(SinterDecoder):
+class SegmentSinterDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
     This decoder splits a detector error model into independent decoding problems, or segments,
@@ -206,12 +206,12 @@ class SinterSegmentDecoder(SinterDecoder):
         compiled_decoders = [
             SinterDecoder.compile_decoder_for_dem(self, segment_dem) for segment_dem in segment_dems
         ]
-        return CompiledSinterSegmentDecoder(
+        return CompiledSegmentSinterDecoder(
             self.segment_detectors, self.segment_observables, compiled_decoders
         )
 
 
-class CompiledSinterSegmentDecoder(CompiledSinterDecoder):
+class CompiledSegmentSinterDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     This decoder splits a syndrome into "X" and "Z" sectors for the first and second half of the

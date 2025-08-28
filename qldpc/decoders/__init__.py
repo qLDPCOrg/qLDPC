@@ -23,10 +23,10 @@ from .decoders import (
 )
 from .dem_arrays import DetectorErrorModelArrays
 from .sinter_decoder import (
+    CompiledSegmentSinterDecoder,
     CompiledSinterDecoder,
-    CompiledSinterSegmentDecoder,
+    SegmentSinterDecoder,
     SinterDecoder,
-    SinterSegmentDecoder,
 )
 
 __all__ = [
@@ -50,8 +50,8 @@ __all__ = [
     "get_decoder_MWPM",
     "get_decoder_RBP",
     "DetectorErrorModelArrays",
+    "CompiledSegmentSinterDecoder",
     "CompiledSinterDecoder",
-    "CompiledSinterSegmentDecoder",
-    "SinterSegmentDecoder",
+    "SegmentSinterDecoder",
     "SinterDecoder",
 ]
