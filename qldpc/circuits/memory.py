@@ -386,8 +386,26 @@ def _get_combined_memory_simulation_parts(
     # STABILIZER READOUT
     ####################
 
-    # TODO: measure stabilizers
+    # measure all stabilizers
     readout = stim.Circuit()
+    for check_index, check_id in enumerate(qubit_ids.check):
+        check_node = Node(check_index, is_data=False)
+        targets = [
+            f"{edge_data[Pauli]}{data_node.index}"
+            for _, data_node, edge_data in code.graph.edges(check_node, data=True)
+        ]
+        joined_targets = "*".join(targets)
+        readout.append(stim.CircuitInstruction(f"MPP {joined_targets}"))
+
+    # update measurement record, add detectors, and update detector record
+    measurement_record.append({qubit: [num] for num, qubit in enumerate(qubit_ids.check)})
+    for kk, check_id in enumerate(qubit_ids.check):
+        targets = [
+            measurement_record.get_target_rec(check_id, -1),
+            measurement_record.get_target_rec(check_id, -2),
+        ]
+        readout.append("DETECTOR", targets, (num_rounds, 0, kk))
+    detector_record.append({qubit: [num] for num, qubit in enumerate(qubit_ids.check)})
 
     return (
         coordinates + state_prep + observables,
