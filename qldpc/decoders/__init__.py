@@ -24,9 +24,9 @@ from .decoders import (
 from .dem_arrays import DetectorErrorModelArrays
 from .sinter_decoder import (
     CompiledSinterDecoder,
-    CompiledSinterDecoderXZ,
+    CompiledSinterSegmentDecoder,
     SinterDecoder,
-    SinterDecoderXZ,
+    SinterSegmentDecoder,
 )
 
 __all__ = [
@@ -51,7 +51,7 @@ __all__ = [
     "get_decoder_RBP",
     "DetectorErrorModelArrays",
     "CompiledSinterDecoder",
-    "CompiledSinterDecoderXZ",
+    "CompiledSinterSegmentDecoder",
+    "SinterSegmentDecoder",
     "SinterDecoder",
-    "SinterDecoderXZ",
 ]

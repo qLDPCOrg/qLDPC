@@ -17,6 +17,8 @@ limitations under the License.
 
 from __future__ import annotations
 
+import functools
+import operator
 from collections.abc import Collection
 
 import numpy as np
@@ -98,16 +100,6 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
         self.decoder = decoder
         self.num_detectors = self.dem_arrays.num_detectors
 
-    def packbits(self, data: npt.NDArray[np.uint8], axis: int = 1) -> npt.NDArray[np.uint8]:
-        """Pack the data along an axis."""
-        return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
-
-    def unpackbits(self, data: npt.NDArray[np.uint8], axis: int = 1) -> npt.NDArray[np.uint8]:
-        """Unpack the data along an axis."""
-        return np.unpackbits(
-            np.asarray(data, dtype=np.uint8), count=self.num_detectors, bitorder="little", axis=axis
-        )
-
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
@@ -115,44 +107,65 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        syndromes = self.unpackbits(bit_packed_detection_event_data)
+        detection_event_data = self.unpack_detection_event_data(bit_packed_detection_event_data)
+        observable_flips = self.decode_shots(detection_event_data)
+        return self.packbits(observable_flips)
+
+    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        """Predicts observable flips from the given detection events.
+
+        See help(sinter.CompiledDecoder) for additional information.
+        """
         if hasattr(self.decoder, "decode_batch"):
-            predicted_errors_T = self.decoder.decode_batch(syndromes)
+            predicted_errors_T = self.decoder.decode_batch(detection_event_data)
             observable_flips = predicted_errors_T @ self.dem_arrays.observable_flip_matrix.T % 2
         else:
             observable_flips = []
-            for syndrome in syndromes:
+            for syndrome in detection_event_data:
                 predicted_errors = self.decoder.decode(syndrome)
                 observable_flips.append(
                     self.dem_arrays.observable_flip_matrix @ predicted_errors % 2
                 )
-        return self.packbits(observable_flips)
+        return observable_flips
+
+    def packbits(self, data: npt.NDArray[np.uint8], axis: int = 1) -> npt.NDArray[np.uint8]:
+        """Pack the data along an axis."""
+        return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
+
+    def unpack_detection_event_data(
+        self, bit_packed_detection_event_data: npt.NDArray[np.uint8], axis: int = 1
+    ) -> npt.NDArray[np.uint8]:
+        """Unpack the data along an axis."""
+        return np.unpackbits(
+            np.asarray(bit_packed_detection_event_data, dtype=np.uint8),
+            count=self.num_detectors,
+            bitorder="little",
+            axis=axis,
+        )
 
 
-class SinterDecoderXZ(SinterDecoder):
-    """Decoder usable by Sinter for decoding circuit errors that split into X and Z sectors.
+class SinterSegmentDecoder(SinterDecoder):
+    """Decoder usable by Sinter for decoding circuit errors.
 
-    This decoder splits the detector error model of a circuit into two subsets of detectors whose
-    syndromes are decoded independently to infer the errors of the first and second half of the
-    annotated observables in a circuit, which are suggestively referred to as X and Z observables.
+    This decoder splits a detector error model into independent decoding problems, or segments,
+    defined by subsets of detectors and observables in a detector error model.  This is useful, for
+    example, for independently decoding the X and Z sectors of a CSS code.
     """
 
     def __init__(
         self,
-        detectors_x: Collection[int],
-        detectors_z: Collection[int],
-        *,
+        *detectors_and_observables: tuple[Collection[int], Collection[int]],
         priors_arg: str | None = None,
         log_likelihood_priors: bool = False,
         **decoder_kwargs: object,
     ) -> None:
-        """Initialize a SinterDecoder to independently decode two sectors of a detector error model.
+        """Initialize a SinterDecoder to independently decode subsets of detectors and observables.
 
         See help(sinter.Decoder) for additional information.
 
         Args:
-            detectors_x: Detectors used to correct the X observables.
-            detectors_z: Detectors used to correct the Z observables.
+            *detectors_and_observables: Tuples of detector indices and associated observable indices
+                that define the segments to decode independently.
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -161,8 +174,10 @@ class SinterDecoderXZ(SinterDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.detectors_x = sorted(detectors_x)
-        self.detectors_z = sorted(detectors_z)
+        self.detectors_and_observables = [
+            (list(detectors), list(observables))
+            for detectors, observables in detectors_and_observables
+        ]
         SinterDecoder.__init__(
             self,
             priors_arg=priors_arg,
@@ -176,38 +191,30 @@ class SinterDecoderXZ(SinterDecoder):
         See help(sinter.Decoder) for additional information.
         """
         dem_arrays = DetectorErrorModelArrays(dem)
-        num_observables = dem_arrays.observable_flip_matrix.shape[0]
-        if num_observables % 2:
-            raise ValueError(
-                "SinterDecoderXZ only handles detector error models with an even number of"
-                f" observables (provided: {num_observables})"
+        segment_dems = [
+            DetectorErrorModelArrays.from_arrays(
+                dem_arrays.detector_flip_matrix[detectors, :],
+                dem_arrays.observable_flip_matrix[observables, :],
+                dem_arrays.error_probs,
             )
-
-        detector_flip_matrix = dem_arrays.detector_flip_matrix
-        observable_flip_matrix = dem_arrays.observable_flip_matrix
-        error_probs = dem_arrays.error_probs
-
-        # build separate detector error models for the X and Z sectors
-        detector_flip_matrix_x = detector_flip_matrix[self.detectors_x, :]
-        detector_flip_matrix_z = detector_flip_matrix[self.detectors_z, :]
-        observable_flip_matrix_x = observable_flip_matrix[: num_observables // 2, :]
-        observable_flip_matrix_z = observable_flip_matrix[num_observables // 2 :, :]
-        dem_x = DetectorErrorModelArrays.from_arrays(
-            detector_flip_matrix_x, observable_flip_matrix_x, error_probs
-        ).to_detector_error_model()
-        dem_z = DetectorErrorModelArrays.from_arrays(
-            detector_flip_matrix_z, observable_flip_matrix_z, error_probs
-        ).to_detector_error_model()
-
-        # construct and combine compiled sinter decoders
-        compiled_decoder_x = SinterDecoder.compile_decoder_for_dem(self, dem_x)
-        compiled_decoder_z = SinterDecoder.compile_decoder_for_dem(self, dem_z)
-        return CompiledSinterDecoderXZ(
-            self.detectors_x, self.detectors_z, compiled_decoder_x, compiled_decoder_z
+            .simplify()
+            .to_detector_error_model()
+            for detectors, observables in self.detectors_and_observables
+        ]
+        compiled_decoders = [
+            SinterDecoder.compile_decoder_for_dem(self, segment_dem) for segment_dem in segment_dems
+        ]
+        return CompiledSinterSegmentDecoder(
+            *[
+                (detectors, observables, decoder)
+                for (detectors, observables), decoder in zip(
+                    self.detectors_and_observables, compiled_decoders
+                )
+            ]
         )
 
 
-class CompiledSinterDecoderXZ(CompiledSinterDecoder):
+class CompiledSinterSegmentDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     This decoder splits a syndrome into "X" and "Z" sectors for the first and second half of the
@@ -216,19 +223,18 @@ class CompiledSinterDecoderXZ(CompiledSinterDecoder):
 
     def __init__(
         self,
-        detectors_x: list[int],
-        detectors_z: list[int],
-        compiled_decoder_x: sinter.CompiledDecoder,
-        compiled_decoder_z: sinter.CompiledDecoder,
+        *detectors_observables_decoders: tuple[list[int], list[int], CompiledSinterDecoder],
     ) -> None:
-        self.detectors_x = detectors_x
-        self.detectors_z = detectors_z
-        self.compiled_decoder_x = compiled_decoder_x
-        self.compiled_decoder_z = compiled_decoder_z
+        self.segment_detectors, self.segment_observables, self.segment_decoders = zip(
+            *detectors_observables_decoders
+        )
+        self.num_detectors = sum(
+            decoder.dem_arrays.num_detectors for decoder in self.segment_decoders
+        )
 
-        self.num_detectors_x = self.compiled_decoder_x.dem_arrays.num_detectors
-        self.num_detectors_z = self.compiled_decoder_z.dem_arrays.num_detectors
-        self.num_detectors = self.num_detectors_x + self.num_detectors_z
+        self.permutation_to_sort_observables = np.argsort(
+            functools.reduce(operator.add, self.segment_observables)
+        )
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -237,18 +243,26 @@ class CompiledSinterDecoderXZ(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        # unpack the syndrome, split into X and Z sectors, and repack
-        syndromes = self.unpackbits(bit_packed_detection_event_data)
-        syndromes_x = self.compiled_decoder_x.packbits(syndromes.T[self.detectors_x].T)
-        syndromes_z = self.compiled_decoder_z.packbits(syndromes.T[self.detectors_z].T)
+        detection_event_data = self.unpack_detection_event_data(bit_packed_detection_event_data)
+        observable_flips = self.decode_shots(detection_event_data)
+        return self.packbits(observable_flips)
 
-        # decode X and Z syndromes independently
-        observable_flips_x = self.compiled_decoder_x.decode_shots_bit_packed(syndromes_x)
-        observable_flips_z = self.compiled_decoder_z.decode_shots_bit_packed(syndromes_z)
+    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        """Predicts observable flips from the given detection events.
 
-        # unpack the predicted observable flips, combine them, and repack
-        observable_flips = [
-            self.compiled_decoder_x.unpackbits(observable_flips_x),
-            self.compiled_decoder_x.unpackbits(observable_flips_z),
+        See help(sinter.CompiledDecoder) for additional information.
+        """
+        # split detection event data into syndromes in each segment
+        syndromes = [
+            detection_event_data.T[detectors].T
+            for detectors, decoder in zip(self.segment_detectors, self.segment_decoders)
         ]
-        return self.packbits(np.hstack(observable_flips))
+
+        # decode segments independently
+        observable_flips = [
+            decoder.decode_shots(segment_syndromes)
+            for segment_syndromes, decoder in zip(syndromes, self.segment_decoders)
+        ]
+
+        # stack observable flips and permute observables appropriately
+        return np.hstack(observable_flips).T[self.permutation_to_sort_observables].T

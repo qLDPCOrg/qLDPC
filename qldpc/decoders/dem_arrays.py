@@ -143,6 +143,10 @@ class DetectorErrorModelArrays:
             dem += stim.DetectorErrorModel(f"error({prob}) {detectors} {observables}")
         return dem
 
+    def simplify(self) -> DetectorErrorModelArrays:
+        """Simplify this DetectorErrorModelArrays object by merging errors."""
+        return DetectorErrorModelArrays(self.to_detector_error_model())
+
 
 def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
     """Subset of items that occur an odd number of times."""
