@@ -31,7 +31,7 @@ from .common import (
     get_encoding_circuit,
     restrict_to_qubits,
 )
-from .noise_model import NoiseModel
+from .noise_model import NoiseModel, DEFAULT_IMMUNE_OP_TAG
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 
@@ -44,7 +44,7 @@ def get_memory_experiment(
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
 ) -> stim.Circuit:
-    """Construct a circuit for testing the performance of a code as a quantum memory.
+    f"""Construct a circuit for testing the performance of a code as a quantum memory.
 
     In a nutshell, the circuit constructed by this method performs (generally multiple) rounds
     quantum error correction (QEC) for the given code.  Each round of QEC round, or QEC cycle,
@@ -64,6 +64,7 @@ def get_memory_experiment(
         stabilizers have not changed between adjacent QEC cycles.
     4. Measure all data qubits in the specified basis.
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
+    If a noise_model is provided, then noise is added to all parts of the circuit.
 
     If basis is None, then the memory experiment noiselesly initializes each logical qubit of the
     code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
@@ -73,12 +74,15 @@ def get_memory_experiment(
     cycles.
 
     More specifically, if basis is None then the memory experiment performs the following:
-    1. Noiselessly prepare a logical all-|0> state of the code.
-    2. For each logical qubit of the code, noiselessly prepare an ancilla qubit in |+>, and apply an
+    1. Prepare a logical all-|0> state of the code.
+    2. For each logical qubit of the code, prepare an ancilla qubit in |+>, and apply an
         ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
         |00> + |11> of logical qubits with their respective ancillas.
-    3. Perform num_rounds noisy QEC cycles as before, but now adding detectors for all stabilizers.
-    4. [READOUT] ...
+    3. Perform num_rounds QEC cycles as before, but now adding detectors for all stabilizers.
+    4. Measure all stabilizers (with MPP gates).
+    If a noise_model is provided, then noise is added to the QEC cycles alone.  Otherwise, the
+    initialization and readout sub-circuits are tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate
+    that they should be immune to noise.
 
     Remembering that observables in Stim are formally detectors, or circuit-level parity checks that
     must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
@@ -148,7 +152,25 @@ def get_memory_experiment(
         qubit_ids=qubit_ids,
         syndrome_measurement_strategy=syndrome_measurement_strategy,
     )
-    qec_cycles = noise_model.noisy_circuit(qec_cycles) if noise_model is not None else qec_cycles
+
+    if basis is not None and noise_model is not None:
+        initialization = noise_model.noisy_circuit(initialization)
+        qec_cycles = noise_model.noisy_circuit(qec_cycles)
+        readout = noise_model.noisy_circuit(readout)
+
+    if basis is None:
+        if noise_model is not None:
+            qec_cycles = noise_model.noisy_circuit(qec_cycles)
+        else:
+            initialization = stim.Circuit(
+                stim.CircuitRepeatBlock(
+                    repeat_count=1, body=initialization, tag=DEFAULT_IMMUNE_OP_TAG
+                )
+            )
+            readout = stim.Circuit(
+                stim.CircuitRepeatBlock(repeat_count=1, body=readout, tag=DEFAULT_IMMUNE_OP_TAG)
+            )
+
     return initialization + qec_cycles + readout
 
 
@@ -247,7 +269,7 @@ def _get_basis_memory_experiment_parts(
     )
 
     ####################
-    # DATA QUBIT READOUT
+    # READOUT
     ####################
 
     # measure out the data qubits
@@ -334,14 +356,6 @@ def _get_combined_memory_simulation_parts(
             state_prep.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
 
     ####################
-    # QEC CYCLES
-    ####################
-
-    qec_cycles, measurement_record, detector_record = _get_qec_cycles(
-        code, num_rounds, qubit_ids, qubit_ids.check, syndrome_measurement_strategy
-    )
-
-    ####################
     # OBSERVABLES
     ####################
 
@@ -356,12 +370,25 @@ def _get_combined_memory_simulation_parts(
         ]
         observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
 
+    ####################
+    # QEC CYCLES
+    ####################
+
+    qec_cycles, measurement_record, detector_record = _get_qec_cycles(
+        code, num_rounds, qubit_ids, qubit_ids.check, syndrome_measurement_strategy
+    )
+
+    ####################
+    # READOUT
+    ####################
+
+    # TODO: measure stabilizers
     readout = stim.Circuit()
 
     return (
-        coordinates + state_prep,
-        observables + qec_cycles + observables,
-        readout,
+        coordinates + state_prep + observables,
+        qec_cycles,
+        readout + observables,
         measurement_record,
         detector_record,
         qubit_ids,
