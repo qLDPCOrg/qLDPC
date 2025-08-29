@@ -287,26 +287,28 @@ def _get_basis_memory_experiment_parts(
     # measure out the data qubits
     readout = stim.Circuit()
     readout.append(f"M{basis}", qubit_ids.data)
-    measurement_record.append({data_id: [kk] for kk, data_id in enumerate(qubit_ids.data)})
+    measurement_record.append({data_id: [mm] for mm, data_id in enumerate(qubit_ids.data)})
 
     # detectors for all stabilizers that can be inferred from the data qubit measurements
     check_support = code.get_matrix(basis)
     for kk, check_id in enumerate(basis_check_ids):
         data_support = np.where(check_support[kk])[0]
+        data_ids = [qubit_ids.data[qq] for qq in data_support]
         readout.append(
             "DETECTOR",
-            [measurement_record.get_target_rec(qq) for qq in data_support]
+            [measurement_record.get_target_rec(data_id) for data_id in data_ids]
             + [measurement_record.get_target_rec(check_id)],
             (num_rounds, 0, kk),
         )
-    detector_record.append({check_id: [kk] for kk, check_id in enumerate(basis_check_ids)})
+    detector_record.append({check_id: [dd] for dd, check_id in enumerate(basis_check_ids)})
 
     # add all basis-type observables
     for kk, observable in enumerate(code.get_logical_ops(basis)):
         data_support = np.where(observable)[0]
+        data_ids = [qubit_ids.data[qq] for qq in data_support]
         readout.append(
             "OBSERVABLE_INCLUDE",
-            [measurement_record.get_target_rec(qq) for qq in data_support],
+            [measurement_record.get_target_rec(data_id) for data_id in data_ids],
             kk,
         )
 
@@ -358,14 +360,15 @@ def _get_combined_memory_simulation_parts(
 
     # initialize all logical qubits in |0>, and associated ancilla qubits in |+>
     state_prep = stim.Circuit()
-    state_prep.append(get_encoding_circuit(code, only_zero=True))
+    state_prep.append(get_encoding_circuit(code, only_zero=True))  # TODO: fix data qubit indexing
     state_prep.append("H", qubit_ids.ancilla)
 
     # apply ancilla-controlled-logical-NOT gates to prepare Bell states
     for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
         ancilla_node = Node(logical_qubit_index, is_data=False)
         for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
-            state_prep.append(f"C{edge_data[Pauli]}", [ancilla_id, data_node.index])
+            data_id = qubit_ids.data[data_node.index]
+            state_prep.append(f"C{edge_data[Pauli]}", [ancilla_id, data_id])
 
     ####################
     # OBSERVABLES
@@ -376,11 +379,11 @@ def _get_combined_memory_simulation_parts(
         itertools.product(PAULIS_XZ, range(code.dimension))
     ):
         ancilla_node = Node(logical_qubit_index, is_data=False)
-        qubit_paulis = [
-            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+        targets = [
+            stim.target_pauli(qubit_ids.data[data_node.index], str(edge_data[Pauli]))
             for _, data_node, edge_data in logical_op_graph[pauli].edges(ancilla_node, data=True)
         ]
-        observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
+        observables.append("OBSERVABLE_INCLUDE", targets, [op_index])
 
     ####################
     # QEC CYCLE
@@ -399,21 +402,21 @@ def _get_combined_memory_simulation_parts(
     for check_index, check_id in enumerate(qubit_ids.check):
         check_node = Node(check_index, is_data=False)
         targets = [
-            f"{edge_data[Pauli]}{data_node.index}"
+            f"{edge_data[Pauli]}{qubit_ids.data[data_node.index]}"
             for _, data_node, edge_data in code.graph.edges(check_node, data=True)
         ]
         joined_targets = "*".join(targets)
         readout.append(stim.CircuitInstruction(f"MPP {joined_targets}"))
 
     # update measurement record, add detectors, and update detector record
-    measurement_record.append({qubit: [num] for num, qubit in enumerate(qubit_ids.check)})
+    measurement_record.append({check_id: [mm] for mm, check_id in enumerate(qubit_ids.check)})
     for kk, check_id in enumerate(qubit_ids.check):
         targets = [
             measurement_record.get_target_rec(check_id, -1),
             measurement_record.get_target_rec(check_id, -2),
         ]
         readout.append("DETECTOR", targets, (num_rounds, 0, kk))
-    detector_record.append({qubit: [num] for num, qubit in enumerate(qubit_ids.check)})
+    detector_record.append({check_id: [dd] for dd, check_id in enumerate(qubit_ids.check)})
 
     return (
         coordinates + state_prep + observables,
@@ -459,7 +462,7 @@ def _get_qec_cycle(
     measurement_record.append(cycle_measurement_record)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
-    detector_record.append({check_id: [kk] for kk, check_id in enumerate(check_ids)})
+    detector_record.append({check_id: [dd] for dd, check_id in enumerate(check_ids)})
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
@@ -477,7 +480,7 @@ def _get_qec_cycle(
         # update the measurement and detector records to account for repetitions
         measurement_record.append(cycle_measurement_record, repeat=num_rounds - 2)
         detector_record.append(
-            {check_id: [kk] for kk, check_id in enumerate(check_ids)}, repeat=num_rounds - 1
+            {check_id: [dd] for dd, check_id in enumerate(check_ids)}, repeat=num_rounds - 1
         )
 
     return circuit, measurement_record, detector_record

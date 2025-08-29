@@ -100,7 +100,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
+            {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
         )
         return circuit, measurement_record
 
@@ -123,16 +123,16 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         color_to_ops: dict[int, list[tuple[str, int, int]]] = collections.defaultdict(list)
         for edge, color in coloring.items():
             data_node, check_node = sorted(edge)
-            data_qubit = qubit_ids.data[data_node.index]
-            check_qubit = qubit_ids.check[check_node.index]
+            data_id = qubit_ids.data[data_node.index]
+            check_id = qubit_ids.check[check_node.index]
             pauli = graph[check_node][data_node][Pauli]
-            color_to_ops[color].append((f"C{pauli}", check_qubit, data_qubit))
+            color_to_ops[color].append((f"C{pauli}", check_id, data_id))
 
         # collect all gates into a circuit
         circuit = stim.Circuit()
         for gates in color_to_ops.values():
-            for gate, check_qubit, data_qubit in sorted(gates):
-                circuit.append(gate, [check_qubit, data_qubit])
+            for gate, check_id, data_id in sorted(gates):
+                circuit.append(gate, [check_id, data_id])
         return circuit
 
 
@@ -184,6 +184,6 @@ class EdgeColoringXZ(EdgeColoring):
         circuit.append("MX", qubit_ids.check)
 
         measurement_record = MeasurementRecord(
-            {qubit: [num] for num, qubit in enumerate(qubit_ids.check)}
+            {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
         )
         return circuit, measurement_record
