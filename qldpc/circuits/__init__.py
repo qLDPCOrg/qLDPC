@@ -7,6 +7,7 @@ from .common import (
     get_encoding_circuit,
     get_encoding_tableau,
     get_logical_tableau,
+    with_remapped_qubits,
 )
 from .memory import (
     get_memory_experiment,
@@ -39,6 +40,7 @@ __all__ = [
     "get_encoding_circuit",
     "get_encoding_tableau",
     "get_logical_tableau",
+    "with_remapped_qubits",
     "get_memory_experiment",
     "get_memory_experiment_parts",
     "DepolarizingNoiseModel",

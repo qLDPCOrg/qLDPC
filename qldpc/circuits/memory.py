@@ -30,6 +30,7 @@ from .common import (
     QubitIDs,
     get_encoding_circuit,
     restrict_to_qubits,
+    with_remapped_qubits,
 )
 from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
@@ -359,8 +360,10 @@ def _get_combined_memory_simulation_parts(
         coordinates.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
     # initialize all logical qubits in |0>, and associated ancilla qubits in |+>
-    state_prep = stim.Circuit()
-    state_prep.append(get_encoding_circuit(code, only_zero=True))  # TODO: fix data qubit indexing
+    state_prep = with_remapped_qubits(
+        get_encoding_circuit(code, only_zero=True),
+        qubit_map={qq: data_id for qq, data_id in enumerate(qubit_ids.data)},
+    )
     state_prep.append("H", qubit_ids.ancilla)
 
     # apply ancilla-controlled-logical-NOT gates to prepare Bell states
