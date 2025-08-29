@@ -93,7 +93,11 @@ class SinterDecoder(sinter.Decoder):
 
 
 class CompiledSinterDecoder(sinter.CompiledDecoder):
-    """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit."""
+    """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
+
+    Instances of this class are meant to be constructed by a SinterDecoder, whose
+    .compile_decoder_for_dem method returns a CompiledSinterDecoder.
+    """
 
     def __init__(self, dem_arrays: DetectorErrorModelArrays, decoder: Decoder) -> None:
         self.dem_arrays = dem_arrays
@@ -148,8 +152,8 @@ class SegmentSinterDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
     This decoder splits a detector error model into independent decoding problems, or segments,
-    defined by subsets of detectors and observables in a detector error model.  This is useful, for
-    example, for independently decoding the X and Z sectors of a CSS code.
+    defined by subsets of detectors and observables in a detector error model.  This is useful for
+    independently decoding the X and Z sectors of a CSS code.
     """
 
     def __init__(
@@ -214,8 +218,12 @@ class SegmentSinterDecoder(SinterDecoder):
 class CompiledSegmentSinterDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
-    This decoder splits a syndrome into "X" and "Z" sectors for the first and second half of the
-    observables in a circuit.  See help(SinterDecoderXZ) for additional information.
+    This decoder splits a decoding problem into segments and solves each segment independently.
+    Here a segment is defined by its own subset of detectors, subset of observables, and its own
+    decoder.
+
+    Instances of this class are meant to be constructed by a SegmentSinterDecoder, whose
+    .compile_decoder_for_dem method returns a CompiledSegmentSinterDecoder.
     """
 
     def __init__(

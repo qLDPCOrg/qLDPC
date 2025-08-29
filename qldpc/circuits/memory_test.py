@@ -48,13 +48,13 @@ def test_memory_experiment() -> None:
     assert detectors.shape[1] == circuit.num_detectors == code.num_checks * (num_rounds + 1)
     assert observables.shape[1] == code.dimension * 2
 
-    # we can also ask for a noisy circuit, and inject noise later
+    # we can also ask for a noiseless circuit, and inject noise afterwards
     noiseless_circuit = circuits.get_memory_experiment(code, basis=None, num_rounds=num_rounds)
     dem_1 = circuit.detector_error_model()
     dem_2 = noise_model.noisy_circuit(noiseless_circuit).detector_error_model()
     assert dem_1 == dem_2
 
-    # only Pauli.X and Pauli.Z basis measurements are supported
+    # Pauli.Y basis measurements are not supported
     with pytest.raises(ValueError, match="Pauli.X or Pauli.Z"):
         circuits.get_memory_experiment(rep_code, basis=Pauli.Y)  # type:ignore[arg-type]
 
