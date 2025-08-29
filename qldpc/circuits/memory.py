@@ -47,10 +47,11 @@ def get_memory_experiment(
     f"""Construct a circuit for testing the performance of a code as a quantum memory.
 
     In a nutshell, the circuit constructed by this method performs (generally multiple) rounds
-    quantum error correction (QEC) for the given code.  Each round of QEC round, or QEC cycle,
-    measures all parity checks of the code, and detectors are added to enforce that
-    (a) the syndrome from the first QEC cycle is trivial, and
-    (b) every subsequent QEC cycle yields the same syndrome as the preceding round.
+    quantum error correction (QEC) for the given code.  Each round of QEC measures all parity checks
+    of the code, and detectors are added to enforce that
+    (a) the syndrome from the first round of QEC is trivial, and
+    (b) every subsequent round of QEC yields the same syndrome as the preceding round.
+    We refer to num_rounds rounds of syndrome measurement as one logical QEC cycle.
 
     If the basis is Pauli.X or Pauli.Z, then the memory experiment only tracks errors in the logical
     Pauli operators of that type.  If basis is None, the circuit entangles the code with a noiseless
@@ -59,32 +60,32 @@ def get_memory_experiment(
     More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
     following:
     1. Initialize all data qubits to a +1 eigenstate of the specified basis: |0> for Z, |+> for X.
-    2. Perform an initial QEC cycle, adding detectors for the basis-type stabilizers.
-    3. Perform num_rounds - 1 additional QEC cycles, adding detectors to enforce that basis-type
-        stabilizers have not changed between adjacent QEC cycles.
+    2. Perform an initial round of QEC, adding detectors for the basis-type stabilizers.
+    3. Perform num_rounds - 1 additional QEC rounds, adding detectors to enforce that basis-type
+        stabilizers have not changed between adjacent rounds of QEC.
     4. Measure all data qubits in the specified basis.
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
     If a noise_model is provided, then noise is added to all parts of the circuit.
 
     If basis is None, then the memory experiment noiselesly initializes each logical qubit of the
     code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
-    noisy QEC cycles.  This initialization makes it possible to meaningfully track errors in both
-    X-type and Z-type logical operators of a code.  The probability of an error in any logical
-    operator is then essentially the process infidelity (or entanglement infidelity) of the noisy QEC
-    cycles.
+    a noisy logical QEC cycle.  This initialization makes it possible to meaningfully track errors
+    in both X-type and Z-type logical operators of a code.  The probability of an error in any
+    logical operator is then essentially the process infidelity (or entanglement infidelity) of the
+    logical QEC cycle.
 
     More specifically, if basis is None then the memory experiment performs the following:
     1. Prepare a logical all-|0> state of the code.
     2. For each logical qubit of the code, prepare an ancilla qubit in |+>, and apply an
         ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
         |00> + |11> of logical qubits with their respective ancillas.
-    3. Perform num_rounds QEC cycles as before, but now adding detectors for all stabilizers.
+    3. Perform a logical QEC cycle as before, but now adding detectors for all stabilizers.
     4. Measure all stabilizers (with MPP gates).
     Unlike the fixed-basis experiment, the combined basis experiment only makes sense when starting
     from the Bell state.  It is also no longer possible to measure out all data qubits to infer all
     stabilizers.  Initialization and readout (measuring final stabilizers) are therefore noiseless.
-    If a noise_model is provided, then noise is added to the QEC cycles alone.  Otherwise, the
-    initialization and readout sub-circuits are wrapped in a single-repetition
+    If a noise_model is provided, then noise is added to the logical QEC cycle alone.  Otherwise,
+    the initialization and readout sub-circuits are wrapped in a single-repetition
     stim.CircuitRepeatBlock tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate that these
     sub-circuits should be immune to noise.
 
@@ -99,10 +100,10 @@ def get_memory_experiment(
     ZZ observables described above.  Instead, we recognize that Bell-pair XX and ZZ operators are
     exact stabilizers of the circuit immediately after noiseless initialization, which allows us to
     freely multiply the XX and ZZ operators at the end of the circuit by XX and ZZ operators before
-    the QEC cycles, thereby obtaining two-time XXXX and ZZZZ observables.  The chief (albeit perhaps
-    aesthetic) benefit to this trick is that the support of these observables on the (noiseless)
-    ancilla qubits cancels out, leaving us with two-time logical XX and ZZ observables supported on
-    the data qubits alone.
+    the logical QEC cycle, thereby obtaining two-time XXXX and ZZZZ observables.  The chief (albeit
+    perhaps aesthetic) benefit to this trick is that the support of these observables on the
+    (noiseless) ancilla qubits cancels out, leaving us with two-time logical XX and ZZ observables
+    supported on the data qubits alone.
 
     Qubits and detectors are assigned coordinates as follows:
     - The data qubit addressed by column C of the parity check matrix gets coordinate (0, C).
@@ -116,7 +117,8 @@ def get_memory_experiment(
             logical operators (or X-type logicals, if basis is None).
         basis: Should be Pauli.X, Pauli.Z, or None to indicate which type of logical operators to
             track (where "None" means "both X and Z").  Default: Pauli.X.
-        num_rounds: Total number of QEC cycles to perform.  Must be at least 1.  Default: 1.
+        num_rounds: Total number of round of syndome measurements to perform in a QEC cycle.  Must
+            be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
@@ -149,7 +151,7 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
-    initialization, qec_cycles, readout, *_ = get_memory_experiment_parts(
+    initialization, qec_cycle, readout, *_ = get_memory_experiment_parts(
         code,
         basis=basis,
         num_rounds=num_rounds,
@@ -160,13 +162,13 @@ def get_memory_experiment(
     # add noise to all parts of an experiment with a fixed basis
     if basis is not None and noise_model is not None:
         initialization = noise_model.noisy_circuit(initialization)
-        qec_cycles = noise_model.noisy_circuit(qec_cycles)
+        qec_cycle = noise_model.noisy_circuit(qec_cycle)
         readout = noise_model.noisy_circuit(readout)
 
-    # if tracking all logical operators, only the QEC cycles are noisy
+    # if tracking all logical operators, only the QEC cycle is noisy
     if basis is None:
         if noise_model is not None:
-            qec_cycles = noise_model.noisy_circuit(qec_cycles)
+            qec_cycle = noise_model.noisy_circuit(qec_cycle)
         else:
             # noise will be added later, so annotate initialization and readout as noiseless
             initialization_block = stim.CircuitRepeatBlock(
@@ -181,7 +183,7 @@ def get_memory_experiment(
             readout = stim.Circuit()
             readout.append(readout_block)
 
-    return initialization + qec_cycles + readout
+    return initialization + qec_cycle + readout
 
 
 @restrict_to_qubits
@@ -199,7 +201,7 @@ def get_memory_experiment_parts(
 
     Returns:
         initialization: A circuit that sets the coordinates and initializes the state of data qubits.
-        qec_cycles: A circuit of num_rounds QEC cycles.
+        qec_cycle: A circuit for one QEC cycle, with num_rounds rounds of syndrome measurement.
         readout: A circuit that reads out final stabilizers.
         measurement_record: A record of all measurements in the above circuits.
         detector_record: A record of all detectors in the above circuits.
@@ -271,10 +273,10 @@ def _get_basis_memory_experiment_parts(
     state_prep.append(f"R{basis}", qubit_ids.data)
 
     ####################
-    # QEC CYCLES
+    # QEC CYCLE
     ####################
 
-    qec_cycles, measurement_record, detector_record = _get_qec_cycles(
+    qec_cycle, measurement_record, detector_record = _get_qec_cycle(
         code, num_rounds, qubit_ids, basis_check_ids, syndrome_measurement_strategy
     )
 
@@ -310,7 +312,7 @@ def _get_basis_memory_experiment_parts(
 
     return (
         coordinates + state_prep,
-        qec_cycles,
+        qec_cycle,
         readout,
         measurement_record,
         detector_record,
@@ -381,10 +383,10 @@ def _get_combined_memory_simulation_parts(
         observables.append("OBSERVABLE_INCLUDE", qubit_paulis, [op_index])
 
     ####################
-    # QEC CYCLES
+    # QEC CYCLE
     ####################
 
-    qec_cycles, measurement_record, detector_record = _get_qec_cycles(
+    qec_cycle, measurement_record, detector_record = _get_qec_cycle(
         code, num_rounds, qubit_ids, qubit_ids.check, syndrome_measurement_strategy
     )
 
@@ -415,7 +417,7 @@ def _get_combined_memory_simulation_parts(
 
     return (
         coordinates + state_prep + observables,
-        qec_cycles,
+        qec_cycle,
         readout + observables,
         measurement_record,
         detector_record,
@@ -423,7 +425,7 @@ def _get_combined_memory_simulation_parts(
     )
 
 
-def _get_qec_cycles(
+def _get_qec_cycle(
     code: codes.QuditCode,
     num_rounds: int,
     qubit_ids: QubitIDs,
@@ -446,14 +448,14 @@ def _get_qec_cycles(
         MeasurementRecord: The record of all measurements in the constructed circuit.
         DetectorRecord: The record of all detectors in the constructed circuit.
     """
-    one_cycle, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
+    one_round, cycle_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
 
     circuit = stim.Circuit()
     measurement_record = MeasurementRecord()
     detector_record = DetectorRecord()
 
     # apply first round of QEC and detectors
-    circuit.append(one_cycle)
+    circuit.append(one_round)
     measurement_record.append(cycle_measurement_record)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
@@ -461,7 +463,7 @@ def _get_qec_cycles(
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
-        repeat_circuit = one_cycle.copy()
+        repeat_circuit = one_round.copy()
         measurement_record.append(cycle_measurement_record)
         for kk, check_id in enumerate(check_ids):
             targets = [
