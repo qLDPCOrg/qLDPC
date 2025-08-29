@@ -1,4 +1,4 @@
-"""Tools for constructing miscellaneous useful circuits
+"""Methods for constructing miscellaneous useful circuits
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -252,12 +252,13 @@ def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> s
 
 @restrict_to_qubits
 def get_encoder_and_decoder(
-    code: codes.QuditCode, deformation: stim.Circuit | None = None
+    code: codes.QuditCode, deformation: stim.Circuit | stim.Tableau | None = None
 ) -> tuple[stim.Tableau, stim.Tableau]:
     """Encoder for a code, and decoder either the same code or a deformed code."""
     encoder = get_encoding_tableau(code)
     if deformation is None:
         return encoder, encoder.inverse()
+    deformation = deformation if isinstance(deformation, stim.Circuit) else deformation.to_circuit()
     deformed_code = code.deformed(deformation, preserve_logicals=True)
     decoder = get_encoding_tableau(deformed_code).inverse()
     return encoder, decoder
@@ -265,27 +266,36 @@ def get_encoder_and_decoder(
 
 @restrict_to_qubits
 def get_logical_tableau(
-    code: codes.QuditCode, physical_circuit: stim.Circuit, *, deform_code: bool = False
+    code: codes.QuditCode,
+    physical_circuit_or_tableau: stim.Circuit | stim.Tableau,
+    *,
+    deform_code: bool = False,
 ) -> stim.Tableau:
-    """Identify the logical tableau implemented by the physical circuit.
+    """Identify the logical tableau implemented by the physical circuit or tableau.
 
-    If deform_code is True, then the physical_circuit is required to have two effects, namely
+    If deform_code is True, then the physical circuit is required to have two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+        code.deformed(physical_circuit, preserve_logicals=True)
     """
+    physical_circuit = (
+        physical_circuit_or_tableau
+        if isinstance(physical_circuit_or_tableau, stim.Circuit)
+        else physical_circuit_or_tableau.to_circuit()
+    )
     encoder, decoder = get_encoder_and_decoder(code, physical_circuit if deform_code else None)
-    return get_logical_tableau_from_code_data(
+    return _get_logical_tableau_from_code_data(
         code.dimension, code.gauge_dimension, encoder, decoder, physical_circuit
     )
 
 
-def get_logical_tableau_from_code_data(
+def _get_logical_tableau_from_code_data(
     dimension: int,  # number of logical qubits of a QuditCode
     gauge_dimension: int,  # number of gauge qubits of a QuditCode
     encoder: stim.Tableau,
     decoder: stim.Tableau,
     physical_circuit: stim.Circuit,
+    validate: bool = True,
 ) -> stim.Tableau:
     """Identify the logical tableau implemented by the physical circuit."""
     assert len(encoder) == len(decoder) >= dimension + gauge_dimension
@@ -304,20 +314,21 @@ def get_logical_tableau_from_code_data(
         z_signs=z_signs[:dimension],
     )
 
-    # identify sectors that address logical, gauge, and stabilizer qubits
-    sector_l = slice(dimension)
-    sector_g = slice(dimension, dimension + gauge_dimension)
-    sector_s = slice(dimension + gauge_dimension, len(encoder))
+    if validate:
+        # identify sectors that address logical, gauge, and stabilizer qubits
+        sector_l = slice(dimension)
+        sector_g = slice(dimension, dimension + gauge_dimension)
+        sector_s = slice(dimension + gauge_dimension, len(encoder))
 
-    # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
-    assert not np.any(z2x[:, sector_s])
-    assert not np.any(x2x[sector_l, sector_s])
-    assert not np.any(x2x[sector_g, sector_s])
+        # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
+        assert not np.any(z2x[:, sector_s])
+        assert not np.any(x2x[sector_l, sector_s])
+        assert not np.any(x2x[sector_g, sector_s])
 
-    # sanity check: gauge operators should not pick up logical factors
-    assert not np.any(x2x[sector_g, sector_l])
-    assert not np.any(x2z[sector_g, sector_l])
-    assert not np.any(z2x[sector_g, sector_l])
-    assert not np.any(z2z[sector_g, sector_l])
+        # sanity check: gauge operators should not pick up logical factors
+        assert not np.any(x2x[sector_g, sector_l])
+        assert not np.any(x2z[sector_g, sector_l])
+        assert not np.any(z2x[sector_g, sector_l])
+        assert not np.any(z2z[sector_g, sector_l])
 
     return logical_tableau

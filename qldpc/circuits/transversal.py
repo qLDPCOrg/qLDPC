@@ -27,7 +27,7 @@ from qldpc import abstract, cache, codes
 from qldpc.math import op_to_string, symplectic_conjugate
 from qldpc.objects import Pauli
 
-from .common import get_encoder_and_decoder, get_logical_tableau_from_code_data, restrict_to_qubits
+from .common import _get_logical_tableau_from_code_data, get_encoder_and_decoder, restrict_to_qubits
 
 
 @restrict_to_qubits
@@ -90,7 +90,7 @@ def get_transversal_automorphism_group(
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
-    local_gates = _standardize_local_gates(local_gates)
+    local_gates = _validate_local_gates(local_gates)
     allow_swaps = "SWAP" in local_gates
     local_gates.discard("SWAP")
 
@@ -327,15 +327,15 @@ def _get_transversal_automorphism_data(
     physical_circuit = _get_pauli_circuit(correction) + physical_circuit
 
     # identify the logical tableau implemented by the physical circuit
-    logical_tableau = get_logical_tableau_from_code_data(
+    logical_tableau = _get_logical_tableau_from_code_data(
         code.dimension, code.gauge_dimension, encoder, decoder, physical_circuit
     )
 
     return logical_tableau, physical_circuit
 
 
-def _standardize_local_gates(local_gates: Collection[str]) -> set[str]:
-    """Standardize a local Clifford gate set."""
+def _validate_local_gates(local_gates: Collection[str]) -> set[str]:
+    """Verify that the provided collection of local gates is supported."""
     allowed_gates = {"S", "H", "SQRT_X", "SWAP"}
     if not allowed_gates.issuperset(local_gates):
         raise ValueError(
@@ -362,7 +362,7 @@ def _get_pauli_permutation_circuit(
     local_gates: Collection[str],
 ) -> stim.Circuit:
     """Construct the circuit of local Pauli permutations applied by a transversal automorphism."""
-    local_gates = _standardize_local_gates(local_gates)
+    local_gates = _validate_local_gates(local_gates)
     local_gates.discard("SWAP")
 
     circuit = stim.Circuit()
