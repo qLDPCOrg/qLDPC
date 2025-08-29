@@ -44,47 +44,49 @@ class QubitIDs:
     checks_x: tuple[int, ...] = ()
     checks_z: tuple[int, ...] = ()
 
-    @staticmethod
-    def from_code(code: codes.QuditCode) -> QubitIDs:
-        """Initialize from an error-correcting code with specific parity checks."""
-        data = tuple(range(len(code)))
-        check = tuple(range(len(code), len(code) + code.num_checks))
-        checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else ()
-        checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else ()
-        return QubitIDs(data, check, (), checks_x, checks_z)
-
-    @staticmethod
-    def validated(qubit_ids: QubitIDs, code: codes.QuditCode) -> QubitIDs:
-        """Validate qubit IDs for the given code and return."""
-        if (
-            len(qubit_ids.data) != len(code)
-            or len(qubit_ids.check) != code.num_checks
-            or (
-                isinstance(code, codes.CSSCode)
-                and (
-                    len(qubit_ids.checks_x) != code.num_checks_x
-                    or len(qubit_ids.checks_z) != code.num_checks_z
-                )
-            )
-        ):
-            raise ValueError("Qubit IDs are invalid for the given code")
-        return qubit_ids
+    def __init__(
+        self, data: Sequence[int], check: Sequence[int], ancilla: Sequence[int] = ()
+    ) -> None:
+        self.data = tuple(data)
+        self.check = tuple(check)
+        self.ancilla = tuple(ancilla)
 
     def __iter__(self) -> Iterator[tuple[int, ...]]:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
         yield from (self.data, self.check, self.ancilla)
 
-    def add_ancilla(self, number: int = 1) -> None:
-        """Add (one or more) ancilla qubits."""
-        start = max(itertools.chain(*self)) + 1
-        self.ancilla += tuple(range(start, start + number))
+    @staticmethod
+    def from_code(code: codes.QuditCode) -> QubitIDs:
+        """Initialize from an error-correcting code with specific parity checks."""
+        data = tuple(range(len(code)))
+        check = tuple(range(len(code), len(code) + code.num_checks))
+        qubit_ids = QubitIDs(data, check)
+        qubit_ids.checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else ()
+        qubit_ids.checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else ()
+        return qubit_ids
+
+    @staticmethod
+    def validated(qubit_ids: QubitIDs, code: codes.QuditCode) -> QubitIDs:
+        """Validate qubit IDs for the given code and return."""
+        if len(qubit_ids.data) != len(code) or len(qubit_ids.check) != code.num_checks:
+            raise ValueError("Qubit IDs are invalid for the given code")
+        if isinstance(code, codes.CSSCode):
+            qubit_ids.checks_x = tuple(qubit_ids.check[: code.num_checks_x])
+            qubit_ids.checks_z = tuple(qubit_ids.check[code.num_checks_x :])
+        return qubit_ids
+
+    def add_ancillas(self, number: int) -> None:
+        """Add ancilla qubits."""
+        if number > 0:
+            start = max(itertools.chain(*self)) + 1
+            self.ancilla += tuple(range(start, start + number))
 
 
 class Record:
     """An organized record of events in a Stim circuit.
 
-    This record assumes that the events it keeps track of (such as measurements or detectors) are
     indexed from zero.  The record is essentially a dictionary that maps some key (such as a qubit
+    This record assumes that the events it keeps track of (such as measurements or detectors) are
     index) to an ordered list of the events associated with that key.
 
     Record is subclassed by MeasurementRecord to keep track of measurements in a circuit, and

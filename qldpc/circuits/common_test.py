@@ -31,15 +31,18 @@ from qldpc.objects import Pauli
 
 def test_qubit_ids() -> None:
     """Default qubit indices."""
-    code = codes.FiveQubitCode()
+    code = codes.SteaneCode()
     qubit_ids = circuits.QubitIDs.from_code(code)
     data_ids, check_ids, ancilla_ids = qubit_ids
     assert data_ids == tuple(range(len(code)))
     assert check_ids == tuple(range(len(code), len(code) + code.num_checks))
     assert not ancilla_ids
 
-    qubit_ids.add_ancilla(3)
-    assert qubit_ids.ancilla == (9, 10, 11)
+    num_ancillas = 3
+    qubit_ids.add_ancillas(num_ancillas)
+    assert qubit_ids.ancilla == tuple(
+        range(len(code) + code.num_checks, len(code) + code.num_checks + num_ancillas)
+    )
 
     assert qubit_ids == circuits.QubitIDs.validated(qubit_ids, code)
     with pytest.raises(ValueError, match="invalid for the given code"):

@@ -15,6 +15,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import random
+
 import pytest
 
 from qldpc import circuits, codes
@@ -63,3 +65,38 @@ def test_memory_experiment() -> None:
         circuits.get_memory_experiment(codes.BaconShorCode(2))
     with pytest.raises(ValueError, match=r"only support CSS codes"):
         circuits.get_memory_experiment(codes.FiveQubitCode())
+
+
+def test_qubit_ids(pytestconfig: pytest.Config) -> None:
+    """We can construct memory experiments with different qubit IDs."""
+    random.seed(pytestconfig.getoption("randomly_seed"))
+
+    # pick a code, a number of "extra" unused qubits, and a number of QEC rounds
+    code = codes.SurfaceCode(2, rotated=True, field=2)
+    num_unused_qubits = 3
+    num_qec_rounds = 3
+
+    # assign random qubit indices
+    qubits = list(range(len(code) + code.num_checks + code.dimension + num_unused_qubits))
+    random.shuffle(qubits)
+    qubit_ids = circuits.QubitIDs(
+        data=qubits[: len(code)],
+        check=qubits[len(code) : len(code) + code.num_checks],
+        ancilla=qubits[len(code) + code.num_checks :],
+    )
+
+    for basis in [Pauli.X, Pauli.Z, None]:
+        # produce a memory experiment with the requested qubit IDs
+        init, cycle, readout, *_, qubit_ids = circuits.get_memory_experiment_parts(
+            code, basis=basis, num_rounds=num_qec_rounds, qubit_ids=qubit_ids
+        )
+        circuit_a = init + cycle + readout
+
+        # produces a memory experiment with the default qubit IDs and remap manually
+        qubit_map = qubit_ids.data + qubit_ids.check + qubit_ids.ancilla
+        circuit_b = circuits.with_remapped_qubits(
+            circuits.get_memory_experiment(code, basis=basis, num_rounds=num_qec_rounds),
+            qubit_map,
+        )
+
+        assert circuit_a.flattened() == circuit_b.flattened()

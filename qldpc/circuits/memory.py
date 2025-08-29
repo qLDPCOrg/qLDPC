@@ -256,6 +256,7 @@ def _get_basis_memory_experiment_parts(
 
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
+    data_ids, check_ids, _ = qubit_ids
     basis_check_ids = qubit_ids.checks_x if basis is Pauli.X else qubit_ids.checks_z
 
     ####################
@@ -264,14 +265,14 @@ def _get_basis_memory_experiment_parts(
 
     # set coordinates for all qubits
     coordinates = stim.Circuit()
-    for kk, data_id in enumerate(qubit_ids.data):
+    for kk, data_id in enumerate(data_ids):
         coordinates.append("QUBIT_COORDS", data_id, (0, kk))
-    for kk, check_id in enumerate(qubit_ids.check):
+    for kk, check_id in enumerate(check_ids):
         coordinates.append("QUBIT_COORDS", check_id, (1, kk))
 
     # reset data qubits to appropriate basis
     state_prep = stim.Circuit()
-    state_prep.append(f"R{basis}", qubit_ids.data)
+    state_prep.append(f"R{basis}", data_ids)
 
     ####################
     # QEC CYCLE
@@ -287,17 +288,16 @@ def _get_basis_memory_experiment_parts(
 
     # measure out the data qubits
     readout = stim.Circuit()
-    readout.append(f"M{basis}", qubit_ids.data)
-    measurement_record.append({data_id: [mm] for mm, data_id in enumerate(qubit_ids.data)})
+    readout.append(f"M{basis}", data_ids)
+    measurement_record.append({data_id: [mm] for mm, data_id in enumerate(data_ids)})
 
     # detectors for all stabilizers that can be inferred from the data qubit measurements
     check_support = code.get_matrix(basis)
     for kk, check_id in enumerate(basis_check_ids):
         data_support = np.where(check_support[kk])[0]
-        data_ids = [qubit_ids.data[qq] for qq in data_support]
         readout.append(
             "DETECTOR",
-            [measurement_record.get_target_rec(data_id) for data_id in data_ids]
+            [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support]
             + [measurement_record.get_target_rec(check_id)],
             (num_rounds, 0, kk),
         )
@@ -306,10 +306,9 @@ def _get_basis_memory_experiment_parts(
     # add all basis-type observables
     for kk, observable in enumerate(code.get_logical_ops(basis)):
         data_support = np.where(observable)[0]
-        data_ids = [qubit_ids.data[qq] for qq in data_support]
         readout.append(
             "OBSERVABLE_INCLUDE",
-            [measurement_record.get_target_rec(data_id) for data_id in data_ids],
+            [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support],
             kk,
         )
 
@@ -336,7 +335,9 @@ def _get_combined_memory_simulation_parts(
     """
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
-    qubit_ids.add_ancilla(code.dimension)
+    qubit_ids.add_ancillas(code.dimension - len(qubit_ids.ancilla))
+    data_ids, check_ids, ancilla_ids = qubit_ids
+    ancilla_ids = ancilla_ids[: code.dimension]
 
     # identify logical operators
     kwargs = dict(symplectic=True) if isinstance(code, codes.CSSCode) else {}
@@ -352,25 +353,25 @@ def _get_combined_memory_simulation_parts(
 
     # set coordinates for all qubits
     coordinates = stim.Circuit()
-    for kk, data_id in enumerate(qubit_ids.data):
+    for kk, data_id in enumerate(data_ids):
         coordinates.append("QUBIT_COORDS", data_id, (0, kk))
-    for kk, check_id in enumerate(qubit_ids.check):
+    for kk, check_id in enumerate(check_ids):
         coordinates.append("QUBIT_COORDS", check_id, (1, kk))
-    for kk, ancilla_id in enumerate(qubit_ids.ancilla):
+    for kk, ancilla_id in enumerate(ancilla_ids):
         coordinates.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
     # initialize all logical qubits in |0>, and associated ancilla qubits in |+>
     state_prep = with_remapped_qubits(
         get_encoding_circuit(code, only_zero=True),
-        qubit_map={qq: data_id for qq, data_id in enumerate(qubit_ids.data)},
+        qubit_map={qq: data_id for qq, data_id in enumerate(data_ids)},
     )
-    state_prep.append("H", qubit_ids.ancilla)
+    state_prep.append("H", ancilla_ids)
 
     # apply ancilla-controlled-logical-NOT gates to prepare Bell states
-    for logical_qubit_index, ancilla_id in enumerate(qubit_ids.ancilla):
+    for logical_qubit_index, ancilla_id in enumerate(ancilla_ids):
         ancilla_node = Node(logical_qubit_index, is_data=False)
         for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
-            data_id = qubit_ids.data[data_node.index]
+            data_id = data_ids[data_node.index]
             state_prep.append(f"C{edge_data[Pauli]}", [ancilla_id, data_id])
 
     ####################
@@ -383,7 +384,7 @@ def _get_combined_memory_simulation_parts(
     ):
         ancilla_node = Node(logical_qubit_index, is_data=False)
         targets = [
-            stim.target_pauli(qubit_ids.data[data_node.index], str(edge_data[Pauli]))
+            stim.target_pauli(data_ids[data_node.index], str(edge_data[Pauli]))
             for _, data_node, edge_data in logical_op_graph[pauli].edges(ancilla_node, data=True)
         ]
         observables.append("OBSERVABLE_INCLUDE", targets, [op_index])
@@ -393,7 +394,7 @@ def _get_combined_memory_simulation_parts(
     ####################
 
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
-        code, num_rounds, qubit_ids, qubit_ids.check, syndrome_measurement_strategy
+        code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
     )
 
     ####################
@@ -402,24 +403,24 @@ def _get_combined_memory_simulation_parts(
 
     # measure all stabilizers
     readout = stim.Circuit()
-    for check_index, check_id in enumerate(qubit_ids.check):
+    for check_index, check_id in enumerate(check_ids):
         check_node = Node(check_index, is_data=False)
         targets = [
-            f"{edge_data[Pauli]}{qubit_ids.data[data_node.index]}"
+            f"{edge_data[Pauli]}{data_ids[data_node.index]}"
             for _, data_node, edge_data in code.graph.edges(check_node, data=True)
         ]
         joined_targets = "*".join(targets)
         readout.append(stim.CircuitInstruction(f"MPP {joined_targets}"))
 
     # update measurement record, add detectors, and update detector record
-    measurement_record.append({check_id: [mm] for mm, check_id in enumerate(qubit_ids.check)})
-    for kk, check_id in enumerate(qubit_ids.check):
+    measurement_record.append({check_id: [mm] for mm, check_id in enumerate(check_ids)})
+    for kk, check_id in enumerate(check_ids):
         targets = [
             measurement_record.get_target_rec(check_id, -1),
             measurement_record.get_target_rec(check_id, -2),
         ]
         readout.append("DETECTOR", targets, (num_rounds, 0, kk))
-    detector_record.append({check_id: [dd] for dd, check_id in enumerate(qubit_ids.check)})
+    detector_record.append({check_id: [dd] for dd, check_id in enumerate(check_ids)})
 
     return (
         coordinates + state_prep + observables,
@@ -445,7 +446,7 @@ def _get_qec_cycle(
         num_rounds: The number of QEC cycles in the final circuit.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
         check_ids: The check qubits that measure stabilizers to annotate with detectors.  Must be a
-            subset of qubit_ids.check.
+            subset of qubit_ids.check (though this requirement is not verified).
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.
 
