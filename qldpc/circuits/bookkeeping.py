@@ -82,9 +82,9 @@ class QubitIDs:
 class Record:
     """An organized record of events in a Stim circuit.
 
-    indexed from zero.  The record is essentially a dictionary that maps some key (such as a qubit
-    This record assumes that the events it keeps track of (such as measurements or detectors) are
-    index) to an ordered list of the events associated with that key.
+    A record is essentially a dictionary that maps some key (such as a qubit index) to an ordered
+    list of the events (such as measurements or detectors) associated with that key.  The events that
+    a Record keeps track of are assumed to be indexed from zero.
 
     Record is subclassed by MeasurementRecord to keep track of measurements in a circuit, and
     by DetectorRecord to keep track of the detectors in a circuit.
@@ -106,7 +106,12 @@ class Record:
         return functools.reduce(operator.add, (self.key_to_events.get(key, []) for key in keys))
 
     def append(self, record: Record | dict[int, list[int]], repeat: int = 1) -> None:
-        """Append the given record to this one."""
+        """Append the given record to this one.
+
+        All event numbers in the appended record are increased by the number of events in the current
+        record.  That is, if the current record holds n events numbered from 0 to n - 1, then events
+        (0, 1, ...) in the appended record are added to the current record as (n, n+1, ...).
+        """
         assert repeat >= 0
         num_events_in_record = sum(len(events) for _, events in record.items())
         for key, events in record.items():
