@@ -141,13 +141,14 @@ class C6Code(CSSCode):
 class TBCode(CSSCode):
     """Two-block code.
 
-    A TBCode code is built out of two matrices A and B, which are combined as
-    - matrix_x = [A, B], and
-    - matrix_z = [B.T, -A.T],
-    to form the parity check matrices of a CSSCode.  If A and B commute, the parity check matrices
-    matrix_x and matrix_z satisfy the requirements of a CSSCode.
+    A TBCode code is built out of two commuting matrices A and B, which are combined to define
+    (a) matrix_x = [A, B], and
+    (b) matrix_z = [B.T, -A.T].
+    Commutativity of A and B ensures that matrix_x @ matrix_z.T = AB - BA = 0, which makes matrix_x
+    and matrix_z a valid choice of parity check matrices of a CSSCode.
 
-    Two-block codes constructed out of circulant matrices are known as quasi-cyclic codes.
+    Two-block codes constructed out of circulant matrices (i.e., matrices chosen from a ring over an
+    Abelian group) are known as quasi-cyclic codes (QCCodes).
 
     References:
     - https://errorcorrectionzoo.org/c/two_block_quantum
@@ -166,7 +167,7 @@ class TBCode(CSSCode):
         matrix_a = ClassicalCode(matrix_a, field).matrix
         matrix_b = ClassicalCode(matrix_b, field).matrix
         if validate and not np.array_equal(matrix_a @ matrix_b, matrix_b @ matrix_a):
-            raise ValueError("The matrices provided for this TBCode are incompatible")
+            raise ValueError("The matrices provided for this TBCode do not commute")
 
         matrix_x = np.block([matrix_a, matrix_b])
         matrix_z = np.block([matrix_b.T, -matrix_a.T])
@@ -183,7 +184,9 @@ class TBCode(CSSCode):
 class QCCode(TBCode):
     """Quasi-cyclic code.
 
-    A quasi-cyclic code is a CSS code with subcode parity check matrices
+    A QCCode is a two block code (TBCode) built out of matrices A and B that are chosen from a ring
+    over an Abelian group to ensure that A and B commute.  More specifically, a QCCode is a CSS code
+    with subcode parity check matrices
     - matrix_x = [A, B], and
     - matrix_z = [B.T, -A.T].
     Here A and B are polynomials of the form A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ...,
@@ -207,7 +210,7 @@ class QCCode(TBCode):
     - https://errorcorrectionzoo.org/c/generalized_bicycle
     - https://arxiv.org/abs/2203.17216
 
-    Bivariate quasi-cyclic codes are bivariate bicycle codes; see BBCode class.
+    Bivariate quasi-cyclic codes are bivariate bicycle codes; see the BBCode class.
     """
 
     poly_a: sympy.Poly
@@ -258,7 +261,7 @@ class QCCode(TBCode):
         self.ring = abstract.GroupRing(self.group, field)
         self.symbol_gens = dict(zip(self.symbols, self.group.generators))
 
-        # build defining matrices of a generalized bicycle code; transpose the lift by convention
+        # build defining matrices of a quasi-cyclic code; transpose the lift by convention
         matrix_a = self.eval(self.poly_a).lift().T
         matrix_b = self.eval(self.poly_b).lift().T
         TBCode.__init__(
@@ -274,6 +277,11 @@ class QCCode(TBCode):
         if isinstance(expression, (sympy.Integer, sympy.Symbol, sympy.Pow, sympy.Mul)):
             coeff, monomial = expression.as_coeff_Mul()
             member = self.to_group_member(monomial)
+            if not 0 <= int(coeff) < self.ring.field.order:
+                raise ValueError(
+                    f"Coefficient {coeff} in expression {expression} is invalid over the finite"
+                    f" field GF({self.ring.field.order})"
+                )
             return abstract.RingMember(self.ring, (int(coeff), member))
 
         # evaluate a polynomial
@@ -286,8 +294,7 @@ class QCCode(TBCode):
         self, expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul
     ) -> abstract.GroupMember:
         """Convert a monomial into an associated member of this code's base group."""
-        coeff, exponents = self.get_coefficient_and_exponents(expression)
-        assert coeff == 1
+        _, exponents = self.get_coefficient_and_exponents(expression)
 
         output = self.group.identity
         for base, exponent in exponents.items():
@@ -339,9 +346,69 @@ class QCCode(TBCode):
 
         return new_poly
 
+    def get_syndrome_subgraphs(self, *, strategy: str = "") -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
+
+        The measurement strategy induced by the sequence of subgraphs constructed here generalizes
+        those for HGPCodes in arXiv:2109.14609 and BBCodes in arXiv:2308.07915 to the case of
+        arbitrary QCCodes.  Denoting type L and R, respectively, to the data qubits addressed by the
+        left and right half of the parity check matrix self.matrix_x, the syndrome measurement
+        strategy induced by the subgraphs here essentially works as follows:
+        1. Group together edges of the Tanner graph by XLA, XRB, ZLB, and ZRA type, where XLA, for
+            example, refers to the edges associated for X-type parity checks that address L-type
+            data qubits, whose connections are determined by the polynomial A.  Build an initial
+            syndrome extraction circuit of gates in that order, (XLA, XRB, ZLB, ZRA).
+        2. Split A in into two terms, A = A_1 + A_2.  Push the gates of XLA_1 to the end of the
+            circuit, and gates of ZRA_1 to the beginning of the the circuit, thereby arriving at a
+            sequence of the form (ZRA_1, XLA_2, XRB, ZLB, ZRA_2, XLA_1).
+        Similarly to the situation in Figure 2c of arXiv:2109.14609v1, commuting XLA_1 to the right
+        of ZLB gates introduces CNOT gates between X and Z check qubits, but these CNOTs get
+        cancelled out by pushing ZRA_1 to the left of XLB.
+        """
+        # build matrices for each term in A and B
+        terms_a = [term for term in self.poly_a.as_expr().args]
+        terms_b = [term for term in self.poly_b.as_expr().args]
+        matrices_a = [self.eval(term).lift().T for term in terms_a]
+        matrices_b = [self.eval(term).lift().T for term in terms_b]
+
+        # collect edges by type and index of a term in A or B
+        edges_XL: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_XR: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_ZL: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_ZR: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        for term_index, matrix in enumerate(matrices_a):
+            for xx, ll in zip(*np.where(matrix)):
+                zz = ll + self.num_checks_x
+                rr = xx + len(self) // 2
+                edges_XL[term_index].append((Node(xx, is_data=False), Node(ll, is_data=True)))
+                edges_ZR[term_index].append((Node(zz, is_data=False), Node(rr, is_data=True)))
+        for term_index, matrix in enumerate(matrices_b):
+            for xx, col in zip(*np.where(matrix)):
+                ll = xx
+                rr = col + len(self) // 2
+                zz = col + self.num_checks_x
+                edges_XR[term_index].append((Node(xx, is_data=False), Node(rr, is_data=True)))
+                edges_ZL[term_index].append((Node(zz, is_data=False), Node(ll, is_data=True)))
+
+        # convert edge sets into subgraphs and return (ZR_1, XL_2, XR, ZL, ZR_2, XL_1)
+        subgraphs_XL = tuple(self.graph.edge_subgraph(edges_XL[term]) for term in edges_XL)
+        subgraphs_XR = tuple(self.graph.edge_subgraph(edges_XR[term]) for term in edges_XR)
+        subgraphs_ZL = tuple(self.graph.edge_subgraph(edges_ZL[term]) for term in edges_ZL)
+        subgraphs_ZR = tuple(self.graph.edge_subgraph(edges_ZR[term]) for term in edges_ZR)
+        return (
+            subgraphs_ZR[::2]
+            + subgraphs_XL[1::2]
+            + subgraphs_XR
+            + subgraphs_ZL
+            + subgraphs_ZR[1::2]
+            + subgraphs_XL[::2]
+        )
+
 
 class BBCode(QCCode):
-    """Bivariate bicycle code.
+    """Bivariate bicycle code, or a quasi-cyclic code restricted to polynomials in two variables.
 
     A bivariate bicycle code is a CSS code with subcode parity check matrices
     - matrix_x = [A, B], and

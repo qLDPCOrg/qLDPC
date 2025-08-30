@@ -197,6 +197,10 @@ def test_quasi_cyclic_codes() -> None:
     with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
         codes.QCCode([], x, y)
 
+    # invalid coefficients
+    with pytest.raises(ValueError, match="Coefficient .* is invalid"):
+        codes.QCCode([2], 2 * x, x, field=2)
+
     # add placeholder symbols if necessary
     code = codes.QCCode([1, 2, 3], x, x * y)
     assert len(code.symbols) == 3
