@@ -20,7 +20,7 @@ import random
 import pytest
 
 from qldpc import circuits, codes
-from qldpc.objects import Pauli
+from qldpc.objects import PAULIS_XZ, Pauli
 
 
 def test_memory_experiment() -> None:
@@ -85,7 +85,7 @@ def test_qubit_ids(pytestconfig: pytest.Config) -> None:
         ancilla=qubits[len(code) + code.num_checks :],
     )
 
-    for basis in [Pauli.X, Pauli.Z, None]:
+    for basis in PAULIS_XZ + [None]:
         # produce a memory experiment with the requested qubit IDs
         init, cycle, readout, *_, qubit_ids = circuits.get_memory_experiment_parts(
             code, basis=basis, num_rounds=num_qec_rounds, qubit_ids=qubit_ids

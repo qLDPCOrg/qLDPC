@@ -24,14 +24,8 @@ import stim
 from qldpc import codes
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ
 
-from .common import (
-    DetectorRecord,
-    MeasurementRecord,
-    QubitIDs,
-    get_encoding_circuit,
-    restrict_to_qubits,
-    with_remapped_qubits,
-)
+from .bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
+from .common import get_encoding_circuit, restrict_to_qubits, with_remapped_qubits
 from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
