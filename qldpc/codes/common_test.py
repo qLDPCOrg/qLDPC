@@ -39,7 +39,7 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     """Classical code constructions."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
-    code = codes.ClassicalCode.random(5, 3, field=2, seed=np.random.randint(2**32))
+    code = codes.ClassicalCode.random(5, 3, seed=np.random.randint(2**32))
     assert len(code) == code.num_bits == 5
     assert code.num_checks == 3
     assert "ClassicalCode" in str(code)
@@ -65,7 +65,7 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     # invalid classical code construction
     with pytest.raises(ValueError, match="inconsistent"):
-        codes.ClassicalCode(codes.ClassicalCode.random(2, 2, field=2), field=3)
+        codes.ClassicalCode(codes.ClassicalCode.random(2, 2), field=3)
 
     # construct a code from its generator matrix
     code = codes.ClassicalCode.random(5, 3)
@@ -87,7 +87,7 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     # stacking codes over different fields is not supported
     with pytest.raises(ValueError, match="different fields"):
-        code_b = codes.RepetitionCode(2, field=2)
+        code_b = codes.RepetitionCode(2)
         code = codes.ClassicalCode.stack(code_a, code_b)
 
 
@@ -131,7 +131,7 @@ def test_tensor_product(
 
 def test_distance_classical(bits: int = 3) -> None:
     """Distance of a vector from a classical code."""
-    rep_code = codes.RepetitionCode(bits, field=2)
+    rep_code = codes.RepetitionCode(bits)
 
     # "forget" the exact code distance, and re-compute (or estimate) it in various ways
     rep_code._distance = None
@@ -199,7 +199,7 @@ def test_automorphism() -> None:
 
 def test_classical_capacity() -> None:
     """Logical error rates in a code capacity model."""
-    code = codes.RepetitionCode(2, field=2)
+    code = codes.RepetitionCode(2)
     logical_error_rate = code.get_logical_error_rate_func(num_samples=1, max_error_rate=1)
     assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
     assert logical_error_rate(1)[0] == 1  # guaranteed logical error
@@ -215,13 +215,13 @@ def test_classical_capacity() -> None:
 
 def test_code_string() -> None:
     """Human-readable representation of a code."""
-    code = codes.QuditCode([[0, 1]], field=2)
+    code = codes.QuditCode([[0, 1]])
     assert "qubits" in str(code)
 
     code = codes.QuditCode([[0, 1]], field=3)
     assert "GF(3)" in str(code)
 
-    code = codes.HGPCode(codes.RepetitionCode(2, field=2))
+    code = codes.HGPCode(codes.RepetitionCode(2))
     assert "qubits" in str(code)
 
     code = codes.HGPCode(codes.RepetitionCode(2, field=3))
@@ -235,7 +235,7 @@ def get_random_qudit_code(qudits: int, checks: int, field: int = 2) -> codes.Qud
 
 def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
     """Random qubit code."""
-    assert get_random_qudit_code(num_qubits, num_checks, field=2).num_qubits == num_qubits
+    assert get_random_qudit_code(num_qubits, num_checks).num_qubits == num_qubits
     with pytest.raises(ValueError, match="3-dimensional qudits"):
         assert get_random_qudit_code(num_qubits, num_checks, field=3).num_qubits
 
@@ -403,7 +403,7 @@ def test_qudit_ops() -> None:
     assert np.array_equal(logical_ops[1], [0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
     assert code.get_logical_ops() is code._logical_ops
 
-    code = codes.QuditCode.from_strings(*code.get_strings(), "I I I I I", field=2)
+    code = codes.QuditCode.from_strings(*code.get_strings(), "I I I I I")
     assert np.array_equal(logical_ops, code.get_logical_ops())
 
     for code in get_codes_for_testing_ops():
@@ -550,7 +550,7 @@ def test_css_ops() -> None:
 
     # successfully construct and reduce logical operators in a code with "over-complete" checks
     dist = 4
-    code = codes.ToricCode(dist, rotated=True, field=2)
+    code = codes.ToricCode(dist, rotated=True)
     assert code.canonicalized.num_checks < code.num_checks
     assert code.get_code_params() == (dist**2, 2, dist)
     code.reduce_logical_ops()
@@ -585,7 +585,7 @@ def test_distance_css() -> None:
             assert code.get_distance(bound=True) == -1
 
     # qubit code distance
-    code = codes.SHPCode(codes.RepetitionCode(2, field=2))
+    code = codes.SHPCode(codes.RepetitionCode(2))
     with unittest.mock.patch(
         "qldpc.codes.SHPCode._get_distance_exact", return_value=NotImplemented
     ):

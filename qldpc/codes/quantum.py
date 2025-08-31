@@ -73,7 +73,7 @@ class SteaneCode(CSSCode):
     """Smallest quantum error-correcting CSS code."""
 
     def __init__(self) -> None:
-        code = HammingCode(3, field=2)
+        code = HammingCode(3)
         CSSCode.__init__(self, code, code, is_subsystem_code=False)
         self.set_logical_ops_xz([[1] * 7], [[1] * 7], validate=False)
         self._dimension = 1
@@ -94,7 +94,7 @@ class IcebergCode(CSSCode):
 
     def __init__(self, size: int, *, alternative_logicals: bool = False) -> None:
         checks = [[1] * (2 * size)]
-        CSSCode.__init__(self, checks, checks, field=2, is_subsystem_code=False)
+        CSSCode.__init__(self, checks, checks, is_subsystem_code=False)
         self._dimension = 2 * size - 2
         self._distance_x = self._distance_z = 2
 
@@ -128,7 +128,7 @@ class C6Code(CSSCode):
 
     def __init__(self) -> None:
         checks = [[1, 1, 0, 0, 1, 1], [0, 1, 1, 1, 1, 0]]
-        CSSCode.__init__(self, checks, checks, field=2, is_subsystem_code=False)
+        CSSCode.__init__(self, checks, checks, is_subsystem_code=False)
         logical_ops_xz = scipy.linalg.block_diag([1, 1, 1], [1, 1, 1])
         self.set_logical_ops_xz(logical_ops_xz, logical_ops_xz)
         self._dimension = 2

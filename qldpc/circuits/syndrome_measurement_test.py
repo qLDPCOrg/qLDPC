@@ -36,13 +36,13 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     assert_valid_syndome_measurement(codes.SteaneCode())
 
     # special strategies for toric and surface codes
-    assert_valid_syndome_measurement(codes.ToricCode(2, rotated=True, field=2))
-    assert_valid_syndome_measurement(codes.SurfaceCode(2, rotated=True, field=2))
+    assert_valid_syndome_measurement(codes.ToricCode(2, rotated=True))
+    assert_valid_syndome_measurement(codes.SurfaceCode(2, rotated=True))
 
     # special strategy for HGPCodes
     code_a = codes.ClassicalCode.random(5, 3, seed=seed)
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
-    assert_valid_syndome_measurement(codes.HGPCode(code_a, code_b, field=2))
+    assert_valid_syndome_measurement(codes.HGPCode(code_a, code_b))
 
     # special strategy for QCCodes
     np.random.seed(seed)
@@ -60,7 +60,7 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         np.prod([symbol**exponent for symbol, exponent in zip(symbols, exponents_b)])
         for exponents_b in term_exponents_b
     )
-    assert_valid_syndome_measurement(codes.QCCode(orders, poly_a, poly_b, field=2))
+    assert_valid_syndome_measurement(codes.QCCode(orders, poly_a, poly_b))
 
     # EdgeColoringXZ strategy
     assert_valid_syndome_measurement(codes.SteaneCode(), circuits.EdgeColoringXZ())

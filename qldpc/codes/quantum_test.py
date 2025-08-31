@@ -71,7 +71,7 @@ def test_bivariate_bicycle_codes() -> None:
     orders = {x: 12, y: 4}
     poly_a = 1 + y + x * y + x**9
     poly_b = 1 + x**2 + x**7 + x**9 * y**2
-    code = codes.BBCode(orders, poly_a, poly_b, field=2)
+    code = codes.BBCode(orders, poly_a, poly_b)
     assert code.num_qudits == 96
     assert code.dimension == 10
     assert code.get_weight() == 8
@@ -86,7 +86,7 @@ def test_bivariate_bicycle_codes() -> None:
     orders = (12, 6)
     poly_a = x**3 + y + y**2
     poly_b = y**3 + x + x**2
-    code = codes.BBCode(orders, poly_a, poly_b, field=2)
+    code = codes.BBCode(orders, poly_a, poly_b)
     assert code.num_qudits == 144
     assert code.dimension == 12
     assert code.get_weight() == 6
@@ -200,7 +200,7 @@ def test_quasi_cyclic_codes() -> None:
 
     # invalid coefficients
     with pytest.raises(ValueError, match="Coefficient .* is invalid"):
-        codes.QCCode([2], 2 * x, x, field=2)
+        codes.QCCode([2], 2 * x, x)
 
     # add placeholder symbols if necessary
     code = codes.QCCode([1, 2, 3], x, x * y)
@@ -404,7 +404,7 @@ def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
     # raise error if the generating data is underspecified
     subset_a = code.complex.subset_a
     subset_b = group.random_symmetric_subset(len(subset_a) - 1)
-    subcode_a = codes.RepetitionCode(len(subset_a), field=2)
+    subcode_a = codes.RepetitionCode(len(subset_a))
     with pytest.raises(ValueError, match="Underspecified generating data"):
         codes.QTCode(subset_a, subset_b, subcode_a)
 
@@ -577,8 +577,8 @@ def test_shyps_code() -> None:
 def test_exact_distances() -> None:
     """Compute exact distances in special cases."""
     for code in [
-        codes.HGPCode(codes.RingCode(2), field=2),
-        codes.SHPCode(codes.RepetitionCode(2), field=2),
+        codes.HGPCode(codes.RingCode(2)),
+        codes.SHPCode(codes.RepetitionCode(2)),
     ]:
         name = type(code).__name__
         dist = code.get_distance()
