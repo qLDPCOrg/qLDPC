@@ -17,7 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import functools
 import io
 import unittest.mock
 
@@ -25,9 +24,12 @@ import networkx as nx
 import numpy as np
 import pytest
 import sympy
+from sympy.abc import x, y
 
 from qldpc import abstract, codes
 from qldpc.objects import ChainComplex, Node, Pauli
+
+from .common_test import assert_valid_subgraphs
 
 
 def test_small_codes() -> None:
@@ -191,7 +193,6 @@ def get_dist_l1(
 
 def test_quasi_cyclic_codes() -> None:
     """Multivariave versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
-    from sympy.abc import x, y
 
     # not enough orders provided
     with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
@@ -205,10 +206,7 @@ def test_quasi_cyclic_codes() -> None:
     code = codes.QCCode([1, 2, 3], x, x * y)
     assert len(code.symbols) == 3
 
-    # the composition of subgraphs equals the entire Tanner graph
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -233,9 +231,7 @@ def test_hypergraph_product(
     assert np.array_equal(code.matrix, codes.QuditCode.graph_to_matrix(graph))
     assert np.array_equal(code.matrix_x, matrix_x)
     assert np.array_equal(code.matrix_z, matrix_z)
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), validate=True)
@@ -468,9 +464,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     ):
         assert cols <= code.get_distance(Pauli.X, bound=True) <= len(code)
         assert rows <= code.get_distance(Pauli.Z, bound=True) <= len(code)
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # un-rotated SurfaceCode = HGPCode
     rep_codes = (codes.RepetitionCode(rows), codes.RepetitionCode(cols))
@@ -482,9 +476,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     assert code.num_qudits == rows * cols
     assert codes.CSSCode.get_distance(code, Pauli.X) == cols
     assert codes.CSSCode.get_distance(code, Pauli.Z) == rows
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # test that the conjugated rotated surface code is an XZZX code
     code = codes.SurfaceCode(max(rows, cols), rotated=True)
@@ -501,9 +493,7 @@ def test_toric_codes() -> None:
     code = codes.ToricCode(distance, rotated=False)
     assert code.dimension == 2
     assert code.num_qudits == 2 * distance**2
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # check minimal logical operator weights
     code.reduce_logical_ops(with_ILP=True)
@@ -519,9 +509,7 @@ def test_toric_codes() -> None:
     assert code.dimension == 2
     assert code.num_qudits == distance**2
     assert codes.CSSCode.get_distance(code) == distance
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # rotated toric code must have even side lengths
     with pytest.raises(ValueError, match="even side lengths"):

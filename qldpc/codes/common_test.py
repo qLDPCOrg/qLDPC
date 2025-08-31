@@ -240,6 +240,13 @@ def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
         assert get_random_qudit_code(num_qubits, num_checks, field=3).num_qubits
 
 
+def assert_valid_subgraphs(code: codes.QuditCode) -> None:
+    """The union of subgraphs used for syndrome measurement is the entire Tanner graph."""
+    assert nx.utils.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
+
+
 def test_qudit_code() -> None:
     """Miscellaneous qudit code tests and coverage."""
     code = codes.FiveQubitCode()
@@ -247,9 +254,7 @@ def test_qudit_code() -> None:
     assert code.get_weight() == 4
     assert code.get_logical_ops(Pauli.X).shape == code.get_logical_ops(Pauli.Z).shape
     assert codes.QuditCode.equiv(code, codes.QuditCode(code))
-    assert nx.utils.misc.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # equivlence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
@@ -519,12 +524,11 @@ def test_css_code() -> None:
         code_z = codes.ClassicalCode.random(3, 2, field=code_x.field.order**2)
         codes.CSSCode(code_x, code_z)
 
-    assert nx.utils.misc.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
-    assert nx.utils.misc.graphs_equal(
-        code.graph, nx.compose(code.get_graph(Pauli.X), code.get_graph(Pauli.Z))
-    )
+    # subgraphs for syndrome extraction
+    assert_valid_subgraphs(code)
+    subgraphs = code.get_syndrome_subgraphs()
+    assert nx.utils.graphs_equal(subgraphs[0], code.get_graph(Pauli.X))
+    assert nx.utils.graphs_equal(subgraphs[1], code.get_graph(Pauli.Z))
 
 
 def test_css_ops() -> None:

@@ -22,6 +22,7 @@ import collections
 import functools
 import itertools
 import math
+import operator
 import os
 from collections.abc import Collection, Sequence
 
@@ -269,26 +270,22 @@ class QCCode(TBCode):
         )
 
     def eval(
-        self, expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | sympy.Poly
+        self, value: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | sympy.Poly
     ) -> abstract.RingMember:
         """Convert a sympy expression into an element of this code's group algebra."""
-        # evaluate a monomial
-        expression = expression.as_expr()
-        if isinstance(expression, (sympy.Integer, sympy.Symbol, sympy.Pow, sympy.Mul)):
-            coeff, monomial = expression.as_coeff_Mul()
-            member = self.to_group_member(monomial)
-            if not 0 <= int(coeff) < self.ring.field.order:
-                raise ValueError(
-                    f"Coefficient {coeff} in expression {expression} is invalid over the finite"
-                    f" field GF({self.ring.field.order})"
-                )
-            return abstract.RingMember(self.ring, (int(coeff), member))
+        if isinstance(value, sympy.Poly):
+            terms = sympy.Add.make_args(value.as_expr())
+            return functools.reduce(operator.add, [self.eval(term) for term in terms])
 
-        # evaluate a polynomial
-        element = abstract.RingMember(self.ring)
-        for term in expression.args:
-            element += self.eval(term)
-        return element
+        expression = value.as_expr()
+        coeff, monomial = expression.as_coeff_Mul()
+        member = self.to_group_member(monomial)
+        if not 0 <= int(coeff) < self.ring.field.order:
+            raise ValueError(
+                f"Coefficient {coeff} in expression {expression} is invalid over the finite"
+                f" field GF({self.ring.field.order})"
+            )
+        return abstract.RingMember(self.ring, (int(coeff), member))
 
     def to_group_member(
         self, expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul
@@ -371,9 +368,14 @@ class QCCode(TBCode):
         of arXiv:2109.14609v1, commuting XLA_1 to the right of ZLB introduces CNOT gates between X
         and Z check qubits.  These CNOTs get cancelled out by pushing ZRA_1 to the left of XLB.
         """
+        assert not strategy, (
+            f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
+            f" (provided: {strategy})"
+        )
+
         # build matrices for each term in A and B
-        terms_a = [term for term in self.poly_a.as_expr().args]
-        terms_b = [term for term in self.poly_b.as_expr().args]
+        terms_a = sympy.Add.make_args(self.poly_a.as_expr())
+        terms_b = sympy.Add.make_args(self.poly_b.as_expr())
         matrices_a = [self.eval(term).lift().T for term in terms_a]
         matrices_b = [self.eval(term).lift().T for term in terms_b]
 
