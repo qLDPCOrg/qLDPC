@@ -269,15 +269,12 @@ class QCCode(TBCode):
             self, matrix_a, matrix_b, field, promise_equal_distance_xz=True, validate=False
         )
 
-    def eval(
-        self, value: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | sympy.Poly
-    ) -> abstract.RingMember:
+    def eval(self, expression: sympy.Basic) -> abstract.RingMember:
         """Convert a sympy expression into an element of this code's group algebra."""
-        if isinstance(value, sympy.Poly):
-            terms = sympy.Add.make_args(value.as_expr())
+        if isinstance(expression, sympy.Poly):
+            terms = sympy.Add.make_args(expression.as_expr())
             return functools.reduce(operator.add, [self.eval(term) for term in terms])
 
-        expression = value.as_expr()
         coeff, monomial = expression.as_coeff_Mul()
         member = self.to_group_member(monomial)
         if not 0 <= int(coeff) < self.ring.field.order:
@@ -288,10 +285,10 @@ class QCCode(TBCode):
         return abstract.RingMember(self.ring, (int(coeff), member))
 
     def to_group_member(
-        self, expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul
+        self, monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul
     ) -> abstract.GroupMember:
         """Convert a monomial into an associated member of this code's base group."""
-        _, exponents = self.get_coefficient_and_exponents(expression)
+        _, exponents = self.get_coefficient_and_exponents(monomial)
 
         output = self.group.identity
         for base, exponent in exponents.items():
@@ -300,12 +297,12 @@ class QCCode(TBCode):
 
     @staticmethod
     def get_coefficient_and_exponents(
-        expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
+        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
     ) -> tuple[int, dict[sympy.Symbol, int]]:
         """Extract the coefficients and exponents in a monomial expression.
 
         For example, this method takes 5 x**3 y**2 to (5, {x: 3, y: 2})."""
-        coeff, monomial = expression.as_coeff_Mul()
+        coeff, monomial = monomial.as_coeff_Mul()
         exponents = {}
         if isinstance(monomial, sympy.Integer):
             coeff *= int(monomial)
