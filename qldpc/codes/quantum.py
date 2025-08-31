@@ -351,21 +351,25 @@ class QCCode(TBCode):
 
         See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
 
-        The measurement strategy induced by the sequence of subgraphs constructed here generalizes
-        those for HGPCodes in arXiv:2109.14609 and BBCodes in arXiv:2308.07915 to the case of
-        arbitrary QCCodes.  Denoting type L and R, respectively, to the data qubits addressed by the
-        left and right half of the parity check matrix self.matrix_x, the syndrome measurement
-        strategy induced by the subgraphs here essentially works as follows:
+        The syndrome measurement circuit induced by the sequence of subgraphs constructed here
+        generalizes the syndrome measurement circuit for BBCodes in arXiv:2308.07915 via the
+        techniques used to construct a circuit for HGPCodes for Algorithm 2 in arXiv:2109.14609.
+
+        Let L and R denote, respectively, the data qubits addressed by the left and right half of
+        the parity check matrix for X-type stabilizers (self.matrix_x).  The sequence of subgraphs
+        constructed here is as follows:
         1. Group together edges of the Tanner graph by XLA, XRB, ZLB, and ZRA type, where XLA, for
-            example, refers to the edges associated for X-type parity checks that address L-type
-            data qubits, whose connections are determined by the polynomial A.  Build an initial
-            syndrome extraction circuit of gates in that order, (XLA, XRB, ZLB, ZRA).
-        2. Split A in into two terms, A = A_1 + A_2.  Push the gates of XLA_1 to the end of the
-            circuit, and gates of ZRA_1 to the beginning of the the circuit, thereby arriving at a
-            sequence of the form (ZRA_1, XLA_2, XRB, ZLB, ZRA_2, XLA_1).
-        Similarly to the situation in Figure 2c of arXiv:2109.14609v1, commuting XLA_1 to the right
-        of ZLB gates introduces CNOT gates between X and Z check qubits, but these CNOTs get
-        cancelled out by pushing ZRA_1 to the left of XLB.
+            example, refers to the edges associated for X-type parity checks that address data
+            qubits in L, whose connections are determined by the polynomial A.  The sequence of
+            subgraphs (XLA, XRB, ZLB, ZRA) corresponds to a valid syndrome measurement circuit.
+        2. Split A in into two terms, A = A_1 + A_2, and correspondingly split the graphs XLA and
+            ZRA into the pairs of graphs (XLA_1, XLA_2) and (ZRA_1, ZRA_2).  Push XLA_1 to the end
+            of the subgraph sequence for syndrome measurement, and push ZRA_1 to the beginning,
+            thereby arriving at the final subgraph sequence (ZRA_1, XLA_2, XRB, ZLB, ZRA_2, XLA_1).
+        Pushing XLA_1 to the end of the subgraph sequence corresponds to commuting associated gates
+        to the right of the syndrome measurement circuit.  Similarly to the situation in Figure 2c
+        of arXiv:2109.14609v1, commuting XLA_1 to the right of ZLB introduces CNOT gates between X
+        and Z check qubits.  These CNOTs get cancelled out by pushing ZRA_1 to the left of XLB.
         """
         # build matrices for each term in A and B
         terms_a = [term for term in self.poly_a.as_expr().args]
