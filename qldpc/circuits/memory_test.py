@@ -29,7 +29,7 @@ def test_memory_experiment() -> None:
     noise_model = circuits.DepolarizingNoiseModel(1e-2)
 
     # try out a classical error correcting code
-    rep_code = codes.RepetitionCode(3, field=2)
+    rep_code = codes.RepetitionCode(3)
     circuit = circuits.get_memory_experiment(
         rep_code, basis=Pauli.Z, num_rounds=num_rounds, noise_model=noise_model
     )
@@ -40,7 +40,7 @@ def test_memory_experiment() -> None:
     assert observables.shape[1] == rep_code.dimension
 
     # try tracking both operators in a quantum code
-    code = codes.RepetitionCode(2, field=2)
+    code = codes.RepetitionCode(2)
     circuit = circuits.get_memory_experiment(
         code, basis=None, num_rounds=num_rounds, noise_model=noise_model
     )
@@ -72,7 +72,7 @@ def test_qubit_ids(pytestconfig: pytest.Config) -> None:
     random.seed(pytestconfig.getoption("randomly_seed"))
 
     # pick a code, a number of "extra" unused qubits, and a number of QEC rounds
-    code = codes.SurfaceCode(2, rotated=True, field=2)
+    code = codes.SurfaceCode(2, rotated=True)
     num_unused_qubits = 3
     num_qec_rounds = 3
 
