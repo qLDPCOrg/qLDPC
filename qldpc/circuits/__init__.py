@@ -1,6 +1,10 @@
-from .common import (
+from .bookkeeping import (
+    DetectorRecord,
     MeasurementRecord,
     QubitIDs,
+    Record,
+)
+from .common import (
     get_encoder_and_decoder,
     get_encoding_circuit,
     get_encoding_tableau,
@@ -30,8 +34,10 @@ from .transversal import (
 )
 
 __all__ = [
+    "DetectorRecord",
     "MeasurementRecord",
     "QubitIDs",
+    "Record",
     "get_encoder_and_decoder",
     "get_encoding_circuit",
     "get_encoding_tableau",

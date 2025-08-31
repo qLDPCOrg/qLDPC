@@ -26,7 +26,8 @@ import stim
 from qldpc import codes
 from qldpc.objects import Pauli
 
-from .common import MeasurementRecord, QubitIDs, restrict_to_qubits
+from .bookkeeping import MeasurementRecord, QubitIDs
+from .common import restrict_to_qubits
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
