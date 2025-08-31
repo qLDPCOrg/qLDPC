@@ -194,7 +194,7 @@ class SegmentSinterDecoder(SinterDecoder):
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
                 np.log((1 - p) / p) to the priors_arg.  This argument is only necessary for custom
-                decoders.  Default: False.
+                decoders.  Default: False (unless decoding with MWPM).
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
