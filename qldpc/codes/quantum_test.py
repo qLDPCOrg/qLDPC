@@ -55,7 +55,7 @@ def test_two_block_code_error() -> None:
     """Raise error when trying to construct incompatible two-block codes."""
     matrix_a = [[1, 0], [0, 2]]
     matrix_b = [[0, 1], [1, 0]]
-    with pytest.raises(ValueError, match="incompatible"):
+    with pytest.raises(ValueError, match="do not commute"):
         codes.TBCode(matrix_a, matrix_b, field=3)
 
 
@@ -204,6 +204,11 @@ def test_quasi_cyclic_codes() -> None:
     # add placeholder symbols if necessary
     code = codes.QCCode([1, 2, 3], x, x * y)
     assert len(code.symbols) == 3
+
+    # the composition of subgraphs equals the entire Tanner graph
+    assert nx.utils.graphs_equal(
+        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
+    )
 
 
 @pytest.mark.parametrize("field", [2, 3])
