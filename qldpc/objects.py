@@ -91,11 +91,11 @@ PauliXZ = Literal[Pauli.X, Pauli.Z]
 PAULIS_XZ: list[PauliXZ] = [Pauli.X, Pauli.Z]
 
 
+@dataclasses.dataclass(frozen=True)
 class QuditPauli:
     """A qudit operator of the form X(val_x)*Z(val_z)."""
 
-    def __init__(self, value: tuple[int, int] = (0, 0)) -> None:
-        self.value = value
+    value: tuple[int, int] = (0, 0)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, QuditPauli) and self.value == other.value
@@ -152,7 +152,7 @@ class QuditPauli:
         return QuditPauli((val_x, val_z))
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Node:
     """Node in a Tanner graph.
 

@@ -85,7 +85,7 @@ def test_finding_circuit(pytestconfig: pytest.Config) -> None:
 
 def test_deformed_decoder() -> None:
     """Deform a code in such a way as to preserve its logicals, but change its stabilizers."""
-    code = codes.CSSCode([[1] * 6], [[1] * 6], field=2)
+    code = codes.CSSCode([[1] * 6], [[1] * 6])
     code.set_logical_ops_xz(
         [
             [1, 1, 0, 0, 0, 0],

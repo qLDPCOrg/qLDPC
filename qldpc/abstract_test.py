@@ -267,7 +267,7 @@ def test_regular_rep(ring: abstract.GroupRing, pytestconfig: pytest.Config) -> N
 @pytest.mark.parametrize(
     "ring",
     [
-        abstract.GroupRing(abstract.DihedralGroup(3), field=2),
+        abstract.GroupRing(abstract.DihedralGroup(3)),
         abstract.GroupRing(abstract.AbelianGroup(2, 3), field=3),
     ],
 )
@@ -306,13 +306,13 @@ def test_ring_row_reduce(ring: abstract.GroupRing, pytestconfig: pytest.Config) 
 
 def test_row_reduce_errors() -> None:
     """Errors and warnings from RingArray.row_reduce."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
     coefficients = ring.field.Random((1, 2, ring.group.order))
     matrix = abstract.RingArray.from_field_array(ring, coefficients)
     with pytest.raises(NotImplementedError, match="We only aspire to perform exact row reduction"):
         matrix.row_reduce(force_heuristic=False)
 
-    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    ring = abstract.GroupRing(abstract.CyclicGroup(2))
     coefficients = ring.field.Random((1, 2, ring.group.order))
     matrix = abstract.RingArray.from_field_array(ring, coefficients)
     with pytest.warns(UserWarning, match="Using heuristics"):

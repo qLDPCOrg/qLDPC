@@ -206,7 +206,7 @@ class Group:
         return isinstance(self, AbelianGroup) or self._group.is_abelian
 
     @property
-    def generators(self) -> Sequence[GroupMember]:
+    def generators(self) -> list[GroupMember]:
         """Generators of this group."""
         return list(map(GroupMember.from_sympy, self._group.generators))
 

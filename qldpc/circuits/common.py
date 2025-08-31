@@ -196,7 +196,7 @@ def _get_logical_tableau_from_code_data(
 def with_remapped_qubits(
     circuit: stim.Circuit, qubit_map: Mapping[int, int] | Sequence[int]
 ) -> stim.Circuit:
-    """The same circuit, but with qubits remapped according to the given qubit map.
+    """The same circuit, but with relabeled qubits.
 
     Qubits not in qubit_map get mapped to themselves.
 

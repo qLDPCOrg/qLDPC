@@ -1881,9 +1881,13 @@ class CSSCode(QuditCode):
         The sequence here enforces that X-type stabilizers are read out before Z-type stabilizers.
         See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
 
-        The 'strategy' argument to this method is ignored.  It is only inculded for compatibility
-        with QuditCode.get_syndrome_subgraphs.
+        The 'strategy' argument to this method is only inculded for compatibility with
+        QuditCode.get_syndrome_subgraphs.
         """
+        assert not strategy, (
+            f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
+            f" (provided: {strategy})"
+        )
         return self.graph_x, self.graph_z
 
     @property

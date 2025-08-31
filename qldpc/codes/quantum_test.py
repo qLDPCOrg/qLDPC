@@ -17,7 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import functools
 import io
 import unittest.mock
 
@@ -25,9 +24,12 @@ import networkx as nx
 import numpy as np
 import pytest
 import sympy
+from sympy.abc import x, y
 
 from qldpc import abstract, codes
 from qldpc.objects import ChainComplex, Node, Pauli
+
+from .common_test import assert_valid_subgraphs
 
 
 def test_small_codes() -> None:
@@ -55,7 +57,7 @@ def test_two_block_code_error() -> None:
     """Raise error when trying to construct incompatible two-block codes."""
     matrix_a = [[1, 0], [0, 2]]
     matrix_b = [[0, 1], [1, 0]]
-    with pytest.raises(ValueError, match="incompatible"):
+    with pytest.raises(ValueError, match="do not commute"):
         codes.TBCode(matrix_a, matrix_b, field=3)
 
 
@@ -69,7 +71,7 @@ def test_bivariate_bicycle_codes() -> None:
     orders = {x: 12, y: 4}
     poly_a = 1 + y + x * y + x**9
     poly_b = 1 + x**2 + x**7 + x**9 * y**2
-    code = codes.BBCode(orders, poly_a, poly_b, field=2)
+    code = codes.BBCode(orders, poly_a, poly_b)
     assert code.num_qudits == 96
     assert code.dimension == 10
     assert code.get_weight() == 8
@@ -84,7 +86,7 @@ def test_bivariate_bicycle_codes() -> None:
     orders = (12, 6)
     poly_a = x**3 + y + y**2
     poly_b = y**3 + x + x**2
-    code = codes.BBCode(orders, poly_a, poly_b, field=2)
+    code = codes.BBCode(orders, poly_a, poly_b)
     assert code.num_qudits == 144
     assert code.dimension == 12
     assert code.get_weight() == 6
@@ -191,15 +193,20 @@ def get_dist_l1(
 
 def test_quasi_cyclic_codes() -> None:
     """Multivariave versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
-    from sympy.abc import x, y
 
     # not enough orders provided
     with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
         codes.QCCode([], x, y)
 
+    # invalid coefficients
+    with pytest.raises(ValueError, match="Coefficient .* is invalid"):
+        codes.QCCode([2], 2 * x, x)
+
     # add placeholder symbols if necessary
     code = codes.QCCode([1, 2, 3], x, x * y)
     assert len(code.symbols) == 3
+
+    assert_valid_subgraphs(code)
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -224,9 +231,7 @@ def test_hypergraph_product(
     assert np.array_equal(code.matrix, codes.QuditCode.graph_to_matrix(graph))
     assert np.array_equal(code.matrix_x, matrix_x)
     assert np.array_equal(code.matrix_z, matrix_z)
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), validate=True)
@@ -399,7 +404,7 @@ def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
     # raise error if the generating data is underspecified
     subset_a = code.complex.subset_a
     subset_b = group.random_symmetric_subset(len(subset_a) - 1)
-    subcode_a = codes.RepetitionCode(len(subset_a), field=2)
+    subcode_a = codes.RepetitionCode(len(subset_a))
     with pytest.raises(ValueError, match="Underspecified generating data"):
         codes.QTCode(subset_a, subset_b, subcode_a)
 
@@ -459,9 +464,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     ):
         assert cols <= code.get_distance(Pauli.X, bound=True) <= len(code)
         assert rows <= code.get_distance(Pauli.Z, bound=True) <= len(code)
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # un-rotated SurfaceCode = HGPCode
     rep_codes = (codes.RepetitionCode(rows), codes.RepetitionCode(cols))
@@ -473,9 +476,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     assert code.num_qudits == rows * cols
     assert codes.CSSCode.get_distance(code, Pauli.X) == cols
     assert codes.CSSCode.get_distance(code, Pauli.Z) == rows
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # test that the conjugated rotated surface code is an XZZX code
     code = codes.SurfaceCode(max(rows, cols), rotated=True)
@@ -492,9 +493,7 @@ def test_toric_codes() -> None:
     code = codes.ToricCode(distance, rotated=False)
     assert code.dimension == 2
     assert code.num_qudits == 2 * distance**2
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # check minimal logical operator weights
     code.reduce_logical_ops(with_ILP=True)
@@ -510,9 +509,7 @@ def test_toric_codes() -> None:
     assert code.dimension == 2
     assert code.num_qudits == distance**2
     assert codes.CSSCode.get_distance(code) == distance
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    assert_valid_subgraphs(code)
 
     # rotated toric code must have even side lengths
     with pytest.raises(ValueError, match="even side lengths"):
@@ -580,8 +577,8 @@ def test_shyps_code() -> None:
 def test_exact_distances() -> None:
     """Compute exact distances in special cases."""
     for code in [
-        codes.HGPCode(codes.RingCode(2), field=2),
-        codes.SHPCode(codes.RepetitionCode(2), field=2),
+        codes.HGPCode(codes.RingCode(2)),
+        codes.SHPCode(codes.RepetitionCode(2)),
     ]:
         name = type(code).__name__
         dist = code.get_distance()
