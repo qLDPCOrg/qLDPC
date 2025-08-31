@@ -36,7 +36,7 @@ numpy = ">=1.24.0"
 platformdirs = ">=4.0.0"
 pymatching = ">=2.1.0"
 scipy = ">=1.14.1"
-stim = ">=1.14.0"
+stim = ">=1.15.0"
 sympy = ">=1.12"
 
 checks-superstaq = { version = ">=0.5.45", optional = true }
