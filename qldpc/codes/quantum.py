@@ -411,7 +411,7 @@ class QCCode(TBCode):
 
 
 class BBCode(QCCode):
-    """Bivariate bicycle code, or a quasi-cyclic code restricted to polynomials in two variables.
+    """Bivariate bicycle code, or a quasi-cyclic code with polynomials in two variables.
 
     A bivariate bicycle code is a CSS code with subcode parity check matrices
     - matrix_x = [A, B], and
