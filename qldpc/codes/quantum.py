@@ -363,7 +363,8 @@ class QCCode(TBCode):
         Pushing XLA_1 to the end of the subgraph sequence corresponds to commuting associated gates
         to the right of the syndrome measurement circuit.  Similarly to the situation in Figure 2c
         of arXiv:2109.14609v1, commuting XLA_1 to the right of ZLB introduces CNOT gates between X
-        and Z check qubits.  These CNOTs get cancelled out by pushing ZRA_1 to the left of XLB.
+        and Z check qubits; the X and Z support of these gates is given, respectively, by the row
+        and column of A_1 @ B.T.  These CNOTs get cancelled out by pushing ZRA_1 to the left of XLB.
         """
         assert not strategy, (
             f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
