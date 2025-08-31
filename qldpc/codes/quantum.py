@@ -70,7 +70,11 @@ class FiveQubitCode(FiveQuditCode):
 
 
 class QuantumHammingCode(CSSCode):
-    """Quantum Hamming code, whose parity check matrices are classical Hamming codes."""
+    """Quantum Hamming code, whose parity check matrices are classical Hamming codes.
+
+    References:
+    - https://errorcorrectionzoo.org/c/quantum_hamming_css
+    """
 
     def __init__(self, rank: int, field: int | None = None) -> None:
         code = HammingCode(rank, field)
@@ -79,7 +83,13 @@ class QuantumHammingCode(CSSCode):
 
 
 class SteaneCode(QuantumHammingCode):
-    """Smallest quantum error-correcting CSS code."""
+    """Smallest quantum error-correcting CSS code.
+
+    Also the smallest error-correcting color code.
+
+    References:
+    - https://errorcorrectionzoo.org/c/steane
+    """
 
     def __init__(self) -> None:
         QuantumHammingCode.__init__(self, rank=3)
