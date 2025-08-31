@@ -15,15 +15,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import numpy as np
 import stim
 
 from qldpc import decoders
 
 
-def test_dem_arrays() -> None:
-    """Basic functionality of DetectorErrorModelArrays."""
+def test_initialization() -> None:
+    """Initialize DetectorErrorModelArray objects."""
 
-    # convert from/to a stim.DetectorErrorModel
     dem = stim.DetectorErrorModel("""
         error(0.001) D0
         error(0.002) D0 D1
@@ -35,7 +35,25 @@ def test_dem_arrays() -> None:
     assert dem_arrays.num_detectors == 3
     assert dem_arrays.num_observables == 2
 
-    # simplify and merge errors
+    other_dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+        dem_arrays.detector_flip_matrix,
+        dem_arrays.observable_flip_matrix,
+        dem_arrays.error_probs,
+    )
+    assert np.allclose(
+        other_dem_arrays.detector_flip_matrix.todense(), dem_arrays.detector_flip_matrix.todense()
+    )
+    assert np.allclose(
+        other_dem_arrays.observable_flip_matrix.todense(),
+        dem_arrays.observable_flip_matrix.todense(),
+    )
+    assert np.allclose(other_dem_arrays.error_probs, dem_arrays.error_probs)
+
+
+def test_simplify() -> None:
+    """Simplify and merge errors."""
+
+    # merge errors
     dem = stim.DetectorErrorModel("""
         error(0.001) D0 D0 D0
         error(0.002) D0 D3
@@ -55,3 +73,18 @@ def test_dem_arrays() -> None:
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 4
     assert dem_arrays.num_observables == 2
+
+    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+        np.array([[1, 0, 1], [1, 1, 1]]), np.array([[1, 0, 1]]), np.ones(3) * 0.3
+    )
+    dem = stim.DetectorErrorModel("""
+        error(0.3) D0 D1 L0
+        error(0.3) D1
+        error(0.3) D0 D1 L0
+    """)
+    simplified_dem = stim.DetectorErrorModel("""
+        error(0.42) D0 D1 L0
+        error(0.3) D1
+    """)
+    assert dem == dem_arrays.to_detector_error_model()
+    assert simplified_dem == dem_arrays.simplify().to_detector_error_model()

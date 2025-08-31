@@ -66,6 +66,19 @@ class DetectorErrorModelArrays:
         self.detector_flip_matrix = detector_flip_matrix.tocsc()
         self.observable_flip_matrix = observable_flip_matrix.tocsc()
 
+    @staticmethod
+    def from_arrays(
+        detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.float64],
+        observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.float64],
+        error_probs: npt.NDArray[np.float64],
+    ) -> DetectorErrorModelArrays:
+        """Initialize from arrays directly."""
+        dem_arrays = object.__new__(DetectorErrorModelArrays)
+        dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(detector_flip_matrix)
+        dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(observable_flip_matrix)
+        dem_arrays.error_probs = np.asarray(error_probs)
+        return dem_arrays
+
     @property
     def num_errors(self) -> int:
         """The number of distinct circuit errors."""
@@ -129,6 +142,10 @@ class DetectorErrorModelArrays:
             observables = " ".join([f"L{dd}" for dd in sorted(observable_vec.nonzero()[1])])
             dem += stim.DetectorErrorModel(f"error({prob}) {detectors} {observables}")
         return dem
+
+    def simplify(self) -> DetectorErrorModelArrays:
+        """Simplify this DetectorErrorModelArrays object by merging errors."""
+        return DetectorErrorModelArrays(self.to_detector_error_model())
 
 
 def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
