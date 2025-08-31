@@ -378,10 +378,10 @@ class QCCode(TBCode):
         matrices_b = [self.eval(term).lift().T for term in terms_b]
 
         # collect edges by type and index of a term in A or B
-        edges_XL: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
-        edges_XR: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
-        edges_ZL: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
-        edges_ZR: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_XL: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_XR: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_ZL: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_ZR: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
         for term_index, matrix in enumerate(matrices_a):
             for xx, ll in zip(*np.where(matrix)):
                 zz = ll + self.num_checks_x
