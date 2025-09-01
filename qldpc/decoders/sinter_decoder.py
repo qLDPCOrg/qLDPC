@@ -165,7 +165,7 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
         )
 
 
-class SegmentSinterDecoder(SinterDecoder):
+class CompositeSinterDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
     This decoder splits a detector error model into independent decoding problems, or segments,
@@ -182,7 +182,7 @@ class SegmentSinterDecoder(SinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder to independently decode subsets of detectors and observables.
 
-        A SegmentSinterDecoder is used by Sinter to decode detection events from circuit (or, more
+        A CompositeSinterDecoder is used by Sinter to decode detection events from circuit (or, more
         generally, detector error model) simulations to predict observable flips.
 
         See help(sinter.Decoder) for additional information.
@@ -211,7 +211,9 @@ class SegmentSinterDecoder(SinterDecoder):
             **decoder_kwargs,
         )
 
-    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> CompiledSegmentSinterDecoder:
+    def compile_decoder_for_dem(
+        self, dem: stim.DetectorErrorModel
+    ) -> CompiledCompositeSinterDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
@@ -230,20 +232,19 @@ class SegmentSinterDecoder(SinterDecoder):
         compiled_decoders = [
             SinterDecoder.compile_decoder_for_dem(self, segment_dem) for segment_dem in segment_dems
         ]
-        return CompiledSegmentSinterDecoder(
+        return CompiledCompositeSinterDecoder(
             self.segment_detectors, self.segment_observables, compiled_decoders
         )
 
 
-class CompiledSegmentSinterDecoder(CompiledSinterDecoder):
+class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     This decoder splits a decoding problem into segments and solves each segment independently.
-    Here a segment is defined by its own subset of detectors, subset of observables, and its own
-    decoder.
+    Here a segment is defined by its own subset of detectors, subset of observables, and decoder.
 
-    Instances of this class are meant to be constructed by a SegmentSinterDecoder, whose
-    .compile_decoder_for_dem method returns a CompiledSegmentSinterDecoder.
+    Instances of this class are meant to be constructed by a CompositeSinterDecoder, whose
+    .compile_decoder_for_dem method returns a CompiledCompositeSinterDecoder.
     """
 
     def __init__(

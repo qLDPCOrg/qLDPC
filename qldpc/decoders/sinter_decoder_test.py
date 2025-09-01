@@ -58,7 +58,7 @@ def test_segment_decoding() -> None:
 
     # build a monolithic vs. segmented decoder
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=2)
-    decoder_2 = decoders.SegmentSinterDecoder(
+    decoder_2 = decoders.CompositeSinterDecoder(
         ([0], [0]), ([1], [1]), with_lookup=True, max_weight=2
     )
 
