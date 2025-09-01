@@ -80,15 +80,19 @@ def test_generalized_union_find() -> None:
     )
 
 
-def test_block_decoder() -> None:
-    """Decode independent code blocks."""
+def test_composite_decoder() -> None:
+    """Decode a composite syndrome in parts to decode independently."""
     matrix, error, syndrome = get_toy_problem()
-    decoder = decoders.get_decoder(matrix)
+    decoder = decoders.get_decoder(matrix, with_MWPM=True)
+    composite_decoder = decoders.CompositeDecoder.from_copies(decoder, syndrome.size, 2)
 
-    block_error = np.concatenate([error, error])
-    block_syndrome = np.concatenate([syndrome, syndrome])
-    block_decoder = decoders.StackDecoder(syndrome.size, decoder)
-    assert np.array_equal(block_error, block_decoder.decode(block_syndrome))
+    composite_error = np.concatenate([error] * 2)
+    composite_syndrome = np.concatenate([syndrome] * 2)
+    assert np.array_equal(composite_error, composite_decoder.decode(composite_syndrome))
+
+    composite_errors = np.array([composite_error] * 3)
+    composite_syndromes = np.array([composite_syndrome] * 3)
+    assert np.array_equal(composite_errors, composite_decoder.decode_batch(composite_syndromes))
 
 
 def test_direct_ilp_decoding() -> None:
@@ -129,7 +133,7 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
     """Decode an actual quantum code with random errors."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
-    code = codes.SurfaceCode(5, field=3)
+    code = codes.SurfaceCode(4, field=3)
     local_errors = tuple(itertools.product(range(code.field.order), repeat=2))[1:]
     qubit_a, qubit_b = np.random.choice(range(len(code)), size=2, replace=False)
     pauli_a, pauli_b = random.choices(local_errors, k=2)

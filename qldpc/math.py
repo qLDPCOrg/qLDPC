@@ -37,7 +37,11 @@ IntegerArray = TypeVar(
     scipy.sparse.sparray,
 )
 
-DenseIntegerArray = TypeVar("DenseIntegerArray", npt.NDArray[np.int_], galois.FieldArray)
+DenseIntegerArray = TypeVar(
+    "DenseIntegerArray",
+    npt.NDArray[np.int_],
+    galois.FieldArray,
+)
 
 
 def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:

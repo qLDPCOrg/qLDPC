@@ -227,7 +227,7 @@ class ClassicalCode(AbstractCode):
         field: int | None = None,
     ) -> None:
         """Construct a classical code from a parity check matrix over a finite field."""
-        AbstractCode.__init__(self, matrix, field)
+        super().__init__(matrix, field)
 
         if isinstance(matrix, ClassicalCode):
             self._generator = matrix._generator
@@ -388,7 +388,7 @@ class ClassicalCode(AbstractCode):
         f"""Compute the parameters of this code: [n,k,d].
 
         Args:
-            bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
+            bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help({type(self)}.get_distance_bound).
             **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
@@ -412,7 +412,7 @@ class ClassicalCode(AbstractCode):
         f"""Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
 
         Args:
-            bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
+            bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help({type(self)}.get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
@@ -648,7 +648,7 @@ class ClassicalCode(AbstractCode):
         weight k, which depends on the max_error_rate), and then recycle the values of F_k to
         compute each F(p).
 
-        There is one more minor trick, which is that we can use the fact that F_k = 1 to simplify
+        There is one more minor trick, which is that we can use the fact that F_0 = 1 to simplify
             F(p) = q_0(p) + sum_(k>0) q_k(p) F_k.
         We thereby only need to sample errors of weight k > 0.
         """
@@ -749,7 +749,7 @@ class QuditCode(AbstractCode):
         is_subsystem_code: bool | None = None,
     ) -> None:
         """Construct a qudit code from a parity check matrix over a finite field."""
-        AbstractCode.__init__(self, matrix, field)
+        super().__init__(matrix, field)
 
         if isinstance(matrix, QuditCode):
             self._stabilizer_ops = matrix._stabilizer_ops
@@ -839,6 +839,7 @@ class QuditCode(AbstractCode):
         1. Any pair of subgraphs must be edge-disjoint.
         2. The union of all subgraphs (with nx.compose) must equal the Tanner graph of the code.
         3. For every subgraph, all two-qubit gates associated with its edges must commute.
+        4. The sequence of subgraphs must correspond to a valid syndrome extraction circuit.
 
         The sequence here colors parity checks in such a way that any two parity checks with
         overlapping support have different colors.  Each color induces a subgraph of all edges
@@ -1337,7 +1338,7 @@ class QuditCode(AbstractCode):
         f"""Compute the parameters of this code: [n,k,d].
 
         Args:
-            bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
+            bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help({type(self)}.get_distance_bound).
             **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
@@ -1355,7 +1356,7 @@ class QuditCode(AbstractCode):
         f"""Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
-            bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
+            bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help({type(self)}.get_distance_bound).
             **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
@@ -2235,7 +2236,7 @@ class CSSCode(QuditCode):
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
                 X-type logical operator).  If passed qldpc.objects.Pauli.X, compute the Z-distance.
                 If None (the default), minimize over X and Z.
-            bound: False, 0, or None (the default), compute the exact code distance.  Otherwise,
+            bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help({type(self)}.get_distance_bound).
             **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.

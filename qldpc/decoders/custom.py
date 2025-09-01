@@ -410,28 +410,45 @@ class GUFDecoder(Decoder):
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
 
 
-class StackDecoder(Decoder):
-    """Decoder for a composite syndrome from a stack of identical code blocks.
+class CompositeDecoder(Decoder):
+    """Decoder for a composite syndrome from multiple identical code blocks.
 
-    A StackDecoder is instantiated from:
-    - the length of a syndrome vector for one code block (syndrome_length), and
-    - a decoder for a one code block.
-    When asked to decode a syndrome, a StackDecoder breaks the syndrome into sections of size
-    syndrome_length, and decodes each section using the single-code-block decoder that it was
-    instantiated with.
+    A CompositeDecoder is instantiated from a sequence of tuples, where each tuple contains
+    (a) the decoder for a one code block
+    (b) the length of a syndrome vector for that code block.
+    When asked to decode a syndrome, a SegmentDecoder splits the syndrome into segments of
+    appropriate lengths, and decodes these segments independently with their corresponding decoders.
     """
 
-    def __init__(self, syndrome_length: int, decoder: Decoder) -> None:
-        self.syndrome_length = syndrome_length
-        self.decoder = decoder
+    def __init__(self, *decoders_and_syndrome_lengths: tuple[Decoder, int]) -> None:
+        self.decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
+        self.slices = tuple(
+            slice(sum(syndrome_lengths[:ss]), sum(syndrome_lengths[: ss + 1]))
+            for ss in range(len(syndrome_lengths))
+        )
+
+        if all(hasattr(decoder, "decode_batch") for decoder in self.decoders):
+            self.decode_batch = self._decode_batch
+
+    @staticmethod
+    def from_copies(decoder: Decoder, syndrome_length: int, num_copies: int) -> CompositeDecoder:
+        """Initialize a CompositeDecoder from copies of a given decoder and syndrome_length."""
+        return CompositeDecoder(*[(decoder, syndrome_length)] * num_copies)
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome by parts and return a net inferred error."""
+        """Decode an error syndrome by parts."""
         corrections = [
-            self.decoder.decode(sub_syndrome)
-            for sub_syndrome in syndrome.reshape(-1, self.syndrome_length)
+            decoder.decode(syndrome[slice]) for decoder, slice in zip(self.decoders, self.slices)
         ]
-        return np.concatenate(corrections)
+        return np.hstack(corrections)
+
+    def _decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes by parts."""
+        corrections = [
+            decoder.decode_batch(syndromes[:, slice])
+            for decoder, slice in zip(self.decoders, self.slices)
+        ]
+        return np.hstack(corrections)
 
 
 class DirectDecoder(Decoder):
