@@ -86,6 +86,7 @@ class RelayBPDecoder(BatchDecoder):
         name: str,
         matrix: IntegerArray,
         error_priors: npt.NDArray[np.float64] | Sequence[float] | None,
+        *,
         observable_error_matrix: IntegerArray | None = None,
         include_decode_result: bool = False,
     ) -> None:
