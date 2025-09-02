@@ -57,13 +57,21 @@ class BatchDecoder(Protocol):
 class RelayBPDecoder(BatchDecoder):
     """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
-    This class first constructs an "inner" Relay-BP decoder by name, as found under help(relay_bp),
-    and wraps this decoder inside a relay_bp.ObservableDecoderRunner.  If not provided an
-    observable_error_matrix at initialization, a RelayBPDecoder initalizes with an empty
-    observable_error_matrix, and will throw an error if any observable-related method is called.
+    Requires relay_bp to be installed, for example via "pip install 'qldpc[relay-bp]'".
 
-    NOTE: most methods of a RelayBPDecoder are inherited IMPLICITLY from
-    relay_bp.ObservableDecoderRunner, and do not appear in the documentation here.
+    This class first constructs an "inner" Relay-BP decoder by name, such as "RelayBPDecoder"; see
+    help(relay_bp) for more options.  This inner decoder is then wrapped inside a
+    relay_bp.ObservableDecoderRunner.  If not provided an observable_error_matrix at initialization,
+    a RelayBPDecoder initalizes with an empty observable_error_matrix, and will throw an error if any
+    observable-related method is called.  This wrapping is primarily performed to make use of the
+    parallelized batch decoding methods of relay_bp.ObservableDecoderRunner.
+
+    IMPORTANT NOTE: most methods of a RelayBPDecoder are inherited IMPLICITLY from
+    relay_bp.ObservableDecoderRunner, and do not appear in the RelayBPDecoder documentation.  For
+    example, given a decoder: RelayBPDecoder, you can call decoder.decode_detailed(detectors) or
+    decoder.from_errors_decode_observables_batch(errors, parallel=True).  The lack of documentation
+    for RelayBPDecoder methods is largely because relay_bp.ObservableDecoderRunner does not allow
+    subclassing; otherwise, RelayBPDecoder would be a subclass of relay_bp.ObservableDecoderRunner.
     See help(relay_bp.ObservableDecoderRunner) for a list of all RelayBPDecoder methods.
     """
 
