@@ -78,19 +78,29 @@ class RelayBPDecoder(BatchDecoder):
                 "See 'import relay_bp; help(relay_bp.bp)' for available Relay-BP decoders"
             )
 
-        check_matrix = matrix.view(np.ndarray) if isinstance(matrix, galois.FieldArray) else matrix
+        if isinstance(matrix, galois.FieldArray):
+            matrix = matrix.view(np.ndarray)  # type:ignore[assignment]
 
-        # TODO: raise ValueError when calling obsservable methods
-        self.with_observables = observable_error_matrix is not None
+        self.observables_error: ValueError | None
+        if observable_error_matrix is None:
+            observable_error_matrix = np.array([[]], dtype=int)  # type:ignore[assignment]
+            self.observables_error = ValueError(
+                "This Relay-BP decoder cannot compute or decode observables.  Try providing the"
+                " Relay-BP decoder with an observable_error_matrix when initializing it."
+            )
+        else:
+            self.observables_error = None
 
         self.decoder = relay_bp.ObservableDecoderRunner(
-            getattr(relay_bp, name)(check_matrix, error_priors),
-            observable_error_matrix if self.with_observables else np.array([[]], dtype=int),
+            getattr(relay_bp, name)(matrix, error_priors),
+            observable_error_matrix,
             include_decode_result,
         )
 
     def compute_observables(self, /, errors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Method inherited from the ObservableDecoderRunner class of the relay_bp package."""
+        if self.observables_error:
+            raise self.observables_error
         return self.decoder.compute_observables(np.asarray(errors, dtype=np.uint8))
 
     def decode(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
@@ -135,6 +145,8 @@ class RelayBPDecoder(BatchDecoder):
 
     def decode_observables(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Method inherited from the ObservableDecoderRunner class of the relay_bp package."""
+        if self.observables_error:
+            raise self.observables_error
         return self.decoder.decode_observables(np.asarray(detectors, dtype=np.uint8))
 
     def decode_observables_batch(
@@ -146,6 +158,8 @@ class RelayBPDecoder(BatchDecoder):
         leave_progress_bar_on_finish: bool = False,
     ) -> npt.NDArray[np.int_]:
         """Method inherited from the ObservableDecoderRunner class of the relay_bp package."""
+        if self.observables_error:
+            raise self.observables_error
         return self.decoder.decode_observables_batch(
             np.asarray(detectors, dtype=np.uint8),
             parallel,
@@ -162,6 +176,8 @@ class RelayBPDecoder(BatchDecoder):
         leave_progress_bar_on_finish: bool = False,
     ) -> list[relay_bp.DecodeResult]:
         """Method inherited from the ObservableDecoderRunner class of the relay_bp package."""
+        if self.observables_error:
+            raise self.observables_error
         return self.decoder.decode_observables_detailed_batch(
             np.asarray(detectors, dtype=np.uint8),
             parallel,
@@ -178,6 +194,8 @@ class RelayBPDecoder(BatchDecoder):
         leave_progress_bar_on_finish: bool = False,
     ) -> npt.NDArray[np.int_]:
         """Method inherited from the ObservableDecoderRunner class of the relay_bp package."""
+        if self.observables_error:
+            raise self.observables_error
         return self.decoder.from_errors_decode_observables_batch(
             np.asarray(errors, dtype=np.uint8),
             parallel,
@@ -189,6 +207,8 @@ class RelayBPDecoder(BatchDecoder):
         self, /, errors: npt.NDArray[np.int_]
     ) -> relay_bp.DecodeResult:
         """Method inherited from the ObservableDecoderRunner class of the relay_bp package."""
+        if self.observables_error:
+            raise self.observables_error
         return self.decoder.from_errors_decode_observables_detailed(
             np.asarray(errors, dtype=np.uint8)
         )
@@ -201,6 +221,8 @@ class RelayBPDecoder(BatchDecoder):
         progress_bar: bool = True,
     ) -> list[relay_bp.DecodeResult]:
         """Method inherited from the ObservableDecoderRunner class of the relay_bp package."""
+        if self.observables_error:
+            raise self.observables_error
         return self.decoder.from_errors_decode_observables_detailed_batch(
             np.asarray(errors, dtype=np.uint8), parallel, progress_bar
         )
