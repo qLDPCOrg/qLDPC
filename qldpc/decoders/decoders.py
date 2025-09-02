@@ -146,8 +146,8 @@ def get_decoder_RBP(name: str, matrix: IntegerArray, **decoder_args: object) -> 
     error_priors = decoder_args.pop("error_priors", [PLACEHOLDER_ERROR_RATE] * matrix.shape[1])
     observable_error_matrix = decoder_args.pop("observable_error_matrix", None)
     include_decode_result = decoder_args.pop("include_decode_result", False)
-    if any(decoder_args):
-        raise ValueError(
+    if decoder_args:
+        raise ValueError(  # pragma: no cover
             f"Unrecognized arguments for a Relay-BP decoder: {list(decoder_args.keys())}"
         )
     return RelayBPDecoder(
