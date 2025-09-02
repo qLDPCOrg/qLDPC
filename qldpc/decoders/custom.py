@@ -59,10 +59,10 @@ class RelayBPDecoder(BatchDecoder):
 
     Requires relay_bp to be installed, for example via "pip install 'qldpc[relay-bp]'".
 
-    This class first constructs an "inner" Relay-BP decoder by name, such as "RelayDecoderF32"; see
-    help(relay_bp) for more options.  To benefit from parallelized decoding in the relay-bp package,
-    which (as of relay-bp==0.1.0) is only implemented for relay_bp.ObservableDecoderRunner,
-    RelayBPDecoder uses the inner decoder to construct a relay_bp.ObservableDecoderRunner at
+    This class first constructs a relay_bp.decoder.DynDecoder decoder by class name, such as
+    "RelayDecoderF32"; see help(relay_bp) for more options.  To enable parallelized decoding, which
+    which as of relay-bp==0.1.0 is only implemented for the relay_bp.ObservableDecoderRunner class,
+    RelayBPDecoder wraps the relay_bp.decoder.DynDecoder in a relay_bp.ObservableDecoderRunner at
     initialization time.
 
     IMPORTANT POINTS TO NOTE:
