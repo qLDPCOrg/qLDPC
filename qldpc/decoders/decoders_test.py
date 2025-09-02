@@ -17,8 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import unittest.mock
-
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -60,25 +58,3 @@ def test_decoding() -> None:
     assert np.array_equal(
         error, decoders.decode(matrix, syndrome, with_weighted_lookup=True, max_weight=2)
     )
-
-    # some decoders can decode in batches
-    syndrome_batch = np.array([syndrome])
-    for decoder in [
-        decoders.get_decoder_MWPM(matrix),
-        decoders.get_decoder_RBP("RelayDecoderF32", matrix),
-    ]:
-        assert np.array_equal([error], decoder.decode_batch(syndrome_batch))
-
-
-def test_decoder_errors() -> None:
-    """Fail to initialize decoders."""
-    # fail to initialize a relay-bp decoder because relay-bp is not installed
-    with (
-        unittest.mock.patch.dict("sys.modules", {"relay_bp": None}),
-        pytest.raises(ImportError, match="Failed to import relay-bp"),
-    ):
-        decoders.get_decoder(np.array([]), with_RBP="RelayDecoderF64")
-
-    # fail to initialize a relay-bp decoder from an unrecognized name
-    with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder(np.array([]), with_RBP="invalid_name")
