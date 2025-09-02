@@ -153,8 +153,8 @@ def get_decoder_RBP(name: str, matrix: IntegerArray, **decoder_args: object) -> 
         name,
         matrix,
         error_priors,  # type:ignore[arg-type]
-        observable_error_matrix,
-        bool(include_decode_result),
+        observable_error_matrix=observable_error_matrix,
+        include_decode_result=bool(include_decode_result),
     )
 
 
