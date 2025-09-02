@@ -18,7 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
-from typing import TypeVar
+from typing import TypeVar, Union
 
 import galois
 import numpy as np
@@ -29,18 +29,15 @@ import stim
 
 from qldpc.objects import Pauli
 
-IntegerArray = TypeVar(
-    "IntegerArray",
-    npt.NDArray[np.int_],
-    galois.FieldArray,
-    scipy.sparse.spmatrix,
-    scipy.sparse.sparray,
-)
+DenseIntegerArray = Union[galois.FieldArray, npt.NDArray[np.int_]]
+SparseIntegerArray = Union[scipy.sparse.spmatrix, scipy.sparse.sparray]
+IntegerArray = Union[DenseIntegerArray, SparseIntegerArray]
 
-DenseIntegerArray = TypeVar(
-    "DenseIntegerArray",
-    npt.NDArray[np.int_],
+DenseIntegerArrayType = TypeVar(
+    "DenseIntegerArrayType",
+    DenseIntegerArray,
     galois.FieldArray,
+    npt.NDArray[np.int_],
 )
 
 
@@ -62,7 +59,7 @@ def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
     return stim.PauliString(paulis)
 
 
-def symplectic_conjugate(vectors: DenseIntegerArray) -> DenseIntegerArray:
+def symplectic_conjugate(vectors: DenseIntegerArrayType) -> DenseIntegerArrayType:
     """Take symplectic vectors to their duals.
 
     The symplectic conjugate of a Pauli string swaps its X and Z support, and multiplies its X

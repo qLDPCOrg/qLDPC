@@ -117,7 +117,7 @@ class AbstractCode(abc.ABC):
         else:
             self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
             self._matrix = np.asarray(
-                matrix.todense() if scipy.sparse.issparse(matrix) else matrix,  # type:ignore[union-attr,attr-defined]
+                matrix.todense() if scipy.sparse.issparse(matrix) else matrix,  # type:ignore[union-attr]
                 dtype=int,
             ).view(self.field)
 
