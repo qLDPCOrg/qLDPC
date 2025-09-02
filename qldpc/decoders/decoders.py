@@ -66,7 +66,7 @@ def get_decoder(matrix: IntegerArray, **decoder_args: object) -> Decoder:
         return get_decoder_BF(matrix, **decoder_args)
 
     if name := decoder_args.pop("with_RBP", None):
-        return get_decoder_RBP(name, matrix, **decoder_args)
+        return get_decoder_RBP(str(name), matrix, **decoder_args)
 
     if decoder_args.pop("with_MWPM", False):
         return get_decoder_MWPM(matrix, **decoder_args)
@@ -136,7 +136,7 @@ def get_decoder_MWPM(matrix: IntegerArray, **decoder_args: object) -> BatchDecod
     return pymatching.Matching.from_check_matrix(matrix, **decoder_args)
 
 
-def get_decoder_RBP(name: object, matrix: IntegerArray, **decoder_args: object) -> RelayBPDecoder:
+def get_decoder_RBP(name: str, matrix: IntegerArray, **decoder_args: object) -> RelayBPDecoder:
     """Relay-BP decoders.
 
     For details about Relay-BP decoders, see:
@@ -144,7 +144,19 @@ def get_decoder_RBP(name: object, matrix: IntegerArray, **decoder_args: object) 
     - Reference: https://arxiv.org/abs/2506.01779
     """
     error_priors = decoder_args.pop("error_priors", [PLACEHOLDER_ERROR_RATE] * matrix.shape[1])
-    return RelayBPDecoder(name, matrix, np.asarray(error_priors), **decoder_args)
+    observable_error_matrix = decoder_args.pop("observable_error_matrix", None)
+    include_decode_result = decoder_args.pop("include_decode_result", False)
+    if any(decoder_args):
+        raise ValueError(
+            f"Unrecognized arguments for a Relay-BP decoder: {list(decoder_args.keys())}"
+        )
+    return RelayBPDecoder(
+        name,
+        matrix,
+        np.asarray(error_priors),
+        observable_error_matrix,
+        bool(include_decode_result),
+    )
 
 
 def get_decoder_lookup(matrix: IntegerArray, **decoder_args: object) -> LookupDecoder:

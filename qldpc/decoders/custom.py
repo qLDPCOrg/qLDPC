@@ -66,7 +66,6 @@ class RelayBPDecoder(BatchDecoder):
         matrix: IntegerArray,
         error_priors: npt.NDArray[np.float64],
         observable_error_matrix: IntegerArray | None = None,
-        *,
         include_decode_result: bool = False,
     ) -> None:
         try:
@@ -75,17 +74,17 @@ class RelayBPDecoder(BatchDecoder):
             raise ImportError("Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'")
         if not isinstance(name, str) or not hasattr(relay_bp, name):
             raise ValueError(
-                f"Relay BP decoder name not recognized: {name}\n"
-                "See 'import relay_bp; help(relay_bp.bp)' for available decoders"
+                f"Relay-BP decoder name not recognized: {name}\n"
+                "See 'import relay_bp; help(relay_bp.bp)' for available Relay-BP decoders"
             )
 
-        matrix = matrix.view(np.ndarray) if isinstance(matrix, galois.FieldArray) else matrix
+        check_matrix = matrix.view(np.ndarray) if isinstance(matrix, galois.FieldArray) else matrix
 
         # TODO: raise ValueError when calling obsservable methods
         self.with_observables = observable_error_matrix is not None
 
         self.decoder = relay_bp.ObservableDecoderRunner(
-            getattr(relay_bp, name)(matrix, error_priors),
+            getattr(relay_bp, name)(check_matrix, error_priors),
             observable_error_matrix if self.with_observables else np.array([[]], dtype=int),
             include_decode_result,
         )
