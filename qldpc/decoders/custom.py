@@ -93,21 +93,13 @@ class RelayBPDecoder(BatchDecoder):
                 "See 'import relay_bp; help(relay_bp.bp)' for available Relay-BP decoders"
             )
 
+        # sanitize inputs
         if isinstance(matrix, galois.FieldArray):
-            matrix = matrix.view(np.ndarray)  # type:ignore[assignment]
-
+            matrix = matrix.view(np.ndarray)  # type:ignore[assignment]  # pragma: no cover
         if error_priors is None:
             error_priors = [PLACEHOLDER_ERROR_RATE] * matrix.shape[1]
-
-        self.observables_error: ValueError | None
         if observable_error_matrix is None:
             observable_error_matrix = np.array([[]], dtype=int)  # type:ignore[assignment]
-            self.observables_error = ValueError(
-                "This Relay-BP decoder cannot compute or decode observables.  Try providing the"
-                " Relay-BP decoder with an observable_error_matrix when initializing it."
-            )
-        else:
-            self.observables_error = None
 
         self.decoder = relay_bp.ObservableDecoderRunner(
             getattr(relay_bp, name)(matrix, np.asarray(error_priors)),
@@ -136,6 +128,7 @@ class RelayBPDecoder(BatchDecoder):
         )
 
     def __getattr__(self, name: str) -> Any:
+        """Inherit all methods of self.decoder, but typecast the first argument to np.uint8."""
         inner_func = getattr(self.decoder, name)
 
         @functools.wraps(inner_func)
