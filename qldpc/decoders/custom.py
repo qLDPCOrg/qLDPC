@@ -115,7 +115,10 @@ class RelayBPDecoder(BatchDecoder):
         )
 
     def decode(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
+        """Decode an error syndrome and return an inferred error.
+
+        Typecast detectors to np.uint8 for compatibility with the relay_bp package.
+        """
         return self.decoder.decode(np.asarray(detectors, dtype=np.uint8))
 
     def decode_batch(
@@ -126,7 +129,10 @@ class RelayBPDecoder(BatchDecoder):
         progress_bar: bool = True,
         leave_progress_bar_on_finish: bool = False,
     ) -> npt.NDArray[np.int_]:
-        """Decode a batch of error syndromes and return inferred errors."""
+        """Decode a batch of error syndromes and return inferred errors.
+
+        Typecast detectors to np.uint8 for compatibility with the relay_bp package.
+        """
         return self.decoder.decode_batch(
             np.asarray(detectors, dtype=np.uint8),
             parallel,
@@ -135,7 +141,10 @@ class RelayBPDecoder(BatchDecoder):
         )
 
     def __getattr__(self, name: str) -> Any:
-        """Inherit all methods of self.decoder, but typecast the first argument to np.uint8."""
+        """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.
+
+        Always typecast the first argument to np.uint8 for compatibility with the relay_bp package.
+        """
         inner_func = getattr(self.decoder, name)
 
         @functools.wraps(inner_func)
