@@ -95,11 +95,11 @@ class RelayBPDecoder(BatchDecoder):
 
         # sanitize inputs
         if isinstance(matrix, galois.FieldArray):
-            matrix = matrix.view(np.ndarray)  # type:ignore[assignment]  # pragma: no cover
+            matrix = matrix.view(np.ndarray)
         if error_priors is None:
             error_priors = [PLACEHOLDER_ERROR_RATE] * matrix.shape[1]
         if observable_error_matrix is None:
-            observable_error_matrix = np.array([[]], dtype=int)  # type:ignore[assignment]
+            observable_error_matrix = np.array([[]], dtype=int)
 
         self.decoder = relay_bp.ObservableDecoderRunner(
             getattr(relay_bp, name)(matrix, np.asarray(error_priors)),
