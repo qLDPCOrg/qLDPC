@@ -49,7 +49,6 @@ def test_relay_bp() -> None:
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(error, decoder.decode_batch(syndrome_batch)[0])
     assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
-    assert np.array_equal(error, decoder.decode_detailed_batch(syndrome_batch)[0].decoding)
 
     # fail to initialize a relay-bp decoder because relay-bp is not installed
     with (

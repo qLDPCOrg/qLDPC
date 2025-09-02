@@ -26,6 +26,7 @@ import pymatching
 from qldpc.math import IntegerArray
 
 from .custom import (
+    PLACEHOLDER_ERROR_RATE,
     BatchDecoder,
     Decoder,
     GUFDecoder,
@@ -34,8 +35,6 @@ from .custom import (
     RelayBPDecoder,
     WeightedLookupDecoder,
 )
-
-PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
 
 def decode(
@@ -143,7 +142,7 @@ def get_decoder_RBP(name: str, matrix: IntegerArray, **decoder_args: object) -> 
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """
-    error_priors = decoder_args.pop("error_priors", [PLACEHOLDER_ERROR_RATE] * matrix.shape[1])
+    error_priors = decoder_args.pop("error_priors", None)
     observable_error_matrix = decoder_args.pop("observable_error_matrix", None)
     include_decode_result = decoder_args.pop("include_decode_result", False)
     if decoder_args:
@@ -153,7 +152,7 @@ def get_decoder_RBP(name: str, matrix: IntegerArray, **decoder_args: object) -> 
     return RelayBPDecoder(
         name,
         matrix,
-        np.asarray(error_priors),
+        error_priors,  # type:ignore[arg-type]
         observable_error_matrix,
         bool(include_decode_result),
     )
