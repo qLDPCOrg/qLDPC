@@ -79,6 +79,10 @@ class RelayBPDecoder(BatchDecoder):
         method of relay_bp.ObservableDecoderRunner.  A consequence of this hack is that most of the
         methods that are recognized by RelayBPDecoder in practice do not appear in its documentation.
         See help(relay_bp.ObservableDecoderRunner) for a list of all RelayBPDecoder methods.
+
+    For details about Relay-BP decoders, see:
+    - Documentation: https://pypi.org/project/relay-bp
+    - Reference: https://arxiv.org/abs/2506.01779
     """
 
     def __init__(
