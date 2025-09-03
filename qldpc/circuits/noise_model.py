@@ -615,7 +615,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
 
     Args:
         circuit: The input circuit to preprocess.
-        immune_op_tag: Don't split circuit repeat blocks with this tag.
+        immune_op_tag: Don't split operations with this tag.
 
     Returns:
         stim.Circuit: A circuit with TICKs added to prevent instructions from reusing qubits.
