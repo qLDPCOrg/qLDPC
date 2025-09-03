@@ -385,12 +385,14 @@ class NoiseModel:
             # split moments with TICKs to prevent qubit reuse conflicts
             if immune_qubits:
                 raise ValueError("Automatic TICK insertion does not support immune qubits.")
-            circuit = _split_moments_with_ticks(circuit)
+            circuit = _split_moments_with_ticks(circuit, immune_op_tag)
 
         noisy_circuit = stim.Circuit()
 
         first_moment = True
-        for moment_or_repeat_block in _iter_moments_and_repeat_blocks(circuit, immune_qubits):
+        for moment_or_repeat_block in _iter_moments_and_repeat_blocks(
+            circuit, immune_qubits, immune_op_tag
+        ):
             if first_moment:
                 first_moment = False
             elif not isinstance(noisy_circuit[-1], stim.CircuitRepeatBlock):
@@ -605,7 +607,7 @@ def _get_standardized_name(op: stim.CircuitInstruction) -> str:
     return op_name
 
 
-def _split_moments_with_ticks(circuit: stim.Circuit) -> stim.Circuit:
+def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim.Circuit:
     """Insert TICKs into a circuit to split stim.CircuitInstruction that reuse qubits.
 
     This preprocessing ensures that errors are applied correctly to a stim.CircuitInstruction that
@@ -613,6 +615,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit) -> stim.Circuit:
 
     Args:
         circuit: The input circuit to preprocess.
+        immune_op_tag: Don't split circuit repeat blocks with this tag.
 
     Returns:
         stim.Circuit: A circuit with TICKs added to prevent instructions from reusing qubits.
@@ -622,11 +625,15 @@ def _split_moments_with_ticks(circuit: stim.Circuit) -> stim.Circuit:
 
     for op in circuit:
         if isinstance(op, stim.CircuitRepeatBlock):
+            if immune_op_tag in op.tag:
+                result.append(op)
+                continue
+
             # Process repeat blocks recursively
             if used_qubits:
                 result.append("TICK")
                 used_qubits.clear()
-            processed_body = _split_moments_with_ticks(op.body_copy())
+            processed_body = _split_moments_with_ticks(op.body_copy(), immune_op_tag)
             result.append(
                 stim.CircuitRepeatBlock(
                     repeat_count=op.repeat_count, body=processed_body, tag=op.tag
@@ -645,7 +652,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit) -> stim.Circuit:
         reuse properly.  Use a dummy immune_qubits set with -1 to force splitting of 2-qubit
         operations.
         """
-        split_ops = list(_split_targets_if_needed(op, immune_qubits={-1}))
+        split_ops = list(_split_targets_if_needed(op, {-1}, immune_op_tag))
 
         for split_op in split_ops:
             # Check if this split operation would reuse any qubits
@@ -683,7 +690,7 @@ def _involves_classical_bits(op: stim.CircuitInstruction) -> bool:
 
 
 def _split_targets_if_needed(
-    op: stim.CircuitInstruction, immune_qubits: set[int]
+    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits operations into pieces as needed.
 
@@ -693,34 +700,36 @@ def _split_targets_if_needed(
     Args:
         op: The circuit instruction to potentially split.
         immune_qubits: Set of qubits that are immune to noise.
+        immune_op_tag: Don't split operations with this tag.
 
     Yields:
         Circuit instructions, potentially split into smaller pieces.
     """
     op_type = OP_TYPES[op.name]
     if op_type == CLIFFORD_2Q:
-        yield from _split_targets_clifford_2q(op, immune_qubits)
+        yield from _split_targets_clifford_2q(op, immune_qubits, immune_op_tag)
     elif op_type == JUST_MEASURE_PP:
-        yield from _split_targets_mpp(op, immune_qubits)
+        yield from _split_targets_mpp(op)
     elif op_type in [NOISE, ANNOTATION]:
         yield op
     else:
-        yield from _split_targets_clifford_1q(op, immune_qubits)
+        yield from _split_targets_clifford_1q(op, immune_qubits, immune_op_tag)
 
 
 def _split_targets_clifford_1q(
-    op: stim.CircuitInstruction, immune_qubits: set[int]
+    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits single-qubit Clifford operations when immune qubits are present.
 
     Args:
         op: The single-qubit Clifford operation to split.
         immune_qubits: Set of qubits that are immune to noise.
+        immune_op_tag: Don't split operations with this tag.
 
     Yields:
         Circuit instructions split into individual single-target operations.
     """
-    if immune_qubits:
+    if immune_qubits or immune_op_tag in op.tag:
         args = op.gate_args_copy()
         for target in op.targets_copy():
             yield stim.CircuitInstruction(op.name, [target], args, tag=op.tag)
@@ -729,7 +738,7 @@ def _split_targets_clifford_1q(
 
 
 def _split_targets_clifford_2q(
-    op: stim.CircuitInstruction, immune_qubits: set[int]
+    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits two-qubit Clifford operations into individual gate pairs.
 
@@ -739,13 +748,18 @@ def _split_targets_clifford_2q(
     Args:
         op: The two-qubit Clifford operation to split.
         immune_qubits: Set of qubits that are immune to noise.
+        immune_op_tag: Don't split operations with this tag.
 
     Yields:
         Circuit instructions split into individual two-qubit gate operations.
     """
     assert OP_TYPES[op.name] == CLIFFORD_2Q
     targets = op.targets_copy()
-    if immune_qubits or any(target.is_measurement_record_target for target in targets):
+    if (
+        immune_qubits
+        or immune_op_tag in op.tag
+        or any(target.is_measurement_record_target for target in targets)
+    ):
         args = op.gate_args_copy()
         for k in range(0, len(targets), 2):
             yield stim.CircuitInstruction(op.name, targets[k : k + 2], args, tag=op.tag)
@@ -753,15 +767,11 @@ def _split_targets_clifford_2q(
         yield op
 
 
-def _split_targets_mpp(
-    op: stim.CircuitInstruction, immune_qubits: set[int]
-) -> Iterator[stim.CircuitInstruction]:
+def _split_targets_mpp(op: stim.CircuitInstruction) -> Iterator[stim.CircuitInstruction]:
     """Splits an MPP operation into one operation for each Pauli product it measures.
 
     Args:
         op: The MPP operation to split.
-        immune_qubits: Set of qubit indices that should not have noise applied
-            (unused in this function but included for interface consistency).
 
     Yields:
         Circuit instructions, one for each Pauli product measurement.
@@ -781,7 +791,7 @@ def _split_targets_mpp(
 
 
 def _iter_moments_and_repeat_blocks(
-    circuit: stim.Circuit, immune_qubits: set[int]
+    circuit: stim.Circuit, immune_qubits: set[int], immune_op_tag: str
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
     """Splits a circuit into moments and some operations into pieces.
 
@@ -791,6 +801,7 @@ def _iter_moments_and_repeat_blocks(
     Args:
         circuit: The circuit to split into moments.
         immune_qubits: Set of qubits that are immune to noise.
+        immune_op_tag: Don't split operations with this tag.
 
     Yields:
         Lists of operations corresponding to one moment in the circuit, with any problematic
@@ -812,6 +823,6 @@ def _iter_moments_and_repeat_blocks(
                 yield current_moment
                 current_moment = []
         else:
-            current_moment.extend(_split_targets_if_needed(op, immune_qubits))
+            current_moment.extend(_split_targets_if_needed(op, immune_qubits, immune_op_tag))
     if current_moment:
         yield current_moment

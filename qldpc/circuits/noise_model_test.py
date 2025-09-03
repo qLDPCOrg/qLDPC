@@ -256,7 +256,7 @@ def test_repeat_blocks() -> None:
     circuit = stim.Circuit(f"""
         H 0
         REPEAT['{immune_op_tag}'] 3 {{
-            CX 0 1
+            CX 0 1 1 2
         }}
     """)
     noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
@@ -264,12 +264,12 @@ def test_repeat_blocks() -> None:
         H 0
         DEPOLARIZE1(0.1) 0
         REPEAT['{immune_op_tag}'] 3 {{
-            CX 0 1
+            CX 0 1 1 2
         }}
     """)
     assert _circuits_are_equivalent(
         noisy_circuit,
-        noise_model.noisy_circuit(circuit, immune_op_tag=immune_op_tag, insert_ticks=False),
+        noise_model.noisy_circuit(circuit, immune_op_tag=immune_op_tag),
     )
 
 
