@@ -33,7 +33,6 @@ from .custom import (
     ILPDecoder,
     LookupDecoder,
     RelayBPDecoder,
-    WeightedLookupDecoder,
 )
 
 
@@ -72,9 +71,6 @@ def get_decoder(matrix: IntegerArray, **decoder_args: object) -> Decoder:
 
     if decoder_args.pop("with_lookup", False):
         return get_decoder_lookup(matrix, **decoder_args)
-
-    if decoder_args.pop("with_weighted_lookup", False):
-        return get_decoder_weighted_lookup(matrix, **decoder_args)
 
     if decoder_args.pop("with_ILP", False):
         return get_decoder_ILP(matrix, **decoder_args)
@@ -161,13 +157,6 @@ def get_decoder_RBP(name: str, matrix: IntegerArray, **decoder_args: object) -> 
 def get_decoder_lookup(matrix: IntegerArray, **decoder_args: object) -> LookupDecoder:
     """Decoder based on a lookup table from errors to syndromes."""
     return LookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
-
-
-def get_decoder_weighted_lookup(
-    matrix: IntegerArray, **decoder_args: object
-) -> WeightedLookupDecoder:
-    """Decoder based on a lookup table from errors to syndromes."""
-    return WeightedLookupDecoder(matrix, **decoder_args)  # type:ignore[arg-type]
 
 
 def get_decoder_ILP(matrix: IntegerArray, **decoder_args: object) -> ILPDecoder:

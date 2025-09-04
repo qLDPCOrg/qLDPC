@@ -66,18 +66,6 @@ def test_relay_bp() -> None:
         decoders.get_decoder(np.array([[]]), with_RBP="invalid_name")
 
 
-def test_lookup() -> None:
-    """Decode with a lookup table."""
-    matrix, error, syndrome = get_toy_problem()
-
-    # the distance of the given code is undefined, so lookup decoding to half the distance fails
-    with pytest.warns(UserWarning, match="without specifying a maximum error weight"):
-        assert np.array_equal([0, 0], decoders.decode(matrix, syndrome, with_lookup=True))
-
-    # ... but it works if we manually tell it to try and decode errors of weight <= 2
-    assert np.array_equal(error, decoders.decode(matrix, syndrome, with_lookup=True, max_weight=2))
-
-
 def test_ilp_decoder() -> None:
     """Decode using an integer linear program."""
     matrix, error, syndrome = get_toy_problem()
@@ -168,6 +156,8 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
     decoded_error = decoder.decode(syndrome).view(code.field)
     assert np.array_equal(syndrome, symplectic_conjugate(code.matrix) @ decoded_error)
 
-    decoder = decoders.WeightedLookupDecoder(code.matrix, symplectic=True, max_weight=2)
+    decoder = decoders.LookupDecoder(
+        code.matrix, symplectic=True, max_weight=2, penalty_func=lambda vec: np.count_nonzero(vec)
+    )
     decoded_error = decoder.decode(syndrome).view(code.field)
     assert np.array_equal(syndrome, symplectic_conjugate(code.matrix) @ decoded_error)

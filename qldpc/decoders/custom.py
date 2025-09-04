@@ -17,10 +17,8 @@ limitations under the License.
 
 from __future__ import annotations
 
-import collections
 import functools
 import itertools
-import warnings
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Protocol
 
@@ -165,11 +163,14 @@ class RelayBPDecoder(BatchDecoder):
 class LookupDecoder(Decoder):
     """Decoder based on a lookup table that maps syndromes to errors.
 
-    In addition to a parity check matrix, this decoder can be initialized with a max_weight, in
-    which case it builds a lookup table for all errors with weight <= max_weight.  If no max_weight
-    is provided, this code computes the distance of a classical code with the provided parity check
-    matrix, and sets max_weight to the highest weight for which an error is guaranteed to be
-    correctable, namely (code_distance - 1) // 2.
+    In addition to a parity check matrix, this decoder needs to be initialized with a max_weight.
+    The decoder consider then enumerates all errors with weight <= max_weight, in order of
+    decreasing weight.  For each error ee, it computes the corresponding syndrome ss, and assigns
+    syndrome ss the "correction" ee, overriding any previously assigned correction if present.
+
+    If provided a penalty_func that maps an error to a real number (i.e., a penalty), the decoder
+    only assigns correction ee to syndrome ss if (a) ss has no assigned correction, or (b) the
+    penalty of ee is smaller than the penalty of the correction currently assigned to ss.
 
     If initialized with symplectic=True, this decoder treats the provided parity check matrix as that
     of a QuditCode, with the first and last half of the columns denoting, respectively, the X and Z
@@ -180,40 +181,33 @@ class LookupDecoder(Decoder):
     def __init__(
         self,
         matrix: IntegerArray,
+        max_weight: int,
         *,
-        max_weight: int | None = None,
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
         symplectic: bool = False,
     ) -> None:
         self.shape: tuple[int, ...] = matrix.shape
         self.syndrome_to_correction = {}
+        error_weights: dict[tuple[int, ...], float] = {}
         for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
             matrix, max_weight, symplectic
         ):
-            self.syndrome_to_correction[tuple(syndrome)] = error
+            if penalty_func is None:
+                self.syndrome_to_correction[syndrome] = error
+            elif (error_weight := penalty_func(error)) <= error_weights.get(syndrome, np.inf):
+                error_weights[syndrome] = error_weight
+                self.syndrome_to_correction[syndrome] = error
 
     @staticmethod
     def iter_errors_and_syndomes(
-        matrix: IntegerArray, max_weight: int | None, symplectic: bool
-    ) -> Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
+        matrix: IntegerArray, max_weight: int, symplectic: bool
+    ) -> Iterator[tuple[npt.NDArray[np.int_], tuple[int, ...]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
 
         Errors are sorted in decreasing weight (number of bits/qudits addressed nontrivially).
         """
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else symplectic_conjugate(code.matrix)
-
-        if max_weight is None:
-            warnings.warn(
-                "A lookup decoder has been initialized without specifying a maximum error weight,"
-                " max_weight, so max_weight is being set to (code_distance - 1) // 2, where"
-                " code_distance is the distance of the ClassicalCode (if symplectic is False) or"
-                " QuditCode (if symplectic is True) with the parity check matrix provided to the"
-                " lookup decoder.  This default choice of max_weight is a poor choice for decoding"
-                " in one sector of a qudit CSSCode, for which the lookup decoder does not have"
-                " enough information to determine a reasonable max_weight."
-            )
-            code_distance = code.get_distance()
-            max_weight = (code_distance - 1) // 2 if isinstance(code_distance, int) else 0
 
         # identify the set of local errors that can occur
         repeat = 2 if symplectic else 1
@@ -228,49 +222,13 @@ class LookupDecoder(Decoder):
                     error[:, error_site_indices] = np.asarray(local_errors, dtype=int).T
                     error = error.ravel()
                     syndrome = matrix @ error
-                    yield error.view(np.ndarray), syndrome.view(np.ndarray)
+                    yield error.view(np.ndarray), tuple(syndrome.view(np.ndarray))
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         return self.syndrome_to_correction.get(
             tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int)
         )
-
-
-class WeightedLookupDecoder(LookupDecoder):
-    """Decoder based on a lookup table that maps syndromes to errors.
-
-    This decoder is essentially a LookupDecoder, but with a .decode method that accepts a function
-    to assign each candidate correction to a "weight" or "penalty" that is minimized to choose a
-    correction when decoding.  See help(LookupDecoder) for additional information.
-    """
-
-    def __init__(
-        self,
-        matrix: IntegerArray,
-        *,
-        max_weight: int | None = None,
-        symplectic: bool = False,
-    ) -> None:
-        self.shape: tuple[int, ...] = matrix.shape
-        self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
-            collections.defaultdict(list)
-        )
-        for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
-            matrix, max_weight, symplectic
-        ):
-            self.syndrome_to_candidates[tuple(syndrome)].append(error)
-
-    def decode(
-        self,
-        syndrome: npt.NDArray[np.int_],
-        weight_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
-    ) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
-        errors = self.syndrome_to_candidates.get(
-            tuple(syndrome.view(np.ndarray)), [np.zeros(self.shape[1], dtype=int)]
-        )
-        return min(errors, key=weight_func) if weight_func is not None else errors[-1]
 
 
 class ILPDecoder(Decoder):
