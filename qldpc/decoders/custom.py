@@ -184,8 +184,8 @@ class LookupDecoder(Decoder):
         matrix: IntegerArray,
         max_weight: int,
         *,
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
     ) -> None:
         self.shape: tuple[int, ...] = matrix.shape
         self.syndrome_to_correction = {}
