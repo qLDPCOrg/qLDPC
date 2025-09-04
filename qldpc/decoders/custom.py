@@ -232,7 +232,7 @@ class LookupDecoder(Decoder):
         )
 
 
-class WeightedLookupDecoder(Decoder):
+class WeightedLookupDecoder(LookupDecoder):
     """Decoder based on a lookup table that maps syndromes to errors.
 
     A WeightedLookupDecoder is a LookupDecoder that, when initialized, records *all* errors that are
@@ -260,7 +260,7 @@ class WeightedLookupDecoder(Decoder):
     def decode(
         self,
         syndrome: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float],
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] = lambda vec: np.count_nonzero(vec),
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         errors = self.syndrome_to_candidates.get(

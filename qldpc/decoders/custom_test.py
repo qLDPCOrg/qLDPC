@@ -163,5 +163,5 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(syndrome, symplectic_conjugate(code.matrix) @ decoded_error)
 
     decoder = decoders.WeightedLookupDecoder(code.matrix, symplectic=True, max_weight=2)
-    decoded_error = decoder.decode(syndrome, lambda vec: np.count_nonzero(vec)).view(code.field)
+    decoded_error = decoder.decode(syndrome).view(code.field)
     assert np.array_equal(syndrome, symplectic_conjugate(code.matrix) @ decoded_error)
