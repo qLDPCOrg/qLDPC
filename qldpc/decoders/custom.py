@@ -244,8 +244,8 @@ class WeightedLookupDecoder(Decoder):
     def __init__(
         self,
         matrix: IntegerArray,
+        max_weight: int,
         *,
-        max_weight: int | None = None,
         symplectic: bool = False,
     ) -> None:
         self.shape: tuple[int, ...] = matrix.shape
