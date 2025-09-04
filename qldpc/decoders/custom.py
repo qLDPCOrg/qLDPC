@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import collections
 import functools
 import itertools
 from collections.abc import Callable, Iterator, Sequence
@@ -229,6 +230,43 @@ class LookupDecoder(Decoder):
         return self.syndrome_to_correction.get(
             tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int)
         )
+
+
+class WeightedLookupDecoder(Decoder):
+    """Decoder based on a lookup table that maps syndromes to errors.
+
+    A WeightedLookupDecoder is a LookupDecoder that, when initialized, records *all* errors that are
+    consistent with a given syndrome.  The WeightedLookupDecoder then minimizes a penalty function
+    that is provided to the .decode method.  A WeightedLookupDecoder can thereby be initialized
+    once, and subsequently asked to decode with different penalty functions.
+    """
+
+    def __init__(
+        self,
+        matrix: IntegerArray,
+        *,
+        max_weight: int | None = None,
+        symplectic: bool = False,
+    ) -> None:
+        self.shape: tuple[int, ...] = matrix.shape
+        self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
+            collections.defaultdict(list)
+        )
+        for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
+            matrix, max_weight, symplectic
+        ):
+            self.syndrome_to_candidates[syndrome].append(error)
+
+    def decode(
+        self,
+        syndrome: npt.NDArray[np.int_],
+        penalty_func: Callable[[npt.NDArray[np.int_]], float],
+    ) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+        errors = self.syndrome_to_candidates.get(
+            tuple(syndrome.view(np.ndarray)), [np.zeros(self.shape[1], dtype=int)]
+        )
+        return min(errors, key=penalty_func) if penalty_func is not None else errors[-1]
 
 
 class ILPDecoder(Decoder):
