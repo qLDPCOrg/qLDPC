@@ -107,5 +107,9 @@ def get_distance_bound(
             f"Print(DistRandStab({args}:{kwargs}));",
         ]
 
-    bound = qldpc.external.gap.get_output(*commands)
+    output = qldpc.external.gap.get_output(*commands)
+
+    # strip whitespace and comments, and interpret the remaining text as the bound
+    lines = [line.strip() for line in output.splitlines()]
+    bound = "".join([line for line in lines if not line.startswith("#")])
     return int(bound)

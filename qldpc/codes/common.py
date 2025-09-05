@@ -203,6 +203,10 @@ class AbstractCode(abc.ABC):
     def dimension(self) -> int:
         """The number of logical (qu)dits encoded by this code."""
 
+    def forget_distance(self) -> None:
+        """Forget the known distance of this code."""
+        self._distance = None
+
 
 ################################################################################
 # classical codes
@@ -2468,6 +2472,10 @@ class CSSCode(QuditCode):
             min_bound = int(min(min_bound, np.count_nonzero(candidate_logical_op)))
 
         return min_bound
+
+    def forget_distance(self) -> None:
+        """Forget the known distance of this code."""
+        self._distance_x = self._distance_z = self._distance = None
 
     def reduce_logical_op(self, pauli: PauliXZ, logical_index: int, **decoder_kwargs: Any) -> None:
         """Reduce the weight of a logical operator.

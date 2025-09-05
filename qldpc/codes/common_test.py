@@ -133,8 +133,8 @@ def test_distance_classical(bits: int = 3) -> None:
     """Distance of a vector from a classical code."""
     rep_code = codes.RepetitionCode(bits)
 
-    # "forget" the exact code distance, and re-compute (or estimate) it in various ways
-    rep_code._distance = None
+    # forget the exact code distance, and re-compute (or estimate) it in various ways
+    rep_code.forget_distance()
     assert rep_code.get_distance_bound(cutoff=bits) == bits
     assert rep_code.get_distance(bound=True) == bits
     assert rep_code.get_distance() == bits
@@ -163,7 +163,7 @@ def test_distance_classical(bits: int = 3) -> None:
 
     # compute distance of a trinary repetition code
     rep_code = codes.RepetitionCode(bits, field=3)
-    rep_code._distance = None
+    rep_code.forget_distance()
     assert rep_code.get_distance_exact() == 3
 
 
@@ -300,8 +300,8 @@ def test_distance_qudit() -> None:
     assert code.get_code_params() == (5, 1, 3)
     assert code.get_distance(bound=True) == 3
 
-    # "forget" the code distance and compute estimate
-    code._distance = None
+    # compute an estimate of code distance
+    code.forget_distance()
     assert code.get_distance_bound(num_trials=0) == 5
     assert code.get_distance_bound(cutoff=5) == 5
 
@@ -309,7 +309,7 @@ def test_distance_qudit() -> None:
     with pytest.warns(UserWarning, match="ignored"):
         assert code.get_distance(test_arg=True)
 
-    code._distance = None
+    code.forget_distance()
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
         pytest.raises(NotImplementedError, match="not supported"),
@@ -563,6 +563,10 @@ def test_css_ops() -> None:
 def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
+
+    code = codes.SteaneCode()
+    code.forget_distance()
+    assert code.get_distance() == 3
 
     # qutrit code distance
     code = codes.HGPCode(codes.RepetitionCode(2, field=3))

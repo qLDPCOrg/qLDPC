@@ -66,7 +66,8 @@ def test_special_codes() -> None:
         code = codes.SimplexCode(dimension)
         params = (2**dimension - 1, dimension, 2 ** (dimension - 1))
         assert code.get_code_params() == params
-        code._dimension = code._distance = None
+        code._dimension = None
+        code.forget_distance()
         assert code.get_code_params() == params
 
 

@@ -25,15 +25,17 @@ import pytest
 from qldpc import external
 
 
-def get_mock_process(stdout: str, stderr: str = "") -> subprocess.CompletedProcess[str]:
-    """Fake process with the given stdout."""
-    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr=stderr)
+def get_mock_process(
+    stdout: str = "", stderr: str = "", returncode: int = 0
+) -> subprocess.CompletedProcess[str]:
+    """Mock a process with the given results."""
+    return subprocess.CompletedProcess(args=[], stdout=stdout, stderr=stderr, returncode=returncode)
 
 
 def test_is_installed() -> None:
     """Is GAP 4 installed?"""
     external.gap.is_installed.cache_clear()
-    with unittest.mock.patch("subprocess.run", return_value=get_mock_process("")):
+    with unittest.mock.patch("subprocess.run", return_value=get_mock_process()):
         assert not external.gap.is_installed()
 
     external.gap.is_installed.cache_clear()
@@ -78,7 +80,7 @@ def test_require_package() -> None:
         with (
             unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
             unittest.mock.patch("builtins.input", return_value="y"),
-            unittest.mock.patch("subprocess.run", return_value=get_mock_process("", "error")),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process(returncode=1)),
             pytest.raises(ValueError, match="Failed to install"),
         ):
             external.gap.require_package("")

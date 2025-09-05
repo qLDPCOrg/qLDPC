@@ -65,7 +65,7 @@ def get_output(*commands: str) -> str:
 
 
 @functools.cache
-def require_package(name: str, repo: str | None = None) -> None:
+def require_package(name: str, repo: str | None = None) -> bool:
     """Enforce the installation of a GAP package.
 
     Args:
@@ -75,6 +75,9 @@ def require_package(name: str, repo: str | None = None) -> None:
 
     Raises:
         ValueError: If the package is not installed and an attempt to install it fails.
+
+    Returns:
+        True if the requirement is satisfied (raises an error otherwise).
     """
     if not is_installed():
         raise FileNotFoundError(
@@ -94,7 +97,9 @@ def require_package(name: str, repo: str | None = None) -> None:
             commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
             print(" ".join(commands))
             install_result = subprocess.run(commands, capture_output=True, text=True)
-            if install_result.stderr:
+            if install_result.returncode:
                 raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
         else:
             raise ValueError(f"Cannot proceed without the required package ({name})")
+
+    return True
