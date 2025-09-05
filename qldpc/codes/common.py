@@ -838,8 +838,8 @@ class QuditCode(AbstractCode):
         zs = np.any(matrix_z, axis=1)
         if np.any(xs & zs):
             raise ValueError(
-                "Cannot convert this QuditCode into a CSSCode."
-                "  Some of the parity checks of this code have both X and Z support:"
+                "Failed to convert a QuditCode into a CSSCode."
+                "\nSome parity checks have both X and Z support:"
                 f"\n{self}"
             )
         return CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
