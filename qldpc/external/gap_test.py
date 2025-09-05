@@ -63,13 +63,6 @@ def test_require_package() -> None:
     """Install missing GAP packages."""
     external.gap.is_installed.cache_clear()
     with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_output", return_value="success"),
-    ):
-        assert external.gap.require_package("")
-
-    external.gap.is_installed.cache_clear()
-    with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
         pytest.raises(FileNotFoundError, match="GAP 4 .* installation cannot be found"),
     ):
@@ -93,3 +86,6 @@ def test_require_package() -> None:
             pytest.raises(ValueError, match="Failed to install"),
         ):
             external.gap.require_package("")
+
+        with unittest.mock.patch("qldpc.external.gap.get_output", return_value="success"):
+            assert external.gap.require_package("")
