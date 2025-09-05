@@ -247,7 +247,7 @@ def assert_valid_subgraphs(code: codes.QuditCode) -> None:
     )
 
 
-def test_qudit_code() -> None:
+def test_qudit_codes() -> None:
     """Miscellaneous qudit code tests and coverage."""
     code = codes.FiveQubitCode()
     assert code.dimension == 1
@@ -490,6 +490,15 @@ def test_quantum_capacity() -> None:
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
         logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate(1)[0] == 1
+
+
+def test_qudit_to_css() -> None:
+    """Convert a QuditCode to a CSSCode."""
+    code = codes.SteaneCode()
+    assert codes.CSSCode.equiv(code, codes.QuditCode(code.matrix).to_css())
+
+    with pytest.raises(ValueError, match="Cannot convert"):
+        codes.FiveQubitCode().to_css()
 
 
 ####################################################################################################
