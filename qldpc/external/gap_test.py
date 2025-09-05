@@ -87,5 +87,6 @@ def test_require_package() -> None:
         ):
             external.gap.require_package("")
 
+        # success!
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="success"):
             assert external.gap.require_package("")
