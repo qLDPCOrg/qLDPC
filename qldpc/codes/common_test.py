@@ -497,7 +497,7 @@ def test_qudit_to_css() -> None:
     code = codes.SteaneCode()
     assert codes.CSSCode.equiv(code, codes.QuditCode(code.matrix).to_css())
 
-    with pytest.raises(ValueError, match="Cannot convert"):
+    with pytest.raises(ValueError, match="both X and Z support"):
         codes.FiveQubitCode().to_css()
 
 
