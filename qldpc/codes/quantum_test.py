@@ -347,8 +347,8 @@ def test_twisted_XZZX(width: int = 3) -> None:
     element_a = ring.one - shift**width
     element_b = ring.one - shift
     code = codes.LPCode([[element_a]], [[element_b]])
-    qudits_to_conjugate = slice(code.sector_size[0, 0], None)
-    assert np.array_equal(matrix, code.conjugated(qudits_to_conjugate).matrix)
+    bias_tailoring_qubits = code.bias_tailoring_qubits
+    assert np.array_equal(matrix, code.conjugated(bias_tailoring_qubits).matrix)
 
     # same construction with a chain complex
     matrix_a = abstract.RingArray([[element_a]])
@@ -357,7 +357,7 @@ def test_twisted_XZZX(width: int = 3) -> None:
     matrix_x, matrix_z = chain.op(1), chain.op(2).T
     assert isinstance(matrix_x, abstract.RingArray)
     assert isinstance(matrix_z, abstract.RingArray)
-    code = codes.CSSCode(matrix_x.lift(), matrix_z.lift()).conjugated(qudits_to_conjugate)
+    code = codes.CSSCode(matrix_x.lift(), matrix_z.lift()).conjugated(bias_tailoring_qubits)
     assert np.array_equal(matrix, code.matrix)
 
 
@@ -468,7 +468,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
 
     # un-rotated SurfaceCode = HGPCode
     rep_codes = (codes.RepetitionCode(rows), codes.RepetitionCode(cols))
-    assert code.conjugated() == codes.HGPCode(*rep_codes).conjugated()
+    assert codes.CSSCode.equiv(code, codes.HGPCode(*rep_codes))
 
     # rotated surface code
     code = codes.SurfaceCode(rows, cols, rotated=True, field=3)
@@ -478,9 +478,9 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     assert codes.CSSCode.get_distance(code, Pauli.Z) == rows
     assert_valid_subgraphs(code)
 
-    # test that the conjugated rotated surface code is an XZZX code
+    # the bais-tailored rotated surface code is an XZZX code
     code = codes.SurfaceCode(max(rows, cols), rotated=True)
-    for row in code.conjugated().matrix:
+    for row in code.conjugated(code.bias_tailoring_qubits).matrix:
         row_x, row_z = row[: code.num_qudits], row[-code.num_qudits :]
         assert np.count_nonzero(row_x) == np.count_nonzero(row_z)
 
@@ -519,10 +519,10 @@ def test_toric_codes() -> None:
     code = codes.ToricCode(2, rotated=True)
     assert len(code.matrix_x) == len(code.matrix_z) == 1
 
-    # rotated toric XZZX code
+    # the bais-tailored rotated toric code is an XZZX code
     rows, cols = 6, 4
     code = codes.ToricCode(rows, cols, rotated=True)
-    for row in code.conjugated().matrix:
+    for row in code.conjugated(code.bias_tailoring_qubits).matrix:
         row_x, row_z = row[: code.num_qudits], row[-code.num_qudits :]
         assert np.count_nonzero(row_x) == np.count_nonzero(row_z)
 

@@ -842,7 +842,7 @@ class HGPCode(CSSCode):
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
-        self._default_conjugate = slice(self.sector_size[0, 0], None)
+        self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
         super().__init__(
             matrix_x.view(np.ndarray).astype(int),
@@ -1230,7 +1230,7 @@ class LPCode(CSSCode):
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
-        self._default_conjugate = slice(self.sector_size[0, 0], None)
+        self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
 
@@ -1565,14 +1565,12 @@ class SurfaceCode(CSSCode):
             self.parent_code = HGPCode(code_a, code_b)
             matrix_x = self.parent_code.matrix_x.view(np.ndarray)
             matrix_z = self.parent_code.matrix_z.view(np.ndarray)
-            self._default_conjugate: list[int] | slice = slice(
-                self.parent_code.sector_size[0, 0], None
-            )
+            self.bias_tailoring_qubits = self.parent_code.bias_tailoring_qubits
 
         else:
             # rotated surface code
             matrix_x, matrix_z = SurfaceCode.get_rotated_checks(rows, cols)
-            self._default_conjugate = [
+            self.bias_tailoring_qubits = [
                 idx
                 for idx, (row, col) in enumerate(np.ndindex(self.rows, self.cols))
                 if (row + col) % 2
@@ -1582,7 +1580,7 @@ class SurfaceCode(CSSCode):
             code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
             if code_field.order > 2:
                 matrix_z = matrix_z.view(code_field)
-                matrix_z[:, self._default_conjugate] *= -1
+                matrix_z[:, self.bias_tailoring_qubits] *= -1
 
         super().__init__(matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols)
 
@@ -1766,7 +1764,7 @@ class ToricCode(CSSCode):
             self.parent_code = HGPCode(code_a, code_b)
             matrix_x = self.parent_code.matrix_x.view(np.ndarray)
             matrix_z = self.parent_code.matrix_z.view(np.ndarray)
-            self._default_conjugate: list[int] | slice = slice(
+            self.bias_tailoring_qubits: list[int] | slice = slice(
                 self.parent_code.sector_size[0, 0], None
             )
 
@@ -1778,7 +1776,7 @@ class ToricCode(CSSCode):
                 )
 
             matrix_x, matrix_z = ToricCode.get_rotated_checks(rows, cols)
-            self._default_conjugate = [
+            self.bias_tailoring_qubits = [
                 idx
                 for idx, (row, col) in enumerate(np.ndindex(self.rows, self.cols))
                 if (row + col) % 2
@@ -1788,7 +1786,7 @@ class ToricCode(CSSCode):
             code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
             if code_field.order > 2:
                 matrix_z = matrix_z.view(code_field)
-                matrix_z[:, self._default_conjugate] *= -1
+                matrix_z[:, self.bias_tailoring_qubits] *= -1
 
             if rows == cols == 2 and rotated:
                 # All Toric codes have redundant parity checks, but the case of the rotated 2x2

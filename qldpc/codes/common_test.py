@@ -358,9 +358,12 @@ def test_qudit_stabilizers(field: int, bits: int = 5, checks: int = 3) -> None:
 
 
 def test_trivial_deformations(num_qudits: int = 5, num_checks: int = 3, field: int = 3) -> None:
-    """Trivial local Clifford deformations do not modify a code."""
+    """Trivial local Fourier transforms do not modify a code."""
     code = get_random_qudit_code(num_qudits, num_checks, field)
-    assert code == code.conjugated()
+    code.get_logical_ops()
+    code.get_stabilizer_ops()
+    code.get_gauge_ops()
+    assert code == code.conjugated([])
 
 
 def get_codes_for_testing_ops() -> Iterator[codes.CSSCode]:
@@ -438,7 +441,6 @@ def test_code_deformation() -> None:
     code = codes.FiveQubitCode()
     code.get_logical_ops()
     assert code.get_strings()[0] == "X Z Z X I"
-    assert code.conjugated([0]).get_strings()[0] == "Z Z Z X I"
     assert code.deformed("H 0").get_strings()[0] == "Z Z Z X I"
     with pytest.raises(ValueError, match="violate parity checks"):
         code.deformed("H 0", preserve_logicals=True)
