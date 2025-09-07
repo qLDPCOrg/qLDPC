@@ -111,8 +111,8 @@ class AbstractCode(abc.ABC):
                 )
 
         elif isinstance(matrix, galois.FieldArray):
-            self._matrix = matrix
-            self._field = type(matrix)
+            self._field = galois.GF(field) if field else type(matrix)
+            self._matrix = matrix.view(self._field)
 
         else:
             self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
@@ -829,6 +829,15 @@ class QuditCode(AbstractCode):
             matrix[node_check.index, :, node_qudit.index] = data.get(Pauli).value
         field = getattr(graph, "field", galois.GF(DEFAULT_FIELD_ORDER))
         return field(matrix.reshape(num_checks, 2 * num_qudits))
+
+    @property
+    def is_css(self) -> bool:
+        """Is this a CSS code?"""
+        matrix_x = self.matrix[:, : len(self)]
+        matrix_z = self.matrix[:, len(self) :]
+        xs = np.any(matrix_x, axis=1)
+        zs = np.any(matrix_z, axis=1)
+        return not np.any(xs & zs)
 
     def to_css(self) -> CSSCode:
         """Try to convert this QuditCode into a CSSCode.  Throw an error if we fail."""
@@ -2551,6 +2560,29 @@ class CSSCode(QuditCode):
         else:
             for logical_index in range(self.dimension):
                 self.reduce_logical_op(pauli, logical_index, **decoder_kwargs)
+
+    def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
+        """Apply local Fourier transforms, swapping X-type and Z-type operators.
+
+        Args:
+            qudits: The qudits to transform, or None for all qudits.  Default: None.
+        """
+        code = super().conjugated(qudits)
+        return code.to_css() if code.is_css else code
+
+    def deformed(
+        self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
+    ) -> QuditCode:
+        """Deform a qubit code by the given circuit.
+
+        Args:
+            circuit: The circuit to apply to the data qubits of this code.
+            preserve_logicals: If True, set the logical operators of the deformed code to those of
+                the original code, throwing an error if the original logical operators are invalid
+                for the deformed code.  Default: False.
+        """
+        code = super().deformed(circuit, preserve_logicals=preserve_logicals)
+        return code.to_css() if code.is_css else code
 
     @staticmethod
     def stack(*codes: QuditCode, inherit_logicals: bool = True) -> CSSCode:
