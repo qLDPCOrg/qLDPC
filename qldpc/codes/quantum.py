@@ -108,7 +108,7 @@ class SteaneCode(QuantumHammingCode):
     """
 
     def __init__(self) -> None:
-        super().__init__(self, size=3)
+        super().__init__(size=3)
 
 
 class QuantumReedMullerCode(CSSCode):
