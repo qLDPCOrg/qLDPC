@@ -119,6 +119,7 @@ class QuantumReedMullerCode(CSSCode):
 
     References:
     - https://arxiv.org/abs/1403.2734
+    - https://errorcorrectionzoo.org/c/quantum_reed_muller
     """
 
     def __init__(self, size: int, field: int | None = None) -> None:
