@@ -38,7 +38,14 @@ from qldpc.abstract import DEFAULT_FIELD_ORDER
 from qldpc.math import first_nonzero_cols
 from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditPauli
 
-from .classical import HammingCode, RepetitionCode, RingCode, SimplexCode, TannerCode
+from .classical import (
+    HammingCode,
+    ReedMullerCode,
+    RepetitionCode,
+    RingCode,
+    SimplexCode,
+    TannerCode,
+)
 from .common import ClassicalCode, CSSCode, QuditCode
 
 
@@ -85,8 +92,8 @@ class QuantumHammingCode(CSSCode):
     - https://errorcorrectionzoo.org/c/quantum_hamming_css
     """
 
-    def __init__(self, rank: int, field: int | None = None) -> None:
-        code = HammingCode(rank, field)
+    def __init__(self, size: int, field: int | None = None) -> None:
+        code = HammingCode(size, field)
         super().__init__(code, code, is_subsystem_code=False)
         self._distance_x = self._distance_z = 3
 
@@ -101,7 +108,63 @@ class SteaneCode(QuantumHammingCode):
     """
 
     def __init__(self) -> None:
-        super().__init__(rank=3)
+        super().__init__(self, size=3)
+
+
+class QuantumReedMullerCode(CSSCode):
+    """Quantum Reed-Muller code.
+
+    QuantumReedMullerCode(3, 2) is the [7, 1, 3] SteaneCode.
+    QuantumReedMullerCode(4, 2) is the TetrahedralCode, or the [15, 1, 3] quantum Reed-Muller code.
+
+    References:
+    - https://arxiv.org/abs/1403.2734
+    """
+
+    def __init__(self, size: int, field: int | None = None) -> None:
+        matrix_x = ReedMullerCode(size - 2, size, field).matrix[1:, 1:]
+        matrix_z = ReedMullerCode(1, size, field).matrix[1:, 1:]
+        super().__init__(matrix_x, matrix_z, is_subsystem_code=False)
+
+
+class TetrahedralCode(QuantumReedMullerCode):
+    """Smallest quantum error-correcting CSS code with a transversal non-Clifford (T) gate.
+
+    Also:
+    - The smallest quantum error-correcting 3-D color code.
+    - Often referred to as the [15, 1, 3] quantum Reed-Muller code.
+
+    References:
+    - https://errorcorrectionzoo.org/c/stab_15_1_3
+    - https://arxiv.org/abs/2409.13465
+    """
+
+    def __init__(self, *, algebraic: bool = False) -> None:
+        """Construct an instance of the [15, 1, 3] tetrahedral code.
+
+        By default (if algebraic is False), the stabilizers of the TetrahedralCode are defined
+        geometrically using a tetrahedron that is tessellated into four identical polyhedra,
+        or 3-cells, by connecting the body center of the tetrahedron to the center of its faces.
+        Qubits live on the vertices of the polyhedra.  Every 3-cell is associated with an X-type
+        stabilizer on its vertices, and every 2-cell (i.e., every face of a polyhedron) is
+        associated with an Z-type stabilizer on its vertices.  A logical X operator can be defined
+        on any face of the tetrahedron, and a logical Z operator can be defined on any edge of the
+        tetrahedron.
+
+        See Figure 2b of https://arxiv.org/pdf/2409.13465v2 for a nice picture, but note that
+        (a) the tetrahedral code in arXiv:2409.13465 swaps X and Z operators, and
+        (b) the code here has a different qubit order, enforced by consistency with its algebraic
+            construction.
+
+        If algebraic is True, the TetrahedralCode is instead constructed algebraically, as a
+        QuantumReedMullerCode(4, field=2).
+        """
+        if algebraic:
+            super().__init__(4, field=2)
+        else:
+            raise NotImplementedError()
+
+        self._distance_x, self._distance_z = 7, 3
 
 
 class IcebergCode(CSSCode):
