@@ -43,11 +43,13 @@ def test_small_codes() -> None:
     assert code.dimension == 1
     assert code.get_strings()[0] == "X Z Z X I"
 
-    for size in range(2, 6):
-        code_params = (2 * size, 2 * size - 2, 2)
+    for size in [4, 6, 8]:
+        code_params = (size, size - 2, 2)
         assert codes.IcebergCode(size, alternative_logicals=True).get_code_params() == code_params
+    with pytest.raises(ValueError, match="even block lengths"):
+        codes.IcebergCode(3)
 
-    assert codes.CSSCode.equiv(codes.C4Code(), codes.IcebergCode(2))
+    assert codes.CSSCode.equiv(codes.C4Code(), codes.IcebergCode(4))
     assert codes.C6Code().get_code_params() == (6, 2, 2)
 
 

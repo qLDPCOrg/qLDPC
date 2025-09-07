@@ -105,9 +105,9 @@ class SteaneCode(QuantumHammingCode):
 
 
 class IcebergCode(CSSCode):
-    """A quantum error detecting code: [2m, 2m-2, 2].
+    """A quantum error detecting code: [n, n - 2, 2].
 
-    The m = 3 IcebergCode is the [6, 4, 2] code that is used to construct concatenated
+    The n = 6 IcebergCode is the [6, 4, 2] code that is used to construct concatenated
     many-hypercube codes.
 
     References:
@@ -117,12 +117,16 @@ class IcebergCode(CSSCode):
     """
 
     def __init__(self, size: int, *, alternative_logicals: bool = False) -> None:
-        checks = [[1] * (2 * size)]
+        if not size % 2 == 0:
+            raise ValueError(
+                f"The Iceberg code is only defined for even block lengths (provided: {size})"
+            )
+        checks = [[1] * size]
         super().__init__(checks, checks, is_subsystem_code=False)
-        self._dimension = 2 * size - 2
+        self._dimension = size - 2
         self._distance_x = self._distance_z = 2
 
-        if alternative_logicals and size == 3:
+        if alternative_logicals and size == 6:
             # make a specific choice of logical operators for the [6, 4, 2] code, splitting the
             # four logical qubits into pairs with disjoint support on the physical qubits
             sector_ops_x = [[1, 1, 0], [0, 1, 1]]
@@ -140,7 +144,7 @@ class C4Code(IcebergCode):
     """
 
     def __init__(self) -> None:
-        super().__init__(2)
+        super().__init__(4)
 
 
 class C6Code(CSSCode):
