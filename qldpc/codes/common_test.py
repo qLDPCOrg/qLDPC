@@ -357,10 +357,21 @@ def test_qudit_stabilizers(field: int, bits: int = 5, checks: int = 3) -> None:
         codes.QuditCode.from_strings("I", "I I", field=field)
 
 
-def test_trivial_deformations(num_qudits: int = 5, num_checks: int = 3, field: int = 3) -> None:
-    """Trivial local Clifford deformations do not modify a code."""
-    code = get_random_qudit_code(num_qudits, num_checks, field)
-    assert code == code.conjugated()
+def test_qudit_deformations() -> None:
+    """Local Fourier transforms of a QuditCode."""
+    code = codes.QuditCode(codes.SHYPSCode(2).matrix)
+    code.get_logical_ops()
+    code.get_stabilizer_ops()
+    code.get_gauge_ops()
+    assert code == code.conjugated([]) == code.deformed("")
+    assert code.conjugated() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+
+    with pytest.raises(ValueError, match="only supported for qubit codes"):
+        codes.QuditCode(code.matrix, field=3).deformed("")
+
+    # the Steane code is self-dual
+    code = codes.SteaneCode()
+    assert codes.CSSCode.equiv(code.deformed("H 0 1 2 3 4 5 6", preserve_logicals=True), code)
 
 
 def get_codes_for_testing_ops() -> Iterator[codes.CSSCode]:
@@ -429,29 +440,6 @@ def test_qudit_ops() -> None:
     code._stabilizer_ops = stabilizer_ops
     assert np.array_equal(code.get_stabilizer_ops(), stabilizer_ops)
     assert np.array_equal(code.get_stabilizer_ops(canonicalized=True), stabilizer_ops[:-1])
-
-
-def test_code_deformation() -> None:
-    """Deform a code by a physical Clifford transformation."""
-    code: codes.QuditCode
-
-    code = codes.FiveQubitCode()
-    code.get_logical_ops()
-    assert code.get_strings()[0] == "X Z Z X I"
-    assert code.conjugated([0]).get_strings()[0] == "Z Z Z X I"
-    assert code.deformed("H 0").get_strings()[0] == "Z Z Z X I"
-    with pytest.raises(ValueError, match="violate parity checks"):
-        code.deformed("H 0", preserve_logicals=True)
-
-    code = codes.SteaneCode()
-    assert np.array_equal(
-        code.deformed("H 0 1 2 3 4 5 6", preserve_logicals=True).get_logical_ops(),
-        code.get_logical_ops(),
-    )
-
-    code = codes.ToricCode(2, field=3)
-    with pytest.raises(ValueError, match="only supported for qubit codes"):
-        code.deformed("H 0")
 
 
 def test_qudit_concatenation() -> None:
@@ -615,6 +603,13 @@ def test_distance_css() -> None:
     assert code.dimension == 0
     assert code.get_distance(bound=True) is np.nan
     assert code.get_distance(bound=False) is np.nan
+
+
+def test_css_deformations() -> None:
+    """Local Fourier transforms of a CSSCode."""
+    code = codes.SteaneCode()
+    assert codes.CSSCode.equiv(code.conjugated(), code)
+    assert not codes.CSSCode.equiv(code.deformed("H 0"), code)
 
 
 def test_stacking_css_codes() -> None:

@@ -111,8 +111,8 @@ class AbstractCode(abc.ABC):
                 )
 
         elif isinstance(matrix, galois.FieldArray):
-            self._matrix = matrix
-            self._field = type(matrix)
+            self._field = galois.GF(field) if field else type(matrix)
+            self._matrix = matrix.view(self._field)
 
         else:
             self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
@@ -830,6 +830,15 @@ class QuditCode(AbstractCode):
         field = getattr(graph, "field", galois.GF(DEFAULT_FIELD_ORDER))
         return field(matrix.reshape(num_checks, 2 * num_qudits))
 
+    @property
+    def is_css(self) -> bool:
+        """Is this a CSS code?"""
+        matrix_x = self.matrix[:, : len(self)]
+        matrix_z = self.matrix[:, len(self) :]
+        xs = np.any(matrix_x, axis=1)
+        zs = np.any(matrix_z, axis=1)
+        return not np.any(xs & zs)
+
     def to_css(self) -> CSSCode:
         """Try to convert this QuditCode into a CSSCode.  Throw an error if we fail."""
         matrix_x = self.matrix[:, : len(self)]
@@ -1467,58 +1476,72 @@ class QuditCode(AbstractCode):
         return external.codes.get_distance_bound(self, num_trials, cutoff=cutoff, maxav=maxav)
 
     def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
-        """Apply local Fourier transforms to data qudits, swapping X-type and Z-type operators."""
-        if qudits is None:
-            qudits = getattr(self, "_default_conjugate", ())
-        matrix_reshaped = self.matrix.copy().reshape(-1, 2, len(self))
-        matrix_reshaped[:, :, qudits] = matrix_reshaped[:, ::-1, qudits]
-        matrix = matrix_reshaped.reshape(-1, 2 * len(self))
-        code = QuditCode(matrix, field=self.field.order, is_subsystem_code=self._is_subsystem_code)
+        """Apply local Fourier transforms, swapping X-type and Z-type operators.
 
+        Args:
+            qudits: The qudits to transform, or None for all qudits.  Default: None.
+        """
+        qudits = qudits if qudits is not None else slice(0, len(self))
+
+        def transform_ops(ops: galois.FieldArray) -> galois.FieldArray:
+            """Fourier-transform the given Pauli strings."""
+            ops_reshaped = self.matrix.copy().reshape(-1, 2, len(self))
+            ops_reshaped[:, :, qudits] = ops_reshaped[:, ::-1, qudits]
+            return ops_reshaped.reshape(-1, 2 * len(self)).view(self.field)
+
+        # transform the parity check matrix, and any other operators that are already known
+        code = QuditCode(transform_ops(self.matrix), is_subsystem_code=self._is_subsystem_code)
         if self._logical_ops is not None:
-            logical_ops = self._logical_ops.copy().reshape(-1, 2, len(self))
-            logical_ops[:, :, qudits] = logical_ops[:, ::-1, qudits]
-            code.set_logical_ops(logical_ops.reshape(-1, 2 * len(self)))
-
+            code._logical_ops = transform_ops(self.get_logical_ops())
+        if self._stabilizer_ops is not None:
+            code._stabilizer_ops = transform_ops(self.get_stabilizer_ops())
+        if self._gauge_ops is not None:
+            code._gauge_ops = transform_ops(self.get_gauge_ops())
         return code
 
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
     ) -> QuditCode:
-        """Deform a code by the given circuit.
+        """Deform a qubit code by the given circuit.
 
-        If preserve_logicals is True, preserve the logical operators of the original code (or throw
-        an error if the original logical operators are invalid for the deformed code).  Otherwise,
-        transform the logical operators as well.
+        Args:
+            circuit: The circuit to apply to the data qubits of this code.
+            preserve_logicals: If True, set the logical operators of the deformed code to those of
+                the original code, throwing an error if the original logical operators are invalid
+                for the deformed code.  Default: False.
         """
         if not self.field.order == 2:
             raise ValueError("Code deformation is only supported for qubit codes")
 
         # convert the physical circuit into a tableau
-        identity = stim.Circuit(f"I {len(self) - 1}")
+        identity = stim.Circuit(f"I {len(self) - 1}")  # to ensure the correct number of qubits
         circuit = stim.Circuit(circuit) if isinstance(circuit, str) else circuit
         tableau = (circuit + identity).to_tableau()
 
-        def deform_strings(strings: IntegerArray) -> IntegerArray:
-            """Deform the given Pauli strings."""
-            new_strings = []
-            for check in strings:
-                string = op_to_string(check)
+        def transform_ops(ops: galois.FieldArray) -> galois.FieldArray:
+            """Transform the given Pauli strings."""
+            new_ops = []
+            for op in ops:
+                string = op_to_string(op)
                 xs_zs = tableau(string).to_numpy()
-                new_strings.append(np.concatenate(xs_zs))
-            return self.field(new_strings)
+                new_ops.append(np.concatenate(xs_zs))
+            return self.field(new_ops)
 
-        # deform this code by transforming its stabilizers
-        matrix = deform_strings(self.matrix)
-        new_code = QuditCode(matrix, is_subsystem_code=self._is_subsystem_code)
+        code = QuditCode(transform_ops(self.matrix), is_subsystem_code=self._is_subsystem_code)
 
         # preserve or update logical operators, as applicable
         if preserve_logicals:
-            new_code.set_logical_ops(self.get_logical_ops())
+            code.set_logical_ops(self.get_logical_ops())
         elif self._logical_ops is not None:
-            new_code.set_logical_ops(deform_strings(self.get_logical_ops()))
+            code._logical_ops = transform_ops(self.get_logical_ops())
 
-        return new_code
+        # update the stabilizers and gauge operators, if known
+        if self._stabilizer_ops is not None:
+            code._stabilizer_ops = transform_ops(self.get_stabilizer_ops())
+        if self._gauge_ops is not None:
+            code._gauge_ops = transform_ops(self.get_gauge_ops())
+
+        return code
 
     @staticmethod
     def stack(*codes: QuditCode, inherit_logicals: bool = True) -> QuditCode:
@@ -1792,7 +1815,11 @@ class CSSCode(QuditCode):
     _code_z: ClassicalCode
     _distance_x: int | float | None = None
     _distance_z: int | float | None = None
-    _equal_distance_xz: bool
+
+    _equal_distance_xz: bool  # are the X and Z distances promised to be equal?
+
+    # qubits to Hadamard-transform for bias tailoring, as in the XZZX code and arXiv:2202.01702
+    bias_tailoring_qubits: Sequence[int] | slice = ()
 
     def __init__(
         self,
@@ -2533,6 +2560,29 @@ class CSSCode(QuditCode):
         else:
             for logical_index in range(self.dimension):
                 self.reduce_logical_op(pauli, logical_index, **decoder_kwargs)
+
+    def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
+        """Apply local Fourier transforms, swapping X-type and Z-type operators.
+
+        Args:
+            qudits: The qudits to transform, or None for all qudits.  Default: None.
+        """
+        code = super().conjugated(qudits)
+        return code.to_css() if code.is_css else code
+
+    def deformed(
+        self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
+    ) -> QuditCode:
+        """Deform a qubit code by the given circuit.
+
+        Args:
+            circuit: The circuit to apply to the data qubits of this code.
+            preserve_logicals: If True, set the logical operators of the deformed code to those of
+                the original code, throwing an error if the original logical operators are invalid
+                for the deformed code.  Default: False.
+        """
+        code = super().deformed(circuit, preserve_logicals=preserve_logicals)
+        return code.to_css() if code.is_css else code
 
     @staticmethod
     def stack(*codes: QuditCode, inherit_logicals: bool = True) -> CSSCode:
