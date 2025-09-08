@@ -174,7 +174,7 @@ class TetrahedralCode(CSSCode):
             matrix_z = ReedMullerCode(1, 4).matrix[1:, 1:]
 
         else:
-            # set Z stabilizers according to Eq. 2 of arXiv:2409.13465v2
+            # use Eq. 2 of arXiv:2409.13465v2, but with permuted qubits and stabilizers
             support_z = [
                 [0, 2, 4, 6],
                 [1, 2, 5, 6],
