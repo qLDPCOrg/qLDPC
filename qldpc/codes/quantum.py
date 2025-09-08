@@ -206,6 +206,7 @@ class TetrahedralCode(QuantumReedMullerCode):
                 matrix_z[row, [qubit_map[qq] for qq in support]] = 1
             CSSCode.__init__(self, self.matrix_x, matrix_z)
 
+        # set logical X and Z operators
         self.set_logical_ops_xz(
             [[1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]],
             [[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
