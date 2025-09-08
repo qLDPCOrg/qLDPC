@@ -56,13 +56,18 @@ def test_hamming_and_reed_muller_codes() -> None:
     assert tetrahedral_code.get_code_params() == (15, 1, 3)
     assert codes.CSSCode.equiv(tetrahedral_code, codes.TetrahedralCode(algebraic=True))
 
-    # The tetrahedral code can be obtained by gauge-fixing the quantum Hamming code.
-    # We first identify the products of logical Z operators to "promote" to stabilizers,
-    # and then "concatenate" the quantum Hamming code with a classial code on its Z logicals.
+    """
+    The tetrahedral code can be obtained by gauge-fixing the quantum Hamming code.
+    We first identify the (products of) logical Z operators to "promote" to stabilizers, and then
+    concatenate the quantum Hamming code with a classial code on its Z logicals.
+    """
+
+    # pin logical qubits 2, 4, 5 to |0>, and build a repetition code on logical qubits 0, 1, 3, 6
     support_z = [[2], [4], [5], [0, 1], [1, 3], [3, 6]]
     matrix_z = np.zeros((len(support_z), quantum_hamming_code.dimension), dtype=int)
     for row, support in enumerate(support_z):
         matrix_z[row, support] = 1
+
     code = codes.CSSCode.concatenate(
         quantum_hamming_code,
         codes.CSSCode.classical(matrix_z, Pauli.Z),
