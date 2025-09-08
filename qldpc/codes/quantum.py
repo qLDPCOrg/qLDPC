@@ -111,25 +111,7 @@ class SteaneCode(QuantumHammingCode):
         super().__init__(size=3)
 
 
-class QuantumReedMullerCode(CSSCode):
-    """Quantum Reed-Muller code.
-
-    QuantumReedMullerCode(3, 2) is the [7, 1, 3] SteaneCode.
-    QuantumReedMullerCode(4, 2) is the TetrahedralCode, or the [15, 1, 3] quantum Reed-Muller code.
-
-    References:
-    - https://arxiv.org/abs/1403.2734
-    - https://arxiv.org/abs/quant-ph/9608026
-    - https://errorcorrectionzoo.org/c/quantum_reed_muller
-    """
-
-    def __init__(self, size: int, field: int | None = None) -> None:
-        matrix_x = ReedMullerCode(size - 2, size, field).matrix[1:, 1:]
-        matrix_z = ReedMullerCode(1, size, field).matrix[1:, 1:]
-        super().__init__(matrix_x, matrix_z, is_subsystem_code=False)
-
-
-class TetrahedralCode(QuantumReedMullerCode):
+class TetrahedralCode(CSSCode):
     """Smallest quantum error-correcting CSS code with a transversal non-Clifford (T) gate.
 
     Also:
@@ -139,13 +121,13 @@ class TetrahedralCode(QuantumReedMullerCode):
     References:
     - https://errorcorrectionzoo.org/c/stab_15_1_3
     - https://arxiv.org/abs/2409.13465
+    - https://arxiv.org/abs/1403.2734
     """
 
     def __init__(self, *, algebraic: bool = False) -> None:
         """Construct an instance of the [15, 1, 3] tetrahedral code.
 
-        Algebraically, a TetrahedralCode is just a QuantumReedMullerCode with size=4 and field=2.
-        Geometrically, a TetrahedralCode can be visualized with a tetrahedron (triangular pyramid).
+        A TetrahedralCode can be visualized geometrically with a tetrahedron (triangular pyramid).
         Consider a tessellation of a tetrahedron into four identical polyhedra, or 3-cells, by
         connecting the center of each edge to the centers of its adjacent faces, and the center of
         each face to the body center of the tetrahedron.  Qubits live on the vertices of these
@@ -159,8 +141,8 @@ class TetrahedralCode(QuantumReedMullerCode):
         See Figure 2b of https://arxiv.org/pdf/2409.13465v2 for a nice picture, but note that
         (a) the tetrahedral code in arXiv:2409.13465 swaps all X and Z operators, and
         (b) the TetrahedralCode defined here has a different qubit order, enforced by consistency
-            with its algebraic construction.  The map from qubit index in this code to qubit index
-            in arXiv:2409.13465 is
+            with its algebraic construction as a quantum Reed-Muller code.  The map from qubit index
+            in this code to qubit index in arXiv:2409.13465 is
             {
                 0: 0,
                 1: 10,
@@ -180,13 +162,17 @@ class TetrahedralCode(QuantumReedMullerCode):
             }
 
         Args:
-            algebraic: If True, simply construct the QuantumReedMullerCode(4, field=2).  If False
-                (the default), set Z stabilizers and logical operators geometrically as in
-                https://arxiv.org/pdf/2409.13465v2.  X stabilizers are unaffected by this argument.
+            algebraic: If False (the default), construct the TetrahedralCode geomertically as
+                described above.  If True, construct the TetrahedralCode as a quantum
+                Reed-Muller code, as described in arXiv:1403.2734.  This flag only affects the
+                choice of Z-type stabilizers for the TetrahedralCode.
         """
-        super().__init__(4, field=2)
+        matrix_x = ReedMullerCode(2, 4).matrix[1:, 1:]
 
-        if not algebraic:
+        if algebraic:
+            matrix_z = ReedMullerCode(1, 4).matrix[1:, 1:]
+
+        else:
             # set Z stabilizers according to Eq. 2 of arXiv:2409.13465v2
             support_z = [
                 [0, 3, 6, 7],
@@ -201,12 +187,11 @@ class TetrahedralCode(QuantumReedMullerCode):
                 [5, 6, 11, 13],
             ]
             qubit_map = [0, 8, 10, 2, 12, 14, 6, 4, 7, 9, 1, 13, 11, 5, 3]
-            matrix_z = self.field.Zeros((len(support_z), len(self)))
+            matrix_z = np.zeros((len(support_z), matrix_x.shape[1]), dtype=int)
             for row, support in enumerate(support_z):
                 matrix_z[row, [qubit_map[qq] for qq in support]] = 1
-            CSSCode.__init__(self, self.matrix_x, matrix_z)
 
-        # set logical X and Z operators
+        super().__init__(matrix_x, matrix_z, field=2, is_subsystem_code=False)
         self.set_logical_ops_xz(
             [[1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]],
             [[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
