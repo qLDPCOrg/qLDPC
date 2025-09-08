@@ -204,14 +204,14 @@ class TetrahedralCode(QuantumReedMullerCode):
             matrix_z = self.field.Zeros((len(support_z), len(self)))
             for row, support in enumerate(support_z):
                 matrix_z[row, [qubit_map[qq] for qq in support]] = 1
-            CSSCode.__init__(self, self.matrix_z, matrix_z)
+            CSSCode.__init__(self, self.matrix_x, matrix_z)
 
         self.set_logical_ops_xz(
             [[1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]],
             [[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
         )
 
-        # self._distance_x, self._distance_z = 7, 3
+        self._distance_x, self._distance_z = 7, 3
 
 
 class IcebergCode(CSSCode):
