@@ -164,10 +164,9 @@ class TetrahedralCode(CSSCode):
             }
 
         Args:
-            algebraic: If False (the default), construct the TetrahedralCode geomertically as
-                described above.  If True, construct the TetrahedralCode as a quantum
-                Reed-Muller code, as described in arXiv:1403.2734.  This flag only affects the
-                choice of Z-type stabilizers for the TetrahedralCode.
+            algebraic: Choose Z-type stabilizers according to the algebraic (if True) or geometric
+                (if False) definition of the TetrahedralCode, as described above.  The remaining
+                stabilizers and logical operators are unaffected by this flag.  Default: False.
         """
         matrix_x = ReedMullerCode(2, 4).matrix[1:, 1:]  # or HammingCode(4).matrix
 
