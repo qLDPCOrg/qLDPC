@@ -177,21 +177,20 @@ class TetrahedralCode(CSSCode):
         else:
             # set Z stabilizers according to Eq. 2 of arXiv:2409.13465v2
             support_z = [
-                [0, 3, 6, 7],
-                [3, 6, 10, 13],
-                [6, 7, 13, 14],
-                [8, 9, 11, 12],
-                [1, 2, 4, 5],
-                [4, 5, 6, 7],
-                [2, 3, 5, 6],
-                [4, 5, 11, 12],
-                [2, 5, 9, 11],
-                [5, 6, 11, 13],
+                [0, 2, 4, 6],
+                [1, 2, 5, 6],
+                [2, 6, 10, 14],
+                [3, 4, 5, 6],
+                [4, 6, 12, 14],
+                [5, 6, 13, 14],
+                [7, 9, 11, 13],
+                [8, 10, 12, 14],
+                [9, 10, 13, 14],
+                [11, 12, 13, 14],
             ]
-            qubit_map = [0, 8, 10, 2, 12, 14, 6, 4, 7, 9, 1, 13, 11, 5, 3]
             matrix_z = np.zeros((len(support_z), matrix_x.shape[1]), dtype=int)
             for row, support in enumerate(support_z):
-                matrix_z[row, [qubit_map[qq] for qq in support]] = 1
+                matrix_z[row, support] = 1
 
         super().__init__(matrix_x, matrix_z, field=2, is_subsystem_code=False)
         self.set_logical_ops_xz(
