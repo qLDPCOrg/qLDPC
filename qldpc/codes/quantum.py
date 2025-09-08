@@ -119,6 +119,7 @@ class QuantumReedMullerCode(CSSCode):
 
     References:
     - https://arxiv.org/abs/1403.2734
+    - https://arxiv.org/abs/quant-ph/9608026
     - https://errorcorrectionzoo.org/c/quantum_reed_muller
     """
 
