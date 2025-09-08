@@ -99,7 +99,7 @@ class AbstractCode(abc.ABC):
         The base field is taken to be F_2 by default.
         """
         if isinstance(matrix, AbstractCode):
-            self._matrix = matrix._matrix
+            self._matrix = getattr(matrix, "_matrix", matrix.matrix)
             self._field = matrix._field
             self._dimension = matrix._dimension
             self._distance = matrix._distance
@@ -830,28 +830,26 @@ class QuditCode(AbstractCode):
         field = getattr(graph, "field", galois.GF(DEFAULT_FIELD_ORDER))
         return field(matrix.reshape(num_checks, 2 * num_qudits))
 
-    @property
-    def is_css(self) -> bool:
-        """Is this a CSS code?"""
-        matrix_x = self.matrix[:, : len(self)]
-        matrix_z = self.matrix[:, len(self) :]
-        xs = np.any(matrix_x, axis=1)
-        zs = np.any(matrix_z, axis=1)
-        return not np.any(xs & zs)
-
-    def to_css(self) -> CSSCode:
-        """Try to convert this QuditCode into a CSSCode.  Throw an error if we fail."""
+    def maybe_to_css(self) -> QuditCode:
+        """Try to convert this QuditCode into a CSSCode.  Return self if we fail."""
         matrix_x = self.matrix[:, : len(self)]
         matrix_z = self.matrix[:, len(self) :]
         xs = np.any(matrix_x, axis=1)
         zs = np.any(matrix_z, axis=1)
         if np.any(xs & zs):
+            return self
+        return CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
+
+    def to_css(self) -> CSSCode:
+        """Try to convert this QuditCode into a CSSCode.  Throw an error if we fail."""
+        code = self.maybe_to_css()
+        if code is self:
             raise ValueError(
                 "Failed to convert a QuditCode into a CSSCode."
                 "\nSome parity checks have both X and Z support:"
                 f"\n{self}"
             )
-        return CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
+        return code
 
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
@@ -2567,8 +2565,7 @@ class CSSCode(QuditCode):
         Args:
             qudits: The qudits to transform, or None for all qudits.  Default: None.
         """
-        code = super().conjugated(qudits)
-        return code.to_css() if code.is_css else code
+        return super().conjugated(qudits).maybe_to_css()
 
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
@@ -2581,8 +2578,7 @@ class CSSCode(QuditCode):
                 the original code, throwing an error if the original logical operators are invalid
                 for the deformed code.  Default: False.
         """
-        code = super().deformed(circuit, preserve_logicals=preserve_logicals)
-        return code.to_css() if code.is_css else code
+        return super().deformed(circuit, preserve_logicals=preserve_logicals).maybe_to_css()
 
     @staticmethod
     def stack(*codes: QuditCode, inherit_logicals: bool = True) -> CSSCode:

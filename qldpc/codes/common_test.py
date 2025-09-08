@@ -359,7 +359,7 @@ def test_qudit_stabilizers(field: int, bits: int = 5, checks: int = 3) -> None:
 
 def test_qudit_deformations() -> None:
     """Local Fourier transforms of a QuditCode."""
-    code = codes.QuditCode(codes.SHYPSCode(2).matrix)
+    code = codes.QuditCode(codes.SHYPSCode(2))
     code.get_logical_ops()
     code.get_stabilizer_ops()
     code.get_gauge_ops()
