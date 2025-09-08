@@ -35,8 +35,8 @@ from .common_test import assert_valid_subgraphs
 def test_small_codes() -> None:
     """Small named codes."""
     assert codes.SteaneCode().get_code_params() == (7, 1, 3)
-    assert codes.QuantumHamming().get_code_params() == (15, 7, 3)
     assert codes.TetrahedralCode().get_code_params() == (15, 1, 3)
+    assert codes.QuantumHammingCode(4).get_code_params() == (15, 7, 3)
 
     code = codes.FiveQubitCode()
     assert code.num_qubits == 5

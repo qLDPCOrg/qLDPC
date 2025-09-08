@@ -119,19 +119,21 @@ class TetrahedralCode(CSSCode):
     - Often referred to as the [15, 1, 3] quantum Reed-Muller code.
 
     References:
-    - https://errorcorrectionzoo.org/c/stab_15_1_3
-    - https://arxiv.org/abs/2409.13465
     - https://arxiv.org/abs/1403.2734
+    - https://arxiv.org/abs/2409.13465
+    - https://errorcorrectionzoo.org/c/stab_15_1_3
     """
 
     def __init__(self, *, algebraic: bool = False) -> None:
         """Construct an instance of the [15, 1, 3] tetrahedral code.
 
-        A TetrahedralCode can be visualized geometrically with a tetrahedron (triangular pyramid).
-        Consider a tessellation of a tetrahedron into four identical polyhedra, or 3-cells, by
-        connecting the center of each edge to the centers of its adjacent faces, and the center of
-        each face to the body center of the tetrahedron.  Qubits live on the vertices of these
-        polyhedra.  The stabilizers of the TetrahedralCode can be defined as follows:
+        Algebraically, a TetrahedralCode is a CSSCode built out of punctured Reed-Muller codes.
+        Geometrically, a TetrahedralCode can be visualized with a tetrahedron (triangular pyramid).
+        Consider a tessellation of a tetrahedron into four identical polyhedra, or 3-cells, where
+        each polyhedron is the convex hull of (a) a vertex of the tetrahedron, (b) the centers of
+        the edges and faces incident to that vextex, and (c) the centroid of the tetrahedron.
+        Qubits live on the vertices of these polyhedra.  The stabilizers of the TetrahedralCode can
+        be defined as follows:
         - Every 3-cell (polyhedron) is associated with an X-type stabilizer.
         - Every 2-cell (face of a polyhedron) is associated with a Z-type stabilizer.
 
@@ -167,7 +169,7 @@ class TetrahedralCode(CSSCode):
                 Reed-Muller code, as described in arXiv:1403.2734.  This flag only affects the
                 choice of Z-type stabilizers for the TetrahedralCode.
         """
-        matrix_x = ReedMullerCode(2, 4).matrix[1:, 1:]
+        matrix_x = ReedMullerCode(2, 4).matrix[1:, 1:]  # or HammingCode(4).matrix
 
         if algebraic:
             matrix_z = ReedMullerCode(1, 4).matrix[1:, 1:]
