@@ -34,14 +34,8 @@ from .common_test import assert_valid_subgraphs
 
 def test_small_codes() -> None:
     """Small named codes."""
+    assert codes.FiveQubitCode().get_code_params() == (5, 1, 3)
     assert codes.SteaneCode().get_code_params() == (7, 1, 3)
-    assert codes.TetrahedralCode().get_code_params() == (15, 1, 3)
-    assert codes.QuantumHammingCode(4).get_code_params() == (15, 7, 3)
-
-    code = codes.FiveQubitCode()
-    assert code.num_qubits == 5
-    assert code.dimension == 1
-    assert code.get_strings()[0] == "X Z Z X I"
 
     for size in [4, 6, 8]:
         code_params = (size, size - 2, 2)
@@ -52,10 +46,29 @@ def test_small_codes() -> None:
     assert codes.CSSCode.equiv(codes.C4Code(), codes.IcebergCode(4))
     assert codes.C6Code().get_code_params() == (6, 2, 2)
 
-    assert codes.CSSCode.equiv(
-        codes.TetrahedralCode(algebraic=True),
-        codes.TetrahedralCode(algebraic=False),
+
+def test_hamming_and_reed_muller_codes() -> None:
+    """Quantum Hamming and tetrahedral codes."""
+    quantum_hamming_code = codes.QuantumHammingCode(4)
+    assert quantum_hamming_code.get_code_params() == (15, 7, 3)
+
+    tetrahedral_code = codes.TetrahedralCode(algebraic=False)
+    assert tetrahedral_code.get_code_params() == (15, 1, 3)
+    assert codes.CSSCode.equiv(tetrahedral_code, codes.TetrahedralCode(algebraic=True))
+
+    # The tetrahedral code can be obtained by gauge-fixing the quantum Hamming code.
+    # We first identify the products of logical Z operators to "promote" to stabilizers,
+    # and then "concatenate" the quantum Hamming code with a classial code on its Z logicals.
+    support_z = [[2], [4], [5], [0, 1], [1, 3], [3, 6]]
+    matrix_z = np.zeros((len(support_z), quantum_hamming_code.dimension), dtype=int)
+    for row, support in enumerate(support_z):
+        matrix_z[row, support] = 1
+    code = codes.CSSCode.concatenate(
+        quantum_hamming_code,
+        codes.CSSCode.classical(matrix_z, Pauli.Z),
+        range(quantum_hamming_code.dimension),
     )
+    assert codes.CSSCode.equiv(code, tetrahedral_code)
 
 
 def test_two_block_code_error() -> None:

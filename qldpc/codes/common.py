@@ -1868,6 +1868,18 @@ class CSSCode(QuditCode):
         text += f"\nZ-type parity checks:\n{self.matrix_z}"
         return text
 
+    @staticmethod
+    def classical(
+        code: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        pauli: PauliXZ,
+        field: int | None = None,
+    ) -> CSSCode:
+        """Construct a CSSCode of only X-type or Z-type stabilizers."""
+        assert pauli in PAULIS_XZ
+        code_xz = ClassicalCode(code, field)
+        code_zx = code_xz.field.Zeros((0, len(code_xz)))
+        return CSSCode(code_xz, code_zx) if pauli is Pauli.X else CSSCode(code_zx, code_xz)
+
     @property
     def code_x(self) -> ClassicalCode:
         """The classical code of X-type parity checks."""

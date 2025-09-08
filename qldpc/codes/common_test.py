@@ -505,7 +505,7 @@ def test_css_code() -> None:
     assert code.num_checks == code.num_checks_x + code.num_checks_z
     assert code == codes.CSSCode(code.code_x, code.code_z)
 
-    # equivlence to QuditCode with the parity check matrix
+    # equivlence to QuditCode with the same parity check matrix
     equiv_code = codes.QuditCode(code.matrix)
     assert codes.CSSCode.equiv(code, equiv_code)
 
@@ -520,6 +520,11 @@ def test_css_code() -> None:
     with pytest.raises(ValueError, match="incompatible"):
         code_z = codes.ClassicalCode.random(3, 2, field=code_x.field.order**2)
         codes.CSSCode(code_x, code_z)
+
+    # build a classical code of X-type stabilizers
+    code = codes.CSSCode.classical(code_x, Pauli.X)
+    assert np.array_equal(code.matrix_x, code_x.matrix)
+    assert code.matrix_z.shape == (0, len(code_x))
 
     # subgraphs for syndrome extraction
     assert_valid_subgraphs(code)
