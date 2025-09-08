@@ -212,8 +212,6 @@ class TetrahedralCode(QuantumReedMullerCode):
             [[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
         )
 
-        self._distance_x, self._distance_z = 7, 3
-
 
 class IcebergCode(CSSCode):
     """A quantum error detecting code: [n, n - 2, 2].
@@ -270,8 +268,6 @@ class C6Code(CSSCode):
         super().__init__(checks, checks, is_subsystem_code=False)
         logical_ops_xz = scipy.linalg.block_diag([1, 1, 1], [1, 1, 1])
         self.set_logical_ops_xz(logical_ops_xz, logical_ops_xz)
-        self._dimension = 2
-        self._distance_x = self._distance_z = 2
 
 
 ####################################################################################################
