@@ -432,6 +432,9 @@ def get_logical_bell_prep(
         data_qubits: Indices of the code's data qubits.  Default: the first len(code) integers.
         ancilla_qubits: Indices of the ancilla qubits to entangle with the code's logical qubits.
             Default: the first code.dimension integers after the data qubit indices.
+
+    Returns:
+        A circuit that noiselessly initializes all logical qubits into Bell pairs with ancillas. 
     """
     data_qubits = data_qubits or range(len(code))
     ancilla_qubits = ancilla_qubits or range(
