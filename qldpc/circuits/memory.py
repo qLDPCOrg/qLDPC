@@ -377,7 +377,7 @@ def get_observables(
             to measurements of the data qubits in a specified basis (which in this case is not
             allowed to be None), and define observables using these measurements.  If True, define
             observables identically on the last len(code) measurements.  Otherwise (if False),
-            define observable using Pauli targets.  Default: None.
+            define observable using Pauli targets.  Default: False.
         observable_indices: Indices to use for the observables.  Default: range(num_observables).
 
     Returns:
