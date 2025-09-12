@@ -27,8 +27,6 @@ from qldpc import codes
 from qldpc.math import op_to_string, symplectic_conjugate
 from qldpc.objects import Pauli
 
-from .noise_model import DEFAULT_IMMUNE_OP_TAG
-
 
 def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.Circuit]:
     """Restrict a circuit constructor to qubit-based codes."""
@@ -192,14 +190,6 @@ def with_remapped_qubits(
             new_circuit.append(new_op)
 
     return new_circuit
-
-
-def as_noiseless_circuit(circuit: stim.Circuit) -> stim.Circuit:
-    """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
-    block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
-    noiseless_circuit = stim.Circuit()
-    noiseless_circuit.append(block)
-    return noiseless_circuit
 
 
 ####################################################################################################

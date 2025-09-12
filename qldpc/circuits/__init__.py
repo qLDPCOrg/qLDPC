@@ -5,7 +5,6 @@ from .bookkeeping import (
     Record,
 )
 from .common import (
-    as_noiseless_circuit,
     get_encoder_and_decoder,
     get_encoding_circuit,
     get_encoding_tableau,
@@ -16,12 +15,14 @@ from .memory import (
     get_logical_bell_prep,
     get_memory_experiment,
     get_memory_experiment_parts,
+    get_observables,
 )
 from .noise_model import (
     DepolarizingNoiseModel,
     NoiseModel,
     NoiseRule,
     SI1000NoiseModel,
+    as_noiseless_circuit,
 )
 from .syndrome_measurement import (
     EdgeColoring,
@@ -40,7 +41,6 @@ __all__ = [
     "MeasurementRecord",
     "QubitIDs",
     "Record",
-    "as_noiseless_circuit",
     "get_encoder_and_decoder",
     "get_encoding_circuit",
     "get_encoding_tableau",
@@ -49,10 +49,12 @@ __all__ = [
     "get_logical_bell_prep",
     "get_memory_experiment",
     "get_memory_experiment_parts",
+    "get_observables",
     "DepolarizingNoiseModel",
     "NoiseModel",
     "NoiseRule",
     "SI1000NoiseModel",
+    "as_noiseless_circuit",
     "EdgeColoring",
     "EdgeColoringXZ",
     "SyndromeMeasurementStrategy",

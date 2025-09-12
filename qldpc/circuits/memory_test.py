@@ -100,3 +100,11 @@ def test_qubit_ids(pytestconfig: pytest.Config) -> None:
         )
 
         assert circuit_a.flattened() == circuit_b.flattened()
+
+
+def test_errors() -> None:
+    """Cover invalid options for observable annotations."""
+    with pytest.raises(ValueError, match="CSS codes"):
+        circuits.get_observables(codes.FiveQubitCode(), basis=Pauli.X, on_measurements=True)
+    with pytest.raises(ValueError, match="fixed measurement basis"):
+        circuits.get_observables(codes.SteaneCode(), basis=None, on_measurements=True)

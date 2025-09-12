@@ -149,6 +149,14 @@ COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
 
 
+def as_noiseless_circuit(circuit: stim.Circuit) -> stim.Circuit:
+    """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
+    block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
+    noiseless_circuit = stim.Circuit()
+    noiseless_circuit.append(block)
+    return noiseless_circuit
+
+
 class NoiseRule:
     """Describes how to add noise to an operation.
 
