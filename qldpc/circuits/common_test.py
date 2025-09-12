@@ -121,9 +121,6 @@ def test_circuit_transformations(pytestconfig: pytest.Config, num_qubits: int = 
     circuit_b = inverse_permutation_circuit.inverse() + circuit + inverse_permutation_circuit
     assert circuit_a.to_tableau() == circuit_b.to_tableau()
 
-    # making a circuit as noiseless has no effect on its tableau
-    assert circuit.to_tableau() == circuits.as_noiseless_circuit(circuit).to_tableau()
-
     # cover an edge case
     circuit_a = circuits.with_remapped_qubits(stim.Circuit("MPP X1*!Y2 \n M !4"), {2: 3})
     circuit_b = stim.Circuit("MPP X1*!Y3 \n M !4")

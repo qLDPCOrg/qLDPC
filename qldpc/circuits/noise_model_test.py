@@ -168,6 +168,11 @@ def test_immunity() -> None:
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_op_tag=immune_op_tag)
     )
 
+    # cirucits can be made immune to errors
+    tableau = stim.Tableau.random(5)
+    noiseless_circuit = circuits.as_noiseless_circuit(tableau.to_circuit())
+    assert noise_model.noisy_circuit(noiseless_circuit).to_tableau() == tableau
+
 
 def test_classical_controls() -> None:
     """Classically controled gates get special treatment."""
