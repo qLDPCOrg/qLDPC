@@ -148,54 +148,6 @@ def get_logical_tableau(
     )
 
 
-def with_remapped_qubits(
-    circuit: stim.Circuit, qubit_map: Mapping[int, int] | Sequence[int], *, inverse: bool = False
-) -> stim.Circuit:
-    """The same circuit, but with relabeled qubits.
-
-    Qubits not in qubit_map get mapped to themselves.
-
-    Args:
-        circuit: The circuit to remap.
-        qubit_map: Either a mapping (e.g., dictionary) from old to new qubit indices, or a sequence
-            for which the qubit at index old_index gets mapped to new_index = qubit_map[old_index].
-        inverse: If True, invert the provided qubit_map.  Default: False.
-
-    Returns:
-        stim.Circuit: A remapped circuit.
-    """
-    qubit_map = (
-        qubit_map
-        if isinstance(qubit_map, Mapping)
-        else {old_index: new_index for old_index, new_index in enumerate(qubit_map)}
-    )
-    if inverse:
-        qubit_map = {val: key for key, val in qubit_map.items()}
-
-    new_circuit = stim.Circuit()
-    for op in circuit:
-        if isinstance(op, stim.CircuitRepeatBlock):
-            block = stim.CircuitRepeatBlock(
-                repeat_count=op.repeat_count,
-                body=with_remapped_qubits(op.body_copy(), qubit_map),
-                tag=op.tag,
-            )
-            new_circuit.append(block)
-
-        else:
-            new_targets = [_remap_target(target, qubit_map) for target in op.targets_copy()]
-            new_op = stim.CircuitInstruction(
-                name=op.name, targets=new_targets, gate_args=op.gate_args_copy(), tag=op.tag
-            )
-            new_circuit.append(new_op)
-
-    return new_circuit
-
-
-####################################################################################################
-# helper functions
-
-
 def _get_logical_tableau_from_code_data(
     dimension: int,  # number of logical qubits of a QuditCode
     gauge_dimension: int,  # number of gauge qubits of a QuditCode
@@ -239,6 +191,50 @@ def _get_logical_tableau_from_code_data(
         assert not np.any(z2z[sector_g, sector_l])
 
     return logical_tableau
+
+
+def with_remapped_qubits(
+    circuit: stim.Circuit, qubit_map: Mapping[int, int] | Sequence[int], *, inverse: bool = False
+) -> stim.Circuit:
+    """The same circuit, but with relabeled qubits.
+
+    Qubits not in qubit_map get mapped to themselves.
+
+    Args:
+        circuit: The circuit to remap.
+        qubit_map: Either a mapping (e.g., dictionary) from old to new qubit indices, or a sequence
+            for which the qubit at index old_index gets mapped to new_index = qubit_map[old_index].
+        inverse: If True, invert the provided qubit_map.  Default: False.
+
+    Returns:
+        stim.Circuit: A remapped circuit.
+    """
+    qubit_map = (
+        qubit_map
+        if isinstance(qubit_map, Mapping)
+        else {old_index: new_index for old_index, new_index in enumerate(qubit_map)}
+    )
+    if inverse:
+        qubit_map = {val: key for key, val in qubit_map.items()}
+
+    new_circuit = stim.Circuit()
+    for op in circuit:
+        if isinstance(op, stim.CircuitRepeatBlock):
+            block = stim.CircuitRepeatBlock(
+                repeat_count=op.repeat_count,
+                body=with_remapped_qubits(op.body_copy(), qubit_map),
+                tag=op.tag,
+            )
+            new_circuit.append(block)
+
+        else:
+            new_targets = [_remap_target(target, qubit_map) for target in op.targets_copy()]
+            new_op = stim.CircuitInstruction(
+                name=op.name, targets=new_targets, gate_args=op.gate_args_copy(), tag=op.tag
+            )
+            new_circuit.append(new_op)
+
+    return new_circuit
 
 
 def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
