@@ -93,8 +93,8 @@ def test_logical_tableau() -> None:
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
 
 
-def test_circuit_transformations(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
-    """Transform a stim.Circuit in various ways."""
+def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
+    """Remap the qubits in a stim.Circuit."""
     random.seed(pytestconfig.getoption("randomly_seed"))
 
     # build a random qubit permutation
