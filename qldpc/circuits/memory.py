@@ -434,7 +434,7 @@ def get_logical_bell_prep(
             Default: the first code.dimension integers after the data qubit indices.
 
     Returns:
-        A circuit that noiselessly initializes all logical qubits into Bell pairs with ancillas. 
+        A circuit that noiselessly initializes all logical qubits into Bell pairs with ancillas.
     """
     data_qubits = data_qubits or range(len(code))
     ancilla_qubits = ancilla_qubits or range(
