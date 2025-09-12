@@ -428,13 +428,15 @@ def get_logical_bell_prep(
     """Noiselessly prepare the logical qubits of the given code in Bell states with ancillas.
 
     Args:
-        code: The code for which we are constructing a logical Bell circuit.
+        code: The code for which we are constructing a logical Bell-state preparation circuit.
         data_qubits: Indices of the code's data qubits.  Default: the first len(code) integers.
         ancilla_qubits: Indices of the ancilla qubits to entangle with the code's logical qubits.
             Default: the first code.dimension integers after the data qubit indices.
     """
     data_qubits = data_qubits or range(len(code))
-    ancilla_qubits = ancilla_qubits or range(data_qubits[-1] + 1, data_qubits[-1] + code.dimension)
+    ancilla_qubits = ancilla_qubits or range(
+        data_qubits[-1] + 1, data_qubits[-1] + 1 + code.dimension
+    )
     assert len(data_qubits) == len(code)
     assert len(ancilla_qubits) == code.dimension
 
