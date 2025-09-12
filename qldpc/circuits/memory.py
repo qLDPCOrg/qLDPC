@@ -16,7 +16,7 @@ limitations under the License.
 """
 
 import itertools
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 
 import numpy as np
 import stim
@@ -25,7 +25,12 @@ from qldpc import codes
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ
 
 from .bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
-from .common import get_encoding_circuit, restrict_to_qubits, with_remapped_qubits
+from .common import (
+    as_noiseless_circuit,
+    get_encoding_circuit,
+    restrict_to_qubits,
+    with_remapped_qubits,
+)
 from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
@@ -165,18 +170,9 @@ def get_memory_experiment(
         if noise_model is not None:
             qec_cycle = noise_model.noisy_circuit(qec_cycle)
         else:
-            # noise will be added later, so annotate initialization and readout as noiseless
-            initialization_block = stim.CircuitRepeatBlock(
-                repeat_count=1, body=initialization, tag=DEFAULT_IMMUNE_OP_TAG
-            )
-            initialization = stim.Circuit()
-            initialization.append(initialization_block)
-
-            readout_block = stim.CircuitRepeatBlock(
-                repeat_count=1, body=readout, tag=DEFAULT_IMMUNE_OP_TAG
-            )
-            readout = stim.Circuit()
-            readout.append(readout_block)
+            # noise will be added later, so make initialization and readout noiseless
+            initialization = as_noiseless_circuit(initialization)
+            readout = as_noiseless_circuit(readout)
 
     return initialization + qec_cycle + readout
 
@@ -354,19 +350,8 @@ def _get_combined_memory_simulation_parts(
     for kk, ancilla_id in enumerate(ancilla_ids):
         coordinates.append("QUBIT_COORDS", ancilla_id, (2, kk))
 
-    # initialize all logical qubits in |0>, and associated ancilla qubits in |+>
-    state_prep = with_remapped_qubits(
-        get_encoding_circuit(code, only_zero=True),
-        qubit_map={qq: data_id for qq, data_id in enumerate(data_ids)},
-    )
-    state_prep.append("H", ancilla_ids)
-
-    # apply ancilla-controlled-logical-NOT gates to prepare Bell states
-    for logical_qubit_index, ancilla_id in enumerate(ancilla_ids):
-        ancilla_node = Node(logical_qubit_index, is_data=False)
-        for _, data_node, edge_data in logical_op_graph[Pauli.X].edges(ancilla_node, data=True):
-            data_id = data_ids[data_node.index]
-            state_prep.append(f"C{edge_data[Pauli]}", [ancilla_id, data_id])
+    # noiselessly prepare the logical qubits of the given code in bell states with ancillas
+    state_prep = get_logical_bell_prep(code, data_ids, ancilla_ids)
 
     ####################
     # OBSERVABLES
@@ -424,6 +409,40 @@ def _get_combined_memory_simulation_parts(
         detector_record,
         qubit_ids,
     )
+
+
+def get_logical_bell_prep(
+    code: codes.QuditCode,
+    data_qubits: Sequence[int] | None = None,
+    ancilla_qubits: Sequence[int] | None = None,
+) -> stim.Circuit:
+    """Noiselessly prepare the logical qubits of the given code in Bell states with ancillas.
+
+    Args:
+        code: The code for which we are constructing a logical Bell circuit.
+        data_qubits: Indices of the code's data qubits.  Default: the first len(code) integers.
+        ancilla_qubits: Indices of the ancilla qubits to entangle with the code's logical qubits.
+            Default: the first code.dimension integers after the data qubit indices.
+    """
+    data_qubits = data_qubits or range(len(code))
+    ancilla_qubits = ancilla_qubits or range(data_qubits[-1] + 1, data_qubits[-1] + code.dimension)
+    assert len(data_qubits) == len(code)
+    assert len(ancilla_qubits) == code.dimension
+
+    # initialize all logical qubits in |0>, and associated ancilla qubits in |+>
+    circuit = with_remapped_qubits(get_encoding_circuit(code, only_zero=True), data_qubits)
+    circuit.append("H", ancilla_qubits)
+
+    # apply ancilla-controlled-logical-NOT gates to prepare Bell states
+    logical_ops_x = code.get_logical_ops(Pauli.X, symplectic=True)
+    logical_x_graph = codes.QuditCode.matrix_to_graph(logical_ops_x)
+    for logical_qubit_index, ancilla in enumerate(ancilla_qubits):
+        ancilla_node = Node(logical_qubit_index, is_data=False)
+        for _, data_node, edge_data in logical_x_graph.edges(ancilla_node, data=True):
+            qubit = data_qubits[data_node.index]
+            circuit.append(f"C{edge_data[Pauli]}", [ancilla, qubit])
+
+    return as_noiseless_circuit(circuit)
 
 
 def _get_qec_cycle(

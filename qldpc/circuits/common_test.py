@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import itertools
+import random
 
 import numpy as np
 import pytest
@@ -92,9 +93,11 @@ def test_logical_tableau() -> None:
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
 
 
-def test_qubit_remap(num_qubits: int = 8) -> None:
-    """Remap the qubits in a stim.Circuit."""
-    # identify a qubit permutation
+def test_circuit_transformations(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
+    """Transform a stim.Circuit in various ways."""
+    random.seed(pytestconfig.getoption("randomly_seed"))
+
+    # build a random qubit permutation
     permutation = comb.Permutation.random(num_qubits)
     qubit_map = permutation.array_form
 
@@ -117,6 +120,9 @@ def test_qubit_remap(num_qubits: int = 8) -> None:
     # test that the two remapped circuits are equivalent
     circuit_b = inverse_permutation_circuit.inverse() + circuit + inverse_permutation_circuit
     assert circuit_a.to_tableau() == circuit_b.to_tableau()
+
+    # making a circuit as noiseless has no effect on its tableau
+    assert circuit.to_tableau() == circuits.as_noiseless_circuit(circuit).to_tableau()
 
     # cover an edge case
     circuit_a = circuits.with_remapped_qubits(stim.Circuit("MPP X1*!Y2 \n M !4"), {2: 3})

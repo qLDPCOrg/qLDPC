@@ -5,6 +5,7 @@ from .bookkeeping import (
     Record,
 )
 from .common import (
+    as_noiseless_circuit,
     get_encoder_and_decoder,
     get_encoding_circuit,
     get_encoding_tableau,
@@ -12,6 +13,7 @@ from .common import (
     with_remapped_qubits,
 )
 from .memory import (
+    get_logical_bell_prep,
     get_memory_experiment,
     get_memory_experiment_parts,
 )
@@ -38,11 +40,13 @@ __all__ = [
     "MeasurementRecord",
     "QubitIDs",
     "Record",
+    "as_noiseless_circuit",
     "get_encoder_and_decoder",
     "get_encoding_circuit",
     "get_encoding_tableau",
     "get_logical_tableau",
     "with_remapped_qubits",
+    "get_logical_bell_prep",
     "get_memory_experiment",
     "get_memory_experiment_parts",
     "DepolarizingNoiseModel",
