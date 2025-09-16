@@ -539,11 +539,16 @@ def test_css_ops() -> None:
 
     code = codes.SHPCode(codes.ClassicalCode.random(4, 2, field=3))
 
-    # swap around logical operators
-    code.set_logical_ops_xz(
-        code.get_logical_ops(Pauli.X)[::-1],
-        code.get_logical_ops(Pauli.Z)[::-1],
-    )
+    # set X-type logicals and determine Z-type logicals automatically
+    other_code = codes.CSSCode(code.matrix_x, code.matrix_z)
+    other_code.set_logical_ops_x(code.get_logical_ops(Pauli.X))
+    assert np.array_equal(code.get_logical_ops(Pauli.X), other_code.get_logical_ops(Pauli.X))
+    assert np.array_equal(code.get_logical_ops(Pauli.Z), other_code.get_logical_ops(Pauli.Z))
+
+    # shuffle logical operators around
+    code.set_logical_ops_z(code.get_logical_ops(Pauli.Z)[::-1])
+    assert np.array_equal(code.get_logical_ops(Pauli.X), other_code.get_logical_ops(Pauli.X)[::-1])
+    assert np.array_equal(code.get_logical_ops(Pauli.Z), other_code.get_logical_ops(Pauli.Z)[::-1])
 
     # identify stabilizer group
     code._stabilizer_ops = None

@@ -1270,6 +1270,24 @@ class QuditCode(AbstractCode):
         self._logical_ops = logical_ops
         self._dimension = len(logical_ops) // 2
 
+    def set_logical_ops_x(
+        self,
+        logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        *,
+        validate: bool = True,
+    ) -> None:  # pragma: no cover
+        """Set the X-type logicals of this code.  Determine the Z-type logicals automatically."""
+        raise NotImplementedError("QuditCode.set_logical_ops_x is not yet implemented :(")
+
+    def set_logical_ops_z(
+        self,
+        logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        *,
+        validate: bool = True,
+    ) -> None:  # pragma: no cover
+        """Set the X-type logicals of this code.  Determine the X-type logicals automatically."""
+        raise NotImplementedError("QuditCode.set_logical_ops_z is not yet implemented :(")
+
     def get_stabilizer_ops(
         self,
         pauli: PauliXZ | None = None,
@@ -2257,14 +2275,52 @@ class CSSCode(QuditCode):
 
     def set_logical_ops_xz(
         self,
-        logicals_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        logicals_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
         validate: bool = True,
     ) -> None:
         """Set the logical operators of this code to the provided logical operators."""
-        logical_ops = scipy.linalg.block_diag(logicals_x, logicals_z)
+        logical_ops = scipy.linalg.block_diag(logicals_ops_x, logicals_ops_z)
         self.set_logical_ops(logical_ops, validate=validate)
+
+    def set_logical_ops_x(
+        self,
+        logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        *,
+        validate: bool = True,
+    ) -> None:
+        """Set the X-type logicals of this code.  Determine the Z-type logicals automatically.
+
+        Let (Kx, Kz) and (Lx, Lz) denote, respectively, the matrices of "old" and "new" logical
+        operators of this code.  We know that:
+        (1) Lz = P @ Kz for some matrix P, and
+        (2) Lz @ Lx.T = I (the identity matrix).
+        Combining these conditions, we find that P = (Kz @ Lx.T)**-1, so Lz = (Kz @ Lx.T)**-1 @ Kz.
+        """
+        logicals_ops_x = np.asarray(logicals_ops_x).view(self.field)
+        old_logicals_z = self.get_logical_ops(Pauli.Z)
+        new_logicals_z = np.linalg.inv(old_logicals_z @ logicals_ops_x.T) @ old_logicals_z
+        self.set_logical_ops_xz(logicals_ops_x, new_logicals_z, validate=validate)
+
+    def set_logical_ops_z(
+        self,
+        logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        *,
+        validate: bool = True,
+    ) -> None:
+        """Set the Z-type logicals of this code.  Determine the X-type logicals automatically.
+
+        Let (Kx, Kz) and (Lx, Lz) denote, respectively, the matrices of "old" and "new" logical
+        operators of this code.  We know that:
+        (1) Lx = P @ Kx for some matrix P, and
+        (2) Lx @ Lz.T = I (the identity matrix).
+        Combining these conditions, we find that P = (Kx @ Lz.T)**-1, so Lx = (Kx @ Lz.T)**-1 @ Kx.
+        """
+        logicals_ops_z = np.asarray(logicals_ops_z).view(self.field)
+        old_logicals_x = self.get_logical_ops(Pauli.X)
+        new_logicals_x = np.linalg.inv(old_logicals_x @ logicals_ops_z.T) @ old_logicals_x
+        self.set_logical_ops_xz(new_logicals_x, logicals_ops_z, validate=validate)
 
     def get_stabilizer_ops(
         self,
