@@ -1370,6 +1370,11 @@ class QuditCode(AbstractCode):
         code._gauge_ops = self._logical_ops
         return code
 
+    def get_dual_subsystem_code(self) -> QuditCode:  # pragma: no cover
+        """Deprecated alias for self.dual()."""
+        warnings.warn("QuditCode.get_dual_subsystem_code is DEPRECATED; use QuditCode.dual instead")
+        return self.dual()
+
     @functools.cached_property
     def dimension(self) -> int:
         """The number of logical qudits encoded by this code."""
