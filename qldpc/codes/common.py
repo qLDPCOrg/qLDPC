@@ -435,13 +435,14 @@ class ClassicalCode(AbstractCode):
         return self.get_distance_bound(num_trials=int(bound), vector=vector, **bound_kwargs)
 
     def get_distance_exact(
-        self, *, vector: Sequence[int] | npt.NDArray[np.int_] | None = None
+        self, *, vector: Sequence[int] | npt.NDArray[np.int_] | None = None, cutoff: int = 1
     ) -> int | float:
         """Compute the minimum Hamming weight of nontrivial code words by brute force.
 
         Args:
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
+            cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -449,17 +450,32 @@ class ClassicalCode(AbstractCode):
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
-        if vector is not None:
-            vector = np.asarray(vector, dtype=int).view(self.field)
-            return min(np.count_nonzero(word - vector) for word in self.iter_words())
-
         # we do not know the exact distance, so compute it
-        if self.field.order == 2:
-            distance = get_distance_classical(self.generator)
+        if self.field.order == 2 and vector is None:
+            distance = get_distance_classical(self.generator, cutoff=cutoff)
+            if cutoff <= 1:
+                self._distance = int(distance)
+
+        elif vector is None:
+            distance = len(self)
+            for word in self.iter_words(skip_zero=True):
+                distance = min(distance, np.count_nonzero(word))
+                if distance <= cutoff:
+                    break
+            if cutoff <= 1:
+                self._distance = int(distance)
+
         else:
-            distance = min(np.count_nonzero(word) for word in self.iter_words(skip_zero=True))
-        self._distance = int(distance)
-        return self._distance
+            vector = np.asarray(vector).view(self.field)
+            if not np.any(self.matrix @ vector):
+                return 0
+            distance = np.count_nonzero(vector)
+            for word in self.iter_words(skip_zero=True):
+                distance = min(distance, np.count_nonzero(word - vector))
+                if distance <= cutoff:
+                    break
+
+        return distance
 
     def get_distance_if_known(
         self, vector: Sequence[int] | npt.NDArray[np.int_] | None = None
@@ -1459,8 +1475,11 @@ class QuditCode(AbstractCode):
             return self.get_distance_exact()
         return self.get_distance_bound(num_trials=int(bound), **bound_kwargs)
 
-    def get_distance_exact(self) -> int | float:
+    def get_distance_exact(self, *, cutoff: int = 1) -> int | float:
         """Compute the minimum weight of nontrivial logical operators by brute force.
+
+        Args:
+            cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -1475,7 +1494,10 @@ class QuditCode(AbstractCode):
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops()]).view(self.field)
 
         if self.field.order == 2:
-            distance = get_distance_quantum(logical_ops, stabilizers, homogeneous=False)
+            distance = get_distance_quantum(
+                logical_ops, stabilizers, cutoff=cutoff, homogeneous=False
+            )
+
         else:
             warnings.warn(
                 "Computing the exact distance of a non-binary code may take a (very) long time"
@@ -1491,8 +1513,11 @@ class QuditCode(AbstractCode):
                 support_x = word[: len(self)].view(np.ndarray)
                 support_z = word[len(self) :].view(np.ndarray)
                 distance = min(distance, np.count_nonzero(support_x | support_z))
+                if distance <= cutoff:
+                    break
 
-        self._distance = int(distance)
+        if cutoff <= 1:
+            self._distance = int(distance)
         return distance
 
     def get_distance_if_known(self) -> int | float | None:
@@ -2417,13 +2442,14 @@ class CSSCode(QuditCode):
             return self.get_distance_exact(pauli)
         return self.get_distance_bound(num_trials=int(bound), pauli=pauli, **bound_kwargs)
 
-    def get_distance_exact(self, pauli: PauliXZ | None = None) -> int | float:
+    def get_distance_exact(self, pauli: PauliXZ | None = None, *, cutoff: int = 1) -> int | float:
         """Compute the minimum weight of nontrivial logical operators by brute force.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
                 X-type logical operator).  If passed qldpc.objects.Pauli.X, compute the Z-distance.
                 If None (the default), minimize over X and Z.
+            cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -2447,26 +2473,34 @@ class CSSCode(QuditCode):
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
 
         if self.field.order == 2:
-            distance = get_distance_quantum(logical_ops, stabilizers, homogeneous=True)
+            distance = get_distance_quantum(
+                logical_ops, stabilizers, cutoff=cutoff, homogeneous=True
+            )
+
         else:
             warnings.warn(
                 "Computing the exact distance of a non-binary code may take a (very) long time"
             )
+            distance = len(self)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)
             code_stabilizers = ClassicalCode.from_generator(stabilizers)
-            distance = min(
-                np.count_nonzero(word_l + word_s)
-                for word_l in code_logical_ops.iter_words(skip_zero=True)
-                for word_s in code_stabilizers.iter_words()
-            )
+            for word_l, word_s in itertools.product(
+                code_logical_ops.iter_words(skip_zero=True),
+                code_stabilizers.iter_words(),
+            ):
+                distance = min(distance, np.count_nonzero(word_l + word_s))
+                if distance <= cutoff:
+                    break
 
-        # save the exact distance and return
-        if pauli is Pauli.X or self._equal_distance_xz:
-            self._distance_x = distance
-        if pauli is Pauli.Z or self._equal_distance_xz:
-            self._distance_z = distance
-        if self._distance_x is not None and self._distance_z is not None:
-            self._distance = min(self._distance_x, self._distance_z)
+        if cutoff <= 1:
+            # save the exact distance
+            if pauli is Pauli.X or self._equal_distance_xz:
+                self._distance_x = distance
+            if pauli is Pauli.Z or self._equal_distance_xz:
+                self._distance_z = distance
+            if self._distance_x is not None and self._distance_z is not None:
+                self._distance = min(self._distance_x, self._distance_z)
+
         return distance
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
