@@ -1356,12 +1356,12 @@ class QuditCode(AbstractCode):
             symplectic_conjugate(x) @ y, which is zero iff x and y represent a pair of Pauli strings
             that commute.
 
-        A quantum code C can then be defined as the set of all symplectic vectors that represent the
+        A quantum code C can be defined as the set of all symplectic vectors that represent the
         logical Pauli operators of the code.  The dual code ~C is then
             ~C = { y : symplectic_conjugate(x) @ y = 0 for all x in C }.
-        In words: the dual code consists of all operators that commute with the logical operators of
-        the original code.  The logical operators of the dual code are therefore (a) the stabilizers
-        and gauge operators of the original code.
+        In words, the dual code consists of all operators that commute with the logical operators of
+        the original code.  The logical operators of the dual code are therefore the stabilizers and
+        gauge operators of the original code.
         """
         matrix = np.vstack([self.get_stabilizer_ops(), self.get_logical_ops()])
         code = QuditCode(matrix, is_subsystem_code=self.dimension != 0)
