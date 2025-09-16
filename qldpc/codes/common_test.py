@@ -299,6 +299,8 @@ def test_qudit_codes() -> None:
 
 def test_distance_qudit() -> None:
     """Distance calculations."""
+    code: codes.QuditCode
+
     code = codes.FiveQubitCode()
     code._is_subsystem_code = True  # test that this does not break anything
 
