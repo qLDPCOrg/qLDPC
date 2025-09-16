@@ -1535,6 +1535,10 @@ class QuditCode(AbstractCode):
             code._gauge_ops = transform_ops(self.get_gauge_ops())
         return code
 
+    def conjugate(self) -> QuditCode:
+        """The same code with all X-type and Z-type operators swapped."""
+        return self.conjugated()
+
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
     ) -> QuditCode:
@@ -2619,6 +2623,23 @@ class CSSCode(QuditCode):
             qudits: The qudits to transform, or None for all qudits.  Default: None.
         """
         return super().conjugated(qudits).maybe_to_css()
+
+    def conjugate(self) -> CSSCode:
+        """The same code with all X-type and Z-type operators swapped."""
+        code = CSSCode(self.code_z, self.code_x, is_subsystem_code=self._is_subsystem_code)
+        if self._logical_ops is not None:
+            code.set_logical_ops_xz(self.get_logical_ops(Pauli.Z), self.get_logical_ops(Pauli.X))
+        if self._stabilizer_ops is not None:
+            code._stabilizer_ops = (
+                self._stabilizer_ops.reshape(-1, 2, len(self))[:, ::-1, :]
+                .reshape(-1, 2 * len(self))
+                .view(self.field)
+            )
+        if self._gauge_ops is not None:
+            code._gauge_ops = scipy.linalg.block_diag(
+                self.get_gauge_ops(Pauli.Z), self.get_gauge_ops(Pauli.X)
+            ).view(self.field)
+        return code
 
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False

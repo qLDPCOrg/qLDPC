@@ -364,7 +364,7 @@ def test_qudit_deformations() -> None:
     code.get_stabilizer_ops()
     code.get_gauge_ops()
     assert code == code.conjugated([]) == code.deformed("")
-    assert code.conjugated() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+    assert code.conjugate() == code.deformed("H " + " ".join(map(str, range(len(code)))))
 
     with pytest.raises(ValueError, match="only supported for qubit codes"):
         codes.QuditCode(code.matrix, field=3).deformed("")
@@ -612,9 +612,17 @@ def test_distance_css() -> None:
 
 def test_css_deformations() -> None:
     """Local Fourier transforms of a CSSCode."""
+    code: codes.CSSCode
+
     code = codes.SteaneCode()
     assert codes.CSSCode.equiv(code.conjugated(), code)
     assert not codes.CSSCode.equiv(code.deformed("H 0"), code)
+
+    code = codes.SHYPSCode(2)
+    code.get_logical_ops()
+    code.get_stabilizer_ops()
+    code.get_gauge_ops()
+    assert code.conjugate() == code.deformed("H " + " ".join(map(str, range(len(code)))))
 
 
 def test_stacking_css_codes() -> None:
