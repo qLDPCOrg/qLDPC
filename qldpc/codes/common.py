@@ -362,8 +362,8 @@ class ClassicalCode(AbstractCode):
         """Dual to this code.
 
         The dual code ~C is the set of bitstrings orthogonal to C:
-        ~C = { x : x @ y = 0 for all y in C }.
-        The parity check matrix of ~C is equal to the generator of C.
+            ~C = { y : x @ y = 0 for all x in C }.
+        The generator of C (i.e., the matrix whose rows span C) is the parity check matrix of ~C.
         """
         return ClassicalCode(self.generator)
 
@@ -1335,11 +1335,34 @@ class QuditCode(AbstractCode):
         if self._gauge_ops is not None:
             return self._gauge_ops
 
-        self._gauge_ops = self.get_dual_subsystem_code().get_logical_ops()
+        self._gauge_ops = self.dual().get_logical_ops()
         return self._gauge_ops
 
-    def get_dual_subsystem_code(self) -> QuditCode:
-        """Get the subsystem code that swaps gauge and logical qudits of this code."""
+    def dual(self) -> QuditCode:
+        """Dual to this code, which swaps the roles of logical and gauge operators.
+
+        The dual of a quantum code is defined almost identically to the dual a classical code.
+
+        In the classical case, a code C is defined as a set of bitstrings, { x : x in C }.  The dual
+        code ~C is then the set of bitstrings that are orthogonal to C:
+            ~C = { y : x @ y = 0 for all x in C }.
+        This definition is equivalent to saying that the generator of C (a matrix whose rows span C)
+        is the parity check matrix of ~C, and vice versa.
+
+        To analogously define the dual of a quantum code, we need to:
+        (1) Represent Pauli strings by symplectic vectors that indicate the support of
+            (single-qudit) X and Z Pauli operators.
+        (2) Replace the ordinary inner product x @ y by the symplectic inner product,
+            symplectic_conjugate(x) @ y, which is zero iff x and y represent a pair of Pauli strings
+            that commute.
+
+        A quantum code C can then be defined as the set of all symplectic vectors that represent the
+        logical Pauli operators of the code.  The dual code ~C is then
+            ~C = { y : symplectic_conjugate(x) @ y = 0 for all x in C }.
+        In words: the dual code consists of all operators that commute with the logical operators of
+        the original code.  The logical operators of the dual code are therefore (a) the stabilizers
+        and gauge operators of the original code.
+        """
         matrix = np.vstack([self.get_stabilizer_ops(), self.get_logical_ops()])
         code = QuditCode(matrix, is_subsystem_code=self.dimension != 0)
         code._stabilizer_ops = self._stabilizer_ops
@@ -2282,8 +2305,11 @@ class CSSCode(QuditCode):
             return gauge_ops
         return gauge_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
 
-    def get_dual_subsystem_code(self) -> CSSCode:
-        """Get the subsystem code that swaps gauge and logical qudits of this code."""
+    def dual(self) -> CSSCode:
+        """Dual to this code, which swaps the roles of logical and gauge operators.
+
+        See help(qldpc.codes.QuditCode.dual) for an explanation.
+        """
         matrix_x = np.vstack([self.get_stabilizer_ops(Pauli.X), self.get_logical_ops(Pauli.X)])
         matrix_z = np.vstack([self.get_stabilizer_ops(Pauli.Z), self.get_logical_ops(Pauli.Z)])
         code = CSSCode(matrix_x, matrix_z, is_subsystem_code=self.dimension != 0)
