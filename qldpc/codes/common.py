@@ -1511,13 +1511,12 @@ class QuditCode(AbstractCode):
             raise ValueError(f"Arguments not recognized for distance bounding: {bound_kwargs}")
         return external.codes.get_distance_bound(self, num_trials, cutoff=cutoff, maxav=maxav)
 
-    def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
+    def conjugated(self, qudits: slice | Sequence[int]) -> QuditCode:
         """Apply local Fourier transforms, swapping X-type and Z-type operators.
 
         Args:
-            qudits: The qudits to transform, or None for all qudits.  Default: None.
+            qudits: The qudits to transform.
         """
-        qudits = qudits if qudits is not None else slice(len(self))
 
         def transform_ops(ops: galois.FieldArray) -> galois.FieldArray:
             """Fourier-transform the given Pauli strings."""
@@ -1537,7 +1536,7 @@ class QuditCode(AbstractCode):
 
     def conjugate(self) -> QuditCode:
         """The same code with all X-type and Z-type operators swapped."""
-        return self.conjugated()
+        return self.conjugated(range(len(self)))
 
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
@@ -2616,11 +2615,11 @@ class CSSCode(QuditCode):
             for logical_index in range(self.dimension):
                 self.reduce_logical_op(pauli, logical_index, **decoder_kwargs)
 
-    def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
+    def conjugated(self, qudits: slice | Sequence[int]) -> QuditCode:
         """Apply local Fourier transforms, swapping X-type and Z-type operators.
 
         Args:
-            qudits: The qudits to transform, or None for all qudits.  Default: None.
+            qudits: The qudits to transform.
         """
         return super().conjugated(qudits).maybe_to_css()
 

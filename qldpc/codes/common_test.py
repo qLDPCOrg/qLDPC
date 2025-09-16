@@ -615,7 +615,7 @@ def test_css_deformations() -> None:
     code: codes.CSSCode
 
     code = codes.SteaneCode()
-    assert codes.CSSCode.equiv(code.conjugated(), code)
+    assert codes.CSSCode.equiv(code.conjugated(range(len(code))), code)
     assert not codes.CSSCode.equiv(code.deformed("H 0"), code)
 
     code = codes.SHYPSCode(2)
