@@ -17,8 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import functools
-import operator
 from collections.abc import Collection, Sequence
 
 import numpy as np
@@ -263,9 +261,7 @@ class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
         self.num_detectors = sum(
             decoder.dem_arrays.num_detectors for decoder in self.segment_decoders
         )
-        self.permutation_to_sort_observables = np.argsort(
-            functools.reduce(operator.add, self.segment_observables)
-        )
+        self.num_observables = max(max(observables) for observables in self.segment_observables) + 1
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -287,17 +283,16 @@ class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        # split detection event data into syndromes in each segment
-        syndromes = [
-            detection_event_data.T[detectors].T
-            for detectors, decoder in zip(self.segment_detectors, self.segment_decoders)
-        ]
+        # initialize predicted observable flips
+        observable_flips = np.zeros(
+            (len(detection_event_data), self.num_observables), dtype=np.uint8
+        )
 
         # decode segments independently
-        observable_flips = [
-            decoder.decode_shots(segment_syndromes)
-            for segment_syndromes, decoder in zip(syndromes, self.segment_decoders)
-        ]
+        for detectors, observables, decoder in zip(
+            self.segment_detectors, self.segment_observables, self.segment_decoders
+        ):
+            syndromes = detection_event_data.T[detectors].T
+            observable_flips[:, observables] = decoder.decode_shots(syndromes)
 
-        # stack observable flips and permute observables appropriately
-        return np.hstack(observable_flips).T[self.permutation_to_sort_observables].T
+        return observable_flips
