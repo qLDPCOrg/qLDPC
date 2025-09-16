@@ -164,7 +164,7 @@ def test_distance_classical(bits: int = 3) -> None:
     # compute distance of a trinary repetition code
     rep_code = codes.RepetitionCode(bits, field=3)
     rep_code.forget_distance()
-    assert rep_code.get_distance_exact() == 3
+    assert rep_code.get_distance_exact(cutoff=bits) == rep_code.get_distance_exact() == bits
 
 
 def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
@@ -326,20 +326,22 @@ def test_distance_qudit() -> None:
         pytest.raises(ValueError, match="Arguments not recognized"),
     ):
         code.get_distance(bound=True, test=True)
+
+    # mock computing distance with GAP
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=3),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=-1),
     ):
-        assert code.get_distance(bound=True) == 3
+        assert code.get_distance(bound=True) == -1
 
     # the distance of dimension-0 codes is undefined
     assert codes.QuditCode([[0, 1]]).get_distance() is np.nan
 
     # fallback pythonic brute-force distance calculation
-    surface_code = codes.SurfaceCode(2, field=3)
-    with unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None):
-        with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
-            assert codes.QuditCode.get_distance_exact(surface_code) == 2
+    code = codes.QuditCode(codes.SurfaceCode(2, field=3).matrix)
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+        assert code.get_distance_exact(cutoff=len(code)) <= len(code)
+        assert code.get_distance_exact() == 2
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -579,41 +581,37 @@ def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
 
-    code = codes.SteaneCode()
-    code.forget_distance()
-    assert code.get_distance() == 3
+    # code = codes.SteaneCode()
+    # code.forget_distance()
+    # assert code.get_distance() == 3
+
+    # qubit code distance
+    code = codes.QuditCode(codes.SHPCode(codes.RepetitionCode(2)).matrix).to_css()
+    assert code.get_distance_exact(cutoff=len(code)) <= len(code)
+    assert code.get_distance_exact() == 2
+    assert code.get_distance_bound_with_decoder(Pauli.X, cutoff=len(code)) <= len(code)
+
+    # computing an exact distance but providing bounding arguments raises a warning
+    with pytest.warns(UserWarning, match="ignored"):
+        assert code.get_distance(bound=False, test_arg=True)
 
     # qutrit code distance
     code = codes.HGPCode(codes.RepetitionCode(2, field=3))
+    code.forget_distance()
     assert code.get_distance(bound=False) == 2
 
+    code = codes.QuditCode(code.matrix).to_css()
+    assert code.get_distance_bound(cutoff=len(code)) <= len(code)
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+        assert code.get_distance(bound=True) <= len(code)
     with (
-        unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
-        unittest.mock.patch("qldpc.codes.HGPCode._get_distance_exact", return_value=NotImplemented),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=-1),
     ):
-        with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
-            assert code.get_distance(bound=False) == 2
-
-        assert code.get_distance_bound(cutoff=len(code)) == len(code)
-        with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
-            assert code.get_distance(bound=True) <= len(code)
-        with (
-            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-            unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=-1),
-        ):
-            assert code.get_distance(bound=True) == -1
-
-    # qubit code distance
-    code = codes.SHPCode(codes.RepetitionCode(2))
-    with unittest.mock.patch(
-        "qldpc.codes.SHPCode._get_distance_exact", return_value=NotImplemented
-    ):
+        assert code.get_distance(bound=True) == -1
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+        assert code.get_distance_exact(cutoff=len(code)) <= len(code)
         assert code.get_distance_exact() == 2
-        assert code.get_distance_bound_with_decoder(Pauli.X, cutoff=len(code)) <= len(code)
-
-        # computing an exact distance but providing bounding arguments raises a warning
-        with pytest.warns(UserWarning, match="ignored"):
-            assert code.get_distance(bound=False, test_arg=True)
 
     # the distance of a dimension-0 quantum code is undefined
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])

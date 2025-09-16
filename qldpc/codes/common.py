@@ -2464,7 +2464,10 @@ class CSSCode(QuditCode):
             return distance
 
         if pauli is None:
-            return min(self.get_distance_exact(Pauli.X), self.get_distance_exact(Pauli.Z))
+            return min(
+                self.get_distance_exact(Pauli.X, cutoff=cutoff),
+                self.get_distance_exact(Pauli.Z, cutoff=cutoff),
+            )
 
         # we do not know the exact distance, so compute it
         logical_ops = self.get_logical_ops(pauli)
