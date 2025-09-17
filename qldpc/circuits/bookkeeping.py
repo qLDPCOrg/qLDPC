@@ -21,7 +21,7 @@ import collections
 import copy
 import dataclasses
 import itertools
-from collections.abc import Hashable, Iterator, Mapping, Sequence
+from collections.abc import Hashable, ItemsView, Iterator, Mapping, Sequence
 from typing import Self
 
 import stim
@@ -93,7 +93,7 @@ class QubitIDs:
             self.ancilla += tuple(range(start, start + number))
 
 
-class Record:
+class Record(Mapping[Hashable, list[int]]):
     """An organized record of events in a Stim circuit.
 
     A record is essentially a dictionary that maps some key (such as a qubit index) to an ordered
@@ -107,17 +107,31 @@ class Record:
     num_events: int
     key_to_events: dict[Hashable, list[int]]
 
-    def __init__(
-        self, initial_record: Record | Mapping[Hashable, Sequence[int]] | None = None
-    ) -> None:
+    def __init__(self, initial_record: Mapping[Hashable, Sequence[int]] | None = None) -> None:
         self.key_to_events = collections.defaultdict(list)
         if initial_record:
             self.key_to_events |= {key: list(events) for key, events in initial_record.items()}
         self.num_events = sum(len(events) for events in self.key_to_events.values())
 
-    def items(self) -> Iterator[tuple[Hashable, list[int]]]:
+    def __len__(self) -> int:
+        """The number of keys associated with events in this record."""
+        return len(self.key_to_events)
+
+    def __iter__(self) -> Iterator[Hashable]:
+        """Iterator over the keys associated with events in this record."""
+        yield from self.key_to_events.keys()
+
+    def __getitem__(self, key: Hashable) -> list[int]:
+        """The events associated with a key."""
+        return self.key_to_events[key]
+
+    def items(self) -> ItemsView[Hashable, list[int]]:
         """Iterator over keys and their associated events."""
-        yield from self.key_to_events.items()
+        return self.key_to_events.items()
+
+    def get_events(self, *keys: Hashable) -> list[int]:
+        """All events associated with the given keys."""
+        return [event for key in keys for event in self.key_to_events.get(key, [])]
 
     def copy(self) -> Self:
         """A copy of this Record."""
@@ -125,11 +139,7 @@ class Record:
             {copy.deepcopy(key): copy.deepcopy(events) for key, events in self.items()}
         )
 
-    def get_events(self, *keys: Hashable) -> list[int]:
-        """The events associated with a key."""
-        return [event for key in keys for event in self.key_to_events.get(key, [])]
-
-    def append(self, record: Record | Mapping[Hashable, Sequence[int]], repeat: int = 1) -> None:
+    def append(self, record: Mapping[Hashable, Sequence[int]], repeat: int = 1) -> None:
         """Append the given record to this one.
 
         All event numbers in the appended record are increased by the number of events in the current
@@ -147,6 +157,11 @@ class Record:
                 ]
             )
         self.num_events += num_events_in_record * repeat
+
+    def __iadd__(self, other: Mapping[Hashable, Sequence[int]]) -> Self:
+        """Append the given record to this one.  See help(qldpc.circuits.Record.append)."""
+        self.append(other)
+        return self
 
     def __add__(self, other: Self) -> Self:
         """Combine two records."""

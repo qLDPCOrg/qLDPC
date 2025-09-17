@@ -51,8 +51,11 @@ def test_records() -> None:
     assert base_record.num_events == 1
     base_record = base_record + circuits.Record({0: [1], 2: [0]})
     assert base_record.num_events == 3
-    base_record.append({1: [0, 1]}, repeat=3)
-    assert base_record.key_to_events[1] == [3, 4, 5, 6, 7, 8]
+    base_record += {1: [0, 1]}
+    base_record.append({1: [0, 1]}, repeat=2)
+    assert base_record[1] == [3, 4, 5, 6, 7, 8]
+    assert len(base_record) == 3
+    assert list(iter(base_record)) == list(base_record.keys())
     assert dict(base_record.items()) == base_record.key_to_events
 
     measurement_record = circuits.MeasurementRecord(base_record.key_to_events)
