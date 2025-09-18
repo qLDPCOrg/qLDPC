@@ -301,10 +301,11 @@ class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     This decoder splits a decoding problem into segments and solves each segment independently.
-    Here a segment is defined by its own subset of detectors, subset of observables, and decoder.
+    Here a segment is defined by a set of detectors, a set of observables, and decoder.
 
     Instances of this class are meant to be constructed by a CompositeSinterDecoder, whose
     .compile_decoder_for_dem method returns a CompiledCompositeSinterDecoder.
+    See help(CompositeSinterDecoder).
     """
 
     def __init__(
