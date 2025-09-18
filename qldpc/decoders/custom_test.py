@@ -26,7 +26,6 @@ import galois
 import numpy as np
 import pytest
 import scipy.sparse
-import stim
 
 from qldpc import codes, decoders
 from qldpc.math import symplectic_conjugate

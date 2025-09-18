@@ -28,7 +28,6 @@ import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
-import stim
 
 from qldpc import codes
 from qldpc.abstract import DEFAULT_FIELD_ORDER
@@ -190,7 +189,7 @@ class LookupDecoder(Decoder):
         max_weight: int,
         *,
         symplectic: bool = False,
-        error_channel: npt.NDArray[float] | Sequence[float] | None = None,
+        error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
         assert error_channel is None or penalty_func is None, (
@@ -247,7 +246,7 @@ class LookupDecoder(Decoder):
 
     @staticmethod
     def build_penalty_func(
-        error_channel: npt.NDArray[float] | Sequence[float],
+        error_channel: npt.NDArray[np.float64] | Sequence[float],
     ) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
         """Construct a penalty function from independent probabilities of individual errors."""
         error_channel = np.asarray(error_channel)
