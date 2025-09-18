@@ -28,7 +28,6 @@ import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
-import stim
 
 from qldpc import codes
 from qldpc.abstract import DEFAULT_FIELD_ORDER
@@ -174,6 +173,10 @@ class LookupDecoder(Decoder):
     only assigns correction ee to syndrome ss if (a) ss has no assigned correction, or (b) the
     penalty of ee is smaller than the penalty of the correction currently assigned to ss.
 
+    If provided an error_channel of independent probabilities for each "error mechanism" (associated
+    with one column of the parity check matrix), construct a penalty_func that penalizes unlikely
+    errors.
+
     If initialized with symplectic=True, this decoder treats the provided parity check matrix as that
     of a QuditCode, with the first and last half of the columns denoting, respectively, the X and Z
     support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
@@ -186,10 +189,19 @@ class LookupDecoder(Decoder):
         max_weight: int,
         *,
         symplectic: bool = False,
+        error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
+        assert error_channel is None or penalty_func is None, (
+            "Cannot specify both an error_channel and a penalty_func"
+        )
+        penalty_func = penalty_func or (
+            self.build_penalty_func(error_channel) if error_channel is not None else None
+        )
+
         self.shape: tuple[int, ...] = matrix.shape
         self.syndrome_to_correction = {}
+
         error_weights: dict[tuple[int, ...], float] = {}
         for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
             matrix, max_weight, symplectic
@@ -232,18 +244,19 @@ class LookupDecoder(Decoder):
             tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int)
         )
 
+    @staticmethod
     def build_penalty_func(
-        dem: stim.DetectorErrorModel,
+        error_channel: npt.NDArray[np.float64] | Sequence[float],
     ) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
-        """Construct a penalty function for a detector error model, penalizing unlikely errors."""
-        penalty = np.array(
-            [instruction.args_copy()[0] for instruction in dem if instruction.type == "error"]
-        )
+        """Construct a penalty function from independent probabilities of individual errors."""
+        error_channel = np.asarray(error_channel)
 
         def penalty_func(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
-            """Penalize unlikely errors."""
+            """Penalize unlikely combinations of errors."""
             events = np.asarray(error).astype(bool)
-            probability_of_error = float(np.prod(penalty[events]) * np.prod(1 - penalty[~events]))
+            probability_of_error = float(
+                np.prod(error_channel[events]) * np.prod(1 - error_channel[~events])
+            )
             return -probability_of_error
 
         return penalty_func
