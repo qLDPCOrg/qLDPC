@@ -168,14 +168,25 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
 class CompositeSinterDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
-    This decoder splits a detector error model into independent decoding problems, or segments,
-    defined by subsets of detectors and observables in a detector error model.  This is useful for
+    This decoder splits a detector error model into independent decoding problems, or segments.
+    Each segment S is defined by a subset of detectors d_S and observables O_S.  When compiling
+    a CompositeSinterDecoder for a specific detector error model D, this decoder constructs,
+    for each segment S, a smaller detector error model D_S that restricts D to the error mechanisms
+    that flip detectors in d_S or observables in O_S.
+
+    A segment S may optionally be assigned an "exclusion set" of detectors, e_S, in which case the
+    segment detector error model D_S is additionally required to exclude all error mechanisms that
+    trigger detectors in e_S.
+
+    As an example, the capability to split detector error model into segments is useful for
     independently decoding the X and Z sectors of a CSS code.
     """
 
     def __init__(
         self,
-        *detectors_and_observables: tuple[Collection[int], Collection[int]],
+        segment_detectors: Sequence[Collection[int]],
+        segment_observables: Sequence[Collection[int]],
+        segment_exclusions: Sequence[Collection[int]] | None = None,
         priors_arg: str | None = None,
         log_likelihood_priors: bool = False,
         **decoder_kwargs: object,
@@ -188,8 +199,10 @@ class CompositeSinterDecoder(SinterDecoder):
         See help(sinter.Decoder) for additional information.
 
         Args:
-            *detectors_and_observables: Tuples of detector indices and associated observable indices
-                that define the segments to decode independently.
+            segment_detectors: A sequence containing one set of detectors per segment.
+            segment_observables: A sequence containing one set of observables per segment.
+            segment_exclusions: A sequence containing one detector exclusion set per segment; or
+                None to indicate no exclusions for all segments.  Default: None.
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -198,12 +211,24 @@ class CompositeSinterDecoder(SinterDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.segment_detectors, self.segment_observables = zip(
-            *[
-                (list(detectors), list(observables))
-                for detectors, observables in detectors_and_observables
-            ]
+        self.segment_detectors = list(map(list, segment_detectors))
+        self.segment_observables = list(map(list, segment_observables))
+        self.segment_exclusions = (
+            None if segment_exclusions is None else list(map(list, segment_exclusions))
         )
+
+        # consistency check
+        num_exclusions = None if segment_exclusions is None else len(segment_exclusions)
+        if not (
+            len(self.segment_detectors) == len(self.segment_observables)
+            and (num_exclusions is None or num_exclusions == len(self.segment_detectors))
+        ):
+            raise ValueError(
+                f"The number of detector sets ({len(self.segment_detectors)}), observable sets"
+                f" ({len(self.segment_observables)}), and exclusion sets"
+                f" ({num_exclusions}) are inconsistent"
+            )
+
         SinterDecoder.__init__(
             self,
             priors_arg=priors_arg,

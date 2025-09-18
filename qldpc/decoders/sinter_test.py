@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 import numpy as np
+import pytest
 import stim
 
 from qldpc import decoders
@@ -59,7 +60,7 @@ def test_segment_decoding() -> None:
     # build a monolithic vs. segmented decoder
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=2)
     decoder_2 = decoders.CompositeSinterDecoder(
-        ([0], [0]), ([1], [1]), with_lookup=True, max_weight=2
+        [[0], [1]], [[0], [1]], with_lookup=True, max_weight=2
     )
 
     # compile the decoders and predict observable flips
@@ -72,3 +73,6 @@ def test_segment_decoding() -> None:
         compiled_decoder_2.packbits(det_data)
     )
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
+
+    with pytest.raises(ValueError, match="inconsistent"):
+        decoders.CompositeSinterDecoder([[0], [1]], [[0]])
