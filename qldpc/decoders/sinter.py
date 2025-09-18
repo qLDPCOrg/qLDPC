@@ -253,7 +253,9 @@ class CompositeSinterDecoder(SinterDecoder):
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         segment_observables = (
-            self.segment_observables or [range(dem.num_observables)] * self.num_segments
+            [range(dem.num_observables)] * self.num_segments
+            if self.segment_observables is None
+            else self.segment_observables
         )
 
         # build a restricted detector error model for each segment
@@ -311,8 +313,8 @@ class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
 
     def __init__(
         self,
-        segment_detectors: Sequence[list[int]],
-        segment_observables: Sequence[list[int]],
+        segment_detectors: Sequence[Sequence[int]],
+        segment_observables: Sequence[Sequence[int]],
         segment_decoders: Sequence[CompiledSinterDecoder],
         num_detectors: int,
         num_observables: int,
