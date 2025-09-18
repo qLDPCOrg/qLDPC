@@ -61,7 +61,8 @@ class SinterDecoder(sinter.Decoder):
         if self.priors_arg is None:
             # address some known cases
             if (
-                decoder_kwargs.get("with_BP_OSD")
+                decoder_kwargs.get("with_lookup")
+                or decoder_kwargs.get("with_BP_OSD")
                 or decoder_kwargs.get("with_BP_LSD")
                 or decoder_kwargs.get("with_BF")
             ):
