@@ -52,16 +52,15 @@ def test_segment_decoding() -> None:
     # construct a simple detector error model and sample from it
     dem = stim.DetectorErrorModel("""
         error(0.1) D0 L0
-        error(0.1) D1 L1
+        error(0.1) D0 D1 L1
+        error(0.1) D2 L2
     """)
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
 
     # build a monolithic vs. segmented decoder
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=2)
-    decoder_2 = decoders.CompositeSinterDecoder(
-        [[0], [1]], [[0], [1]], with_lookup=True, max_weight=2
-    )
+    decoder_2 = decoders.CompositeSinterDecoder([[0, 1], [2]], with_lookup=True, max_weight=2)
 
     # compile the decoders and predict observable flips
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
