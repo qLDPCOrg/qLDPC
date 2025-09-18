@@ -289,7 +289,11 @@ class CompositeSinterDecoder(SinterDecoder):
             SinterDecoder.compile_decoder_for_dem(self, segment_dem) for segment_dem in segment_dems
         ]
         return CompiledCompositeSinterDecoder(
-            self.segment_detectors, segment_observables, compiled_decoders
+            self.segment_detectors,
+            segment_observables,
+            compiled_decoders,
+            dem.num_detectors,
+            dem.num_observables,
         )
 
 
@@ -308,16 +312,15 @@ class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
         segment_detectors: Sequence[list[int]],
         segment_observables: Sequence[list[int]],
         segment_decoders: Sequence[CompiledSinterDecoder],
+        num_detectors: int,
+        num_observables: int,
     ) -> None:
         assert len(segment_detectors) == len(segment_observables) == len(segment_decoders)
         self.segment_detectors = segment_detectors
         self.segment_observables = segment_observables
         self.segment_decoders = segment_decoders
-
-        self.num_detectors = sum(
-            decoder.dem_arrays.num_detectors for decoder in self.segment_decoders
-        )
-        self.num_observables = max(max(observables) for observables in self.segment_observables) + 1
+        self.num_detectors = num_detectors
+        self.num_observables = num_observables
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
