@@ -192,6 +192,7 @@ class DetectorErrorModelArrays:
 
     def post_selected_on(self, *detectors: int) -> DetectorErrorModelArrays:
         """Post-select on the given detectors, removing error mechanisms that trigger them."""
+        detectors = list(detectors)
         mask = self.detector_flip_matrix[detectors].getnnz(axis=0) == 0
         detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
         detectors_to_keep[detectors] = False
