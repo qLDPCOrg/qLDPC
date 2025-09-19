@@ -191,7 +191,10 @@ class DetectorErrorModelArrays:
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
     def post_selected_on(self, *detectors: int) -> DetectorErrorModelArrays:
-        """Post-select on the given detectors, removing error mechanisms that trigger them."""
+        """Condition this detector error model on the given detectors being in 0 (untriggered).
+
+        In effect, remove the given detectors and the error mechanisms that trigger these detectors.
+        """
         detectors_to_discard = list(detectors)
         detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
         detectors_to_keep[detectors_to_discard] = False
