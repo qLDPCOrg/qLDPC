@@ -180,17 +180,12 @@ class CompositeSinterDecoder(SinterDecoder):
 
     As an example, the capability to split detector error model into segments is useful for
     independently decoding the X and Z sectors of a CSS code.
-
-    Finally, a segment S may also be assigned an "exclusion set" of detectors, e_S, in which case
-    the segment detector error model D_S excludes error mechanisms that trigger detectors in e_S.
-    This capability can be useful when post-selecting on the detectors in e_S.
     """
 
     def __init__(
         self,
         segment_detectors: Sequence[Collection[int]],
         segment_observables: Sequence[Collection[int]] | None = None,
-        segment_exclusions: Sequence[Collection[int]] | None = None,
         priors_arg: str | None = None,
         log_likelihood_priors: bool = False,
         **decoder_kwargs: object,
@@ -206,8 +201,6 @@ class CompositeSinterDecoder(SinterDecoder):
             segment_detectors: A sequence containing one set of detectors per segment.
             segment_observables: A sequence containing one set of observables per segment; or None
                 to indicate that every segment should decode every observable.  Default: None.
-            segment_exclusions: A sequence containing one detector exclusion set per segment; or
-                None to indicate no exclusions for all segments.  Default: None.
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -219,22 +212,15 @@ class CompositeSinterDecoder(SinterDecoder):
         # consistency check
         self.num_segments = len(segment_detectors)
         num_observables = None if segment_observables is None else len(segment_observables)
-        num_exclusions = None if segment_exclusions is None else len(segment_exclusions)
-        if not (
-            (num_observables is None or num_observables == self.num_segments)
-            and (num_exclusions is None or num_exclusions == self.num_segments)
-        ):
+        if not (num_observables is None or num_observables == self.num_segments):
             raise ValueError(
                 f"The number of detector sets ({self.num_segments}) is inconsistent with the number"
-                f" of observable sets ({num_observables}) or exclusion sets ({num_exclusions})"
+                f" of observable sets ({num_observables})"
             )
 
         self.segment_detectors = list(map(list, segment_detectors))
         self.segment_observables = (
             None if segment_observables is None else list(map(list, segment_observables))
-        )
-        self.segment_exclusions = (
-            None if segment_exclusions is None else list(map(list, segment_exclusions))
         )
 
         SinterDecoder.__init__(
@@ -270,12 +256,6 @@ class CompositeSinterDecoder(SinterDecoder):
 
             # restrict to error mechanisms that flip the specified detectors
             mask = detector_flip_matrix.getnnz(axis=0) > 0
-
-            # if applicable, restrict to error mechanisms that DO NOT trigger exclusions
-            if self.segment_exclusions is not None:
-                exclusions = self.segment_exclusions[ss]
-                mask &= dem_arrays.detector_flip_matrix[exclusions, :].getnnz(axis=0) == 0
-
             detector_flip_matrix = detector_flip_matrix[:, mask]
             observable_flip_matrix = observable_flip_matrix[:, mask]
             error_probs = error_probs[mask]

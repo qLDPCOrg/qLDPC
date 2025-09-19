@@ -35,7 +35,7 @@ def test_initialization() -> None:
         error(0.003) D2 L1
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    assert dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-10)
+    assert dem.approx_equals(dem_arrays.to_dem(), atol=1e-10)
     assert dem_arrays.num_errors == 3
     assert dem_arrays.num_detectors == 3
     assert dem_arrays.num_observables == 2
@@ -99,4 +99,23 @@ def test_simplify() -> None:
         error(0.3) D1
     """)
     assert dem == dem_arrays.to_detector_error_model()
-    assert simplified_dem == dem_arrays.simplify().to_detector_error_model()
+    assert simplified_dem == dem_arrays.simplified().to_detector_error_model()
+
+
+def test_post_selection() -> None:
+    """Post select on some detectors."""
+    dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        logical_observable L0
+        logical_observable L1
+        error(0.3) D0 D1 L0
+        error(0.3) D1 L1
+    """)
+    post_selected_dem = stim.DetectorErrorModel("""
+        detector D0
+        logical_observable L0
+        logical_observable L1
+        error(0.3) D0 L1
+    """)
+    assert post_selected_dem == decoders.DetectorErrorModelArrays(dem).post_selected_on(0).to_dem()

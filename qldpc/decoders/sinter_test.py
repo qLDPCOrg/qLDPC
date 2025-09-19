@@ -51,9 +51,8 @@ def test_segment_decoding() -> None:
     """Decode in segments."""
     # construct a simple detector error model and sample from it
     dem = stim.DetectorErrorModel("""
-        error(0.1) D0 D1 L0
+        error(0.1) D0 L0
         error(0.1) D1 L1
-        error(0.1) D2 L2
     """)
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
@@ -66,26 +65,12 @@ def test_segment_decoding() -> None:
     )
 
     # build a segmented decoder, compile, and predict observable flips
-    decoder_2 = decoders.CompositeSinterDecoder([[0, 1], [2]], with_lookup=True, max_weight=2)
+    decoder_2 = decoders.CompositeSinterDecoder([[0], [1]], with_lookup=True, max_weight=2)
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
     )
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
-
-    # post-select on D0 = 0, and exclude this detector from the first segment
-    flag_detectors = [0]
-    post_selection_mask = ~np.any(det_data[:, flag_detectors], axis=1)
-    det_data = det_data[post_selection_mask, :]
-    obs_data = obs_data[post_selection_mask, :]
-    decoder_3 = decoders.CompositeSinterDecoder(
-        [[1], [2]], segment_exclusions=[flag_detectors, []], with_lookup=True, max_weight=2
-    )
-    compiled_decoder_3 = decoder_3.compile_decoder_for_dem(dem)
-    predicted_flips_3 = compiled_decoder_3.decode_shots_bit_packed(
-        compiled_decoder_3.packbits(det_data)
-    )
-    assert np.array_equal(predicted_flips_1[post_selection_mask], predicted_flips_3)
 
     # if passing a sequence of sets of observables, it needs to be equal to the number of segments
     with pytest.raises(ValueError, match="inconsistent"):

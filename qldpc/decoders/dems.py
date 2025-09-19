@@ -72,16 +72,12 @@ class DetectorErrorModelArrays:
         detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.float64],
         observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.float64],
         error_probs: npt.NDArray[np.float64],
-        *,
-        simplify: bool = True,
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly."""
         dem_arrays = object.__new__(DetectorErrorModelArrays)
         dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(detector_flip_matrix)
         dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(observable_flip_matrix)
         dem_arrays.error_probs = np.asarray(error_probs)
-        if simplify:
-            dem_arrays.simplify()
         return dem_arrays
 
     @property
@@ -166,6 +162,10 @@ class DetectorErrorModelArrays:
 
         return detector_flip_matrix.tocsc(), observable_flip_matrix.tocsc(), error_probs
 
+    def to_dem(self) -> stim.DetectorErrorModel:
+        """Alias for self.to_detector_error_model()."""
+        return self.to_detector_error_model()
+
     def to_detector_error_model(self) -> stim.DetectorErrorModel:
         """Convert this object into a stim.DetectorErrorModel."""
         dem = stim.DetectorErrorModel()
@@ -186,9 +186,20 @@ class DetectorErrorModelArrays:
 
         return dem
 
-    def simplify(self) -> DetectorErrorModelArrays:
+    def simplified(self) -> DetectorErrorModelArrays:
         """Simplify this DetectorErrorModelArrays object by merging errors."""
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
+
+    def post_selected_on(self, *detectors: int) -> DetectorErrorModelArrays:
+        """Post-select on the given detectors, removing error mechanisms that trigger them."""
+        mask = self.detector_flip_matrix[detectors].getnnz(axis=0) == 0
+        detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
+        detectors_to_keep[detectors] = False
+        return DetectorErrorModelArrays.from_arrays(
+            self.detector_flip_matrix[detectors_to_keep][:, mask],
+            self.observable_flip_matrix[:, mask],
+            self.error_probs[mask],
+        )
 
 
 def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
