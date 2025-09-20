@@ -224,13 +224,17 @@ class CompositeSinterDecoder(SinterDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        # consistency check
+        # consistency checks
         self.num_segments = len(segment_detectors)
         num_observables = None if segment_observables is None else len(segment_observables)
         if not (num_observables is None or num_observables == self.num_segments):
             raise ValueError(
                 f"The number of detector sets ({self.num_segments}) is inconsistent with the number"
                 f" of observable sets ({num_observables})"
+            )
+        if sequential and segment_observables is not None:
+            raise ValueError(
+                "A sequential CompositeSinterDecoder cannot have observables assigned to segments"
             )
 
         self.segment_detectors = list(map(list, segment_detectors))

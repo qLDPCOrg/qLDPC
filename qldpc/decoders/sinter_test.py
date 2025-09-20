@@ -75,3 +75,7 @@ def test_segment_decoding() -> None:
     # if passing a sequence of sets of observables, it needs to be equal to the number of segments
     with pytest.raises(ValueError, match="inconsistent"):
         decoders.CompositeSinterDecoder([[0], [1]], [[0]])
+
+    # sequential composite decoders cannot have observables assigned to segments
+    with pytest.raises(ValueError, match="observables assigned to segments"):
+        decoders.CompositeSinterDecoder([[0], [1]], [[0], [1]], sequential=True)
