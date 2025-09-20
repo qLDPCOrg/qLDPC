@@ -323,19 +323,6 @@ class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
         self.num_detectors = num_detectors
         self.num_observables = num_observables
 
-    def decode_shots_bit_packed(
-        self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
-    ) -> npt.NDArray[np.uint8]:
-        """Predicts observable flips from the given detection events.
-
-        This method accepts and returns bit-packed data.
-
-        See help(sinter.CompiledDecoder) for additional information.
-        """
-        detection_event_data = self.unpack_detection_event_data(bit_packed_detection_event_data)
-        observable_flips = self.decode_shots(detection_event_data)
-        return self.packbits(observable_flips)
-
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         """Predicts observable flips from the given detection events.
 
