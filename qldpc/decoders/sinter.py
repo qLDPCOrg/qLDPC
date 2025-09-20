@@ -169,28 +169,40 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
 class CompositeSinterDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
-    This decoder splits a detector error model into independent decoding problems, or segments.
-    Each segment S is defined by a subset of detectors d_S.  When compiling a CompositeSinterDecoder
-    for a specific detector error model D, this decoder constructs, for each segment S, a smaller
-    detector error model D_S that restricts D to the error mechanisms that flip detectors in d_S,
-    and ignores detectors not in d_S.
+    A CompositeSinterDecoder splits the problem of decoding a syndrome sampled from a detector
+    error model into subproblems, called "segments".  Each segment is defined by a subset of
+    detectors, S.  When compiling a CompositeSinterDecoder for a specific detector error model D,
+    this decoder constructs, for each segment S, a smaller detector error model D_S that restricts D
+    to the detectors in S and the error mechanisms that flip the detectors in S.
 
-    A segment S may optionally be assigned a set of observables, O_S, in which case the segment
-    detector error model D_S only considers the observables in O_S.
+    If all segments are independent (which is the default behavior), then a CompositeSinterDecoder
+    may optionally assign each segment S a set of observables, O_S, in which case the segment
+    detector error model D_S only considers (and predicts corrections for) the observables in O_S.
+    As an example, the capability to split detector error model into independent segments is useful
+    for independently decoding the X and Z sectors of a CSS code.
 
-    As an example, the capability to split detector error model into segments is useful for
-    independently decoding the X and Z sectors of a CSS code.
+    If initialized with sequential=True, then a CompositeSinterDecoder assumes that segments are
+    time-ordered, and emulates applying active mid-circuit corrections after every segment in a
+    quantum circuit.  Specifically, a sequential CompositeSinterDecoder decodes segments one by one,
+    and uses the circuit error deduced after decoding segment j to update the syndrome for segment
+    j+1.  Mathematically, we denote the full parity check matrix of a detector error model by H,
+    denote the segments to be decoded by S_1, S_2, ..., S_n, and denode the full syndrome to be
+    decoded by s_1.  The result of decoding segment S_1 is a decoded circuit error e_1.  This error
+    is used to construct the syndrome for segment S_2, namely s_2 = s_1 + H @ e_1.  More generally,
+    the syndrome for segment S_(j+1) is s_(j+1) = s_j + H @ e_j = s_1 + H @ sum_(k=1)^j e_k.  After
+    decoding all segments, the net error sum_(j=1)^n e_j is used to predict observable flips.
     """
 
     def __init__(
         self,
         segment_detectors: Sequence[Collection[int]],
         segment_observables: Sequence[Collection[int]] | None = None,
+        sequential: bool = False,
         priors_arg: str | None = None,
         log_likelihood_priors: bool = False,
         **decoder_kwargs: object,
     ) -> None:
-        """Initialize a SinterDecoder to independently decode subsets of detectors and observables.
+        """Initialize a SinterDecoder that splits a detector error model into in segments.
 
         A CompositeSinterDecoder is used by Sinter to decode detection events from circuit (or, more
         generally, detector error model) simulations to predict observable flips.
@@ -201,6 +213,9 @@ class CompositeSinterDecoder(SinterDecoder):
             segment_detectors: A sequence containing one set of detectors per segment.
             segment_observables: A sequence containing one set of observables per segment; or None
                 to indicate that every segment should decode every observable.  Default: None.
+            sequential: If True, decode segments sequentially and feed forward corrections to
+                emulate active mid-circuit error correction.  Otherwise, decode segments
+                independently.  Default: False.
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -222,6 +237,7 @@ class CompositeSinterDecoder(SinterDecoder):
         self.segment_observables = (
             None if segment_observables is None else list(map(list, segment_observables))
         )
+        self.sequential = sequential
 
         SinterDecoder.__init__(
             self,
