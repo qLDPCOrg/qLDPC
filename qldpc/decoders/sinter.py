@@ -461,10 +461,11 @@ class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
             syndromes = (detection_event_data + net_error @ detector_flip_matrix_T)[:, detectors]
 
             # decode this syndrome and update the net error appropriately
-            if hasattr(decoder, "decode_batch"):
-                predicted_errors = decoder.decode_batch(detection_event_data)
-            else:
-                predicted_errors = np.array([decoder.decode(syndrome) for syndrome in syndromes])
+            predicted_errors = (
+                decoder.decode_batch(syndromes)
+                if hasattr(decoder, "decode_batch")
+                else np.array([decoder.decode(syndrome) for syndrome in syndromes])
+            )
             net_error[:, errors] = predicted_errors
 
         # predicted observable flips

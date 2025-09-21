@@ -53,19 +53,20 @@ def test_subgraph_decoding() -> None:
     dem = stim.DetectorErrorModel("""
         error(0.1) D0 L0
         error(0.1) D1 L1
+        error(0.1) D2 L2
     """)
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
 
     # build a monolithic decoder, compile, and predict observable flips
-    decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=2)
+    decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
     )
 
     # build a subgraph decoder, compile, and predict observable flips
-    decoder_2 = decoders.SubgraphSinterDecoder([[0], [1]], with_lookup=True, max_weight=2)
+    decoder_2 = decoders.SubgraphSinterDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
@@ -74,7 +75,7 @@ def test_subgraph_decoding() -> None:
 
     # if passing a sequence of sets of observables, it needs to be equal to the number of segments
     with pytest.raises(ValueError, match="inconsistent"):
-        decoders.SubgraphSinterDecoder([[0], [1]], [[0]])
+        decoders.SubgraphSinterDecoder([[0], [1], [2]], [[0]])
 
 
 def test_sequential_decoding() -> None:
@@ -82,20 +83,21 @@ def test_sequential_decoding() -> None:
     # construct a simple detector error model and sample from it
     dem = stim.DetectorErrorModel("""
         error(0.1) D0 D1 L0
-        error(0.1) L1
+        error(0.1) D1 D2 L1
+        error(0.1) D2 L2
     """)
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
 
     # build a monolithic decoder, compile, and predict observable flips
-    decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=2)
+    decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
     )
 
     # build a sequential decoder, compile, and predict observable flips
-    decoder_2 = decoders.SequentialSinterDecoder([[0], [1]], with_lookup=True, max_weight=1)
+    decoder_2 = decoders.SequentialSinterDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
