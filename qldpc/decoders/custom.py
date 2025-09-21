@@ -520,12 +520,12 @@ class GUFDecoder(Decoder):
 
 
 class CompositeDecoder(Decoder):
-    """Decoder for a composite syndrome from multiple identical code blocks.
+    """Decoder for a composite syndrome from multiple independent code blocks.
 
     A CompositeDecoder is instantiated from a sequence of tuples, where each tuple contains
     (a) the decoder for a one code block
     (b) the length of a syndrome vector for that code block.
-    When asked to decode a syndrome, a SegmentDecoder splits the syndrome into segments of
+    When asked to decode a syndrome, a CompositeDecoder splits the syndrome into segments of
     appropriate lengths, and decodes these segments independently with their corresponding decoders.
     """
 

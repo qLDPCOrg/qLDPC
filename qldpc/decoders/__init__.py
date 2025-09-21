@@ -23,10 +23,10 @@ from .retrieval import (
     get_decoder_RBP,
 )
 from .sinter import (
-    CompiledCompositeSinterDecoder,
     CompiledSinterDecoder,
-    CompositeSinterDecoder,
+    CompiledSubgraphSinterDecoder,
     SinterDecoder,
+    SubgraphSinterDecoder,
 )
 
 __all__ = [
@@ -50,8 +50,8 @@ __all__ = [
     "get_decoder_lookup",
     "get_decoder_MWPM",
     "get_decoder_RBP",
-    "CompiledCompositeSinterDecoder",
     "CompiledSinterDecoder",
-    "CompositeSinterDecoder",
+    "CompiledSubgraphSinterDecoder",
     "SinterDecoder",
+    "SubgraphSinterDecoder",
 ]

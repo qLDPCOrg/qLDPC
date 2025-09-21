@@ -47,8 +47,8 @@ def test_sinter_decoder() -> None:
         assert np.array_equal(predicted_flips, expected_flips)
 
 
-def test_segment_decoding() -> None:
-    """Decode in segments."""
+def test_subgraph_decoding() -> None:
+    """Decode by parts."""
     # construct a simple detector error model and sample from it
     dem = stim.DetectorErrorModel("""
         error(0.1) D0 L0
@@ -65,7 +65,7 @@ def test_segment_decoding() -> None:
     )
 
     # build a segmented decoder, compile, and predict observable flips
-    decoder_2 = decoders.CompositeSinterDecoder([[0], [1]], with_lookup=True, max_weight=2)
+    decoder_2 = decoders.SubgraphSinterDecoder([[0], [1]], with_lookup=True, max_weight=2)
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
@@ -74,8 +74,4 @@ def test_segment_decoding() -> None:
 
     # if passing a sequence of sets of observables, it needs to be equal to the number of segments
     with pytest.raises(ValueError, match="inconsistent"):
-        decoders.CompositeSinterDecoder([[0], [1]], [[0]])
-
-    # sequential composite decoders cannot have observables assigned to segments
-    with pytest.raises(ValueError, match="observables assigned to segments"):
-        decoders.CompositeSinterDecoder([[0], [1]], [[0], [1]], sequential=True)
+        decoders.SubgraphSinterDecoder([[0], [1]], [[0]])

@@ -40,8 +40,8 @@ class SinterDecoder(sinter.Decoder):
     ) -> None:
         """Initialize a SinterDecoder.
 
-        A SinterDecoder is used by Sinter to decode detection events from circuit (or, more
-        generally, detector error model) simulations to predict observable flips.
+        A SinterDecoder is used by Sinter to decode detection events from a detector error model to
+        predict observable flips.
 
         See help(sinter.Decoder) for additional information.
 
@@ -166,56 +166,41 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
         )
 
 
-class CompositeSinterDecoder(SinterDecoder):
+class SubgraphSinterDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
-    A CompositeSinterDecoder splits the problem of decoding a syndrome sampled from a detector
-    error model into subproblems, called "segments".  Each segment is defined by a subset of
-    detectors, S.  When compiling a CompositeSinterDecoder for a specific detector error model D,
-    this decoder constructs, for each segment S, a smaller detector error model D_S that restricts D
-    to the detectors in S and the error mechanisms that flip the detectors in S.
+    A SubgraphSinterDecoder splits the Tanner graph of a detector error model into subgraphs, and
+    decodes these subgraphs independently.  Each subgraph is defined by a subset of detectors, S.
+    When compiling a SubgraphSinterDecoder for a specific detector error model D, this decoder
+    constructs, for each subgraph S, a smaller detector error model D_S that restricts D to the
+    detectors in S and the error mechanisms that flip the detectors in S.
 
-    If all segments are independent (which is the default behavior), then a CompositeSinterDecoder
-    may optionally assign each segment S a set of observables, O_S, in which case the segment
-    detector error model D_S only considers (and predicts corrections for) the observables in O_S.
-    As an example, the capability to split detector error model into independent segments is useful
-    for independently decoding the X and Z sectors of a CSS code.
+    A SubgraphSinterDecoder may optionally assign each subgraph S a set of observables, O_S, in
+    which case the subgraph detector error model D_S only considers (and predicts corrections for)
+    the observables in O_S.
 
-    If initialized with sequential=True, then a CompositeSinterDecoder assumes that segments are
-    time-ordered, and emulates applying active mid-circuit corrections after every segment in a
-    quantum circuit.  Specifically, a sequential CompositeSinterDecoder decodes segments one by one,
-    and uses the circuit error deduced after decoding segment j to update the syndrome for segment
-    j+1.  Mathematically, we denote the full parity check matrix of a detector error model by H,
-    denote the segments to be decoded by S_1, S_2, ..., S_n, and denode the full syndrome to be
-    decoded by s_1.  The result of decoding segment S_1 is a decoded circuit error e_1.  This error
-    is used to construct the syndrome for segment S_2, namely s_2 = s_1 + H @ e_1.  More generally,
-    the syndrome for segment S_(j+1) is s_(j+1) = s_j + H @ e_j = s_1 + H @ sum_(k=1)^j e_k.  After
-    decoding all segments, the net error sum_(j=1)^n e_j is used to predict observable flips.
+    As an example, a SubgraphSinterDecoder is useful for independently decoding the X and Z sectors of a CSS code.
     """
 
     def __init__(
         self,
-        segment_detectors: Sequence[Collection[int]],
-        segment_observables: Sequence[Collection[int]] | None = None,
-        sequential: bool = False,
+        subgraph_detectors: Sequence[Collection[int]],
+        subgraph_observables: Sequence[Collection[int]] | None = None,
         priors_arg: str | None = None,
         log_likelihood_priors: bool = False,
         **decoder_kwargs: object,
     ) -> None:
-        """Initialize a SinterDecoder that splits a detector error model into in segments.
+        """Initialize a SinterDecoder that splits a detector error model into disjoint subgraphs.
 
-        A CompositeSinterDecoder is used by Sinter to decode detection events from circuit (or, more
-        generally, detector error model) simulations to predict observable flips.
+        A SubgraphSinterDecoder is used by Sinter to decode detection events from a detector error
+        model to predict observable flips.
 
         See help(sinter.Decoder) for additional information.
 
         Args:
-            segment_detectors: A sequence containing one set of detectors per segment.
-            segment_observables: A sequence containing one set of observables per segment; or None
-                to indicate that every segment should decode every observable.  Default: None.
-            sequential: If True, decode segments sequentially and feed forward corrections to
-                emulate active mid-circuit error correction.  Otherwise, decode segments
-                independently.  Default: False.
+            subgraph_detectors: A sequence containing one set of detectors per subgraph.
+            subgraph_observables: A sequence containing one set of observables per subgraph; or None
+                to indicate that every subgraph should decode every observable.  Default: None.
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -225,23 +210,18 @@ class CompositeSinterDecoder(SinterDecoder):
                 custom decoder from a detector error model.
         """
         # consistency checks
-        self.num_segments = len(segment_detectors)
-        num_observables = None if segment_observables is None else len(segment_observables)
-        if not (num_observables is None or num_observables == self.num_segments):
+        self.num_subgraphs = len(subgraph_detectors)
+        num_observable_sets = None if subgraph_observables is None else len(subgraph_observables)
+        if not (num_observable_sets is None or num_observable_sets == self.num_subgraphs):
             raise ValueError(
-                f"The number of detector sets ({self.num_segments}) is inconsistent with the number"
-                f" of observable sets ({num_observables})"
-            )
-        if sequential and segment_observables is not None:
-            raise ValueError(
-                "A sequential CompositeSinterDecoder cannot have observables assigned to segments"
+                f"The number of detector sets ({self.num_subgraphs}) is inconsistent with the"
+                f" number of observable sets ({num_observable_sets})"
             )
 
-        self.segment_detectors = list(map(list, segment_detectors))
-        self.segment_observables = (
-            None if segment_observables is None else list(map(list, segment_observables))
+        self.subgraph_detectors = list(map(list, subgraph_detectors))
+        self.subgraph_observables = (
+            None if subgraph_observables is None else list(map(list, subgraph_observables))
         )
-        self.sequential = sequential
 
         SinterDecoder.__init__(
             self,
@@ -252,24 +232,25 @@ class CompositeSinterDecoder(SinterDecoder):
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
-    ) -> CompiledCompositeSinterDecoder:
+    ) -> CompiledSubgraphSinterDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
-        segment_observables = (
-            [slice(None)] * self.num_segments
-            if self.segment_observables is None
-            else self.segment_observables
+        subgraph_observables = (
+            [slice(None)] * self.num_subgraphs
+            if self.subgraph_observables is None
+            else self.subgraph_observables
         )
 
         # build a restricted detector error model for each segment
-        segment_dems = []
-        for ss in range(self.num_segments):
-            detectors = self.segment_detectors[ss]
-            observables = segment_observables[ss]
+        subgraph_dems = []
+        for ss in range(self.num_subgraphs):
+            detectors = self.subgraph_detectors[ss]
+            observables = subgraph_observables[ss]
 
+            # restrict to the detectors and observables of this subgraph
             detector_flip_matrix = dem_arrays.detector_flip_matrix[detectors, :]
             observable_flip_matrix = dem_arrays.observable_flip_matrix[observables, :]
             error_probs = dem_arrays.error_probs
@@ -280,46 +261,47 @@ class CompositeSinterDecoder(SinterDecoder):
             observable_flip_matrix = observable_flip_matrix[:, mask]
             error_probs = error_probs[mask]
 
-            segment_dem = DetectorErrorModelArrays.from_arrays(
+            # build the subgraph detector error model
+            subgraph_dem = DetectorErrorModelArrays.from_arrays(
                 detector_flip_matrix, observable_flip_matrix, error_probs
             ).to_detector_error_model()
-            segment_dems.append(segment_dem)
+            subgraph_dems.append(subgraph_dem)
 
         compiled_decoders = [
-            SinterDecoder.compile_decoder_for_dem(self, segment_dem) for segment_dem in segment_dems
+            SinterDecoder.compile_decoder_for_dem(self, subgraph_dem)
+            for subgraph_dem in subgraph_dems
         ]
-        return CompiledCompositeSinterDecoder(
-            self.segment_detectors,
-            segment_observables,
+        return CompiledSubgraphSinterDecoder(
+            self.subgraph_detectors,
+            subgraph_observables,
             compiled_decoders,
             dem.num_detectors,
             dem.num_observables,
         )
 
 
-class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
+class CompiledSubgraphSinterDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
-    This decoder splits a decoding problem into segments and solves each segment independently.
-    Here a segment is defined by a set of detectors, a set of observables, and decoder.
+    This decoder splits a decoding problem into subgraphs that are decoded independently.
 
-    Instances of this class are meant to be constructed by a CompositeSinterDecoder, whose
-    .compile_decoder_for_dem method returns a CompiledCompositeSinterDecoder.
-    See help(CompositeSinterDecoder).
+    Instances of this class are meant to be constructed by a SubgraphSinterDecoder, whose
+    .compile_decoder_for_dem method returns a CompiledSubgraphSinterDecoder.
+    See help(SubgraphSinterDecoder).
     """
 
     def __init__(
         self,
-        segment_detectors: Sequence[Sequence[int] | slice],
-        segment_observables: Sequence[Sequence[int] | slice],
-        segment_decoders: Sequence[CompiledSinterDecoder],
+        subgraph_detectors: Sequence[Sequence[int] | slice],
+        subgraph_observables: Sequence[Sequence[int] | slice],
+        subgraph_decoders: Sequence[CompiledSinterDecoder],
         num_detectors: int,
         num_observables: int,
     ) -> None:
-        assert len(segment_detectors) == len(segment_observables) == len(segment_decoders)
-        self.segment_detectors = segment_detectors
-        self.segment_observables = segment_observables
-        self.segment_decoders = segment_decoders
+        assert len(subgraph_detectors) == len(subgraph_observables) == len(subgraph_decoders)
+        self.subgraph_detectors = subgraph_detectors
+        self.subgraph_observables = subgraph_observables
+        self.subgraph_decoders = subgraph_decoders
         self.num_detectors = num_detectors
         self.num_observables = num_observables
 
@@ -330,6 +312,8 @@ class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
+        assert detection_event_data.shape[-1] == self.num_detectors
+
         # initialize predicted observable flips
         observable_flips = np.zeros(
             (len(detection_event_data), self.num_observables), dtype=np.uint8
@@ -337,7 +321,7 @@ class CompiledCompositeSinterDecoder(CompiledSinterDecoder):
 
         # decode segments independently
         for detectors, observables, decoder in zip(
-            self.segment_detectors, self.segment_observables, self.segment_decoders
+            self.subgraph_detectors, self.subgraph_observables, self.subgraph_decoders
         ):
             syndromes = detection_event_data.T[detectors].T
             observable_flips[:, observables] ^= decoder.decode_shots(syndromes)
