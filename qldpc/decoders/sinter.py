@@ -439,6 +439,8 @@ class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
         self.segment_errors = segment_errors
         self.segment_decoders = segment_decoders
 
+        self.num_detectors = dem_arrays.num_detectors
+
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         """Predicts observable flips from the given detection events.
 
