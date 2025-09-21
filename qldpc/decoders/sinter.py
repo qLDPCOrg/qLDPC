@@ -129,8 +129,8 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
         See help(sinter.CompiledDecoder) for additional information.
         """
         if hasattr(self.decoder, "decode_batch"):
-            predicted_errors_T = self.decoder.decode_batch(detection_event_data)
-            observable_flips = predicted_errors_T @ self.dem_arrays.observable_flip_matrix.T % 2
+            predicted_errors = self.decoder.decode_batch(detection_event_data)
+            observable_flips = predicted_errors @ self.dem_arrays.observable_flip_matrix.T % 2
         else:
             observable_flips = []
             for syndrome in detection_event_data:
@@ -395,14 +395,14 @@ class SequentialSinterDecoder(SinterDecoder):
             segment_errors.append(errors)
 
             # build the detector error model for this segment
-            segment_dem = DetectorErrorModelArrays.from_arrays(
+            segment_dem_arrays = DetectorErrorModelArrays.from_arrays(
                 dem_arrays.detector_flip_matrix[detectors][:, errors],
                 dem_arrays.observable_flip_matrix[:, errors],
                 dem_arrays.error_probs[errors],
-            ).to_detector_error_model()
+            )
 
             # compile the decoder for this segment
-            segment_decoder = SinterDecoder.compile_decoder_for_dem(self, segment_dem)
+            segment_decoder = self.get_configured_decoder(segment_dem_arrays)
             segment_decoders.append(segment_decoder)
 
             # update the list of "preceding" detectors
@@ -413,8 +413,6 @@ class SequentialSinterDecoder(SinterDecoder):
             self.segment_detectors,
             segment_errors,
             segment_decoders,
-            dem.num_detectors,
-            dem.num_observables,
         )
 
 
@@ -433,7 +431,7 @@ class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
         dem_arrays: DetectorErrorModelArrays,
         segment_detectors: Sequence[Sequence[int] | slice],
         segment_errors: Sequence[Sequence[int] | slice],
-        segment_decoders: Sequence[CompiledSinterDecoder],
+        segment_decoders: Sequence[Decoder],
     ) -> None:
         assert len(segment_detectors) == len(segment_errors) == len(segment_decoders)
         self.dem_arrays = dem_arrays
@@ -448,6 +446,28 @@ class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        assert detection_event_data.shape[-1] == self.dem_arrays.num_detectors
+        num_detectors = detection_event_data.shape[-1]
+        assert num_detectors == self.dem_arrays.num_detectors
 
-        raise NotImplementedError("implementation pending")
+        # identify whether we are decoding one sample or many; act as if we are decoding many
+        one_sample = detection_event_data.ndim == 1
+        detection_event_data = detection_event_data.reshape(-1, num_detectors)
+        num_samples = len(detection_event_data)
+
+        # identify the net circuit error by decoding one segment at a time
+        net_error = np.zeros((num_samples, self.dem_arrays.num_errors), dtype=int)
+        detector_flip_matrix_T = self.dem_arrays.detector_flip_matrix.T
+        for detectors, errors, decoder in zip(
+            self.segment_detectors, self.segment_errors, self.segment_decoders
+        ):
+            syndromes = (detection_event_data + net_error @ detector_flip_matrix_T)[:, detectors]
+
+            if hasattr(decoder, "decode_batch"):
+                predicted_errors = decoder.decode_batch(detection_event_data)
+            else:
+                predicted_errors = np.array([decoder.decode(syndrome) for syndrome in syndromes])
+
+            net_error[:, errors] = predicted_errors
+
+        observable_flips = net_error @ self.dem_arrays.observable_flip_matrix.T
+        return observable_flips.ravel() if one_sample else observable_flips
