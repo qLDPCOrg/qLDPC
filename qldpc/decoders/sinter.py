@@ -244,7 +244,7 @@ class SubgraphSinterDecoder(SinterDecoder):
             else self.subgraph_observables
         )
 
-        # build a restricted detector error model for each segment
+        # build a detector error model for each subgraph
         subgraph_dems = []
         for ss in range(self.num_subgraphs):
             detectors = self.subgraph_detectors[ss]
