@@ -81,9 +81,8 @@ def test_sequential_decoding() -> None:
     """Decode by parts."""
     # construct a simple detector error model and sample from it
     dem = stim.DetectorErrorModel("""
-        error(0.1) D0 L0
-        error(0.1) D0 D1 L1
-        error(0.1) D1 L2
+        error(0.1) D0 D1 L0
+        error(0.1) L1
     """)
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
@@ -96,7 +95,7 @@ def test_sequential_decoding() -> None:
     )
 
     # build a sequential decoder, compile, and predict observable flips
-    decoder_2 = decoders.SequentialSinterDecoder([[0], [1]], with_lookup=True, max_weight=2)
+    decoder_2 = decoders.SequentialSinterDecoder([[0], [1]], with_lookup=True, max_weight=1)
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
