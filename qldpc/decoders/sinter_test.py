@@ -79,7 +79,7 @@ def test_subgraph_decoding() -> None:
 
 
 def test_sequential_decoding() -> None:
-    """Decode by parts."""
+    """Decode segments sequentially."""
     # construct a simple detector error model and sample from it
     dem = stim.DetectorErrorModel("""
         error(0.1) D0 D1 L0
