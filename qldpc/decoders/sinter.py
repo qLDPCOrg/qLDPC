@@ -302,7 +302,7 @@ class CompiledSubgraphSinterDecoder(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        assert detection_event_data.shape[-1] == self.num_detectors
+        assert detection_event_data.shape[1] == self.num_detectors
 
         # initialize predicted observable flips
         observable_flips = np.zeros(
@@ -313,7 +313,7 @@ class CompiledSubgraphSinterDecoder(CompiledSinterDecoder):
         for detectors, observables, decoder in zip(
             self.subgraph_detectors, self.subgraph_observables, self.subgraph_decoders
         ):
-            syndromes = detection_event_data.T[detectors].T
+            syndromes = detection_event_data[:, detectors]
             observable_flips[:, observables] ^= decoder.decode_shots(syndromes)
 
         return observable_flips
@@ -448,13 +448,8 @@ class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        num_detectors = detection_event_data.shape[-1]
+        num_samples, num_detectors = detection_event_data.shape
         assert num_detectors == self.dem_arrays.num_detectors
-
-        # identify whether we are decoding one sample or many; act as if we are decoding many
-        one_sample = detection_event_data.ndim == 1
-        detection_event_data = detection_event_data.reshape(-1, num_detectors)
-        num_samples = len(detection_event_data)
 
         # identify the net circuit error by decoding one segment at a time
         net_error = np.zeros((num_samples, self.dem_arrays.num_errors), dtype=int)
@@ -462,14 +457,15 @@ class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
         for detectors, errors, decoder in zip(
             self.segment_detectors, self.segment_errors, self.segment_decoders
         ):
+            # the bare syndrome plus any corrections we have inferred so far
             syndromes = (detection_event_data + net_error @ detector_flip_matrix_T)[:, detectors]
 
+            # decode this syndrome and update the net error appropriately
             if hasattr(decoder, "decode_batch"):
                 predicted_errors = decoder.decode_batch(detection_event_data)
             else:
                 predicted_errors = np.array([decoder.decode(syndrome) for syndrome in syndromes])
-
             net_error[:, errors] = predicted_errors
 
-        observable_flips = net_error @ self.dem_arrays.observable_flip_matrix.T
-        return observable_flips.ravel() if one_sample else observable_flips
+        # predicted observable flips
+        return net_error @ self.dem_arrays.observable_flip_matrix.T
