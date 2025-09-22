@@ -24,6 +24,7 @@ import itertools
 from collections.abc import Hashable, ItemsView, Iterator, Mapping, Sequence
 from typing import Self
 
+import numpy as np
 import stim
 
 from qldpc import codes
@@ -216,3 +217,31 @@ class DetectorRecord(Record):
                 " detectors"
             )
         return detectors[detection_index]
+
+    def after_post_selection(self, key: Hashable) -> DetectorRecord:
+        """A record of the detectors remaining after post-selecting on the detectors of a key.
+
+        If "detector_record" is the record of the detectors in circuit whose detector error model is
+        represented by the qldpc.decoders.DetectorErrorModelArrays object "dem_arrays", the record
+            new_detector_record = detector_record.after_post_selection(key)
+        is the record of the detectors in
+            new_dem_arrays = dem_arrays.post_selected_on(detector_record.get_events(key))
+        See help(qldpc.decoders.DetectorErrorModelArrays).
+        """
+        # identify the indices of all detectors, and the detectors to remove
+        max_detector = max(max(detectors) for detectors in self.values())
+        detector_indices = np.arange(max_detector + 1)
+        detectors_to_remove = sorted(self.get_events(key))
+
+        # for each detector D, find how many of the detectors_to_remove are less than D
+        index_shift = np.searchsorted(detectors_to_remove, detector_indices, side="left")
+
+        # shift detector indices down and remove the post-selection key
+        detector_indices -= index_shift
+        return DetectorRecord(
+            {
+                other_key: detector_indices[detectors].tolist()
+                for other_key, detectors in self.items()
+                if other_key != key
+            }
+        )

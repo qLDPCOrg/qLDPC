@@ -84,3 +84,10 @@ def test_records() -> None:
         record_copy = record.copy()
         assert isinstance(record_copy, type(record))
         assert list(record_copy.items()) == list(record.items())
+
+
+def test_post_selection() -> None:
+    """Update a DetectorRecord after post-selecting on some detectors."""
+    record = circuits.DetectorRecord({"flag": [0, 2, 4], "a": [1, 5], "b": [3]})
+    expected_record = circuits.DetectorRecord({"a": [0, 2], "b": [1]})
+    assert record.after_post_selection("flag") == expected_record
