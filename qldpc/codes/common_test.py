@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from qldpc import codes, external
-from qldpc.math import symplectic_conjugate
+from qldpc.math import block_matrix, symplectic_conjugate
 from qldpc.objects import Pauli
 
 ####################################################################################################
@@ -409,8 +409,7 @@ def get_codes_for_testing_ops() -> Iterator[codes.CSSCode]:
 def get_symplectic_form(half_dimension: int, field: type[galois.FieldArray]) -> galois.FieldArray:
     """Get the symplectic form over a given field."""
     identity = field.Identity(half_dimension)
-    zeros = field.Zeros((half_dimension, half_dimension))
-    return np.block([[zeros, identity], [-identity, zeros]]).view(field)
+    return block_matrix([[0, identity], [-identity, 0]]).view(field)
 
 
 def test_qudit_ops() -> None:

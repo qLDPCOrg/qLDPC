@@ -553,13 +553,13 @@ def test_get_distance_classical_known_codes(
 )
 def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_distance: int) -> None:
     distance_x = qldpc.codes.distance.get_distance_quantum(
-        code.get_logical_ops(qldpc.math.Pauli.X),
-        code.get_stabilizer_ops(qldpc.math.Pauli.X),
+        code.get_logical_ops(qldpc.objects.Pauli.X),
+        code.get_stabilizer_ops(qldpc.objects.Pauli.X),
         homogeneous=True,
     )
     distance_z = qldpc.codes.distance.get_distance_quantum(
-        code.get_logical_ops(qldpc.math.Pauli.Z),
-        code.get_stabilizer_ops(qldpc.math.Pauli.Z),
+        code.get_logical_ops(qldpc.objects.Pauli.Z),
+        code.get_stabilizer_ops(qldpc.objects.Pauli.Z),
         homogeneous=True,
     )
     distance_all = qldpc.codes.distance.get_distance_quantum(

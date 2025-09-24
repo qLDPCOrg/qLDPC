@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
+from collections.abc import Sequence
 from typing import TypeVar, Union
 
 import galois
@@ -26,8 +27,6 @@ import numpy.typing as npt
 import scipy.sparse
 import scipy.special
 import stim
-
-from qldpc.objects import Pauli
 
 DenseIntegerArray = Union[galois.FieldArray, npt.NDArray[np.int_]]
 SparseIntegerArray = Union[scipy.sparse.spmatrix, scipy.sparse.sparray]
@@ -39,6 +38,7 @@ DenseIntegerArrayType = TypeVar(
     galois.FieldArray,
     npt.NDArray[np.int_],
 )
+GenericNumpyType = TypeVar("GenericNumpyType", bound=np.generic)
 
 
 def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
@@ -47,16 +47,8 @@ def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
     The (first, second) half the array indicates the support of (X, Z) Paulis.
     """
     support_xz = np.array(op, dtype=int).reshape(2, -1)
-    paulis = [Pauli((support_xz[0, qq], support_xz[1, qq])) for qq in range(support_xz.shape[1])]
-    return stim.PauliString(map(str, paulis))
-
-    num_qubits = len(op) // 2
-    paulis = ""
-    for qubit in range(num_qubits):
-        val_x = int(op[qubit])
-        val_z = int(op[qubit + num_qubits])
-        paulis = str(Pauli((val_x, val_z)))
-    return stim.PauliString(paulis)
+    paulis = {(0, 0): "I", (1, 0): "X", (0, 1): "Z", (1, 1): "Y"}
+    return stim.PauliString([paulis[xx, zz] for xx, zz in support_xz.T])
 
 
 def string_to_op(string: stim.PauliString, num_qubits: int | None = None) -> npt.NDArray[np.int_]:
@@ -100,6 +92,46 @@ def first_nonzero_cols(matrix: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         return np.array([], dtype=int)
     assert matrix.ndim == 2
     return np.argmax(matrix.view(np.ndarray).astype(bool), axis=1)
+
+
+def block_matrix(
+    blocks: Sequence[Sequence[npt.NDArray[GenericNumpyType] | int]],
+) -> npt.NDArray[GenericNumpyType]:
+    """Build an integer block matrix.
+
+    Literal 0 entries are replaced by zero matrices, and literal 1 entries are replaced by an
+    identity matrix (padded below and to the right with zeros, if necessary).
+    """
+    assert len(set(len(row) for row in blocks)) == 1, "Inconsistent numbers of blocks in each row"
+
+    # consistency checks
+    row_sizes = np.array(
+        [[bb.shape[0] if not isinstance(bb, int) else -1 for bb in row] for row in blocks]
+    )
+    assert all(len(set(row[row != -1])) == 1 for row in row_sizes), "Inconsistent row numbers"
+    col_sizes = np.array(
+        [[bb.shape[1] if not isinstance(bb, int) else -1 for bb in row] for row in blocks]
+    )
+    assert all(len(set(col[col != -1])) == 1 for col in col_sizes.T), "Inconsistent column numbers"
+    dtypes = [block.dtype for row in blocks for block in row if not isinstance(block, int)]
+    assert len(set(dtypes)) == 1, "Inconsistent block data types"
+
+    # row numbers, column numbers, and data type
+    row_nums = [next(size for size in row if size != -1) for row in row_sizes]
+    col_nums = [next(size for size in col if size != -1) for col in col_sizes.T]
+    dtype = dtypes[0]
+
+    # initialize a zero matrix and populate blocks
+    matrix = np.zeros((sum(row_nums), sum(col_nums)), dtype=dtype)
+    for rr, row in enumerate(blocks):
+        row_slice = slice(sum(row_nums[:rr]), sum(row_nums[: rr + 1]))
+        for cc, block in enumerate(row):
+            col_slice = slice(sum(col_nums[:cc]), sum(col_nums[: cc + 1]))
+            if not isinstance(block, int):
+                matrix[row_slice, col_slice] = block
+            elif block == 1:
+                matrix[row_slice, col_slice] = np.eye(row_nums[rr], col_nums[cc], dtype=dtype)
+    return matrix
 
 
 @functools.cache

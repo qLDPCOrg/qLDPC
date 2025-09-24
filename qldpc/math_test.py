@@ -44,6 +44,14 @@ def test_vectors() -> None:
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors_conj), [0, 0])
 
 
+def test_block_matrix() -> None:
+    eye = np.eye(2, dtype=float)
+    zero = np.zeros_like(eye)
+    blocks = [[eye, 1], [0, eye]]
+    matrix = np.block([[eye, eye], [zero, eye]])
+    assert np.array_equal(qldpc.math.block_matrix(blocks), matrix)
+
+
 def test_log() -> None:
     """Log choose function."""
     assert qldpc.math.log_choose(1, 1) == 0

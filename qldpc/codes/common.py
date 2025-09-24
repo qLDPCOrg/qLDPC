@@ -39,6 +39,7 @@ from qldpc import abstract, decoders, external
 from qldpc.abstract import DEFAULT_FIELD_ORDER
 from qldpc.math import (
     IntegerArray,
+    block_matrix,
     first_nonzero_cols,
     log_choose,
     op_to_string,
@@ -1993,12 +1994,7 @@ class CSSCode(QuditCode):
     @functools.cached_property
     def matrix(self) -> galois.FieldArray:
         """Overall parity check matrix."""
-        return np.block(
-            [
-                [self.matrix_x, self.field.Zeros(self.matrix_x.shape)],
-                [self.field.Zeros(self.matrix_z.shape), self.matrix_z],
-            ]
-        ).view(self.field)
+        return block_matrix([[self.matrix_x, 0], [0, self.matrix_z]]).view(self.field)
 
     @property
     def graph_x(self) -> nx.DiGraph:
