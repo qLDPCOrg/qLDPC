@@ -25,7 +25,7 @@ import qldpc
 
 
 def test_pauli_strings() -> None:
-    """Stabilizers correctly converted into stim.PauliString objects."""
+    """Conversion between symplectic vectors and stim.PauliString objects."""
     code = qldpc.codes.FiveQubitCode()
     for row, stabilizer in zip(code.matrix, code.get_strings()):
         string = qldpc.math.op_to_string(row)
