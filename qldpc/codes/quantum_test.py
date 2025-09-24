@@ -357,7 +357,7 @@ def test_twisted_XZZX(width: int = 3) -> None:
             [mat_1, 0, 0, mat_2.T],
             [0, mat_1.T, -mat_2, 0],
         ]
-    )
+    ).view(np.ndarray)
 
     # construct lifted product code
     group = abstract.CyclicGroup(num_qudits // 2)

@@ -95,7 +95,7 @@ def first_nonzero_cols(matrix: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
 
 
 def block_matrix(
-    blocks: Sequence[Sequence[npt.NDArray[GenericNumpyType] | int]],
+    blocks: Sequence[Sequence[npt.NDArray[GenericNumpyType] | int | object]],
 ) -> npt.NDArray[GenericNumpyType]:
     """Build an integer block matrix.
 
@@ -106,14 +106,14 @@ def block_matrix(
 
     # consistency checks
     row_sizes = np.array(
-        [[bb.shape[0] if not isinstance(bb, int) else -1 for bb in row] for row in blocks]
+        [[bb.shape[0] if hasattr(bb, "shape") else -1 for bb in row] for row in blocks]
     )
     assert all(len(set(row[row != -1])) == 1 for row in row_sizes), "Inconsistent row numbers"
     col_sizes = np.array(
-        [[bb.shape[1] if not isinstance(bb, int) else -1 for bb in row] for row in blocks]
+        [[bb.shape[1] if hasattr(bb, "shape") else -1 for bb in row] for row in blocks]
     )
     assert all(len(set(col[col != -1])) == 1 for col in col_sizes.T), "Inconsistent column numbers"
-    dtypes = [block.dtype for row in blocks for block in row if not isinstance(block, int)]
+    dtypes = [block.dtype for row in blocks for block in row if hasattr(block, "dtype")]
     assert len(set(dtypes)) == 1, "Inconsistent block data types"
 
     # row numbers, column numbers, and data type
@@ -131,6 +131,8 @@ def block_matrix(
                 matrix[row_slice, col_slice] = block
             elif block == 1:
                 matrix[row_slice, col_slice] = np.eye(row_nums[rr], col_nums[cc], dtype=dtype)
+            else:
+                assert block == 0, f"Unrecognized block: {block}"
     return matrix
 
 
