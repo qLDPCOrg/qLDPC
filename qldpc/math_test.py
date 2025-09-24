@@ -18,7 +18,6 @@ limitations under the License.
 from __future__ import annotations
 
 import numpy as np
-import numpy.typing as npt
 import stim
 
 import qldpc
@@ -52,7 +51,7 @@ def test_vectors() -> None:
 def test_block_matrix() -> None:
     eye = np.eye(2, dtype=float)
     zero = np.zeros_like(eye)
-    blocks: list[list[npt.NDArray[np.floating] | int]] = [[eye, 1], [0, eye]]
+    blocks = [[eye, 1], [0, eye]]
     matrix = np.block([[eye, eye], [zero, eye]])
     assert np.array_equal(qldpc.math.block_matrix(blocks), matrix)
 
