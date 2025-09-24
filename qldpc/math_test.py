@@ -32,6 +32,10 @@ def test_pauli_strings() -> None:
         assert string == stim.PauliString(stabilizer.replace(" ", ""))
         assert np.array_equal(row, qldpc.math.string_to_op(string))
 
+    random_string = stim.PauliString.random(5)
+    sign = random_string.sign
+    assert string == sign * qldpc.math.op_to_string(qldpc.math.string_to_op(string))
+
 
 def test_vectors() -> None:
     """Methods that act on vectors."""
