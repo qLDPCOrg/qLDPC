@@ -22,10 +22,10 @@ import copy
 import dataclasses
 import itertools
 from collections.abc import Hashable, ItemsView, Iterator, Mapping, Sequence
-from typing_extensions import Self
 
 import numpy as np
 import stim
+from typing_extensions import Self
 
 from qldpc import codes
 
