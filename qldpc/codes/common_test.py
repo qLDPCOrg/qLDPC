@@ -174,8 +174,8 @@ def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
 
 def test_automorphism() -> None:
     """Compute automorphism group of the smallest nontrivial trinary Hamming code."""
-    code = codes.HammingCode(2, field=3)
-    automorphisms = "\n()\n(2,4,3)\n(2,3,4)\n"
+    code = codes.HammingCode(2, field=2)
+    automorphisms = "\n(1,2)\n(2,3)\n"
 
     # raise an error when GAP is not installed
     external.gap.require_package.cache_clear()
@@ -183,17 +183,19 @@ def test_automorphism() -> None:
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
-        code.get_automorphism_group()
+        codes.RepetitionCode(2).get_automorphism_group()
 
     # otherwise, check that automorphisms do indeed preserve the code space
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_output", return_value=automorphisms),
-    ):
-        group = code.get_automorphism_group()
-        for member in group.generate():
-            permutation = member.to_matrix().view(code.field)
-            assert not np.any(code.matrix @ permutation @ code.generator.T)
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True):
+        for code, automorphisms in [
+            (codes.HammingCode(2, field=2), "\n(1,2)\n(2,3)\n"),
+            (codes.HammingCode(2, field=3), "\n()\n(2,4,3)\n(2,3,4)\n"),
+        ]:
+            with unittest.mock.patch("qldpc.external.gap.get_output", return_value=automorphisms):
+                group = code.get_automorphism_group()
+                for member in group.generate():
+                    permutation = member.to_matrix().view(code.field)
+                    assert not np.any(code.matrix @ permutation @ code.generator.T)
 
 
 def test_classical_capacity() -> None:

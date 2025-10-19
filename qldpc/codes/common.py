@@ -585,14 +585,25 @@ class ClassicalCode(AbstractCode):
         return code
 
     def get_automorphism_group(self) -> abstract.Group:
-        """Get the automorphism group of this code.
+        """Get the automorphism group of this code.  WARNING: this is potentially very slow.
 
         The auomorphism group of a classical linear code is the group of permutations of bits that
         preserve the code space.
         """
         matrix_str = self.canonicalized.matrix_as_string()
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
-        group_str = "AutomorphismGroup" if self.field.order == 2 else "PermutationAutomorphismGroup"
+
+        # try computing the automorphism group with AutomorphismGroup
+        if self.field.order == 2:
+            try:
+                group_str = "AutomorphismGroup"
+                return abstract.Group.from_name(f"{group_str}({code_str})")
+            except ValueError as error:
+                if "Error encountered when running GAP" not in str(error):
+                    raise
+
+        # fall back to computing the automorphism group with the PermutationAutomorphismGroup
+        group_str = "PermutationAutomorphismGroup"
         return abstract.Group.from_name(f"{group_str}({code_str})")
 
     @staticmethod
