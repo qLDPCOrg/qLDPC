@@ -593,7 +593,7 @@ class ClassicalCode(AbstractCode):
         matrix_str = self.canonicalized.matrix_as_string()
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
 
-        # try computing the automorphism group with AutomorphismGroup
+        # try GAP/GAUAVA's AutomorphismGroup method
         if self.field.order == 2:
             try:
                 group_str = "AutomorphismGroup"
@@ -602,7 +602,7 @@ class ClassicalCode(AbstractCode):
                 if "Error encountered when running GAP" not in str(error):
                     raise
 
-        # fall back to computing the automorphism group with the PermutationAutomorphismGroup
+        # fall back to GAP/GAUAVA's PermutationAutomorphismGroup method
         group_str = "PermutationAutomorphismGroup"
         return abstract.Group.from_name(f"{group_str}({code_str})")
 
