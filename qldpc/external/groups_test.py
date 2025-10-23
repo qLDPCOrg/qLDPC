@@ -17,8 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import contextlib
-import io
 import unittest.mock
 import urllib
 
