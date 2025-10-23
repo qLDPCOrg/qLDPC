@@ -77,14 +77,10 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
     cache = qldpc.cache.get_disk_cache(cache_name)
     group_key = "".join(group.split())  # strip whitespace
 
-    if (output := cache.get(group_key, None)) is None:
-        output = _get_multiline_input()
-        cache[group_key] = output
-
-    else:
+    if generators := cache.get(group_key, None):
         print("NOTICE: group found in the local MAGMA group cache.  Retrieved group:")
         print("=" * 80)
-        print(output)
+        print(generators)
         print("=" * 80)
         print()
         print(
@@ -92,53 +88,22 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
             " by running the following command:\n"
             f'\nqldpc.cache.clear_entry("{cache_name}", "{group_key}")\n'
         )
+        return generators
 
-    match = re.search(r"\([0-9,\s()]*\)", output, re.DOTALL)
-    if not match:
+    # read in MAGMA output
+    lines = []
+    while line := input():
+        lines.append(line)
+
+    # identify permutations in the output
+    permutations = re.findall(r"\((?:[\d()]|, )*\)", "\n".join(lines), re.DOTALL)
+    if not permutations:
         raise ValueError("Invalid MAGMA output")
-    return parse_gap_permutations(match.group(), cycle_sep=", ")
 
-
-def _get_multiline_input() -> str:
-    """Get multiline input from the terminal or Jupyter.
-
-    If reading from the terminal, stop reading input when encountering an empty line.
-    """
-    if "ipykernel" not in sys.modules:
-        lines = []
-        while line := input():
-            lines.append(line)
-        return "\n".join(lines)
-
-    import time
-
-    import IPython.display
-    import ipywidgets
-
-    textarea = ipywidgets.Textarea(
-        value="",
-        placeholder="Paste your text here",
-        description="",
-        layout=ipywidgets.Layout(width="80%", height="200px"),
-    )
-    button = ipywidgets.Button(description="Submit")
-    output = ipywidgets.Output()
-    user_input = {}
-
-    def on_submit(b):
-        user_input["text"] = textarea.value
-        with output:
-            IPython.display.clear_output()
-            print("Input received. Continuing...")
-
-    button.on_click(on_submit)
-    IPython.display.display(textarea, button, output)
-
-    # Block cell execution until user clicks Submit
-    while "text" not in user_input:
-        time.sleep(0.1)
-
-    return user_input["text"]
+    # compute generators
+    generators = parse_gap_permutations("\n".join(permutations), cycle_sep=", ")
+    cache[group_key] = generators
+    return generators
 
 
 @qldpc.cache.use_disk_cache("small_group_number")
