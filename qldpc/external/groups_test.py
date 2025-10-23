@@ -118,8 +118,9 @@ def test_maybe_get_generators_from_gap() -> None:
     with (
         unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2)\n"),
+        pytest.warns(UserWarning, match="_TEST_"),
     ):
-        assert external.groups.maybe_get_generators_from_gap(GROUP) == GENERATORS
+        assert external.groups.maybe_get_generators_from_gap(GROUP, warning="_TEST_") == GENERATORS
 
 
 def test_get_generators() -> None:

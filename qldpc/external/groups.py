@@ -33,7 +33,7 @@ GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 
 @qldpc.cache.use_disk_cache(
     "group_generators",
-    key_func=lambda group, warning: "".join(group.split()),  # strip whitespace
+    key_func=lambda group, warning_to_raise_if_calling_gap: "".join(group.split()),
 )
 def get_generators(
     group: str, *, warning_to_raise_if_calling_gap: str | None = None
@@ -63,10 +63,6 @@ def get_generators(
     raise ValueError("\n".join(message))
 
 
-# @qldpc.cache.use_disk_cache(
-#     "magma_group_generators",
-#     key_func=lambda group: "".join(group.split()),  # strip whitespace
-# )
 def get_generators_from_magma(group: str) -> GENERATORS_LIST:
     """Retrieve group generators from MAGMA."""
     print("Run the command below in MAGMA, and copy/paste the MAGMA output here.")
@@ -75,10 +71,31 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
     print()
     print(group)
     print()
-    lines = []
-    while line := input():
-        lines.append(line)
-    match = re.search(r"\([0-9,\s()]*\)", "\n".join(lines), re.DOTALL)
+
+    cache_name = "magma_groups"
+    cache = qldpc.cache.get_disk_cache(cache_name)
+    group_key = "".join(group.split())  # strip whitespace
+
+    if (output := cache.get(group_key, None)) is None:
+        lines = []
+        while line := input():
+            lines.append(line)
+        output = "\n".join(lines)
+        cache[group_key] = output
+
+    else:
+        print("NOTICE: group found in the local MAGMA group cache.  Retrieved group:")
+        print("=" * 80)
+        print(output)
+        print("=" * 80)
+        print()
+        print(
+            "If you think that the retrieved group is incorrect, you can remove it from the cache"
+            " by running the following command:\n"
+            f'\nqldpc.cache.clear_entry("{cache_name}", "{group_key}")\n'
+        )
+
+    match = re.search(r"\([0-9,\s()]*\)", output, re.DOTALL)
     if not match:
         raise ValueError("Invalid MAGMA output")
     return parse_gap_permutations(match.group(), cycle_sep=", ")
