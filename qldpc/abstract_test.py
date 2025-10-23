@@ -395,6 +395,5 @@ def test_magma_group(monkeypatch, capsys) -> None:
     )
     monkeypatch.setattr("builtins.input", lambda: next(inputs))
 
-    group = abstract.Group(abstract.GroupMember([(0, 1)]))
-    assert abstract.Group.from_name(name, from_magma=True) == group
+    assert abstract.Group.from_name(name, from_magma=True) == abstract.CyclicGroup(2)
     capsys.readouterr()  # intercept print statements
