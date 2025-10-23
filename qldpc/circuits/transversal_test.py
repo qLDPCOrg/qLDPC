@@ -17,6 +17,8 @@ limitations under the License.
 
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 import pytest
 import stim
@@ -66,20 +68,17 @@ def test_finding_circuit(pytestconfig: pytest.Config) -> None:
     )
     logical_circuit = stim.Circuit(f"{logical_op} 0")
 
+    # context: ContextManager
+    context: pytest.WarningsRecorder | contextlib.nullcontext[None]
     if external.gap.is_installed():  # pragma: no cover
         # randomly permute the qubits to switch things up!
         new_matrix = code.matrix.reshape(-1, 5)[:, np.random.permutation(5)].reshape(-1, 10)
         code = codes.QuditCode(new_matrix)
+        context = pytest.warns(UserWarning, match="with_magma=True")
+    else:  # pragma: no cover
+        context = contextlib.nullcontext()
 
-        with pytest.warns(UserWarning, match="with_magma=True"):
-            # construct physical circuit for the logical operation
-            physical_circuit = circuits.get_transversal_circuit(code, logical_circuit)
-            assert physical_circuit is not None
-
-            # there are no logical two-qubit gates in this code
-            circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
-
-    else:
+    with context:
         # construct physical circuit for the logical operation
         physical_circuit = circuits.get_transversal_circuit(code, logical_circuit)
         assert physical_circuit is not None
