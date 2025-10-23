@@ -186,7 +186,10 @@ def test_automorphism() -> None:
         codes.RepetitionCode(2).get_automorphism_group()
 
     # otherwise, check that automorphisms do indeed preserve the code space
-    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True):
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        pytest.warns(UserWarning, match="with_magma=True"),
+    ):
         for code, automorphisms in [
             (codes.HammingCode(2, field=2), "\n(1,2)\n(2,3)\n"),
             (codes.HammingCode(2, field=3), "\n()\n(2,4,3)\n(2,3,4)\n"),

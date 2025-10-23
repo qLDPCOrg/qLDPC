@@ -401,12 +401,26 @@ class Group:
                 return singles | doubles
 
     @staticmethod
-    def from_name(name: str) -> Group:
-        """Named group in the GAP computer algebra system."""
+    def from_name(
+        name: str,
+        *,
+        from_magma: bool = False,
+        warning_to_raise_if_calling_gap: str | None = None,
+    ) -> Group:
+        """Retrieve a group from the GAP computer algebra system (CAS).
+
+        ... unless from_magma=True, in which case retrieve a group from the MAGMA CAS.
+        """
         name = "".join(name.split())  # strip whitespace
-        if name == "SmallGroup(1,1)":
-            return TrivialGroup()
-        generators = [GroupMember(gen) for gen in external.groups.get_generators(name)]
+        if from_magma:
+            generator_list = external.groups.get_generators_from_magma(name)
+        else:
+            if name == "SmallGroup(1,1)":
+                return TrivialGroup()
+            generator_list = external.groups.get_generators(
+                name, warning_to_raise_if_calling_gap=warning_to_raise_if_calling_gap
+            )
+        generators = [GroupMember(generator) for generator in generator_list]
         return Group(*generators, name=name)
 
     def to_gap_group(self) -> str:

@@ -584,25 +584,42 @@ class ClassicalCode(AbstractCode):
         setattr(code, "_name", name)
         return code
 
-    def get_automorphism_group(self) -> abstract.Group:
+    def get_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
         """Get the automorphism group of this code.
 
         The auomorphism group of a classical linear code is the group of permutations of bits that
         preserve the code space.
         """
         matrix_str = self.canonicalized.matrix_as_string()
+        if with_magma:
+            rows, cols = self.canonicalized.matrix.shape
+            magma_matrix = f"Matrix(GF({self.field.order}), {rows}, {cols}, {matrix_str})"
+            magma_group = f"AutomorphismGroup(LinearCode({magma_matrix}));"
+            return abstract.Group.from_name(magma_group, from_magma=True)
+
+        warning = (
+            "Attempting to compute an automorphism group with GAP, which may take a long time."
+            "  If this calculation takes too long, try computing the automorphism group with MAGMA"
+            ' by passing the argument "with_magma=True" to the method that needs to compute the'
+            " automorphism group."
+        )
+
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
 
         # try GAP/GAUAVA's AutomorphismGroup method
         if self.field.order == 2:
             try:
-                return abstract.Group.from_name(f"AutomorphismGroup({code_str})")
+                return abstract.Group.from_name(
+                    f"AutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
+                )
             except ValueError as error:
                 if "Error encountered when running GAP" not in str(error):
                     raise
 
         # fall back to GAP/GAUAVA's PermutationAutomorphismGroup method
-        return abstract.Group.from_name(f"PermutationAutomorphismGroup({code_str})")
+        return abstract.Group.from_name(
+            f"PermutationAutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
+        )
 
     @staticmethod
     def stack(*codes: ClassicalCode) -> ClassicalCode:

@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 import urllib.error
 import urllib.request
+import warnings
 
 import galois
 
@@ -32,16 +33,18 @@ GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 
 @qldpc.cache.use_disk_cache(
     "group_generators",
-    key_func=lambda group: "".join(group.split()),  # strip whitespace
+    key_func=lambda group, warning: "".join(group.split()),  # strip whitespace
 )
-def get_generators(group: str) -> GENERATORS_LIST:
+def get_generators(
+    group: str, *, warning_to_raise_if_calling_gap: str | None = None
+) -> GENERATORS_LIST:
     """Retrieve GAP group generators."""
     # try retrieving a known group
     if generators := KNOWN_GROUPS.get(group):
         return generators
 
     # try retrieving a group from GAP
-    if generators := maybe_get_generators_from_gap(group):
+    if generators := maybe_get_generators_from_gap(group, warning=warning_to_raise_if_calling_gap):
         return generators
 
     # try retrieving a group from GroupNames
@@ -58,6 +61,27 @@ def get_generators(group: str) -> GENERATORS_LIST:
     else:
         message.append("- group not indexed by GroupNames.org")
     raise ValueError("\n".join(message))
+
+
+# @qldpc.cache.use_disk_cache(
+#     "magma_group_generators",
+#     key_func=lambda group: "".join(group.split()),  # strip whitespace
+# )
+def get_generators_from_magma(group: str) -> GENERATORS_LIST:
+    """Retrieve group generators from MAGMA."""
+    print("Run the command below in MAGMA, and copy/paste the MAGMA output here.")
+    print("Type an empty line (hit Enter twice) to finish.")
+    print("You can find an online MAGMA calculator at https://magma.maths.usyd.edu.au/calc")
+    print()
+    print(group)
+    print()
+    lines = []
+    while line := input():
+        lines.append(line)
+    match = re.search(r"\([0-9,\s()]*\)", "\n".join(lines), re.DOTALL)
+    if not match:
+        raise ValueError("Invalid MAGMA output")
+    return parse_gap_permutations(match.group(), cycle_sep=", ")
 
 
 @qldpc.cache.use_disk_cache("small_group_number")
@@ -103,7 +127,9 @@ def get_small_group_structure(order: int, index: int) -> str:
     return name
 
 
-def maybe_get_generators_from_gap(group: str) -> GENERATORS_LIST | None:
+def maybe_get_generators_from_gap(
+    group: str, *, warning: str | None = None
+) -> GENERATORS_LIST | None:
     """Retrieve GAP group generators from GAP directly."""
     try:
         qldpc.external.gap.require_package("GUAVA")
@@ -111,6 +137,10 @@ def maybe_get_generators_from_gap(group: str) -> GENERATORS_LIST | None:
         if re.search("GAP 4 .* installation cannot be found", str(error)):
             return None
         raise error  # pragma: no cover
+
+    # if provided a warning to raise before calling GAP, raise it now
+    if warning is not None:
+        warnings.warn(warning)
 
     # run GAP commands
     commands = [
@@ -164,7 +194,7 @@ def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GENERATOR
     This function returns a list of permutations; one for each line in the input string.
     """
     parsed_permutations = []
-    for line in permutations.splitlines():
+    for line in permutations.strip().splitlines():
         # extract list of cycles, where each cycle is a tuple of integers
         cycle_strings = line.strip()[1:-1].split(")(")
         try:

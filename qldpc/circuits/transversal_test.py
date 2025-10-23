@@ -42,11 +42,6 @@ def test_finding_circuit(pytestconfig: pytest.Config) -> None:
 
     code: codes.QuditCode = codes.FiveQubitCode()
 
-    if external.gap.is_installed():  # pragma: no cover
-        # randomly permute the qubits to switch things up!
-        new_matrix = code.matrix.reshape(-1, 5)[:, np.random.permutation(5)].reshape(-1, 10)
-        code = codes.QuditCode(new_matrix)
-
     # logical circuit: random single-qubit Clifford recognized by Stim
     logical_op = np.random.choice(
         [
@@ -71,16 +66,30 @@ def test_finding_circuit(pytestconfig: pytest.Config) -> None:
     )
     logical_circuit = stim.Circuit(f"{logical_op} 0")
 
-    # construct physical circuit for the logical operation
-    physical_circuit = circuits.get_transversal_circuit(code, logical_circuit)
-    assert physical_circuit is not None
+    if external.gap.is_installed():  # pragma: no cover
+        # randomly permute the qubits to switch things up!
+        new_matrix = code.matrix.reshape(-1, 5)[:, np.random.permutation(5)].reshape(-1, 10)
+        code = codes.QuditCode(new_matrix)
+
+        with pytest.warns(UserWarning, match="with_magma=True"):
+            # construct physical circuit for the logical operation
+            physical_circuit = circuits.get_transversal_circuit(code, logical_circuit)
+            assert physical_circuit is not None
+
+            # there are no logical two-qubit gates in this code
+            circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
+
+    else:
+        # construct physical circuit for the logical operation
+        physical_circuit = circuits.get_transversal_circuit(code, logical_circuit)
+        assert physical_circuit is not None
+
+        # there are no logical two-qubit gates in this code
+        circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
 
     # check that the physical circuit has the correct logical tableau
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
-
-    # there are no logical two-qubit gates in this code
-    circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
 
 
 def test_deformed_decoder() -> None:
