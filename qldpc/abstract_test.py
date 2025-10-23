@@ -385,7 +385,7 @@ def test_small_group() -> None:
     assert group.random() == group.identity
 
 
-def test_magma_group(monkeypatch, capsys) -> None:
+def test_magma_group(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Retrieve a group from MAGMA."""
     name = "AutomorphismGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));"
 

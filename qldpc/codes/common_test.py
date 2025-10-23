@@ -27,7 +27,7 @@ import networkx as nx
 import numpy as np
 import pytest
 
-from qldpc import codes, external, math
+from qldpc import abstract, codes, external, math
 from qldpc.objects import Pauli
 
 ####################################################################################################
@@ -172,9 +172,9 @@ def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
     assert np.array_equal(code.matrix, codes.ClassicalCode.graph_to_matrix(code.graph))
 
 
-def test_automorphism() -> None:
-    """Compute automorphism group of the smallest nontrivial trinary Hamming code."""
-    code = codes.HammingCode(2, field=2)
+def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Compute automorphism groups."""
+    code: codes.ClassicalCode = codes.HammingCode(2, field=2)
     automorphisms = "\n(1,2)\n(2,3)\n"
 
     # raise an error when GAP is not installed
@@ -199,6 +199,16 @@ def test_automorphism() -> None:
                 for member in group.generate():
                     permutation = member.to_matrix().view(code.field)
                     assert not np.any(code.matrix @ permutation @ code.generator.T)
+
+    # compute an automorphism group with MAGMA
+    user_inputs = iter(
+        ["Permutation group acting on a set of cardinality 2", "Order = 2", "    (1, 2)", ""]
+    )
+    monkeypatch.setattr("builtins.input", lambda: next(user_inputs))
+    code = codes.RepetitionCode(2)
+    group = abstract.CyclicGroup(2)
+    assert code.get_automorphism_group(with_magma=True) == group
+    capsys.readouterr()  # intercept print statements
 
 
 def test_classical_capacity() -> None:

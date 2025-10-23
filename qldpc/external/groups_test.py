@@ -168,7 +168,9 @@ def test_get_generators() -> None:
             external.groups.get_generators("CyclicGroup(2)")
 
 
-def test_get_generators_from_magma(monkeypatch, capsys) -> None:
+def test_get_generators_from_magma(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Retrieve generators for a MAGMA group."""
     # define the automorphism group of a two-bit repetition code
     group = "AutomorphismGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));"
@@ -180,7 +182,7 @@ def test_get_generators_from_magma(monkeypatch, capsys) -> None:
     )
     monkeypatch.setattr("builtins.input", lambda: next(inputs))
 
-    cache = {}
+    cache: dict[str, str] = {}
     with unittest.mock.patch("qldpc.cache.get_disk_cache", return_value=cache):
         # compute generators with MAGMA
         assert external.groups.get_generators_from_magma(group) == generators
@@ -198,10 +200,7 @@ def test_get_generators_from_magma(monkeypatch, capsys) -> None:
     # mock invalid user input / MAGMA output
     inputs = iter(["There are no cycles in this output!", ""])
     monkeypatch.setattr("builtins.input", lambda: next(inputs))
-    with (
-        unittest.mock.patch("qldpc.cache.get_disk_cache", return_value={}),
-        pytest.raises(ValueError, match="Invalid MAGMA output"),
-    ):
+    with pytest.raises(ValueError, match="Invalid MAGMA output"):
         external.groups.get_generators_from_magma(group)
     capsys.readouterr()  # intercept print statements
 
