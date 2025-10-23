@@ -17,6 +17,8 @@ limitations under the License.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import unittest.mock
 import urllib
 
@@ -124,7 +126,7 @@ def test_maybe_get_generators_from_gap() -> None:
 
 
 def test_get_generators() -> None:
-    """Retrieve generators somehow."""
+    """Retrieve generators for a GAP group somehow."""
     # retrieve known groups
     for group, generators in external.groups.KNOWN_GROUPS.items():
         assert external.groups.get_generators(group) == generators
@@ -166,6 +168,44 @@ def test_get_generators() -> None:
             pytest.raises(ValueError, match="Cannot build GAP group"),
         ):
             external.groups.get_generators("CyclicGroup(2)")
+
+
+def test_get_generators_from_magma(monkeypatch, capsys) -> None:
+    """Retrieve generators for a MAGMA group."""
+    # define the automorphism group of a two-bit repetition code
+    group = "AutomorphismGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));"
+    generators = [[(0, 1)]]
+
+    # mock user inputs
+    inputs = iter(
+        ["Permutation group acting on a set of cardinality 2", "Order = 2", "    (1, 2)", ""]
+    )
+    monkeypatch.setattr("builtins.input", lambda: next(inputs))
+
+    cache = {}
+    with unittest.mock.patch("qldpc.cache.get_disk_cache", return_value=cache):
+        # compute generators with MAGMA
+        assert external.groups.get_generators_from_magma(group) == generators
+        terminal_output, error_message = capsys.readouterr()
+        assert not error_message
+        assert terminal_output.startswith("Run the command below in MAGMA")
+
+        # now use the cache!
+        assert external.groups.get_generators_from_magma(group) == generators
+        terminal_output, error_message = capsys.readouterr()
+        assert not error_message
+        assert terminal_output.startswith("Run the command below in MAGMA")
+        assert "NOTICE: group found in the local MAGMA group cache" in terminal_output
+
+    # mock invalid user input / MAGMA output
+    inputs = iter(["There are no cycles in this output!", ""])
+    monkeypatch.setattr("builtins.input", lambda: next(inputs))
+    with (
+        unittest.mock.patch("qldpc.cache.get_disk_cache", return_value={}),
+        pytest.raises(ValueError, match="Invalid MAGMA output"),
+    ):
+        external.groups.get_generators_from_magma(group)
+    capsys.readouterr()  # intercept print statements
 
 
 def test_get_small_group_number() -> None:
