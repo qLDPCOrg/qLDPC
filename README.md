@@ -2,7 +2,7 @@
 
 This library contains tools for constructing and analyzing [quantum low density parity check (qLDPC) codes](https://errorcorrectionzoo.org/c/qldpc).  At least, that was the original motivation for this library.  In practice, the tools here work just as well for stabilizer and subsystem codes more broadly.
 
-In a nutshell, `qLDPC` provides methods to build a variety of built-in and custom codes, represented under the hood by a parity check matrix.  Once a code is constructed, `qLDPC` automates various tasks of common interest, integrating with a variety of external tools (including [`ldpc`](https://github.com/quantumgizmos/ldpc), [`stim`](https://github.com/quantumlib/Stim), [`sinter`](https://pypi.org/project/sinter), and [`QDistRnd`](https://docs.gap-system.org/pkg/qdistrnd/doc/chap1_mj.html), among others).  Automated tasks include:
+In a nutshell, `qLDPC` provides methods to build a variety of built-in and custom codes, represented under the hood by a parity check matrix.  Once a code is constructed, `qLDPC` automates various tasks of common interest, integrating with a variety of external tools (including [`ldpc`](https://github.com/quantumgizmos/ldpc), [`stim`](https://github.com/quantumlib/Stim), [`sinter`](https://pypi.org/project/sinter), [`QDistRnd`](https://docs.gap-system.org/pkg/qdistrnd/doc/chap1_mj.html), and [`MAGMA`](https://magma.maths.usyd.edu.au/magma), among others).  Automated tasks include:
 - constructing a code from a variety of code families,
 - constructing a canonical basis of logical Pauli operators,
 - computing (or upper-bounding) code distance,
@@ -64,8 +64,8 @@ Notable features include:
   - `NoiseModel`: class for constructing expressive Pauli noise models, which map noiseless circuits to noisy circuits.  Built-in subclasses include a single-parameter `DepolarizingNoiseModel` and a superconducting-inspired `SI1000NoiseModel`.
   - `SinterDecoder`: class to construct circuit-level decoders that are usable by [`sinter`](https://pypi.org/project/sinter).
   - `get_encoding_circuit`: circuit to encode physical states of qubits into logical states of a code, for example to prepare a logical all-|0> state.  (Warning: current encoding circuits are not fault-tolerant.  The construction of fault-tolerant encoding circuits is an [open issue](https://github.com/qLDPCOrg/qLDPC/issues/327).)
-  - `get_transversal_ops`: logical tableaus and physical circuits for the SWAP-transversal logical Clifford gates of a code, constructed via the code automorphism method of [arXiv:2409.18175](https://arxiv.org/abs/2409.18175).  (Warning: exponential complexity.)
-  - `get_transversal_circuits`: find a SWAP-transversal physical circuit (if any) that implements a given logical Clifford operation in a code.  (Warning: exponential complexity.)
+  - `get_transversal_ops`: logical tableaus and physical circuits for the SWAP-transversal logical Clifford gates of a code, constructed via the code automorphism method of [arXiv:2409.18175](https://arxiv.org/abs/2409.18175).  Uses GAP by default, but can use MAGMA if passed `with_magma=True` argument.  (Warning: exponential complexity.)
+  - `get_transversal_circuits`: find a SWAP-transversal physical circuit (if any) that implements a given logical Clifford operation in a code.  Uses GAP by default, but can use MAGMA if passed `with_magma=True` argument.  (Warning: exponential complexity.)
 - `abstract.py`: module for abstract algebra (groups, rings, modules, and representations thereof).
   - Various pre-defined groups (mostly borrowed from [SymPy](https://docs.sympy.org/latest/modules/combinatorics/named_groups.html)).
   - Communication with the [GAP](https://www.gap-system.org) computer algebra system and [GroupNames.org](https://people.maths.bris.ac.uk/~matyd/GroupNames) for constructing [even more groups](https://docs.gap-system.org/doc/ref/chap50.html).
