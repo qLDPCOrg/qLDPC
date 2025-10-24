@@ -89,7 +89,7 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
         print(
             "If you think that the cached result is incorrect, you can remove it from the cache"
             " by running the following commands:\n"
-            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", "{key}")\n'
+            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", """{key}""")\n'
         )
         return generators
 
@@ -119,7 +119,7 @@ def get_small_group_number(order: int) -> int:
     """Get the number of 'SmallGroup's of a given order."""
     if qldpc.external.gap.is_installed():
         qldpc.external.gap.require_package("SmallGrp")
-        command = f"Print(NumberSmallGroups({order}));"
+        command = f"Print(NumberSmallGroups({order}));;"
         return int(qldpc.external.gap.get_output(command))
 
     # get the HTML for the page with all groups
@@ -144,7 +144,7 @@ def get_small_group_structure(order: int, index: int) -> str:
     name = f"SmallGroup({order},{index})"
     if qldpc.external.gap.is_installed():
         qldpc.external.gap.require_package("SmallGrp")
-        command = f"Print(StructureDescription({name}));"
+        command = f"Print(StructureDescription({name}));;"
         structure = qldpc.external.gap.get_output(command).strip()
 
         if not structure:
@@ -174,7 +174,7 @@ def maybe_get_generators_from_gap(
 
     # run GAP commands
     commands = [
-        'LoadPackage("guava");',
+        'LoadPackage("guava", false);',
         f"group := {group};",
         "iso := IsomorphismPermGroup(group);",
         "perm_group := Image(iso, group);",
@@ -304,7 +304,7 @@ def get_primitive_central_idempotents(
     qldpc.external.gap.require_package("Wedderga")
 
     idempotents_str = qldpc.external.gap.get_output(
-        'LoadPackage("wedderga");',
+        'LoadPackage("wedderga", false);',
         f"group := {group};",
         f"ring := GroupRing(GF({field}), group);",
         "idempotents := PrimitiveCentralIdempotentsByCharacterTable(ring);",

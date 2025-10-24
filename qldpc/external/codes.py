@@ -36,11 +36,11 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int | None]:
 
     # run GAP commands
     commands = [
-        'LoadPackage("guava");',
-        f"code := {code};",
-        "mat := CheckMat(code);",
-        r'Print(LeftActingDomain(code), "\n");',
-        r'for vec in mat do Print(List(vec, x -> Int(x)), "\n"); od;',
+        'LoadPackage("guava", false);;',
+        f"code := {code};;",
+        "mat := CheckMat(code);;",
+        r'Print(LeftActingDomain(code), "\n");;',
+        r'for vec in mat do Print(List(vec, x -> Int(x)), "\n");; od;;',
     ]
     code_str = qldpc.external.gap.get_output(*commands)
 
@@ -114,10 +114,10 @@ def get_distance_bound(
         code_z = code.code_z
         args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
-            'LoadPackage("QDistRnd");',
-            f"matrix_x := {code_x.matrix_as_string()};",
-            f"matrix_z := {code_z.matrix_as_string()};",
-            f"Print(DistRandCSS({args}:{kwargs}));",
+            'LoadPackage("QDistRnd", false);;',
+            f"matrix_x := {code_x.matrix_as_string()};;",
+            f"matrix_z := {code_z.matrix_as_string()};;",
+            f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
 
     elif code.is_subsystem_code:
@@ -129,7 +129,7 @@ def get_distance_bound(
         riffled_code = qldpc.codes.ClassicalCode(matrix)
         args = ",".join([f"{one}*matrix", f"{num_trials}", f"{cutoff}"])
         commands = [
-            'LoadPackage("QDistRnd");',
+            'LoadPackage("QDistRnd", false);',
             f"matrix := {riffled_code.matrix_as_string()};",
             f"Print(DistRandStab({args}:{kwargs}));",
         ]

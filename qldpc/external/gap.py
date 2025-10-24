@@ -91,7 +91,7 @@ def get_output(*commands: str) -> str:
     print("Run the command below in GAP, and copy/paste the GAP output here.")
     print("Type an empty line (hit Enter twice) to finish.")
     print()
-    print("\n".join(commands))
+    print(" ".join(commands))
     print()
 
     cache_name = "gap_output"
@@ -107,7 +107,7 @@ def get_output(*commands: str) -> str:
         print(
             "If you think that the cached result is incorrect, you can remove it from the cache"
             " by running the following commands:\n"
-            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", "{key}")\n'
+            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", """{key}""")\n'
         )
         return output
 
