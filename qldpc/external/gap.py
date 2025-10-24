@@ -29,14 +29,26 @@ GAP_ROOT = os.path.join(os.path.dirname(os.path.dirname(qldpc.__file__)), "gap")
 
 
 @functools.cache
-def is_installed() -> bool:
-    """Is GAP 4 installed?"""
+def get_version() -> str | None:
+    """Get the version of GAP, if found."""
     commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n"); QUIT;']
     try:
         result = subprocess.run(commands, capture_output=True, text=True)
-        return bool(re.match(r"4\.[0-9]+\.[0-9]", result.stdout.strip()))
-    except Exception:
-        return False
+        return result.stdout.strip()
+    except FileNotFoundError:
+        return None
+
+
+@functools.cache
+def is_installed() -> bool:
+    """Is GAP 4 installed?"""
+    version = get_version()
+    if version and bool(re.match(r"4\.\d+\.\d+", version)):
+        return True
+    print("GAP 4 cannot be called from the command line (with 'gap').")
+    print("Can you manually copy/paste commands and outputs between here and GAP? [y/N]")
+    answer = input().lower()
+    return answer == "y" or answer == "yes"
 
 
 def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:

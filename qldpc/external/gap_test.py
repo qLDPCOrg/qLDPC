@@ -32,18 +32,39 @@ def get_mock_process(
     return subprocess.CompletedProcess(args=[], stdout=stdout, stderr=stderr, returncode=returncode)
 
 
-def test_is_installed() -> None:
+def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Is GAP 4 installed?"""
+    # GAP version not identified
+    external.gap.get_version.cache_clear()
+    with unittest.mock.patch("subprocess.run", side_effect=FileNotFoundError):
+        assert external.gap.get_version() is None
+
+    # gap is not installed and user declines to copy/paste commands and outputs
+    external.gap.get_version.cache_clear()
     external.gap.is_installed.cache_clear()
     with unittest.mock.patch("subprocess.run", return_value=get_mock_process()):
+        monkeypatch.setattr("builtins.input", lambda: "n")
         assert not external.gap.is_installed()
 
-    external.gap.is_installed.cache_clear()
-    with unittest.mock.patch("subprocess.run", side_effect=Exception):
-        assert not external.gap.is_installed()
+        terminal_output, error_message = capsys.readouterr()
+        assert not error_message
+        assert terminal_output.startswith("GAP 4 cannot be called")
 
+    # gap is not installed and user is willing to copy/paste commands and outputs
+    external.gap.get_version.cache_clear()
     external.gap.is_installed.cache_clear()
-    with unittest.mock.patch("subprocess.run", return_value=get_mock_process("\n4.12.1")):
+    with unittest.mock.patch("qldpc.external.gap.get_version", return_value=None):
+        monkeypatch.setattr("builtins.input", lambda: "y")
+        assert external.gap.is_installed()
+
+        terminal_output, error_message = capsys.readouterr()
+        assert not error_message
+        assert terminal_output.startswith("GAP 4 cannot be called")
+
+    # GAP is installed!
+    external.gap.get_version.cache_clear()
+    external.gap.is_installed.cache_clear()
+    with unittest.mock.patch("qldpc.external.gap.get_version", return_value="4.12.1"):
         assert external.gap.is_installed()
 
 
