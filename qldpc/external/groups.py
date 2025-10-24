@@ -164,7 +164,7 @@ def maybe_get_generators_from_gap(
     try:
         qldpc.external.gap.require_package("GUAVA")
     except FileNotFoundError as error:
-        if re.search("GAP 4 .* installation cannot be found", str(error)):
+        if re.search("GAP 4 .* is not installed", str(error)):
             return None
         raise error  # pragma: no cover
 
