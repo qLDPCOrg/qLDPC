@@ -71,23 +71,23 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     assert codes.ClassicalCode.equiv(code, codes.ClassicalCode.from_generator(code.generator))
 
     # puncture a code
-    assert codes.ClassicalCode.from_generator(code.generator[:, 1:]) == code.punctured(0)
+    assert codes.ClassicalCode.from_generator(code.generator[:, 1:]) == code.punctured([0])
 
     # shortening a repetition code yields a trivial code
     code = codes.RepetitionCode(3)
-    assert np.array_equal(list(code.shortened(0).iter_words()), [[0, 0]])
+    assert np.array_equal(list(code.shortened([0]).iter_words()), [[0, 0]])
 
     # stack two codes
     code_a = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**32))
     code_b = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**32))
-    code = codes.ClassicalCode.stack(code_a, code_b)
+    code = codes.ClassicalCode.stack([code_a, code_b])
     assert len(code) == len(code_a) + len(code_b)
     assert code.dimension == code_a.dimension + code_b.dimension
 
     # stacking codes over different fields is not supported
     with pytest.raises(ValueError, match="different fields"):
         code_b = codes.RepetitionCode(2)
-        code = codes.ClassicalCode.stack(code_a, code_b)
+        code = codes.ClassicalCode.stack([code_a, code_b])
 
 
 def test_named_codes(order: int = 2) -> None:
@@ -286,7 +286,7 @@ def test_qudit_codes() -> None:
         code.set_logical_ops_z([])
 
     # stacking two codes
-    two_codes = codes.QuditCode.stack(code, code)
+    two_codes = codes.QuditCode.stack([code] * 2)
     assert len(two_codes) == len(code) * 2
     assert two_codes.dimension == code.dimension * 2
 
@@ -310,7 +310,7 @@ def test_qudit_codes() -> None:
     # stacking codes over different fields is not supported
     with pytest.raises(ValueError, match="different fields"):
         second_code = codes.SurfaceCode(2, field=3)
-        codes.QuditCode.stack(code, second_code)
+        codes.QuditCode.stack([code, second_code])
 
 
 def test_distance_qudit() -> None:
@@ -375,12 +375,12 @@ def test_qudit_stabilizers(field: int, bits: int = 5, checks: int = 3) -> None:
     """Stabilizers of a QuditCode."""
     code_a = get_random_qudit_code(bits, checks, field)
     strings = code_a.get_strings()
-    code_b = codes.QuditCode.from_strings(*strings, field=field)
+    code_b = codes.QuditCode.from_strings(strings, field=field)
     assert code_a == code_b
     assert strings == code_b.get_strings()
 
     with pytest.raises(ValueError, match="different lengths"):
-        codes.QuditCode.from_strings("I", "I I", field=field)
+        codes.QuditCode.from_strings(["I", "I I"], field=field)
 
 
 def test_from_qecdb_id() -> None:
@@ -450,7 +450,7 @@ def test_qudit_ops() -> None:
     assert np.array_equal(logical_ops[1], [0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
     assert code.get_logical_ops() is code._logical_ops
 
-    code = codes.QuditCode.from_strings(*code.get_strings(), "I I I I I")
+    code = codes.QuditCode.from_strings(code.get_strings() + ["I I I I I"])
     assert np.array_equal(logical_ops, code.get_logical_ops())
 
     for code in get_codes_for_testing_ops():
@@ -669,19 +669,19 @@ def test_css_deformations() -> None:
 def test_stacking_css_codes() -> None:
     """Stack two CSS codes."""
     steane_code = codes.SteaneCode()
-    code = codes.CSSCode.stack(steane_code, steane_code)
+    code = codes.CSSCode.stack([steane_code] * 2)
     assert len(code) == len(steane_code) * 2
     assert code.dimension == steane_code.dimension * 2
 
     # stacking codes over different fields is not supported
     with pytest.raises(ValueError, match="different fields"):
         qudit_code = codes.SurfaceCode(2, field=3)
-        code = codes.CSSCode.stack(steane_code, qudit_code)
+        code = codes.CSSCode.stack([steane_code, qudit_code])
 
     # stacking a CSSCode with a QuditCode requires using QuditCode.stack
-    codes.QuditCode.stack(steane_code, codes.FiveQubitCode())
+    codes.QuditCode.stack([steane_code, codes.FiveQubitCode()])
     with pytest.raises(TypeError, match="requires CSSCode inputs"):
-        codes.CSSCode.stack(steane_code, codes.FiveQubitCode())
+        codes.CSSCode.stack([steane_code, codes.FiveQubitCode()])
 
 
 def test_css_concatenation() -> None:

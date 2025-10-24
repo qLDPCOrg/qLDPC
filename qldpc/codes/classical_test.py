@@ -58,7 +58,7 @@ def test_special_codes() -> None:
 
     # the Hamming code can be recovered by puncturing the extended Hamming code
     assert codes.ClassicalCode.equiv(
-        codes.HammingCode(4), codes.ExtendedHammingCode(4).punctured(0)
+        codes.HammingCode(4), codes.ExtendedHammingCode(4).punctured([0])
     )
 
     # classical simplex codes

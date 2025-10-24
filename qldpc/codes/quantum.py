@@ -208,10 +208,10 @@ class TetrahedralCode(CSSCode):
                 (if False) definition of the TetrahedralCode, as described above.  The remaining
                 stabilizers and logical operators are unaffected by this flag.  Default: False.
         """
-        code_x = ReedMullerCode(2, 4).punctured(0)  # or HammingCode(4)
+        code_x = ReedMullerCode(2, 4).punctured([0])  # or HammingCode(4)
 
         if algebraic:
-            code_z = ReedMullerCode(1, 4).punctured(0)
+            code_z = ReedMullerCode(1, 4).punctured([0])
 
         else:
             # the stabilizers of Eq. 2 in arXiv:2409.13465v2, in a different order
