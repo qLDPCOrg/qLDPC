@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import re
+import urllib
 
 import qldpc
 import qldpc.cache
@@ -29,7 +30,7 @@ import qldpc.external.gap
     "codes",
     key_func=lambda code: "".join(code.split()),  # strip whitespace
 )
-def get_code(code: str) -> tuple[list[list[int]], int | None]:
+def get_classical_code(code: str) -> tuple[list[list[int]], int | None]:
     """Retrieve a classical code from GAP."""
     qldpc.external.gap.require_package("GUAVA")
 
@@ -60,6 +61,29 @@ def get_code(code: str) -> tuple[list[list[int]], int | None]:
         raise ValueError(f"Code has no parity checks: {code}")
 
     return checks, field
+
+
+@qldpc.cache.use_disk_cache("qecdb")
+def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
+    """Retrieve a quantum code from qecdb.org.
+
+    Return the stabilizers of the code, its distance, and whether it's CSS.
+    """
+    url = f"https://qecdb.org/codes/{code_id}"
+    try:
+        lines = urllib.request.urlopen(url).read().decode("utf-8").splitlines()
+    except (urllib.error.URLError, urllib.error.HTTPError):
+        print(f"ERROR: cannot access the webpage {url}")
+        raise
+
+    stab_line = next(line for line in lines if "<td>H</td>" in line)
+    dist_line = next(line for line in lines if "<td>d</td>" in line)
+    css_line = next(line for line in lines if "<td>css</td>" in line)
+
+    stabilizers = re.findall("[IXYZ]+", stab_line)
+    distance = int(re.findall(r"\d+", dist_line)[0])
+    is_css = "True" in css_line
+    return stabilizers, distance, is_css
 
 
 def get_distance_bound(

@@ -21,7 +21,7 @@ import dataclasses
 import enum
 import functools
 import itertools
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Sequence
 from typing import Literal
 
 import galois
@@ -388,7 +388,7 @@ class ChainComplex:
 
     def __init__(
         self,
-        *ops: npt.NDArray[np.int_] | abstract.RingArray,
+        ops: Sequence[npt.NDArray[np.int_] | abstract.RingArray],
         field: int | None = None,
         skip_validation: bool = False,
     ) -> None:
@@ -414,10 +414,7 @@ class ChainComplex:
         self._group = groups.pop() if groups else None
 
         # identify the boundary operators of this chain complex
-        if self._group is None:
-            self._ops = tuple(op.view(self.field) for op in ops)
-        else:
-            self._ops = ops
+        self._ops = tuple(op.view(self.field) for op in ops) if self._group is None else tuple(ops)
 
         if not skip_validation:
             self._validate_ops()
@@ -459,7 +456,7 @@ class ChainComplex:
     def T(self) -> ChainComplex:
         """Transpose and reverse the order of the boundary operators in this chain complex."""
         dual_ops = [op.T for op in self.ops[::-1]]
-        return ChainComplex(*dual_ops, skip_validation=True)
+        return ChainComplex(dual_ops, skip_validation=True)
 
     def op(self, degree: int) -> npt.NDArray[np.int_] | abstract.RingArray:
         """The boundary operator of this chain complex that acts on the module of a given degree."""
@@ -500,9 +497,9 @@ class ChainComplex:
         definition of d_{i+j}.
         """
         if not isinstance(chain_a, ChainComplex):
-            chain_a = ChainComplex(chain_a, field=field)
+            chain_a = ChainComplex([chain_a], field=field)
         if not isinstance(chain_b, ChainComplex):
-            chain_b = ChainComplex(chain_b, field=field)
+            chain_b = ChainComplex([chain_b], field=field)
         if chain_a.field is not chain_b.field or chain_a.group != chain_b.group:
             raise ValueError("Incompatible chain complexes: different base fields or groups")
         chain_field = chain_a.field
@@ -558,4 +555,4 @@ class ChainComplex:
             ops = [op.view(chain_field) for op in ops]
         else:
             ops = [op.view(abstract.RingArray) for op in ops]
-        return ChainComplex(*ops, skip_validation=True)
+        return ChainComplex(ops, skip_validation=True)

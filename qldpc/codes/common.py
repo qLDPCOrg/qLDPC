@@ -579,7 +579,7 @@ class ClassicalCode(AbstractCode):
     def from_name(name: str) -> ClassicalCode:
         """Named code in the GAP computer algebra system."""
         standardized_name = name.strip().replace(" ", "")  # strip whitespace
-        matrix, field = external.codes.get_code(standardized_name)
+        matrix, field = external.codes.get_classical_code(standardized_name)
         code = ClassicalCode(matrix, field)
         setattr(code, "_name", name)
         return code
@@ -622,7 +622,7 @@ class ClassicalCode(AbstractCode):
         )
 
     @staticmethod
-    def stack(*codes: ClassicalCode) -> ClassicalCode:
+    def stack(codes: Sequence[ClassicalCode]) -> ClassicalCode:
         """Stack the given classical codes.
 
         The stacked code is obtained by having the input codes act on disjoint sets of bits.
@@ -635,7 +635,7 @@ class ClassicalCode(AbstractCode):
         matrices = [code.matrix for code in codes]
         return ClassicalCode(scipy.linalg.block_diag(*matrices), field=fields[0].order)
 
-    def punctured(self, *bits: int) -> ClassicalCode:
+    def punctured(self, bits: Sequence[int]) -> ClassicalCode:
         """Delete the specified bits from a code.
 
         To delete bits from the code, we remove the corresponding columns from its generator matrix
@@ -646,12 +646,12 @@ class ClassicalCode(AbstractCode):
         new_generator = self.generator[:, bits_to_keep]
         return ClassicalCode.from_generator(new_generator, self.field.order)
 
-    def puncture(self, *bits: int) -> ClassicalCode:  # pragma: no cover
+    def puncture(self, bits: Sequence[int]) -> ClassicalCode:  # pragma: no cover
         """Deprecated alias for ClassicalCode.punctured."""
         warnings.warn("ClassicalCode.puncture is DEPRECATED; use ClassicalCode.punctured instead")
-        return self.punctured(*bits)
+        return self.punctured(bits)
 
-    def shortened(self, *bits: int) -> ClassicalCode:
+    def shortened(self, bits: Sequence[int]) -> ClassicalCode:
         """Shorten a code to the words that are zero on the specified bits, and delete those bits.
 
         To shorten a code on a given bit, we:
@@ -667,10 +667,10 @@ class ClassicalCode(AbstractCode):
             generator = np.roll(generator, bit, axis=1).view(self.field)
         return ClassicalCode.from_generator(generator)
 
-    def shorten(self, *bits: int) -> ClassicalCode:  # pragma: no cover
+    def shorten(self, bits: Sequence[int]) -> ClassicalCode:  # pragma: no cover
         """Deprecated alias for ClassicalCode.shortened."""
         warnings.warn("ClassicalCode.shorten is DEPRECATED; use ClassicalCode.shortened instead")
-        return self.shortened(*bits)
+        return self.shortened(bits)
 
     def get_logical_error_rate_func(
         self, num_samples: int, max_error_rate: float = 0.3, **decoder_kwargs: Any
@@ -950,7 +950,7 @@ class QuditCode(AbstractCode):
         return checks
 
     @staticmethod
-    def from_strings(*checks: str, field: int | None = None) -> QuditCode:
+    def from_strings(checks: Sequence[str], field: int | None = None) -> QuditCode:
         """Construct a QuditCode from the provided parity checks."""
         field = field or DEFAULT_FIELD_ORDER
         check_ops = [check.split() for check in checks]
@@ -966,6 +966,16 @@ class QuditCode(AbstractCode):
                 matrix[index, :, qudit] = operator.from_string(op).value
 
         return QuditCode(matrix.reshape(num_checks, 2 * num_qudits), field)
+
+    @staticmethod
+    def from_qecdb_id(code_id: str) -> QuditCode:
+        """Retrieve a code by ID from qecdb.org."""
+        strings, distance, is_css = external.codes.get_quantum_code(code_id)
+        code = QuditCode.from_strings([" ".join(string) for string in strings], field=2)
+        if is_css:
+            code = code.to_css()
+        code._distance = distance
+        return code
 
     def __len__(self) -> int:
         """The block length of this code."""
@@ -1651,7 +1661,7 @@ class QuditCode(AbstractCode):
         return code
 
     @staticmethod
-    def stack(*codes: QuditCode, inherit_logicals: bool = True) -> QuditCode:
+    def stack(codes: Sequence[QuditCode], inherit_logicals: bool = True) -> QuditCode:
         """Stack the given qudit codes.
 
         The stacked code is obtained by having the input codes act on disjoint sets of bits.
@@ -1660,8 +1670,8 @@ class QuditCode(AbstractCode):
         """
         codes_x = [ClassicalCode(code.matrix.reshape(-1, 2, len(code))[:, 0, :]) for code in codes]
         codes_z = [ClassicalCode(code.matrix.reshape(-1, 2, len(code))[:, 1, :]) for code in codes]
-        code_x = ClassicalCode.stack(*codes_x)
-        code_z = ClassicalCode.stack(*codes_z)
+        code_x = ClassicalCode.stack(codes_x)
+        code_z = ClassicalCode.stack(codes_z)
         matrix = np.hstack([code_x.matrix, code_z.matrix])
         is_subsystem_code = any(code.is_subsystem_code for code in codes)
         code = QuditCode(matrix, is_subsystem_code=is_subsystem_code)
@@ -1777,9 +1787,9 @@ class QuditCode(AbstractCode):
 
         # stack copies of the outer and inner codes, if necessary
         if (num_outer_blocks := len(inner_physical_to_outer_logical) // outer.dimension) > 1:
-            outer = outer.stack(*[outer] * num_outer_blocks)
+            outer = outer.stack([outer] * num_outer_blocks)
         if (num_inner_blocks := len(inner_physical_to_outer_logical) // len(inner)) > 1:
-            inner = inner.stack(*[inner] * num_inner_blocks)
+            inner = inner.stack([inner] * num_inner_blocks)
 
         # permute logical operators of the outer code
         outer._logical_ops = (
@@ -2771,7 +2781,7 @@ class CSSCode(QuditCode):
         return super().deformed(circuit, preserve_logicals=preserve_logicals).maybe_to_css()
 
     @staticmethod
-    def stack(*codes: QuditCode, inherit_logicals: bool = True) -> CSSCode:
+    def stack(codes: Sequence[QuditCode], inherit_logicals: bool = True) -> CSSCode:
         """Stack the given CSS codes.
 
         The stacked code is obtained by having the input codes act on disjoint sets of bits.
@@ -2781,8 +2791,8 @@ class CSSCode(QuditCode):
         if any(not isinstance(code, CSSCode) for code in codes):
             raise TypeError("CSSCode.stack requires CSSCode inputs")
         css_codes = cast(list[CSSCode], codes)
-        code_x = ClassicalCode.stack(*[code.code_x for code in css_codes])
-        code_z = ClassicalCode.stack(*[code.code_z for code in css_codes])
+        code_x = ClassicalCode.stack([code.code_x for code in css_codes])
+        code_z = ClassicalCode.stack([code.code_z for code in css_codes])
         code = CSSCode(
             code_x,
             code_z,
