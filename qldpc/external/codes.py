@@ -73,14 +73,15 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
     try:
         lines = urllib.request.urlopen(url).read().decode("utf-8").splitlines()
     except (urllib.error.URLError, urllib.error.HTTPError):
-        print(f"Cannot access the webpage {url}")
+        print(f"ERROR: cannot access the webpage {url}")
+        raise
 
     stab_line = next(line for line in lines if "<td>H</td>" in line)
     dist_line = next(line for line in lines if "<td>d</td>" in line)
     css_line = next(line for line in lines if "<td>css</td>" in line)
 
     stabilizers = re.findall("[IXYZ]+", stab_line)
-    distance = int(re.findall("\d+", dist_line)[0])
+    distance = int(re.findall(r"\d+", dist_line)[0])
     is_css = "True" in css_line
     return stabilizers, distance, is_css
 

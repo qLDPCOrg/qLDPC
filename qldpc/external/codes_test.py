@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import unittest.mock
+import urllib
 
 import pytest
 
@@ -41,6 +42,34 @@ def test_get_classical_code() -> None:
         pytest.raises(ValueError, match="Code has no parity checks"),
     ):
         assert external.codes.get_classical_code("")
+
+
+def get_mock_page(text: str) -> unittest.mock.MagicMock:
+    """Fake webpage with the given text."""
+    mock_page = unittest.mock.MagicMock()
+    mock_page.read.return_value = text.encode("utf-8")
+    return mock_page
+
+
+def test_get_quantum_code(capsys: pytest.CaptureFixture[str]) -> None:
+    """Retrieve quantum code data from qecdb.org."""
+    # cannot connect to qecdb.org
+    with (
+        unittest.mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("message")),
+        pytest.raises(urllib.error.URLError, match="message"),
+    ):
+        external.codes.get_quantum_code("")
+    terminal_output, error_message = capsys.readouterr()
+    assert not error_message
+    assert "cannot access" in terminal_output
+
+    # retrieve code data!
+    dist_line = "<tr> <td>d</td> <td>5</td> </tr>"
+    css_line = "<tr> <td>css</td> <td>False</td> </tr>"
+    stab_line = "<tr> <td>H</td> <td><tt>XXXX<br>ZZZZ</tt></td> </tr>"
+    mock_page = get_mock_page("\n".join([dist_line, css_line, stab_line]))
+    with unittest.mock.patch("urllib.request.urlopen", return_value=mock_page):
+        assert external.codes.get_quantum_code("") == (["XXXX", "ZZZZ"], 5, False)
 
 
 def test_distance_bound() -> None:
