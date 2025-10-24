@@ -63,7 +63,7 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int | None]:
     return checks, field
 
 
-# @qldpc.cache.use_disk_cache("qecdb")
+@qldpc.cache.use_disk_cache("qecdb")
 def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
     """Retrieve a quantum code from qecdb.org.
 
@@ -82,7 +82,6 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
     stabilizers = re.findall("[IXYZ]+", stab_line)
     distance = int(re.findall("\d+", dist_line)[0])
     is_css = "True" in css_line
-
     return stabilizers, distance, is_css
 
 
