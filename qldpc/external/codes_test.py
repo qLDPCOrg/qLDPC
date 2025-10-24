@@ -24,7 +24,7 @@ import pytest
 from qldpc import codes, external
 
 
-def test_get_code() -> None:
+def test_get_classical_code() -> None:
     """Retrieve parity check matrix from GAP 4."""
     # extract parity check and finite field
     check = [1, 1]
@@ -32,7 +32,7 @@ def test_get_code() -> None:
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value=f"\n{check}\nGF(3^3)"),
     ):
-        assert external.codes.get_code("") == ([check], 27)
+        assert external.codes.get_classical_code("") == ([check], 27)
 
     # fail to find parity checks
     with (
@@ -40,7 +40,7 @@ def test_get_code() -> None:
         unittest.mock.patch("qldpc.external.gap.get_output", return_value=r"\nGF(3^3)"),
         pytest.raises(ValueError, match="Code has no parity checks"),
     ):
-        assert external.codes.get_code("")
+        assert external.codes.get_classical_code("")
 
 
 def test_distance_bound() -> None:

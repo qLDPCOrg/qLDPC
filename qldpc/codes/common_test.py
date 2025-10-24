@@ -95,7 +95,9 @@ def test_named_codes(order: int = 2) -> None:
     code = codes.RepetitionCode(order)
     checks = [list(row) for row in code.matrix.view(np.ndarray)]
 
-    with unittest.mock.patch("qldpc.external.codes.get_code", return_value=(checks, None)):
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_classical_code", return_value=(checks, None)
+    ):
         assert codes.ClassicalCode.from_name(f"RepetitionCode({order})") == code
 
 

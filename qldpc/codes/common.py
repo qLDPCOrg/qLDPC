@@ -579,7 +579,7 @@ class ClassicalCode(AbstractCode):
     def from_name(name: str) -> ClassicalCode:
         """Named code in the GAP computer algebra system."""
         standardized_name = name.strip().replace(" ", "")  # strip whitespace
-        matrix, field = external.codes.get_code(standardized_name)
+        matrix, field = external.codes.get_classical_code(standardized_name)
         code = ClassicalCode(matrix, field)
         setattr(code, "_name", name)
         return code
@@ -966,6 +966,16 @@ class QuditCode(AbstractCode):
                 matrix[index, :, qudit] = operator.from_string(op).value
 
         return QuditCode(matrix.reshape(num_checks, 2 * num_qudits), field)
+
+    @staticmethod
+    def from_qecdb_id(code_id: str) -> QuditCode:
+        """Retrieve a code by ID from qecdb.org."""
+        strings, distance, is_css = external.codes.get_quantum_code(code_id)
+        code = QuditCode.from_strings(*[" ".join(string) for string in strings], field=2)
+        if is_css:
+            code = code.to_css()
+        code._distance = distance
+        return code
 
     def __len__(self) -> int:
         """The block length of this code."""
