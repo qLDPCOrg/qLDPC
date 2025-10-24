@@ -68,27 +68,54 @@ def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         assert external.gap.is_installed()
 
 
-def test_get_output() -> None:
+def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Run GAP commands and retrieve the GAP output."""
-    output = "test"
-    with unittest.mock.patch("subprocess.run", return_value=get_mock_process(output)):
-        assert external.gap.get_output() == output
-    with (
-        unittest.mock.patch("subprocess.run", return_value=get_mock_process(output, "error")),
-        pytest.raises(ValueError, match="Error encountered"),
-    ):
-        assert external.gap.get_output()
-
-
-def test_require_package(capsys) -> None:
-    """Install missing GAP packages."""
     # GAP is not installed...
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
         pytest.raises(FileNotFoundError, match="GAP 4 .* not installed"),
     ):
-        external.gap.require_package("")
+        external.gap.get_output()
 
+    # GAP is installed!
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True):
+        # GAP is callable, but returns an error
+        with (
+            unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process("", "error")),
+            pytest.raises(ValueError, match="Error encountered when running GAP"),
+        ):
+            assert external.gap.get_output()
+
+        # GAP is callable, and succeeds
+        with (
+            unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process("_TEST_")),
+        ):
+            assert external.gap.get_output() == "_TEST_"
+
+        # GAP is not callable, so the user must pass around commands and outputs
+        cache = {}
+        inputs = iter(["_OUTPUT_", ""])
+        monkeypatch.setattr("builtins.input", lambda: next(inputs))
+        with (
+            unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
+            unittest.mock.patch("qldpc.cache.get_disk_cache", return_value=cache),
+        ):
+            assert external.gap.get_output("_INPUT_") == "_OUTPUT_"
+            terminal_output, error_message = capsys.readouterr()
+            assert not error_message
+            assert terminal_output.startswith("Run the command below in GAP")
+
+            # retrieve results from cache
+            assert external.gap.get_output("_INPUT_") == "_OUTPUT_"
+            terminal_output, error_message = capsys.readouterr()
+            assert not error_message
+            assert "found in the local cache" in terminal_output
+
+
+def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:
+    """Install missing GAP packages."""
     # GAP is installed but not callable.  The user must install required packages manually
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
@@ -120,7 +147,7 @@ def test_require_package(capsys) -> None:
         ):
             external.gap.require_package("")
 
-        # success!
+        # all requirements are met!
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="success"):
             assert external.gap.require_package("")
             capsys.readouterr()  # intercept printed text
