@@ -85,7 +85,7 @@ def test_require_package() -> None:
     external.gap.is_installed.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(FileNotFoundError, match="GAP 4 .* installation cannot be found"),
+        pytest.raises(FileNotFoundError, match="GAP 4 .* not available"),
     ):
         external.gap.require_package("")
 

@@ -93,10 +93,7 @@ def require_package(name: str, repo: str | None = None) -> bool:
         True if the requirement is satisfied (raises an error otherwise).
     """
     if not is_installed():
-        raise FileNotFoundError(
-            "GAP 4 is required, but an installation cannot be found\n"
-            "GAP should be accessible from the command line with the 'gap' command"
-        )
+        raise FileNotFoundError("GAP 4 is required, but an installation is not available")
 
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
     if availability.strip() == "fail":
