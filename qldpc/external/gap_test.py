@@ -35,12 +35,12 @@ def get_mock_process(
 def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Is GAP 4 installed?"""
     # GAP version not identified
-    external.gap.get_version.cache_clear()
+    external.gap.is_callable.cache_clear()
     with unittest.mock.patch("subprocess.run", side_effect=FileNotFoundError):
-        assert external.gap.get_version() is None
+        assert not external.gap.is_callable()
 
     # gap is not installed and user declines to copy/paste commands and outputs
-    external.gap.get_version.cache_clear()
+    external.gap.is_callable.cache_clear()
     external.gap.is_installed.cache_clear()
     with unittest.mock.patch("subprocess.run", return_value=get_mock_process()):
         monkeypatch.setattr("builtins.input", lambda: "n")
@@ -51,9 +51,9 @@ def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         assert terminal_output.startswith("GAP 4 cannot be called")
 
     # gap is not installed and user is willing to copy/paste commands and outputs
-    external.gap.get_version.cache_clear()
+    external.gap.is_callable.cache_clear()
     external.gap.is_installed.cache_clear()
-    with unittest.mock.patch("qldpc.external.gap.get_version", return_value=None):
+    with unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False):
         monkeypatch.setattr("builtins.input", lambda: "y")
         assert external.gap.is_installed()
 
@@ -62,9 +62,9 @@ def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         assert terminal_output.startswith("GAP 4 cannot be called")
 
     # GAP is installed!
-    external.gap.get_version.cache_clear()
+    external.gap.is_callable.cache_clear()
     external.gap.is_installed.cache_clear()
-    with unittest.mock.patch("qldpc.external.gap.get_version", return_value="4.12.1"):
+    with unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True):
         assert external.gap.is_installed()
 
 
