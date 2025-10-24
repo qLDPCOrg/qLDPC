@@ -74,9 +74,9 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
 
     cache_name = "magma_groups"
     cache = qldpc.cache.get_disk_cache(cache_name)
-    group_key = "".join(group.split())  # strip whitespace
+    key = "".join(group.split())  # strip whitespace
 
-    if generators := cache.get(group_key, None):
+    if generators := cache.get(key, None):
         print(
             "NOTICE: group found in the local MAGMA group cache."
             "  Retrieved group generators (in cycle notation):"
@@ -87,9 +87,9 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
         print("=" * 80)
         print()
         print(
-            "If you think that the retrieved group is incorrect, you can remove it from the cache"
+            "If you think that the cached result is incorrect, you can remove it from the cache"
             " by running the following commands:\n"
-            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", "{group_key}")\n'
+            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", "{key}")\n'
         )
         return generators
 
@@ -110,7 +110,7 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
 
     # compute generators
     generators = parse_gap_permutations("\n".join(permutations))
-    cache[group_key] = generators
+    cache[key] = generators
     return generators
 
 

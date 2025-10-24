@@ -66,15 +66,59 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
 
 def get_output(*commands: str) -> str:
     """Get the output from the given GAP commands."""
-    commands = sanitize_commands(commands)
-    shell_commands = ["gap", "-l", f";{GAP_ROOT}", "-q", "--quitonbreak", "-c", " ".join(commands)]
-    result = subprocess.run(shell_commands, capture_output=True, text=True)
-    if result.stderr:
-        raise ValueError(
-            f"Error encountered when running GAP:\n{result.stderr}\n\n"
-            f"GAP command:\n{' '.join(commands)}"
+    if not is_installed():
+        raise FileNotFoundError("GAP 4 is required to proceed, but is not installed")
+
+    if is_callable():
+        commands = sanitize_commands(commands)
+        shell_commands = [
+            "gap",
+            "-l",
+            f";{GAP_ROOT}",
+            "-q",
+            "--quitonbreak",
+            "-c",
+            " ".join(commands),
+        ]
+        result = subprocess.run(shell_commands, capture_output=True, text=True)
+        if result.stderr:
+            raise ValueError(
+                f"Error encountered when running GAP:\n{result.stderr}\n\n"
+                f"GAP command:\n{' '.join(commands)}"
+            )
+        return result.stdout
+
+    print("Run the command below in GAP, and copy/paste the GAP output here.")
+    print("Type an empty line (hit Enter twice) to finish.")
+    print()
+    print("\n".join(commands))
+    print()
+
+    cache_name = "gap_output"
+    cache = qldpc.cache.get_disk_cache(cache_name)
+    key = " ".join(commands)
+
+    if output := cache.get(key, None):
+        print("NOTICE: GAP command and output found in the local cache.  Retrieved output:")
+        print("=" * 80)
+        print(output)
+        print("=" * 80)
+        print()
+        print(
+            "If you think that the cached result is incorrect, you can remove it from the cache"
+            " by running the following commands:\n"
+            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", "{key}")\n'
         )
-    return result.stdout
+        return output
+
+    # read in GAP output
+    lines = []
+    while line := input():
+        lines.append(line)
+
+    output = "\n".join(lines)
+    cache[key] = output
+    return lines
 
 
 @functools.cache
@@ -92,24 +136,28 @@ def require_package(name: str, repo: str | None = None) -> bool:
     Returns:
         True if the requirement is satisfied (raises an error otherwise).
     """
-    if not is_installed():
-        raise FileNotFoundError("GAP 4 is required, but an installation is not available")
-
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
+
     if availability.strip() == "fail":
+        repo = repo or f"https://github.com/gap-packages/{name}"
+        if not is_callable():
+            raise ModuleNotFoundError(
+                f"GAP package '{name}' is required but not installed.\n"
+                f"You may be able to find this pacakge at {repo}"
+            )
+
         response = (
-            input(f"GAP package {name} is required but not installed.  Try to install it? (Y/n)")
+            input(f"GAP package '{name}' is required but not installed.  Try to install it? (Y/n)")
             .strip()
             .lower()
         )
         if not response or response == "y":
-            repo = repo or f"https://github.com/gap-packages/{name}"
             commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
             print(" ".join(commands))
             install_result = subprocess.run(commands, capture_output=True, text=True)
             if install_result.returncode:
                 raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
         else:
-            raise ValueError(f"Cannot proceed without the required package ({name})")
+            raise ValueError(f"Cannot proceed without the required package, {name}")
 
     return True
