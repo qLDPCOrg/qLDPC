@@ -635,7 +635,7 @@ class ClassicalCode(AbstractCode):
         matrices = [code.matrix for code in codes]
         return ClassicalCode(scipy.linalg.block_diag(*matrices), field=fields[0].order)
 
-    def punctured(self, bits: int) -> ClassicalCode:
+    def punctured(self, bits: Sequence[int]) -> ClassicalCode:
         """Delete the specified bits from a code.
 
         To delete bits from the code, we remove the corresponding columns from its generator matrix
@@ -646,12 +646,12 @@ class ClassicalCode(AbstractCode):
         new_generator = self.generator[:, bits_to_keep]
         return ClassicalCode.from_generator(new_generator, self.field.order)
 
-    def puncture(self, bits: int) -> ClassicalCode:  # pragma: no cover
+    def puncture(self, bits: Sequence[int]) -> ClassicalCode:  # pragma: no cover
         """Deprecated alias for ClassicalCode.punctured."""
         warnings.warn("ClassicalCode.puncture is DEPRECATED; use ClassicalCode.punctured instead")
         return self.punctured(bits)
 
-    def shortened(self, bits: int) -> ClassicalCode:
+    def shortened(self, bits: Sequence[int]) -> ClassicalCode:
         """Shorten a code to the words that are zero on the specified bits, and delete those bits.
 
         To shorten a code on a given bit, we:
@@ -667,7 +667,7 @@ class ClassicalCode(AbstractCode):
             generator = np.roll(generator, bit, axis=1).view(self.field)
         return ClassicalCode.from_generator(generator)
 
-    def shorten(self, bits: int) -> ClassicalCode:  # pragma: no cover
+    def shorten(self, bits: Sequence[int]) -> ClassicalCode:  # pragma: no cover
         """Deprecated alias for ClassicalCode.shortened."""
         warnings.warn("ClassicalCode.shorten is DEPRECATED; use ClassicalCode.shortened instead")
         return self.shortened(bits)

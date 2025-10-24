@@ -2015,20 +2015,19 @@ class GeneralizedSurfaceCode(CSSCode):
             )
 
         # save known distances
-        # TODO: find and link source for these
         self._distance_x = size ** (dim - 1)
         self._distance_z = size
 
         base_code = RingCode(size, field) if periodic else RepetitionCode(size, field)
 
         # build a chain complex one link at a time
-        chain = ChainComplex(base_code.matrix)
-        link = ChainComplex(base_code.matrix.T)
+        chain = ChainComplex([base_code.matrix])
+        link = ChainComplex([base_code.matrix.T])
         for _ in range(dim - 1):
             chain = ChainComplex.tensor_product(chain, link)
 
             # to reduce computational overhead, remove chain links that we don't care about
-            chain = ChainComplex(*chain.ops[:2])
+            chain = ChainComplex(chain.ops[:2])
 
         matrix_x, matrix_z = chain.op(1), chain.op(2).T
         assert not isinstance(matrix_x, abstract.RingArray)

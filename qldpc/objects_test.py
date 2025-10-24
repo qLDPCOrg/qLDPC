@@ -139,10 +139,10 @@ def test_chain_complex(field: int = 3) -> None:
 
     # invalid chain complex constructions
     with pytest.raises(ValueError, match="inconsistent operator types"):
-        objects.ChainComplex(matrix, abstract.TrivialGroup.to_ring_array([[0]]))
+        objects.ChainComplex([matrix, abstract.TrivialGroup.to_ring_array([[0]])])
     with pytest.raises(ValueError, match="Inconsistent base fields"):
-        objects.ChainComplex(galois.GF(field)(matrix), field=field**2)
+        objects.ChainComplex([galois.GF(field)(matrix)], field=field**2)
     with pytest.raises(ValueError, match="boundary operators .* must compose to zero"):
-        objects.ChainComplex(matrix, matrix, field=field)
+        objects.ChainComplex([matrix] * 2, field=field)
     with pytest.raises(ValueError, match="different base fields"):
         objects.ChainComplex.tensor_product(galois.GF(field)(matrix), galois.GF(field**2)(matrix))
