@@ -80,17 +80,29 @@ def test_get_output() -> None:
         assert external.gap.get_output()
 
 
-def test_require_package() -> None:
+def test_require_package(capsys) -> None:
     """Install missing GAP packages."""
-    external.gap.is_installed.cache_clear()
+    # GAP is not installed...
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(FileNotFoundError, match="GAP 4 .* not available"),
+        pytest.raises(FileNotFoundError, match="GAP 4 .* not installed"),
     ):
         external.gap.require_package("")
 
-    external.gap.is_installed.cache_clear()
-    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True):
+    # GAP is installed but not callable.  The user must install required packages manually
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
+        pytest.raises(ModuleNotFoundError, match="GAP package .* not installed"),
+    ):
+        external.gap.require_package("")
+
+    # GAP is installed and callable!  Required packages can be installed automatically
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+    ):
         # user declines to install missing package
         with (
             unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
@@ -111,3 +123,4 @@ def test_require_package() -> None:
         # success!
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="success"):
             assert external.gap.require_package("")
+            capsys.readouterr()  # intercept printed text
