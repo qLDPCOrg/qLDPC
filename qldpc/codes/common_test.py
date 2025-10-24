@@ -383,6 +383,17 @@ def test_qudit_stabilizers(field: int, bits: int = 5, checks: int = 3) -> None:
         codes.QuditCode.from_strings("I", "I I", field=field)
 
 
+def test_from_qecdb_id() -> None:
+    """Retrieve a code from qecdb.org."""
+    strings = ["XXXX", "ZZZZ"]
+    distance = 2
+    is_css = True
+    code_data = (strings, distance, is_css)
+    with unittest.mock.patch("qldpc.external.codes.get_quantum_code", return_value=code_data):
+        code = codes.QuditCode.from_qecdb_id("")
+        assert codes.CSSCode.equiv(code, codes.C4Code())
+
+
 def test_qudit_deformations() -> None:
     """Local Fourier transforms of a QuditCode."""
     code = codes.QuditCode(codes.SHYPSCode(2))
