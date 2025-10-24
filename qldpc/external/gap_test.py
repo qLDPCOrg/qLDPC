@@ -95,7 +95,7 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
             assert external.gap.get_output() == "_TEST_"
 
         # GAP is not callable, so the user must pass around commands and outputs
-        cache = {}
+        cache: dict[str, str] = {}
         inputs = iter(["_OUTPUT_", ""])
         monkeypatch.setattr("builtins.input", lambda: next(inputs))
         with (
