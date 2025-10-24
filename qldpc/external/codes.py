@@ -30,7 +30,7 @@ import qldpc.external.gap
     key_func=lambda code: "".join(code.split()),  # strip whitespace
 )
 def get_code(code: str) -> tuple[list[list[int]], int | None]:
-    """Retrieve a group from GAP."""
+    """Retrieve a classical code from GAP."""
     qldpc.external.gap.require_package("GUAVA")
 
     # run GAP commands
