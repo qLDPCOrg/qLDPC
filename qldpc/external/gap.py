@@ -35,7 +35,7 @@ def is_callable() -> bool:
     try:
         result = subprocess.run(commands, capture_output=True, text=True)
         version = result.stdout.strip()
-        return version and bool(re.match(r"4\.\d+\.\d+", version))
+        return bool(version) and bool(re.match(r"4\.\d+\.\d+", version))
     except FileNotFoundError:
         pass
     return False
@@ -115,10 +115,11 @@ def get_output(*commands: str) -> str:
     lines = []
     while line := input():
         lines.append(line)
-
     output = "\n".join(lines)
+
+    # save output to cache and return
     cache[key] = output
-    return lines
+    return output
 
 
 @functools.cache
