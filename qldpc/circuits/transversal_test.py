@@ -44,7 +44,9 @@ def test_transversal_ops() -> None:
         circuits.get_transversal_automorphism_group(code, ["SQRT_Y"])
 
 
-def test_finding_circuit(pytestconfig: pytest.Config) -> None:
+def test_finding_circuit(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Find a physical circuit for a desired logical Clifford operation."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
@@ -74,10 +76,12 @@ def test_finding_circuit(pytestconfig: pytest.Config) -> None:
     )
     logical_circuit = stim.Circuit(f"{logical_op} 0")
 
-    if external.gap.is_installed():  # pragma: no cover
+    monkeypatch.setattr("builtins.input", lambda: "n")  # user declines to pass around GAP commands
+    if external.gap.is_installed() and external.gap.is_callable():  # pragma: no cover
         # randomly permute the qubits to switch things up!
         new_matrix = code.matrix.reshape(-1, 5)[:, np.random.permutation(5)].reshape(-1, 10)
         code = codes.QuditCode(new_matrix)
+    capsys.readouterr()  # intercept printed text
 
     context = (
         pytest.warns(UserWarning, match="with_magma=True")
