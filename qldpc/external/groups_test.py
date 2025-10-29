@@ -188,13 +188,13 @@ def test_get_generators_from_magma(
         assert external.groups.get_generators_from_magma(group) == generators
         terminal_output, error_message = capsys.readouterr()
         assert not error_message
-        assert terminal_output.startswith("Run the command below in MAGMA")
+        assert terminal_output.startswith("Run the following command in MAGMA:")
 
         # now use the cache!
         assert external.groups.get_generators_from_magma(group) == generators
         terminal_output, error_message = capsys.readouterr()
         assert not error_message
-        assert terminal_output.startswith("Run the command below in MAGMA")
+        assert terminal_output.startswith("Run the following command in MAGMA:")
         assert "NOTICE: group found in the local MAGMA group cache" in terminal_output
 
     # mock invalid user input / MAGMA output

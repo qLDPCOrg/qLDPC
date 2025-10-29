@@ -105,7 +105,7 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
             assert external.gap.get_output("_INPUT_") == "_OUTPUT_"
             terminal_output, error_message = capsys.readouterr()
             assert not error_message
-            assert terminal_output.startswith("Run the command below in GAP")
+            assert terminal_output.startswith("Run the following command in GAP:")
 
             # retrieve results from cache
             assert external.gap.get_output("_INPUT_") == "_OUTPUT_"
