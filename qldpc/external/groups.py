@@ -94,11 +94,11 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
 
     print("===============================================================================")
     print("NOTE:")
-    try:
+    try:  # pragma: no cover
         pyperclip.copy(group)
         print("The above command has been copied to your system clipboard.")
         print("You can paste the command into MAGMA with ctrl+v or cmd+v.")
-    except pyperclip.PyperclipException:
+    except pyperclip.PyperclipException:  # pragma: no cover
         print("Failed to automatically copy the above command into your system clipboard.")
         print("See https://pyperclip.readthedocs.io/en/latest/index.html#not-implemented-error")
         print("Manually copy/paste the above command into MAGMA.")
