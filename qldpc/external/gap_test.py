@@ -101,6 +101,7 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
         with (
             unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
             unittest.mock.patch("qldpc.cache.get_disk_cache", return_value=cache),
+            unittest.mock.patch("pyperclip.copy", return_value=None),
         ):
             assert external.gap.get_output("_INPUT_") == "_OUTPUT_"
             terminal_output, error_message = capsys.readouterr()

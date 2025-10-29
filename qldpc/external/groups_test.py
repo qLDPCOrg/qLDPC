@@ -183,7 +183,10 @@ def test_get_generators_from_magma(
     monkeypatch.setattr("builtins.input", lambda: next(inputs))
 
     cache: dict[str, str] = {}
-    with unittest.mock.patch("qldpc.cache.get_disk_cache", return_value=cache):
+    with (
+        unittest.mock.patch("qldpc.cache.get_disk_cache", return_value=cache),
+        unittest.mock.patch("pyperclip.copy", return_value=None),
+    ):
         # compute generators with MAGMA
         assert external.groups.get_generators_from_magma(group) == generators
         terminal_output, error_message = capsys.readouterr()

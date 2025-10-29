@@ -94,7 +94,7 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
 
     print("===============================================================================")
     print("NOTE:")
-    try:  # pragma: no cover
+    try:
         pyperclip.copy(group)
         print("The above command has been copied to your system clipboard.")
         print("You can paste the command into MAGMA with ctrl+v or cmd+v.")

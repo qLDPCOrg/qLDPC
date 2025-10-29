@@ -115,7 +115,7 @@ def get_output(*commands: str) -> str:
     pyperclip.copy(command)
     print("===============================================================================")
     print("NOTE:")
-    try:  # pragma: no cover
+    try:
         pyperclip.copy(command)
         print("The above command has been copied to your system clipboard.")
         print("You can paste the command into GAP with ctrl+v or cmd+v.")
