@@ -23,6 +23,8 @@ import re
 import subprocess
 from collections.abc import Sequence
 
+import pyperclip
+
 import qldpc
 
 GAP_ROOT = os.path.join(os.path.dirname(os.path.dirname(qldpc.__file__)), "gap")
@@ -88,17 +90,16 @@ def get_output(*commands: str) -> str:
             )
         return result.stdout
 
-    print("Run the command below in GAP, and copy/paste the GAP output here.")
-    print("Type an empty line (hit Enter twice) to finish.")
+    command = " ".join(commands)
+    print("Run the following command in GAP:")
     print()
-    print(" ".join(commands))
+    print(command)
     print()
 
     cache_name = "gap_output"
     cache = qldpc.cache.get_disk_cache(cache_name)
-    key = " ".join(commands)
 
-    if output := cache.get(key, None):
+    if output := cache.get(command, None):
         print("NOTICE: GAP command and output found in the local cache.  Retrieved output:")
         print("=" * 80)
         print(output)
@@ -107,9 +108,19 @@ def get_output(*commands: str) -> str:
         print(
             "If you think that the cached result is incorrect, you can remove it from the cache"
             " by running the following commands:\n"
-            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", """{key}""")\n'
+            f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", """{command}""")\n'
         )
         return output
+
+    pyperclip.copy(command)
+    print("==========================================================================")
+    print("NOTE:")
+    print("The above command has already been copied to your system clipboard.")
+    print("You can paste the command into GAP with ctrl+v or cmd+v.")
+    print("In turn, copy the resulting output from GAP and paste it here to continue.")
+    print("Type an empty line (hit Enter twice) to finish.")
+    print("==========================================================================")
+    print()
 
     # read in GAP output
     lines = []
@@ -118,7 +129,7 @@ def get_output(*commands: str) -> str:
     output = "\n".join(lines)
 
     # save output to cache and return
-    cache[key] = output
+    cache[command] = output
     return output
 
 

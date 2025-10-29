@@ -23,6 +23,7 @@ import urllib.request
 import warnings
 
 import galois
+import pyperclip
 
 import qldpc.cache
 import qldpc.external.gap
@@ -65,9 +66,7 @@ def get_generators(
 
 def get_generators_from_magma(group: str) -> GENERATORS_LIST:
     """Retrieve group generators from MAGMA."""
-    print("Run the command below in MAGMA, and copy/paste the MAGMA output here.")
-    print("Type an empty line (hit Enter twice) to finish.")
-    print("You can find an online MAGMA calculator at https://magma.maths.usyd.edu.au/calc")
+    print("Run the following command in MAGMA:")
     print()
     print(group)
     print()
@@ -92,6 +91,17 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
             f'\nimport qldpc\nqldpc.cache.clear_entry("{cache_name}", """{key}""")\n'
         )
         return generators
+
+    pyperclip.copy(group)
+    print("============================================================================")
+    print("NOTE:")
+    print("The above command has already been copied to your system clipboard.")
+    print("You can paste the command into MAGMA with ctrl+v or cmd+v.")
+    print("In turn, copy the resulting output from MAGMA and paste it here to continue.")
+    print("There is an online MAGMA calculator at https://magma.maths.usyd.edu.au/calc")
+    print("Type an empty line (hit Enter twice) to finish.")
+    print("============================================================================")
+    print()
 
     # read in MAGMA output
     lines = []
