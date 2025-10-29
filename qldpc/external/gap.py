@@ -113,13 +113,19 @@ def get_output(*commands: str) -> str:
         return output
 
     pyperclip.copy(command)
-    print("==========================================================================")
+    print("===============================================================================")
     print("NOTE:")
-    print("The above command has already been copied to your system clipboard.")
-    print("You can paste the command into GAP with ctrl+v or cmd+v.")
+    try:
+        pyperclip.copy(command)
+        print("The above command has been copied to your system clipboard.")
+        print("You can paste the command into GAP with ctrl+v or cmd+v.")
+    except pyperclip.PyperclipException:
+        print("Failed to automatically copy the above command into your system clipboard.")
+        print("See https://pyperclip.readthedocs.io/en/latest/index.html#not-implemented-error")
+        print("Manually copy/paste the above command into GAP.")
     print("In turn, copy the resulting output from GAP and paste it here to continue.")
     print("Type an empty line (hit Enter twice) to finish.")
-    print("==========================================================================")
+    print("===============================================================================")
     print()
 
     # read in GAP output

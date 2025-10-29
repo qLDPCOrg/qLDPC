@@ -92,15 +92,20 @@ def get_generators_from_magma(group: str) -> GENERATORS_LIST:
         )
         return generators
 
-    pyperclip.copy(group)
-    print("============================================================================")
+    print("===============================================================================")
     print("NOTE:")
-    print("The above command has already been copied to your system clipboard.")
-    print("You can paste the command into MAGMA with ctrl+v or cmd+v.")
+    try:
+        pyperclip.copy(group)
+        print("The above command has been copied to your system clipboard.")
+        print("You can paste the command into MAGMA with ctrl+v or cmd+v.")
+    except pyperclip.PyperclipException:
+        print("Failed to automatically copy the above command into your system clipboard.")
+        print("See https://pyperclip.readthedocs.io/en/latest/index.html#not-implemented-error")
+        print("Manually copy/paste the above command into MAGMA.")
     print("In turn, copy the resulting output from MAGMA and paste it here to continue.")
     print("There is an online MAGMA calculator at https://magma.maths.usyd.edu.au/calc")
     print("Type an empty line (hit Enter twice) to finish.")
-    print("============================================================================")
+    print("===============================================================================")
     print()
 
     # read in MAGMA output
