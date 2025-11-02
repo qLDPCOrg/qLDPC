@@ -261,6 +261,7 @@ def _get_basis_memory_experiment_parts(
     measurement_record.append({data_id: [mm] for mm, data_id in enumerate(data_ids)})
 
     # detectors for stabilizers that can be inferred from data qubit measurements
+    readout.append("SHIFT_COORDS", [], (1, 0, 0))
     check_support = code.get_matrix(basis)
     for kk, check_id in enumerate(basis_check_ids):
         data_support = np.where(check_support[kk])[0]
@@ -268,7 +269,7 @@ def _get_basis_memory_experiment_parts(
             "DETECTOR",
             [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support]
             + [measurement_record.get_target_rec(check_id)],
-            (num_rounds, 0, kk),
+            (0, 0, kk),
         )
     detector_record.append({check_id: [dd] for dd, check_id in enumerate(basis_check_ids)})
 
@@ -326,13 +327,14 @@ def _get_combined_memory_simulation_parts(
         readout.append(stim.CircuitInstruction(f"MPP {joined_targets}"))
 
     # update the measurement record, add detectors, and update the detector record
+    readout.append("SHIFT_COORDS", [], (1, 0, 0))
     measurement_record.append({check_id: [mm] for mm, check_id in enumerate(check_ids)})
     for kk, check_id in enumerate(check_ids):
         targets = [
             measurement_record.get_target_rec(check_id, -1),
             measurement_record.get_target_rec(check_id, -2),
         ]
-        readout.append("DETECTOR", targets, (num_rounds, 0, kk))
+        readout.append("DETECTOR", targets, (0, 0, kk))
     detector_record.append({check_id: [dd] for dd, check_id in enumerate(check_ids)})
 
     # annotate all observables
