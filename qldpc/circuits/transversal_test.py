@@ -84,9 +84,9 @@ def test_finding_circuit(
     capsys.readouterr()  # intercept printed text
 
     context = (
-        pytest.warns(UserWarning, match="with_magma=True")
-        if code != codes.FiveQubitCode()
-        else contextlib.nullcontext()
+        contextlib.nullcontext()
+        if code == codes.FiveQubitCode() or code.is_equiv_to(codes.FiveQubitCode())
+        else pytest.warns(UserWarning, match="with_magma=True")
     )
     with context:
         # construct physical circuit for the logical operation

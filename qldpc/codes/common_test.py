@@ -68,7 +68,7 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     # construct a code from its generator matrix
     code = codes.ClassicalCode.random(5, 3)
-    assert codes.ClassicalCode.equiv(code, codes.ClassicalCode.from_generator(code.generator))
+    assert code.is_equiv_to(codes.ClassicalCode.from_generator(code.generator))
 
     # puncture a code
     assert codes.ClassicalCode.from_generator(code.generator[:, 1:]) == code.punctured([0])
@@ -269,12 +269,12 @@ def test_qudit_codes() -> None:
     assert code.dimension == 1
     assert code.get_weight() == 4
     assert code.get_logical_ops(Pauli.X).shape == code.get_logical_ops(Pauli.Z).shape
-    assert codes.QuditCode.equiv(code, codes.QuditCode(code))
+    assert code.is_equiv_to(codes.QuditCode(code))
     assert_valid_subgraphs(code)
 
     # equivlence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
-    assert codes.QuditCode.equiv(code, redundant_code)
+    assert code.is_equiv_to(redundant_code)
 
     # the logical ops of the redundant code are valid ops of the original code
     code.set_logical_ops(redundant_code.get_logical_ops())  # also validates the logical ops
@@ -391,7 +391,7 @@ def test_from_qecdb_id() -> None:
     code_data = (strings, distance, is_css)
     with unittest.mock.patch("qldpc.external.codes.get_quantum_code", return_value=code_data):
         code = codes.QuditCode.from_qecdb_id("")
-        assert codes.CSSCode.equiv(code, codes.C4Code())
+        assert code.is_equiv_to(codes.C4Code())
 
 
 def test_qudit_deformations() -> None:
@@ -408,7 +408,7 @@ def test_qudit_deformations() -> None:
 
     # the Steane code is self-dual
     code = codes.SteaneCode()
-    assert codes.CSSCode.equiv(code.deformed("H 0 1 2 3 4 5 6", preserve_logicals=True), code)
+    assert code.is_equiv_to(code.deformed("H 0 1 2 3 4 5 6", preserve_logicals=True))
 
 
 def get_codes_for_testing_ops() -> Iterator[codes.CSSCode]:
@@ -519,7 +519,7 @@ def test_quantum_capacity() -> None:
 def test_qudit_to_css() -> None:
     """Convert a QuditCode to a CSSCode."""
     code = codes.SteaneCode()
-    assert codes.CSSCode.equiv(code, codes.QuditCode(code.matrix).to_css())
+    assert code.is_equiv_to(codes.QuditCode(code.matrix).to_css())
 
     with pytest.raises(ValueError, match="both X and Z support"):
         codes.FiveQubitCode().to_css()
@@ -543,8 +543,7 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert code == codes.CSSCode(code.code_x, code.code_z)
 
     # equivlence to QuditCode with the same parity check matrix
-    equiv_code = codes.QuditCode(code.matrix)
-    assert codes.CSSCode.equiv(code, equiv_code)
+    assert code.is_equiv_to(codes.QuditCode(code.matrix))
 
     # equivlence to code with redundant stabilizers
     redundant_code = codes.CSSCode(np.vstack([code.matrix_x, code.matrix_x]), code.matrix_z)

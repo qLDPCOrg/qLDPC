@@ -157,10 +157,14 @@ class AbstractCode(abc.ABC):
 
     @staticmethod
     def equiv(code_a: AbstractCode, code_b: AbstractCode) -> bool:
-        """Do the two codes have the same parity checks?"""
+        """Are the two codes equivalent?  Do they have the same parity checks?"""
         return code_a.field is code_b.field and np.array_equal(
             code_a.canonicalized.matrix, code_b.canonicalized.matrix
         )
+
+    def is_equiv_to(self, other: AbstractCode) -> bool:
+        """Are the two codes equivalent?  Do they have the same parity checks?"""
+        return self.equiv(self, other)
 
     @abc.abstractmethod
     def __len__(self) -> int:
@@ -2092,7 +2096,7 @@ class CSSCode(QuditCode):
 
     @staticmethod
     def equiv(code_a: AbstractCode, code_b: AbstractCode) -> bool:
-        """Do the two codes have the same parity checks?"""
+        """Are the two codes equivalent?  Do they have the same parity checks?"""
         if isinstance(code_a, CSSCode) and isinstance(code_b, CSSCode):
             return ClassicalCode.equiv(code_a.code_x, code_b.code_x) and ClassicalCode.equiv(
                 code_a.code_z, code_b.code_z

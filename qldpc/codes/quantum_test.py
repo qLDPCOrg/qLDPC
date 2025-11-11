@@ -55,7 +55,7 @@ def test_hamming_and_tetrahedral_codes() -> None:
 
     tetrahedral_code = codes.TetrahedralCode(algebraic=False)
     assert tetrahedral_code.get_code_params() == (15, 1, 3)
-    assert codes.CSSCode.equiv(tetrahedral_code, codes.TetrahedralCode(algebraic=True))
+    assert tetrahedral_code.is_equiv_to(codes.TetrahedralCode(algebraic=True))
 
     """
     The tetrahedral code (TC) can be constructed by concatenating the quantum Hamming code (QHC)
@@ -73,7 +73,7 @@ def test_hamming_and_tetrahedral_codes() -> None:
         codes.CSSCode.classical(codes.ClassicalCode.from_generator(decomposition), Pauli.Z),
         range(quantum_hamming_code.dimension),
     )
-    assert codes.CSSCode.equiv(code, tetrahedral_code)
+    assert code.is_equiv_to(tetrahedral_code)
 
 
 def test_two_block_code_error() -> None:
@@ -487,7 +487,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
 
     # un-rotated SurfaceCode = HGPCode
     rep_codes = (codes.RepetitionCode(rows), codes.RepetitionCode(cols))
-    assert codes.CSSCode.equiv(code, codes.HGPCode(*rep_codes))
+    assert code.is_equiv_to(codes.HGPCode(*rep_codes))
 
     # rotated surface code
     code = codes.SurfaceCode(rows, cols, rotated=True, field=3)
