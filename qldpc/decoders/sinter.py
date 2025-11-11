@@ -176,7 +176,8 @@ class SubgraphSinterDecoder(SinterDecoder):
     which case the subgraph detector error model D_S only considers (and predicts corrections for)
     the observables in O_S.
 
-    As an example, a SubgraphSinterDecoder is useful for independently decoding the X and Z sectors of a CSS code.
+    As an example, a SubgraphSinterDecoder is useful for independently decoding the X and Z sectors
+    of a CSS code.
     """
 
     def __init__(
