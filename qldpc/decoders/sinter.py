@@ -562,7 +562,7 @@ class SlidingWindowSinterDecoder(SequentialSinterDecoder):
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
     ) -> CompiledSequentialSinterDecoder:
-        """Creates a decoder preconfigured for the given detector error model
+        """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
         """
