@@ -562,12 +562,13 @@ class SlidingWindowSinterDecoder(SequentialSinterDecoder):
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
     ) -> CompiledSequentialSinterDecoder:
-        """Creates a decoder preconfigured for the given detector error model. Creates windows
-        based on the time coordinates of detectors specified in the DetectorErrorModel.
+        """Creates a decoder preconfigured for the given detector error model
 
         See help(sinter.Decoder) for additional information.
         """
         dem_coords = dem.get_detector_coordinates()
+
+        # create windows based on the time coordinate of the detectors in the DetectorErrorModel
         self.windows = []
         for detectors in self.segment_detectors:
             time_dets: dict[int, list[int]] = {}
@@ -586,4 +587,5 @@ class SlidingWindowSinterDecoder(SequentialSinterDecoder):
             for i in range(t + self.window_size, max(time_dets) + 1):
                 self.windows[-1][0].extend(time_dets[i])
                 self.windows[-1][1].extend(time_dets[i])
+
         return SequentialSinterDecoder.compile_decoder_for_dem(self, dem, simplify=simplify)
