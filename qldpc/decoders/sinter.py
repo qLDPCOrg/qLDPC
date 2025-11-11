@@ -458,6 +458,10 @@ class CompiledWindowSinterDecoder(CompiledSinterDecoder):
     def decode_shots_to_error(
         self, detection_event_data: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
+        """Predicts a net circuit error from the given detection events.
+
+        This method accepts and returns boolean data.
+        """
         num_samples, num_detectors = detection_event_data.shape
         assert num_detectors == self.dem_arrays.num_detectors
 
