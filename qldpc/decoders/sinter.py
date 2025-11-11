@@ -505,13 +505,15 @@ class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
 class SlidingWindowSinterDecoder(SequentialSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
-    A SlidingWindowDecoder creates a WindowSinterDecoder by grouping detectors into windows based on a time coordinate.
-    The amount of overlapping rounds between adjacent windows is determined by the stride and window size. For example,
-    a window size of w and a stride of s indicates adjacent windows will overlap on w - s rounds. The 'commit region'
-    for each window therefore corresponds to the first s rounds in the window.
+    A SlidingWindowDecoder creates a SequentialSinterDecoder by grouping detectors into windows
+    based on a time coordinate.  The amount of overlapping rounds between adjacent windows is
+    determined by the stride and window size.  For example, a window size of w and a stride of s
+    indicates adjacent windows will overlap on w - s rounds.  The "commit region" for each window
+    therefore corresponds to the first s rounds in the window.
 
-    A set of sliding windows is constructed for each segment of detectors specified. For example, this can be used to
-    create independent sets of sliding windows for the X and Z sectors of a CSS code.
+    A set of sliding windows is constructed for each segment of detectors specified.  For example,
+    this can be used to create independent sets of sliding windows for the X and Z sectors of a CSS
+    code.
     """
 
     def __init__(
@@ -527,15 +529,16 @@ class SlidingWindowSinterDecoder(SequentialSinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder that splits a detector error model into temporal windows.
 
-        A SlidingWindowlSinterDecoder is used by Sinter to decode detection events from a detector error
-        model to predict observable flips.
+        A SlidingWindowSinterDecoder is used by Sinter to decode detection events from a detector
+        error model to predict observable flips.
 
         See help(sinter.Decoder) for additional information.
 
         Args:
             segment_detectors: A sequence containing one set of detectors per segment.
             window_size: The number of rounds in time to include in each window.
-            stride: The amount to slide each window to create the starting time coordinate for the next.
+            stride: The amount to slide each window to create the starting time coordinate for the
+                next.
             time_idx: The index for the time coordinate in the DetectorErrorModel coordinates.
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
