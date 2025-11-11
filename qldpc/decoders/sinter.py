@@ -318,22 +318,34 @@ class CompiledSubgraphSinterDecoder(CompiledSinterDecoder):
         return observable_flips
 
 
-class WindowSinterDecoder(SinterDecoder):
+class SequentialSinterDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
-    A WindowSinterDecoder splits a detector error model into windows composed of a set of detectors.
-    Each window has a subset of detectors corresponding to a 'commit region`. Decoding results of
-    errors in this region are fixed by the window and used to update the syndrome for decoding of
-    subsequent windows. Specifically, a WindowSinterDecoder decodes windows sequentially, one by one.
-    After decoding the syndrome for window j to infer circuit errors, this decoder emulates applying
-    a corresponding correction by appropriately updating the syndrome for window j+1 for errors
-    in the commit region. After decoding all windows, the net error is used to predict observable flips.
+    A SequentialSinterDecoder splits a detector error model into (possibly overlapping) "windows".
+    Each window is defined by two sets of detectors, which in turn define a "detection region" and
+    a "commit region" for that window.  Each region consists of a (given) set of detectors and the
+    (induced) set of error mechanisms that trigger those detectors.
+
+    Windows are decoded sequentially, one by one.  To decode a window, we first decode the syndrome
+    in its its detection region.  We then "commit" to the decoded circuit error in the commit
+    region, which entails
+    (a) removing the error mechanisms in the commit region from all subsequent windows, and
+    (b) emulating the active correction of committed errors by appropriately updating the syndromes
+        in subsequent windows.
+    The net circuit error inferred by decoding all windows is used to predict observable flips.
+
+    A SequentialSinterDecoder initialized without specifying commit regions sets the commit region of
+    each window to the corresponding detection region.
+
+    A special case of SequentialSinterDecoder is a SlidingWindowSinterDecoder, in which case this
+    decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which is
+    explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
     """
 
     def __init__(
         self,
-        window_detectors: Sequence[Collection[int]],
-        window_commit_detectors: Sequence[Collection[int]],
+        detection_regions: Sequence[Collection[int]],
+        commit_regions: Sequence[Collection[int]] | None = None,
         *,
         priors_arg: str | None = None,
         log_likelihood_priors: bool = False,
@@ -341,14 +353,16 @@ class WindowSinterDecoder(SinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder that splits a detector error model into windows.
 
-        A WindowSinterDecoder is used by Sinter to decode detection events from a detector error
+        A SequentialSinterDecoder is used by Sinter to decode detection events from a detector error
         model to predict observable flips.
 
         See help(sinter.Decoder) for additional information.
 
         Args:
-            window_detectors: A sequence containing a set of detectors for each window.
-            window_commit_detectors: A sequence containing a set of detectors corresponding to the commit region for each window.
+            detection_regions: A sequence containing a set of detectors for each window.
+            commit_regions: A sequence containing a set of detectors for each window, or None, in
+                which case the commit region of each window is equal to its detection regions.
+                Default: None.
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -357,11 +371,13 @@ class WindowSinterDecoder(SinterDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        assert len(window_detectors) == len(window_commit_detectors)
+        assert commit_regions is None or len(detection_regions) == len(commit_regions)
         self.windows = [
-            (list(detectors), list(c_detectors))
-            for detectors, c_detectors in zip(window_detectors, window_commit_detectors)
-            if detectors
+            (list(d_detectors), list(c_detectors))
+            for d_detectors, c_detectors in zip(
+                detection_regions, commit_regions or detection_regions
+            )
+            if d_detectors
         ]
         SinterDecoder.__init__(
             self,
@@ -372,59 +388,58 @@ class WindowSinterDecoder(SinterDecoder):
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
-    ) -> CompiledWindowSinterDecoder:
+    ) -> CompiledSequentialSinterDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
 
-        # identify addressed circuit errors and compile a decoder for each window
+        # identify regions and compile a decoder for each window
         window_detectors = []
         window_errors = []
         window_decoders = []
         addressed_errors = np.zeros(dem_arrays.num_errors, dtype=bool)
-        for detectors, c_detectors in self.windows:
-            # identify errors that trigger the detectors for this window
-            errors = dem_arrays.detector_flip_matrix[detectors].getnnz(axis=0) != 0
-            errors[addressed_errors] = False
+        for d_detectors, c_detectors in self.windows:
+            # identify errors in the detection region
+            d_errors = dem_arrays.detector_flip_matrix[d_detectors].getnnz(axis=0) != 0
+            d_errors[addressed_errors] = False
 
-            # build the detector error model for this window, and compile a detector for it
+            # compile a decoder for the detection region
             window_dem_arrays = DetectorErrorModelArrays.from_arrays(
-                dem_arrays.detector_flip_matrix[detectors][:, errors],
-                dem_arrays.observable_flip_matrix[:, errors],
-                dem_arrays.error_probs[errors],
+                dem_arrays.detector_flip_matrix[d_detectors][:, d_errors],
+                dem_arrays.observable_flip_matrix[:, d_errors],
+                dem_arrays.error_probs[d_errors],
             )
             window_decoder = self.get_configured_decoder(window_dem_arrays)
 
-            # identify subset of errors that will be committed by this window
+            # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
             c_errors[addressed_errors] = False
+            c_errors_in_detection_region = np.isin(np.where(d_errors), np.where(c_errors))[0]
 
-            # update the history of errors that were dealt with by preceding windows
-            addressed_errors |= c_errors
-
-            # save the detectors, errors that this window commits, and the decoder for the window
-            window_detectors.append(detectors)
-            window_errors.append((c_errors, np.isin(np.where(errors), np.where(c_errors))[0]))
+            # save detection region detectors, committed error data, and decoders
+            window_detectors.append(d_detectors)
+            window_errors.append((c_errors, c_errors_in_detection_region))
             window_decoders.append(window_decoder)
 
-        return CompiledWindowSinterDecoder(
-            dem_arrays,
-            window_detectors,
-            window_errors,
-            window_decoders,
+            # update the history of errors that are addressed by preceding windows
+            addressed_errors |= c_errors
+
+        return CompiledSequentialSinterDecoder(
+            dem_arrays, window_detectors, window_errors, window_decoders
         )
 
 
-class CompiledWindowSinterDecoder(CompiledSinterDecoder):
+class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
-    This decoder splits a decoding problem into windows that are decoded sequentially.
+    This decoder splits a decoding problem into (possibly overlapping) windows that are decoded
+    sequentially.
 
-    Instances of this class are meant to be constructed by a WindowSinterDecoder, whose
-    .compile_decoder_for_dem method returns a CompiledWindowSinterDecoder.
-    See help(WindowSinterDecoder).
+    Instances of this class are meant to be constructed by a SequentialSinterDecoder, whose
+    .compile_decoder_for_dem method returns a CompiledSequentialSinterDecoder.
+    See help(SequentialSinterDecoder).
     """
 
     def __init__(
@@ -468,7 +483,7 @@ class CompiledWindowSinterDecoder(CompiledSinterDecoder):
         # identify the net circuit error predicted by decoding one window at a time
         net_error = np.zeros((num_samples, self.dem_arrays.num_errors), dtype=int)
         detector_flip_matrix_T = self.dem_arrays.detector_flip_matrix.T
-        for detectors, (errors, errors_idx), decoder in zip(
+        for detectors, (errors, error_locs), decoder in zip(
             self.window_detectors, self.window_errors, self.window_decoders
         ):
             # the bare syndrome plus any corrections we have inferred so far
@@ -482,61 +497,12 @@ class CompiledWindowSinterDecoder(CompiledSinterDecoder):
                 decoder.decode_batch(syndromes)
                 if hasattr(decoder, "decode_batch")
                 else np.array([decoder.decode(syndrome) for syndrome in syndromes])
-            )[:, errors_idx]
+            )[:, error_locs]
 
         return net_error
 
 
-class SequentialSinterDecoder(WindowSinterDecoder):
-    """Decoder usable by Sinter for decoding circuit errors.
-
-    A SequentialSinterDecoder is a WindowSinterDecoder where each segment corresponds to a
-    window with a full commit region (all detectors in the window are part of the commit region).
-
-    Formally, we denote the full parity check matrix of a detector error model by H, denote the
-    segments to be decoded by S_1, S_2, ..., S_n, and denote the full syndrome to be decoded by s_1.
-    The result of decoding segment S_1 is a decoded circuit error e_1.  This error is used to
-    construct the syndrome for segment S_2, namely s_2 = s_1 + H @ e_1.  More generally, the
-    syndrome for segment S_(j+1) is s_(j+1) = s_j + H @ e_j = s_1 + H @ sum_(k=1)^j e_k.  After
-    decoding all segments, the net error sum_(j=1)^n e_j is used to predict observable flips.
-    """
-
-    def __init__(
-        self,
-        segment_detectors: Sequence[Collection[int]],
-        *,
-        priors_arg: str | None = None,
-        log_likelihood_priors: bool = False,
-        **decoder_kwargs: object,
-    ) -> None:
-        """Initialize a SinterDecoder that splits a detector error model into disjoint subgraphs.
-
-        A SequentialSinterDecoder is used by Sinter to decode detection events from a detector error
-        model to predict observable flips.
-
-        See help(sinter.Decoder) for additional information.
-
-        Args:
-            segment_detectors: A sequence containing one set of detectors per segment.
-            priors_arg: The keyword argument to which to pass the probabilities of circuit error
-                likelihoods.  This argument is only necessary for custom decoders.
-            log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
-                np.log((1 - p) / p) to the priors_arg.  This argument is only necessary for custom
-                decoders.  Default: False (unless decoding with MWPM).
-            **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
-                custom decoder from a detector error model.
-        """
-        WindowSinterDecoder.__init__(
-            self,
-            segment_detectors,
-            segment_detectors,
-            priors_arg=priors_arg,
-            log_likelihood_priors=log_likelihood_priors,
-            **decoder_kwargs,
-        )
-
-
-class SlidingWindowSinterDecoder(WindowSinterDecoder):
+class SlidingWindowSinterDecoder(SequentialSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
     A SlidingWindowDecoder creates a WindowSinterDecoder by grouping detectors into windows based on a time coordinate.
@@ -592,7 +558,7 @@ class SlidingWindowSinterDecoder(WindowSinterDecoder):
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
-    ) -> CompiledWindowSinterDecoder:
+    ) -> CompiledSequentialSinterDecoder:
         """Creates a decoder preconfigured for the given detector error model. Creates windows
         based on the time coordinates of detectors specified in the DetectorErrorModel.
 
@@ -617,4 +583,4 @@ class SlidingWindowSinterDecoder(WindowSinterDecoder):
             for i in range(t + self.window_size, max(time_dets) + 1):
                 self.windows[-1][0].extend(time_dets[i])
                 self.windows[-1][1].extend(time_dets[i])
-        return WindowSinterDecoder.compile_decoder_for_dem(self, dem, simplify=simplify)
+        return SequentialSinterDecoder.compile_decoder_for_dem(self, dem, simplify=simplify)
