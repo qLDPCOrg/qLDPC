@@ -514,6 +514,9 @@ class SlidingWindowSinterDecoder(SequentialSinterDecoder):
     A set of sliding windows is constructed for each segment of detectors specified.  For example,
     this can be used to create independent sets of sliding windows for the X and Z sectors of a CSS
     code.
+
+    This decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143,
+    which is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
     """
 
     def __init__(
