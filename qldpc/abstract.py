@@ -718,7 +718,11 @@ class Element(RingMember):  # pragma: no cover
     """Deprecated alias for RingMember."""
 
     def __getattribute__(self, name: str) -> Callable[..., typing.Any]:
-        warnings.warn(f"{Element} is DEPRECATED; use {RingMember} instead")
+        warnings.warn(
+            f"{Element} is DEPRECATED; use {RingMember} instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return super().__getattribute__(name)
 
 
@@ -937,7 +941,7 @@ class RingArray(npt.NDArray[np.object_]):
             warnings.warn(
                 "RingArray.row_reduce only supports exact row reduction for semisimple group"
                 " algebras, for which the field.characteristic does not divide the group.order."
-                "  Using heuristics for (possibly only partial) row reduction instead."
+                "  Using heuristics for (possibly only partial) row reduction instead.",
             )
         return self._heuristic_row_reduce()
 
@@ -1089,7 +1093,11 @@ class Protograph(RingArray):  # pragma: no cover
     """Deprecated alias for RingArray."""
 
     def __getattribute__(self, name: str) -> Callable[..., typing.Any]:
-        warnings.warn(f"{Protograph} is DEPRECATED; use {RingArray} instead")
+        warnings.warn(
+            f"{Protograph} is DEPRECATED; use {RingArray} instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return super().__getattribute__(name)
 
 

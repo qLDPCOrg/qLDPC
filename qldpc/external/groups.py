@@ -185,7 +185,7 @@ def maybe_get_generators_from_gap(
 
     # if provided a warning to raise before calling GAP, raise it now
     if warning is not None:
-        warnings.warn(warning)
+        warnings.warn(warning, stacklevel=2)
 
     # run GAP commands
     commands = [

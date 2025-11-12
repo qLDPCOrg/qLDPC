@@ -426,7 +426,8 @@ class ClassicalCode(AbstractCode):
         if not bound:
             if bound_kwargs:
                 warnings.warn(
-                    "Distance bounding arguments are ignored when computing an exact distance"
+                    "Distance bounding arguments are ignored when computing an exact distance",
+                    stacklevel=2,
                 )
             return self.get_distance_exact(vector=vector)
         return self.get_distance_bound(num_trials=int(bound), vector=vector, **bound_kwargs)
@@ -652,7 +653,11 @@ class ClassicalCode(AbstractCode):
 
     def puncture(self, bits: Sequence[int]) -> ClassicalCode:  # pragma: no cover
         """Deprecated alias for ClassicalCode.punctured."""
-        warnings.warn("ClassicalCode.puncture is DEPRECATED; use ClassicalCode.punctured instead")
+        warnings.warn(
+            "ClassicalCode.puncture is DEPRECATED; use ClassicalCode.punctured instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.punctured(bits)
 
     def shortened(self, bits: Sequence[int]) -> ClassicalCode:
@@ -673,7 +678,11 @@ class ClassicalCode(AbstractCode):
 
     def shorten(self, bits: Sequence[int]) -> ClassicalCode:  # pragma: no cover
         """Deprecated alias for ClassicalCode.shortened."""
-        warnings.warn("ClassicalCode.shorten is DEPRECATED; use ClassicalCode.shortened instead")
+        warnings.warn(
+            "ClassicalCode.shorten is DEPRECATED; use ClassicalCode.shortened instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.shortened(bits)
 
     def get_logical_error_rate_func(
@@ -1459,7 +1468,11 @@ class QuditCode(AbstractCode):
 
     def get_dual_subsystem_code(self) -> QuditCode:  # pragma: no cover
         """Deprecated alias for self.dual()."""
-        warnings.warn("QuditCode.get_dual_subsystem_code is DEPRECATED; use QuditCode.dual instead")
+        warnings.warn(
+            "QuditCode.get_dual_subsystem_code is DEPRECATED; use QuditCode.dual instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.dual()
 
     @functools.cached_property
@@ -1517,7 +1530,8 @@ class QuditCode(AbstractCode):
         if not bound:
             if bound_kwargs:
                 warnings.warn(
-                    "Distance bounding arguments are ignored when computing an exact distance"
+                    "Distance bounding arguments are ignored when computing an exact distance",
+                    stacklevel=2,
                 )
             return self.get_distance_exact()
         return self.get_distance_bound(num_trials=int(bound), **bound_kwargs)
@@ -1547,7 +1561,8 @@ class QuditCode(AbstractCode):
 
         else:
             warnings.warn(
-                "Computing the exact distance of a non-binary code may take a (very) long time"
+                "Computing the exact distance of a non-binary code may take a (very) long time",
+                stacklevel=2,
             )
             distance = len(self)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)
@@ -2479,7 +2494,8 @@ class CSSCode(QuditCode):
         if not bound:
             if bound_kwargs:
                 warnings.warn(
-                    "Distance bounding arguments are ignored when computing an exact distance"
+                    "Distance bounding arguments are ignored when computing an exact distance",
+                    stacklevel=2,
                 )
             return self.get_distance_exact(pauli)
         return self.get_distance_bound(num_trials=int(bound), pauli=pauli, **bound_kwargs)
@@ -2524,7 +2540,8 @@ class CSSCode(QuditCode):
 
         else:
             warnings.warn(
-                "Computing the exact distance of a non-binary code may take a (very) long time"
+                "Computing the exact distance of a non-binary code may take a (very) long time",
+                stacklevel=2,
             )
             distance = len(self)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)

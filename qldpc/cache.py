@@ -90,5 +90,6 @@ def clear_entry(cache_name: str, key: Hashable, *, cache_dir: str | None = None)
         warnings.warn(
             f"Attempted to delete the entry '{key}' from the cache '{cache_name}'"
             + ("" if cache_dir is None else f" (located at '{cache_path}')")
-            + ", but this entry does not exist."
+            + ", but this entry does not exist.",
+            stacklevel=2,
         )
