@@ -318,10 +318,10 @@ class CompiledSubgraphSinterDecoder(CompiledSinterDecoder):
         return observable_flips
 
 
-class SequentialSinterDecoder(SinterDecoder):
+class SequentialWindowDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
-    A SequentialSinterDecoder splits a detector error model into (possibly overlapping) "windows".
+    A SequentialWindowDecoder splits a detector error model into (possibly overlapping) "windows".
     Each window is defined by two sets of detectors, which in turn define a "detection region" and
     a "commit region" for that window.  Each region consists of a (given) set of detectors and the
     (induced) set of error mechanisms that trigger those detectors.
@@ -334,10 +334,10 @@ class SequentialSinterDecoder(SinterDecoder):
         in subsequent windows.
     The net circuit error inferred by decoding all windows is used to predict observable flips.
 
-    A SequentialSinterDecoder initialized without specifying commit regions sets the commit region of
+    A SequentialWindowDecoder initialized without specifying commit regions sets the commit region of
     each window to the corresponding detection region.
 
-    A special case of SequentialSinterDecoder is a SlidingWindowSinterDecoder, in which case this
+    A special case of SequentialWindowDecoder is a SlidingWindowDecoder, in which case this
     decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which is
     explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
     """
@@ -353,7 +353,7 @@ class SequentialSinterDecoder(SinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder that splits a detector error model into windows.
 
-        A SequentialSinterDecoder is used by Sinter to decode detection events from a detector error
+        A SequentialWindowDecoder is used by Sinter to decode detection events from a detector error
         model to predict observable flips.
 
         See help(sinter.Decoder) for additional information.
@@ -388,7 +388,7 @@ class SequentialSinterDecoder(SinterDecoder):
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
-    ) -> CompiledSequentialSinterDecoder:
+    ) -> CompiledSequentialWindowDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
@@ -426,20 +426,20 @@ class SequentialSinterDecoder(SinterDecoder):
             # update the history of errors that are addressed by preceding windows
             addressed_errors |= c_errors
 
-        return CompiledSequentialSinterDecoder(
+        return CompiledSequentialWindowDecoder(
             dem_arrays, window_detectors, window_errors, window_decoders
         )
 
 
-class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
+class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     This decoder splits a decoding problem into (possibly overlapping) windows that are decoded
     sequentially.
 
-    Instances of this class are meant to be constructed by a SequentialSinterDecoder, whose
-    .compile_decoder_for_dem method returns a CompiledSequentialSinterDecoder.
-    See help(SequentialSinterDecoder).
+    Instances of this class are meant to be constructed by a SequentialWindowDecoder, whose
+    .compile_decoder_for_dem method returns a CompiledSequentialWindowDecoder.
+    See help(SequentialWindowDecoder).
     """
 
     def __init__(
@@ -502,12 +502,12 @@ class CompiledSequentialSinterDecoder(CompiledSinterDecoder):
         return net_error
 
 
-class SlidingWindowSinterDecoder(SequentialSinterDecoder):
+class SlidingWindowDecoder(SequentialWindowDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
-    A SlidingWindowDecoder creates a SequentialSinterDecoder by grouping detectors into windows
-    based on a time coordinate.  The amount of overlapping rounds between adjacent windows is
-    determined by the stride and window size.  For example, a window size of w and a stride of s
+    A SlidingWindowDecoder is a SequentialWindowDecoder whose windows are constructed by grouping
+    detectors based on a time coordinate.  The amount of overlapping rounds between adjacent windows
+    is determined by the stride and window size.  For example, a window size of w and a stride of s
     indicates adjacent windows will overlap on w - s rounds.  The "commit region" for each window
     therefore corresponds to the first s rounds in the window.
 
@@ -532,8 +532,8 @@ class SlidingWindowSinterDecoder(SequentialSinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder that splits a detector error model into temporal windows.
 
-        A SlidingWindowSinterDecoder is used by Sinter to decode detection events from a detector
-        error model to predict observable flips.
+        A SlidingWindowDecoder is used by Sinter to decode detection events from a detector error
+        model to predict observable flips.
 
         See help(sinter.Decoder) for additional information.
 
@@ -564,7 +564,7 @@ class SlidingWindowSinterDecoder(SequentialSinterDecoder):
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
-    ) -> CompiledSequentialSinterDecoder:
+    ) -> CompiledSequentialWindowDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
@@ -591,4 +591,4 @@ class SlidingWindowSinterDecoder(SequentialSinterDecoder):
                 self.windows[-1][0].extend(time_dets[i])
                 self.windows[-1][1].extend(time_dets[i])
 
-        return SequentialSinterDecoder.compile_decoder_for_dem(self, dem, simplify=simplify)
+        return SequentialWindowDecoder.compile_decoder_for_dem(self, dem, simplify=simplify)
