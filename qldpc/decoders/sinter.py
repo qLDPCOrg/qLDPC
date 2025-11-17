@@ -17,7 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -524,7 +524,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         segment_detectors: Sequence[Collection[int]],
         window_size: int,
         stride: int,
-        time_idx: int = 0,
+        get_detector_coordinate: Callable[[int], int] | None = None,
         *,
         priors_arg: str | None = None,
         log_likelihood_priors: bool = False,
@@ -542,7 +542,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             window_size: The number of rounds in time to include in each window.
             stride: The amount to slide each window to create the starting time coordinate for the
                 next.
-            time_idx: The index for the time coordinate in the DetectorErrorModel coordinates.
+            get_detector_coordinate: Maps a detector to a 1D coordinate used for deciding window boundaries.
+                Defaults to selecting the first coordinate from DetectorErrorModel.get_detector_coordinates()
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -554,7 +555,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         self.segment_detectors = segment_detectors
         self.window_size = window_size
         self.stride = stride
-        self.time_idx = time_idx
+        self.get_detector_coordinate = get_detector_coordinate
         SinterDecoder.__init__(
             self,
             priors_arg=priors_arg,
@@ -570,13 +571,15 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         See help(sinter.Decoder) for additional information.
         """
         dem_coords = dem.get_detector_coordinates()
+        if not self.get_detector_coordinate:
+            self.get_detector_coordinate = lambda det: int(dem_coords[det][0])
 
-        # create windows based on the time coordinate of the detectors in the DetectorErrorModel
+        # create windows based on a 1D coordinate of the detectors in the DetectorErrorModel
         self.windows = []
         for detectors in self.segment_detectors:
             time_dets: dict[int, list[int]] = {}
             for det in detectors:
-                time_dets.setdefault(int(dem_coords[det][self.time_idx]), []).append(det)
+                time_dets.setdefault(self.get_detector_coordinate(det), []).append(det)
             for t in range(0, max(time_dets) - self.window_size + 1, self.stride):
                 window_dets = []
                 commit_dets = []
