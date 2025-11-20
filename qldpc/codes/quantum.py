@@ -1728,3 +1728,86 @@ class SHYPSCode(SHPCode):
         self._dimension = dim_x * dim_z
         self._distance_x = code_z.get_distance()  # X errors are witnessed by the Z code
         self._distance_z = code_x.get_distance()  # Z errors are witnessed by the X code
+
+class CCode(CSSCode):
+    def __init__(
+            self,
+            colors: list[int],
+            plaquettes: list[list[list[int]]],
+            dimension : int
+    ) -> None:
+        if len(colors) != len(plaquettes):
+            raise ValueError("Every plaquette needs a color")
+        unique_colors = set()
+        for color in colors:
+            unique_colors.add(color)
+        if len(unique_colors) <= dimension:
+            raise ValueError("N-colorable, may only have n colors")
+        unique_qubits =set() # do i really need this
+        for index_f,f in enumerate(plaquettes):
+            for index_g,g in enumerate(plaquettes):
+                for edge_f,edge_g in itertools.product(f, g):
+                    if edge_f == edge_g and colors[index_f] == colors[index_g] and index_f != index_g:
+                        raise ValueError("Invalid coloring")
+                    for qubit in edge_f + edge_g:
+                        unique_qubits.add(qubit)
+        #each generator, loop through qubit add identity if in, otherwise not, find ordering of
+        ##add
+        code_x = []
+        # code_z = []
+        for plaquette in plaquettes:
+            qubits = set()
+            for edge in plaquette:
+                for qubit in edge:
+                    qubits.add(qubit)
+            stabilizer = []
+            for bit in range(0,len(unique_qubits)):
+                if bit in qubits:
+                    stabilizer.append(1)
+                else:
+                    stabilizer.append(0)
+                code_x.append(stabilizer)
+
+        CSSCode.__init__(self,code_x,code_x)
+
+#
+# ###
+#   r_C, n_C = code_c.matrix.shape
+#
+#         high_distance = code_q.code_z
+#         low_distance = code_q.code_x
+#         if distance_balancing:
+#             if code_q.code_x.get_distance_exact() > code_q.code_z.get_distance_exact():
+#                 temp = high_distance
+#                 high_distance = low_distance
+#                 low_distance = temp
+#
+#         r_low, n_low = low_distance.matrix.shape
+#
+#         # Make new H_x
+#         Hx_tensor = np.kron(low_distance.matrix, np.eye(n_C, dtype=int))
+#         classical_T_tensor = np.kron(
+#             np.eye(r_low, dtype=int), code_c.matrix.T
+#         )  # shape: (r_low * n_C, r_low * r_C)
+#         H_new_X = np.hstack((Hx_tensor, classical_T_tensor))
+#
+#         # Make new H_z
+#         Hz_tensor = np.kron(high_distance.matrix, np.eye(n_C, dtype=int))
+#
+#         bottom_left = np.kron(np.eye(n_low, dtype=int), code_c.matrix)
+#         bottom_right = np.kron(low_distance.matrix.T, np.eye(r_C, dtype=int))
+#
+#         top_right_zeros = np.zeros(
+#             (Hz_tensor.shape[0], bottom_left.shape[1] + bottom_right.shape[1] - Hz_tensor.shape[1]),
+#             dtype=int,
+#         )
+#         top_row = np.hstack((Hz_tensor, top_right_zeros))
+#
+#         bottom_row = np.hstack((bottom_left, bottom_right))
+#
+#         H_new_Z = np.vstack((top_row, bottom_row))
+#
+#         new_code = cls.__new__(cls)
+#         CSSCode.__init__(new_code, H_new_X, H_new_Z)
+#         return new_code
+

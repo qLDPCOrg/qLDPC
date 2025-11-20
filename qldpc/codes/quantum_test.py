@@ -651,3 +651,17 @@ def test_unbalanced_product_from_codes() -> None:
         == css.num_qubits * 5 + css.code_z.matrix.shape[0] * classical.matrix.shape[0]
     )
     assert css.get_logical_ops().shape[0] == new_code.get_logical_ops().shape[0]
+
+
+def test_color_code_2D() -> None:
+    colors = [3,2,1,2,1,3]
+    plaquettes = [
+        [[0,1],[1,3],[3,0]],
+        [[0,2],[2,3],[3,0]],
+        [[5,1],[1,3],[3,2],[2,4],[4,5]],
+        [[5,4],[4,9],[9,8],[8,7],[7,5]],
+        [[7,8],[8,6],[6,7]],
+        [[8,0],[9,6],[6,8]]
+    ]
+    code = qldpc.codes.CCode(colors,plaquettes)
+    print(code.matrix)
