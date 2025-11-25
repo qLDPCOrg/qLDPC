@@ -580,6 +580,11 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             time_dets: dict[int, list[int]] = {}
             for det in detectors:
                 time_dets.setdefault(self.get_detector_coordinate(det), []).append(det)
+            if max(time_dets) < self.window_size:
+                window_dets = [det for dets in time_dets.values() for det in dets]
+                commit_dets = window_dets
+                self.windows.append((window_dets, commit_dets))
+                continue
             for t in range(0, max(time_dets) - self.window_size + 1, self.stride):
                 window_dets = []
                 commit_dets = []
