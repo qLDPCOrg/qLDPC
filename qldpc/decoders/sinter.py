@@ -18,7 +18,6 @@ limitations under the License.
 from __future__ import annotations
 
 import collections
-import itertools
 from collections.abc import Callable, Collection, Sequence
 
 import numpy as np
@@ -589,10 +588,10 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
 
             # add one window at a time
             for start in range(0, max(time_to_dets) + 1, self.stride):
-                window_dets = [time_to_dets[start + dt] for dt in range(self.window_size)]
+                window_time_to_dets = [time_to_dets[start + dt] for dt in range(self.window_size)]
                 window = (  # defined by (detection, commit) regions
-                    list(itertools.chain.from_iterable(window_dets)),
-                    list(itertools.chain.from_iterable(window_dets[: self.stride])),
+                    [det for dets in window_time_to_dets for det in dets],
+                    [det for dets in window_time_to_dets[: self.stride] for det in dets],
                 )
                 self.windows.append(window)
 
