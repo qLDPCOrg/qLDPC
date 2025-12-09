@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import collections
 from collections.abc import Callable, Collection, Sequence
 
 import numpy as np
@@ -308,7 +309,7 @@ class CompiledSubgraphSinterDecoder(CompiledSinterDecoder):
             (len(detection_event_data), self.num_observables), dtype=np.uint8
         )
 
-        # decode segments independently
+        # decode subgraphs independently
         for detectors, observables, decoder in zip(
             self.subgraph_detectors, self.subgraph_observables, self.subgraph_decoders
         ):
@@ -507,13 +508,12 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
 
     A SlidingWindowDecoder is a SequentialWindowDecoder whose windows are constructed by grouping
     detectors based on a time coordinate.  The amount of overlapping rounds between adjacent windows
-    is determined by the stride and window size.  For example, a window size of w and a stride of s
+    is determined by the window size and stride.  For example, a window size of w and a stride of s
     indicates adjacent windows will overlap on w - s rounds.  The "commit region" for each window
     therefore corresponds to the first s rounds in the window.
 
-    A set of sliding windows is constructed for each segment of detectors specified.  For example,
-    this can be used to create independent sets of sliding windows for the X and Z sectors of a CSS
-    code.
+    If provided a sequence of subsets of detectors, construct sliding windows for each subset.  This
+    functionality is used to independently decode X and Z sectors of a CSS code.
 
     This decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143,
     which is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
@@ -521,10 +521,10 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
 
     def __init__(
         self,
-        segment_detectors: Sequence[Collection[int]],
         window_size: int,
         stride: int,
-        get_detector_coordinate: Callable[[int], int] | None = None,
+        detector_subsets: Collection[Collection[int]] | None = None,
+        detector_to_time: Callable[[int], int] | None = None,
         *,
         priors_arg: str | None = None,
         log_likelihood_priors: bool = False,
@@ -538,12 +538,16 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         See help(sinter.Decoder) for additional information.
 
         Args:
-            segment_detectors: A sequence containing one set of detectors per segment.
-            window_size: The number of rounds in time to include in each window.
-            stride: The amount to slide each window to create the starting time coordinate for the
-                next.
-            get_detector_coordinate: Maps a detector to a 1D coordinate used for deciding window boundaries.
-                Defaults to selecting the first coordinate from DetectorErrorModel.get_detector_coordinates()
+            window_size: The size of each window, measured in discrete time steps.
+            stride: The number of time steps by which to slide each window forward to get the next
+                window.  Equivalently, the size of each commit region.
+            detector_subsets: A collection of subsets of detectors from a detector error model, or
+                None.  If not None, each provided subset is decoded independently.  If None, all
+                detectors are decoded together, as if the detector_subsets was a one-element list
+                containing the set of all detectors.  Default: None.
+            detector_to_time: A function that maps each detector to a time coordinate that is used to
+                decide window boundaries, or None.  If None, the time index of each detector is its
+                first coordinate in DetectorErrorModel.get_detector_coordinates().
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -552,10 +556,10 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.segment_detectors = segment_detectors
         self.window_size = window_size
         self.stride = stride
-        self.get_detector_coordinate = get_detector_coordinate
+        self.detector_subsets = detector_subsets
+        self.detector_to_time = detector_to_time
         SinterDecoder.__init__(
             self,
             priors_arg=priors_arg,
@@ -570,33 +574,33 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
 
         See help(sinter.Decoder) for additional information.
         """
-        dem_coords = dem.get_detector_coordinates()
-        if not self.get_detector_coordinate:
-            self.get_detector_coordinate = lambda det: int(dem_coords[det][0])
+        if not self.detector_to_time:
+            dem_coords = dem.get_detector_coordinates()
+            self.detector_to_time = lambda det: int(dem_coords[det][0])
 
-        # create windows based on a 1D coordinate of the detectors in the DetectorErrorModel
+        # create windows based on a time coordinate of the detectors in the DetectorErrorModel
         self.windows = []
-        for detectors in self.segment_detectors:
-            time_dets: dict[int, list[int]] = {}
-            for det in detectors:
-                time_dets.setdefault(self.get_detector_coordinate(det), []).append(det)
-            if max(time_dets) < self.window_size:
-                window_dets = [det for dets in time_dets.values() for det in dets]
+        for detectors in self.detector_subsets or [range(dem.num_detectors())]:
+            time_to_detectors: dict[int, list[int]] = collections.defaultdict(list)
+            for detector in detectors:
+                time_to_detectors[self.detector_to_time(detector)].append(detector)
+            if max(time_to_detectors) < self.window_size:
+                window_dets = [det for dets in time_to_detectors.values() for det in dets]
                 commit_dets = window_dets
                 self.windows.append((window_dets, commit_dets))
                 continue
-            for t in range(0, max(time_dets) - self.window_size + 1, self.stride):
+            for t in range(0, max(time_to_detectors) - self.window_size + 1, self.stride):
                 window_dets = []
                 commit_dets = []
                 for i in range(t, t + self.window_size):
-                    window_dets.extend(time_dets[i])
+                    window_dets.extend(time_to_detectors[i])
                     if i < t + self.stride:
-                        commit_dets.extend(time_dets[i])
+                        commit_dets.extend(time_to_detectors[i])
                 self.windows.append((window_dets, commit_dets))
             for i in range(t + self.stride, t + self.window_size):
-                self.windows[-1][1].extend(time_dets[i])
-            for i in range(t + self.window_size, max(time_dets) + 1):
-                self.windows[-1][0].extend(time_dets[i])
-                self.windows[-1][1].extend(time_dets[i])
+                self.windows[-1][1].extend(time_to_detectors[i])
+            for i in range(t + self.window_size, max(time_to_detectors) + 1):
+                self.windows[-1][0].extend(time_to_detectors[i])
+                self.windows[-1][1].extend(time_to_detectors[i])
 
         return SequentialWindowDecoder.compile_decoder_for_dem(self, dem, simplify=simplify)
