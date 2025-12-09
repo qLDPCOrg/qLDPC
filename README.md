@@ -1,6 +1,6 @@
 # qLDPC
 
-This library contains tools for constructing and analyzing [quantum low density parity check (qLDPC) codes](https://errorcorrectionzoo.org/c/qldpc).  At least, that was the original motivation for this library.  In practice, the tools here work just as well for stabilizer and subsystem codes more broadly.
+This library contains tools for constructing and analyzing [quantum low density parity check (qLDPC) codes](https://errorcorrectionzoo.org/c/qldpc).  At least, that was the original motivation for this library.  In practice, the tools here work just as well for [stabilizer](https://errorcorrectionzoo.org/c/stabilizer) and [subsystem](https://errorcorrectionzoo.org/c/oecc) codes more broadly.
 
 In a nutshell, `qLDPC` provides methods to build a variety of built-in and custom codes, represented under the hood by a parity check matrix.  Once a code is constructed, `qLDPC` automates various tasks of common interest, integrating with a variety of external tools (including [`ldpc`](https://github.com/quantumgizmos/ldpc), [`stim`](https://github.com/quantumlib/Stim), [`sinter`](https://pypi.org/project/sinter), [`QDistRnd`](https://docs.gap-system.org/pkg/qdistrnd/doc/chap1_mj.html), and [`MAGMA`](https://magma.maths.usyd.edu.au/magma), among others).  Automated tasks include:
 - constructing a code from a variety of code families,
@@ -9,7 +9,7 @@ In a nutshell, `qLDPC` provides methods to build a variety of built-in and custo
 - computing logical error rates in a code-capacity model,
 - constructing various circuits of interest, such as a quantum memory experiment for obtaining circuit-level logical error rates,
 - defining custom Pauli noise models,
-- plugging a decoder of choice into your workflow.
+- using a decoder of your choice for any of the above (or other, unlisted) tasks.
 
 See the [`examples`](https://github.com/qLDPCOrg/qLDPC/tree/main/examples) directory for some demonstrations and use-cases.
 
