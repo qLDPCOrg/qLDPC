@@ -581,7 +581,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
 
         # construct windows defined by "detection" and "commit" regions
         self.windows = []
-        for detectors in self.detector_subsets or [range(dem.num_detectors())]:
+        for detectors in self.detector_subsets or [range(dem.num_detectors)]:
             # collect detectors according to their time index
             time_to_dets: dict[int, list[int]] = collections.defaultdict(list)
             for detector in detectors:
