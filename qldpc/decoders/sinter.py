@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import collections
+import itertools
 from collections.abc import Callable, Collection, Sequence
 
 import numpy as np
@@ -578,29 +579,21 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             dem_coords = dem.get_detector_coordinates()
             self.detector_to_time = lambda det: int(dem_coords[det][0])
 
-        # create windows based on a time coordinate of the detectors in the DetectorErrorModel
+        # construct windows defined by "detection" and "commit" regions
         self.windows = []
         for detectors in self.detector_subsets or [range(dem.num_detectors())]:
-            time_to_detectors: dict[int, list[int]] = collections.defaultdict(list)
+            # collect detectors according to their time index
+            time_to_dets: dict[int, list[int]] = collections.defaultdict(list)
             for detector in detectors:
-                time_to_detectors[self.detector_to_time(detector)].append(detector)
-            if max(time_to_detectors) < self.window_size:
-                window_dets = [det for dets in time_to_detectors.values() for det in dets]
-                commit_dets = window_dets
-                self.windows.append((window_dets, commit_dets))
-                continue
-            for t in range(0, max(time_to_detectors) - self.window_size + 1, self.stride):
-                window_dets = []
-                commit_dets = []
-                for i in range(t, t + self.window_size):
-                    window_dets.extend(time_to_detectors[i])
-                    if i < t + self.stride:
-                        commit_dets.extend(time_to_detectors[i])
-                self.windows.append((window_dets, commit_dets))
-            for i in range(t + self.stride, t + self.window_size):
-                self.windows[-1][1].extend(time_to_detectors[i])
-            for i in range(t + self.window_size, max(time_to_detectors) + 1):
-                self.windows[-1][0].extend(time_to_detectors[i])
-                self.windows[-1][1].extend(time_to_detectors[i])
+                time_to_dets[self.detector_to_time(detector)].append(detector)
+
+            # add one window at a time
+            for start in range(0, max(time_to_dets) + 1, self.stride):
+                window_dets = [time_to_dets[start + dt] for dt in range(self.window_size)]
+                window = (  # defined by (detection, commit) regions
+                    list(itertools.chain.from_iterable(window_dets)),
+                    list(itertools.chain.from_iterable(window_dets[: self.stride])),
+                )
+                self.windows.append(window)
 
         return SequentialWindowDecoder.compile_decoder_for_dem(self, dem, simplify=simplify)
