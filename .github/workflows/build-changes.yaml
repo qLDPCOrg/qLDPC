@@ -35,7 +35,7 @@ jobs:
           python -m pip install '.[dev]'
       - name: Run all checks
         run: |
-          checks/all_.py --skip mypy
+          checks/pytest_.py
 
   windows:
     name: Windows check
@@ -53,4 +53,4 @@ jobs:
           python3 -m pip install '.[dev]'
       - name: Run all checks
         run: |
-          checks/all_.py --skip mypy
+          checks/pytest_.py
