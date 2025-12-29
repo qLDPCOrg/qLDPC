@@ -9,7 +9,7 @@ import itertools
 import math
 import sys
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterator
 
 import numpy as np
 import numpy.typing as npt
