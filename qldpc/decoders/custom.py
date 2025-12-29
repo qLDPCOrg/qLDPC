@@ -290,7 +290,9 @@ class WeightedLookupDecoder(LookupDecoder):
     def decode(
         self,
         syndrome: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] = lambda vec: np.count_nonzero(vec),
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] = lambda vec: int(
+            np.count_nonzero(vec)
+        ),
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         errors = self.syndrome_to_candidates.get(
