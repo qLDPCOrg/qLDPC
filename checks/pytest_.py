@@ -3,13 +3,13 @@ import sys
 
 import checks_superstaq
 
-EXCLUDE = [
+EXCLUDE = (
     "*/__init__.py",
     "checks/*.py",
     "examples/*.py",
     "experiments/*.py",
     "docs/source/conf.py",
-]
+)
 
 if __name__ == "__main__":
     exit(checks_superstaq.pytest_.run(*sys.argv[1:], exclude=EXCLUDE))
