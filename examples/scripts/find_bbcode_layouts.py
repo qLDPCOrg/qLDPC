@@ -177,6 +177,7 @@ def get_layout_search_space(
             ]
 
         for basis_r in bases_r:
+            shift_lr: tuple[int, int]
             for shift_lr in np.ndindex(code.orders):
                 yield basis_l, basis_r, shift_lr
 
