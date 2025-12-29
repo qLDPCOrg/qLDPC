@@ -148,7 +148,6 @@ def get_layout_search_space(
     - a relative shift (between L and R) of the qubit plaquettes of the BBCode.
     """
     # identify the sets of lattice vectors that are used to relabel qubit plaquettes
-    vector_pairs: Iterable[Basis2D]
     vector_pairs = itertools.combinations(np.ndindex(code.orders), 2)
     lattice_vectors = [
         (vec_a, vec_b) if code.get_order(vec_a) >= code.get_order(vec_b) else (vec_b, vec_a)
@@ -178,7 +177,6 @@ def get_layout_search_space(
             ]
 
         for basis_r in bases_r:
-            shift_lr: tuple[int, int]
             for shift_lr in np.ndindex(code.orders):
                 yield basis_l, basis_r, shift_lr
 
