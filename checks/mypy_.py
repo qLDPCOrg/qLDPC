@@ -3,6 +3,7 @@ import sys
 
 import checks_superstaq
 
+# TODO: remove
 EXCLUDE = (
     "examples/scripts/find_bbcode_layouts.py",  # causes problems in github tests...
 )
