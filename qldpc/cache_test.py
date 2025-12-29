@@ -18,6 +18,9 @@ limitations under the License.
 from __future__ import annotations
 
 import unittest.mock
+from collections.abc import Hashable
+
+import pytest
 
 import qldpc.cache
 
@@ -35,7 +38,7 @@ def test_pytest() -> None:
 def test_use_disk_cache() -> None:
     """Cache function outputs."""
 
-    cache: dict[tuple[str], int] = {}
+    cache: dict[Hashable, int] = {}
     with (
         unittest.mock.patch("qldpc.cache.running_with_pytest", return_value=False),
         unittest.mock.patch("diskcache.Cache", return_value=cache),
@@ -47,12 +50,21 @@ def test_use_disk_cache() -> None:
 
         # use cache to save/retrieve results
         get_five("test_arg")  # save results to cache
-        assert cache == {("test_arg",): 5}  # check cache
-        assert cache[("test_arg",)] == get_five("test_arg")  # retrieve results
+        assert cache == {"test_arg": 5}
+        assert cache["test_arg"] == get_five("test_arg")
 
+        # post-process inputs to determine the cache key
         @qldpc.cache.use_disk_cache("test_name", key_func=lambda _: None)
         def get_six(_: str) -> int:
             return 6
 
         assert get_six("test_arg") == 6
-        assert cache == {("test_arg",): 5, None: 6}
+        assert cache == {"test_arg": 5, None: 6}
+
+        # delete an entry from the cache
+        qldpc.cache.clear_entry("test_name", None)
+        assert cache == {"test_arg": 5}
+
+        # raise a warning if trying to delete an entry that does not exist in the cache
+        with pytest.warns(UserWarning, match="entry does not exist"):
+            qldpc.cache.clear_entry("test_name", "some_key")

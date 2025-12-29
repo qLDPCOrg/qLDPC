@@ -17,59 +17,67 @@ limitations under the License.
 
 from __future__ import annotations
 
-import subprocess
 import unittest.mock
+import urllib
 
 import pytest
 
-from qldpc import external
+from qldpc import codes, external
 
 
-def get_mock_process(stdout: str) -> subprocess.CompletedProcess[str]:
-    """Fake process with the given stdout."""
-    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout)
-
-
-def test_get_code() -> None:
+def test_get_classical_code() -> None:
     """Retrieve parity check matrix from GAP 4."""
-
-    # GAP is not installed
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(ValueError, match="GAP 4 is not installed"),
-    ):
-        external.codes.get_code("")
-
-    # GUAVA is not installed
-    mock_process = get_mock_process("guava package is not available")
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
-        pytest.raises(ValueError, match="GAP package GUAVA not available"),
-    ):
-        external.codes.get_code("")
-
-    # code not recognized by GUAVA
-    mock_process = get_mock_process("\n")
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
-        pytest.raises(ValueError, match="Code not recognized"),
-    ):
-        external.codes.get_code("")
-
+    # extract parity check and finite field
     check = [1, 1]
-    mock_process = get_mock_process(f"\n{check}\nGF(3^3)")
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=f"\n{check}\nGF(3^3)"),
     ):
-        assert external.codes.get_code("") == ([check], 27)
+        assert external.codes.get_classical_code("") == ([check], 27)
 
-    mock_process = get_mock_process(r"\nGF(3^3)")
+    # fail to find parity checks
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
-        pytest.raises(ValueError, match="has no parity checks"),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=r"\nGF(3^3)"),
+        pytest.raises(ValueError, match="Code has no parity checks"),
     ):
-        assert external.codes.get_code("")
+        assert external.codes.get_classical_code("")
+
+
+def get_mock_page(text: str) -> unittest.mock.MagicMock:
+    """Fake webpage with the given text."""
+    mock_page = unittest.mock.MagicMock()
+    mock_page.read.return_value = text.encode("utf-8")
+    return mock_page
+
+
+def test_get_quantum_code(capsys: pytest.CaptureFixture[str]) -> None:
+    """Retrieve quantum code data from qecdb.org."""
+    # cannot connect to qecdb.org
+    with (
+        unittest.mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("message")),
+        pytest.raises(urllib.error.URLError, match="message"),
+    ):
+        external.codes.get_quantum_code("")
+    terminal_output, error_message = capsys.readouterr()
+    assert not error_message
+    assert "cannot access" in terminal_output
+
+    # retrieve code data!
+    dist_line = "<tr> <td>d</td> <td>5</td> </tr>"
+    css_line = "<tr> <td>css</td> <td>False</td> </tr>"
+    stab_line = "<tr> <td>H</td> <td><tt>XXXX<br>ZZZZ</tt></td> </tr>"
+    mock_page = get_mock_page("\n".join([dist_line, css_line, stab_line]))
+    with unittest.mock.patch("urllib.request.urlopen", return_value=mock_page):
+        assert external.codes.get_quantum_code("") == (["XXXX", "ZZZZ"], 5, False)
+
+
+def test_distance_bound() -> None:
+    """Compute a bound on code distance using QDistRnd."""
+    with unittest.mock.patch("qldpc.external.gap.require_package", return_value=None):
+        with pytest.raises(ValueError, match="non-CSS subsystem codes"):
+            external.codes.get_distance_bound(codes.QuditCode(codes.SHYPSCode(2).matrix))
+
+        with unittest.mock.patch("qldpc.external.gap.get_output", return_value="3"):
+            assert external.codes.get_distance_bound(codes.FiveQubitCode()) == 3
+            assert external.codes.get_distance_bound(codes.SteaneCode()) == 3

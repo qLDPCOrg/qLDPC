@@ -59,26 +59,31 @@ class RingCode(ClassicalCode):
 
 
 class HammingCode(ClassicalCode):
-    """Classical Hamming code."""
+    """Classical Hamming code.
 
-    def __init__(self, rank: int, field: int | None = None) -> None:
+    When working over the binary field (0s an 1s), the parity check matrix of the HammingCode is
+    built by stacking together (as columns) all nonzero bitstrings.  More generally, the parity
+    check matrix is built from a maximal set of linearly independent nonzero vectors over a finite
+    field; equivalently, from all vectors whose first nonzero element is a 1.
+    """
+
+    def __init__(self, size: int, field: int | None = None) -> None:
         """Construct a Hamming code of a given rank."""
         self._distance = 3
         self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
         if self.field.order == 2:
-            # parity check matrix: columns = all nonzero bitstrings
-            bitstrings = list(itertools.product([0, 1], repeat=rank))
+            # collect all nonzero bitstrings
+            bitstrings = list(itertools.product([0, 1], repeat=size))
             self._matrix = self.field(bitstrings[1:]).T
 
         else:
-            # More generally, columns = [maximal set of linearly independent strings], so collect
-            # together all strings whose first nonzero element is a 1.
-            strings = [
+            # collect all nonzero vectors whose first nonzero element is a 1
+            vectors = [
                 (0,) * top_row + (1,) + rest
-                for top_row in range(rank - 1, -1, -1)
-                for rest in itertools.product(range(self.field.order), repeat=rank - top_row - 1)
+                for top_row in range(size - 1, -1, -1)
+                for rest in itertools.product(range(self.field.order), repeat=size - top_row - 1)
             ]
-            self._matrix = self.field(strings).T
+            self._matrix = self.field(vectors).T
 
         self._dimension = len(self) - len(self._matrix)
         self._distance = 3
@@ -87,58 +92,28 @@ class HammingCode(ClassicalCode):
 class ExtendedHammingCode(ClassicalCode):
     """Classical extended Hamming code: the ordinary Hamming code with an extra parity bit.
 
-    The extended Hamming code of rank r is also equal to ReedMullerCode(r-2, r).
+    The extended Hamming code of size m is also equal to ReedMullerCode(m - 2, m).
     """
 
-    def __init__(self, rank: int) -> None:
+    def __init__(self, size: int) -> None:
         """Construct an extended Hamming code of a given rank."""
-        matrix: npt.NDArray[np.int_] = HammingCode(rank, field=2).matrix
+        matrix: npt.NDArray[np.int_] = HammingCode(size).matrix
         matrix = np.column_stack([np.zeros(matrix.shape[0], dtype=int), matrix])
         matrix = np.vstack([np.ones(matrix.shape[1], dtype=int), matrix])
         matrix[0] += matrix[1]
-        ClassicalCode.__init__(self, matrix)
+        super().__init__(matrix)
 
         self._dimension = len(self) - len(self._matrix)
         self._distance = 4
 
 
-class ReedSolomonCode(ClassicalCode):
-    """Classical Reed-Solomon code.
-
-    Source: https://galois.readthedocs.io/en/v0.3.8/api/galois.ReedSolomon/
-    References:
-    - https://errorcorrectionzoo.org/c/reed_solomon
-    - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
-    """
-
-    def __init__(self, bits: int, dimension: int) -> None:
-        ClassicalCode.__init__(self, galois.ReedSolomon(bits, dimension).H)
-        self._dimension = dimension
-
-
-class BCHCode(ClassicalCode):
-    """Classical binary BCH code.
-
-    Source: https://galois.readthedocs.io/en/v0.3.8/api/galois.BCH/
-    References:
-    - https://errorcorrectionzoo.org/c/bch
-    - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
-    """
-
-    def __init__(self, length: int, dimension: int, field: int | None = None) -> None:
-        field = field or DEFAULT_FIELD_ORDER
-        length_in_base = np.base_repr(length, base=field)
-        if not length_in_base == str(field - 1) * len(length_in_base):
-            raise ValueError(
-                f"BCH codes over F_{field} are only defined for block lengths {field}^m - 1 with"
-                " integer m."
-            )
-        ClassicalCode.__init__(self, galois.BCH(length, dimension, field=galois.GF(field)).H)
-        self._dimension = dimension
-
-
 class ReedMullerCode(ClassicalCode):
     """Classical Reed-Muller code.
+
+    A Reed-Muller code with order r and size m, denoted RM(r, m), has code parameters
+        [2**m, k, 2**(m-r)]
+    where
+        k = sum_(k = 0)^r (m choose j).
 
     References:
     - https://errorcorrectionzoo.org/c/reed_muller
@@ -156,6 +131,16 @@ class ReedMullerCode(ClassicalCode):
 
         self._dimension = len(generator)
         self._distance = 2 ** (size - order)
+
+    @property
+    def size(self) -> int:
+        """The size parameter of this code."""
+        return self._size
+
+    @property
+    def order(self) -> int:
+        """The order parameter of this code."""
+        return self._order
 
     @staticmethod
     def get_generator(order: int, size: int) -> npt.NDArray[np.int_]:
@@ -179,6 +164,104 @@ class ReedMullerCode(ClassicalCode):
                 "Reed-Muller code R(r,m) must have m >= 0 and 0 <= r <= m\n"
                 + f"Provided: (r,m) = ({order},{size})"
             )
+
+
+class ReedSolomonCode(ClassicalCode):
+    """Classical Reed-Solomon code.
+
+    Source: https://mhostetter.github.io/galois/latest/api/galois.ReedSolomon
+    References:
+    - https://errorcorrectionzoo.org/c/reed_solomon
+    - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
+    """
+
+    def __init__(self, bits: int, dimension: int) -> None:
+        super().__init__(galois.ReedSolomon(bits, dimension).H)
+        self._dimension = dimension
+
+
+class BCHCode(ClassicalCode):
+    """Classical BCH (Bose-Chaudhuri-Hocquenghem) code.
+
+    Source: https://mhostetter.github.io/galois/latest/api/galois.BCH
+    References:
+    - https://errorcorrectionzoo.org/c/bch
+    - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
+    """
+
+    def __init__(self, length: int, dimension: int, field: int | None = None) -> None:
+        field = field or DEFAULT_FIELD_ORDER
+        length_in_base = np.base_repr(length, base=field)
+        if not length_in_base == str(field - 1) * len(length_in_base):
+            raise ValueError(
+                f"BCH codes over F_{field} are only defined for block lengths {field}^m - 1 with"
+                " integer m."
+            )
+        super().__init__(galois.BCH(length, dimension, field=galois.GF(field)).H)
+        self._dimension = dimension
+
+
+class SimplexCode(ClassicalCode):
+    """Classical simplex code.
+
+    A binary simplex code with dimension k has code parameters [2**k - 1, k, 2 ** (k - 1)].
+    The automorphism of this code is the general linear group GL(k, 2).
+
+    References:
+    - https://errorcorrectionzoo.org/c/simplex
+    - https://arxiv.org/abs/2502.07150
+    """
+
+    def __init__(self, dim: int, field: int | None = None) -> None:
+        field = field or DEFAULT_FIELD_ORDER
+        polynomial = SimplexCode.get_defining_polynomial(dim, field)
+        coefficients = polynomial.coefficients(size=field**dim - 1, order="asc")
+        matrix = np.array([np.roll(coefficients, jj) for jj in range(len(coefficients))])
+        super().__init__(matrix, field=field)
+
+        self._dimension = dim
+        self._distance = field ** (dim - 1) * (field - 1)
+
+    @staticmethod
+    def get_defining_polynomial(dim: int, field: int | None = None) -> galois.Poly:
+        """The polynomial that defines a SimplexCode of a given dimension and base field.
+
+        Returns a three-term polynomial of the form h(x) = 1 + a * x**c + b * x**d, where
+        - the coefficients a and b are elements of a finite field,
+        - the exponents c and d are integers, and
+        - gcd(h(x), x ** (field**dim - 1) - 1) is a primitive polynomial of degree dim.
+        """
+        field = field or DEFAULT_FIELD_ORDER
+
+        # first try finding a primitive three-term polynomial of degree dim
+        try:
+            primitive_polys = galois.primitive_polys(order=field, degree=dim, terms=3)
+            return next(primitive_polys)
+        except StopIteration:
+            None
+
+        # find a suitable polynomial by brute force
+
+        order = field**dim - 1
+        mod_poly_coefficients = [0] * (order + 1)
+        mod_poly_coefficients[0] = -1
+        mod_poly_coefficients[-1] = 1
+        mod_poly = galois.Poly(mod_poly_coefficients, field=galois.GF(field))
+
+        for aa, bb in itertools.product(range(1, field), repeat=2):
+            for cc, dd in itertools.combinations(range(1, order + 1), 2):
+                coefficients = [0] * (order + 1)
+                coefficients[0] = 1
+                coefficients[cc] = aa
+                coefficients[dd] = bb
+                poly = galois.Poly(coefficients[::-1], field=galois.GF(field))
+                gcd_poly = galois.gcd(poly, mod_poly)
+                if gcd_poly.degree == dim and gcd_poly.is_primitive():
+                    return poly
+
+        raise ValueError(
+            "Suitable primitive polynomial not found.  This should not be possible."
+        )  # pragma: no cover
 
 
 class TannerCode(ClassicalCode):
@@ -229,7 +312,7 @@ class TannerCode(ClassicalCode):
             checks = range(subcode.num_checks * idx, subcode.num_checks * (idx + 1))
             bits = [sink_indices[sink] for sink in self._get_sorted_neighbors(source)]
             matrix[np.ix_(checks, bits)] = subcode.matrix
-        ClassicalCode.__init__(self, matrix, subcode.field.order)
+        super().__init__(matrix, subcode.field.order)
 
     def _get_sorted_neighbors(self, node: object) -> Sequence[object]:
         """Sorted neighbors of the given node."""
@@ -250,51 +333,3 @@ class TannerCode(ClassicalCode):
                 directed_subgraph[node_a][edge]["sort"] = sort_data[node_a]
                 directed_subgraph[node_b][edge]["sort"] = sort_data[node_b]
         return directed_subgraph
-
-
-class SimplexCode(ClassicalCode):
-    """Classical simplex codes, with code parameters [2**k - 1, k, 2 ** (k - 1)].
-
-    The automorphism group of SimplexCode(k) is the general linear group GL(k).
-
-    References:
-    - https://errorcorrectionzoo.org/c/simplex
-    - https://arxiv.org/abs/2502.07150
-    """
-
-    def __init__(self, dim: int) -> None:
-        block_length = 2**dim - 1
-
-        matrix = np.zeros([block_length] * 2, dtype=int)
-        rows = np.arange(block_length, dtype=int)
-        for shift in SimplexCode.get_polynomial_exponents(dim):
-            matrix[rows, (rows + shift) % block_length] = 1
-        ClassicalCode.__init__(self, matrix, field=2)
-
-        self._dimension = dim
-        self._distance = 2 ** (dim - 1)
-
-    @staticmethod
-    def get_polynomial_exponents(dim: int) -> tuple[int, ...]:
-        """Exponents of the polynomial that defines a SimplexCode of a given dimension.
-
-        The polynomial is a primitive polynomial (i.e., "prime", with no factors) of the form
-            h(x) = 1 + x**c + x**dim,
-        where x is the generator of a cyclic group of order 2**dim - 1, and c is an integer.
-        """
-        # QUESTION: would any polynomial in galois.primitive_polys(2, dim, terms=3) suffice here?
-        if dim == 2:
-            return 0, 1, 2
-        if dim == 3:
-            return 0, 2, 3
-        if dim == 4:
-            return 0, 3, 4
-        if dim == 5:
-            return 0, 3, 5
-        if dim == 6:
-            return 0, 5, 6
-        if dim == 7:
-            return 0, 6, 7
-        raise ValueError(
-            f"Classical simplex codes are only supported for dimensions >1, <=7 (provided: {dim})"
-        )

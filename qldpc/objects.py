@@ -21,7 +21,7 @@ import dataclasses
 import enum
 import functools
 import itertools
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Sequence
 from typing import Literal
 
 import galois
@@ -51,12 +51,22 @@ class Pauli(enum.Enum):
         """Hadamard-transform this Pauli operator."""
         return Pauli(self.value[::-1])
 
+    def swap_xz(self) -> PauliXZ:
+        """Convert between Pauli.X and Pauli.Z, promising a PauliXZ return type (or an error)."""
+        if self is Pauli.X:
+            return Pauli.Z
+        if self is Pauli.Z:
+            return Pauli.X
+        raise ValueError(
+            f"Pauli.dual_xz only converts between Pauli.X and Pauli.Z (provided: {self})"
+        )
+
     def __str__(self) -> str:
-        if self == Pauli.I:
+        if self is Pauli.I:
             return "I"
-        elif self == Pauli.Z:
+        elif self is Pauli.Z:
             return "Z"
-        elif self == Pauli.X:
+        elif self is Pauli.X:
             return "X"
         return "Y"
 
@@ -91,22 +101,22 @@ PauliXZ = Literal[Pauli.X, Pauli.Z]
 PAULIS_XZ: list[PauliXZ] = [Pauli.X, Pauli.Z]
 
 
-class QuditOperator:
+@dataclasses.dataclass(frozen=True)
+class QuditPauli:
     """A qudit operator of the form X(val_x)*Z(val_z)."""
 
-    def __init__(self, value: tuple[int, int] = (0, 0)) -> None:
-        self.value = value
+    value: tuple[int, int] = (0, 0)
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, QuditOperator) and self.value == other.value
+        return isinstance(other, QuditPauli) and self.value == other.value
 
-    def __invert__(self) -> QuditOperator:
+    def __invert__(self) -> QuditPauli:
         """Fourier-transform this qudit operator."""
-        return QuditOperator(self.value[::-1])
+        return QuditPauli(self.value[::-1])
 
-    def __neg__(self) -> QuditOperator:
+    def __neg__(self) -> QuditPauli:
         """Invert the shifts and phases on this qudit operator."""
-        return QuditOperator((-self.value[0], -self.value[1]))
+        return QuditPauli((-self.value[0], -self.value[1]))
 
     def __str__(self) -> str:
         val_x, val_z = self.value
@@ -122,10 +132,10 @@ class QuditOperator:
         return "*".join(ops)
 
     @staticmethod
-    def from_string(string: str) -> QuditOperator:
+    def from_string(string: str) -> QuditPauli:
         """Build a qudit operator from its string representation."""
         if string == "I":
-            return QuditOperator((0, 0))
+            return QuditPauli((0, 0))
 
         invalid_op = f"Invalid qudit operator: {string}"
 
@@ -149,10 +159,10 @@ class QuditOperator:
             else:  # pauli == "Y"
                 val_x = val_z = val
 
-        return QuditOperator((val_x, val_z))
+        return QuditPauli((val_x, val_z))
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Node:
     """Node in a Tanner graph.
 
@@ -371,21 +381,21 @@ class ChainComplex:
     """
 
     _field: type[galois.FieldArray]
-    _ops: tuple[npt.NDArray[np.int_] | abstract.Protograph, ...]
+    _ops: tuple[npt.NDArray[np.int_] | abstract.RingArray, ...]
 
     # if boundary operators are defined over a group algebra, keep track of their base group
     _group: abstract.Group | None
 
     def __init__(
         self,
-        *ops: npt.NDArray[np.int_] | abstract.Protograph,
+        ops: Sequence[npt.NDArray[np.int_] | abstract.RingArray],
         field: int | None = None,
         skip_validation: bool = False,
     ) -> None:
         # check that either all or none of the operators are defined over a group algebra
         if not (
-            all(isinstance(op, abstract.Protograph) for op in ops)
-            or not any(isinstance(op, abstract.Protograph) for op in ops)
+            all(isinstance(op, abstract.RingArray) for op in ops)
+            or not any(isinstance(op, abstract.RingArray) for op in ops)
         ):
             raise ValueError("Invalid or inconsistent operator types provided for a ChainComplex")
 
@@ -393,7 +403,7 @@ class ChainComplex:
         fields = set([galois.GF(field)]) if field is not None else set()
         groups = set()
         for op in ops:
-            if isinstance(op, abstract.Protograph):
+            if isinstance(op, abstract.RingArray):
                 fields.add(op.field)
                 groups.add(op.group)
             elif isinstance(op, galois.FieldArray):
@@ -404,10 +414,7 @@ class ChainComplex:
         self._group = groups.pop() if groups else None
 
         # identify the boundary operators of this chain complex
-        if self._group is None:
-            self._ops = tuple(self.field(op) for op in ops)
-        else:
-            self._ops = ops
+        self._ops = tuple(op.view(self.field) for op in ops) if self._group is None else tuple(ops)
 
         if not skip_validation:
             self._validate_ops()
@@ -437,7 +444,7 @@ class ChainComplex:
         return len(self.ops)
 
     @property
-    def ops(self) -> tuple[npt.NDArray[np.int_] | abstract.Protograph, ...]:
+    def ops(self) -> tuple[npt.NDArray[np.int_] | abstract.RingArray, ...]:
         """The boundary operators of this chain complex."""
         return self._ops
 
@@ -449,9 +456,9 @@ class ChainComplex:
     def T(self) -> ChainComplex:
         """Transpose and reverse the order of the boundary operators in this chain complex."""
         dual_ops = [op.T for op in self.ops[::-1]]
-        return ChainComplex(*dual_ops, skip_validation=True)
+        return ChainComplex(dual_ops, skip_validation=True)
 
-    def op(self, degree: int) -> npt.NDArray[np.int_] | abstract.Protograph:
+    def op(self, degree: int) -> npt.NDArray[np.int_] | abstract.RingArray:
         """The boundary operator of this chain complex that acts on the module of a given degree."""
         assert 0 <= degree <= self.num_links + 1
         if degree == 0:
@@ -462,8 +469,8 @@ class ChainComplex:
 
     @staticmethod
     def tensor_product(  # noqa: C901 ignore complexity check
-        chain_a: ChainComplex | npt.NDArray[np.int_] | galois.FieldArray | abstract.Protograph,
-        chain_b: ChainComplex | npt.NDArray[np.int_] | galois.FieldArray | abstract.Protograph,
+        chain_a: ChainComplex | npt.NDArray[np.int_] | abstract.RingArray,
+        chain_b: ChainComplex | npt.NDArray[np.int_] | abstract.RingArray,
         field: int | None = None,
     ) -> ChainComplex:
         """Tensor product of two chain complexes.
@@ -490,9 +497,9 @@ class ChainComplex:
         definition of d_{i+j}.
         """
         if not isinstance(chain_a, ChainComplex):
-            chain_a = ChainComplex(chain_a, field=field)
+            chain_a = ChainComplex([chain_a], field=field)
         if not isinstance(chain_b, ChainComplex):
-            chain_b = ChainComplex(chain_b, field=field)
+            chain_b = ChainComplex([chain_b], field=field)
         if chain_a.field is not chain_b.field or chain_a.group != chain_b.group:
             raise ValueError("Incompatible chain complexes: different base fields or groups")
         chain_field = chain_a.field
@@ -545,7 +552,7 @@ class ChainComplex:
             ops.append(np.block(blocks))
 
         if chain_a.group is None:
-            ops = [chain_field(op) for op in ops]
+            ops = [op.view(chain_field) for op in ops]
         else:
-            ops = [abstract.Protograph(op) for op in ops]
-        return ChainComplex(*ops, skip_validation=True)
+            ops = [op.view(abstract.RingArray) for op in ops]
+        return ChainComplex(ops, skip_validation=True)

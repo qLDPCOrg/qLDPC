@@ -24,23 +24,36 @@ import qldpc
 
 
 def test_pauli_strings() -> None:
-    """Stabilizers correctly converted into stim.PauliString objects."""
+    """Conversion between symplectic vectors and stim.PauliString objects."""
     code = qldpc.codes.FiveQubitCode()
-    assert all(
-        qldpc.math.op_to_string(row) == stim.PauliString(stabilizer.replace(" ", ""))
-        for row, stabilizer in zip(code.matrix, code.get_strings())
-    )
+    for row, stabilizer in zip(code.matrix, code.get_strings()):
+        string = qldpc.math.op_to_string(row)
+        assert string == stim.PauliString(stabilizer.replace(" ", ""))
+        assert np.array_equal(row, qldpc.math.string_to_op(string))
+
+    string = stim.PauliString.random(5)
+    sign = string.sign
+    assert string == sign * qldpc.math.op_to_string(qldpc.math.string_to_op(string))
 
 
 def test_vectors() -> None:
     """Methods that act on vectors."""
     vectors = np.array([[0, 1], [1, 2]], dtype=int)
     vectors_conj = np.array([[-1, 0], [-2, 1]], dtype=int)
+    assert np.array_equal(qldpc.math.symplectic_weight(vectors), [1, 1])
     assert np.array_equal(qldpc.math.symplectic_conjugate(vectors), vectors_conj)
 
     assert np.array_equal(qldpc.math.first_nonzero_cols(np.empty(0, dtype=int)), [])
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors), [1, 0])
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors_conj), [0, 0])
+
+
+def test_block_matrix() -> None:
+    eye = np.eye(2, dtype=float)
+    zero = np.zeros_like(eye)
+    blocks = [[eye, 1], [0, eye]]
+    matrix = np.block([[eye, eye], [zero, eye]])
+    assert np.array_equal(qldpc.math.block_matrix(blocks), matrix)
 
 
 def test_log() -> None:

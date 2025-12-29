@@ -18,9 +18,11 @@ limitations under the License.
 from __future__ import annotations
 
 import ast
+import collections
 import functools
 import itertools
 import math
+import operator
 import os
 from collections.abc import Collection, Sequence
 
@@ -31,68 +33,232 @@ import numpy.typing as npt
 import scipy
 import sympy
 
+import qldpc
 from qldpc import abstract
 from qldpc.abstract import DEFAULT_FIELD_ORDER
-from qldpc.math import first_nonzero_cols
-from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, QuditOperator
+from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditPauli
 
-from .classical import HammingCode, RepetitionCode, RingCode, SimplexCode, TannerCode
+from .classical import (
+    HammingCode,
+    ReedMullerCode,
+    RepetitionCode,
+    RingCode,
+    SimplexCode,
+    TannerCode,
+)
 from .common import ClassicalCode, CSSCode, QuditCode
 
 
-class FiveQubitCode(QuditCode):
-    """Smallest quantum error-correcting code."""
+class FiveQuditCode(QuditCode):
+    """Smallest quantum error-correcting code.
 
-    def __init__(self) -> None:
-        code = QuditCode.from_strings(
-            "X Z Z X I",
-            "I X Z Z X",
-            "X I X Z Z",
-            "Z X I X Z",
-            field=2,
+    Generalizes the better-known FiveQubitCode.
+
+    References:
+    - https://errorcorrectionzoo.org/c/galois_5_1_3
+    """
+
+    def __init__(self, field: int | None = None) -> None:
+        code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        matrix = [
+            [1, 0, 0, -1, 0, 0, 1, -1, 0, 0],
+            [0, 1, 0, 0, -1, 0, 0, 1, -1, 0],
+            [-1, 0, 1, 0, 0, 0, 0, 0, 1, -1],
+            [0, -1, 0, 1, 0, -1, 0, 0, 0, 1],
+        ]
+        super().__init__(
+            code_field(1) * np.array(matrix, dtype=int),
+            is_subsystem_code=False,
         )
-        QuditCode.__init__(self, code, is_subsystem_code=False)
         self._dimension = 1
         self._distance = 3
 
 
-class SteaneCode(CSSCode):
-    """Smallest quantum error-correcting CSS code."""
+class FiveQubitCode(FiveQuditCode):
+    """Smallest quantum error-correcting code.
+
+    References:
+    - https://errorcorrectionzoo.org/c/stab_5_1_3
+    """
 
     def __init__(self) -> None:
-        code = HammingCode(3, field=2)
-        CSSCode.__init__(self, code, code, is_subsystem_code=False)
-        self.set_logical_ops_xz([[1] * 7], [[1] * 7], validate=False)
-        self._dimension = 1
+        super().__init__(field=2)
+
+
+class QuantumHammingCode(CSSCode):
+    """Quantum Hamming code, whose parity check matrices are classical Hamming codes.
+
+    References:
+    - https://errorcorrectionzoo.org/c/quantum_hamming_css
+    """
+
+    def __init__(self, size: int, field: int | None = None, *, set_logicals: bool = True) -> None:
+        code = HammingCode(size, field)
+        super().__init__(code, code, is_subsystem_code=False)
         self._distance_x = self._distance_z = 3
+
+        if size == 4 and set_logicals and self.field.order == 2:
+            """
+            Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
+            Pinning all but the last logical qubit to |0> results in the TetrahedralCode.
+            See the docstring of the TetrahedralCode for an explanation of the comments below.
+            """
+            support_x = [
+                # red / green / blue 2-cells in the middle
+                [8, 10, 12, 14],  # red
+                [9, 10, 13, 14],  # green
+                [11, 12, 13, 14],  # blue
+                # 2-cells connecting the base to the middle
+                [2, 6, 10, 14],  # red/green
+                [4, 6, 12, 14],  # red/blue
+                [5, 6, 13, 14],  # green/blue
+                # all qubits
+                range(len(self)),
+            ]
+            support_z = [
+                # 2-cells connecting the base to the middle
+                [5, 6, 13, 14],  # green/blue
+                [4, 6, 12, 14],  # red/blue
+                [2, 6, 10, 14],  # red/green
+                # red / green / blue 2-cells in the middle
+                [11, 12, 13, 14],  # blue
+                [9, 10, 13, 14],  # green
+                [8, 10, 12, 14],  # red
+                # all qubits
+                range(len(self)),
+            ]
+            logical_ops_x = np.zeros((len(support_x), len(self)), dtype=int)
+            logical_ops_z = np.zeros((len(support_z), len(self)), dtype=int)
+            for row in range(len(support_x)):
+                logical_ops_x[row, support_x[row]] = 1
+                logical_ops_z[row, support_z[row]] = 1
+            self.set_logical_ops_xz(logical_ops_x, logical_ops_z)
+
+
+class SteaneCode(QuantumHammingCode):
+    """Smallest quantum error-correcting CSS code.
+
+    Also the smallest error-correcting color code.
+
+    References:
+    - https://errorcorrectionzoo.org/c/steane
+    """
+
+    def __init__(self) -> None:
+        super().__init__(size=3)
+
+
+class TetrahedralCode(CSSCode):
+    r"""Smallest quantum error-correcting CSS code with a transversal non-Clifford (T) gate.
+
+    Also:
+    - The smallest quantum error-correcting 3-D color code.
+    - Often referred to as the [15, 1, 3] quantum Reed-Muller code.
+
+    Algebraically, a TetrahedralCode is a CSSCode built out of punctured Reed-Muller codes.
+    Geometrically, a TetrahedralCode can be visualized with a tetrahedron (triangular pyramid).
+
+    Consider a tessellation of a tetrahedron into four identical polyhedra, or 3-cells, where each
+    polyhedron is the convex hull of (a) a vertex of the tetrahedron, (b) the centers of the edges
+    and faces incident to that vertex, and (c) the centroid of the tetrahedron.  Qubits live on the
+    vertices of these polyhedra.  The stabilizers of the TetrahedralCode can be defined as follows:
+    - Every 3-cell (polyhedron) is associated with an X-type stabilizer.
+    - Every 2-cell (face of a polyhedron) is associated with a Z-type stabilizer.
+
+    Coloring the polyhedra red, green, blue, and yellow, the qubit layout for the TetrahedralCode
+    can be visualized as follows:
+
+                            red
+                             0                           8
+                            / \                         / \
+                           /   \                       /   \
+                          2     4                    10     12                7
+                         / ‾‾6‾‾ \                   / ‾‾14‾ \
+                        /    |    \                 /    |    \              top
+                       1 --- 5 --- 3               9 --- 13 -- 11           vertex
+                        green  blue                                        (yellow)
+
+                    vertices on the base     vertices in the "middle"
+                     of the tetrahedron     (edges, faces, and centroid)
+
+    The ordering of qubits is fixed by enforcing consistency between geometric and algebraic
+    constructions of the TetrahedralCode.
+
+    See also Figure 2b of https://arxiv.org/pdf/2409.13465v2 for a nice picture, but note that
+    (a) The tetrahedral code in arXiv:2409.13465 swaps all X and Z operators.
+    (b) The TetrahedralCode defined here has a different qubit order.  Specifically, qubit jj of the
+        code defined here gets mapped to qubit kk = qubit_map[jj] of the code in 2409.13465, where
+        qubit_map = [0, 10, 3, 14, 7, 13, 6, 8, 1, 9, 2, 12, 4, 11, 5].
+
+    A TetrahedralCode encodes one logical qubit.
+    - The logical X operator can be defined on any _face_ of the tetrahedron.
+    - The logical Z operator can be defined on any _edge_ of the tetrahedron.
+
+    References:
+    - https://arxiv.org/abs/1403.2734
+    - https://arxiv.org/abs/2409.13465
+    - https://errorcorrectionzoo.org/c/stab_15_1_3
+    """
+
+    def __init__(self, *, algebraic: bool = False) -> None:
+        """Construct an instance of the [15, 1, 3] tetrahedral code.
+
+        Args:
+            algebraic: Choose Z-type stabilizers according to the algebraic (if True) or geometric
+                (if False) definition of the TetrahedralCode, as described above.  The remaining
+                stabilizers and logical operators are unaffected by this flag.  Default: False.
+        """
+        code_x = ReedMullerCode(2, 4).punctured([0])  # or HammingCode(4)
+
+        if algebraic:
+            code_z = ReedMullerCode(1, 4).punctured([0])
+
+        else:
+            # the stabilizers of Eq. 2 in arXiv:2409.13465v2, in a different order
+            stabilizer_support_z = [
+                # red / green / blue 2-cells on the base
+                [0, 2, 4, 6],  # red
+                [1, 2, 5, 6],  # green
+                [3, 4, 5, 6],  # blue
+                # red / green / blue 2-cells in the middle
+                [8, 10, 12, 14],  # red
+                [9, 10, 13, 14],  # green
+                [11, 12, 13, 14],  # blue
+                # 2-cells connecting the base to the middle
+                [2, 6, 10, 14],  # red/green
+                [4, 6, 12, 14],  # red/blue
+                [5, 6, 13, 14],  # green/blue
+                # 2-cell connecting the middle to the top vertex
+                [7, 9, 11, 13],
+            ]
+            matrix_z = np.zeros((len(stabilizer_support_z), len(code_x)), dtype=int)
+            for row, support in enumerate(stabilizer_support_z):
+                matrix_z[row, support] = 1
+            code_z = ClassicalCode(matrix_z)
+
+        super().__init__(code_x, code_z, is_subsystem_code=False)
+        self.set_logical_ops_xz(
+            [[1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]],
+            [[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
+        )
 
 
 class IcebergCode(CSSCode):
-    """Quantum error detecting code: [2m, 2m-2, 2].
-
-    The m = 3 IcebergCode is the [6, 4, 2] code that is used to construct concatenated
-    many-hypercube codes.
+    """A quantum error detecting code: [n, n - 2, 2].
 
     References:
     - https://errorcorrectionzoo.org/c/iceberg
-    - https://errorcorrectionzoo.org/c/stab_6_4_2
-    - https://arxiv.org/abs/2403.16054
     """
 
-    def __init__(self, size: int, *, alternative_logicals: bool = False) -> None:
-        checks = [[1] * (2 * size)]
-        CSSCode.__init__(self, checks, checks, field=2, is_subsystem_code=False)
-        self._dimension = 2 * size - 2
+    def __init__(self, size: int) -> None:
+        if not size % 2 == 0:
+            raise ValueError(
+                f"The Iceberg code is only defined for even block lengths (provided: {size})"
+            )
+        checks = [[1] * size]
+        super().__init__(checks, checks, is_subsystem_code=False)
+        self._dimension = size - 2
         self._distance_x = self._distance_z = 2
-
-        if alternative_logicals and size == 3:
-            # make a specific choice of logical operators for the [6, 4, 2] code, splitting the
-            # four logical qubits into pairs with disjoint support on the physical qubits
-            sector_ops_x = [[1, 1, 0], [0, 1, 1]]
-            sector_ops_z = sector_ops_x[::-1]
-            ops_x = scipy.linalg.block_diag(sector_ops_x, sector_ops_x)
-            ops_z = scipy.linalg.block_diag(sector_ops_z, sector_ops_z)
-            self.set_logical_ops_xz(ops_x, ops_z)
 
 
 class C4Code(IcebergCode):
@@ -103,7 +269,7 @@ class C4Code(IcebergCode):
     """
 
     def __init__(self) -> None:
-        IcebergCode.__init__(self, 2)
+        super().__init__(4)
 
 
 class C6Code(CSSCode):
@@ -115,27 +281,26 @@ class C6Code(CSSCode):
 
     def __init__(self) -> None:
         checks = [[1, 1, 0, 0, 1, 1], [0, 1, 1, 1, 1, 0]]
-        CSSCode.__init__(self, checks, checks, field=2, is_subsystem_code=False)
+        super().__init__(checks, checks, is_subsystem_code=False)
         logical_ops_xz = scipy.linalg.block_diag([1, 1, 1], [1, 1, 1])
         self.set_logical_ops_xz(logical_ops_xz, logical_ops_xz)
-        self._dimension = 2
-        self._distance_x = self._distance_z = 2
 
 
-################################################################################
-# two-block and bicycle codes
+####################################################################################################
+# two-block and quasi-cyclic codes
 
 
 class TBCode(CSSCode):
-    """Two-block (TB) code.
+    """Two-block code.
 
-    A TBCode code is built out of two matrices A and B, which are combined as
-    - matrix_x = [A, B], and
-    - matrix_z = [B.T, -A.T],
-    to form the parity check matrices of a CSSCode.  If A and B commute, the parity check matrices
-    matrix_x and matrix_z satisfy the requirements of a CSSCode.
+    A TBCode code is built out of two commuting matrices A and B, which are combined to define
+    (a) matrix_x = [A, B], and
+    (b) matrix_z = [B.T, -A.T].
+    Commutativity of A and B ensures that matrix_x @ matrix_z.T = AB - BA = 0, which makes matrix_x
+    and matrix_z a valid choice of parity check matrices of a CSSCode.
 
-    Two-block codes constructed out of circulant matrices are known as quasi-cyclic codes.
+    Two-block codes constructed out of circulant matrices (i.e., matrices chosen from a ring over an
+    Abelian group) are known as quasi-cyclic codes (QCCodes).
 
     References:
     - https://errorcorrectionzoo.org/c/two_block_quantum
@@ -154,12 +319,11 @@ class TBCode(CSSCode):
         matrix_a = ClassicalCode(matrix_a, field).matrix
         matrix_b = ClassicalCode(matrix_b, field).matrix
         if validate and not np.array_equal(matrix_a @ matrix_b, matrix_b @ matrix_a):
-            raise ValueError("The matrices provided for this TBCode are incompatible")
+            raise ValueError("The matrices provided for this TBCode do not commute")
 
         matrix_x = np.block([matrix_a, matrix_b])
         matrix_z = np.block([matrix_b.T, -matrix_a.T])
-        CSSCode.__init__(
-            self,
+        super().__init__(
             matrix_x,
             matrix_z,
             field,
@@ -171,11 +335,12 @@ class TBCode(CSSCode):
 class QCCode(TBCode):
     """Quasi-cyclic code.
 
-    A quasi-cyclic code is a CSS code with subcode parity check matrices
+    A QCCode is a two block code (TBCode) built out of matrices A and B that are chosen from a ring
+    over an Abelian group to ensure that A and B commute.  More specifically, a QCCode is a CSS code
+    with subcode parity check matrices
     - matrix_x = [A, B], and
     - matrix_z = [B.T, -A.T].
-    Here A and B are polynomials of the form A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ...,
-    where
+    Here A and B are polynomials of the form A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ..., where
     - A_{ijk...} is a scalar coefficient (over some finite field),
     - x, y, z, ... are generators of cyclic groups of orders R_x, R_y, R_z, ...
     - the monomial x^i y^j z^k ... represents a tensor product of cyclic shift matrices.
@@ -195,8 +360,18 @@ class QCCode(TBCode):
     - https://errorcorrectionzoo.org/c/generalized_bicycle
     - https://arxiv.org/abs/2203.17216
 
-    Bivariate quasi-cyclic codes are bivariate bicycle codes; see BBCode class.
+    Bivariate quasi-cyclic codes are bivariate bicycle codes; see the BBCode class.
     """
+
+    poly_a: sympy.Poly
+    poly_b: sympy.Poly
+    orders: tuple[int, ...]
+
+    symbols: tuple[sympy.Symbol, ...]
+    symbol_gens: dict[sympy.Symbol, abstract.GroupMember]
+
+    group: abstract.AbelianGroup
+    ring: abstract.GroupRing
 
     def __init__(
         self,
@@ -232,40 +407,35 @@ class QCCode(TBCode):
         self.orders = tuple(symbol_to_order.values())
 
         # identify the group generator associated with each symbol
-        self.group = abstract.AbelianGroup(*self.orders, field=field, product_lift=True)
-        self.gens = self.group.generators
-        self.symbol_gens = dict(zip(self.symbols, self.gens))
+        self.group = abstract.AbelianGroup(*self.orders)
+        self.ring = abstract.GroupRing(self.group, field)
+        self.symbol_gens = dict(zip(self.symbols, self.group.generators))
 
-        # build defining matrices of a generalized bicycle code
-        matrix_a = self.eval(self.poly_a).lift()
-        matrix_b = self.eval(self.poly_b).lift()
-        TBCode.__init__(
-            self, matrix_a, matrix_b, field, promise_equal_distance_xz=True, validate=False
-        )
+        # build defining matrices of a quasi-cyclic code; transpose the lift by convention
+        matrix_a = self.eval(self.poly_a).lift().T
+        matrix_b = self.eval(self.poly_b).lift().T
+        super().__init__(matrix_a, matrix_b, field, promise_equal_distance_xz=True, validate=False)
 
-    def eval(
-        self,
-        expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | sympy.Poly,
-    ) -> abstract.Element:
+    def eval(self, expression: sympy.Basic) -> abstract.RingMember:
         """Convert a sympy expression into an element of this code's group algebra."""
-        # evaluate a monomial
-        if isinstance(expression, (sympy.Integer, sympy.Symbol, sympy.Pow, sympy.Mul)):
-            coeff, monomial = expression.as_coeff_Mul()
-            member = self.to_group_member(monomial)
-            return int(coeff) * abstract.Element(self.group, member)
+        if isinstance(expression, sympy.Poly):
+            terms = sympy.Add.make_args(expression.as_expr())
+            return functools.reduce(operator.add, [self.eval(term) for term in terms])
 
-        # evaluate a polynomial
-        element = abstract.Element(self.group)
-        for term in expression.as_expr().args:
-            element += self.eval(term)
-        return element
+        coeff, monomial = expression.as_coeff_Mul()
+        member = self.to_group_member(monomial)
+        if not 0 <= int(coeff) < self.ring.field.order:
+            raise ValueError(
+                f"Coefficient {coeff} in expression {expression} is invalid over the finite"
+                f" field GF({self.ring.field.order})"
+            )
+        return abstract.RingMember(self.ring, (int(coeff), member))
 
     def to_group_member(
-        self, expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul
+        self, monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul
     ) -> abstract.GroupMember:
         """Convert a monomial into an associated member of this code's base group."""
-        coeff, exponents = self.get_coefficient_and_exponents(expression)
-        assert coeff == 1
+        _, exponents = self.get_coefficient_and_exponents(monomial)
 
         output = self.group.identity
         for base, exponent in exponents.items():
@@ -274,12 +444,12 @@ class QCCode(TBCode):
 
     @staticmethod
     def get_coefficient_and_exponents(
-        expression: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
+        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
     ) -> tuple[int, dict[sympy.Symbol, int]]:
         """Extract the coefficients and exponents in a monomial expression.
 
         For example, this method takes 5 x**3 y**2 to (5, {x: 3, y: 2})."""
-        coeff, monomial = expression.as_coeff_Mul()
+        coeff, monomial = monomial.as_coeff_Mul()
         exponents = {}
         if isinstance(monomial, sympy.Integer):
             coeff *= int(monomial)
@@ -317,10 +487,79 @@ class QCCode(TBCode):
 
         return new_poly
 
+    def get_syndrome_subgraphs(self, *, strategy: str = "") -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
-# TODO: example notebook featuring this code
+        See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
+
+        The syndrome measurement circuit induced by the sequence of subgraphs constructed here
+        generalizes the syndrome measurement circuit for BBCodes in arXiv:2308.07915 via the
+        techniques used to construct a circuit for HGPCodes for Algorithm 2 in arXiv:2109.14609.
+
+        Let L and R denote, respectively, the data qubits addressed by the left and right half of
+        the parity check matrix for X-type stabilizers (self.matrix_x).  The sequence of subgraphs
+        constructed here is as follows:
+        1. Group together edges of the Tanner graph by XLA, XRB, ZLB, and ZRA type, where XLA, for
+            example, refers to the edges associated for X-type parity checks that address data
+            qubits in L, whose connections are determined by the polynomial A.  The sequence of
+            subgraphs (XLA, XRB, ZLB, ZRA) corresponds to a valid syndrome measurement circuit.
+        2. Split A in into two terms, A = A_1 + A_2, and correspondingly split the graphs XLA and
+            ZRA into the pairs of graphs (XLA_1, XLA_2) and (ZRA_1, ZRA_2).  Push XLA_1 to the end
+            of the subgraph sequence for syndrome measurement, and push ZRA_1 to the beginning,
+            thereby arriving at the final subgraph sequence (ZRA_1, XLA_2, XRB, ZLB, ZRA_2, XLA_1).
+        Pushing XLA_1 to the end of the subgraph sequence corresponds to commuting associated gates
+        to the right of the syndrome measurement circuit.  Similarly to the situation in Figure 2c
+        of arXiv:2109.14609v1, commuting XLA_1 to the right of ZLB introduces CNOT gates between X
+        and Z check qubits; the X and Z support of these gates is given, respectively, by the row
+        and column of A_1 @ B.T.  These CNOTs get cancelled out by pushing ZRA_1 to the left of XLB.
+        """
+        assert not strategy, (
+            f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
+            f" (provided: {strategy})"
+        )
+
+        # build matrices for each term in A and B
+        terms_a = sympy.Add.make_args(self.poly_a.as_expr())
+        terms_b = sympy.Add.make_args(self.poly_b.as_expr())
+        matrices_a = [self.eval(term).lift().T for term in terms_a]
+        matrices_b = [self.eval(term).lift().T for term in terms_b]
+
+        # collect edges by type and index of a term in A or B
+        edges_XL: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_XR: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_ZL: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_ZR: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        for term_index, matrix in enumerate(matrices_a):
+            for xx, ll in zip(*np.where(matrix)):
+                zz = ll + self.num_checks_x
+                rr = xx + len(self) // 2
+                edges_XL[term_index].append((Node(xx, is_data=False), Node(ll, is_data=True)))
+                edges_ZR[term_index].append((Node(zz, is_data=False), Node(rr, is_data=True)))
+        for term_index, matrix in enumerate(matrices_b):
+            for xx, col in zip(*np.where(matrix)):
+                ll = xx
+                rr = col + len(self) // 2
+                zz = col + self.num_checks_x
+                edges_XR[term_index].append((Node(xx, is_data=False), Node(rr, is_data=True)))
+                edges_ZL[term_index].append((Node(zz, is_data=False), Node(ll, is_data=True)))
+
+        # convert edge sets into subgraphs and return (ZR_1, XL_2, XR, ZL, ZR_2, XL_1)
+        subgraphs_XL = tuple(self.graph.edge_subgraph(edges_XL[term]) for term in edges_XL)
+        subgraphs_XR = tuple(self.graph.edge_subgraph(edges_XR[term]) for term in edges_XR)
+        subgraphs_ZL = tuple(self.graph.edge_subgraph(edges_ZL[term]) for term in edges_ZL)
+        subgraphs_ZR = tuple(self.graph.edge_subgraph(edges_ZR[term]) for term in edges_ZR)
+        return (
+            subgraphs_ZR[::2]
+            + subgraphs_XL[1::2]
+            + subgraphs_XR
+            + subgraphs_ZL
+            + subgraphs_ZR[1::2]
+            + subgraphs_XL[::2]
+        )
+
+
 class BBCode(QCCode):
-    """Bivariate bicycle code.
+    """Bivariate bicycle code, or a quasi-cyclic code with polynomials in two variables.
 
     A bivariate bicycle code is a CSS code with subcode parity check matrices
     - matrix_x = [A, B], and
@@ -374,6 +613,9 @@ class BBCode(QCCode):
     - https://arxiv.org/abs/2404.18809
     """
 
+    orders: tuple[int, int]
+    symbols: tuple[sympy.Symbol, sympy.Symbol]
+
     def __init__(
         self,
         orders: Sequence[int] | dict[sympy.Symbol, int],
@@ -382,17 +624,13 @@ class BBCode(QCCode):
         field: int | None = None,
     ) -> None:
         """Construct a bivariate bicycle code."""
-        self.poly_a = sympy.Poly(poly_a)
-        self.poly_b = sympy.Poly(poly_b)
-        symbols = poly_a.free_symbols | poly_b.free_symbols
+        symbols = sympy.Poly(poly_a).free_symbols | sympy.Poly(poly_b).free_symbols
         if len(orders) != 2 or len(symbols) != 2:
             raise ValueError(
                 "BBCodes should have exactly two cyclic group orders and two symbols, not "
                 f"{len(orders)} orders and {len(symbols)} symbols."
             )
-        QCCode.__init__(self, orders, poly_a, poly_b, field)
-        self.orders: tuple[int, int]
-        self.symbols: tuple[sympy.Symbol, sympy.Symbol]
+        super().__init__(orders, poly_a, poly_b, field)
 
     def __str__(self) -> str:
         """Human-readable representation of this code."""
@@ -499,7 +737,8 @@ class BBCode(QCCode):
         # identify collections of monomials that can be combined to obtain a toric layout
         toric_params = []
         for (a_1, a_2), (b_1, b_2) in itertools.product(
-            itertools.combinations(monomials_a, 2), itertools.combinations(monomials_b, 2)
+            itertools.combinations(monomials_a, 2),
+            itertools.combinations(monomials_b, 2),
         ):
             vec_g = self.as_exponent_vector(a_2 / a_1)
             vec_h = self.as_exponent_vector(b_2 / b_1)
@@ -628,12 +867,12 @@ class BBCode(QCCode):
         return bool(np.all(reached))
 
 
-################################################################################
-# hypergraph and lifted product codes
+####################################################################################################
+# hypergraph product code, lifted product code, and their subsystem variants
 
 
 class HGPCode(CSSCode):
-    """Hypergraph product (HGP) code.
+    """Hypergraph product code.
 
     A hypergraph product code AB is constructed from the parity check matrices of two classical
     codes, A and B.
@@ -675,15 +914,15 @@ class HGPCode(CSSCode):
 
     This class contains two equivalent constructions of an HGPCode:
     - A construction based on Tanner graphs (as discussed above).
-    - A construction based on check matrices, taken from arXiv:2202.01702.
+    - A construction based on check matrices, as originally introduced in arXiv:0903.0566.
     The latter construction is less intuitive, but more efficient.
 
     References:
     - https://errorcorrectionzoo.org/c/hypergraph_product
-    - https://arxiv.org/abs/2202.01702
-    - https://www.youtube.com/watch?v=iehMcUr2saM
     - https://arxiv.org/abs/0903.0566
     - https://arxiv.org/abs/1202.0928
+    - https://arxiv.org/abs/2202.01702
+    - https://www.youtube.com/watch?v=iehMcUr2saM
     """
 
     sector_size: npt.NDArray[np.int_]
@@ -696,7 +935,7 @@ class HGPCode(CSSCode):
         *,
         set_logicals: bool = True,
     ) -> None:
-        """Hypergraph product of two classical codes, as in arXiv:2202.01702.
+        """Hypergraph product of two classical codes, as in arXiv:0903.0566.
 
         The parity check matrices of the hypergraph product code are:
 
@@ -712,28 +951,86 @@ class HGPCode(CSSCode):
         """
         if code_b is None:
             code_b = code_a
-        code_a = ClassicalCode(code_a, field)
-        code_b = ClassicalCode(code_b, field)
-        field = code_a.field.order
+        self.code_a = ClassicalCode(code_a, field)
+        self.code_b = ClassicalCode(code_b, field)
+        field = self.code_a.field.order
 
         # use a matrix-based hypergraph product to identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = HGPCode.get_matrix_product(code_a.matrix, code_b.matrix)
+        matrix_x, matrix_z = HGPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
 
         # identify the number of qudits in each sector
         self.sector_size = np.outer(
-            [code_a.num_bits, code_a.num_checks],
-            [code_b.num_bits, code_b.num_checks],
+            [self.code_a.num_bits, self.code_a.num_checks],
+            [self.code_b.num_bits, self.code_b.num_checks],
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
-        self._default_conjugate = slice(self.sector_size[0, 0], None)
+        self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
-        CSSCode.__init__(
-            self, matrix_x.astype(int), matrix_z.astype(int), field, is_subsystem_code=False
+        super().__init__(
+            matrix_x.view(np.ndarray).astype(int),
+            matrix_z.view(np.ndarray).astype(int),
+            field,
+            is_subsystem_code=False,
         )
 
         if set_logicals:
-            self.set_logical_ops_xz(*self.get_canonical_logical_ops(code_a, code_b), validate=False)
+            logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
+            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
+
+    def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
+
+        The sequence here is essentially the sequence used for hypergraph product codes in Algorithm
+        2 of arXiv:2109.14609, modified to obviate the need to find a balanced ordering of Tanner
+        graph vertices.
+
+        More specifically, this method constructs Tanner subgraphs as follows:
+        1. For the classical seed code that defines vertical edges of this HGPCode (self.code_a),
+            color the edges of its Tanner graph, and number these colors starting from zero.
+        2. Even edges get assigned a "north" or "south" direction if they are associated,
+            respectively, with X-type or Z-type parity checks.  Odd edges get assigned the opposite
+            direction.
+        3. Steps 1 and 2 are repeated for (horizontal, self.code_b, east, west) in place of
+            (vertical, self.code_a, north, south).
+
+        Args:
+            strategy: The strategy used by nx.greedy_color to color edges of the Tanner graph.
+                Default: "smallest_last".
+        """
+        node_map = HGPCode.get_product_node_map(self.code_a.graph.nodes, self.code_b.graph.nodes)
+
+        # collect subgraphs of North and South edges
+        edges_n: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_s: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        coloring_a = nx.greedy_color(nx.line_graph(self.code_a.graph.to_undirected()), strategy)
+        for (check_a, data_a), color in coloring_a.items():
+            for node_b in self.code_b.graph.nodes:
+                node_0 = node_map[check_a, node_b]
+                node_1 = node_map[data_a, node_b]
+                data, check = sorted([node_0, node_1])
+                edges_ns = edges_s if (color + node_b.is_data) % 2 == 0 else edges_n
+                edges_ns[color].append((check, data))
+        graphs_n = tuple(self.graph.edge_subgraph(edges) for edges in edges_n.values())
+        graphs_s = tuple(self.graph.edge_subgraph(edges) for edges in edges_s.values())
+
+        # collect subgraphs of East and West edges
+        edges_e: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        edges_w: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        coloring_b = nx.greedy_color(nx.line_graph(self.code_b.graph.to_undirected()), strategy)
+        for (check_b, data_b), color in coloring_b.items():
+            for node_a in self.code_a.graph.nodes:
+                node_0 = node_map[node_a, check_b]
+                node_1 = node_map[node_a, data_b]
+                data, check = sorted([node_0, node_1])
+                edges_ew = edges_e if (color + node_b.is_data) % 2 == 0 else edges_w
+                edges_ew[color].append((check, data))
+        graphs_e = tuple(self.graph.edge_subgraph(edges) for edges in edges_e.values())
+        graphs_w = tuple(self.graph.edge_subgraph(edges) for edges in edges_w.values())
+
+        return graphs_n + graphs_e + graphs_w + graphs_s
 
     @staticmethod
     def get_matrix_product(
@@ -750,17 +1047,19 @@ class HGPCode(CSSCode):
         # construct the X-sector and Z-sector parity check matrices
         matrix_x = np.block([mat_H1_In2, mat_Im1_H2_T])
         matrix_z = np.block([-mat_In1_H2, mat_H1_T_Im2])
-        return matrix_x, matrix_z
+        return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
     def get_graph_product(graph_a: nx.DiGraph, graph_b: nx.DiGraph) -> nx.DiGraph:
         """Hypergraph product of two Tanner graphs."""
+        graph = nx.DiGraph()
+        field = getattr(graph_a, "field", galois.GF(DEFAULT_FIELD_ORDER))
+        _Pauli = Pauli if field.order == 2 else QuditPauli
 
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
 
-        # fix edge orientation, and tag each edge with a QuditOperator
-        graph = nx.DiGraph()
+        # fix edge orientation, and tag each edge with a QuditPauli
         for node_fst, node_snd, data in graph_product.edges(data=True):
             # identify the sectors of two nodes
             sector_fst = HGPCode.get_sector(*node_fst)
@@ -775,31 +1074,23 @@ class HGPCode(CSSCode):
                 node_qudit, sector_qudit = node_snd, sector_snd
 
             # start with an X-type operator
-            op = QuditOperator((data.get("val", 0), 0))
+            op = _Pauli((data.get("val", 0), 0))
 
             # switch to Z-type operator for check qudits in the (0, 1) sector
             if sector_check == (0, 1):
                 op = ~op
 
             # account for the minus sign in the (0, 0) sector of the Z-type subcode
-            if op.value[Pauli.Z] and sector_qudit == (0, 0):
+            if isinstance(op, QuditPauli) and sector_qudit == (0, 0) and op.value[Pauli.Z]:
                 op = -op
 
             graph.add_edge(node_check, node_qudit)
-            graph[node_check][node_qudit][QuditOperator] = op
+            graph[node_check][node_qudit][Pauli] = op
 
         # relabel nodes, from (node_a, node_b) --> node_combined
         node_map = HGPCode.get_product_node_map(graph_a.nodes, graph_b.nodes)
         graph = nx.relabel_nodes(graph, node_map)
-
-        # remember order of the field, and use Pauli operators if appropriate
-        if hasattr(graph_a, "order"):
-            graph.order = graph_a.order
-            if graph.order == 2:
-                for _, __, data in graph.edges(data=True):
-                    data[Pauli] = Pauli(data[QuditOperator].value)
-                    del data[QuditOperator]
-
+        graph.field = field
         return graph
 
     @staticmethod
@@ -855,13 +1146,13 @@ class HGPCode(CSSCode):
 
         pivots_a = code_field.Zeros(generator_a.shape)
         pivots_b = code_field.Zeros(generator_b.shape)
-        pivots_a[range(len(pivots_a)), first_nonzero_cols(generator_a)] = 1
-        pivots_b[range(len(pivots_b)), first_nonzero_cols(generator_b)] = 1
+        pivots_a[range(len(pivots_a)), qldpc.math.first_nonzero_cols(generator_a)] = 1
+        pivots_b[range(len(pivots_b)), qldpc.math.first_nonzero_cols(generator_b)] = 1
 
         pivots_a_T = code_field.Zeros(generator_a_T.shape)
         pivots_b_T = code_field.Zeros(generator_b_T.shape)
-        pivots_a_T[range(len(pivots_a_T)), first_nonzero_cols(generator_a_T)] = 1
-        pivots_b_T[range(len(pivots_b_T)), first_nonzero_cols(generator_b_T)] = 1
+        pivots_a_T[range(len(pivots_a_T)), qldpc.math.first_nonzero_cols(generator_a_T)] = 1
+        pivots_b_T[range(len(pivots_b_T)), qldpc.math.first_nonzero_cols(generator_b_T)] = 1
 
         logical_ops_x_l = np.kron(pivots_a, generator_b)
         logical_ops_x_r = np.kron(generator_a_T, pivots_b_T)
@@ -869,13 +1160,33 @@ class HGPCode(CSSCode):
         logical_ops_z_l = np.kron(generator_a, pivots_b)
         logical_ops_z_r = np.kron(pivots_a_T, generator_b_T)
 
-        logical_ops_x = code_field(scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r))
-        logical_ops_z = code_field(scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r))
-        return logical_ops_x, logical_ops_z
+        logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
+        logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
+        return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+        """Exact distance calculation for hypergraph product codes, from arXiv:2308.15520."""
+        if pauli is not None:
+            # TODO: address the case of X and Z distance
+            return NotImplemented  # pragma: no cover
+        code_a = self.code_a
+        code_b = self.code_b
+        code_a_T = ClassicalCode(self.code_a.matrix.T)
+        code_b_T = ClassicalCode(self.code_b.matrix.T)
+        if code_a_T.get_distance() is np.nan or code_b_T.get_distance() is np.nan:
+            return min(code_a.get_distance(), code_b.get_distance())  # pragma: no cover
+        if code_a.get_distance() is np.nan or code_b.get_distance() is np.nan:
+            return min(code_a_T.get_distance(), code_b_T.get_distance())  # pragma: no cover
+        return min(
+            code_a.get_distance(),
+            code_b.get_distance(),
+            code_a_T.get_distance(),
+            code_b_T.get_distance(),
+        )
 
 
 class SHPCode(CSSCode):
-    """Subsystem hypergraph product (SHP) code.
+    """Subsystem hypergraph product code.
 
     A subsystem hypergraph product code (SHPCode) is constructed from two classical codes.  Unlike
     the ordinary hypergraph product code, an SHPCode depends only on the actual classical codes it
@@ -893,29 +1204,44 @@ class SHPCode(CSSCode):
 
     def __init__(
         self,
-        code_x: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        code_z: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
+        code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
         field: int | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
         """Subsystem hypergraph product of two classical codes, as in arXiv:2002.06257."""
-        if code_z is None:
-            code_z = code_x
-        code_x = ClassicalCode(code_x, field)
-        code_z = ClassicalCode(code_z, field)
-        code_field = code_x.field
+        if code_b is None:
+            code_b = code_a
+        self.code_a = ClassicalCode(code_a, field)
+        self.code_b = ClassicalCode(code_b, field)
+        code_field = self.code_a.field
 
-        matrix_x = np.kron(code_x.matrix, code_field.Identity(len(code_z)))
-        matrix_z = np.kron(code_field.Identity(len(code_x)), code_z.matrix)
-        CSSCode.__init__(self, matrix_x, matrix_z, field, is_subsystem_code=True)
+        matrix_x, matrix_z = SHPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
+        super().__init__(
+            matrix_x.view(np.ndarray).astype(int),
+            matrix_z.view(np.ndarray).astype(int),
+            code_field.order,
+            is_subsystem_code=True,
+        )
 
-        stab_ops_x = np.kron(code_x.matrix, code_z.generator)
-        stab_ops_z = np.kron(-code_x.generator, code_z.matrix)
-        self._stabilizer_ops = code_field(scipy.linalg.block_diag(stab_ops_x, stab_ops_z))
+        stab_ops_x = np.kron(self.code_a.matrix, self.code_b.generator)
+        stab_ops_z = np.kron(-self.code_a.generator, self.code_b.matrix)
+        self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(code_field)
 
         if set_logicals:
-            self.set_logical_ops_xz(*self.get_canonical_logical_ops(code_x, code_z), validate=False)
+            logical_ops_xz = SHPCode.get_canonical_logical_ops(self.code_a, self.code_b)
+            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
+
+    @staticmethod
+    def get_matrix_product(
+        matrix_a: npt.NDArray[np.int_ | np.object_],
+        matrix_b: npt.NDArray[np.int_ | np.object_],
+    ) -> tuple[npt.NDArray[np.int_ | np.object_], npt.NDArray[np.int_ | np.object_]]:
+        """Subsystem hypergraph product of two parity check matrices."""
+        matrix_x = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int)).view(type(matrix_a))
+        matrix_z = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b).view(type(matrix_a))
+        return matrix_x, matrix_z
 
     @staticmethod
     def get_canonical_logical_ops(
@@ -934,32 +1260,67 @@ class SHPCode(CSSCode):
 
         pivots_x = code_field.Zeros(generator_x.shape)
         pivots_z = code_field.Zeros(generator_z.shape)
-        pivots_x[range(len(pivots_x)), first_nonzero_cols(generator_x)] = 1
-        pivots_z[range(len(pivots_z)), first_nonzero_cols(generator_z)] = 1
+        pivots_x[range(len(pivots_x)), qldpc.math.first_nonzero_cols(generator_x)] = 1
+        pivots_z[range(len(pivots_z)), qldpc.math.first_nonzero_cols(generator_z)] = 1
 
-        logical_ops_x = code_field(np.kron(pivots_x, generator_z))
-        logical_ops_z = code_field(np.kron(generator_x, pivots_z))
-        return logical_ops_x, logical_ops_z
+        logical_ops_x = np.kron(pivots_x, generator_z)
+        logical_ops_z = np.kron(generator_x, pivots_z)
+        return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+        """Exact distance calculation for subsystem hypergraph product codes."""
+        match pauli:
+            case Pauli.X:
+                return self.code_b.get_distance()
+            case Pauli.Z:
+                return self.code_a.get_distance()
+            case _:
+                return min(self.code_a.get_distance(), self.code_b.get_distance())
 
 
 class LPCode(CSSCode):
-    """Lifted product (LP) code.
+    """Lifted product code.
 
     A lifted product code is essentially the same as a hypergraph product code, except that the
-    parity check matrices are "protographs", or matrices whose entries are members of a group
-    algebra over a finite field F_q.  Each of these entries can be "lifted" to a representation as
-    orthogonal matrices over F_q, in which case the protograph is interpreted as a block matrix;
-    this is called "lifting" the protograph.
+    parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
+    over a finite field F_q.  Each of these entries can be "lifted" to a representation as
+    orthogonal matrices over F_q, in which case the RingArray is interpreted as a block matrix; this
+    is called "lifting" the RingArray.
+
+    As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
+    can be constructed by
+
+        import numpy as np
+        from qldpc.abstract import CyclicGroup, GroupRing, RingArray, RingMember
+        from qldpc.codes import RepetitionCode, LPCode
+
+        num_copies = 5  # the number of surface codes to stitch together
+        group = CyclicGroup(num_copies)
+        ring = GroupRing(group)
+        x = RingMember(ring, group.generators[0])  # generator of the cyclic group
+
+        # stitch together small surface codes by hand
+        rep_matrix = RingArray.build([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], ring)
+        int_matrix = RingArray.build([[0, x, 0, 0], [0, 0, x, 0], [0, 0, 0, x]], ring)
+        code = LPCode(rep_matrix + int_matrix)
+
+        # stitch together larger surface codes
+        dist = 10  # distance of the individual surface codes
+        rep_matrix = RingArray.build(RepetitionCode(dist).matrix, ring)
+        int_matrix = RingArray.build(np.zeros((dist - 1, dist), dtype=int), ring)
+        for row in range(len(int_matrix)):
+            int_matrix[row, row + 1] = x
+        code = LPCode(rep_matrix + int_matrix)
 
     Notes:
-    - A lifted product code with protographs of size 1×1 is a two-block code (more specifically, a
-        two-block group-algebra code).  If the base group of the protographs is a cyclic group, the
+    - A lifted product code with RingArrays of size 1×1 is a two-block code (more specifically, a
+        two-block group-algebra code).  If the base group of the RingArrays is a cyclic group, the
         resulting lifted product code is a generalized bicycle code.
-    - A lifted product code with protographs whose entries get lifted to 1×1 matrices is a
-        hypergraph product code built from the lifted protographs.
+    - A lifted product code with RingArrays whose entries get lifted to 1×1 matrices is a
+        hypergraph product code built from the lifted RingArrays.
     - One way to get an LPCode: take a classical code with parity check matrix H and multiply it by
         a diagonal matrix D = diag(a_1, a_2, ... a_n), where all {a_j} are elements of a group
-        algebra.  The protograph P = H @ D can then be used for one of the protographs of an LPCode.
+        algebra.  The RingArray P = H @ D can then be used for one of the RingArrays of an LPCode.
 
     References:
     - https://errorcorrectionzoo.org/c/lifted_product
@@ -970,38 +1331,88 @@ class LPCode(CSSCode):
 
     def __init__(
         self,
-        protograph_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
-        protograph_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+        matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
+        matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
     ) -> None:
-        """Lifted product of two protographs, as in arXiv:2012.04068."""
-        if protograph_b is None:
-            protograph_b = protograph_a
-        protograph_a = abstract.Protograph(protograph_a)
-        protograph_b = abstract.Protograph(protograph_b)
-        field = protograph_a.field.order
+        """Lifted product of two RingArrays, as in arXiv:2012.04068."""
+        if matrix_b is None:
+            matrix_b = matrix_a
+        matrix_a = abstract.RingArray(matrix_a)
+        matrix_b = abstract.RingArray(matrix_b)
+        field = matrix_a.field.order
 
         # identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = HGPCode.get_matrix_product(protograph_a, protograph_b)
+        matrix_x, matrix_z = HGPCode.get_matrix_product(matrix_a, matrix_b)
+        assert isinstance(matrix_x, abstract.RingArray)
+        assert isinstance(matrix_z, abstract.RingArray)
 
         # identify the number of qudits in each sector
-        self.sector_size = protograph_a.group.lift_dim * np.outer(
-            protograph_a.shape[::-1],
-            protograph_b.shape[::-1],
+        self.sector_size = matrix_a.group.lift_dim * np.outer(
+            matrix_a.shape[::-1],
+            matrix_b.shape[::-1],
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
-        self._default_conjugate = slice(self.sector_size[0, 0], None)
+        self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
-        CSSCode.__init__(
-            self,
-            abstract.Protograph(matrix_x.astype(object)).lift(),
-            abstract.Protograph(matrix_z.astype(object)).lift(),
-            field,
-            is_subsystem_code=False,
-        )
+        super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
 
 
-################################################################################
+class SLPCode(CSSCode):
+    """Subsystem lifted product code.
+
+    The subsystem lifted product code is a lifted version of the subsystem hypergraph product code.
+    That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.
+    See help(qldpc.codes.LPCode) for additional information.
+
+    As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
+    constructed by
+
+        from qldpc.abstract import CyclicGroup, GroupRing, RingMember, RingArray
+        from qldpc.codes import SLPCode
+
+        group = CyclicGroup(2)
+        ring = GroupRing(group)
+        x = group.generators[0]
+        matrix = RingArray.build([[1, x, x], [x, x, 1]], ring)  # Eq. 21 of arXiv:2404.18302v1
+        code = SLPCode(matrix)
+        assert code.get_code_params() == (18, 4, 2)
+
+    while the SLPCode in example 2 is
+
+        group = CyclicGroup(3)
+        ring = GroupRing(group)
+        x = RingMember(ring, group.generators[0])
+        matrix = RingArray([[ring.one + x + x**2, ring.one + x, x]])  # Eq. 23 of arXiv:2404.18302v1
+        code = SLPCode(matrix)
+        assert code.get_code_params() == (27, 12, 2)
+
+    References:
+    - https://errorcorrectionzoo.org/c/subsystem_lifted_product
+    - https://arxiv.org/abs/2404.18302
+    """
+
+    def __init__(
+        self,
+        matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
+        matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+    ) -> None:
+        """Subsystem lifted product of two RingArrays."""
+        if matrix_b is None:
+            matrix_b = matrix_a
+        matrix_a = abstract.RingArray(matrix_a)
+        matrix_b = abstract.RingArray(matrix_b)
+        field = matrix_a.field.order
+
+        # identify X-sector and Z-sector parity checks
+        matrix_x, matrix_z = SHPCode.get_matrix_product(matrix_a, matrix_b)
+        assert isinstance(matrix_x, abstract.RingArray)
+        assert isinstance(matrix_z, abstract.RingArray)
+
+        super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=True)
+
+
+####################################################################################################
 # quantum Tanner code
 
 
@@ -1071,7 +1482,7 @@ class QTCode(CSSCode):
         self.code_b = code_b
         self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
         code_x, code_z = self.get_subcodes(self.complex, code_a, code_b)
-        CSSCode.__init__(self, code_x, code_z, field, is_subsystem_code=False)
+        super().__init__(code_x, code_z, field, is_subsystem_code=False)
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -1235,8 +1646,8 @@ class QTCode(CSSCode):
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
 
 
-################################################################################
-# common quantum codes
+####################################################################################################
+# surface code and friends
 
 
 class SurfaceCode(CSSCode):
@@ -1244,6 +1655,11 @@ class SurfaceCode(CSSCode):
 
     Actually, there are two variants: "ordinary" and "rotated" surface codes.
     The rotated code is more qubit-efficient.
+
+    References:
+    - https://errorcorrectionzoo.org/c/toric
+    - https://errorcorrectionzoo.org/c/surface
+    - https://errorcorrectionzoo.org/c/rotated_surface
     """
 
     def __init__(
@@ -1258,15 +1674,26 @@ class SurfaceCode(CSSCode):
             cols = rows
         self.rows = rows
         self.cols = cols
+        self.rotated = rotated
 
-        # save known distances
+        # save known distances and dimension
         self._distance_x = cols
         self._distance_z = rows
+        self._dimension = 1
 
-        if rotated:
+        if not rotated:
+            # "original" surface code
+            code_a = RepetitionCode(rows, field)
+            code_b = RepetitionCode(cols, field)
+            self.parent_code = HGPCode(code_a, code_b)
+            matrix_x = self.parent_code.matrix_x.view(np.ndarray)
+            matrix_z = self.parent_code.matrix_z.view(np.ndarray)
+            self.bias_tailoring_qubits = self.parent_code.bias_tailoring_qubits
+
+        else:
             # rotated surface code
             matrix_x, matrix_z = SurfaceCode.get_rotated_checks(rows, cols)
-            self._default_conjugate: list[int] | slice = [
+            self.bias_tailoring_qubits = [
                 idx
                 for idx, (row, col) in enumerate(np.ndindex(self.rows, self.cols))
                 if (row + col) % 2
@@ -1275,22 +1702,10 @@ class SurfaceCode(CSSCode):
             # invert Z-type Pauli on every other qubit
             code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
             if code_field.order > 2:
-                matrix_z = code_field(matrix_z)
-                matrix_z[:, self._default_conjugate] *= -1
+                matrix_z = matrix_z.view(code_field)
+                matrix_z[:, self.bias_tailoring_qubits] *= -1
 
-        else:
-            # "original" surface code
-            code_a = RepetitionCode(rows, field)
-            code_b = RepetitionCode(cols, field)
-            code_ab = HGPCode(code_a, code_b, field)
-            matrix_x = code_ab.matrix_x
-            matrix_z = code_ab.matrix_z
-            self._default_conjugate = slice(code_ab.sector_size[0, 0], None)
-
-        CSSCode.__init__(
-            self, matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols
-        )
-        self._dimension = 1
+        super().__init__(matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols)
 
     @staticmethod
     def get_rotated_checks(
@@ -1318,15 +1733,24 @@ class SurfaceCode(CSSCode):
         - Circles (○) denote data qubits (of which there are 5×5 = 25 total).
         - Tiles with a cross (×) denote X-type parity checks (12 total).
         - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
-
-        References:
-        - https://errorcorrectionzoo.org/c/rotated_surface
         """
 
-        def get_check(
-            row_indices: Sequence[int], col_indices: Sequence[int]
-        ) -> npt.NDArray[np.int_]:
+        def get_check_pauli(row: int, col: int) -> PauliXZ:
+            """What type of stabilizer does this check measure?"""
+            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
+
+        def check_is_used(row: int, col: int) -> bool:
+            """Is the check qubit with these coordinates used?"""
+            if row == 0 or row == rows:
+                return 0 < col < cols and get_check_pauli(row, col) is Pauli.Z
+            if col == 0 or col == cols:
+                return 0 < row < rows and get_check_pauli(row, col) is Pauli.X
+            return 0 < row < rows and 0 < col < cols
+
+        def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
             """Check on the qubits with the given indices, dropping any that are out of bounds."""
+            row_indices = [row - 1, row, row - 1, row]
+            col_indices = [col - 1, col - 1, col, col]
             check = np.zeros((rows, cols), dtype=int)
             for row, col in zip(row_indices, col_indices):
                 if 0 <= row < rows and 0 <= col < cols:
@@ -1335,32 +1759,107 @@ class SurfaceCode(CSSCode):
 
         checks_x = []
         checks_z = []
-        for row in range(-1, rows):
-            for col in range(-1, cols):
-                row_indices = [row, row + 1, row, row + 1]
-                col_indices = [col, col, col + 1, col + 1]
-                check = get_check(row_indices, col_indices)
-
-                # exclude exterior corner tiles that only touch one data qubit
-                if np.count_nonzero(check) == 1:
-                    continue
-
-                if row % 2 == col % 2:
-                    if 0 <= row < rows - 1:
-                        # no X-type parity checks on the top/bottom boundaries
-                        checks_x.append(check)
-                elif 0 <= col < cols - 1:
-                    # no Z-type parity checks on the left/right boundaries
+        for row, col in itertools.product(range(rows + 1), range(cols + 1)):
+            if check_is_used(row, col):
+                check = get_check(row, col)
+                if get_check_pauli(row, col) is Pauli.X:
+                    checks_x.append(check)
+                else:
                     checks_z.append(check)
 
         return np.array(checks_x), np.array(checks_z)
+
+    def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        See help(qldpc.codes.QuditCode.get_syndrome_subgraphs) for additional information.
+
+        If this is an unrotated surface code, return the syndrome subgraphs of the parent HGPCode.
+        Otherwise, organize edges of the Tanner graph by an orientation in {NW, NE, SW, SE}, and by
+        whether they are used for the readout of X-type or Z-type syndromes.  Interleave these edges
+        in such a way as to minimize circuit depth and avoid hook errors.
+
+        Args:
+            strategy: Only used if self.rotated is False, in which case this argument is passed to
+                HGPCode.get_syndrome_subgraphs to color the edges of the Tanner graph of this code.
+                Default: "smallest_last".
+        """
+        if not self.rotated:
+            return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
+
+        def get_check_pauli(row: int, col: int) -> PauliXZ:
+            """What type of stabilizer does this check measure?"""
+            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
+
+        def check_is_used(row: int, col: int) -> bool:
+            """Is the check qubit with these coordinates used?"""
+            if row == 0 or row == self.rows:
+                return 0 < col < self.cols and get_check_pauli(row, col) is Pauli.Z
+            if col == 0 or col == self.cols:
+                return 0 < row < self.rows and get_check_pauli(row, col) is Pauli.X
+            return 0 < row < self.rows and 0 < col < self.cols
+
+        # identify all coordinates of check qubits, and a map from coordinates to a Node
+        check_node_coords = sorted(
+            [
+                (row, col)
+                for row, col in itertools.product(range(self.rows + 1), range(self.cols + 1))
+                if check_is_used(row, col)
+            ],
+            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+        )
+        node_map = {
+            (row, col): Node(index, is_data=False)
+            for index, (row, col) in enumerate(check_node_coords)
+        }
+
+        # collect edges of the Tanner graph by type: (pauli, orientation)
+        edges: dict[tuple[Pauli, str], list[tuple[Node, Node]]] = collections.defaultdict(list)
+        for qubit, (row, col) in enumerate(itertools.product(range(self.rows), range(self.cols))):
+            data_node = Node(qubit, is_data=True)
+
+            check_nw = (row, col)
+            check_ne = (row, col + 1)
+            check_sw = (row + 1, col)
+            check_se = (row + 1, col + 1)
+            if check_is_used(*check_nw):
+                check_pauli = get_check_pauli(*check_nw)
+                check_node = node_map[check_nw]
+                edges[check_pauli, "nw"].append((check_node, data_node))
+            if check_is_used(*check_ne):
+                check_pauli = get_check_pauli(*check_ne)
+                check_node = node_map[check_ne]
+                edges[check_pauli, "ne"].append((check_node, data_node))
+            if check_is_used(*check_sw):
+                check_pauli = get_check_pauli(*check_sw)
+                check_node = node_map[check_sw]
+                edges[check_pauli, "sw"].append((check_node, data_node))
+            if check_is_used(*check_se):
+                check_pauli = get_check_pauli(*check_se)
+                check_node = node_map[check_se]
+                edges[check_pauli, "se"].append((check_node, data_node))
+
+        # return subgraphs in the order that minimizes hook errors
+        subgraphs = {key: self.graph.edge_subgraph(edge_group) for key, edge_group in edges.items()}
+        return (
+            subgraphs[Pauli.X, "nw"],
+            subgraphs[Pauli.Z, "nw"],
+            subgraphs[Pauli.X, "sw"],
+            subgraphs[Pauli.Z, "ne"],
+            subgraphs[Pauli.X, "ne"],
+            subgraphs[Pauli.Z, "sw"],
+            subgraphs[Pauli.X, "se"],
+            subgraphs[Pauli.Z, "se"],
+        )
 
 
 class ToricCode(CSSCode):
     """Surface code with periodic boundary conditions, encoding two logical qudits.
 
     References:
+    - https://errorcorrectionzoo.org/c/toric
     - https://errorcorrectionzoo.org/c/surface
+    - https://errorcorrectionzoo.org/c/rotated_surface
     """
 
     def __init__(
@@ -1375,19 +1874,32 @@ class ToricCode(CSSCode):
             cols = rows
         self.rows = rows
         self.cols = cols
+        self.rotated = rotated
 
-        # save known distances
+        # save known distances and dimension
         self._distance_x = self._distance_z = min(rows, cols)
+        self._dimension = 2
 
-        if rotated:
+        if not rotated:
+            # "original" toric code
+            code_a = RingCode(rows, field)
+            code_b = RingCode(cols, field)
+            self.parent_code = HGPCode(code_a, code_b)
+            matrix_x = self.parent_code.matrix_x.view(np.ndarray)
+            matrix_z = self.parent_code.matrix_z.view(np.ndarray)
+            self.bias_tailoring_qubits: list[int] | slice = slice(
+                self.parent_code.sector_size[0, 0], None
+            )
+
+        else:
+            # rotated toric code
             if rows % 2 or cols % 2:
                 raise ValueError(
                     f"Rotated toric code must have even side lengths, not {rows} and {cols}"
                 )
 
-            # rotated toric code
             matrix_x, matrix_z = ToricCode.get_rotated_checks(rows, cols)
-            self._default_conjugate: list[int] | slice = [
+            self.bias_tailoring_qubits = [
                 idx
                 for idx, (row, col) in enumerate(np.ndindex(self.rows, self.cols))
                 if (row + col) % 2
@@ -1396,8 +1908,8 @@ class ToricCode(CSSCode):
             # invert Z-type Pauli on every other qubit
             code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
             if code_field.order > 2:
-                matrix_z = code_field(matrix_z)
-                matrix_z[:, self._default_conjugate] *= -1
+                matrix_z = matrix_z.view(code_field)
+                matrix_z[:, self.bias_tailoring_qubits] *= -1
 
             if rows == cols == 2 and rotated:
                 # All Toric codes have redundant parity checks, but the case of the rotated 2x2
@@ -1406,19 +1918,7 @@ class ToricCode(CSSCode):
                 matrix_x = matrix_x[:-1]
                 matrix_z = matrix_z[:-1]
 
-        else:
-            # "original" toric code
-            code_a = RingCode(rows, field)
-            code_b = RingCode(cols, field)
-            code_ab = HGPCode(code_a, code_b, field)
-            matrix_x = code_ab.matrix_x
-            matrix_z = code_ab.matrix_z
-            self._default_conjugate = slice(code_ab.sector_size[0, 0], None)
-
-        CSSCode.__init__(
-            self, matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols
-        )
-        self._dimension = 2
+        super().__init__(matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols)
 
     @staticmethod
     def get_rotated_checks(
@@ -1429,28 +1929,69 @@ class ToricCode(CSSCode):
         Same as in SurfaceCode.get_rotated_checks, but with periodic boundary conditions.
         """
 
-        def get_check(
-            row_indices: Sequence[int], col_indices: Sequence[int]
-        ) -> npt.NDArray[np.int_]:
-            """Check on the qubits with the given indices, with periodic boundary conditions."""
+        def get_check_pauli(row: int, col: int) -> PauliXZ:
+            """What type of stabilizer does this check measure?"""
+            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
+
+        def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
+            """Check on the qubits with the given indices, dropping any that are out of bounds."""
+            row_indices = np.array([row - 1, row, row - 1, row]) % rows
+            col_indices = np.array([col - 1, col - 1, col, col]) % cols
             check = np.zeros((rows, cols), dtype=int)
             for row, col in zip(row_indices, col_indices):
-                check[row % rows, col % cols] = 1
+                check[row, col] = 1
             return check.ravel()
 
         checks_x = []
         checks_z = []
-        for row in range(rows):
-            for col in range(cols):
-                row_indices = [row, row + 1, row, row + 1]
-                col_indices = [col, col, col + 1, col + 1]
-                check = get_check(row_indices, col_indices)
-                if row % 2 == col % 2:
-                    checks_x.append(check)
-                else:
-                    checks_z.append(check)
+        for row, col in itertools.product(range(rows), range(cols)):
+            check = get_check(row, col)
+            if get_check_pauli(row, col) is Pauli.X:
+                checks_x.append(check)
+            else:
+                checks_z.append(check)
 
         return np.array(checks_x), np.array(checks_z)
+
+    def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
+        """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
+
+        If this is an unrotated toric code, return the syndrome subgraphs of the parent HGPCode.
+        Otherwise, return the subgraphs of edges oriented along (NW, NE, SW, SE) directions.
+
+        Args:
+            strategy: Only used if self.rotated is False, in which case this argument is passed to
+                HGPCode.get_syndrome_subgraphs to color the edges of the Tanner graph of this code.
+                Default: "smallest_last".
+        """
+        if not self.rotated:
+            return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
+
+        def get_check_pauli(row: int, col: int) -> PauliXZ:
+            """What type of stabilizer does this check measure?"""
+            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
+
+        # identify all coordinates of check qubits, and a map from coordinates to a Node
+        check_node_coords = sorted(
+            [(row, col) for row, col in itertools.product(range(self.rows), range(self.cols))],
+            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+        )
+        node_map = {
+            (row, col): Node(index, is_data=False)
+            for index, (row, col) in enumerate(check_node_coords)
+        }
+
+        # collect edges of the Tanner graph by type (orientation)
+        edges: dict[str, list[tuple[Node, Node]]] = collections.defaultdict(list)
+        for qubit, (row, col) in enumerate(itertools.product(range(self.rows), range(self.cols))):
+            node_data = Node(qubit, is_data=True)
+            edges["nw"].append((node_map[row, col], node_data))
+            edges["ne"].append((node_map[row, (col + 1) % self.cols], node_data))
+            edges["sw"].append((node_map[(row + 1) % self.rows, col], node_data))
+            edges["se"].append((node_map[(row + 1) % self.rows, (col + 1) % self.cols], node_data))
+
+        subgraphs = {key: self.graph.edge_subgraph(edge_group) for key, edge_group in edges.items()}
+        return subgraphs["nw"], subgraphs["ne"], subgraphs["sw"], subgraphs["se"]
 
 
 class GeneralizedSurfaceCode(CSSCode):
@@ -1474,25 +2015,62 @@ class GeneralizedSurfaceCode(CSSCode):
             )
 
         # save known distances
-        # TODO: find and link source for these
         self._distance_x = size ** (dim - 1)
         self._distance_z = size
 
         base_code = RingCode(size, field) if periodic else RepetitionCode(size, field)
 
         # build a chain complex one link at a time
-        chain = ChainComplex(base_code.matrix)
-        link = ChainComplex(base_code.matrix.T)
+        chain = ChainComplex([base_code.matrix])
+        link = ChainComplex([base_code.matrix.T])
         for _ in range(dim - 1):
             chain = ChainComplex.tensor_product(chain, link)
 
             # to reduce computational overhead, remove chain links that we don't care about
-            chain = ChainComplex(*chain.ops[:2])
+            chain = ChainComplex(chain.ops[:2])
 
         matrix_x, matrix_z = chain.op(1), chain.op(2).T
-        assert not isinstance(matrix_x, abstract.Protograph)
-        assert not isinstance(matrix_z, abstract.Protograph)
-        CSSCode.__init__(self, matrix_x, matrix_z, field)
+        assert not isinstance(matrix_x, abstract.RingArray)
+        assert not isinstance(matrix_z, abstract.RingArray)
+        super().__init__(matrix_x, matrix_z, field)
+
+
+####################################################################################################
+# miscellaneous codes
+
+
+class ManyHypercubeCode(CSSCode):
+    """The [6**r, 4**r, 2**r] concatenated many-hypercubes code of arXiv:2403.16054.
+
+    References:
+    - https://arxiv.org/abs/2403.16054
+    - https://errorcorrectionzoo.org/c/stab_6_4_2
+    """
+
+    def __init__(self, level: int = 1) -> None:
+        assert level >= 1
+
+        code: CSSCode
+        if level == 1:
+            # construct a [6, 4, 2] Iceberg code
+            code = IcebergCode(6)
+            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
+
+            # split the four logical qubits into pairs with disjoint support on the physical qubits
+            sector_ops_x = [[1, 1, 0], [0, 1, 1]]
+            sector_ops_z = sector_ops_x[::-1]
+            ops_x = scipy.linalg.block_diag(sector_ops_x, sector_ops_x)
+            ops_z = scipy.linalg.block_diag(sector_ops_z, sector_ops_z)
+            self.set_logical_ops_xz(ops_x, ops_z)
+
+        else:
+            code = ManyHypercubeCode(1)
+            base_code = ManyHypercubeCode(1)
+            for _ in range(level - 1):
+                code = CSSCode.concatenate(code, base_code)
+            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
+            self._dimension = 4**level
+            self._distance_x = self._distance_z = 2**level
 
 
 class BaconShorCode(SHPCode):
@@ -1512,7 +2090,10 @@ class BaconShorCode(SHPCode):
     ) -> None:
         code_x = RepetitionCode(rows, field)
         code_z = RepetitionCode(cols, field) if cols is not None else None
-        SHPCode.__init__(self, code_x, code_z, field, set_logicals=set_logicals)
+        super().__init__(code_x, code_z, field, set_logicals=set_logicals)
+
+        self._distance_x = cols
+        self._distance_z = rows
 
 
 class SHYPSCode(SHPCode):
@@ -1528,13 +2109,18 @@ class SHYPSCode(SHPCode):
     - https://arxiv.org/abs/2502.07150
     """
 
-    def __init__(self, dim_x: int, dim_z: int | None = None, *, set_logicals: bool = True) -> None:
+    def __init__(
+        self,
+        dim_x: int,
+        dim_z: int | None = None,
+        field: int | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
         dim_z = dim_z if dim_z is not None else dim_x
 
-        code_x = SimplexCode(dim_x)
-        code_z = SimplexCode(dim_z)
-        SHPCode.__init__(self, code_x, code_z, set_logicals=set_logicals)
+        code_x = SimplexCode(dim_x, field)
+        code_z = SimplexCode(dim_z, field)
+        super().__init__(code_x, code_z, set_logicals=set_logicals)
 
         self._dimension = dim_x * dim_z
-        self._distance_x = code_z.get_distance()  # X errors are witnessed by the Z code
-        self._distance_z = code_x.get_distance()  # Z errors are witnessed by the X code

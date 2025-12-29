@@ -17,10 +17,10 @@ limitations under the License.
 
 from __future__ import annotations
 
-import subprocess
 import unittest.mock
 import urllib
 
+import galois
 import pytest
 
 from qldpc import external
@@ -45,7 +45,6 @@ def get_mock_page(text: str) -> unittest.mock.MagicMock:
 
 def test_get_group_url() -> None:
     """Retrieve url for group webpage on GroupNames.org."""
-
     # cannot connect to general webpage
     with unittest.mock.patch(
         "urllib.request.urlopen", side_effect=urllib.error.URLError("message")
@@ -74,15 +73,14 @@ def test_get_group_url() -> None:
         assert external.groups.get_group_url(ORDER, INDEX) == GROUP_URL
 
 
-def test_get_generators_from_groupnames() -> None:
+def test_maybe_get_generators_from_groupnames() -> None:
     """Retrieve generators from group webpage on GroupNames.org."""
-
     # group not indexed
-    assert external.groups.get_generators_from_groupnames("") is None
+    assert external.groups.maybe_get_generators_from_groupnames("") is None
 
     # group url not found
     with unittest.mock.patch("qldpc.external.groups.get_group_url", return_value=None):
-        assert external.groups.get_generators_from_groupnames(GROUP) is None
+        assert external.groups.maybe_get_generators_from_groupnames(GROUP) is None
 
     # cannot find generators
     mock_page = get_mock_page(MOCK_GROUP_HTML.replace("pre", ""))
@@ -91,7 +89,7 @@ def test_get_generators_from_groupnames() -> None:
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
         pytest.raises(ValueError, match="Generators .* not found"),
     ):
-        external.groups.get_generators_from_groupnames(GROUP)
+        external.groups.maybe_get_generators_from_groupnames(GROUP)
 
     # everything works as expected
     mock_page = get_mock_page(MOCK_GROUP_HTML)
@@ -99,84 +97,119 @@ def test_get_generators_from_groupnames() -> None:
         unittest.mock.patch("qldpc.external.groups.get_group_url", return_value=GROUP_URL),
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
     ):
-        assert external.groups.get_generators_from_groupnames(GROUP) == GENERATORS
+        assert external.groups.maybe_get_generators_from_groupnames(GROUP) == GENERATORS
 
 
-def get_mock_process(stdout: str) -> subprocess.CompletedProcess[str]:
-    """Fake process with the given stdout."""
-    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout)
-
-
-def test_get_generators_with_gap() -> None:
+def test_maybe_get_generators_from_gap() -> None:
     """Retrieve generators from GAP 4."""
-
-    # GAP is not installed
+    external.gap.require_package.cache_clear()
     with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
-        assert external.groups.get_generators_with_gap(GROUP) is None
+        assert external.groups.maybe_get_generators_from_gap(GROUP) is None
 
     # cannot extract cycle from string
-    mock_process = get_mock_process("\n(1, 2a)\n")
     with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2a)\n"),
         pytest.raises(ValueError, match="Cannot extract cycle"),
     ):
-        assert external.groups.get_generators_with_gap(GROUP) is None
-
-    # group not recognized by GAP
-    mock_process = get_mock_process("")
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
-        pytest.raises(ValueError, match="not recognized by GAP"),
-    ):
-        assert external.groups.get_generators_with_gap(GROUP) is None
+        assert external.groups.maybe_get_generators_from_gap(GROUP) is None
 
     # everything works as expected
-    mock_process = get_mock_process("\n(1, 2)\n")
     with (
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2)\n"),
+        pytest.warns(UserWarning, match="_TEST_"),
     ):
-        assert external.groups.get_generators_with_gap(GROUP) == GENERATORS
+        assert external.groups.maybe_get_generators_from_gap(GROUP, warning="_TEST_") == GENERATORS
 
 
 def test_get_generators() -> None:
-    """Retrieve generators somehow."""
+    """Retrieve generators for a GAP group somehow."""
+    # retrieve known groups
+    for group, generators in external.groups.KNOWN_GROUPS.items():
+        assert external.groups.get_generators(group) == generators
 
     # retrieve from GAP
-    with (
-        unittest.mock.patch(
-            "qldpc.external.groups.get_generators_with_gap", return_value=GENERATORS
-        ),
+    with unittest.mock.patch(
+        "qldpc.external.groups.maybe_get_generators_from_gap", return_value=GENERATORS
     ):
         assert external.groups.get_generators(GROUP) == GENERATORS
 
     # retrieve from GroupNames.org
     with (
-        unittest.mock.patch("qldpc.external.groups.get_generators_with_gap", return_value=None),
         unittest.mock.patch(
-            "qldpc.external.groups.get_generators_from_groupnames", return_value=GENERATORS
+            "qldpc.external.groups.maybe_get_generators_from_gap", return_value=None
+        ),
+        unittest.mock.patch(
+            "qldpc.external.groups.maybe_get_generators_from_groupnames", return_value=GENERATORS
         ),
     ):
         assert external.groups.get_generators(GROUP) == GENERATORS
 
     # fail to retrieve from anywhere :(
     with (
-        unittest.mock.patch("qldpc.external.groups.get_generators_with_gap", return_value=None),
         unittest.mock.patch(
-            "qldpc.external.groups.get_generators_from_groupnames", return_value=None
+            "qldpc.external.groups.maybe_get_generators_from_gap", return_value=None
+        ),
+        unittest.mock.patch(
+            "qldpc.external.groups.maybe_get_generators_from_groupnames", return_value=None
         ),
     ):
-        with pytest.raises(ValueError, match="Cannot build GAP group"):
+        with (
+            unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+            pytest.raises(ValueError, match="Cannot build GAP group"),
+        ):
             external.groups.get_generators(GROUP)
-        with pytest.raises(ValueError, match="Cannot build GAP group"):
+
+        with (
+            unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+            pytest.raises(ValueError, match="Cannot build GAP group"),
+        ):
             external.groups.get_generators("CyclicGroup(2)")
+
+
+def test_get_generators_from_magma(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Retrieve generators for a MAGMA group."""
+    # define the automorphism group of a two-bit repetition code
+    group = "AutomorphismGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));"
+    generators = [[(0, 1)]]
+
+    # mock user inputs
+    inputs = iter(
+        ["Permutation group acting on a set of cardinality 2", "Order = 2", "    (1, 2)", ""]
+    )
+    monkeypatch.setattr("builtins.input", lambda: next(inputs))
+
+    cache: dict[str, str] = {}
+    with (
+        unittest.mock.patch("qldpc.cache.get_disk_cache", return_value=cache),
+        unittest.mock.patch("pyperclip.copy", return_value=None),
+    ):
+        # compute generators with MAGMA
+        assert external.groups.get_generators_from_magma(group) == generators
+        terminal_output, error_message = capsys.readouterr()
+        assert not error_message
+        assert terminal_output.startswith("Run the following command in MAGMA:")
+
+        # now use the cache!
+        assert external.groups.get_generators_from_magma(group) == generators
+        terminal_output, error_message = capsys.readouterr()
+        assert not error_message
+        assert terminal_output.startswith("Run the following command in MAGMA:")
+        assert "NOTICE: group found in the local MAGMA group cache" in terminal_output
+
+    # mock invalid user input / MAGMA output
+    inputs = iter(["There are no cycles in this output!", ""])
+    monkeypatch.setattr("builtins.input", lambda: next(inputs))
+    with pytest.raises(ValueError, match="Invalid MAGMA output"):
+        external.groups.get_generators_from_magma(group)
+    capsys.readouterr()  # intercept print statements
 
 
 def test_get_small_group_number() -> None:
     """Retrieve the number of groups of some order."""
-
     order, number = 16, 14
     text = rf"<td>{order},{number}</td>"
 
@@ -189,10 +222,9 @@ def test_get_small_group_number() -> None:
         external.groups.get_small_group_number(order)
 
     # retrieve from GAP
-    mock_process = get_mock_process(str(number))
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=mock_process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=str(number)),
     ):
         assert external.groups.get_small_group_number(order) == number
 
@@ -215,19 +247,17 @@ def test_get_small_group_structure() -> None:
         assert external.groups.get_small_group_structure(order, index) == structure
 
     # fail to retrieve structure from GAP
-    process = get_mock_process("")
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=""),
         pytest.raises(ValueError, match="Group not recognized"),
     ):
         external.groups.get_small_group_structure(order, index)
 
     # retrieve structure from GAP
-    process = get_mock_process(structure)
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_result", return_value=process),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=structure),
     ):
         assert external.groups.get_small_group_structure(order, index) == structure
 
@@ -239,10 +269,20 @@ def test_get_small_group_structure() -> None:
         assert external.groups.get_small_group_structure(order, index) == structure
 
 
-def test_known_groups() -> None:
-    """Retrieve known groups."""
-    for group, generators in external.groups.KNOWN_GROUPS.items():
-        assert external.groups.get_generators(group) == generators
-
-        gap_generators = external.groups.get_generators_with_gap(group)
-        assert gap_generators is None or gap_generators == generators
+def test_idempotents() -> None:
+    """Find primitive central idempotents of a group algebra."""
+    z_2 = galois.GF(2).primitive_element
+    z_2_2 = galois.GF(4).primitive_element
+    field = galois.GF(4)
+    fake_output = "[ (Z(2))*(), (Z(2^2)^2)*(1,2)+(Z(2)^0)*(3,4)(5,6) ]"
+    expected_idempotents = (
+        ((int(field(z_2)), ((),)),),
+        ((int(field(z_2_2**2)), ((0, 1),)), (int(field(z_2**0)), ((2, 3), (4, 5)))),
+    )
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=fake_output),
+    ):
+        idempotents = external.groups.get_primitive_central_idempotents("fake_group", field.order)
+        assert idempotents == expected_idempotents

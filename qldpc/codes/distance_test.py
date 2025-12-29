@@ -1,3 +1,20 @@
+"""Unit tests for distance.py
+
+Copyright 2023 The qLDPC Authors and Infleqtion Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+
 from __future__ import annotations
 
 import itertools
@@ -199,9 +216,9 @@ def test_rows_to_ints(dtype: npt.DTypeLike) -> None:
 
     for indices in np.ndindex(ints.shape):
         i = indices[-1] * nbits
-        packed_bits = bits[*indices[:-1]][i : i + nbits]
+        packed_bits = bits[indices[:-1]][i : i + nbits]
         bitstr = "".join(map(str, packed_bits))
-        assert np.binary_repr(ints[*indices], len(bitstr)) == bitstr
+        assert np.binary_repr(ints[indices], len(bitstr)) == bitstr
 
     # Pack array with more dimensions
     bits = bits.reshape(5, 1, 2, -1)
@@ -536,13 +553,13 @@ def test_get_distance_classical_known_codes(
 )
 def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_distance: int) -> None:
     distance_x = qldpc.codes.distance.get_distance_quantum(
-        code.get_logical_ops(qldpc.math.Pauli.X),
-        code.get_stabilizer_ops(qldpc.math.Pauli.X),
+        code.get_logical_ops(qldpc.objects.Pauli.X),
+        code.get_stabilizer_ops(qldpc.objects.Pauli.X),
         homogeneous=True,
     )
     distance_z = qldpc.codes.distance.get_distance_quantum(
-        code.get_logical_ops(qldpc.math.Pauli.Z),
-        code.get_stabilizer_ops(qldpc.math.Pauli.Z),
+        code.get_logical_ops(qldpc.objects.Pauli.Z),
+        code.get_stabilizer_ops(qldpc.objects.Pauli.Z),
         homogeneous=True,
     )
     distance_all = qldpc.codes.distance.get_distance_quantum(

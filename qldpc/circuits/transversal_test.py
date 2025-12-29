@@ -1,4 +1,4 @@
-"""Unit tests for circuits.py
+"""Unit tests for transversal.py
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -17,71 +17,40 @@ limitations under the License.
 
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 import pytest
 import stim
 
 from qldpc import circuits, codes, external
-from qldpc.math import op_to_string
-from qldpc.objects import Pauli
-
-
-def test_restriction() -> None:
-    """Raise an error for non-qubit codes."""
-    code = codes.SurfaceCode(2, field=3)
-    with pytest.raises(ValueError, match="only supported for qubit codes"):
-        circuits.get_encoding_circuit(code)
-
-
-def test_state_prep() -> None:
-    """Prepare all-0 logical states of qubit codes."""
-    for code in [
-        codes.FiveQubitCode(),
-        codes.BaconShorCode(3, field=2),
-        codes.HGPCode(codes.ClassicalCode.random(5, 3, field=2)),
-    ]:
-        encoder = circuits.get_encoding_circuit(code)
-        simulator = stim.TableauSimulator()
-        simulator.do(encoder)
-
-        # the state of the simulator is a +1 eigenstate of code stabilizers
-        for row in code.get_stabilizer_ops():
-            string = op_to_string(row)
-            assert simulator.peek_observable_expectation(string) == 1
-
-        # the state of the simulator is a +1 eigenstate of all logical Z operators
-        for op in codes.QuditCode.get_logical_ops(code, Pauli.Z):
-            string = op_to_string(op)
-            assert simulator.peek_observable_expectation(string) == 1
-
-        # the state of the simulator is a +1 eigenstate of all gauge Z operators
-        for op in codes.QuditCode.get_gauge_ops(code, Pauli.Z):
-            string = op_to_string(op)
-            assert simulator.peek_observable_expectation(string) == 1
 
 
 def test_transversal_ops() -> None:
     """Construct SWAP-transversal logical Cliffords of a code."""
-    code = codes.FiveQubitCode()
+    code = codes.ToricCode(2)
 
-    for local_gates in [("SWAP", "S"), ("SWAP", "H"), ("SWAP", "SQRT_X"), ("SWAP", "H", "S")]:
+    for local_gates in [
+        ["SWAP"],
+        ["SWAP", "H"],
+        ["SWAP", "S"],
+        ["SWAP", "SQRT_X"],
+        ["SWAP", "H", "S"],
+    ]:
         transversal_ops = circuits.get_transversal_ops(code, local_gates)
-        assert len(transversal_ops) == len(local_gates) - 1
+        assert len(transversal_ops) == len(local_gates) + 1
 
     with pytest.raises(ValueError, match="Local Clifford gates"):
         circuits.get_transversal_automorphism_group(code, ["SQRT_Y"])
 
 
-def test_finding_circuit(pytestconfig: pytest.Config) -> None:
+def test_finding_circuit(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Find a physical circuit for a desired logical Clifford operation."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
     code: codes.QuditCode = codes.FiveQubitCode()
-
-    if external.gap.is_installed():  # pragma: no cover
-        # randomly permute the qubits to switch things up!
-        new_matrix = code.matrix.reshape(-1, 5)[:, np.random.permutation(5)].reshape(-1, 10)
-        code = codes.QuditCode(new_matrix)
 
     # logical circuit: random single-qubit Clifford recognized by Stim
     logical_op = np.random.choice(
@@ -107,21 +76,34 @@ def test_finding_circuit(pytestconfig: pytest.Config) -> None:
     )
     logical_circuit = stim.Circuit(f"{logical_op} 0")
 
-    # construct physical circuit for the logical operation
-    physical_circuit = circuits.get_transversal_circuit(code, logical_circuit)
-    assert physical_circuit is not None
+    monkeypatch.setattr("builtins.input", lambda: "n")  # user declines to pass around GAP commands
+    if external.gap.is_installed() and external.gap.is_callable():  # pragma: no cover
+        # randomly permute the qubits to switch things up!
+        new_matrix = code.matrix.reshape(-1, 5)[:, np.random.permutation(5)].reshape(-1, 10)
+        code = codes.QuditCode(new_matrix)
+    capsys.readouterr()  # intercept printed text
+
+    context = (
+        contextlib.nullcontext()
+        if code == codes.FiveQubitCode() or code.is_equiv_to(codes.FiveQubitCode())
+        else pytest.warns(UserWarning, match="with_magma=True")
+    )
+    with context:
+        # construct physical circuit for the logical operation
+        physical_circuit = circuits.get_transversal_circuit(code, logical_circuit)
+        assert physical_circuit is not None
+
+        # there are no logical two-qubit gates in this code
+        circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
 
     # check that the physical circuit has the correct logical tableau
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
 
-    # there are no logical two-qubit gates in this code
-    circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
-
 
 def test_deformed_decoder() -> None:
     """Deform a code in such a way as to preserve its logicals, but change its stabilizers."""
-    code = codes.CSSCode([[1] * 6], [[1] * 6], field=2)
+    code = codes.CSSCode([[1] * 6], [[1] * 6])
     code.set_logical_ops_xz(
         [
             [1, 1, 0, 0, 0, 0],

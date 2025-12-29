@@ -31,10 +31,12 @@ def test_pauli() -> None:
     with pytest.raises(ValueError, match="Invalid Pauli operator"):
         objects.Pauli.from_string("Q")
 
-    assert ~objects.Pauli.Z == objects.Pauli.X
-    assert ~objects.Pauli.X == objects.Pauli.Z
+    assert ~objects.Pauli.Z == objects.Pauli.Z.swap_xz() == objects.Pauli.X
+    assert ~objects.Pauli.X == objects.Pauli.X.swap_xz() == objects.Pauli.Z
     assert ~objects.Pauli.Y == objects.Pauli.Y
     assert ~objects.Pauli.I == objects.Pauli.I
+    with pytest.raises(ValueError, match="Pauli.X and Pauli.Z"):
+        objects.Pauli.Y.swap_xz()
 
     paulis = [objects.Pauli.I, objects.Pauli.Z, objects.Pauli.X, objects.Pauli.Y]
     table = [[paulis.index(pp * qq) for qq in paulis] for pp in paulis]
@@ -49,14 +51,14 @@ def test_pauli() -> None:
 
 def test_qudit_operator() -> None:
     """Qudit operator capabilities."""
-    assert objects.QuditOperator((0, 0)) == objects.QuditOperator()
-    assert objects.QuditOperator((0, 1)) == ~objects.QuditOperator((1, 0))
-    assert -objects.QuditOperator((0, 1)) == objects.QuditOperator((0, -1))
+    assert objects.QuditPauli((0, 0)) == objects.QuditPauli()
+    assert objects.QuditPauli((0, 1)) == ~objects.QuditPauli((1, 0))
+    assert -objects.QuditPauli((0, 1)) == objects.QuditPauli((0, -1))
     for op in ["I", "Y(1)", "X(1)*Z(2)"]:
-        assert str(objects.QuditOperator.from_string(op)) == op
+        assert str(objects.QuditPauli.from_string(op)) == op
     for op in ["a*b*c", "a(1)"]:
         with pytest.raises(ValueError, match="Invalid qudit operator"):
-            objects.QuditOperator.from_string(op)
+            objects.QuditPauli.from_string(op)
 
 
 def test_node() -> None:
@@ -119,8 +121,8 @@ def test_chain_complex(field: int = 3) -> None:
     """Chain complex construction and errors."""
 
     # tensor product of one-complexes
-    mat = np.random.randint(field, size=(2, 3))
-    two_chain = objects.ChainComplex.tensor_product(mat, mat, field)
+    matrix = np.random.randint(field, size=(2, 3))
+    two_chain = objects.ChainComplex.tensor_product(matrix, matrix, field)
     assert not np.any(two_chain.op(0))
     assert not np.any(two_chain.op(two_chain.num_links + 1))
 
@@ -129,17 +131,18 @@ def test_chain_complex(field: int = 3) -> None:
     four_chain._validate_ops()
 
     # tensor product of one-complexes over a group algebra
-    protograph = abstract.Protograph.build(abstract.TrivialGroup(field), mat)
-    two_chain = objects.ChainComplex.tensor_product(protograph, protograph, field)
+    ring = abstract.GroupRing(abstract.TrivialGroup(), field)
+    ring_matrix = abstract.RingArray.build(matrix, ring)
+    two_chain = objects.ChainComplex.tensor_product(ring_matrix, ring_matrix, field)
     assert not np.any(two_chain.op(0))
     assert not np.any(two_chain.op(two_chain.num_links + 1))
 
     # invalid chain complex constructions
     with pytest.raises(ValueError, match="inconsistent operator types"):
-        objects.ChainComplex(mat, abstract.TrivialGroup.to_protograph([[0]]))
+        objects.ChainComplex([matrix, abstract.TrivialGroup.to_ring_array([[0]])])
     with pytest.raises(ValueError, match="Inconsistent base fields"):
-        objects.ChainComplex(galois.GF(field)(mat), field=field**2)
+        objects.ChainComplex([galois.GF(field)(matrix)], field=field**2)
     with pytest.raises(ValueError, match="boundary operators .* must compose to zero"):
-        objects.ChainComplex(mat, mat, field=field)
+        objects.ChainComplex([matrix] * 2, field=field)
     with pytest.raises(ValueError, match="different base fields"):
-        objects.ChainComplex.tensor_product(galois.GF(field)(mat), galois.GF(field**2)(mat))
+        objects.ChainComplex.tensor_product(galois.GF(field)(matrix), galois.GF(field**2)(matrix))
