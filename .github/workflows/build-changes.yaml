@@ -58,4 +58,4 @@ jobs:
         shell: cmd
         run: |
           .venv\Scripts\activate
-          python checks/all_.py
+          python checks/pytest_.py
