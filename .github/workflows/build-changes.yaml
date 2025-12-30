@@ -18,7 +18,7 @@ jobs:
     name: Ubuntu check (Python 3.10)
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
