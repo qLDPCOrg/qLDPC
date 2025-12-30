@@ -35,7 +35,7 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
     class CustomDecoder(decoders.Decoder):
         def __init__(self, matrix: npt.NDArray[np.int_]) -> None: ...
         def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            return error
+            return np.asarray(error)
 
     assert decoders.decode(matrix, syndrome, decoder_constructor=CustomDecoder) is error
     assert decoders.decode(matrix, syndrome, static_decoder=CustomDecoder(matrix)) is error

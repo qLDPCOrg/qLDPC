@@ -14,6 +14,29 @@ on:
   workflow_call:
 
 jobs:
+  ubuntu:
+    name: Ubuntu check (Python 3.10)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}
+          key: ${{ env.pythonLocation }}-${{ hashFiles('**/pyproject.toml') }}
+      - name: Install package and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
+      - name: Run all checks
+        run: |
+          checks/pytest_.py
+
   windows:
     name: Windows check
     if: github.event.pull_request.draft == false
@@ -29,4 +52,5 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install '.[dev]'
       - name: Run all checks
-        run: checks/all_.py
+        run: |
+          checks/pytest_.py

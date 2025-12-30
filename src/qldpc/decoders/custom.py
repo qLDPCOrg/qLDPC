@@ -96,8 +96,10 @@ class RelayBPDecoder(BatchDecoder):
     ) -> None:
         try:
             import relay_bp
-        except ImportError:
-            raise ImportError("Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'")
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError(
+                "Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'"
+            )
         if not isinstance(name, str) or not hasattr(relay_bp, name):
             raise ValueError(
                 f"Relay-BP decoder name not recognized: {name}\n"
@@ -290,7 +292,9 @@ class WeightedLookupDecoder(LookupDecoder):
     def decode(
         self,
         syndrome: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] = lambda vec: np.count_nonzero(vec),
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] = lambda vec: int(
+            np.count_nonzero(vec)
+        ),
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         errors = self.syndrome_to_candidates.get(

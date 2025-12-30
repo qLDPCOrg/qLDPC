@@ -457,7 +457,7 @@ class ClassicalCode(AbstractCode):
         elif vector is None:
             distance = len(self)
             for word in self.iter_words(skip_zero=True):
-                distance = min(distance, np.count_nonzero(word))
+                distance = min(distance, int(np.count_nonzero(word)))
                 if distance <= cutoff:
                     break
             if cutoff <= 1:
@@ -467,9 +467,9 @@ class ClassicalCode(AbstractCode):
             vector = np.asarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
-            distance = np.count_nonzero(vector)
+            distance = int(np.count_nonzero(vector))
             for word in self.iter_words(skip_zero=True):
-                distance = min(distance, np.count_nonzero(word - vector))
+                distance = min(distance, int(np.count_nonzero(word - vector)))
                 if distance <= cutoff:
                     break
 
@@ -485,7 +485,7 @@ class ClassicalCode(AbstractCode):
                 minimum distance of this vector from a code word.
         """
         if vector is not None:
-            return np.count_nonzero(vector) if self.dimension == 0 else None
+            return int(np.count_nonzero(vector)) if self.dimension == 0 else None
 
         # the distance of dimension-0 codes is undefined
         if self.dimension == 0:
@@ -1574,7 +1574,7 @@ class QuditCode(AbstractCode):
                 word = word_l + word_s
                 support_x = word[: len(self)].view(np.ndarray)
                 support_z = word[len(self) :].view(np.ndarray)
-                distance = min(distance, np.count_nonzero(support_x | support_z))
+                distance = min(distance, int(np.count_nonzero(support_x | support_z)))
                 if distance <= cutoff:
                     break
 
@@ -2550,7 +2550,7 @@ class CSSCode(QuditCode):
                 code_logical_ops.iter_words(skip_zero=True),
                 code_stabilizers.iter_words(),
             ):
-                distance = min(distance, np.count_nonzero(word_l + word_s))
+                distance = min(distance, int(np.count_nonzero(word_l + word_s)))
                 if distance <= cutoff:
                     break
 
@@ -2726,7 +2726,7 @@ class CSSCode(QuditCode):
                 actual_syndrome = effective_check_matrix @ candidate_logical_op.view(self.field)
                 logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
 
-            min_bound = int(min(min_bound, np.count_nonzero(candidate_logical_op)))
+            min_bound = min(min_bound, int(np.count_nonzero(candidate_logical_op)))
 
         return min_bound
 
