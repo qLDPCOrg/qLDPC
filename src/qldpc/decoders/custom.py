@@ -96,8 +96,8 @@ class RelayBPDecoder(BatchDecoder):
     ) -> None:
         try:
             import relay_bp
-        except ImportError:
-            raise ImportError("Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'")
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError("Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'")
         if not isinstance(name, str) or not hasattr(relay_bp, name):
             raise ValueError(
                 f"Relay-BP decoder name not recognized: {name}\n"

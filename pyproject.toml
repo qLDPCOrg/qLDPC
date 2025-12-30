@@ -37,7 +37,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["checks-superstaq>=0.5.45", "ipykernel>=6.29.5", "jupyter>=1.1.1"]
-gurobi = ["gurobipy>=10.0.0"]
 relay-bp = ["relay-bp[stim]==0.1.0"]
 
 [project.urls]
