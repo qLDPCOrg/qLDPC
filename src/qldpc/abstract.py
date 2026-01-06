@@ -1275,7 +1275,7 @@ class SmallGroup(Group):
 
     def random(self, *, seed: int | None = None) -> GroupMember:
         """A random element this group."""
-        return super().random(seed=seed) if self.group_index > 1 else self.identity
+        return super().random(seed=seed)
 
     @functools.cached_property
     def structure(self) -> str:
