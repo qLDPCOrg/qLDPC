@@ -86,8 +86,8 @@ def plot_rates(
         ax.set_ylim(*ylim)
 
     ax.legend(loc="best")
-    ax.set_xlabel(r"$d_{\mathrm{upper}}$")
-    ax.set_ylabel(r"$k/n$")
+    ax.set_xlabel(r"distance bound ($d_{\mathrm{upper}}$)")
+    ax.set_ylabel(r"code rate ($k/n$)")
     fig.tight_layout()
     return fig, ax
 
@@ -135,6 +135,7 @@ def plot_ratios(
 # exit()
 
 fig, ax = plot_rates(data)
+ax.set_title("random quantum Tanner codes")
 fig.tight_layout()
 plt.show()
 
