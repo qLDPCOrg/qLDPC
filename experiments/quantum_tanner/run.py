@@ -125,21 +125,21 @@ def plot_ratios(
 # plot_logs(data[selection])
 # plt.show()
 
-data = data[data["num_qubits"] <= 56]
+# data = data[data["num_qubits"] <= 56]
 
 params = set()
 for index, code in data.iterrows():
     params.add((code["num_qubits"], code["dimension"], code["distance"], code["weight"]))
 
 
-for code in sorted(params):
-    print(code)
-
-exit()
+# for code in sorted(params):
+#     print(code)
+# exit()
 
 fig, ax = plot_rates(data, alpha=1)
 fig.tight_layout()
 plt.show()
+
 exit()
 
 data = data[data["distance"] >= 5]
