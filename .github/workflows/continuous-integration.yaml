@@ -17,21 +17,20 @@ jobs:
     name: Installation check
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
+          python-version: 3.12
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
       - name: Install package and dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          uv venv
+          uv pip install '.[dev]'
 
   format:
     name: Lint and type check
@@ -41,18 +40,17 @@ jobs:
     needs: install
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
+          python-version: 3.12
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
       - name: Install package and dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          uv venv
+          uv pip install '.[dev]'
       - name: Run ruff format
         id: ruff-format
         run: checks/format_.py
@@ -86,21 +84,20 @@ jobs:
     name: Pytest and coverage check
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 6
     needs: install
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.pythonLocation }}
-          key: ${{ env.pythonLocation }}-${{ hashFiles('pyproject.toml') }}
+          python-version: 3.12
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
       - name: Install package and dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          uv venv
+          uv pip install '.[dev]'
       - name: Run coverage
         run: checks/coverage_.py

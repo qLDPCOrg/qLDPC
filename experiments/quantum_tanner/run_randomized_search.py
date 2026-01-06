@@ -25,6 +25,7 @@ from collections.abc import Hashable, Iterator
 
 from qldpc import abstract, codes
 
+SAVE_DIR = os.path.join(os.path.dirname(__file__), "codes")
 NUM_SAMPLES = 100  # per choice of group and subcode
 NUM_TRIALS = 1000  # for code distance calculations
 
@@ -53,11 +54,11 @@ def get_mittal_code(length: int) -> codes.ClassicalCode:
     name = "MittalCode"
     full_code = codes.HammingCode(3)
     if length == 4:
-        code = full_code.shorten(2, 3).puncture(4)
+        code = full_code.shorten([2, 3]).puncture([4])
     elif length == 5:
-        code = full_code.shorten(2, 3)
+        code = full_code.shorten([2, 3])
     elif length == 6:
-        code = full_code.shorten(3)
+        code = full_code.shorten([3])
     else:
         raise ValueError(f"Unrecognized length for {name}: {length}")
     setattr(code, "_name", name)
@@ -83,6 +84,7 @@ def run_and_save(
     num_samples: int = NUM_SAMPLES,
     num_trials: int = NUM_TRIALS,
     *,
+    save_dir: str = SAVE_DIR,
     identify_completion_text: bool = False,
     override_existing_data: bool = False,
     silent: bool = False,
@@ -135,7 +137,6 @@ def run_and_save(
 
 if __name__ == "__main__":
     max_concurrent_jobs = num_cpus // 2 if (num_cpus := os.cpu_count()) else 1
-    save_dir = os.path.join(os.path.dirname(__file__), "codes")
 
     # run multiple jobs in parallel
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_concurrent_jobs) as executor:
