@@ -34,9 +34,9 @@ import functools
 import itertools
 import math
 import operator
-import typing
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Literal, Union
 
 import galois
 import numpy as np
@@ -74,7 +74,7 @@ class GroupMember(comb.Permutation):
             return GroupMember.from_sympy(super().__mul__(other))
         return NotImplemented
 
-    def __add__(self, other: object) -> typing.Any:
+    def __add__(self, other: object) -> Any:
         return NotImplemented  # pragma: no cover
 
     def __lt__(self, other: GroupMember) -> bool:
@@ -717,7 +717,7 @@ class RingMember:
 class Element(RingMember):  # pragma: no cover
     """Deprecated alias for RingMember."""
 
-    def __getattribute__(self, name: str) -> Callable[..., typing.Any]:
+    def __getattribute__(self, name: str) -> Any:
         warnings.warn(
             f"{Element} is DEPRECATED; use {RingMember} instead",
             DeprecationWarning,
@@ -729,7 +729,7 @@ class Element(RingMember):  # pragma: no cover
 ################################################################################
 # RingArray: RingMember-valued array
 
-NestedSequence = Sequence[typing.Union[object, Sequence["NestedSequence"]]]
+NestedSequence = Sequence[Union[object, Sequence["NestedSequence"]]]
 
 
 class RingArray(npt.NDArray[np.object_]):
@@ -769,10 +769,10 @@ class RingArray(npt.NDArray[np.object_]):
 
     def __array_function__(
         self,
-        func: typing.Any,
+        func: Any,
         types: Iterable[type],
-        args: Iterable[typing.Any],
-        kwargs: Mapping[str, typing.Any],
+        args: Iterable[Any],
+        kwargs: Mapping[str, Any],
     ) -> RingArray | None:
         """Intercept array operations to ensure RingArray compatibility."""
         rings = {self._ring} | {x._ring for x in args if isinstance(x, RingArray)}
@@ -788,7 +788,7 @@ class RingArray(npt.NDArray[np.object_]):
     def __array_ufunc__(
         self,
         ufunc: np.ufunc,
-        method: typing.Literal["__call__", "reduce", "reduceat", "accumulate", "outer", "at"],
+        method: Literal["__call__", "reduce", "reduceat", "accumulate", "outer", "at"],
         *inputs: npt.NDArray[np.object_],
         **kwargs: object,
     ) -> RingArray | None:
@@ -1092,7 +1092,7 @@ class RingArray(npt.NDArray[np.object_]):
 class Protograph(RingArray):  # pragma: no cover
     """Deprecated alias for RingArray."""
 
-    def __getattribute__(self, name: str) -> Callable[..., typing.Any]:
+    def __getattribute__(self, name: str) -> Any:
         warnings.warn(
             f"{Protograph} is DEPRECATED; use {RingArray} instead",
             DeprecationWarning,
@@ -1275,7 +1275,7 @@ class SmallGroup(Group):
 
     def random(self, *, seed: int | None = None) -> GroupMember:
         """A random element this group."""
-        return super().random(seed=seed) if self.group_index > 1 else self.identity
+        return super().random(seed=seed)
 
     @functools.cached_property
     def structure(self) -> str:

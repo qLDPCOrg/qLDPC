@@ -314,7 +314,7 @@ class CayleyComplex:
     def build_cayley_graph(
         subset_a: Collection[abstract.GroupMember],
         subset_b: Collection[abstract.GroupMember] = (),
-    ) -> None:
+    ) -> nx.Graph:
         """Build a left-right Cayley graph generated from the identity element of a group."""
         # identify the identity element
         member = next(iter(subset_a))

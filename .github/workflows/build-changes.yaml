@@ -15,7 +15,7 @@ on:
 
 jobs:
   ubuntu:
-    name: Ubuntu check (Python 3.10)
+    name: Ubuntu check (Python 3.10 + pip)
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -34,23 +34,28 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install '.[dev]'
       - name: Run all checks
-        run: |
-          checks/pytest_.py
+        run: checks/pytest_.py
 
   windows:
     name: Windows check
     if: github.event.pull_request.draft == false
     runs-on: windows-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.10'
+          python-version: 3.12
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
       - name: Install package and dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          uv venv
+          uv pip install '.[dev]'
       - name: Run all checks
+        shell: cmd
         run: |
-          checks/pytest_.py
+          .venv\Scripts\activate
+          python checks/pytest_.py

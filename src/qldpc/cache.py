@@ -22,10 +22,12 @@ import os
 import sys
 import warnings
 from collections.abc import Callable, Hashable
-from typing import Any
+from typing import Any, ParamSpec
 
 import diskcache
 import platformdirs
+
+Params = ParamSpec("Params")
 
 
 def get_disk_cache_path(cache_name: str, *, cache_dir: str | None = None) -> str:
@@ -46,15 +48,15 @@ def use_disk_cache(
     *,
     cache_dir: str | None = None,
     key_func: Callable[..., Hashable] | None = None,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+) -> Callable[[Callable[Params, Any]], Callable[Params, Any]]:
     """Decorator to cache results to disk."""
 
-    def decorator(function: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(function: Callable[Params, Any]) -> Callable[Params, Any]:
         if running_with_pytest():
             return function
 
         @functools.wraps(function)
-        def function_with_cache(*args: Hashable, **kwargs: Hashable) -> Any:
+        def function_with_cache(*args: Params.args, **kwargs: Params.kwargs) -> Any:
             # retrieve results from cache, if available
             cache = get_disk_cache(cache_name, cache_dir=cache_dir)
             if key_func is not None:

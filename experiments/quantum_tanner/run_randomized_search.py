@@ -26,6 +26,7 @@ from collections.abc import Hashable, Iterator
 from qldpc import abstract, codes
 
 SAVE_DIR = os.path.join(os.path.dirname(__file__), "codes")
+MAX_ORDER = 10  # consider all finite groups up to this order
 NUM_SAMPLES = 100  # per choice of group and subcode
 NUM_TRIALS = 1000  # for code distance calculations
 
@@ -37,7 +38,7 @@ def get_deterministic_hash(*inputs: Hashable, num_bytes: int = 4) -> int:
     return int.from_bytes(hash_bytes[:num_bytes], byteorder="big", signed=False)
 
 
-def get_small_groups(max_order: int = 20) -> Iterator[tuple[int, int]]:
+def get_small_groups(max_order: int = MAX_ORDER) -> Iterator[tuple[int, int]]:
     """Finite groups by order and index."""
     for order in range(1, max_order + 1):
         for index in range(1, abstract.SmallGroup.number(order) + 1):
@@ -54,11 +55,11 @@ def get_mittal_code(length: int) -> codes.ClassicalCode:
     name = "MittalCode"
     full_code = codes.HammingCode(3)
     if length == 4:
-        code = full_code.shorten([2, 3]).puncture([4])
+        code = full_code.shortened([2, 3]).punctured([4])
     elif length == 5:
-        code = full_code.shorten([2, 3])
+        code = full_code.shortened([2, 3])
     elif length == 6:
-        code = full_code.shorten([3])
+        code = full_code.shortened([3])
     else:
         raise ValueError(f"Unrecognized length for {name}: {length}")
     setattr(code, "_name", name)
@@ -67,8 +68,8 @@ def get_mittal_code(length: int) -> codes.ClassicalCode:
 
 def get_base_codes() -> Iterator[tuple[codes.ClassicalCode, str]]:
     """Iterator over classical codes and their identifiers."""
-    for rr in [2, 3]:
-        yield codes.HammingCode(rr), f"Hamming-{rr}"
+    for nn in [2, 3]:
+        yield codes.HammingCode(nn), f"Hamming-{nn}"
     for nn in [3, 4, 5, 6]:
         yield get_cordaro_wagner_code(nn), f"CordaroWagner-{nn}"
     for nn in [4, 5, 6]:
@@ -136,7 +137,7 @@ def run_and_save(
 
 
 if __name__ == "__main__":
-    max_concurrent_jobs = num_cpus // 2 if (num_cpus := os.cpu_count()) else 1
+    max_concurrent_jobs = num_cpus - 2 if (num_cpus := os.cpu_count()) else 1
 
     # run multiple jobs in parallel
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_concurrent_jobs) as executor:

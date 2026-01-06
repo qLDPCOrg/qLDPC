@@ -310,7 +310,7 @@ class ClassicalCode(AbstractCode):
 
     def get_weight(self) -> int:
         """Compute the weight of the largest parity check."""
-        return np.max(np.count_nonzero(self.matrix.view(np.ndarray), axis=1))
+        return int(np.max(np.count_nonzero(self.matrix.view(np.ndarray), axis=1)))
 
     @functools.cached_property
     def dimension(self) -> int:
@@ -1027,7 +1027,7 @@ class QuditCode(AbstractCode):
         """Compute the weight of the largest parity check."""
         matrix_x = self.matrix[:, : len(self)].view(np.ndarray)
         matrix_z = self.matrix[:, len(self) :].view(np.ndarray)
-        return np.max(np.count_nonzero(matrix_x | matrix_z, axis=1))
+        return int(np.max(np.count_nonzero(matrix_x | matrix_z, axis=1)))
 
     def get_logical_ops(
         self, pauli: PauliXZ | None = None, *, recompute: bool = False, symplectic: bool = True

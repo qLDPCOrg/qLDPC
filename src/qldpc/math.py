@@ -106,11 +106,11 @@ def block_matrix(
 
     # consistency checks
     row_sizes = np.array(
-        [[bb.shape[0] if hasattr(bb, "shape") else -1 for bb in row] for row in blocks]
+        [[bb.shape[0] if isinstance(bb, np.ndarray) else -1 for bb in row] for row in blocks]
     )
     assert all(len(set(row[row != -1])) == 1 for row in row_sizes), "Inconsistent row numbers"
     col_sizes = np.array(
-        [[bb.shape[1] if hasattr(bb, "shape") else -1 for bb in row] for row in blocks]
+        [[bb.shape[1] if isinstance(bb, np.ndarray) else -1 for bb in row] for row in blocks]
     )
     assert all(len(set(col[col != -1])) == 1 for col in col_sizes.T), "Inconsistent column numbers"
     dtypes = [block.dtype for row in blocks for block in row if hasattr(block, "dtype")]

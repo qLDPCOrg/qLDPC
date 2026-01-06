@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Mapping, Sequence
+from typing import ParamSpec, TypeVar, Union
 
 import numpy as np
 import stim
@@ -26,12 +27,17 @@ import stim
 from qldpc import codes, math
 from qldpc.objects import Pauli
 
+CircuitOrTableau = TypeVar("CircuitOrTableau", bound=Union[stim.Circuit, stim.Tableau])
+Params = ParamSpec("Params")
 
-def restrict_to_qubits(func: Callable[..., stim.Circuit]) -> Callable[..., stim.Circuit]:
-    """Restrict a circuit constructor to qubit-based codes."""
+
+def restrict_to_qubits(
+    func: Callable[Params, CircuitOrTableau],
+) -> Callable[Params, CircuitOrTableau]:
+    """Restrict a circuit or tableau constructor to qubit-based codes."""
 
     @functools.wraps(func)
-    def qubit_func(*args: object, **kwargs: object) -> stim.Circuit:
+    def qubit_func(*args: Params.args, **kwargs: Params.kwargs) -> stim.Circuit:
         if any(isinstance(arg, codes.QuditCode) and arg.field.order != 2 for arg in args):
             raise ValueError("Circuit methods are only supported for qubit codes")
         return func(*args, **kwargs)
