@@ -58,18 +58,19 @@ Notable features include:
   - `LPCode`: [lifted product codes](https://errorcorrectionzoo.org/c/lifted_product), as in [arXiv:2012.04068](https://arxiv.org/abs/2012.04068) and [arXiv:2202.01702](https://arxiv.org/abs/2202.01702).
   - `SLPCode`: [subsystem lifted product codes](https://errorcorrectionzoo.org/c/subsystem_lifted_product), as in [arXiv:2404.18302](https://arxiv.org/abs/2404.18302).
   - `QTCode`: [quantum Tanner codes](https://errorcorrectionzoo.org/c/quantum_tanner), as in [arXiv:2202.13641](https://arxiv.org/abs/2202.13641), [arXiv:2206.07571](https://arxiv.org/abs/2206.07571), and [arXiv:2508.05095](https://arxiv.org/abs/2508.05095).
-- `qldpc.decoders`: module for decoding errors with various methods, including BP-OSD, BP-LSD, and belief-find (via [`ldpc`](https://github.com/quantumgizmos/ldpc)), Relay-BP (via [`relay-bp`](https://pypi.org/project/relay-bp)), minimum-weight perfect matching (via [`pymatching`](https://github.com/oscarhiggott/PyMatching)), lookup-table decoding, and others.  Includes an interface for using custom decoders.
+- `qldpc.decoders`: module for decoding code and circuit errors.
+  - BP-OSD, BP-LSD, and belief-find (via [`ldpc`](https://github.com/quantumgizmos/ldpc)), Relay-BP (via [`relay-bp`](https://pypi.org/project/relay-bp)), minimum-weight perfect matching (via [`pymatching`](https://github.com/oscarhiggott/PyMatching)), lookup-table decoding, and others.  Includes an interface for using custom decoders.
+  - `SinterDecoder`: class to construct circuit-level decoders that are usable by [`sinter`](https://pypi.org/project/sinter).
 - `qldpc.circuits`: module for [`stim`](https://github.com/quantumlib/Stim) circuits and circuit utilities, including:
   - `get_memory_experiment`: circuit to test the performance of a code as a quantum memory (using various pre-built syndrome measurement strategies), appropriately annotated with detectors and observables.
   - `NoiseModel`: class for constructing expressive Pauli noise models, which map noiseless circuits to noisy circuits.  Built-in subclasses include a single-parameter `DepolarizingNoiseModel` and a superconducting-inspired `SI1000NoiseModel`.
-  - `SinterDecoder`: class to construct circuit-level decoders that are usable by [`sinter`](https://pypi.org/project/sinter).
   - `get_encoding_circuit`: circuit to encode physical states of qubits into logical states of a code, for example to prepare a logical all-|0> state.  (Warning: current encoding circuits are not fault-tolerant.  The construction of fault-tolerant encoding circuits is an [open issue](https://github.com/qLDPCOrg/qLDPC/issues/327).)
   - `get_transversal_ops`: logical tableaus and physical circuits for the SWAP-transversal logical Clifford gates of a code, constructed via the code automorphism method of [arXiv:2409.18175](https://arxiv.org/abs/2409.18175).  (Warning: exponential complexity.)
   - `get_transversal_circuit`: find a SWAP-transversal physical circuit (if any) that implements a given logical Clifford operation in a code.  (Warning: exponential complexity.)
-- `abstract.py`: module for abstract algebra (groups, rings, modules, and representations thereof).
+- `qldpc.abstract`: module for abstract algebra (groups, rings, modules, and representations thereof).
   - Various pre-defined groups (mostly borrowed from [SymPy](https://docs.sympy.org/latest/modules/combinatorics/named_groups.html)).
   - Communication with the [GAP](https://www.gap-system.org) computer algebra system and [GroupNames.org](https://people.maths.bris.ac.uk/~matyd/GroupNames) for constructing [even more groups](https://docs.gap-system.org/doc/ref/chap50.html).
-- `objects.py`: module for constructing helper objects such as Cayley complexes and chain complexes, which are instrumental for the construction of various quantum codes.
+- `qldpc.objects`: module for constructing helper objects such as Cayley complexes and chain complexes, which are instrumental for the construction of various quantum codes.
 
 ## 🤔 Questions and issues
 
