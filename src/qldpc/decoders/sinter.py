@@ -587,19 +587,22 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 time_to_dets[self.detector_to_time(detector)].append(detector)
 
             # add one window at a time (except the last window)
+            start_time = 0
             num_time_points = max(time_to_dets) + 1
             max_size_of_last_window = self.window_size + self.stride - 1
-            for start in range(0, num_time_points - max_size_of_last_window, self.stride):
-                window_time_to_dets = [time_to_dets[start + dt] for dt in range(self.window_size)]
+            while start_time < num_time_points - max_size_of_last_window:
+                window_time_to_dets = [
+                    time_to_dets[start_time + dt] for dt in range(self.window_size)
+                ]
                 window = (  # defined by (detection, commit) regions
                     [det for dets in window_time_to_dets for det in dets],
                     [det for dets in window_time_to_dets[: self.stride] for det in dets],
                 )
                 self.windows.append(window)
+                start_time += self.stride
 
             # add last window
-            start += self.stride
-            window_time_to_dets = [time_to_dets[tt] for tt in range(start, num_time_points)]
+            window_time_to_dets = [time_to_dets[tt] for tt in range(start_time, num_time_points)]
             last_dets = [det for dets in window_time_to_dets for det in dets]
             self.windows.append((last_dets, last_dets))
 
