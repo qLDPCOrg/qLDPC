@@ -109,4 +109,4 @@ def test_errors() -> None:
     with pytest.raises(ValueError, match="fixed measurement basis"):
         circuits.get_observables(codes.SteaneCode(), basis=None, on_measurements=True)
     with pytest.raises(ValueError, match="basis must be"):
-        circuits.get_observables(codes.SteaneCode(), basis="test", on_measurements=True)
+        circuits.get_observables(codes.SteaneCode(), basis="test", on_measurements=True)  # type:ignore[arg-type]
