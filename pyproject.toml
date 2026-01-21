@@ -31,7 +31,7 @@ dependencies = [
   "pymatching>=2.1.0",
   "pyperclip>=1.11.0",
   "scipy>=1.14.1",
-  "stim>=1.15.0",
+  "stim>=1.16.dev1768963940",
   "sympy>=1.12",
 ]
 
