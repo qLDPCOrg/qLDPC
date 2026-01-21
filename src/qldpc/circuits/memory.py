@@ -400,7 +400,10 @@ def get_observables(
     Returns:
         A Stim circuit of OBSERVABLE_INCLUDE instructions.
     """
-    assert basis is Pauli.X or basis is Pauli.Z or basis is None
+    if basis not in (None, Pauli.X, Pauli.Z):  # pragma: no cover
+        raise ValueError(
+            f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"
+        )
 
     data_qubits = data_qubits or range(len(code))
     num_observables = code.dimension * (2 if basis is None else 1)

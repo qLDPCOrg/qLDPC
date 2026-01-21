@@ -108,3 +108,5 @@ def test_errors() -> None:
         circuits.get_observables(codes.FiveQubitCode(), basis=Pauli.X, on_measurements=True)
     with pytest.raises(ValueError, match="fixed measurement basis"):
         circuits.get_observables(codes.SteaneCode(), basis=None, on_measurements=True)
+    with pytest.raises(ValueError, match="basis must be"):
+        circuits.get_observables(codes.SteaneCode(), basis="test", on_measurements=True)
