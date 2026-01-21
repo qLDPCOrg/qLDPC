@@ -1,6 +1,7 @@
 from .bookkeeping import (
     DetectorRecord,
     MeasurementRecord,
+    MemoryExperimentParts,
     QubitIDs,
     Record,
 )
@@ -40,6 +41,7 @@ from .transversal import (
 __all__ = [
     "DetectorRecord",
     "MeasurementRecord",
+    "MemoryExperimentParts",
     "QubitIDs",
     "Record",
     "get_encoder_and_decoder",

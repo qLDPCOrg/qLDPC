@@ -22,6 +22,7 @@ import copy
 import dataclasses
 import itertools
 from collections.abc import Hashable, ItemsView, Iterator, Mapping, Sequence
+from typing import NamedTuple
 
 import numpy as np
 import stim
@@ -251,3 +252,12 @@ class DetectorRecord(Record):
                 if other_key != key
             }
         )
+
+
+class MemoryExperimentParts(NamedTuple):
+    initialization: stim.Circuit
+    qec_cycle: stim.Circuit
+    readout: stim.Circuit
+    measurement_record: MeasurementRecord
+    detector_record: DetectorRecord
+    qubit_ids: QubitIDs

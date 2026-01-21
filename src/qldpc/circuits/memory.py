@@ -23,7 +23,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
-from .bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
+from .bookkeeping import DetectorRecord, MeasurementRecord, MemoryExperimentParts, QubitIDs
 from .common import get_encoding_circuit, restrict_to_qubits, with_remapped_qubits
 from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
@@ -179,7 +179,7 @@ def get_memory_experiment_parts(
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+) -> MemoryExperimentParts:
     """Noiseless components of a memory experiment.
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
@@ -225,7 +225,7 @@ def _get_basis_memory_experiment_parts(
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+) -> MemoryExperimentParts:
     """Components of a memory experiment that tracks logical operators of a fixed type (basis).
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
@@ -277,7 +277,15 @@ def _get_basis_memory_experiment_parts(
     targets = [measurement_record.get_target_rec(data_id) for data_id in data_ids]
     observables = get_observables(code, data_ids, basis=basis, on_measurements=targets)
 
-    return (
+    arst = MemoryExperimentParts(
+        coordinates + state_prep,
+        qec_cycle,
+        readout + observables,
+        measurement_record,
+        detector_record,
+        qubit_ids,
+    )
+    return MemoryExperimentParts(
         coordinates + state_prep,
         qec_cycle,
         readout + observables,
@@ -293,7 +301,7 @@ def _get_combined_memory_simulation_parts(
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+) -> MemoryExperimentParts:
     """Components of a memory experiment that tracks all logical operators.
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
@@ -340,7 +348,15 @@ def _get_combined_memory_simulation_parts(
     # annotate all observables
     observables = get_observables(code, data_ids)
 
-    return (
+    arst = MemoryExperimentParts(
+        coordinates + state_prep + observables,
+        qec_cycle,
+        readout + observables,
+        measurement_record,
+        detector_record,
+        qubit_ids,
+    )
+    return MemoryExperimentParts(
         coordinates + state_prep + observables,
         qec_cycle,
         readout + observables,
