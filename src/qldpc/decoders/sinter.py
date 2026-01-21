@@ -248,7 +248,7 @@ class SubgraphSinterDecoder(SinterDecoder):
         subgraph_decoders = []
         for detectors, observables in zip(self.subgraph_detectors, subgraph_observables):
             # identify the error mechanisms that flip these detectors
-            errors = dem_arrays.detector_flip_matrix.getnnz(axis=0) != 0
+            errors = dem_arrays.detector_flip_matrix[detectors].getnnz(axis=0) != 0
 
             # build the detector error model for this subgraph
             subgraph_dem = DetectorErrorModelArrays.from_arrays(
