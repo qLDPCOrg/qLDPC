@@ -545,9 +545,9 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 None.  If not None, each provided subset is decoded independently.  If None, all
                 detectors are decoded together, as if the detector_subsets was a one-element list
                 containing the set of all detectors.  Default: None.
-            detector_to_time: A function that maps each detector to a time coordinate that is used to
-                decide window boundaries, or None.  If None, the time index of each detector is its
-                first coordinate in DetectorErrorModel.get_detector_coordinates().
+            detector_to_time: A function that maps each detector to a time coordinate that is used
+                to decide window boundaries, or None.  If None, the time index of each detector is
+                its first coordinate in DetectorErrorModel.get_detector_coordinates().
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -556,6 +556,12 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
+        if window_size <= 0 or stride <= 0:
+            raise ValueError(
+                f"{self.__name__} must have window_size >= stride > 0"
+                f" (provided window_size, stride: {window_size}, {stride})"
+            )
+
         self.window_size = window_size
         self.stride = stride
         self.detector_subsets = detector_subsets
