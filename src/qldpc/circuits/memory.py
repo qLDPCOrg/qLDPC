@@ -340,14 +340,6 @@ def _get_combined_memory_simulation_parts(
     # annotate all observables
     observables = get_observables(code, data_ids)
 
-    arst = MemoryExperimentParts(
-        coordinates + state_prep + observables,
-        qec_cycle,
-        readout + observables,
-        measurement_record,
-        detector_record,
-        qubit_ids,
-    )
     return MemoryExperimentParts(
         coordinates + state_prep + observables,
         qec_cycle,
