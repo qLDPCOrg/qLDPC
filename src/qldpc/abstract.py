@@ -253,6 +253,11 @@ class Group:
         """A random element this group."""
         if seed is not None:
             sympy.core.random.seed(seed)
+
+        # HACK to circumvent an error thrown by sympy when "unranking" an empty Permutation
+        if self.generators == [GroupMember()]:
+            return self.identity
+
         return GroupMember.from_sympy(self._group.random())
 
     @functools.cache
@@ -415,8 +420,6 @@ class Group:
         if from_magma:
             generators = external.groups.get_generators_from_magma(name)
         else:
-            if name == "SmallGroup(1,1)":
-                return TrivialGroup()
             generators = external.groups.get_generators(
                 name, warning_to_raise_if_calling_gap=warning_to_raise_if_calling_gap
             )
@@ -1118,13 +1121,6 @@ class TrivialGroup(Group):
     def _trivial_lift(cls, member: GroupMember) -> npt.NDArray[np.int_]:
         return np.array(1, ndmin=2, dtype=int)
 
-    def random(self, *, seed: int | None = None) -> GroupMember:
-        """A random (albeit unique) element this group.
-
-        Necessary to circumvent an error thrown by sympy when "unranking" an empty Permutation.
-        """
-        return self.identity
-
     @staticmethod
     def to_ring_array(data: npt.NDArray[np.int_] | NestedSequence) -> RingArray:
         """Convert a matrix of 0s and 1s into a RingArray over the trivial group."""
@@ -1272,10 +1268,6 @@ class SmallGroup(Group):
         name = f"SmallGroup({order},{index})"
         super()._init_from_group(Group.from_name(name))
         self.group_index = index
-
-    def random(self, *, seed: int | None = None) -> GroupMember:
-        """A random element this group."""
-        return super().random(seed=seed)
 
     @functools.cached_property
     def structure(self) -> str:
