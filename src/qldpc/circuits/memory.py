@@ -277,14 +277,6 @@ def _get_basis_memory_experiment_parts(
     targets = [measurement_record.get_target_rec(data_id) for data_id in data_ids]
     observables = get_observables(code, data_ids, basis=basis, on_measurements=targets)
 
-    arst = MemoryExperimentParts(
-        coordinates + state_prep,
-        qec_cycle,
-        readout + observables,
-        measurement_record,
-        detector_record,
-        qubit_ids,
-    )
     return MemoryExperimentParts(
         coordinates + state_prep,
         qec_cycle,
