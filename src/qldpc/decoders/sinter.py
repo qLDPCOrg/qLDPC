@@ -512,6 +512,25 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
     indicates adjacent windows will overlap on w - s rounds.  The "commit region" for each window
     therefore corresponds to the first s rounds in the window.
 
+    Visually:
+
+      Time:      |------------------------------------------------------------>
+
+      Window 1:  [ ........... Detection Region ........... ]
+                 [ Commit Region ]
+                     |
+                     +---> 1. Decode errors in Detection Region.
+                           2. Commit to errors in Commit Region.
+                           3. Update syndromes in future windows based on committed errors.
+                           4. Slide window forward.
+                                                |
+                                                v
+      Window 2:                   [ ........... Detection Region ........... ]
+                                  [ Commit Region ]
+                                      |
+                                      v
+                                     ...
+
     If provided a sequence of subsets of detectors, construct sliding windows for each subset.  This
     functionality is used to independently decode X and Z sectors of a CSS code.
 
