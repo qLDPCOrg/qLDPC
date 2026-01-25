@@ -31,7 +31,11 @@ from .dems import DetectorErrorModelArrays
 from .retrieval import Decoder, get_decoder
 
 
-class SinterDecoder(sinter.Decoder):
+class DecoderNotCompiledError(Exception):
+    pass
+
+
+class SinterDecoder(Decoder, sinter.Decoder):
     """Decoder usable by Sinter for decoding circuit errors."""
 
     def __init__(
@@ -98,8 +102,15 @@ class SinterDecoder(sinter.Decoder):
         )
         return decoder
 
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+        raise DecoderNotCompiledError(
+            "This SinterDecoder still needs to be compiled in order to decode.  Please compile with"
+            " SinterDecoder.compile_decoder_for_dem"
+        )
 
-class CompiledSinterDecoder(sinter.CompiledDecoder):
+
+class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     Instances of this class are meant to be constructed by a SinterDecoder, whose
@@ -164,6 +175,10 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
             bitorder="little",
             axis=axis,
         )
+
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+        return self.decode_shots(syndrome.reshape(1, *syndrome.shape))[0]
 
 
 class SubgraphDecoder(SinterDecoder):
