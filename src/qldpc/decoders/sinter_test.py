@@ -46,6 +46,14 @@ def test_sinter_decoder() -> None:
         predicted_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots)
         assert np.array_equal(predicted_flips, expected_flips)
 
+        # decode one shot at a time
+        with pytest.raises(decoders.sinter.DecoderNotCompiledError, match="needs to be compiled"):
+            decoder.decode(np.array([], dtype=int))
+        assert np.array_equal(
+            [compiled_decoder.decode(np.asarray(error)) for error in circuit_errors],
+            observable_flips,
+        )
+
 
 def test_subgraph_decoding() -> None:
     """Decode by parts."""

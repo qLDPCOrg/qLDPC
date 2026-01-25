@@ -105,7 +105,7 @@ class SinterDecoder(Decoder, sinter.Decoder):
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         raise DecoderNotCompiledError(
-            "This SinterDecoder still needs to be compiled in order to decode.  Please compile with"
+            "This SinterDecoder needs to be compiled in order to decode.  Please compile with"
             " SinterDecoder.compile_decoder_for_dem"
         )
 
