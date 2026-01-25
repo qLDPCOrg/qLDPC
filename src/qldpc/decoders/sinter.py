@@ -567,6 +567,9 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             detector_to_time: A function that maps each detector to a time coordinate that is used
                 to decide window boundaries, or None.  If None, the time index of each detector is
                 its first coordinate in DetectorErrorModel.get_detector_coordinates().
+                WARNING: if a detector_to_time mapping is not None, it will be assumed to be
+                both valid compatible with any detector error model that this decoder is later
+                compiled to with SlidingWindowDecoder.compile_decoder_for_dem.
             priors_arg: The keyword argument to which to pass the probabilities of circuit error
                 likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
@@ -596,6 +599,9 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
     ) -> CompiledSequentialWindowDecoder:
         """Creates a decoder preconfigured for the given detector error model.
+
+        WARNING: if this decoder was initialized with a `detector_to_time` mapping, it is assumed
+        that the mapping is both valid and compatible with the detector error model provided here.
 
         See help(sinter.Decoder) for additional information.
         """
