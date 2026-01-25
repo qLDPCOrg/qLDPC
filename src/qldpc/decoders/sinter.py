@@ -18,7 +18,9 @@ limitations under the License.
 from __future__ import annotations
 
 import collections
+import warnings
 from collections.abc import Callable, Collection, Sequence
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -270,6 +272,18 @@ class SubgraphDecoder(SinterDecoder):
         )
 
 
+class SubgraphSinterDecoder(SubgraphDecoder):  # pragma: no cover
+    """Deprecated alias for SubgraphDecoder."""
+
+    def __getattribute__(self, name: str) -> Any:
+        warnings.warn(
+            f"{SubgraphSinterDecoder} is DEPRECATED; use {SubgraphDecoder} instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return super().__getattribute__(name)
+
+
 class CompiledSubgraphDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
@@ -430,6 +444,18 @@ class SequentialWindowDecoder(SinterDecoder):
         return CompiledSequentialWindowDecoder(
             dem_arrays, window_detectors, window_errors, window_decoders
         )
+
+
+class SequentialSinterDecoder(SequentialWindowDecoder):  # pragma: no cover
+    """Deprecated alias for SequentialWindowDecoder."""
+
+    def __getattribute__(self, name: str) -> Any:
+        warnings.warn(
+            f"{SequentialSinterDecoder} is DEPRECATED; use {SequentialWindowDecoder} instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return super().__getattribute__(name)
 
 
 class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
