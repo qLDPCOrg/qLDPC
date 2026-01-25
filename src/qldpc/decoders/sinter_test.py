@@ -66,7 +66,7 @@ def test_subgraph_decoding() -> None:
     )
 
     # build a subgraph decoder, compile, and predict observable flips
-    decoder_2 = decoders.SubgraphSinterDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
+    decoder_2 = decoders.SubgraphDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
@@ -75,7 +75,7 @@ def test_subgraph_decoding() -> None:
 
     # if passing a sequence of sets of observables, it needs to be equal to the number of segments
     with pytest.raises(ValueError, match="inconsistent"):
-        decoders.SubgraphSinterDecoder([[0], [1], [2]], [[0]])
+        decoders.SubgraphDecoder([[0], [1], [2]], [[0]])
 
 
 def test_sequential_decoding() -> None:

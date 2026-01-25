@@ -164,21 +164,21 @@ class CompiledSinterDecoder(sinter.CompiledDecoder):
         )
 
 
-class SubgraphSinterDecoder(SinterDecoder):
+class SubgraphDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
-    A SubgraphSinterDecoder splits the Tanner graph of a detector error model into subgraphs, and
-    decodes these subgraphs independently.  Each subgraph is defined by a subset of detectors, S.
-    When compiling a SubgraphSinterDecoder for a specific detector error model D, this decoder
-    constructs, for each subgraph S, a smaller detector error model D_S that restricts D to the
-    detectors in S and the error mechanisms that flip the detectors in S.
+    A SubgraphDecoder splits the Tanner graph of a detector error model into subgraphs, and decodes
+    these subgraphs independently.  Each subgraph is defined by a subset of detectors, S.  When
+    compiling a SubgraphDecoder for a specific detector error model D, this decoder constructs, for
+    each subgraph S, a smaller detector error model D_S that restricts D to the detectors in S and
+    the error mechanisms that flip the detectors in S.
 
-    A SubgraphSinterDecoder may optionally assign each subgraph S a set of observables, O_S, in
-    which case the subgraph detector error model D_S only considers (and predicts corrections for)
-    the observables in O_S.
+    A SubgraphDecoder may optionally assign each subgraph S a set of observables, O_S, in which case
+    the subgraph detector error model D_S only considers (and predicts corrections for) the
+    observables in O_S.
 
-    As an example, a SubgraphSinterDecoder is useful for independently decoding the X and Z sectors
-    of a CSS code.
+    As an example, a SubgraphDecoder is useful for independently decoding the X and Z sectors of a
+    CSS code.
     """
 
     def __init__(
@@ -192,8 +192,8 @@ class SubgraphSinterDecoder(SinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder that splits a detector error model into disjoint subgraphs.
 
-        A SubgraphSinterDecoder is used by Sinter to decode detection events from a detector error
-        model to predict observable flips.
+        A SubgraphDecoder is used by Sinter to decode detection events from a detector error model
+        to predict observable flips.
 
         See help(sinter.Decoder) for additional information.
 
@@ -232,7 +232,7 @@ class SubgraphSinterDecoder(SinterDecoder):
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
-    ) -> CompiledSubgraphSinterDecoder:
+    ) -> CompiledSubgraphDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
@@ -261,7 +261,7 @@ class SubgraphSinterDecoder(SinterDecoder):
             subgraph_decoder = SinterDecoder.compile_decoder_for_dem(self, subgraph_dem)
             subgraph_decoders.append(subgraph_decoder)
 
-        return CompiledSubgraphSinterDecoder(
+        return CompiledSubgraphDecoder(
             self.subgraph_detectors,
             subgraph_observables,
             subgraph_decoders,
@@ -270,14 +270,14 @@ class SubgraphSinterDecoder(SinterDecoder):
         )
 
 
-class CompiledSubgraphSinterDecoder(CompiledSinterDecoder):
+class CompiledSubgraphDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     This decoder splits a decoding problem into subgraphs that are decoded independently.
 
-    Instances of this class are meant to be constructed by a SubgraphSinterDecoder, whose
-    .compile_decoder_for_dem method returns a CompiledSubgraphSinterDecoder.
-    See help(SubgraphSinterDecoder).
+    Instances of this class are meant to be constructed by a SubgraphDecoder, whose
+    .compile_decoder_for_dem method returns a CompiledSubgraphDecoder.
+    See help(SubgraphDecoder).
     """
 
     def __init__(
@@ -309,7 +309,7 @@ class CompiledSubgraphSinterDecoder(CompiledSinterDecoder):
             (len(detection_event_data), self.num_observables), dtype=np.uint8
         )
 
-        # decode subgraphs independently
+        # decode segments independently
         for detectors, observables, decoder in zip(
             self.subgraph_detectors, self.subgraph_observables, self.subgraph_decoders
         ):
