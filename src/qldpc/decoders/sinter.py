@@ -604,7 +604,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        if window_size <= 0 or stride <= 0:
+        if not window_size >= stride > 0:  # pragma: no cover
             raise ValueError(
                 f"{self.__name__} must have window_size >= stride > 0"
                 f" (provided window_size, stride: {window_size}, {stride})"
@@ -642,7 +642,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             time_to_dets: dict[int, list[int]] = collections.defaultdict(list)
             for detector in detectors:
                 time = self.detector_to_time(detector)
-                if not isinstance(time, int):
+                if not isinstance(time, int):  # pragma: no cover
                     raise ValueError(
                         f"detector {detector} has an invalid (non-integer) time index: {time}"
                     )

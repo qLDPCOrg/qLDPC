@@ -82,6 +82,9 @@ def test_sequential_decoding() -> None:
     """Decode segments sequentially."""
     # construct a simple detector error model and sample from it
     dem = stim.DetectorErrorModel("""
+        detector(0) D0
+        detector(1) D1
+        detector(2) D2
         error(0.1) D0 D1 L0
         error(0.1) D1 D2 L1
         error(0.1) D2 L2
@@ -98,6 +101,14 @@ def test_sequential_decoding() -> None:
 
     # build a sequential decoder, compile, and predict observable flips
     decoder_2 = decoders.SequentialWindowDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
+    compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
+    predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
+        compiled_decoder_2.packbits(det_data)
+    )
+    assert np.array_equal(predicted_flips_1, predicted_flips_2)
+
+    # build an equivalent sliding window decoder, compile, and predict observable flips
+    decoder_2 = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
