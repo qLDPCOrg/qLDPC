@@ -53,15 +53,15 @@ jobs:
           uv pip install '.[dev]'
       - name: Run ruff format
         id: ruff-format
-        run: checks/format_.py
+        run: uv run python checks/format_.py
         continue-on-error: true
       - name: Run ruff check
         id: ruff-check
-        run: checks/lint_.py
+        run: uv run python checks/lint_.py
         continue-on-error: true
       - name: Run mypy
         id: mypy
-        run: checks/mypy_.py
+        run: uv run python checks/mypy_.py
         continue-on-error: true
       - name: Check for failures
         run: |
@@ -100,4 +100,4 @@ jobs:
           uv venv
           uv pip install '.[dev]'
       - name: Run coverage
-        run: checks/coverage_.py
+        run: uv run python checks/coverage_.py
