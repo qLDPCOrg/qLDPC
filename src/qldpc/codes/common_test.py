@@ -75,12 +75,11 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
         code = codes.ClassicalCode.random(6, 4, field=field)
         bits_to_remove = np.random.choice(range(len(code)), size=2, replace=False)
         bits_to_keep = [bit for bit in range(len(code)) if bit not in bits_to_remove]
-        assert code.punctured(bits_to_remove).is_equiv_to(
+        punctured_code = code.punctured(bits_to_remove)
+        assert punctured_code.is_equiv_to(
             codes.ClassicalCode.from_generator(code.generator[:, bits_to_keep])
         )
-        # assert code.shortened(bits_to_remove).is_equiv_to(
-        #     codes.ClassicalCode.from_generator(code.generator[:, bits_to_keep])
-        # )
+        assert punctured_code.is_equiv_to(code.dual().shortened(bits_to_remove).dual())
 
     # shortening a repetition code yields a trivial code
     code = codes.RepetitionCode(3)
