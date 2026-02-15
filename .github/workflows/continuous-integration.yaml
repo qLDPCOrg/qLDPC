@@ -100,4 +100,4 @@ jobs:
           uv venv
           uv pip install '.[dev]'
       - name: Run coverage
-        run: checks/coverage_.py
+        run: uv run python checks/coverage_.py
