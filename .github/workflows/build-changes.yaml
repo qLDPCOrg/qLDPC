@@ -57,5 +57,4 @@ jobs:
       - name: Run all checks
         shell: cmd
         run: |
-          .venv\Scripts\activate
-          python checks/pytest_.py
+          uv run python checks/pytest_.py
