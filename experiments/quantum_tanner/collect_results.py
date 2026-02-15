@@ -34,7 +34,7 @@ save_dir = os.path.join(file_dir, "codes")
 cache = qldpc.cache.get_disk_cache(".code_cache", cache_dir=file_dir)
 
 # loop over all groups and base codes
-for group_order, group_index in search.get_small_groups():
+for group_order, group_index in search.get_small_groups(search.MAX_ORDER):
     group_id = f"SmallGroup-{group_order}-{group_index}"
     for _, base_code in search.get_base_codes():
         paths = f"{save_dir}/qtcode_{group_id}_{base_code}_s*.txt"
