@@ -264,7 +264,7 @@ class ClassicalCode(AbstractCode):
     @functools.cached_property
     def canonicalized(self) -> ClassicalCode:
         """The same code with its parity matrix in reduced row echelon form."""
-        if self._is_canonicalized:
+        if self._is_canonicalized:  # pragma: no cover
             return self
         matrix_rref = self.matrix.row_reduce()
         matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
@@ -885,7 +885,7 @@ class QuditCode(AbstractCode):
     @functools.cached_property
     def canonicalized(self) -> QuditCode:
         """The same code with its parity matrix in reduced row echelon form."""
-        if self._is_canonicalized:
+        if self._is_canonicalized:  # pragma: no cover
             return self
         matrix_rref = self.matrix.row_reduce()
         matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
@@ -2146,7 +2146,7 @@ class CSSCode(QuditCode):
     @functools.cached_property
     def canonicalized(self) -> CSSCode:
         """The same code with its parity matrices in reduced row echelon form."""
-        if self._is_canonicalized:
+        if self._is_canonicalized:  # pragma: no cover
             return self
         code = CSSCode(
             self.code_x.canonicalized,
