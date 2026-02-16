@@ -53,8 +53,9 @@ jobs:
       - name: Install package and dependencies
         run: uv sync --extra dev
       - name: Run all checks
+        shell: cmd
         run: |
-          . .venv\Scripts\Activate.ps1
+          .venv\Scripts\activate
           python checks/pytest_.py
           # TODO: shorten after https://github.com/Infleqtion/client-superstaq/pull/1347
           # uv run python checks/pytest_.py
