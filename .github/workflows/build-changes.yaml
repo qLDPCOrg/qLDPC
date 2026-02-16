@@ -41,6 +41,8 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: windows-latest
     timeout-minutes: 5
+    env:
+      UV_SYSTEM_PYTHON: 1
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -53,4 +55,4 @@ jobs:
       - name: Install package and dependencies
         run: uv sync --extra dev
       - name: Run all checks
-        run: . .venv\Scripts\activate; python checks/pytest_.py
+        run: python checks/pytest_.py
