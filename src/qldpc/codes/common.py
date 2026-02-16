@@ -154,9 +154,14 @@ class AbstractCode(abc.ABC):
         checks = ["[" + ",".join(map(str, line)) + "]" for line in self.matrix]
         return "[" + ",".join(checks) + "]"
 
+    @property
+    def canonicalized(self) -> AbstractCode:
+        """The same code with its parity matrix in reduced row echelon form."""
+        return self if self._is_canonicalized else self._canonicalized
+
     @functools.cached_property
     @abc.abstractmethod
-    def canonicalized(self) -> AbstractCode:
+    def _canonicalized(self) -> AbstractCode:
         """The same code with its parity matrix in reduced row echelon form."""
 
     @staticmethod
@@ -262,10 +267,8 @@ class ClassicalCode(AbstractCode):
         return not np.any(self.matrix @ np.asarray(words, dtype=int).view(self.field).T)
 
     @functools.cached_property
-    def canonicalized(self) -> ClassicalCode:
+    def _canonicalized(self) -> ClassicalCode:
         """The same code with its parity matrix in reduced row echelon form."""
-        if self._is_canonicalized:
-            return self
         matrix_rref = self.matrix.row_reduce()
         matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
         code = ClassicalCode(matrix_rref, self.field.order)
@@ -883,10 +886,8 @@ class QuditCode(AbstractCode):
         return self._is_subsystem_code
 
     @functools.cached_property
-    def canonicalized(self) -> QuditCode:
+    def _canonicalized(self) -> QuditCode:
         """The same code with its parity matrix in reduced row echelon form."""
-        if self._is_canonicalized:
-            return self
         matrix_rref = self.matrix.row_reduce()
         matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
         code = QuditCode(matrix_rref, self.field.order, is_subsystem_code=self._is_subsystem_code)
@@ -2144,10 +2145,8 @@ class CSSCode(QuditCode):
         return self._is_subsystem_code
 
     @functools.cached_property
-    def canonicalized(self) -> CSSCode:
+    def _canonicalized(self) -> CSSCode:
         """The same code with its parity matrices in reduced row echelon form."""
-        if self._is_canonicalized:
-            return self
         code = CSSCode(
             self.code_x.canonicalized,
             self.code_z.canonicalized,
