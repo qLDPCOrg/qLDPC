@@ -51,7 +51,9 @@ jobs:
           cache-dependency-glob: |
             **/pyproject.toml
       - name: Install package and dependencies
-        run: uv sync --extra dev
+        run: |
+          uv venv
+          uv pip install '.[dev]'
       - name: Run all checks
         shell: pwsh
         run: |
