@@ -52,10 +52,10 @@ jobs:
             **/pyproject.toml
       - name: Install package and dependencies
         # TODO: try to change this step to...
-        # run: uv sync --extra dev
-        run: |
-          uv venv
-          uv pip install '.[dev]'
+        run: uv sync --extra dev
+        # run: |
+        #   uv venv
+        #   uv pip install '.[dev]'
       - name: Run all checks
         shell: cmd
         run: |
