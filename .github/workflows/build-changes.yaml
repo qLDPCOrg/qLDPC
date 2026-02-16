@@ -34,7 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install '.[dev]'
       - name: Run all checks
-        run: checks/pytest_.py
+        run: python checks/pytest_.py
 
   windows:
     name: Windows check
@@ -54,4 +54,7 @@ jobs:
         run: uv sync --extra dev
       - name: Run all checks
         run: |
-          uv run python checks/pytest_.py
+          .venv\Scripts\activate
+          python checks/pytest_.py
+          # TODO: shorten after https://github.com/Infleqtion/client-superstaq/pull/1347
+          # uv run python checks/pytest_.py
