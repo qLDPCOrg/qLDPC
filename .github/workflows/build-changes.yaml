@@ -51,15 +51,11 @@ jobs:
           cache-dependency-glob: |
             **/pyproject.toml
       - name: Install package and dependencies
-        # TODO: try to change this step to...
         run: uv sync --extra dev
-        # run: |
-        #   uv venv
-        #   uv pip install '.[dev]'
       - name: Run all checks
         shell: cmd
         run: |
-          .venv\Scripts\activate
-          python checks/pytest_.py
-        # TODO: shorten after https://github.com/Infleqtion/client-superstaq/pull/1347
-        # uv run python checks/pytest_.py
+          uv run python checks/pytest_.py
+          # .venv\Scripts\activate
+          # python checks/pytest_.py
+          # TODO: shorten after https://github.com/Infleqtion/client-superstaq/pull/1347
