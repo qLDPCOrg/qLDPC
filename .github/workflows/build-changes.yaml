@@ -55,7 +55,7 @@ jobs:
       - name: Run all checks
         shell: pwsh
         run: |
-          . .venv\Scripts\Activate.ps1
+          . .venv/bin/activate
           python checks/pytest_.py
           # TODO: shorten after https://github.com/Infleqtion/client-superstaq/pull/1347
           # uv run python checks/pytest_.py
