@@ -53,5 +53,4 @@ jobs:
       - name: Install package and dependencies
         run: uv sync --extra dev
       - name: Run all checks
-        shell: cmd
         run: . .venv\Scripts\activate; python checks/pytest_.py
