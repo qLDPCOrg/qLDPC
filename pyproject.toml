@@ -35,6 +35,9 @@ dependencies = [
   "sympy>=1.12",
 ]
 
+# TODO: update relay-bp to
+# "relay-bp[stim]==0.2.?",
+# once https://github.com/trmue/relay/pull/30 is in a release
 [project.optional-dependencies]
 dev = [
   "checks-superstaq>=0.5.45",
