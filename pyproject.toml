@@ -41,11 +41,11 @@ dev = [
   "jupyter>=1.1.1",
   "python-lsp-server[all]>=1.14.0",
   # "relay-bp[stim]==0.1.0",
-  "relay-bp[stim] @ git+https://github.com/diamantopoulos/relay.git@fix_maturin",
+  "relay-bp[stim] @ git+https://github.com/perlinm/relay-bp.git@fix_maturin",
 ]
 relay-bp = [
   # "relay-bp[stim]==0.1.0",
-  "relay-bp[stim] @ git+https://github.com/diamantopoulos/relay.git@fix_maturin",
+  "relay-bp[stim] @ git+https://github.com/perlinm/relay-bp.git@fix_maturin",
 ]
 
 [project.urls]
