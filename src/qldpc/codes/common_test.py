@@ -75,7 +75,7 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
         code = codes.ClassicalCode.random(6, 4, field=field)
         bits_to_remove = np.random.choice(range(len(code)), size=2, replace=False)
         bits_to_keep = [bit for bit in range(len(code)) if bit not in bits_to_remove]
-        code._matrix[:2, bits_to_remove] = -1  # ensure we have nontrivial row-reduction to do
+        code._matrix[:2, bits_to_remove] = 1  # ensure we have nontrivial row-reduction to do
         punctured_code = code.punctured(bits_to_remove)
         assert punctured_code.is_equiv_to(
             codes.ClassicalCode.from_generator(code.generator[:, bits_to_keep])
