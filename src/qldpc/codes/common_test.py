@@ -38,7 +38,7 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     """Classical code constructions."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
-    code = codes.ClassicalCode.random(5, 3, seed=np.random.randint(2**32))
+    code = codes.ClassicalCode.random(5, 3, seed=np.random.randint(2**31))
     assert len(code) == code.num_bits == 5
     assert code.num_checks == 3
     assert "ClassicalCode" in str(code)
@@ -48,7 +48,7 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     code.set_generator(np.roll(code.generator, shift=1, axis=0))
     assert codes.ClassicalCode(code).generator is code.generator
 
-    code = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**32))
+    code = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**31))
     assert "GF(3)" in str(code)
 
     code = codes.RepetitionCode(2, field=3)
@@ -86,8 +86,8 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(list(code.shortened([0]).iter_words()), [[0, 0]])
 
     # stack two codes
-    code_a = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**32))
-    code_b = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**32))
+    code_a = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**31))
+    code_b = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**31))
     code = codes.ClassicalCode.stack([code_a, code_b])
     assert len(code) == len(code_a) + len(code_b)
     assert code.dimension == code_a.dimension + code_b.dimension
