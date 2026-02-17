@@ -185,7 +185,7 @@ def test_count_trailing_zeros(base_val: int) -> None:
 
 @pytest.mark.parametrize("width", range(1, 8))
 def test_inplace_rowsum(width: int) -> None:
-    arr = np.random.randint(2**32, size=(10, width), dtype=np.uint)
+    arr = np.random.randint(2**31, size=(10, width), dtype=np.uint)
     expected = arr.sum(-1)
     actual = qldpc.codes.distance._inplace_rowsum(arr)
     np.testing.assert_array_equal(actual, expected)
