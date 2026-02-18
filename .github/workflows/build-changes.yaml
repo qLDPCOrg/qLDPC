@@ -41,8 +41,6 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: windows-latest
     timeout-minutes: 5
-    env:
-      UV_SYSTEM_PYTHON: 1  # needed because 'uv sync ...' followed by 'uv run ...' does not work...
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -53,6 +51,6 @@ jobs:
           cache-dependency-glob: |
             **/pyproject.toml
       - name: Install package and dependencies
-        run: uv pip install -e ".[dev]"
+        run: uv sync --extra dev
       - name: Run all checks
-        run: python checks/pytest_.py
+        run: uv run python checks/pytest_.py
