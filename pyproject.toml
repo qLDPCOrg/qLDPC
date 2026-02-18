@@ -35,20 +35,15 @@ dependencies = [
   "sympy>=1.12",
 ]
 
-# TODO: update relay-bp to
-# "relay-bp[stim]==0.2.?",
-# once https://github.com/trmue/relay/pull/30 is in a release
 [project.optional-dependencies]
 dev = [
   "checks-superstaq>=0.5.45",
   "jupyter>=1.1.1",
   "python-lsp-server[all]>=1.14.0",
-  # "relay-bp[stim]==0.1.0",
-  "relay-bp[stim] @ git+https://github.com/perlinm/relay-bp.git",
+  "relay-bp[stim]==0.2.1",
 ]
 relay-bp = [
-  # "relay-bp[stim]==0.1.0",
-  "relay-bp[stim] @ git+https://github.com/perlinm/relay-bp.git",
+  "relay-bp[stim]==0.2.1",
 ]
 
 [project.urls]
