@@ -1042,9 +1042,12 @@ class RingArray(npt.NDArray[np.object_]):
         for col in np.argwhere(pivot_cols):
             row = np.argwhere(self_as_bool[:, col])[0][0]
             pivot_rows[row] = allow_non_units or self[row, col][0].inverse()
-        pivot_matrix = self[pivot_rows].view(RingArray)
-        non_pivot_matrix = self[~pivot_rows].view(RingArray)
-        return pivot_matrix, non_pivot_matrix[np.any(non_pivot_matrix, axis=1)]
+        pivot_matrix = self[pivot_rows]
+        non_pivot_matrix = self[~pivot_rows]
+        return (
+            pivot_matrix.view(RingArray),
+            non_pivot_matrix[np.any(non_pivot_matrix, axis=1)].view(RingArray),
+        )
 
     def _remove_linearly_dependent_rows(self) -> RingArray:
         """Remove rows that can be expressed as ring-linear combinations of others.
