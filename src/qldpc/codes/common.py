@@ -770,7 +770,7 @@ class ClassicalCode(AbstractCode):
                     " max_error_rate."
                 )
             probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - probs @ fidelities, np.sqrt(probs**2 @ variances)
+            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
 
         return get_logical_error_rate
 
@@ -1946,7 +1946,7 @@ class QuditCode(AbstractCode):
                     " max_error_rate."
                 )
             probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - probs @ fidelities, np.sqrt(probs**2 @ variances)
+            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
 
         return get_logical_error_rate
 
@@ -3033,7 +3033,7 @@ class CSSCode(QuditCode):
                     " max_error_rate."
                 )
             probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - probs @ fidelities, np.sqrt(probs**2 @ variances)
+            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
 
         return get_logical_error_rate
 
