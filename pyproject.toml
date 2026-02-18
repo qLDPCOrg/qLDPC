@@ -37,7 +37,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "checks-superstaq>=0.5.45",
+  "checks-superstaq>=0.5.62",
   "jupyter>=1.1.1",
   "python-lsp-server[all]>=1.14.0",
   "relay-bp[stim]==0.2.1",
