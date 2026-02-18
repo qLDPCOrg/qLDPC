@@ -61,7 +61,7 @@ class RelayBPDecoder(BatchDecoder):
 
     This class first constructs a relay_bp.decoder.DynDecoder decoder by class name, such as
     "RelayDecoderF32"; see help(relay_bp) for more options.  To enable parallelized decoding, which
-    which as of relay-bp==0.1.0 is only implemented for the relay_bp.ObservableDecoderRunner class,
+    which as of relay-bp==0.2.1 is only implemented for the relay_bp.ObservableDecoderRunner class,
     RelayBPDecoder wraps the relay_bp.decoder.DynDecoder in a relay_bp.ObservableDecoderRunner at
     initialization time.
 
