@@ -1,3 +1,4 @@
+from .alphasyndrome import AlphaSyndrome
 from .bookkeeping import (
     DetectorRecord,
     MeasurementRecord,
@@ -61,6 +62,7 @@ __all__ = [
     "as_noiseless_circuit",
     "EdgeColoring",
     "EdgeColoringXZ",
+    "AlphaSyndrome",
     "SyndromeMeasurementStrategy",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",

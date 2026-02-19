@@ -92,7 +92,6 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
         subgraphs = code.get_syndrome_subgraphs(**self.subgraph_kwargs)  # type:ignore[arg-type]
-
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
