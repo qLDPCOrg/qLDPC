@@ -106,7 +106,7 @@ def all_controlled_pauli_gates_are_ticked(circuit: stim.Circuit) -> bool:
 
     return True
 
-def test_surface_code_scheduling():
+def test_surface_code_scheduling() -> None:
     d = 3
     code = codes.SurfaceCode(d)
 
