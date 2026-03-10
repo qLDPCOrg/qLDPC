@@ -134,7 +134,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         for gates in color_to_ops.values():
             for gate, check_id, data_id in sorted(gates):
                 circuit.append(gate, [check_id, data_id])
-            # Use TICK to prevent Stim from merging scheduled gate layers. 
+            # Use TICK to prevent Stim from merging scheduled gate layers.
             circuit.append("TICK")
         return circuit
 

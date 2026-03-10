@@ -94,23 +94,25 @@ def assert_valid_syndome_measurement(
     expected_syndrome = code.matrix @ math.symplectic_conjugate(error_xz)
     assert np.array_equal(expected_syndrome, syndrome)
 
+
 def all_controlled_pauli_gates_are_ticked(circuit: stim.Circuit) -> bool:
     """Returns True if all controlled-Pauli gates in the circuit are followed by a TICK."""
     controlled_pauli_gates = {"CX", "CY", "CZ"}
     instructions = list(circuit)
 
     for i, instruction in enumerate(instructions):
-        if instruction.name in  controlled_pauli_gates:
+        if instruction.name in controlled_pauli_gates:
             if i + 1 >= len(instructions) or instructions[i + 1].name != "TICK":
                 return False
 
     return True
 
+
 def test_surface_code_scheduling() -> None:
     d = 3
     code = codes.SurfaceCode(d)
 
-    # Case 1: EdgeColoring
+    # Case 1: EdgeColoring
     assert all_controlled_pauli_gates_are_ticked(circuits.EdgeColoring().get_circuit(code)[0])
 
     # Case 2: EdgeColoringXZ
