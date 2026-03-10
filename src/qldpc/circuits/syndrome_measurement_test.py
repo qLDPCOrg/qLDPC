@@ -108,6 +108,26 @@ def all_controlled_pauli_gates_are_ticked(circuit: stim.Circuit) -> bool:
     return True
 
 
+def test_all_controlled_pauli_gates_are_ticked() -> None:
+    # Case 1: The True branch
+    circuit = stim.Circuit("""
+        CX 0 1 2 3
+        TICK
+        CX 4 5 6 7
+        TICK
+    """)
+
+    assert all_controlled_pauli_gates_are_ticked(circuit)
+
+    # Case 2: The False branch
+    circuit = stim.Circuit("""
+        CX 0 1 2 3
+        CX 4 5 6 7
+    """)
+
+    assert all_controlled_pauli_gates_are_ticked(circuit) is False
+
+
 def test_surface_code_scheduling() -> None:
     d = 3
     code = codes.SurfaceCode(d)
