@@ -107,7 +107,7 @@ def test_syndrome_measurement_scheduling(distance: int = 3) -> None:
 def gate_schedule_is_valid(circuit: stim.Circuit) -> bool:
     """Check that no qubit is addressed twice between TICKS in a circuit."""
     tick = stim.CircuitInstruction("TICK")
-    is_addressed_in_current_moment = {}
+    is_addressed_in_current_moment: dict[int, bool] = {}
     for instruction in circuit:
         if instruction == tick:
             # reset the record of qubits that are addressed in the current moment
@@ -116,7 +116,7 @@ def gate_schedule_is_valid(circuit: stim.Circuit) -> bool:
             # update the record of qubits that have been addressed in the current moment
             for target in instruction.targets_copy():
                 if target.is_qubit_target:
-                    if is_addressed_in_current_moment.get(target, False):
+                    if is_addressed_in_current_moment.get(target.qubit_value, False):
                         return False
-                    is_addressed_in_current_moment[target] = True
+                    is_addressed_in_current_moment[target.qubit_value] = True
     return True
