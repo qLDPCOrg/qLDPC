@@ -31,17 +31,17 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     seed = pytestconfig.getoption("randomly_seed")
 
     # default strategies for non-CSS and CSS codes
-    assert_valid_syndome_measurement(codes.FiveQubitCode())
-    assert_valid_syndome_measurement(codes.SteaneCode())
+    assert syndome_measurement_is_valid(codes.FiveQubitCode())
+    assert syndome_measurement_is_valid(codes.SteaneCode())
 
     # special strategies for toric and surface codes
-    assert_valid_syndome_measurement(codes.ToricCode(2, rotated=True))
-    assert_valid_syndome_measurement(codes.SurfaceCode(2, rotated=True))
+    assert syndome_measurement_is_valid(codes.ToricCode(2, rotated=True))
+    assert syndome_measurement_is_valid(codes.SurfaceCode(2, rotated=True))
 
     # special strategy for HGPCodes
     code_a = codes.ClassicalCode.random(5, 3, seed=seed)
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
-    assert_valid_syndome_measurement(codes.HGPCode(code_a, code_b))
+    assert syndome_measurement_is_valid(codes.HGPCode(code_a, code_b))
 
     # special strategy for QCCodes
     np.random.seed(seed)
@@ -59,18 +59,18 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         np.prod([symbol**exponent for symbol, exponent in zip(symbols, exponents_b)])
         for exponents_b in term_exponents_b
     )
-    assert_valid_syndome_measurement(codes.QCCode(orders, poly_a, poly_b))
+    assert syndome_measurement_is_valid(codes.QCCode(orders, poly_a, poly_b))
 
     # EdgeColoringXZ strategy
-    assert_valid_syndome_measurement(codes.SteaneCode(), circuits.EdgeColoringXZ())
+    assert syndome_measurement_is_valid(codes.SteaneCode(), circuits.EdgeColoringXZ())
     with pytest.raises(ValueError, match="only supports CSS codes"):
         circuits.EdgeColoringXZ().get_circuit(codes.FiveQubitCode())
 
 
-def assert_valid_syndome_measurement(
+def syndome_measurement_is_valid(
     code: codes.QuditCode, strategy: circuits.SyndromeMeasurementStrategy = circuits.EdgeColoring()
-) -> None:
-    """Assert that the syndrome measurement of the given code with the given strategy is valid."""
+) -> bool:
+    """Check the validity of syndrome measurement in a given code."""
     # prepare a logical |0> state
     state_prep = circuits.get_encoding_circuit(code)
 
@@ -92,48 +92,34 @@ def assert_valid_syndome_measurement(
     # compare against the expected syndrome
     error_xz = code.field([pauli.value for pauli in errors]).T.ravel()
     expected_syndrome = code.matrix @ math.symplectic_conjugate(error_xz)
-    assert np.array_equal(expected_syndrome, syndrome)
+
+    return np.array_equal(expected_syndrome, syndrome)
 
 
-def all_controlled_pauli_gates_are_ticked(circuit: stim.Circuit) -> bool:
-    """Returns True if all controlled-Pauli gates in the circuit are followed by a TICK."""
-    controlled_pauli_gates = {"CX", "CY", "CZ"}
-    instructions = list(circuit)
+def test_syndrome_measurement_scheduling(distance: int = 3) -> None:
+    """Verify that valid gate scheduling in some syndrome measurement circuits."""
+    code = codes.SurfaceCode(distance)
+    for strategy in [circuits.EdgeColoring(), circuits.EdgeColoringXZ()]:
+        circuit, _ = strategy.get_circuit(code)
+        assert gate_schedule_is_valid(circuit)
 
-    for i, instruction in enumerate(instructions):
-        if instruction.name in controlled_pauli_gates:
-            if i + 1 >= len(instructions) or instructions[i + 1].name != "TICK":
-                return False
+        circuit_without_ticks = stim.Circuit(str(circuit).replace("TICK", ""))
+        assert not gate_schedule_is_valid(circuit_without_ticks)
 
+
+def gate_schedule_is_valid(circuit: stim.Circuit) -> bool:
+    """Check that no qubit is addressed twice between TICKS in a circuit."""
+    tick = stim.CircuitInstruction("TICK")
+    is_addressed_in_current_moment: dict[int, bool] = {}
+    for instruction in circuit:
+        if instruction == tick:
+            # reset the record of qubits that are addressed in the current moment
+            is_addressed_in_current_moment = {}
+        else:
+            # update the record of qubits that have been addressed in the current moment
+            for target in instruction.targets_copy():
+                if target.is_qubit_target:
+                    if is_addressed_in_current_moment.get(target.qubit_value, False):
+                        return False
+                    is_addressed_in_current_moment[target.qubit_value] = True
     return True
-
-
-def test_all_controlled_pauli_gates_are_ticked() -> None:
-    # Case 1: The True branch
-    circuit = stim.Circuit("""
-        CX 0 1 2 3
-        TICK
-        CX 4 5 6 7
-        TICK
-    """)
-
-    assert all_controlled_pauli_gates_are_ticked(circuit)
-
-    # Case 2: The False branch
-    circuit = stim.Circuit("""
-        CX 0 1 2 3
-        CX 4 5 6 7
-    """)
-
-    assert all_controlled_pauli_gates_are_ticked(circuit) is False
-
-
-def test_surface_code_scheduling() -> None:
-    d = 3
-    code = codes.SurfaceCode(d)
-
-    # Case 1: EdgeColoring
-    assert all_controlled_pauli_gates_are_ticked(circuits.EdgeColoring().get_circuit(code)[0])
-
-    # Case 2: EdgeColoringXZ
-    assert all_controlled_pauli_gates_are_ticked(circuits.EdgeColoringXZ().get_circuit(code)[0])
