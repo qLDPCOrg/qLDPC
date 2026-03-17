@@ -103,6 +103,9 @@ def test_syndrome_measurement_scheduling(distance: int = 3) -> None:
         circuit, _ = strategy.get_circuit(code)
         assert gate_schedule_is_valid(circuit)
 
+        circuit_without_ticks = stim.Circuit(str(circuit).replace("TICK", ""))
+        assert not gate_schedule_is_valid(circuit_without_ticks)
+
 
 def gate_schedule_is_valid(circuit: stim.Circuit) -> bool:
     """Check that no qubit is addressed twice between TICKS in a circuit."""
