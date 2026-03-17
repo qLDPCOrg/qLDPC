@@ -93,3 +93,47 @@ def assert_valid_syndome_measurement(
     error_xz = code.field([pauli.value for pauli in errors]).T.ravel()
     expected_syndrome = code.matrix @ math.symplectic_conjugate(error_xz)
     assert np.array_equal(expected_syndrome, syndrome)
+
+
+def all_controlled_pauli_gates_are_ticked(circuit: stim.Circuit) -> bool:
+    """Returns True if all controlled-Pauli gates in the circuit are followed by a TICK."""
+    controlled_pauli_gates = {"CX", "CY", "CZ"}
+    instructions = list(circuit)
+
+    for i, instruction in enumerate(instructions):
+        if instruction.name in controlled_pauli_gates:
+            if i + 1 >= len(instructions) or instructions[i + 1].name != "TICK":
+                return False
+
+    return True
+
+
+def test_all_controlled_pauli_gates_are_ticked() -> None:
+    # Case 1: The True branch
+    circuit = stim.Circuit("""
+        CX 0 1 2 3
+        TICK
+        CX 4 5 6 7
+        TICK
+    """)
+
+    assert all_controlled_pauli_gates_are_ticked(circuit)
+
+    # Case 2: The False branch
+    circuit = stim.Circuit("""
+        CX 0 1 2 3
+        CX 4 5 6 7
+    """)
+
+    assert all_controlled_pauli_gates_are_ticked(circuit) is False
+
+
+def test_surface_code_scheduling() -> None:
+    d = 3
+    code = codes.SurfaceCode(d)
+
+    # Case 1: EdgeColoring
+    assert all_controlled_pauli_gates_are_ticked(circuits.EdgeColoring().get_circuit(code)[0])
+
+    # Case 2: EdgeColoringXZ
+    assert all_controlled_pauli_gates_are_ticked(circuits.EdgeColoringXZ().get_circuit(code)[0])
