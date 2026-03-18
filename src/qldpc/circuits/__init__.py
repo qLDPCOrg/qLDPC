@@ -1,4 +1,4 @@
-from .alphasyndrome import AlphaSyndrome
+from .alpha_syndrome import AlphaSyndrome
 from .bookkeeping import (
     DetectorRecord,
     MeasurementRecord,

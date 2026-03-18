@@ -28,12 +28,12 @@ import sinter
 import stim
 
 from qldpc import codes
-from qldpc.circuits.syndrome_measurement import SyndromeMeasurementStrategy
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from .bookkeeping import MeasurementRecord, QubitIDs
 from .common import restrict_to_qubits
 from .noise_model import NoiseModel
+from .syndrome_measurement import SyndromeMeasurementStrategy
 
 
 @dataclass(slots=True)

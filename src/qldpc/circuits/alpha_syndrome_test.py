@@ -1,4 +1,4 @@
-"""Unit tests for alphasyndrome.py
+"""Unit tests for alpha_syndrome.py
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -15,6 +15,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+from __future__ import annotations
+
 import random
 
 import numpy as np
@@ -27,9 +29,7 @@ from qldpc.objects import Pauli
 
 
 class TrivialDecoder(sinter.Decoder):
-    def compile_decoder_for_dem(
-        self, *, dem: "stim.DetectorErrorModel"
-    ) -> "TrivialCompiledDecoder":
+    def compile_decoder_for_dem(self, *, dem: stim.DetectorErrorModel) -> TrivialCompiledDecoder:
         return TrivialCompiledDecoder(shape=(dem.num_observables + 7) // 8)
 
 
@@ -52,16 +52,16 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     seed = pytestconfig.getoption("randomly_seed")
 
     # default strategies for non-CSS and CSS codes
-    assert_valid_alphasyndrome(codes.SteaneCode())
+    assert alpha_syndrome_is_valid(codes.SteaneCode())
 
     # special strategies for toric and surface codes
-    assert_valid_alphasyndrome(codes.ToricCode(2, rotated=True))
-    assert_valid_alphasyndrome(codes.SurfaceCode(2, rotated=True))
+    assert alpha_syndrome_is_valid(codes.ToricCode(2, rotated=True))
+    assert alpha_syndrome_is_valid(codes.SurfaceCode(2, rotated=True))
 
     # special strategy for HGPCodes
     code_a = codes.ClassicalCode.random(5, 3, seed=seed)
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
-    assert_valid_alphasyndrome(codes.HGPCode(code_a, code_b))
+    assert alpha_syndrome_is_valid(codes.HGPCode(code_a, code_b))
 
     # EdgeColoringXZ strategy
     with pytest.raises(ValueError, match="only supports CSS codes"):
@@ -74,18 +74,17 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
         ).get_circuit(codes.FiveQubitCode())
 
 
-def assert_valid_alphasyndrome(
+def alpha_syndrome_is_valid(
     code: codes.QuditCode,
-) -> None:
-    strategy = circuits.AlphaSyndrome(
+    strategy: circuits.AlphaSyndrome = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
         "trivial",
         iters_per_step=5,
         shots_per_iter=5,
         custome_decoders={"trivial": TrivialDecoder()},
-    )
-
-    """Assert that the syndrome measurement of the given code with the given strategy is valid."""
+    ),
+) -> bool:
+    """Check the validity of AlphaSyndrome for a given code."""
     # prepare a logical |0> state
     state_prep = circuits.get_encoding_circuit(code)
 
@@ -107,4 +106,4 @@ def assert_valid_alphasyndrome(
     # compare against the expected syndrome
     error_xz = code.field([pauli.value for pauli in errors]).T.ravel()
     expected_syndrome = code.matrix @ math.symplectic_conjugate(error_xz)
-    assert np.array_equal(expected_syndrome, syndrome)
+    return np.array_equal(expected_syndrome, syndrome)
