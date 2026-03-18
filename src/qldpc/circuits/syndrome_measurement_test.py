@@ -96,14 +96,13 @@ def syndome_measurement_is_valid(
     return np.array_equal(expected_syndrome, syndrome)
 
 
-def test_syndrome_measurement_scheduling(distance: int = 3) -> None:
-    """Verify that valid gate scheduling in some syndrome measurement circuits."""
-    code = codes.SurfaceCode(distance)
+@pytest.mark.parametrize("code", [codes.SurfaceCode(3)])
+def test_syndrome_measurement_scheduling(code: codes.CSSCode) -> None:
+    """Verify valid gate scheduling in some syndrome measurement circuits."""
     for strategy in [circuits.EdgeColoring(), circuits.EdgeColoringXZ()]:
         circuit, _ = strategy.get_circuit(code)
-        assert gate_schedule_is_valid(circuit)
-
         circuit_without_ticks = stim.Circuit(str(circuit).replace("TICK", ""))
+        assert gate_schedule_is_valid(circuit)
         assert not gate_schedule_is_valid(circuit_without_ticks)
 
 
