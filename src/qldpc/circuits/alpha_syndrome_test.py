@@ -70,7 +70,7 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
             "trivial",
             iters_per_step=2,
             shots_per_iter=5,
-            custome_decoders={"trivial": TrivialDecoder()},
+            custom_decoders={"trivial": TrivialDecoder()},
         ).get_circuit(codes.FiveQubitCode())
 
 
@@ -81,7 +81,7 @@ def alpha_syndrome_is_valid(
         "trivial",
         iters_per_step=5,
         shots_per_iter=5,
-        custome_decoders={"trivial": TrivialDecoder()},
+        custom_decoders={"trivial": TrivialDecoder()},
     ),
 ) -> bool:
     """Check the validity of AlphaSyndrome for a given code."""
