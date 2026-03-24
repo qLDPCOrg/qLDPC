@@ -176,8 +176,8 @@ class WrapCSS:
                 stim.target_pauli(data_node.index, str(edge_data[Pauli]))
                 for _, data_node, edge_data in logical_op_graph.edges(observable_node, data=True)
             ]
-            measure_as_product(circuit, targets)
-            circuit.append("TICK", [])
+            circuit.append("MPP", stim.target_combined_paulis(targets))
+            circuit.append("TICK")
 
         return self.code.dimension
 
@@ -192,8 +192,8 @@ class WrapCSS:
                 stim.target_pauli(data_node.index, str(edge_data[Pauli]))
                 for _, data_node, edge_data in stabilizer_op_graph.edges(stabilizer_node, data=True)
             ]
-            measure_as_product(circuit, targets)
-            circuit.append("TICK", [])
+            circuit.append("MPP", stim.target_combined_paulis(targets))
+            circuit.append("TICK")
 
         return num_stabilizers
 
@@ -354,14 +354,3 @@ class TreeNode:
         while not current_state.is_terminal():
             current_state = current_state.shift(checks, random.choice(current_state.transitions()))
         return current_state.schedule
-
-
-def measure_as_product(circuit: stim.Circuit, pauli_targets: Sequence[stim.GateTarget]) -> None:
-    combined_targets = []
-    for i, target in enumerate(pauli_targets):
-        combined_targets.append(target)
-        # Add a combiner between every target, but not after the last one
-        if i < len(pauli_targets) - 1:
-            combined_targets.append(stim.target_combiner())
-
-    circuit.append_operation("MPP", combined_targets)
