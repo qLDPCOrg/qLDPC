@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 import sinter
 import stim
 
@@ -113,7 +114,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 node = node.expand(checks)
 
             schedule = node.simulate_schedule(checks)
-            circuit = code.evaluation_circuit(basis, schedule)
+            circuit = code.get_evaluation_circuit(basis, schedule)
             noisy_circuit = self.noise_model.noisy_circuit(
                 circuit, immune_qubits=range(code.num_qubits), insert_ticks=False
             )
@@ -165,44 +166,6 @@ class WrapCSS:
     def num_ancillas(self) -> int:
         return self.code.num_checks
 
-    def _measure_observable(self, circuit: stim.Circuit, basis: PauliXZ) -> int:
-        num_observables = self.code.dimension
-        logical_ops = self.code.get_logical_ops(basis, symplectic=True)
-        logical_op_graph = codes.QuditCode.matrix_to_graph(logical_ops)
-
-        for node_index in range(num_observables):
-            observable_node = Node(node_index, is_data=False)
-            targets = [
-                stim.target_pauli(data_node.index, str(edge_data[Pauli]))
-                for _, data_node, edge_data in logical_op_graph.edges(observable_node, data=True)
-            ]
-            circuit.append("MPP", stim.target_combined_paulis(targets))
-            circuit.append("TICK")
-
-        return self.code.dimension
-
-    def _measure_stabilizers(self, circuit: stim.Circuit, basis: PauliXZ) -> int:
-        num_stabilizers = self.code.num_checks_x if basis == Pauli.X else self.code.num_checks_z
-        stabilizer_ops = self.code.get_stabilizer_ops(basis, symplectic=True)
-        stabilizer_op_graph = codes.QuditCode.matrix_to_graph(stabilizer_ops)
-
-        for node_index in range(num_stabilizers):
-            stabilizer_node = Node(node_index, is_data=False)
-            targets = [
-                stim.target_pauli(data_node.index, str(edge_data[Pauli]))
-                for _, data_node, edge_data in stabilizer_op_graph.edges(stabilizer_node, data=True)
-            ]
-            circuit.append("MPP", stim.target_combined_paulis(targets))
-            circuit.append("TICK")
-
-        return num_stabilizers
-
-    def _ideal_measurement(self, circuit: stim.Circuit, basis: PauliXZ) -> tuple[int, int]:
-        num_stabilizers = self._measure_stabilizers(circuit, basis)
-        num_observables = self._measure_observable(circuit, basis)
-
-        return num_stabilizers, num_observables
-
     def _syndrome_measurement(
         self,
         circuit: stim.Circuit,
@@ -215,47 +178,50 @@ class WrapCSS:
         sorted_schedule = sorted(zipped_schedule, key=lambda x: x[1])
 
         for _, checks in itertools.groupby(sorted_schedule, key=lambda ct: ct[1]):
-            for chk, _ in checks:
+            for check, _ in checks:
                 if qubit_ids:
                     data, ancilla = (
-                        qubit_ids.data[chk[0]],
-                        qubit_ids.check[chk[1] - self.num_qubits],
+                        qubit_ids.data[check[0]],
+                        qubit_ids.check[check[1] - self.num_qubits],
                     )
                 else:
-                    data, ancilla = chk
+                    data, ancilla = check
 
                 circuit.append(f"C{basis}", [ancilla, data])
                 circuit.append("TICK", [])
 
-    def evaluation_circuit(self, basis: PauliXZ, schedule: np.ndarray) -> stim.Circuit:
-        oppsite_basis = Pauli.swap_xz(basis)
+    def get_evaluation_circuit(self, basis: PauliXZ, schedule: np.ndarray) -> stim.Circuit:
+
+        # stabilizers and logical operators in the opposite basis
+        opposite_basis = Pauli.swap_xz(basis)
+        stabilizers = self.code.get_stabilizer_ops(opposite_basis, symplectic=True)
+        logical_ops = self.code.get_logical_ops(opposite_basis, symplectic=True)
 
         circuit = stim.Circuit()
-        num_stabilizers, num_observables = self._ideal_measurement(circuit, oppsite_basis)
+        circuit += _get_pauli_product_measurements(stabilizers)
+        circuit += _get_pauli_product_measurements(logical_ops)
 
         self._syndrome_measurement(circuit, basis, schedule)
-        self._ideal_measurement(circuit, oppsite_basis)
 
-        for i in range(num_observables):
-            index = i + 1
-            circuit.append(
-                "OBSERVABLE_INCLUDE",
-                [
-                    stim.target_rec(-index),
-                    stim.target_rec(-(index + num_stabilizers + num_observables)),
-                ],
-                i,
-            )
+        circuit += _get_pauli_product_measurements(stabilizers)
+        circuit += _get_pauli_product_measurements(logical_ops)
 
-        for i in range(num_stabilizers):
-            index = i + 1 + num_observables
+        num_stabilizers = self.code.get_num_checks(opposite_basis)
+        num_observables = self.code.dimension
+        measurement_offset = num_stabilizers + num_observables
+        for ii in range(num_stabilizers):
+            index = ii + 1 + num_observables
             circuit.append(
                 "DETECTOR",
-                [
-                    stim.target_rec(-index),
-                    stim.target_rec(-(index + num_stabilizers + num_observables)),
-                ],
-                i,
+                [stim.target_rec(-index), stim.target_rec(-index - measurement_offset)],
+                ii,
+            )
+        for ii in range(num_observables):
+            index = ii + 1
+            circuit.append(
+                "OBSERVABLE_INCLUDE",
+                [stim.target_rec(-index), stim.target_rec(-index - measurement_offset)],
+                ii,
             )
 
         return circuit
@@ -354,3 +320,19 @@ class TreeNode:
         while not current_state.is_terminal():
             current_state = current_state.shift(checks, random.choice(current_state.transitions()))
         return current_state.schedule
+
+
+def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Circuit:
+    op_graph = codes.QuditCode.matrix_to_graph(op_matrix)
+
+    circuit = stim.Circuit()
+    for node_index in range(len(op_matrix)):
+        observable_node = Node(node_index, is_data=False)
+        targets = [
+            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+            for _, data_node, edge_data in op_graph.edges(observable_node, data=True)
+        ]
+        circuit.append("MPP", stim.target_combined_paulis(targets))
+        circuit.append("TICK")
+
+    return circuit
