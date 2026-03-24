@@ -42,10 +42,10 @@ class TreeState:
     maxticks: np.ndarray
 
     @staticmethod
-    def initial_state(nchecks: int, nqubits: int) -> "TreeState":
+    def initial_state(nchecks: int, nqubits: int) -> TreeState:
         return TreeState(np.repeat(-1, nchecks), np.repeat(-1, nqubits))
 
-    def shift(self, checks: list[tuple[int, int]], meas_index: int) -> "TreeState":
+    def shift(self, checks: list[tuple[int, int]], meas_index: int) -> TreeState:
         chk = checks[meas_index]
         new_tick = max(self.maxticks[chk[0]], self.maxticks[chk[1]]) + 1
 
@@ -70,7 +70,7 @@ class TreeState:
 
 
 class TreeNode:
-    def __init__(self, state: TreeState, parent: "TreeNode | None" = None):
+    def __init__(self, state: TreeState, parent: TreeNode | None = None):
         self.state = state
 
         self.parent = parent
@@ -87,14 +87,14 @@ class TreeNode:
     def is_terminal(self) -> bool:
         return self.state.is_terminal()
 
-    def expand(self, checks: list[tuple[int, int]]) -> "TreeNode":
+    def expand(self, checks: list[tuple[int, int]]) -> TreeNode:
         next_state = self.state.shift(checks, self.unvisited.pop())
         child_node = TreeNode(next_state, parent=self)
         self.children.append(child_node)
         return child_node
 
-    def best_child(self, exploration_weight: float = 1.4) -> "TreeNode":
-        def ucb_score(child: "TreeNode") -> float:
+    def best_child(self, exploration_weight: float = 1.4) -> TreeNode:
+        def ucb_score(child: TreeNode) -> float:
             if child.visits == 0:
                 return float("inf")  # pragma: no cover
             return child.value / child.visits + exploration_weight * math.sqrt(
