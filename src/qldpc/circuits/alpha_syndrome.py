@@ -20,6 +20,7 @@ from __future__ import annotations
 import itertools
 import math
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -57,6 +58,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         Args:
             noise_model: The noise model append to the syndrome measurement circuit
+            decoder: The decoder that Sinter should use to compute logical error rates.
+            custom_decoder: Custom decoders to pass Sinter, if applicable
             iters_per_step: iterations per MCTS step, default is 8000
             shots_per_iter: number of sampling shots per iteration, default is 10000
         """
@@ -99,7 +102,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         return node.state.schedule
 
     def _schedule_step(
-        self, root: TreeNode, basis: PauliXZ, code: WrapCSS, checks: list[tuple[int, int]]
+        self, root: TreeNode, basis: PauliXZ, code: WrapCSS, checks: Sequence[tuple[int, int]]
     ) -> TreeNode:
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
@@ -282,15 +285,15 @@ class TreeState:
     def initial_state(nchecks: int, nqubits: int) -> TreeState:
         return TreeState(np.repeat(-1, nchecks), np.repeat(-1, nqubits))
 
-    def shift(self, checks: list[tuple[int, int]], meas_index: int) -> TreeState:
-        chk = checks[meas_index]
-        new_tick = max(self.maxticks[chk[0]], self.maxticks[chk[1]]) + 1
+    def shift(self, checks: Sequence[tuple[int, int]], meas_index: int) -> TreeState:
+        check = checks[meas_index]
+        new_tick = max(self.maxticks[check[0]], self.maxticks[check[1]]) + 1
 
         new_schedule = self.schedule.copy()
         new_maxticks = self.maxticks.copy()
 
-        new_maxticks[chk[0]] = new_tick
-        new_maxticks[chk[1]] = new_tick
+        new_maxticks[check[0]] = new_tick
+        new_maxticks[check[1]] = new_tick
         new_schedule[meas_index] = new_tick
 
         return TreeState(new_schedule, new_maxticks)
@@ -324,7 +327,7 @@ class TreeNode:
     def is_terminal(self) -> bool:
         return self.state.is_terminal()
 
-    def expand(self, checks: list[tuple[int, int]]) -> TreeNode:
+    def expand(self, checks: Sequence[tuple[int, int]]) -> TreeNode:
         next_state = self.state.shift(checks, self.unvisited.pop())
         child_node = TreeNode(next_state, parent=self)
         self.children.append(child_node)
@@ -346,14 +349,14 @@ class TreeNode:
         if self.parent:
             self.parent.backpropagate(result)
 
-    def simulate_schedule(self, checks: list[tuple[int, int]]) -> np.ndarray:
+    def simulate_schedule(self, checks: Sequence[tuple[int, int]]) -> np.ndarray:
         current_state = self.state
         while not current_state.is_terminal():
             current_state = current_state.shift(checks, random.choice(current_state.transitions()))
         return current_state.schedule
 
 
-def measure_as_product(circuit: stim.Circuit, pauli_targets: list[stim.GateTarget]) -> None:
+def measure_as_product(circuit: stim.Circuit, pauli_targets: Sequence[stim.GateTarget]) -> None:
     combined_targets = []
     for i, target in enumerate(pauli_targets):
         combined_targets.append(target)
