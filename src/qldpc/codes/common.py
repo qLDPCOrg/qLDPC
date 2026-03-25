@@ -2116,7 +2116,7 @@ class CSSCode(QuditCode):
         ]
         return self.graph.subgraph(data_nodes + check_nodes)
 
-    def get_graph(self, pauli: PauliXZ) -> galois.FieldArray:
+    def get_graph(self, pauli: PauliXZ) -> nx.DiGraph:
         """Subgragh of the Tanner graph for pauli-type parity checks."""
         assert pauli in PAULIS_XZ
         return self.graph_x if pauli is Pauli.X else self.graph_z
@@ -2187,7 +2187,7 @@ class CSSCode(QuditCode):
         """Number of Z-type parity checks in this code."""
         return self.matrix_z.shape[0]
 
-    def get_num_checks(self, pauli: PauliXZ) -> galois.FieldArray:
+    def get_num_checks(self, pauli: PauliXZ) -> int:
         """Number of parity checks of a given type in this code."""
         assert pauli in PAULIS_XZ
         return self.num_checks_x if pauli is Pauli.X else self.num_checks_z

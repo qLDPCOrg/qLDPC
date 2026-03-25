@@ -90,20 +90,43 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
-        wrap_code = WrapCSS(code)
-        x_ticks = self._schedule_check_basis(Pauli.X, wrap_code)
-        z_ticks = self._schedule_check_basis(Pauli.Z, wrap_code)
-        return wrap_code.measurement_circuit(x_ticks, z_ticks, qubit_ids)
+        x_ticks = self._get_schedule(code, Pauli.X)
+        z_ticks = self._get_schedule(code, Pauli.Z)
 
-    def _schedule_check_basis(self, basis: PauliXZ, code: WrapCSS) -> np.ndarray:
-        checks = code.checks(basis)
-        node = TreeNode(TreeState.initial_state(len(checks), code.num_qubits + code.num_ancillas))
+        circuit = stim.Circuit()
+        circuit.append("RX", qubit_ids.check)
+        circuit += self._get_scheduled_circuit_for_basis(code, Pauli.X, x_ticks)
+        circuit += self._get_scheduled_circuit_for_basis(code, Pauli.Z, z_ticks)
+        circuit.append("MX", qubit_ids.check)
+
+        record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
+        return circuit, record
+
+    @staticmethod
+    def _get_scheduled_circuit_for_basis(
+        code: codes.CSSCode, basis: PauliXZ, schedule: Sequence[int]
+    ) -> stim.Circuit:
+        checks_of_basis = _get_checks(code, basis)
+        zipped_schedule = zip(checks_of_basis, schedule)
+        sorted_schedule = sorted(zipped_schedule, key=lambda x: x[1])
+
+        circuit = stim.Circuit()
+        for _, checks in itertools.groupby(sorted_schedule, key=lambda ct: ct[1]):
+            for (data, ancilla), _ in checks:
+                circuit.append(f"C{basis}", [ancilla, data])
+                circuit.append("TICK", [])
+
+        return circuit
+
+    def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> list[int]:
+        checks = _get_checks(code, basis)
+        node = TreeNode(TreeState.initial_state(len(checks), code.num_qubits + code.num_checks))
         while not node.is_terminal():
-            node = self._schedule_step(node, basis, code, checks)
+            node = self._schedule_step(code, basis, node, checks)
         return node.state.schedule
 
     def _schedule_step(
-        self, root: TreeNode, basis: PauliXZ, code: WrapCSS, checks: Sequence[tuple[int, int]]
+        self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, checks: Sequence[tuple[int, int]]
     ) -> TreeNode:
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
@@ -114,7 +137,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 node = node.expand(checks)
 
             schedule = node.simulate_schedule(checks)
-            circuit = code.get_evaluation_circuit(basis, schedule)
+            circuit = self._get_evaluation_circuit(code, basis, schedule)
             noisy_circuit = self.noise_model.noisy_circuit(
                 circuit, immune_qubits=range(code.num_qubits), insert_ticks=False
             )
@@ -129,127 +152,55 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 dem=dem, dets=dets, decoder=self.decoder, custom_decoders=self.custom_decoders
             )
             result = np.sum(np.any(predictions != observable_flips, axis=1))
-
             node.backpropagate(self.shots_per_iter / (result + 1))
 
         return root.best_child(exploration_weight=0)
 
-
-class WrapCSS:
-    def __init__(self, code: codes.CSSCode) -> None:
-        self.code = code
-        self.x_checks: list[tuple[int, int]] = []
-        self.z_checks: list[tuple[int, int]] = []
-
-        for subgraph in code.get_syndrome_subgraphs():
-            for edge in subgraph.edges:
-                data_node, check_node = sorted(edge)
-                pauli: Pauli = subgraph[check_node][data_node][Pauli]
-                if pauli == Pauli.X:
-                    self.x_checks.append((data_node.index, check_node.index + self.num_qubits))
-                else:
-                    assert pauli == Pauli.Z  # this should never fail for a CSS code!
-                    self.z_checks.append((data_node.index, check_node.index + self.num_qubits))
-
-        self.all_checks = self.x_checks + self.z_checks
-
-    def checks(self, basis: PauliXZ) -> list[tuple[int, int]]:
-        if basis == Pauli.X:
-            return self.x_checks
-        return self.z_checks
-
-    @property
-    def num_qubits(self) -> int:
-        return self.code.num_qubits
-
-    @property
-    def num_ancillas(self) -> int:
-        return self.code.num_checks
-
-    def _syndrome_measurement(
-        self,
-        circuit: stim.Circuit,
-        basis: PauliXZ,
-        schedules: np.ndarray,
-        qubit_ids: QubitIDs | None = None,
-    ) -> None:
-        checks_of_basis = self.checks(basis)
-        zipped_schedule = zip(checks_of_basis, schedules)
-        sorted_schedule = sorted(zipped_schedule, key=lambda x: x[1])
-
-        for _, checks in itertools.groupby(sorted_schedule, key=lambda ct: ct[1]):
-            for check, _ in checks:
-                if qubit_ids:
-                    data, ancilla = (
-                        qubit_ids.data[check[0]],
-                        qubit_ids.check[check[1] - self.num_qubits],
-                    )
-                else:
-                    data, ancilla = check
-
-                circuit.append(f"C{basis}", [ancilla, data])
-                circuit.append("TICK", [])
-
-    def get_evaluation_circuit(self, basis: PauliXZ, schedule: np.ndarray) -> stim.Circuit:
+    def _get_evaluation_circuit(
+        self, code: codes.CSSCode, basis: PauliXZ, schedule: list[int]
+    ) -> stim.Circuit:
 
         # stabilizers and logical operators in the opposite basis
         opposite_basis = Pauli.swap_xz(basis)
-        stabilizers = self.code.get_stabilizer_ops(opposite_basis, symplectic=True)
-        logical_ops = self.code.get_logical_ops(opposite_basis, symplectic=True)
+        stabilizers = code.get_stabilizer_ops(opposite_basis, symplectic=True)
+        logical_ops = code.get_logical_ops(opposite_basis, symplectic=True)
+        opposite_basis_ops = np.vstack([stabilizers, logical_ops])
+        opposite_basis_measurements = _get_pauli_product_measurements(opposite_basis_ops)
 
         circuit = stim.Circuit()
-        circuit += _get_pauli_product_measurements(stabilizers)
-        circuit += _get_pauli_product_measurements(logical_ops)
+        circuit += opposite_basis_measurements
+        circuit += self._get_scheduled_circuit_for_basis(code, basis, schedule)
+        circuit += opposite_basis_measurements
 
-        self._syndrome_measurement(circuit, basis, schedule)
-
-        circuit += _get_pauli_product_measurements(stabilizers)
-        circuit += _get_pauli_product_measurements(logical_ops)
-
-        num_stabilizers = self.code.get_num_checks(opposite_basis)
-        num_observables = self.code.dimension
-        measurement_offset = num_stabilizers + num_observables
+        num_stabilizers = code.get_num_checks(opposite_basis)
+        num_observables = code.dimension
+        offset = num_stabilizers + num_observables
         for ii in range(num_stabilizers):
-            index = ii + 1 + num_observables
+            meas_index = -ii - 1 - num_observables
             circuit.append(
                 "DETECTOR",
-                [stim.target_rec(-index), stim.target_rec(-index - measurement_offset)],
+                [stim.target_rec(meas_index), stim.target_rec(meas_index - offset)],
                 ii,
             )
         for ii in range(num_observables):
-            index = ii + 1
+            meas_index = -ii - 1
             circuit.append(
                 "OBSERVABLE_INCLUDE",
-                [stim.target_rec(-index), stim.target_rec(-index - measurement_offset)],
+                [stim.target_rec(meas_index), stim.target_rec(meas_index - offset)],
                 ii,
             )
 
         return circuit
 
-    def measurement_circuit(
-        self, x_ticks: np.ndarray, z_ticks: np.ndarray, qubit_ids: QubitIDs
-    ) -> tuple[stim.Circuit, MeasurementRecord]:
-        circuit = stim.Circuit()
-        circuit.append("RX", qubit_ids.check)
-
-        self._syndrome_measurement(circuit, Pauli.X, x_ticks, qubit_ids)
-        self._syndrome_measurement(circuit, Pauli.Z, z_ticks, qubit_ids)
-
-        circuit.append("MX", qubit_ids.check)
-        measurement_record = MeasurementRecord(
-            {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
-        )
-        return circuit, measurement_record
-
 
 @dataclass(slots=True)
 class TreeState:
-    schedule: np.ndarray
-    maxticks: np.ndarray
+    schedule: list[int]
+    maxticks: list[int]
 
     @staticmethod
-    def initial_state(nchecks: int, nqubits: int) -> TreeState:
-        return TreeState(np.repeat(-1, nchecks), np.repeat(-1, nqubits))
+    def initial_state(num_checks: int, num_qubits: int) -> TreeState:
+        return TreeState([-1] * num_checks, [-1] * num_qubits)
 
     def shift(self, checks: Sequence[tuple[int, int]], meas_index: int) -> TreeState:
         check = checks[meas_index]
@@ -278,9 +229,9 @@ class TreeState:
 class TreeNode:
     def __init__(self, state: TreeState, parent: TreeNode | None = None):
         self.state = state
-
         self.parent = parent
-        self.children: list["TreeNode"] = []
+
+        self.children: list[TreeNode] = []
 
         self.visits = 0
         self.value = 0.0
@@ -315,11 +266,16 @@ class TreeNode:
         if self.parent:
             self.parent.backpropagate(result)
 
-    def simulate_schedule(self, checks: Sequence[tuple[int, int]]) -> np.ndarray:
+    def simulate_schedule(self, checks: Sequence[tuple[int, int]]) -> list[int]:
         current_state = self.state
         while not current_state.is_terminal():
             current_state = current_state.shift(checks, random.choice(current_state.transitions()))
         return current_state.schedule
+
+
+def _get_checks(code: codes.CSSCode, basis: PauliXZ) -> Sequence[tuple[int, int]]:
+    graph = code.get_graph(basis)
+    return [(data.index, check.index + len(code)) for data, check in map(sorted, graph.edges)]
 
 
 def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Circuit:
