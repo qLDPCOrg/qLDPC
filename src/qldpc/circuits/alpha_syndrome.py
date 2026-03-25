@@ -131,6 +131,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         return node.state.to_schedule()
 
     def _schedule_one_gate(self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode) -> TreeNode:
+        """Schedule one gate by penalizing its contribution to logical error rates."""
+
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
             # Starting from the root node, explore down through fully expanded non-terminal nodes.
