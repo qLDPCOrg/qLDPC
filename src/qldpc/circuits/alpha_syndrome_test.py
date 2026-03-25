@@ -51,27 +51,19 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     """Verify that syndromes are read out correctly."""
     seed = pytestconfig.getoption("randomly_seed")
 
-    # default strategies for non-CSS and CSS codes
+    # verify that AlphaSyndrome builds valid syndrome extraction circuits for a few codes
     assert alpha_syndrome_is_valid(codes.SteaneCode())
-
-    # special strategies for toric and surface codes
     assert alpha_syndrome_is_valid(codes.ToricCode(2, rotated=True))
     assert alpha_syndrome_is_valid(codes.SurfaceCode(2, rotated=True))
 
-    # special strategy for HGPCodes
     code_a = codes.ClassicalCode.random(5, 3, seed=seed)
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
     assert alpha_syndrome_is_valid(codes.HGPCode(code_a, code_b))
 
-    # EdgeColoringXZ strategy
+    # AlphaSyndrome does not support non-CSS codes
     with pytest.raises(ValueError, match="only supports CSS codes"):
-        circuits.AlphaSyndrome(
-            circuits.DepolarizingNoiseModel(0.001),
-            "trivial",
-            iters_per_step=2,
-            shots_per_iter=5,
-            custom_decoders={"trivial": TrivialDecoder()},
-        ).get_circuit(codes.FiveQubitCode())
+        strategy = circuits.AlphaSyndrome(circuits.DepolarizingNoiseModel(0.001), "decoder_name")
+        strategy.get_circuit(codes.FiveQubitCode())
 
 
 def alpha_syndrome_is_valid(
