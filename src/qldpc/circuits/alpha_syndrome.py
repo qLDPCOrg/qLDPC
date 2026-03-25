@@ -22,7 +22,6 @@ import math
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -36,9 +35,6 @@ from .bookkeeping import MeasurementRecord, QubitIDs
 from .common import restrict_to_qubits, with_remapped_qubits
 from .noise_model import NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import SyndromeMeasurementStrategy
-
-T = TypeVar("T")
-
 
 GateSchedule = list[list[tuple[int, int]]]
 
