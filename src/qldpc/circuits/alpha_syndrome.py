@@ -117,9 +117,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         return circuit, record
 
     @staticmethod
-    def _get_circuit_from_schedule(
-        schedule: Sequence[Sequence[tuple[int, int]]], basis: PauliXZ
-    ) -> stim.Circuit:
+    def _get_circuit_from_schedule(schedule: GateSchedule, basis: PauliXZ) -> stim.Circuit:
         circuit = stim.Circuit("TICK")
         for gates in schedule:
             for gate in gates:
@@ -170,7 +168,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         return root.best_child(exploration_weight=0)
 
     def _get_evaluation_circuit(
-        self, code: codes.CSSCode, basis: PauliXZ, gates: Sequence[Sequence[tuple[int, int]]]
+        self, code: codes.CSSCode, basis: PauliXZ, schedule: GateSchedule
     ) -> stim.Circuit:
 
         # stabilizers and logical operators in the opposite basis
@@ -182,7 +180,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         circuit = stim.Circuit()
         circuit += opposite_basis_measurements
-        circuit += self._get_circuit_from_schedule(gates, basis)
+        circuit += self._get_circuit_from_schedule(schedule, basis)
         circuit += opposite_basis_measurements
 
         num_stabilizers = len(stabilizers)
