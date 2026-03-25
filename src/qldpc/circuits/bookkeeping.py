@@ -96,10 +96,6 @@ class QubitIDs:
             start = self.max() + 1
             self.ancilla += tuple(range(start, start + number))
 
-    def with_remapped_qubits(self, circuit: stim.Circuit) -> stim.Circuit:
-        """Remap qubits from their default indices."""
-        return with_remapped_qubits(circuit, self.data + self.check + self.ancilla, inverse=True)
-
 
 class Record(Mapping[Hashable, list[int]]):
     """An organized record of events in a Stim circuit.

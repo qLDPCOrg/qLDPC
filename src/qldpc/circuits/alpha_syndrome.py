@@ -33,7 +33,7 @@ from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from .bookkeeping import MeasurementRecord, QubitIDs
-from .common import restrict_to_qubits
+from .common import restrict_to_qubits, with_remapped_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import SyndromeMeasurementStrategy
 
@@ -112,7 +112,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         circuit.append("MX", range(len(code), len(code) + code.num_checks))
 
         # remap qubits and return the circuit together with a measurement record
-        circuit = qubit_ids.with_remapped_qubits(circuit)
+        circuit = with_remapped_qubits(circuit, qubit_ids.data + qubit_ids.check)
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
         return circuit, record
 
