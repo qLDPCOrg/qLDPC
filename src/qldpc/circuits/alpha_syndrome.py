@@ -209,6 +209,9 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 class TreeNode:
     """Node of a tree for Monte Carlo tree search (MCTS).
 
+    TreeNode is agnostic to the problem being solved by MCTS.
+    All problem data is handled by the TreeState.
+
     References:
     - https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
     """
@@ -274,14 +277,14 @@ class TreeState:
 
     gates: list[tuple[int, int]]
     gate_to_time: list[int]  # time index for each gate.  -1 for unscheduled gates
-    min_time_for_qubit: list[int]  # minimum time index for a new gate on a qubit
+    min_time_for_target: list[int]  # minimum time index for a new gate on a target
 
     @staticmethod
     def head(gates: Sequence[tuple[int, int]]) -> TreeState:
-        """The head node for a scheduling tree."""
+        """A TreeState in which no gates have been scheduled."""
         num_gates = len(gates)
-        num_qubits = max(target for gate in gates for target in gate) + 1
-        return TreeState(list(gates), [-1] * num_gates, [0] * num_qubits)
+        num_targets = max(target for gate in gates for target in gate) + 1
+        return TreeState(list(gates), [-1] * num_gates, [0] * num_targets)
 
     @property
     def is_terminal(self) -> bool:
@@ -289,7 +292,7 @@ class TreeState:
         return -1 not in self.gate_to_time
 
     def transitions(self) -> list[int]:
-        """List of gates (by index) that still need to be scheduled."""
+        """The indices of gates that still need to be scheduled."""
         return [
             gate_index
             for gate_index, time_index in enumerate(self.gate_to_time)
@@ -297,18 +300,18 @@ class TreeState:
         ]
 
     def select(self, gate_index: int) -> TreeState:
-        """Append the given gate (by index)."""
-        pp, qq = self.gates[gate_index]  # gate targets
-        time_index = max(self.min_time_for_qubit[pp], self.min_time_for_qubit[qq])
+        """Append the gate at the given index to the gate schedule."""
+        target_a, target_b = self.gates[gate_index]
+        time_index = max(self.min_time_for_target[target_a], self.min_time_for_target[target_b])
 
         gate_to_time = self.gate_to_time.copy()
         gate_to_time[gate_index] = time_index
 
-        min_time_for_qubit = self.min_time_for_qubit.copy()
-        min_time_for_qubit[pp] = time_index
-        min_time_for_qubit[qq] = time_index
+        min_time_for_target = self.min_time_for_target.copy()
+        min_time_for_target[target_a] = time_index
+        min_time_for_target[target_b] = time_index
 
-        return TreeState(self.gates, gate_to_time, min_time_for_qubit)
+        return TreeState(self.gates, gate_to_time, min_time_for_target)
 
     def to_schedule(self) -> GateSchedule:
         """Convert this TreeState into a gate schedule.
