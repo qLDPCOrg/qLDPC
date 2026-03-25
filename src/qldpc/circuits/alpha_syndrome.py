@@ -207,7 +207,11 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
 
 class TreeNode:
-    """Node of a tree for Monte Carlo tree search (MCTS)."""
+    """Node of a tree for Monte Carlo tree search (MCTS).
+
+    References:
+    - https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
+    """
 
     def __init__(self, state: TreeState, parent: TreeNode | None = None):
         self.state = state
@@ -251,6 +255,9 @@ class TreeNode:
         return state
 
     def best_child(self, exploration_weight: float) -> TreeNode:
+        """Select a child of this node with the highest UCB score."""
+        assert self.children
+
         def ucb_score(child: TreeNode) -> float:
             if child.visits == 0:
                 return float("inf")  # pragma: no cover
@@ -263,6 +270,8 @@ class TreeNode:
 
 @dataclass(slots=True)
 class TreeState:
+    """The state of an MCTS tree, representing a (possibly incomplete) gate schedule."""
+
     gates: list[tuple[int, int]]
     gate_to_time: list[int]  # time index for each gate.  -1 for unscheduled gates
     min_time_for_qubit: list[int]  # minimum time index for a new gate on a qubit
