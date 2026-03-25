@@ -93,38 +93,39 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
-        schedule_x = self._get_schedule(code, Pauli.X)
-        schedule_z = self._get_schedule(code, Pauli.Z)
+        # the heavy lifting: schedule gates
+        gates_cx = self._get_schedule(code, Pauli.X)
+        gates_cz = self._get_schedule(code, Pauli.Z)
 
+        # construct a circuit from the gate schedules
         circuit = stim.Circuit()
         circuit.append("RX", range(len(code), len(code) + code.num_checks))
-        circuit += self._get_scheduled_circuit(code, Pauli.X, schedule_x)
-        circuit += self._get_scheduled_circuit(code, Pauli.Z, schedule_z)
+        circuit += self._get_circuit_from_gates(gates_cx, Pauli.X)
+        circuit += self._get_circuit_from_gates(gates_cz, Pauli.Z)
         circuit.append("MX", range(len(code), len(code) + code.num_checks))
 
+        # remap qubits and return the circuit together with a measurement record
+        circuit = qubit_ids.with_remapped_qubits(circuit)
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
-        return qubit_ids.with_remapped_qubits(circuit), record
+        return circuit, record
 
     @staticmethod
-    def _get_scheduled_circuit(
-        code: codes.CSSCode, basis: PauliXZ, schedule: Sequence[int]
-    ) -> stim.Circuit:
-        checks = _get_checks(code, basis)
-        circuit = stim.Circuit()
-        for data, ancilla in _sort_items_by_values(checks, schedule):
-            circuit.append(f"C{basis}", [ancilla, data])
-            circuit.append("TICK", [])
+    def _get_circuit_from_gates(gates: Sequence[tuple[int, int]], basis: PauliXZ) -> stim.Circuit:
+        circuit = stim.Circuit("TICK")
+        for gate in gates:
+            circuit.append(f"C{basis}", gate)
+        # TODO: add ticks between gate layers
         return circuit
 
-    def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> list[int]:
-        checks = _get_checks(code, basis)
-        node = TreeNode(TreeState.head(len(checks), code.num_qubits + code.num_checks))
+    def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> list[tuple[int, int]]:
+        gates = _get_gates(code, basis)
+        node = TreeNode(TreeState.head(len(gates), code.num_qubits + code.num_checks))
         while not node.is_terminal():
-            node = self._schedule_step(code, basis, node, checks)
-        return node.state.gate_to_time
+            node = self._schedule_step(code, basis, node, gates)
+        return node.rollout(gates)
 
     def _schedule_step(
-        self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, checks: Sequence[tuple[int, int]]
+        self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, gates: Sequence[tuple[int, int]]
     ) -> TreeNode:
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
@@ -132,10 +133,10 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             while not node.is_terminal() and node.is_fully_expanded():
                 node = node.best_child()
             if not node.is_terminal():
-                node = node.expand(checks)
+                node = node.expand(gates)
 
-            schedule = node.simulate_schedule(checks)
-            circuit = self._get_evaluation_circuit(code, basis, schedule)
+            scheduled_gates = node.rollout(gates)
+            circuit = self._get_evaluation_circuit(code, basis, scheduled_gates)
             noisy_circuit = self.noise_model.noisy_circuit(
                 circuit, immune_qubits=range(code.num_qubits), insert_ticks=False
             )
@@ -155,7 +156,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         return root.best_child(exploration_weight=0)
 
     def _get_evaluation_circuit(
-        self, code: codes.CSSCode, basis: PauliXZ, schedule: list[int]
+        self, code: codes.CSSCode, basis: PauliXZ, gates: Sequence[tuple[int, int]]
     ) -> stim.Circuit:
 
         # stabilizers and logical operators in the opposite basis
@@ -167,7 +168,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         circuit = stim.Circuit()
         circuit += opposite_basis_measurements
-        circuit += self._get_scheduled_circuit(code, basis, schedule)
+        circuit += self._get_circuit_from_gates(gates, basis)
         circuit += opposite_basis_measurements
 
         num_stabilizers = code.get_num_checks(opposite_basis)
@@ -268,19 +269,19 @@ class TreeNode:
         if self.parent:
             self.parent.backpropagate(result)
 
-    def simulate_schedule(self, checks: Sequence[tuple[int, int]]) -> list[int]:
+    def rollout(self, gates: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
         current_state = self.state
         while not current_state.is_terminal():
-            current_state = current_state.select(checks, random.choice(current_state.transitions()))
-        return current_state.gate_to_time
+            current_state = current_state.select(gates, random.choice(current_state.transitions()))
+        return _sort_items_by_values(gates, current_state.gate_to_time)
 
 
-def _get_checks(code: codes.CSSCode, basis: PauliXZ) -> list[tuple[int, int]]:
+def _get_gates(code: codes.CSSCode, basis: PauliXZ) -> list[tuple[int, int]]:
     graph = code.get_graph(basis)
-    return [(data.index, check.index + len(code)) for data, check in map(sorted, graph.edges)]
+    return [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
 
 
-def _sort_items_by_values(items: list[T], values: Sequence[int]) -> list[T]:
+def _sort_items_by_values(items: Sequence[T], values: Sequence[int]) -> list[T]:
     assert len(items) == len(values)
     sorted_items_with_order = sorted(
         zip(items, values),
