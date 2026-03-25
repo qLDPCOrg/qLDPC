@@ -134,7 +134,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         # schedule gates with MCTS
         node = TreeNode(TreeState.head(gates))
-        while not node.is_terminal:
+        while not node.is_terminal():
             node = self._schedule_step(code, basis, node, gates)
         return node.rollout().to_schedule()
 
@@ -144,9 +144,9 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
             node = root
-            while not node.is_terminal and node.is_fully_expanded:
+            while not node.is_terminal() and node.is_fully_expanded():
                 node = node.best_child(self.exploration_weight)
-            if not node.is_terminal:
+            if not node.is_terminal():
                 node = node.expand()
 
             scheduled_gates = node.rollout().to_schedule()
@@ -226,12 +226,10 @@ class TreeNode:
         self.visits = 0
         self.value = 0.0
 
-    @property
     def is_terminal(self) -> bool:
         """Is this a terminal node of the tree, which specifies a complete schedule?"""
-        return self.state.is_terminal
+        return self.state.is_terminal()
 
-    @property
     def is_fully_expanded(self) -> bool:
         """Have we constructed all children of this node?"""
         return len(self.unvisited) == 0
@@ -253,7 +251,7 @@ class TreeNode:
     def rollout(self) -> TreeState:
         """Select transitions at random until we reach a terminal node, and return its state."""
         state = self.state
-        while not state.is_terminal:
+        while not state.is_terminal():
             state = state.select(random.choice(state.transitions()))
         return state
 
@@ -286,7 +284,6 @@ class TreeState:
         num_targets = max(target for gate in gates for target in gate) + 1
         return TreeState(list(gates), [-1] * num_gates, [0] * num_targets)
 
-    @property
     def is_terminal(self) -> bool:
         """Have all gates been scheduled?"""
         return -1 not in self.gate_to_time
