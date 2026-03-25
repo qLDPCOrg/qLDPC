@@ -2187,11 +2187,6 @@ class CSSCode(QuditCode):
         """Number of Z-type parity checks in this code."""
         return self.matrix_z.shape[0]
 
-    def get_num_checks(self, pauli: PauliXZ) -> int:
-        """Number of parity checks of a given type in this code."""
-        assert pauli in PAULIS_XZ
-        return self.num_checks_x if pauli is Pauli.X else self.num_checks_z
-
     @property
     def num_checks(self) -> int:
         """Number of parity checks in this code."""

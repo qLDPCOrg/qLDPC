@@ -185,8 +185,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         circuit += self._get_circuit_from_schedule(gates, basis)
         circuit += opposite_basis_measurements
 
-        num_stabilizers = code.get_num_checks(opposite_basis)
-        num_observables = code.dimension
+        num_stabilizers = len(stabilizers)
+        num_observables = len(logical_ops)
         num_measurements = num_stabilizers + num_observables
         for ii in range(num_stabilizers):
             meas_index = -num_measurements + ii
