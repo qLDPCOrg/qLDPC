@@ -125,37 +125,43 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         # schedule gates with MCTS
         node = TreeNode(TreeState.head(gates))
         while not node.is_terminal():
-            node = self._schedule_step(code, basis, node)
+            node = self._schedule_one_gate(code, basis, node)
 
         # convert the final tree node into a gate schedule
         return node.state.to_schedule()
 
-    def _schedule_step(self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode) -> TreeNode:
+    def _schedule_one_gate(self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode) -> TreeNode:
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
+            # Starting from the root node, explore down through fully expanded non-terminal nodes.
+            # If we end at a non-terminal node that is not fully expanded, expand once.
             node = root
-            while not node.is_terminal() and node.is_fully_expanded():
+            while node.is_fully_expanded() and not node.is_terminal():
                 node = node.best_child(self.exploration_weight)
             if not node.is_terminal():
                 node = node.expand()
 
-            scheduled_gates = node.simulate().to_schedule()
-            circuit = self._get_evaluation_circuit(code, basis, scheduled_gates)
-            noisy_circuit = self.noise_model.noisy_circuit(
-                circuit, immune_qubits=range(code.num_qubits), insert_ticks=False
+            # Construct a (randomly completed) schedule from the current node, build an evaluation
+            # circuit for the schedule, and inject noise into the circuit.
+            schedule = node.simulate().to_schedule()
+            evaluation_circuit = self._get_evaluation_circuit(code, basis, schedule)
+            noisy_evaluation_circuit = self.noise_model.noisy_circuit(
+                evaluation_circuit, immune_qubits=range(code.num_qubits), insert_ticks=False
             )
 
-            sampler = noisy_circuit.compile_detector_sampler()
+            # sample detection events and observable flips from the evaluation circuit
+            sampler = noisy_evaluation_circuit.compile_detector_sampler()
             dets, observable_flips = sampler.sample(self.shots_per_iter, separate_observables=True)
-            dem = noisy_circuit.detector_error_model(
+
+            # penalize logical errors: disagreements in observable flips vs. decoding predictions
+            dem = noisy_evaluation_circuit.detector_error_model(
                 decompose_errors=True, ignore_decomposition_failures=True
             )
-
             predictions = sinter.predict_observables(
                 dem=dem, dets=dets, decoder=self.decoder, custom_decoders=self.custom_decoders
             )
-            result = np.sum(np.any(predictions != observable_flips, axis=1))
-            node.backpropagate(self.shots_per_iter / (result + 1))
+            num_logical_errors = np.sum(np.any(predictions != observable_flips, axis=1))
+            node.backpropagate(self.shots_per_iter / (num_logical_errors + 1))
 
         return root.best_child(exploration_weight=0)
 
