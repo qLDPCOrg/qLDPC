@@ -322,6 +322,16 @@ class TreeState:
         return [time_to_gates[time] for time in sorted(time_to_gates.keys()) if time != -1]
 
 
+def _schedule_to_circuit(schedule: GateSchedule, target_pauli: Pauli) -> stim.Circuit:
+    """Convert a schedule of controlled-Pauli gates into a circuit."""
+    circuit = stim.Circuit("TICK")
+    for gates in schedule:
+        for gate in gates:
+            circuit.append(f"C{target_pauli}", gate)
+        circuit.append("TICK")
+    return circuit
+
+
 def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Circuit:
     """Construct a circuit that measures Pauli strings represented by the rows of a matrix.
 
@@ -339,14 +349,4 @@ def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Cir
         circuit.append("MPP", stim.target_combined_paulis(targets))
         circuit.append("TICK")
 
-    return circuit
-
-
-def _schedule_to_circuit(schedule: GateSchedule, target_pauli: Pauli) -> stim.Circuit:
-    """Convert a schedule of controlled-Pauli gates into a circuit."""
-    circuit = stim.Circuit("TICK")
-    for gates in schedule:
-        for gate in gates:
-            circuit.append(f"C{target_pauli}", gate)
-        circuit.append("TICK")
     return circuit
