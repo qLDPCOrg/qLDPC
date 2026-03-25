@@ -271,7 +271,7 @@ class TreeState:
     """The state of an MCTS tree, representing a (possibly incomplete) gate schedule."""
 
     gates: list[tuple[int, int]]
-    gate_to_time: list[int]  # time index for each gate.  -1 for unscheduled gates
+    gate_to_time: list[int | None]  # time index for each gate, or None for unscheduled gates
     target_to_min_time: list[int]  # minimum time index for a new gate on a target
 
     @staticmethod
@@ -279,18 +279,18 @@ class TreeState:
         """A TreeState in which no gates have been scheduled."""
         num_gates = len(gates)
         num_targets = max(target for gate in gates for target in gate) + 1
-        return TreeState(list(gates), [-1] * num_gates, [0] * num_targets)
+        return TreeState(list(gates), [None] * num_gates, [0] * num_targets)
 
     def is_terminal(self) -> bool:
         """Have all gates been scheduled?"""
-        return -1 not in self.gate_to_time
+        return None not in self.gate_to_time
 
     def transitions(self) -> list[int]:
         """The indices of gates that still need to be scheduled."""
         return [
             gate_index
             for gate_index, time_index in enumerate(self.gate_to_time)
-            if time_index == -1
+            if time_index is None
         ]
 
     def select(self, gate_index: int) -> TreeState:
@@ -319,7 +319,7 @@ class TreeState:
             time_to_gates[time].append(gate)
 
         # return a schedule of gates: a list whose t-th index is a list of gates to apply at time t
-        return [time_to_gates[time] for time in sorted(time_to_gates.keys()) if time != -1]
+        return [time_to_gates[time] for time in sorted(time_to_gates.keys()) if time is not None]
 
 
 def _schedule_to_circuit(schedule: GateSchedule, target_pauli: Pauli) -> stim.Circuit:
