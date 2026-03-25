@@ -308,15 +308,6 @@ class TreeState:
         return TreeState(gate_to_time, min_time_for_qubit)
 
 
-def _group_items_by_sorted_values(items: Sequence[T], values: Sequence[int]) -> list[list[T]]:
-    """Group items by associated values, and return groups of items in order of increasing value."""
-    assert len(items) == len(values)
-    value_to_items: dict[int, list[T]] = collections.defaultdict(list)
-    for item, value in zip(items, values):
-        value_to_items[value].append(item)
-    return [value_to_items[value] for value in sorted(value_to_items.keys())]
-
-
 def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Circuit:
     """Construct a circuit that measures Pauli strings represented by the rows of a matrix.
 
