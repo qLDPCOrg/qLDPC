@@ -324,10 +324,11 @@ class TreeState:
         # collect gates according to their time index
         time_to_gates: dict[int, list[tuple[int, int]]] = collections.defaultdict(list)
         for gate, time in zip(self.gates, self.gate_to_time):
-            time_to_gates[time].append(gate)
+            if time is not None:
+                time_to_gates[time].append(gate)
 
         # return a schedule of gates: a list whose t-th index is a list of gates to apply at time t
-        return [time_to_gates[time] for time in sorted(time_to_gates.keys()) if time is not None]
+        return [time_to_gates[time] for time in sorted(time_to_gates.keys())]
 
 
 def _schedule_to_circuit(schedule: GateSchedule, target_pauli: Pauli) -> stim.Circuit:
