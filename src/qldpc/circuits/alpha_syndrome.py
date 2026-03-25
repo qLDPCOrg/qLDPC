@@ -133,10 +133,10 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         gates = [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
 
         # schedule gates with MCTS
-        node = TreeNode(TreeState.head(len(gates), code.num_qubits + code.num_checks))
+        node = TreeNode(TreeState.head(gates))
         while not node.is_terminal:
             node = self._schedule_step(code, basis, node, gates)
-        return node.rollout(gates)
+        return node.rollout().to_schedule()
 
     def _schedule_step(
         self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, gates: Sequence[tuple[int, int]]
@@ -147,9 +147,9 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             while not node.is_terminal and node.is_fully_expanded:
                 node = node.best_child(self.exploration_weight)
             if not node.is_terminal:
-                node = node.expand(gates)
+                node = node.expand()
 
-            scheduled_gates = node.rollout(gates)
+            scheduled_gates = node.rollout().to_schedule()
             circuit = self._get_evaluation_circuit(code, basis, scheduled_gates)
             noisy_circuit = self.noise_model.noisy_circuit(
                 circuit, immune_qubits=range(code.num_qubits), insert_ticks=False
@@ -229,9 +229,9 @@ class TreeNode:
         """Have we constructed all children of this node?"""
         return len(self.unvisited) == 0
 
-    def expand(self, gates: Sequence[tuple[int, int]]) -> TreeNode:
+    def expand(self) -> TreeNode:
         """Construct a child of this node."""
-        child_state = self.state.select(gates, self.unvisited.pop())
+        child_state = self.state.select(self.unvisited.pop())
         child_node = TreeNode(child_state, self)
         self.children.append(child_node)
         return child_node
@@ -243,21 +243,12 @@ class TreeNode:
         if self.parent:
             self.parent.backpropagate(reward)
 
-    def rollout(self, gates: Sequence[tuple[int, int]]) -> GateSchedule:
-        """Schedule any unscheduled gates at random, and return a complete gate schedule."""
-        # select transitions at random to assign each unscheduled gate a time index
-        current_state = self.state
-        while not current_state.is_terminal:
-            current_state = current_state.select(gates, random.choice(current_state.transitions()))
-        gate_to_time = current_state.gate_to_time
-
-        # collect gates according to their time index
-        time_to_gates: dict[int, list[tuple[int, int]]] = collections.defaultdict(list)
-        for gate, time in zip(gates, gate_to_time):
-            time_to_gates[time].append(gate)
-
-        # return a schedule of gates: a list whose t-th index is a list of gates to apply at time t
-        return [time_to_gates[time] for time in sorted(time_to_gates.keys())]
+    def rollout(self) -> TreeState:
+        """Select transitions at random until we reach a terminal node, and return its state."""
+        state = self.state
+        while not state.is_terminal:
+            state = state.select(random.choice(state.transitions()))
+        return state
 
     def best_child(self, exploration_weight: float) -> TreeNode:
         def ucb_score(child: TreeNode) -> float:
@@ -272,13 +263,16 @@ class TreeNode:
 
 @dataclass(slots=True)
 class TreeState:
+    gates: list[tuple[int, int]]
     gate_to_time: list[int]  # time index for each gate.  -1 for unscheduled gates
     min_time_for_qubit: list[int]  # minimum time index for a new gate on a qubit
 
     @staticmethod
-    def head(num_gates: int, num_qubits: int) -> TreeState:
+    def head(gates: Sequence[tuple[int, int]]) -> TreeState:
         """The head node for a scheduling tree."""
-        return TreeState([-1] * num_gates, [0] * num_qubits)
+        num_gates = len(gates)
+        num_qubits = max(target for gate in gates for target in gate) + 1
+        return TreeState(list(gates), [-1] * num_gates, [0] * num_qubits)
 
     @property
     def is_terminal(self) -> bool:
@@ -293,9 +287,9 @@ class TreeState:
             if time_index == -1
         ]
 
-    def select(self, gates: Sequence[tuple[int, int]], gate_index: int) -> TreeState:
+    def select(self, gate_index: int) -> TreeState:
         """Append the given gate (by index)."""
-        pp, qq = gates[gate_index]  # gate targets
+        pp, qq = self.gates[gate_index]  # gate targets
         time_index = max(self.min_time_for_qubit[pp], self.min_time_for_qubit[qq])
 
         gate_to_time = self.gate_to_time.copy()
@@ -305,7 +299,21 @@ class TreeState:
         min_time_for_qubit[pp] = time_index
         min_time_for_qubit[qq] = time_index
 
-        return TreeState(gate_to_time, min_time_for_qubit)
+        return TreeState(self.gates, gate_to_time, min_time_for_qubit)
+
+    def to_schedule(self) -> GateSchedule:
+        """Convert this TreeState into a gate schedule.
+
+        The schedule is provided as a list whose t-th entry is a list of gates to apply at time t.
+        Unscheduled gates are excluded from the returned schedule.
+        """
+        # collect gates according to their time index
+        time_to_gates: dict[int, list[tuple[int, int]]] = collections.defaultdict(list)
+        for gate, time in zip(self.gates, self.gate_to_time):
+            time_to_gates[time].append(gate)
+
+        # return a schedule of gates: a list whose t-th index is a list of gates to apply at time t
+        return [time_to_gates[time] for time in sorted(time_to_gates.keys()) if time != -1]
 
 
 def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Circuit:
