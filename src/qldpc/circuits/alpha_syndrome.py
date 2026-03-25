@@ -123,7 +123,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> list[tuple[int, int]]:
         gates = _get_gates(code, basis)
         node = TreeNode(TreeState.head(len(gates), code.num_qubits + code.num_checks))
-        while not node.is_terminal():
+        while not node.is_terminal:
             node = self._schedule_step(code, basis, node, gates)
         return node.rollout(gates)
 
@@ -133,9 +133,9 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
             node = root
-            while not node.is_terminal() and node.is_fully_expanded():
+            while not node.is_terminal and node.is_fully_expanded:
                 node = node.best_child(self.exploration_weight)
-            if not node.is_terminal():
+            if not node.is_terminal:
                 node = node.expand(gates)
 
             scheduled_gates = node.rollout(gates)
@@ -195,6 +195,56 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         return circuit
 
 
+class TreeNode:
+    """Node of a tree for Monte Carlo tree search (MCTS)."""
+
+    def __init__(self, state: TreeState, parent: TreeNode | None = None):
+        self.state = state
+        self.parent = parent
+
+        self.children: list[TreeNode] = []
+        self.unvisited = state.transitions()
+
+        self.visits = 0
+        self.value = 0.0
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.state.is_terminal
+
+    @property
+    def is_fully_expanded(self) -> bool:
+        return len(self.unvisited) == 0
+
+    def expand(self, checks: Sequence[tuple[int, int]]) -> TreeNode:
+        next_state = self.state.select(checks, self.unvisited.pop())
+        child_node = TreeNode(next_state, self)
+        self.children.append(child_node)
+        return child_node
+
+    def backpropagate(self, result: float) -> None:
+        self.visits += 1
+        self.value += result
+        if self.parent:
+            self.parent.backpropagate(result)
+
+    def rollout(self, gates: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
+        current_state = self.state
+        while not current_state.is_terminal:
+            current_state = current_state.select(gates, random.choice(current_state.transitions()))
+        return _sort_items_by_values(gates, current_state.gate_to_time)
+
+    def best_child(self, exploration_weight: float) -> TreeNode:
+        def ucb_score(child: TreeNode) -> float:
+            if child.visits == 0:
+                return float("inf")  # pragma: no cover
+            return child.value / child.visits + exploration_weight * math.sqrt(
+                math.log(self.visits) / child.visits
+            )
+
+        return max(self.children, key=ucb_score)
+
+
 @dataclass(slots=True)
 class TreeState:
     gate_to_time: list[int]  # time index for each gate.  -1 for unscheduled gates
@@ -204,6 +254,19 @@ class TreeState:
     def head(num_gates: int, num_qubits: int) -> TreeState:
         """The head node for a scheduling tree."""
         return TreeState([-1] * num_gates, [0] * num_qubits)
+
+    @property
+    def is_terminal(self) -> bool:
+        """Have all gates been scheduled?"""
+        return -1 not in self.gate_to_time
+
+    def transitions(self) -> list[int]:
+        """List of gates (by index) that still need to be scheduled."""
+        return [
+            gate_index
+            for gate_index, time_index in enumerate(self.gate_to_time)
+            if time_index == -1
+        ]
 
     def select(self, gates: Sequence[tuple[int, int]], gate_index: int) -> TreeState:
         """Append the given gate (by index)."""
@@ -218,65 +281,6 @@ class TreeState:
         min_time_for_qubit[qq] = time_index
 
         return TreeState(gate_to_time, min_time_for_qubit)
-
-    def transitions(self) -> list[int]:
-        """List of gates (by index) that still need to be scheduled."""
-        return [
-            gate_index
-            for gate_index, time_index in enumerate(self.gate_to_time)
-            if time_index == -1
-        ]
-
-    def is_terminal(self) -> bool:
-        """Have all gates been scheduled?"""
-        return -1 not in self.gate_to_time
-
-
-class TreeNode:
-    def __init__(self, state: TreeState, parent: TreeNode | None = None):
-        self.state = state
-        self.parent = parent
-
-        self.children: list[TreeNode] = []
-
-        self.visits = 0
-        self.value = 0.0
-
-        self.unvisited = state.transitions()
-
-    def is_fully_expanded(self) -> bool:
-        return len(self.unvisited) == 0
-
-    def is_terminal(self) -> bool:
-        return self.state.is_terminal()
-
-    def expand(self, checks: Sequence[tuple[int, int]]) -> TreeNode:
-        next_state = self.state.select(checks, self.unvisited.pop())
-        child_node = TreeNode(next_state, self)
-        self.children.append(child_node)
-        return child_node
-
-    def best_child(self, exploration_weight: float) -> TreeNode:
-        def ucb_score(child: TreeNode) -> float:
-            if child.visits == 0:
-                return float("inf")  # pragma: no cover
-            return child.value / child.visits + exploration_weight * math.sqrt(
-                math.log(self.visits) / child.visits
-            )
-
-        return max(self.children, key=ucb_score)
-
-    def backpropagate(self, result: float) -> None:
-        self.visits += 1
-        self.value += result
-        if self.parent:
-            self.parent.backpropagate(result)
-
-    def rollout(self, gates: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
-        current_state = self.state
-        while not current_state.is_terminal():
-            current_state = current_state.select(gates, random.choice(current_state.transitions()))
-        return _sort_items_by_values(gates, current_state.gate_to_time)
 
 
 def _get_gates(code: codes.CSSCode, basis: PauliXZ) -> list[tuple[int, int]]:
