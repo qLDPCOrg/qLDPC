@@ -34,7 +34,7 @@ from qldpc.objects import Node, Pauli, PauliXZ
 
 from .bookkeeping import MeasurementRecord, QubitIDs
 from .common import restrict_to_qubits, with_remapped_qubits
-from .noise_model import NoiseModel
+from .noise_model import NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import SyndromeMeasurementStrategy
 
 T = TypeVar("T")
@@ -101,8 +101,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
         # the heavy lifting: schedule gates
-        schedule_cx = self._get_schedule(code, Pauli.X)
-        schedule_cz = self._get_schedule(code, Pauli.Z)
+        schedule_cx = self._build_schedule(code, Pauli.X)
+        schedule_cz = self._build_schedule(code, Pauli.Z)
 
         # construct a circuit from the gate schedules
         circuit = stim.Circuit()
@@ -116,20 +116,21 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
         return circuit, record
 
-    def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> GateSchedule:
-        # identify gates that need to be cheduled
+    def _build_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> GateSchedule:
+        """Schedule the gates that extract basis-type stabilizers of a CSS code."""
+        # identify gates that need to be scheduled, as (control, target) pairs
         graph = code.get_graph(basis)
         gates = [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
 
         # schedule gates with MCTS
         node = TreeNode(TreeState.head(gates))
         while not node.is_terminal():
-            node = self._schedule_step(code, basis, node, gates)
-        return node.rollout().to_schedule()
+            node = self._schedule_step(code, basis, node)
 
-    def _schedule_step(
-        self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, gates: Sequence[tuple[int, int]]
-    ) -> TreeNode:
+        # convert the final tree node into a gate schedule
+        return node.state.to_schedule()
+
+    def _schedule_step(self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode) -> TreeNode:
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
             node = root
@@ -161,22 +162,29 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def _get_evaluation_circuit(
         self, code: codes.CSSCode, basis: PauliXZ, schedule: GateSchedule
     ) -> stim.Circuit:
+        """Build the circuit used to evaluate a gate schedule.
 
-        # stabilizers and logical operators in the opposite basis
+        Assume without loss of generality that basis is Pauli.X.  The evaluation circuit penalizes
+        Z-type logical operator flips when reading out X-type stabilizers.
+        """
+
+        # noiseless measurement of stabilizers and logical operators in the opposite basis
         opposite_basis = Pauli.swap_xz(basis)
         stabilizers = code.get_stabilizer_ops(opposite_basis, symplectic=True)
         logical_ops = code.get_logical_ops(opposite_basis, symplectic=True)
         opposite_basis_ops = np.vstack([stabilizers, logical_ops])
-        opposite_basis_measurements = _get_pauli_product_measurements(opposite_basis_ops)
+        opposite_basis_measurements = as_noiseless_circuit(
+            _get_pauli_product_measurements(opposite_basis_ops)
+        )
+        num_stabilizers = len(stabilizers)
+        num_observables = len(logical_ops)
+        num_measurements = num_stabilizers + num_observables
 
+        # if reading out (say) X-type stabilizers, detect Z-type stabilizer and observable flips
         circuit = stim.Circuit()
         circuit += opposite_basis_measurements
         circuit += _schedule_to_circuit(schedule, basis)
         circuit += opposite_basis_measurements
-
-        num_stabilizers = len(stabilizers)
-        num_observables = len(logical_ops)
-        num_measurements = num_stabilizers + num_observables
         for ii in range(num_stabilizers):
             meas_index = -num_measurements + ii
             circuit.append(
