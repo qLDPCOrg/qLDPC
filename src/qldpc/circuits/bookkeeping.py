@@ -30,8 +30,6 @@ from typing_extensions import Self
 
 from qldpc import codes
 
-from .common import with_remapped_qubits
-
 
 @dataclasses.dataclass
 class QubitIDs:
