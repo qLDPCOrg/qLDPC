@@ -90,20 +90,21 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
-        x_ticks = self._get_schedule_for_basis(code, Pauli.X)
-        z_ticks = self._get_schedule_for_basis(code, Pauli.Z)
+
+        schedule_x = self._get_schedule(code, Pauli.X)
+        schedule_z = self._get_schedule(code, Pauli.Z)
 
         circuit = stim.Circuit()
         circuit.append("RX", range(len(code), len(code) + code.num_checks))
-        circuit += self._get_scheduled_circuit_for_basis(code, Pauli.X, x_ticks)
-        circuit += self._get_scheduled_circuit_for_basis(code, Pauli.Z, z_ticks)
+        circuit += self._get_scheduled_circuit(code, Pauli.X, schedule_x)
+        circuit += self._get_scheduled_circuit(code, Pauli.Z, schedule_z)
         circuit.append("MX", range(len(code), len(code) + code.num_checks))
 
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
         return qubit_ids.with_remapped_qubits(circuit), record
 
     @staticmethod
-    def _get_scheduled_circuit_for_basis(
+    def _get_scheduled_circuit(
         code: codes.CSSCode, basis: PauliXZ, schedule: Sequence[int]
     ) -> stim.Circuit:
         checks_of_basis = _get_checks(code, basis)
@@ -118,7 +119,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         return circuit
 
-    def _get_schedule_for_basis(self, code: codes.CSSCode, basis: PauliXZ) -> list[int]:
+    def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> list[int]:
         checks = _get_checks(code, basis)
         node = TreeNode(TreeState.initial_state(len(checks), code.num_qubits + code.num_checks))
         while not node.is_terminal():
@@ -169,7 +170,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         circuit = stim.Circuit()
         circuit += opposite_basis_measurements
-        circuit += self._get_scheduled_circuit_for_basis(code, basis, schedule)
+        circuit += self._get_scheduled_circuit(code, basis, schedule)
         circuit += opposite_basis_measurements
 
         num_stabilizers = code.get_num_checks(opposite_basis)
