@@ -347,6 +347,5 @@ def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Cir
             for _, data_node, edge_data in op_graph.edges(observable_node, data=True)
         ]
         circuit.append("MPP", stim.target_combined_paulis(targets))
-        circuit.append("TICK")
 
     return circuit
