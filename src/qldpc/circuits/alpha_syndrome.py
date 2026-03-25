@@ -308,8 +308,8 @@ class TreeState:
         gate_to_time[gate_index] = time_index
 
         min_time_for_target = self.min_time_for_target.copy()
-        min_time_for_target[target_a] = time_index
-        min_time_for_target[target_b] = time_index
+        min_time_for_target[target_a] = time_index + 1
+        min_time_for_target[target_b] = time_index + 1
 
         return TreeState(self.gates, gate_to_time, min_time_for_target)
 
