@@ -60,7 +60,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         custom_decoders: dict[str, sinter.Decoder] | None = None,
         iters_per_step: int = 8000,
         shots_per_iter: int = 10000,
-        exploration_weight: float = 1.4,
+        exploration_weight: float = math.sqrt(2),
     ) -> None:
         """Initialize an EdgeColoringXZ syndrome measurement strategy.
 
@@ -70,7 +70,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             custom_decoder: Custom decoders to pass Sinter, if applicable.
             iters_per_step: iterations per MCTS step (default: 8000).
             shots_per_iter: number of sampling shots per iteration (default: 10000).
-            exploration_weight: exploration parameter of MCTS (default: 1.4).
+            exploration_weight: exploration parameter of MCTS (default: sqrt(2)).
         """
         self.noise_model = noise_model
         self.decoder = decoder
@@ -138,7 +138,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             # Starting from the root node, explore down through fully expanded non-terminal nodes.
             # If we end at a non-terminal node that is not fully expanded, expand once.
             node = root
-            while node.is_fully_expanded() and not node.is_terminal():
+            while not node.is_terminal() and node.is_fully_expanded():
                 node = node.best_child(self.exploration_weight)
             if not node.is_terminal():
                 node = node.expand()
