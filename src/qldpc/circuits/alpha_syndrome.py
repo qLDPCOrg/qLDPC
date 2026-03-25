@@ -221,29 +221,43 @@ class TreeNode:
 
     @property
     def is_terminal(self) -> bool:
+        """Is this a terminal node of the tree, which specifies a complete schedule?"""
         return self.state.is_terminal
 
     @property
     def is_fully_expanded(self) -> bool:
+        """Have we constructed all children of this node?"""
         return len(self.unvisited) == 0
 
-    def expand(self, checks: Sequence[tuple[int, int]]) -> TreeNode:
-        next_state = self.state.select(checks, self.unvisited.pop())
-        child_node = TreeNode(next_state, self)
+    def expand(self, gates: Sequence[tuple[int, int]]) -> TreeNode:
+        """Construct a child of this node."""
+        child_state = self.state.select(gates, self.unvisited.pop())
+        child_node = TreeNode(child_state, self)
         self.children.append(child_node)
         return child_node
 
-    def backpropagate(self, result: float) -> None:
+    def backpropagate(self, reward: float) -> None:
+        """Increase the value of this node and all of its parents."""
         self.visits += 1
-        self.value += result
+        self.value += reward
         if self.parent:
-            self.parent.backpropagate(result)
+            self.parent.backpropagate(reward)
 
     def rollout(self, gates: Sequence[tuple[int, int]]) -> GateSchedule:
+        """Schedule any unscheduled gates at random, and return a complete gate schedule."""
+        # select transitions at random to assign each unscheduled gate a time index
         current_state = self.state
         while not current_state.is_terminal:
             current_state = current_state.select(gates, random.choice(current_state.transitions()))
-        return _group_items_by_sorted_values(gates, current_state.gate_to_time)
+        gate_to_time = current_state.gate_to_time
+
+        # collect gates according to their time index
+        time_to_gates: dict[int, list[tuple[int, int]]] = collections.defaultdict(list)
+        for gate, time in zip(gates, gate_to_time):
+            time_to_gates[time].append(gate)
+
+        # return a schedule of gates: a list whose t-th index is a list of gates to apply at time t
+        return [time_to_gates[time] for time in sorted(time_to_gates.keys())]
 
     def best_child(self, exploration_weight: float) -> TreeNode:
         def ucb_score(child: TreeNode) -> float:
