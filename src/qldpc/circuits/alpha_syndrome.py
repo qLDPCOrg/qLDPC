@@ -277,7 +277,7 @@ class TreeState:
 
     gates: list[tuple[int, int]]
     gate_to_time: list[int]  # time index for each gate.  -1 for unscheduled gates
-    min_time_for_target: list[int]  # minimum time index for a new gate on a target
+    target_to_min_time: list[int]  # minimum time index for a new gate on a target
 
     @staticmethod
     def head(gates: Sequence[tuple[int, int]]) -> TreeState:
@@ -302,12 +302,12 @@ class TreeState:
     def select(self, gate_index: int) -> TreeState:
         """Append the gate at the given index to the gate schedule."""
         target_a, target_b = self.gates[gate_index]
-        time_index = max(self.min_time_for_target[target_a], self.min_time_for_target[target_b])
+        time_index = max(self.target_to_min_time[target_a], self.target_to_min_time[target_b])
 
         gate_to_time = self.gate_to_time.copy()
         gate_to_time[gate_index] = time_index
 
-        min_time_for_target = self.min_time_for_target.copy()
+        min_time_for_target = self.target_to_min_time.copy()
         min_time_for_target[target_a] = time_index + 1
         min_time_for_target[target_b] = time_index + 1
 
