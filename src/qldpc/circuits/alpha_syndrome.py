@@ -56,21 +56,24 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         custom_decoders: dict[str, sinter.Decoder] | None = None,
         iters_per_step: int = 8000,
         shots_per_iter: int = 10000,
+        exploration_weight: float = 1.4,
     ) -> None:
         """Initialize an EdgeColoringXZ syndrome measurement strategy.
 
         Args:
-            noise_model: The noise model append to the syndrome measurement circuit
+            noise_model: The noise model append to the syndrome measurement circuit.
             decoder: The decoder that Sinter should use to compute logical error rates.
-            custom_decoder: Custom decoders to pass Sinter, if applicable
-            iters_per_step: iterations per MCTS step, default is 8000
-            shots_per_iter: number of sampling shots per iteration, default is 10000
+            custom_decoder: Custom decoders to pass Sinter, if applicable.
+            iters_per_step: iterations per MCTS step (default: 8000).
+            shots_per_iter: number of sampling shots per iteration (default: 10000).
+            exploration_weight: exploration parameter of MCTS (default: 1.4).
         """
         self.noise_model = noise_model
         self.decoder = decoder
         self.custom_decoders = custom_decoders
         self.iters_per_step = iters_per_step
         self.shots_per_iter = shots_per_iter
+        self.exploration_weight = exploration_weight
 
     @restrict_to_qubits
     def get_circuit(
@@ -131,7 +134,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         for _ in range(iterations):
             node = root
             while not node.is_terminal() and node.is_fully_expanded():
-                node = node.best_child()
+                node = node.best_child(self.exploration_weight)
             if not node.is_terminal():
                 node = node.expand(gates)
 
@@ -249,11 +252,11 @@ class TreeNode:
 
     def expand(self, checks: Sequence[tuple[int, int]]) -> TreeNode:
         next_state = self.state.select(checks, self.unvisited.pop())
-        child_node = TreeNode(next_state, parent=self)
+        child_node = TreeNode(next_state, self)
         self.children.append(child_node)
         return child_node
 
-    def best_child(self, exploration_weight: float = 1.4) -> TreeNode:
+    def best_child(self, exploration_weight: float) -> TreeNode:
         def ucb_score(child: TreeNode) -> float:
             if child.visits == 0:
                 return float("inf")  # pragma: no cover
