@@ -17,7 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import itertools
 import math
 import random
 from collections.abc import Sequence
@@ -112,7 +111,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     ) -> stim.Circuit:
         checks = _get_checks(code, basis)
         circuit = stim.Circuit()
-        for data, ancilla in _sort_items_by_partial_order(checks, schedule):
+        for data, ancilla in _sort_items_by_values(checks, schedule):
             circuit.append(f"C{basis}", [ancilla, data])
             circuit.append("TICK", [])
         return circuit
@@ -272,15 +271,16 @@ class TreeNode:
         return current_state.schedule
 
 
-def _get_checks(code: codes.CSSCode, basis: PauliXZ) -> Sequence[tuple[int, int]]:
+def _get_checks(code: codes.CSSCode, basis: PauliXZ) -> list[tuple[int, int]]:
     graph = code.get_graph(basis)
     return [(data.index, check.index + len(code)) for data, check in map(sorted, graph.edges)]
 
 
-def _sort_items_by_partial_order(items: list[T], partial_order: list[int]) -> list[T]:
+def _sort_items_by_values(items: list[T], values: Sequence[int]) -> list[T]:
+    assert len(items) == len(values)
     sorted_items_with_order = sorted(
-        zip(items, partial_order),
-        key=lambda item_and_order: item_and_order[1],
+        zip(items, values),
+        key=lambda item_and_value: item_and_value[1],
     )
     return [item for item, _ in sorted_items_with_order]
 
