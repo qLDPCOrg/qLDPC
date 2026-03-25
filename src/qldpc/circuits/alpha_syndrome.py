@@ -118,10 +118,10 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> list[int]:
         checks = _get_checks(code, basis)
-        node = TreeNode(TreeState.initial_state(len(checks), code.num_qubits + code.num_checks))
+        node = TreeNode(TreeState.head(len(checks), code.num_qubits + code.num_checks))
         while not node.is_terminal():
             node = self._schedule_step(code, basis, node, checks)
-        return node.state.schedule
+        return node.state.gate_to_time
 
     def _schedule_step(
         self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, checks: Sequence[tuple[int, int]]
@@ -193,35 +193,39 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
 @dataclass(slots=True)
 class TreeState:
-    schedule: list[int]
-    maxticks: list[int]
+    gate_to_time: list[int]  # time index for each gate.  -1 for unscheduled gates
+    min_time_for_qubit: list[int]  # minimum time index for a new gate on a qubit
 
     @staticmethod
-    def initial_state(num_checks: int, num_qubits: int) -> TreeState:
-        return TreeState([-1] * num_checks, [-1] * num_qubits)
+    def head(num_gates: int, num_qubits: int) -> TreeState:
+        """The head node for a scheduling tree."""
+        return TreeState([-1] * num_gates, [0] * num_qubits)
 
-    def shift(self, checks: Sequence[tuple[int, int]], meas_index: int) -> TreeState:
-        check = checks[meas_index]
-        new_tick = max(self.maxticks[check[0]], self.maxticks[check[1]]) + 1
+    def select(self, gates: Sequence[tuple[int, int]], gate_index: int) -> TreeState:
+        """Append the given gate (by index)."""
+        pp, qq = gates[gate_index]  # gate targets
+        time_index = max(self.min_time_for_qubit[pp], self.min_time_for_qubit[qq])
 
-        new_schedule = self.schedule.copy()
-        new_schedule[meas_index] = new_tick
+        gate_to_time = self.gate_to_time.copy()
+        gate_to_time[gate_index] = time_index
 
-        new_maxticks = self.maxticks.copy()
-        new_maxticks[check[0]] = new_tick
-        new_maxticks[check[1]] = new_tick
+        min_time_for_qubit = self.min_time_for_qubit.copy()
+        min_time_for_qubit[pp] = time_index
+        min_time_for_qubit[qq] = time_index
 
-        return TreeState(new_schedule, new_maxticks)
+        return TreeState(gate_to_time, min_time_for_qubit)
 
     def transitions(self) -> list[int]:
-        states = []
-        for meas_index, tick in enumerate(self.schedule):
-            if tick == -1:  # unmeasured syndrome measurement
-                states.append(meas_index)
-        return states
+        """List of gates (by index) that still need to be scheduled."""
+        return [
+            gate_index
+            for gate_index, time_index in enumerate(self.gate_to_time)
+            if time_index == -1
+        ]
 
     def is_terminal(self) -> bool:
-        return min(self.schedule) != -1
+        """Have all gates been scheduled?"""
+        return -1 not in self.gate_to_time
 
 
 class TreeNode:
@@ -243,7 +247,7 @@ class TreeNode:
         return self.state.is_terminal()
 
     def expand(self, checks: Sequence[tuple[int, int]]) -> TreeNode:
-        next_state = self.state.shift(checks, self.unvisited.pop())
+        next_state = self.state.select(checks, self.unvisited.pop())
         child_node = TreeNode(next_state, parent=self)
         self.children.append(child_node)
         return child_node
@@ -267,8 +271,8 @@ class TreeNode:
     def simulate_schedule(self, checks: Sequence[tuple[int, int]]) -> list[int]:
         current_state = self.state
         while not current_state.is_terminal():
-            current_state = current_state.shift(checks, random.choice(current_state.transitions()))
-        return current_state.schedule
+            current_state = current_state.select(checks, random.choice(current_state.transitions()))
+        return current_state.gate_to_time
 
 
 def _get_checks(code: codes.CSSCode, basis: PauliXZ) -> list[tuple[int, int]]:
@@ -286,6 +290,10 @@ def _sort_items_by_values(items: list[T], values: Sequence[int]) -> list[T]:
 
 
 def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Circuit:
+    """Construct a circuit that measures Pauli strings represented by the rows of a matrix.
+
+    For example, passing the parity check matrix will measure stabilizers.
+    """
     op_graph = codes.QuditCode.matrix_to_graph(op_matrix)
 
     circuit = stim.Circuit()
