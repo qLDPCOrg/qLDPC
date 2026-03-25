@@ -32,7 +32,7 @@ from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from .bookkeeping import MeasurementRecord, QubitIDs
-from .common import restrict_to_qubits
+from .common import restrict_to_qubits, with_remapped_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import SyndromeMeasurementStrategy
 
@@ -90,17 +90,17 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
-        x_ticks = self._get_schedule(code, Pauli.X)
-        z_ticks = self._get_schedule(code, Pauli.Z)
+        x_ticks = self._get_schedule_for_basis(code, Pauli.X)
+        z_ticks = self._get_schedule_for_basis(code, Pauli.Z)
 
         circuit = stim.Circuit()
-        circuit.append("RX", qubit_ids.check)
+        circuit.append("RX", range(len(code), len(code) + code.num_checks))
         circuit += self._get_scheduled_circuit_for_basis(code, Pauli.X, x_ticks)
         circuit += self._get_scheduled_circuit_for_basis(code, Pauli.Z, z_ticks)
-        circuit.append("MX", qubit_ids.check)
+        circuit.append("MX", range(len(code), len(code) + code.num_checks))
 
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
-        return circuit, record
+        return qubit_ids.with_remapped_qubits(circuit), record
 
     @staticmethod
     def _get_scheduled_circuit_for_basis(
@@ -118,7 +118,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         return circuit
 
-    def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> list[int]:
+    def _get_schedule_for_basis(self, code: codes.CSSCode, basis: PauliXZ) -> list[int]:
         checks = _get_checks(code, basis)
         node = TreeNode(TreeState.initial_state(len(checks), code.num_qubits + code.num_checks))
         while not node.is_terminal():

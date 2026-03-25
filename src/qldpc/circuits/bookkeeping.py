@@ -30,6 +30,8 @@ from typing_extensions import Self
 
 from qldpc import codes
 
+from .common import with_remapped_qubits
+
 
 @dataclasses.dataclass
 class QubitIDs:
@@ -93,6 +95,10 @@ class QubitIDs:
         if number > 0:
             start = self.max() + 1
             self.ancilla += tuple(range(start, start + number))
+
+    def with_remapped_qubits(self, circuit: stim.Circuit) -> stim.Circuit:
+        """Remap qubits from their default indices."""
+        return with_remapped_qubits(circuit, list(iter(self)), inverse=True)
 
 
 class Record(Mapping[Hashable, list[int]]):
