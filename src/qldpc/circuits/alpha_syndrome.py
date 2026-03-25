@@ -174,19 +174,19 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         num_stabilizers = code.get_num_checks(opposite_basis)
         num_observables = code.dimension
-        offset = num_stabilizers + num_observables
+        num_measurements = num_stabilizers + num_observables
         for ii in range(num_stabilizers):
-            meas_index = -ii - 1 - num_observables
+            meas_index = -num_measurements + ii
             circuit.append(
                 "DETECTOR",
-                [stim.target_rec(meas_index), stim.target_rec(meas_index - offset)],
+                [stim.target_rec(meas_index), stim.target_rec(meas_index - num_measurements)],
                 ii,
             )
         for ii in range(num_observables):
-            meas_index = -ii - 1
+            meas_index = -num_measurements + num_stabilizers + ii
             circuit.append(
                 "OBSERVABLE_INCLUDE",
-                [stim.target_rec(meas_index), stim.target_rec(meas_index - offset)],
+                [stim.target_rec(meas_index), stim.target_rec(meas_index - num_measurements)],
                 ii,
             )
 
