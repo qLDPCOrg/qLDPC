@@ -22,6 +22,7 @@ import math
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -32,9 +33,11 @@ from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from .bookkeeping import MeasurementRecord, QubitIDs
-from .common import restrict_to_qubits, with_remapped_qubits
+from .common import restrict_to_qubits
 from .noise_model import NoiseModel
 from .syndrome_measurement import SyndromeMeasurementStrategy
+
+T = TypeVar("T")
 
 
 class AlphaSyndrome(SyndromeMeasurementStrategy):
@@ -107,16 +110,11 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def _get_scheduled_circuit(
         code: codes.CSSCode, basis: PauliXZ, schedule: Sequence[int]
     ) -> stim.Circuit:
-        checks_of_basis = _get_checks(code, basis)
-        zipped_schedule = zip(checks_of_basis, schedule)
-        sorted_schedule = sorted(zipped_schedule, key=lambda x: x[1])
-
+        checks = _get_checks(code, basis)
         circuit = stim.Circuit()
-        for _, checks in itertools.groupby(sorted_schedule, key=lambda ct: ct[1]):
-            for (data, ancilla), _ in checks:
-                circuit.append(f"C{basis}", [ancilla, data])
-                circuit.append("TICK", [])
-
+        for data, ancilla in _sort_items_by_partial_order(checks, schedule):
+            circuit.append(f"C{basis}", [ancilla, data])
+            circuit.append("TICK", [])
         return circuit
 
     def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> list[int]:
@@ -208,11 +206,11 @@ class TreeState:
         new_tick = max(self.maxticks[check[0]], self.maxticks[check[1]]) + 1
 
         new_schedule = self.schedule.copy()
-        new_maxticks = self.maxticks.copy()
+        new_schedule[meas_index] = new_tick
 
+        new_maxticks = self.maxticks.copy()
         new_maxticks[check[0]] = new_tick
         new_maxticks[check[1]] = new_tick
-        new_schedule[meas_index] = new_tick
 
         return TreeState(new_schedule, new_maxticks)
 
@@ -277,6 +275,14 @@ class TreeNode:
 def _get_checks(code: codes.CSSCode, basis: PauliXZ) -> Sequence[tuple[int, int]]:
     graph = code.get_graph(basis)
     return [(data.index, check.index + len(code)) for data, check in map(sorted, graph.edges)]
+
+
+def _sort_items_by_partial_order(items: list[T], partial_order: list[int]) -> list[T]:
+    sorted_items_with_order = sorted(
+        zip(items, partial_order),
+        key=lambda item_and_order: item_and_order[1],
+    )
+    return [item for item, _ in sorted_items_with_order]
 
 
 def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Circuit:
