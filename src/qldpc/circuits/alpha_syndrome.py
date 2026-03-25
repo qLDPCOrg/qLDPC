@@ -139,7 +139,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             if not node.is_terminal():
                 node = node.expand()
 
-            scheduled_gates = node.rollout().to_schedule()
+            scheduled_gates = node.simulate().to_schedule()
             circuit = self._get_evaluation_circuit(code, basis, scheduled_gates)
             noisy_circuit = self.noise_model.noisy_circuit(
                 circuit, immune_qubits=range(code.num_qubits), insert_ticks=False
@@ -245,7 +245,7 @@ class TreeNode:
         if self.parent:
             self.parent.backpropagate(reward)
 
-    def rollout(self) -> TreeState:
+    def simulate(self) -> TreeState:
         """Select transitions at random until we reach a terminal node, and return its state."""
         state = self.state
         while not state.is_terminal():
