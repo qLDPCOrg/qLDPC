@@ -107,23 +107,14 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         # construct a circuit from the gate schedules
         circuit = stim.Circuit()
         circuit.append("RX", range(len(code), len(code) + code.num_checks))
-        circuit += self._get_circuit_from_schedule(schedule_cx, Pauli.X)
-        circuit += self._get_circuit_from_schedule(schedule_cz, Pauli.Z)
+        circuit += _schedule_to_circuit(schedule_cx, Pauli.X)
+        circuit += _schedule_to_circuit(schedule_cz, Pauli.Z)
         circuit.append("MX", range(len(code), len(code) + code.num_checks))
 
         # remap qubits and return the circuit together with a measurement record
         circuit = with_remapped_qubits(circuit, qubit_ids.data + qubit_ids.check)
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
         return circuit, record
-
-    @staticmethod
-    def _get_circuit_from_schedule(schedule: GateSchedule, basis: PauliXZ) -> stim.Circuit:
-        circuit = stim.Circuit("TICK")
-        for gates in schedule:
-            for gate in gates:
-                circuit.append(f"C{basis}", gate)
-            circuit.append("TICK")
-        return circuit
 
     def _get_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> GateSchedule:
         # identify gates that need to be cheduled
@@ -180,7 +171,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         circuit = stim.Circuit()
         circuit += opposite_basis_measurements
-        circuit += self._get_circuit_from_schedule(schedule, basis)
+        circuit += _schedule_to_circuit(schedule, basis)
         circuit += opposite_basis_measurements
 
         num_stabilizers = len(stabilizers)
@@ -340,4 +331,14 @@ def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Cir
         circuit.append("MPP", stim.target_combined_paulis(targets))
         circuit.append("TICK")
 
+    return circuit
+
+
+def _schedule_to_circuit(schedule: GateSchedule, target_pauli: Pauli) -> stim.Circuit:
+    """Convert a schedule of controlled-Pauli gates into a circuit."""
+    circuit = stim.Circuit("TICK")
+    for gates in schedule:
+        for gate in gates:
+            circuit.append(f"C{target_pauli}", gate)
+        circuit.append("TICK")
     return circuit
