@@ -36,9 +36,9 @@ from .common import restrict_to_qubits, with_remapped_qubits
 from .noise_model import NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import SyndromeMeasurementStrategy
 
-# Scrappy type to represent a gate schedule:
+# Scrappy type to represent a schedule of two-qubit gates:
 # A list whose t-th entry is a list of gates to apply at time t.
-# Here a "gate" is just a pair of target qubits (by index).
+# For the purposes of this schedule, a "gate" is just an ordered pair of target qubits.
 GateSchedule = list[list[tuple[int, int]]]
 
 
