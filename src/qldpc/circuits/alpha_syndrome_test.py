@@ -76,7 +76,7 @@ def alpha_syndrome_is_valid(
     strategy: circuits.AlphaSyndrome = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
         decoder=TrivialDecoder(),
-        iters_per_step=1,
+        iters_per_step=3,
         shots_per_iter=1,
     ),
 ) -> bool:

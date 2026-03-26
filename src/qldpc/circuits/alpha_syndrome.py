@@ -74,8 +74,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             decoder: The decoder that Sinter will use to compute logical error rates.  If this
                 argument is a string, it must must be a decoder name recognized by Sinter, such as
                 "pymatching" or "fusion_blossom".
-            iters_per_step: iterations per MCTS step (default: 8000).
-            shots_per_iter: number of sampling shots per iteration (default: 10000).
+            iters_per_step: Iterations per MCTS step (default: 8000).
+            shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
             exploration_weight: exploration parameter of MCTS (default: sqrt(2)).
         """
         self.noise_model = noise_model
@@ -145,13 +145,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     def _schedule_one_gate(self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode) -> TreeNode:
         """Schedule one gate by penalizing its contribution to logical error rates."""
-        num_times_to_explore = self.iters_per_step - root.visits
-
-        # catch an edge case that should really only occur in testing
-        if num_times_to_explore <= 0 and not root.children:
-            root.expand()
-
-        for _ in range(num_times_to_explore):
+        for _ in range(self.iters_per_step - root.visits):
             # Starting from the root node, explore down through fully expanded non-terminal nodes.
             # If we end at a non-terminal node that is not fully expanded, expand once.
             node = root
@@ -181,6 +175,10 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             )
             num_logical_errors = np.sum(np.any(predictions != observable_flips, axis=1))
             node.backpropagate(self.shots_per_iter / (num_logical_errors + 1))
+
+        # pathological edge case: we never explored this root or its children
+        if not root.children:
+            root.expand()  # pragma: no cover
 
         return root.best_child(exploration_weight=0)
 
