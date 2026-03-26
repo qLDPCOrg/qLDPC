@@ -61,7 +61,10 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),
     ) -> None:
-        """Initialize an EdgeColoringXZ syndrome measurement strategy.
+        """Initialize an AlphaSyndrome syndrome measurement strategy, based on arXiv:2601.12509.
+
+        This strategy uses a Monte Carlo tree serch (MCTS) to construct a syndrome measurement
+        circuit that minimizes logical error rates.
 
         Args:
             noise_model: The noise model append to the syndrome measurement circuit.
