@@ -176,7 +176,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             num_logical_errors = np.sum(np.any(predictions != observable_flips, axis=1))
             node.backpropagate(self.shots_per_iter / (num_logical_errors + 1))
 
-        # pathological edge case: we never explored this root or its children
+        # pathological edge case: we never explored from this root
         if not root.children:
             root.expand()  # pragma: no cover
 
