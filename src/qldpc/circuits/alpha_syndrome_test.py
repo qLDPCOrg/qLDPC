@@ -76,8 +76,8 @@ def alpha_syndrome_is_valid(
     strategy: circuits.AlphaSyndrome = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
         decoder=TrivialDecoder(),
-        iters_per_step=5,
-        shots_per_iter=5,
+        iters_per_step=1,
+        shots_per_iter=1,
     ),
 ) -> bool:
     """Check that an AlphaSyndrome circuit correctly reads out stabilizers."""
@@ -91,12 +91,12 @@ def alpha_syndrome_is_valid(
         error_ops.append(f"{pauli}_error", [qubit], [1])
 
     # measure syndromes
-    syndrome_extraction, record = strategy.get_circuit(code)
+    syndrome_extraction_circuit, measurement_record = strategy.get_circuit(code)
     for check in range(len(code), len(code) + code.num_checks):
-        syndrome_extraction.append("DETECTOR", record.get_target_rec(check))
+        syndrome_extraction_circuit.append("DETECTOR", measurement_record.get_target_rec(check))
 
     # sample the circuit to obtain a syndrome vector
-    circuit = state_prep + error_ops + syndrome_extraction
+    circuit = state_prep + error_ops + syndrome_extraction_circuit
     syndrome = circuit.compile_detector_sampler().sample(1).ravel()
 
     # compare against the expected syndrome

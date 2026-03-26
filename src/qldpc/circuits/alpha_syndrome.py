@@ -145,9 +145,13 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     def _schedule_one_gate(self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode) -> TreeNode:
         """Schedule one gate by penalizing its contribution to logical error rates."""
+        num_times_to_explore = self.iters_per_step - root.visits
 
-        iterations = max(0, self.iters_per_step - root.visits)
-        for _ in range(iterations):
+        # catch an edge case that should really only occur in testing
+        if num_times_to_explore <= 0 and not root.children:
+            root.expand()
+
+        for _ in range(num_times_to_explore):
             # Starting from the root node, explore down through fully expanded non-terminal nodes.
             # If we end at a non-terminal node that is not fully expanded, expand once.
             node = root
