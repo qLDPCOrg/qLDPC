@@ -75,10 +75,9 @@ def alpha_syndrome_is_valid(
     code: codes.QuditCode,
     strategy: circuits.AlphaSyndrome = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
-        "trivial",
+        decoder=TrivialDecoder(),
         iters_per_step=5,
         shots_per_iter=5,
-        custom_decoders={"trivial": TrivialDecoder()},
     ),
 ) -> bool:
     """Check that an AlphaSyndrome circuit correctly reads out stabilizers."""
