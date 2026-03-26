@@ -56,7 +56,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         self,
         noise_model: NoiseModel,
         decoder: sinter.Decoder | str,
-        iters_per_step: int = 8000,
+        iters_per_step: int = 100,
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),
     ) -> None:
@@ -74,7 +74,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             decoder: The decoder that Sinter will use to compute logical error rates.  If this
                 argument is a string, it must must be a decoder name recognized by Sinter, such as
                 "pymatching" or "fusion_blossom".
-            iters_per_step: Iterations per MCTS step (default: 8000).
+            iters_per_step: Iterations per MCTS step (default: 100).
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
             exploration_weight: exploration parameter of MCTS (default: sqrt(2)).
         """
@@ -94,7 +94,11 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     @restrict_to_qubits
     def get_circuit(
-        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+        self,
+        code: codes.QuditCode,
+        qubit_ids: QubitIDs | None = None,
+        *,
+        verbose: bool = False,
     ) -> tuple[stim.Circuit, MeasurementRecord]:
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
@@ -114,8 +118,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
 
         # the heavy lifting: schedule gates
-        schedule_cx = self._build_schedule(code, Pauli.X)
-        schedule_cz = self._build_schedule(code, Pauli.Z)
+        schedule_cx = self._build_schedule(code, Pauli.X, verbose=verbose)
+        schedule_cz = self._build_schedule(code, Pauli.Z, verbose=verbose)
 
         # construct a circuit from the gate schedules
         circuit = stim.Circuit()
@@ -129,16 +133,21 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
         return circuit, record
 
-    def _build_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> GateSchedule:
+    def _build_schedule(self, code: codes.CSSCode, basis: PauliXZ, verbose: bool) -> GateSchedule:
         """Schedule the gates that extract basis-type stabilizers of a CSS code."""
         # identify gates that need to be scheduled, as (control, target) pairs
         graph = code.get_graph(basis)
         gates = [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
 
+        if verbose:  # pragma: no cover
+            print(f"Building gate schedule for {basis}-type syndrome extraction circuit...")
+
         # schedule gates with MCTS
         node = TreeNode(TreeState.head(gates))
-        while not node.is_terminal():
+        for step in range(len(gates)):
             node = self._schedule_one_gate(code, basis, node)
+            if verbose:  # pragma: no cover
+                print(f" {step + 1}/{len(gates)}")
 
         # convert the final tree node into a gate schedule
         return node.state.to_schedule()
