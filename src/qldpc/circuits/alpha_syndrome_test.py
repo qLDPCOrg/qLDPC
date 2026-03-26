@@ -20,36 +20,11 @@ from __future__ import annotations
 import random
 
 import numpy as np
-import numpy.typing as npt
 import pytest
-import sinter
 import stim
 
 from qldpc import circuits, codes, math
 from qldpc.objects import Pauli
-
-
-class TrivialDecoder(sinter.Decoder):
-    """Trivial decoder that predicts no observable flips."""
-
-    def compile_decoder_for_dem(self, *, dem: stim.DetectorErrorModel) -> TrivialCompiledDecoder:
-        return TrivialCompiledDecoder(shape=(dem.num_observables + 7) // 8)
-
-
-class TrivialCompiledDecoder(sinter.CompiledDecoder):
-    """Compiled trivial decoder that predicts no observable flips."""
-
-    def __init__(self, shape: int):
-        self.shape = shape
-
-    def decode_shots_bit_packed(
-        self,
-        *,
-        bit_packed_detection_event_data: npt.NDArray[np.uint8],
-    ) -> np.ndarray:
-        return np.zeros(
-            shape=(bit_packed_detection_event_data.shape[0], self.shape), dtype=np.uint8
-        )
 
 
 def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
@@ -75,7 +50,6 @@ def alpha_syndrome_is_valid(
     code: codes.QuditCode,
     strategy: circuits.AlphaSyndrome = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
-        decoder=TrivialDecoder(),
         iters_per_step=3,
         shots_per_iter=1,
     ),

@@ -28,7 +28,7 @@ import numpy.typing as npt
 import sinter
 import stim
 
-from qldpc import codes
+from qldpc import codes, decoders
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from .bookkeeping import MeasurementRecord, QubitIDs
@@ -55,10 +55,12 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def __init__(
         self,
         noise_model: NoiseModel,
-        decoder: sinter.Decoder | str,
+        decoder: sinter.Decoder | str = decoders.SinterDecoder(),
         iters_per_step: int = 100,
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),
+        *,
+        verbose: bool = False,
     ) -> None:
         """Initialize an AlphaSyndrome syndrome measurement strategy, based on arXiv:2601.12509.
 
@@ -76,12 +78,14 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 "pymatching" or "fusion_blossom".
             iters_per_step: Iterations per MCTS step (default: 100).
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
-            exploration_weight: exploration parameter of MCTS (default: sqrt(2)).
+            exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).
+            verbose: Default verbosity level when building a circuit.
         """
         self.noise_model = noise_model
         self.iters_per_step = iters_per_step
         self.shots_per_iter = shots_per_iter
         self.exploration_weight = exploration_weight
+        self.verbose = verbose
 
         # keyword arguments passed to sinter.predict_observables
         self.sinter_decoding_kwargs: dict[str, str | dict[str, sinter.Decoder]]
@@ -98,7 +102,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         code: codes.QuditCode,
         qubit_ids: QubitIDs | None = None,
         *,
-        verbose: bool = False,
+        verbose: bool | None = None,
     ) -> tuple[stim.Circuit, MeasurementRecord]:
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
@@ -116,6 +120,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
+        if verbose is None:
+            verbose = self.verbose
 
         # the heavy lifting: schedule gates
         schedule_cx = self._build_schedule(code, Pauli.X, verbose=verbose)
