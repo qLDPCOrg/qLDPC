@@ -61,7 +61,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),
         *,
-        verbose: bool = False,
+        verbose: bool = True,
     ) -> None:
         """Initialize an AlphaSyndrome syndrome measurement strategy, based on arXiv:2601.12509.
 
