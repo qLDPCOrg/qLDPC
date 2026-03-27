@@ -368,7 +368,44 @@ class TargetedNoiseRule(NoiseRule):
                 or reset errors.
             stim.Circuit: Noise operations that should follow the given operation.
         """
-        ...
+        if not self.is_targeted_noisy_op(op):
+            return op, stim.Circuit()
+
+        targets = op.targets_copy()
+        if immune_qubits and any(
+            (
+                target.is_qubit_target
+                or target.is_x_target
+                or target.is_y_target
+                or target.is_z_target
+            )
+            and target.value in immune_qubits
+            for target in targets
+        ):
+            return op, stim.Circuit()
+
+        args = op.gate_args_copy()
+        if self.readout_error:
+            assert op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
+            if not args:
+                args = [self.readout_error]
+            else:
+                assert len(args) == 1
+                # combine bit-flip probabilities
+                args = [1 - (1 - self.readout_error) * (1 - args[0])]
+
+        noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
+        noise_after = stim.Circuit()
+
+        if self.reset_error:
+            assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
+            qubit_targets = [target.value for target in targets if not target.is_combiner]
+            error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
+            noise_after.append(stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error]))
+
+        noise_after += self.noise
+
+        return noisy_op, noise_after
 
 
 class NoiseModel:
