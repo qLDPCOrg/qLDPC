@@ -80,7 +80,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             iters_per_step: Iterations per MCTS step (default: 100).
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
             exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).
-            verbose: Default verbosity level when building a circuit.
+            verbose: If True, print updates when constructing a syndrome extraction circuit.
         """
         self.noise_model = noise_model
         self.iters_per_step = iters_per_step
@@ -99,11 +99,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     @restrict_to_qubits
     def get_circuit(
-        self,
-        code: codes.QuditCode,
-        qubit_ids: QubitIDs | None = None,
-        *,
-        verbose: bool | None = None,
+        self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
@@ -121,12 +117,10 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
-        if verbose is None:
-            verbose = self.verbose
 
         # the heavy lifting: schedule gates
-        schedule_cx = self._build_schedule(code, Pauli.X, verbose=verbose)
-        schedule_cz = self._build_schedule(code, Pauli.Z, verbose=verbose)
+        schedule_cx = self._build_schedule(code, Pauli.X)
+        schedule_cz = self._build_schedule(code, Pauli.Z)
 
         # construct a circuit from the gate schedules
         circuit = stim.Circuit()
@@ -140,16 +134,16 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
         return circuit, record
 
-    def _build_schedule(self, code: codes.CSSCode, basis: PauliXZ, verbose: bool) -> GateSchedule:
+    def _build_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> GateSchedule:
         """Schedule the gates that extract basis-type stabilizers of a CSS code."""
         # identify gates that need to be scheduled, as (control, target) pairs
         graph = code.get_graph(basis)
         gates = [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
 
-        if verbose:  # pragma: no cover
+        if self.verbose:  # pragma: no cover
             print(f"Building gate schedule for {basis}-type syndrome extraction circuit...")
 
-        # schedule gates with MCTS
+        # schedule one gate at a time with MCTS
         node = TreeNode(TreeState.head(gates))
         for step in range(len(gates)):
             node = self._schedule_one_gate(code, basis, node, step=step)
@@ -161,13 +155,14 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, *, step: int
     ) -> TreeNode:
         """Schedule one gate by penalizing its contribution to logical error rates."""
-        steps_iterator = range(self.iters_per_step - root.visits)
+        exploration_iterator = range(self.iters_per_step - root.visits)
+
         if self.verbose:  # pragma: no cover
-            steps_iterator = tqdm.tqdm(
-                steps_iterator, f"Scheduling gate {step + 1} of {len(root.state.gates)}"
+            exploration_iterator = tqdm.tqdm(
+                exploration_iterator, f"Scheduling gate {step + 1} of {len(root.state.gates)}"
             )
 
-        for _ in steps_iterator:
+        for _ in exploration_iterator:
             # Starting from the root node, explore down through fully expanded non-terminal nodes.
             # If we end at a non-terminal node that is not fully expanded, expand once.
             node = root
