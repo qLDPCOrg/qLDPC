@@ -143,7 +143,7 @@ def get_decoder_BF(
 
 def _to_ldpc_data(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, decoder_args: dict[str, Any]
-) -> tuple[IntegerArray, npt.NDArray[np.float_] | None, float | None]:
+) -> tuple[IntegerArray, npt.NDArray[np.float64] | None, float | None]:
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix

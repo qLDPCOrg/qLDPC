@@ -69,8 +69,8 @@ class DetectorErrorModelArrays:
 
     @staticmethod
     def from_arrays(
-        detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.float64],
-        observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.float64] | None,
+        detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_],
+        observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_] | None,
         error_probs: npt.NDArray[np.float64] | float,
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly."""
