@@ -177,7 +177,7 @@ def get_decoder_RBP(
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """
-    error_priors = (decoder_args.pop("error_priors", None),)
+    error_priors = decoder_args.pop("error_priors", None)
     observable_error_matrix = decoder_args.pop("observable_error_matrix", None)
     include_decode_result = bool(decoder_args.pop("include_decode_result", False))
     if decoder_args:
