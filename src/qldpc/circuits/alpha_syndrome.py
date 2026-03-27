@@ -57,7 +57,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         self,
         noise_model: NoiseModel,
         decoder: sinter.Decoder | str = decoders.SinterDecoder(),
-        iters_per_step: int = 100,
+        iters_per_step: int = 1000,
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),
         *,
@@ -152,18 +152,20 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         # schedule gates with MCTS
         node = TreeNode(TreeState.head(gates))
         for step in range(len(gates)):
-            node = self._schedule_one_gate(code, basis, node)
-            if verbose:  # pragma: no cover
-                print(f" {step + 1}/{len(gates)}")
+            node = self._schedule_one_gate(code, basis, node, step=step)
 
         # convert the final tree node into a gate schedule
         return node.state.to_schedule()
 
-    def _schedule_one_gate(self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode) -> TreeNode:
+    def _schedule_one_gate(
+        self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, *, step: int
+    ) -> TreeNode:
         """Schedule one gate by penalizing its contribution to logical error rates."""
         steps_iterator = range(self.iters_per_step - root.visits)
         if self.verbose:  # pragma: no cover
-            steps_iterator = tqdm.tqdm(steps_iterator, "scheduling one gate")
+            steps_iterator = tqdm.tqdm(
+                steps_iterator, f"Scheduling gate {step + 1} of {len(root.state.gates)}"
+            )
 
         for _ in steps_iterator:
             # Starting from the root node, explore down through fully expanded non-terminal nodes.
