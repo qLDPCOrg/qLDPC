@@ -128,7 +128,7 @@ class RelayBPDecoder(BatchDecoder):
             pcm = pcm.view(np.ndarray)
         elif isinstance(pcm, scipy.sparse.spmatrix):
             pcm = pcm.tocsc()
-            pcm.sort_indices()  # type:ignore[union-attr]
+            pcm.sort_indices()
         if error_priors is None:
             error_priors = [PLACEHOLDER_ERROR_RATE] * pcm.shape[1]
         if observable_error_matrix is None:

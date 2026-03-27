@@ -78,7 +78,7 @@ class DetectorErrorModelArrays:
         dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(detector_flip_matrix)
 
         num_error_mechanisms = dem_arrays.detector_flip_matrix[0]
-        if isinstance(observable_flip_matrix, None):
+        if observable_flip_matrix is None:
             dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix((0, num_error_mechanisms))
         else:
             dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(observable_flip_matrix)
