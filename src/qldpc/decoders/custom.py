@@ -122,6 +122,8 @@ class RelayBPDecoder(BatchDecoder):
             pcm = dem_arrays.detector_flip_matrix
             error_priors = dem_arrays.error_probs
             observable_error_matrix = dem_arrays.observable_flip_matrix
+        else:
+            pcm = pcm_or_dem
 
         # sanitize inputs
         if isinstance(pcm, galois.FieldArray):
