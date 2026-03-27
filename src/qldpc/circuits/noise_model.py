@@ -292,6 +292,85 @@ class NoiseRule:
         return noisy_op, noise_after
 
 
+class TargetedNoiseRule(NoiseRule):
+    """Describes how to add noise to a specific circuit instruction on specific qubits.
+
+    Unlike NoiseRule, which applies to all operations of a given type, this rule matches only an
+    exact gate-and-target combination, allowing fine-grained per-operation noise overrides.
+    """
+
+    def __init__(
+        self,
+        *,
+        noisy_op: stim.CircuitInstruction,
+        tags: Collection[str] | None = None,
+        noise: stim.Circuit = stim.Circuit(),
+        readout_error: float = 0,
+        reset_error: float = 0,
+    ):
+        """Initializes a targeted noise rule for a specific circuit instruction.
+
+        Args:
+            noisy_op: The circuit instruction that this rule targets.  Defines the gate name and
+                qubit targets to match against.  Gate args on this instruction are ignored during
+                matching.
+            tags: If not None, only match operations whose tag exactly matches one of the given
+                strings.  If None, match operations regardless of their tag.
+            noise: An explicit noise circuit to append after the matched operation.  Defaults to an
+                empty circuit (no noise).
+            readout_error: The probability that a measurement result is reported incorrectly.  Only
+                allowed when noisy_op is a measurement.
+            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed
+                when noisy_op is a reset.
+
+        Raises:
+            ValueError: If readout_error or reset_error is not between 0 and 1 (inclusive).
+        """
+        super().__init__(readout_error=readout_error, reset_error=reset_error)
+        self.noisy_op = noisy_op
+        self.tags: frozenset[str] | None = frozenset(tags) if tags is not None else None
+        self.noise = noise
+
+    def is_targeted_noisy_op(self, op: stim.CircuitInstruction) -> bool:
+        """Returns whether the given operation matches this rule's target instruction.
+
+        Two operations match if they have the same gate name and the same qubit target values in the
+        same order.  Gate args are ignored.  If self.tags is not None, op.tag must exactly match one
+        of the given tags.
+
+        Args:
+            op: The circuit instruction to check.
+
+        Returns:
+            True if op matches this rule's target instruction.  False otherwise.
+        """
+        if op.name != self.noisy_op.name:
+            return False
+        if self.tags is not None and op.tag not in self.tags:
+            return False
+        return op.targets_copy() == self.noisy_op.targets_copy()
+
+    def noisy_operation(
+        self,
+        op: stim.CircuitInstruction,
+        *,
+        immune_qubits: set[int] = set(),
+    ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
+        """Apply this targeted noise rule to the given operation.
+
+        Args:
+            op: The operation to add noise to.
+            immune_qubits: Set of qubit indices that should not have noise applied to them.  If any
+                target qubit of the matched operation is immune, no noise is emitted.
+
+        Returns:
+            stim.CircuitInstruction: The given operation, possibly modified to account for readout
+                or reset errors.
+            stim.Circuit: Noise operations that should follow the given operation.
+        """
+        ...
+
+
 class NoiseModel:
     """A model that defines how to add noise to quantum circuits.
 
