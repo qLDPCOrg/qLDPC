@@ -177,6 +177,9 @@ def get_decoder_RBP(
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """
+    error_priors = (decoder_args.pop("error_priors", None),)
+    observable_error_matrix = decoder_args.pop("observable_error_matrix", None)
+    include_decode_result = bool(decoder_args.pop("include_decode_result", False))
     if decoder_args:
         raise ValueError(  # pragma: no cover
             f"Unrecognized arguments for a Relay-BP decoder: {list(decoder_args.keys())}"
@@ -184,9 +187,9 @@ def get_decoder_RBP(
     return RelayBPDecoder(
         name,
         pcm_or_dem,
-        decoder_args.pop("error_priors", None),  # type:ignore[arg-type]
-        observable_error_matrix=decoder_args.pop("observable_error_matrix", None),
-        include_decode_result=bool(decoder_args.pop("include_decode_result", False)),
+        error_priors,  # type:ignore[arg-type]
+        observable_error_matrix=observable_error_matrix,
+        include_decode_result=include_decode_result,
     )
 
 
