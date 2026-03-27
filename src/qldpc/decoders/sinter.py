@@ -53,11 +53,11 @@ class SinterDecoder(Decoder, sinter.Decoder):
         See help(sinter.Decoder) for additional information.
 
         Args:
-            priors_arg: The keyword argument to which to pass the probabilities of circuit error
-                likelihoods.  This argument is only necessary for custom decoders.
+            priors_arg: The name of the keyword argument to which to pass the probabilities of
+                circuit error likelihoods.  This argument is only necessary for custom decoders.
             log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
                 np.log((1 - p) / p) to the priors_arg.  This argument is only necessary for custom
-                decoders.  Default: False (unless decoding with MWPM).
+                decoders.  Default: False (unless additionalled passed the argument with_MWPM=True).
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
@@ -93,10 +93,13 @@ class SinterDecoder(Decoder, sinter.Decoder):
 
     def get_configured_decoder(self, dem_arrays: DetectorErrorModelArrays) -> Decoder:
         """Configure a Decoder from the given DetectorErrorModelArrays."""
-        priors = dem_arrays.error_probs
-        if self.log_likelihood_priors:
-            priors = np.log((1 - priors) / priors)
-        priors_kwarg = {self.priors_arg: list(priors)} if self.priors_arg else {}
+        if self.priors_arg:
+            priors = dem_arrays.error_probs
+            if self.log_likelihood_priors:
+                priors = np.log((1 - priors) / priors)
+            priors_kwarg = {self.priors_arg: list(priors)}
+        else:
+            priors_kwarg = {}  # pragma: no cover
         decoder = get_decoder(
             dem_arrays.detector_flip_matrix, **self.decoder_kwargs, **priors_kwarg
         )

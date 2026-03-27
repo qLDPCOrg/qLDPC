@@ -20,6 +20,7 @@ from __future__ import annotations
 import collections
 import functools
 import itertools
+import warnings
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Protocol
 
@@ -28,11 +29,14 @@ import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
+import stim
 
 from qldpc import codes, math
 from qldpc.abstract import DEFAULT_FIELD_ORDER
 from qldpc.math import IntegerArray
 from qldpc.objects import Node
+
+from .dems import DetectorErrorModelArrays
 
 PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
@@ -88,8 +92,8 @@ class RelayBPDecoder(BatchDecoder):
     def __init__(
         self,
         name: str,
-        matrix: IntegerArray,
-        error_priors: npt.NDArray[np.float64] | Sequence[float] | None,
+        pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+        error_priors: npt.NDArray[np.float64] | Sequence[float] | None = None,
         *,
         observable_error_matrix: IntegerArray | None = None,
         include_decode_result: bool = False,
@@ -106,19 +110,35 @@ class RelayBPDecoder(BatchDecoder):
                 "See 'import relay_bp; help(relay_bp.bp)' for available Relay-BP decoders"
             )
 
+        # extract relevant data from a detector error model
+        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+            assert error_priors is None, (
+                "Cannot specify error_priors when providing a detector error model"
+            )
+            assert observable_error_matrix is None, (
+                "Cannot specify an observable_error_matrix when providing a detector error model"
+            )
+            dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
+            pcm = dem_arrays.detector_flip_matrix
+            error_priors = dem_arrays.error_probs
+            observable_error_matrix = dem_arrays.observable_flip_matrix
+        else:
+            pcm = pcm_or_dem
+
         # sanitize inputs
-        if isinstance(matrix, galois.FieldArray):
-            matrix = matrix.view(np.ndarray)
-        elif isinstance(matrix, scipy.sparse.spmatrix):
-            matrix = matrix.tocsc()
-            matrix.sort_indices()  # type:ignore[union-attr]
+        if isinstance(pcm, galois.FieldArray):
+            pcm = pcm.view(np.ndarray)
+        elif isinstance(pcm, scipy.sparse.spmatrix):
+            pcm = pcm.tocsc()
+            pcm.sort_indices()
         if error_priors is None:
-            error_priors = [PLACEHOLDER_ERROR_RATE] * matrix.shape[1]
+            error_priors = [PLACEHOLDER_ERROR_RATE] * pcm.shape[1]
         if observable_error_matrix is None:
             observable_error_matrix = np.empty((0, 0), dtype=int)
 
+        # build the decoder
         self.decoder = relay_bp.ObservableDecoderRunner(
-            getattr(relay_bp, name)(matrix, np.asarray(error_priors)),
+            getattr(relay_bp, name)(pcm, np.asarray(error_priors)),
             observable_error_matrix,
             include_decode_result,
         )
@@ -187,27 +207,38 @@ class LookupDecoder(Decoder):
 
     def __init__(
         self,
-        matrix: IntegerArray,
+        pcm_or_dem: IntegerArray,
         max_weight: int,
         *,
         symplectic: bool = False,
         error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
-        assert error_channel is None or penalty_func is None, (
-            "Cannot specify both an error_channel and a penalty_func"
-        )
+        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+            dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
+            pcm = dem_arrays.detector_flip_matrix
+            error_channel = dem_arrays.error_probs
+            if penalty_func is not None:  # pragma: no cover
+                warnings.warn(
+                    "Explicitly provided penalty_func will override the error probabilities of the "
+                    "provided detector error model",
+                    stacklevel=2,
+                )
+        else:
+            pcm = pcm_or_dem
+            assert error_channel is None or penalty_func is None, (
+                "Cannot specify both an error_channel and a penalty_func"
+            )
+
         penalty_func = penalty_func or (
             self.build_penalty_func(error_channel) if error_channel is not None else None
         )
 
-        self.shape: tuple[int, ...] = matrix.shape
+        self.shape: tuple[int, ...] = pcm.shape
         self.syndrome_to_correction = {}
 
         error_weights: dict[tuple[int, ...], float] = {}
-        for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
-            matrix, max_weight, symplectic
-        ):
+        for error, syndrome in LookupDecoder.iter_errors_and_syndomes(pcm, max_weight, symplectic):
             if penalty_func is None:
                 self.syndrome_to_correction[syndrome] = error
             elif (error_weight := penalty_func(error)) <= error_weights.get(syndrome, np.inf):
@@ -275,18 +306,22 @@ class WeightedLookupDecoder(LookupDecoder):
 
     def __init__(
         self,
-        matrix: IntegerArray,
+        pcm_or_dem: IntegerArray,
         max_weight: int,
         *,
         symplectic: bool = False,
     ) -> None:
-        self.shape: tuple[int, ...] = matrix.shape
+        pcm = (
+            DetectorErrorModelArrays(pcm_or_dem).detector_flip_matrix
+            if isinstance(pcm_or_dem, stim.DetectorErrorModel)
+            else pcm_or_dem
+        )
+
+        self.shape: tuple[int, ...] = pcm.shape
         self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
             collections.defaultdict(list)
         )
-        for error, syndrome in LookupDecoder.iter_errors_and_syndomes(
-            matrix, max_weight, symplectic
-        ):
+        for error, syndrome in LookupDecoder.iter_errors_and_syndomes(pcm, max_weight, symplectic):
             self.syndrome_to_candidates[syndrome].append(error)
 
     def decode(
@@ -314,7 +349,13 @@ class ILPDecoder(Decoder):
         if not galois.is_prime(self.modulus):
             raise ValueError("ILP decoding only supports prime number fields")
 
-        self.matrix = np.array(matrix, dtype=int) % self.modulus
+        # convert the input matrix into a dense array
+        if isinstance(matrix, galois.FieldArray):
+            matrix = matrix.view(np.ndarray)
+        elif isinstance(matrix, scipy.sparse.spmatrix):
+            matrix = matrix.todense()
+
+        self.matrix = np.asarray(matrix, dtype=int) % self.modulus
         num_checks, num_variables = self.matrix.shape
 
         # variables, their constraints, and the objective (minimizing number of nonzero variables)
