@@ -349,7 +349,13 @@ class ILPDecoder(Decoder):
         if not galois.is_prime(self.modulus):
             raise ValueError("ILP decoding only supports prime number fields")
 
-        self.matrix = np.array(matrix, dtype=int) % self.modulus
+        # convert the input matrix into a dense array
+        if isinstance(matrix, galois.FieldArray):
+            matrix = matrix.view(np.ndarray)
+        elif isinstance(matrix, scipy.sparse.spmatrix):
+            matrix = matrix.todense()
+
+        self.matrix = np.asarray(matrix, dtype=int) % self.modulus
         num_checks, num_variables = self.matrix.shape
 
         # variables, their constraints, and the objective (minimizing number of nonzero variables)

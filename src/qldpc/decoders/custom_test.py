@@ -68,7 +68,7 @@ def test_relay_bp() -> None:
 def test_ilp_decoder() -> None:
     """Decode using an integer linear program."""
     matrix, error, syndrome = get_toy_problem()
-    decoder = decoders.ILPDecoder(matrix)
+    decoder = decoders.ILPDecoder(scipy.sparse.csc_matrix(matrix))
     assert np.array_equal(error, decoder.decode(syndrome))
 
     # try again over the trinary field
