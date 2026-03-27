@@ -59,7 +59,8 @@ def test_decoding() -> None:
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_lookup=True, max_weight=2))
 
     # decode from a detector error model
-    dem = DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
+    dem_arrays = DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3)
+    dem = dem_arrays.to_dem()
     assert np.array_equal(error, decoders.decode(dem, syndrome, with_BP_LSD=True))
     assert np.array_equal(error, decoders.decode(dem, syndrome, with_MWPM=True))
     assert np.array_equal(error, decoders.decode(dem, syndrome, with_ILP=True))

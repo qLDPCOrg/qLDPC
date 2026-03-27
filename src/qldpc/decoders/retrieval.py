@@ -143,7 +143,7 @@ def get_decoder_BF(
 
 def _to_ldpc_data(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, decoder_args: dict[str, Any]
-) -> tuple[IntegerArray, ...]:
+) -> tuple[IntegerArray, npt.NDArray[np.float_] | None, float | None]:
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix
@@ -162,9 +162,20 @@ def _to_ldpc_data(
 def get_decoder_MWPM(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> BatchDecoder:
-    """Decoder based on minimum weight perfect matching (MWPM)."""
+    """Decoder based on minimum weight perfect matching (MWPM).
+
+    A point of potential confusion: even if passed a detector error model, we DO NOT USE the
+    pymatching.Matching.from_check_matrix method here because this returns a decoder that maps a
+    syndrome to observable flips, whereas we want a decoder that maps a syndrome to an error.
+    If you want a decoder that maps syndromes to observable flips, see qldpc.decoders.sinter.
+    """
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        return pymatching.Matching.from_detector_error_model(pcm_or_dem, **decoder_args)
+        dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
+        return pymatching.Matching.from_check_matrix(
+            dem_arrays.detector_flip_matrix,
+            error_probabilities=dem_arrays.error_probs,
+            **decoder_args,
+        )
     return pymatching.Matching.from_check_matrix(pcm_or_dem, **decoder_args)
 
 
