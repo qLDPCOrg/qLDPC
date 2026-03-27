@@ -93,10 +93,13 @@ class SinterDecoder(Decoder, sinter.Decoder):
 
     def get_configured_decoder(self, dem_arrays: DetectorErrorModelArrays) -> Decoder:
         """Configure a Decoder from the given DetectorErrorModelArrays."""
-        priors = dem_arrays.error_probs
-        if self.log_likelihood_priors:
-            priors = np.log((1 - priors) / priors)
-        priors_kwarg = {self.priors_arg: list(priors)} if self.priors_arg else {}
+        if self.priors_arg:
+            priors = dem_arrays.error_probs
+            if self.log_likelihood_priors:
+                priors = np.log((1 - priors) / priors)
+            priors_kwarg = {self.priors_arg: list(priors)}
+        else:
+            priors_kwarg = {}
         decoder = get_decoder(
             dem_arrays.detector_flip_matrix, **self.decoder_kwargs, **priors_kwarg
         )
