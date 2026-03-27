@@ -226,7 +226,7 @@ class LookupDecoder(Decoder):
                 )
         else:
             pcm = pcm_or_dem
-            assert error_channel is not None and penalty_func is None, (
+            assert error_channel is None or penalty_func is None, (
                 "Cannot specify both an error_channel and a penalty_func"
             )
 
