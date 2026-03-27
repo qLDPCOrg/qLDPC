@@ -311,9 +311,11 @@ class WeightedLookupDecoder(LookupDecoder):
         *,
         symplectic: bool = False,
     ) -> None:
-        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
-            pcm = dem_arrays.detector_flip_matrix
+        pcm = (
+            DetectorErrorModelArrays(pcm_or_dem)
+            if isinstance(pcm_or_dem, stim.DetectorErrorModel)
+            else pcm_or_dem
+        )
 
         self.shape: tuple[int, ...] = pcm.shape
         self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
