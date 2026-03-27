@@ -27,6 +27,7 @@ import numpy as np
 import numpy.typing as npt
 import sinter
 import stim
+import tqdm
 
 from qldpc import codes, decoders
 from qldpc.objects import Node, Pauli, PauliXZ
@@ -160,7 +161,11 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     def _schedule_one_gate(self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode) -> TreeNode:
         """Schedule one gate by penalizing its contribution to logical error rates."""
-        for _ in range(self.iters_per_step - root.visits):
+        steps_iterator = range(self.iters_per_step - root.visits)
+        if self.verbose:  # pragma: no cover
+            steps_iterator = tqdm.tqdm(steps_iterator, "scheduling one gate")
+
+        for _ in steps_iterator:
             # Starting from the root node, explore down through fully expanded non-terminal nodes.
             # If we end at a non-terminal node that is not fully expanded, expand once.
             node = root
@@ -174,7 +179,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             schedule = node.simulate().to_schedule()
             evaluation_circuit = self._get_evaluation_circuit(code, basis, schedule)
             noisy_evaluation_circuit = self.noise_model.noisy_circuit(
-                evaluation_circuit, immune_qubits=range(code.num_qubits), insert_ticks=False
+                evaluation_circuit, insert_ticks=False
             )
 
             # sample detection events and observable flips from the evaluation circuit
