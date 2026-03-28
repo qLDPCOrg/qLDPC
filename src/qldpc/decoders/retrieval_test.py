@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -48,14 +49,21 @@ def test_decoding() -> None:
     error = np.array([1, 1], dtype=int)
     syndrome = np.array([1, 1, 0], dtype=int)
 
-    assert np.array_equal(error, decoders.decode(matrix, syndrome))  # with_BP_OSD=True
+    assert np.array_equal(error, decoders.decode(matrix, syndrome))  # default, BP+OSD
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_BP_LSD=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_BF=True))
-    assert np.array_equal(error, decoders.decode(matrix, syndrome, with_RBP="RelayDecoderF32"))
+    assert np.array_equal(error, decoders.decode(matrix, syndrome, with_RBP=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_MWPM=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_ILP=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_GUF=True))
     assert np.array_equal(error, decoders.decode(matrix, syndrome, with_lookup=True, max_weight=2))
+
+    # default to GUF with non-binary fields
+    field = galois.GF(3)
+    matrix = matrix.view(field)
+    syndrome = syndrome.view(field)
+    error = error.view(field)
+    assert np.array_equal(error, decoders.decode(matrix, syndrome))
 
     # decode from a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()

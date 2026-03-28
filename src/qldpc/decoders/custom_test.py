@@ -46,17 +46,17 @@ def test_relay_bp() -> None:
     errors = np.array([error, error])
     syndromes = np.array([syndrome, syndrome])
 
-    decoder = decoders.get_decoder_RBP("RelayDecoderF32", matrix)
+    decoder = decoders.get_decoder_RBP(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
 
     # decode from a sparse parity check matrix
-    decoder = decoders.get_decoder_RBP("RelayDecoderF32", scipy.sparse.dok_matrix(matrix))
+    decoder = decoders.get_decoder_RBP(scipy.sparse.dok_matrix(matrix))
     assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
 
     # decode from a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
-    decoder = decoders.get_decoder_RBP("RelayDecoderF32", dem)
+    decoder = decoders.get_decoder_RBP(dem)
     assert np.array_equal(error, decoder.decode(syndrome))
 
     # fail to initialize a relay-bp decoder because relay-bp is not installed
@@ -64,11 +64,11 @@ def test_relay_bp() -> None:
         unittest.mock.patch.dict("sys.modules", {"relay_bp": None}),
         pytest.raises(ImportError, match="Failed to import relay-bp"),
     ):
-        decoders.get_decoder(np.array([[]]), with_RBP="RelayDecoderF64")
+        decoders.get_decoder(np.array([[]]), with_RBP=True)
 
     # fail to initialize a relay-bp decoder from an unrecognized name
     with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder(np.array([[]]), with_RBP="invalid_name")
+        decoders.get_decoder(np.array([[]]), with_RBP=True, name="invalid_name")
 
 
 def test_lookup() -> None:

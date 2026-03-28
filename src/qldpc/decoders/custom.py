@@ -91,10 +91,10 @@ class RelayBPDecoder(BatchDecoder):
 
     def __init__(
         self,
-        name: str,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         error_priors: npt.NDArray[np.float64] | Sequence[float] | None = None,
         *,
+        name: str = "RelayDecoderF32",
         observable_error_matrix: IntegerArray | None = None,
         include_decode_result: bool = False,
     ) -> None:

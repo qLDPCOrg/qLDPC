@@ -17,6 +17,8 @@ limitations under the License.
 
 from __future__ import annotations
 
+import inspect
+import sys
 import warnings
 from collections.abc import Sequence
 
@@ -47,7 +49,7 @@ def decode(
     syndrome: npt.NDArray[np.int_],
     **decoder_args: object,
 ) -> npt.NDArray[np.int_]:
-    """Find a `vector` that solves `matrix @ vector == syndrome mod 2`."""
+    """Construct a decoder and decode a syndrome.  Return the result of decoding."""
     decoder = get_decoder(pcm_or_dem, **decoder_args)
     return decoder.decode(syndrome)
 
@@ -55,66 +57,40 @@ def decode(
 def get_decoder(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> Decoder:
-    """Retrieve a decoder."""
-    if constructor := decoder_args.pop("decoder_constructor", None):
-        assert callable(constructor)
-        return constructor(pcm_or_dem, **decoder_args)
+    """Retrieve a decoder.
 
-    if decoder := decoder_args.pop("static_decoder", None):
-        assert hasattr(decoder, "decode") and callable(getattr(decoder, "decode"))
+    This method looks for a "with_*" keyword argument, and calls a matching "get_decoder_*" method,
+    passing all other arguments through.
+
+    To support injecting custom decoders, this method also provides the following functionality:
+    - If passed the keyword argument "decoder_constructor", this method returns
+        "decoder_constructor(pcm_or_dem, **decoder_args)".
+    - If passed the keyword argument "static_decoder", this method returns "static_decoder".
+
+    If no decoder is specified, this method defaults to GUF (generalized union-find) for non-binary
+    parity check matrices, and BP+OSD otherwise.
+    """
+    if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
+        assert callable(decoder_constructor)
+        return decoder_constructor(pcm_or_dem, **decoder_args)
+
+    if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
+        assert hasattr(static_decoder, "decode") and callable(getattr(static_decoder, "decode"))
         assert not decoder_args, "If passed a static decoder, we cannot process decoding arguments"
-        return decoder
+        return static_decoder
 
-    if decoder_args.pop("with_BP_LSD", False):
-        return get_decoder_BP_LSD(
-            pcm_or_dem,
-            error_rate=decoder_args.pop("error_rate", PLACEHOLDER_ERROR_RATE),  # type:ignore[arg-type]
-            error_channel=decoder_args.pop("error_channel", None),  # type:ignore[arg-type]
-            **decoder_args,
-        )
+    for name in DECODER_CONSTRUCTORS.keys():
+        if decoder_args.pop(f"with_{name}", False):
+            decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{name}")
+            return decoder_constructor(pcm_or_dem, **decoder_args)
 
-    if decoder_args.pop("with_BF", False):
-        return get_decoder_BF(
-            pcm_or_dem,
-            error_rate=decoder_args.pop("error_rate", PLACEHOLDER_ERROR_RATE),  # type:ignore[arg-type]
-            error_channel=decoder_args.pop("error_channel", None),  # type:ignore[arg-type]
-            **decoder_args,
-        )
-
-    if name := decoder_args.pop("with_RBP", None):
-        return get_decoder_RBP(
-            str(name),
-            pcm_or_dem,
-            error_priors=decoder_args.pop("error_priors", None),  # type:ignore[arg-type]
-            observable_error_matrix=decoder_args.pop("observable_error_matrix", None),
-            include_decode_result=bool(decoder_args.pop("include_decode_result", False)),
-            **decoder_args,
-        )
-
-    if decoder_args.pop("with_MWPM", False):
-        return get_decoder_MWPM(pcm_or_dem, **decoder_args)
-
-    if decoder_args.pop("with_lookup", False):
-        return get_decoder_lookup(pcm_or_dem, **decoder_args)
-
-    if decoder_args.pop("with_ILP", False):
-        return get_decoder_ILP(pcm_or_dem, **decoder_args)
-
-    # use GUF if requested, or by default for non-binary fields
-    with_GUF = decoder_args.pop("with_GUF", False) or (
-        isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2
-    )
-    if with_GUF:
+    # use GUF by default for codes over non-binary fields
+    if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
         return get_decoder_GUF(pcm_or_dem, **decoder_args)
 
-    # use BP+OSD by default
+    # use BP+OSD by default otherwise
     decoder_args.pop("with_BP_OSD", None)
-    return get_decoder_BP_OSD(
-        pcm_or_dem,
-        error_rate=decoder_args.pop("error_rate", PLACEHOLDER_ERROR_RATE),  # type:ignore[arg-type]
-        error_channel=decoder_args.pop("error_channel", None),  # type:ignore[arg-type]
-        **decoder_args,
-    )
+    return get_decoder_BP_OSD(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
 
 
 def get_decoder_BP_OSD(
@@ -133,9 +109,8 @@ def get_decoder_BP_OSD(
         error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
-            If an explicit error_channel is provided, it overrides the error_rate and the error
-            probabilities of a provided detector error model.
-    **decoder_args: Additional keyword arguments passed to ldpc.BpOsdDecoder.
+            If an explicit error_channel is provided, it overrides all defaults.
+        **decoder_args: Additional keyword arguments passed to ldpc.BpOsdDecoder.
 
     Returns:
         A decoder constructed by the ldpc package.
@@ -165,9 +140,8 @@ def get_decoder_BP_LSD(
         error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
-            If an explicit error_channel is provided, it overrides the error_rate and the error
-            probabilities of a provided detector error model.
-    **decoder_args: Additional keyword arguments passed to ldpc.bplsd_decoder.BpLsdDecoder.
+            If an explicit error_channel is provided, it overrides all defaults.
+        **decoder_args: Additional keyword arguments passed to ldpc.bplsd_decoder.BpLsdDecoder.
 
     Returns:
         A decoder constructed by the ldpc package.
@@ -197,9 +171,8 @@ def get_decoder_BF(
         error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
-            If an explicit error_channel is provided, it overrides the error_rate and the error
-            probabilities of a provided detector error model.
-    **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
+            If an explicit error_channel is provided, it overrides all defaults.
+        **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
 
     Returns:
         A decoder constructed by the ldpc package.
@@ -233,9 +206,20 @@ def _to_ldpc_inputs(
 
 
 def get_decoder_MWPM(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    ignore_non_graphlike_errors: bool = False,
+    **decoder_args: object,
 ) -> BatchDecoder:
     """Decoder based on minimum weight perfect matching (MWPM).
+
+    Args:
+        pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
+        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors.
+        **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
+
+    Returns:
+        A decoder constructed by pymatching.Matching.from_check_matrix.
 
     If called with the keyword argument ignore_non_graphlike_errors=True, columns of the parity
     check matrix with more than two ones (which correspond to error mechanisms that trigger more
@@ -265,7 +249,7 @@ def get_decoder_MWPM(
         pcm = pcm_or_dem
 
     # possibly ignore non-graphlike errors
-    if decoder_args.pop("ignore_non_graphlike_errors", False):
+    if ignore_non_graphlike_errors:
         detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
         error_is_not_graphlike = detectors_per_error > 2
         if np.any(error_is_not_graphlike):
@@ -278,12 +262,8 @@ def get_decoder_MWPM(
 
 
 def get_decoder_RBP(
-    name: str,
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_priors: npt.NDArray[np.float64] | Sequence[float] | None = None,
-    *,
-    observable_error_matrix: IntegerArray | None = None,
-    include_decode_result: bool = False,
     **decoder_args: object,
 ) -> RelayBPDecoder:
     """Relay-BP decoders.
@@ -292,14 +272,7 @@ def get_decoder_RBP(
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """
-    return RelayBPDecoder(
-        name,
-        pcm_or_dem,
-        error_priors,
-        observable_error_matrix=observable_error_matrix,
-        include_decode_result=include_decode_result,
-        **decoder_args,
-    )
+    return RelayBPDecoder(pcm_or_dem, error_priors, **decoder_args)  # type:ignore[arg-type]
 
 
 def get_decoder_lookup(
@@ -331,3 +304,11 @@ def _to_pcm(pcm_or_dem: IntegerArray | stim.DetectorErrorModel) -> IntegerArray:
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         return DetectorErrorModelArrays(pcm_or_dem).detector_flip_matrix
     return pcm_or_dem
+
+
+# collect all decoder constructors in this file into a dictionary
+DECODER_CONSTRUCTORS = {
+    name.removeprefix("get_decoder_"): func
+    for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction)
+    if name.startswith("get_decoder_")
+}
