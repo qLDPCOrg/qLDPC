@@ -98,8 +98,8 @@ class SinterDecoder(Decoder, sinter.Decoder):
             if self.log_likelihood_priors:
                 priors = np.log((1 - priors) / priors)
             priors_kwarg = {self.priors_arg: list(priors)}
-        else:
-            priors_kwarg = {}  # pragma: no cover
+        else:  # pragma: no cover
+            priors_kwarg = {}
         decoder = get_decoder(
             dem_arrays.detector_flip_matrix, **self.decoder_kwargs, **priors_kwarg
         )

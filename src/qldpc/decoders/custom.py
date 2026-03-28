@@ -91,10 +91,10 @@ class RelayBPDecoder(BatchDecoder):
 
     def __init__(
         self,
-        name: str,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         error_priors: npt.NDArray[np.float64] | Sequence[float] | None = None,
         *,
+        name: str = "RelayDecoderF32",
         observable_error_matrix: IntegerArray | None = None,
         include_decode_result: bool = False,
     ) -> None:
@@ -108,6 +108,12 @@ class RelayBPDecoder(BatchDecoder):
             raise ValueError(
                 f"Relay-BP decoder name not recognized: {name}\n"
                 "See 'import relay_bp; help(relay_bp.bp)' for available Relay-BP decoders"
+            )
+        if isinstance(pcm_or_dem, str):  # pragma: no cover
+            raise ValueError(
+                "I think you provided a Relay-BP decoder decoder name in place of a parity check"
+                " matrix.  There was breaking change to this API.  See"
+                " help(qldpc.decoders.RelayBPDecoder)"
             )
 
         # extract relevant data from a detector error model
