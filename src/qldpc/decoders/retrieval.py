@@ -249,20 +249,18 @@ def get_decoder_MWPM(
     syndrome to observable flips, whereas we want a decoder that maps a syndrome to an error.
     If you want a decoder that maps syndromes to observable flips, see qldpc.decoders.sinter.
     """
-    error_probabilities = decoder_args.pop("error_probabilities", None)
-
     # identify parity check matrix and error probabilities
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix
-        if error_probabilities is not None:  # pragma: no cover
+        if decoder_args.get("error_probabilities") is not None:  # pragma: no cover
             warnings.warn(
                 "Explicitly provided error_probabilities will override the error probabilities of"
                 " the provided detector error model",
                 stacklevel=2,
             )
         else:
-            error_probabilities = decoder_args.pop("error_probabilities", dem_arrays.error_probs)
+            decoder_args["error_probabilities"] = dem_arrays.error_probs
     else:
         pcm = pcm_or_dem
 
@@ -276,9 +274,7 @@ def get_decoder_MWPM(
             pcm = pcm @ scipy.sparse.diags(mask)
 
     # retrieve a matching decoder from pymatching
-    return pymatching.Matching.from_check_matrix(
-        pcm, error_probabilities=error_probabilities, **decoder_args
-    )
+    return pymatching.Matching.from_check_matrix(pcm, **decoder_args)
 
 
 def get_decoder_RBP(
