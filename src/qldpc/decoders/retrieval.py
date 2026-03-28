@@ -18,7 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from collections.abc import Sequence
 
 import galois
 import ldpc
@@ -66,13 +66,30 @@ def get_decoder(
         return decoder
 
     if decoder_args.pop("with_BP_LSD", False):
-        return get_decoder_BP_LSD(pcm_or_dem, **decoder_args)
+        return get_decoder_BP_LSD(
+            pcm_or_dem,
+            error_rate=decoder_args.pop("error_rate", PLACEHOLDER_ERROR_RATE),  # type:ignore[arg-type]
+            error_channel=decoder_args.pop("error_channel", None),  # type:ignore[arg-type]
+            **decoder_args,
+        )
 
     if decoder_args.pop("with_BF", False):
-        return get_decoder_BF(pcm_or_dem, **decoder_args)
+        return get_decoder_BF(
+            pcm_or_dem,
+            error_rate=decoder_args.pop("error_rate", PLACEHOLDER_ERROR_RATE),  # type:ignore[arg-type]
+            error_channel=decoder_args.pop("error_channel", None),  # type:ignore[arg-type]
+            **decoder_args,
+        )
 
     if name := decoder_args.pop("with_RBP", None):
-        return get_decoder_RBP(str(name), pcm_or_dem, **decoder_args)
+        return get_decoder_RBP(
+            str(name),
+            pcm_or_dem,
+            error_priors=decoder_args.pop("error_priors", None),  # type:ignore[arg-type]
+            observable_error_matrix=decoder_args.pop("observable_error_matrix", None),
+            include_decode_result=bool(decoder_args.pop("include_decode_result", False)),
+            **decoder_args,
+        )
 
     if decoder_args.pop("with_MWPM", False):
         return get_decoder_MWPM(pcm_or_dem, **decoder_args)
@@ -92,73 +109,127 @@ def get_decoder(
 
     # use BP+OSD by default
     decoder_args.pop("with_BP_OSD", None)
-    return get_decoder_BP_OSD(pcm_or_dem, **decoder_args)
+    return get_decoder_BP_OSD(
+        pcm_or_dem,
+        error_rate=decoder_args.pop("error_rate", PLACEHOLDER_ERROR_RATE),  # type:ignore[arg-type]
+        error_channel=decoder_args.pop("error_channel", None),  # type:ignore[arg-type]
+        **decoder_args,
+    )
 
 
 def get_decoder_BP_OSD(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    error_rate: float = PLACEHOLDER_ERROR_RATE,
+    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    **decoder_args: object,
 ) -> Decoder:
-    """Decoder based on belief propagation with ordered statistics (BP+OSD).
+    f"""Decoder based on belief propagation with ordered statistics (BP+OSD).
+
+    Args:
+        pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
+        error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
+            pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
+        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
+            If an explicit error_channel is provided, it overrides the error_rate and the error
+            probabilities of a provided detector error model.
+    **decoder_args: Additional keyword arguments passed to ldpc.BpOsdDecoder.
+
+    Returns:
+        A decoder constructed by the ldpc package.
 
     For details about the BD-OSD decoder and its arguments, see:
+    - help(ldpc.BpOsdDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2005.07016
     """
-    pcm, error_channel, error_rate = _to_ldpc_data(pcm_or_dem, decoder_args)
-    return ldpc.BpOsdDecoder(
-        pcm, error_channel=error_channel, error_rate=error_rate, **decoder_args
-    )
+    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
+    return ldpc.BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
 def get_decoder_BP_LSD(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    error_rate: float = PLACEHOLDER_ERROR_RATE,
+    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    **decoder_args: object,
 ) -> Decoder:
-    """Decoder based on belief propagation with localized statistics (BP+LSD).
+    f"""Decoder based on belief propagation with localized statistics (BP+LSD).
+
+    Args:
+        pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
+        error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
+            pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
+        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
+            If an explicit error_channel is provided, it overrides the error_rate and the error
+            probabilities of a provided detector error model.
+    **decoder_args: Additional keyword arguments passed to ldpc.bplsd_decoder.BpLsdDecoder.
+
+    Returns:
+        A decoder constructed by the ldpc package.
 
     For details about the BD-LSD decoder and its arguments, see:
+    - help(ldpc.bplsd_decoder.BpLsdDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2406.18655
     """
-    pcm, error_channel, error_rate = _to_ldpc_data(pcm_or_dem, decoder_args)
-    return ldpc.bplsd_decoder.BpLsdDecoder(
-        pcm, error_channel=error_channel, error_rate=error_rate, **decoder_args
-    )
+    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
+    return ldpc.bplsd_decoder.BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
 def get_decoder_BF(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    error_rate: float = PLACEHOLDER_ERROR_RATE,
+    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    **decoder_args: object,
 ) -> Decoder:
-    """Decoder based on belief finding (BF).
+    f"""Decoder based on belief finding (BF).
+
+    Args:
+        pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
+        error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
+            pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
+        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
+            If an explicit error_channel is provided, it overrides the error_rate and the error
+            probabilities of a provided detector error model.
+    **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
+
+    Returns:
+        A decoder constructed by the ldpc package.
 
     For details about the BF decoder and its arguments, see:
+    - help(ldpc.BeliefFindDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - References:
       - https://arxiv.org/abs/1709.06218
       - https://arxiv.org/abs/2103.08049
       - https://arxiv.org/abs/2209.01180
     """
-    pcm, error_channel, error_rate = _to_ldpc_data(pcm_or_dem, decoder_args)
-    return ldpc.BeliefFindDecoder(
-        pcm, error_channel=error_channel, error_rate=error_rate, **decoder_args
-    )
+    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
+    return ldpc.BeliefFindDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
-def _to_ldpc_data(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, decoder_args: dict[str, Any]
-) -> tuple[IntegerArray, npt.NDArray[np.float64] | None, float | None]:
+def _to_ldpc_inputs(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    error_rate: float,
+    error_channel: npt.NDArray[np.float64] | Sequence[float] | None,
+) -> tuple[IntegerArray, npt.NDArray[np.float64] | Sequence[float]]:
+    """Post-process the arguments to ldpc decoders."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix
-        error_channel = dem_arrays.error_probs
-        error_rate = None
-        return pcm, error_channel, error_rate
+        error_channel = dem_arrays.error_probs if error_channel is None else error_channel
     else:
         pcm = pcm_or_dem
-        error_channel = decoder_args.pop("error_channel", None)
-        error_rate = decoder_args.pop("error_rate", None)
-        if error_channel is None and error_rate is None:
-            error_rate = PLACEHOLDER_ERROR_RATE
-    return pcm, error_channel, error_rate
+        error_channel = [error_rate] * pcm.shape[1] if error_channel is None else error_channel
+    return pcm, error_channel
 
 
 def get_decoder_MWPM(
@@ -211,7 +282,13 @@ def get_decoder_MWPM(
 
 
 def get_decoder_RBP(
-    name: str, pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+    name: str,
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    error_priors: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    *,
+    observable_error_matrix: IntegerArray | None = None,
+    include_decode_result: bool = False,
+    **decoder_args: object,
 ) -> RelayBPDecoder:
     """Relay-BP decoders.
 
@@ -219,19 +296,13 @@ def get_decoder_RBP(
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """
-    error_priors = decoder_args.pop("error_priors", None)
-    observable_error_matrix = decoder_args.pop("observable_error_matrix", None)
-    include_decode_result = bool(decoder_args.pop("include_decode_result", False))
-    if decoder_args:  # pragma: no cover
-        raise ValueError(
-            f"Unrecognized arguments for a Relay-BP decoder: {list(decoder_args.keys())}"
-        )
     return RelayBPDecoder(
         name,
         pcm_or_dem,
-        error_priors,  # type:ignore[arg-type]
+        error_priors,
         observable_error_matrix=observable_error_matrix,
         include_decode_result=include_decode_result,
+        **decoder_args,
     )
 
 
