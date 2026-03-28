@@ -112,8 +112,8 @@ class RelayBPDecoder(BatchDecoder):
         if isinstance(pcm_or_dem, str):  # pragma: no cover
             raise ValueError(
                 "I think you provided a Relay-BP decoder decoder name in place of a parity check"
-                " matrix. There was breaking change to this API."
-                " See help(qldpc.decoders.RelayBPDecoder)"
+                " matrix.  There was breaking change to this API.  See"
+                " help(qldpc.decoders.RelayBPDecoder)"
             )
 
         # extract relevant data from a detector error model
