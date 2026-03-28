@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import galois
@@ -24,6 +25,7 @@ import ldpc
 import numpy as np
 import numpy.typing as npt
 import pymatching
+import scipy.sparse
 import stim
 
 from qldpc.math import IntegerArray
@@ -60,7 +62,7 @@ def get_decoder(
 
     if decoder := decoder_args.pop("static_decoder", None):
         assert hasattr(decoder, "decode") and callable(getattr(decoder, "decode"))
-        assert not decoder_args, "if passed a static decoder, we cannot process decoding arguments"
+        assert not decoder_args, "If passed a static decoder, we cannot process decoding arguments"
         return decoder
 
     if decoder_args.pop("with_BP_LSD", False):
@@ -164,19 +166,48 @@ def get_decoder_MWPM(
 ) -> BatchDecoder:
     """Decoder based on minimum weight perfect matching (MWPM).
 
+    If called with the keyword argument ignore_non_graphlike_errors=True, columns of the parity
+    check matrix with more than two ones (which correspond to error mechanisms that trigger more
+    than two detectors in a detector error model) are ignored.  Otherwise, such columns cause
+    pymatching to throw an error.
+
+    All other keyword arguments are passed to pymatching.Matching.from_check_matrix.
+
     A point of potential confusion: even if passed a detector error model, we DO NOT USE the
     pymatching.Matching.from_check_matrix method here because this returns a decoder that maps a
     syndrome to observable flips, whereas we want a decoder that maps a syndrome to an error.
     If you want a decoder that maps syndromes to observable flips, see qldpc.decoders.sinter.
     """
+    error_probabilities = decoder_args.pop("error_probabilities", None)
+
+    # identify parity check matrix and error probabilities
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
-        return pymatching.Matching.from_check_matrix(
-            dem_arrays.detector_flip_matrix,
-            error_probabilities=dem_arrays.error_probs,
-            **decoder_args,
-        )
-    return pymatching.Matching.from_check_matrix(pcm_or_dem, **decoder_args)
+        pcm = dem_arrays.detector_flip_matrix
+        if error_probabilities is not None:  # pragma: no cover
+            warnings.warn(
+                "Explicitly provided error_probabilities will override the error probabilities of"
+                " the provided detector error model",
+                stacklevel=2,
+            )
+        else:
+            error_probabilities = decoder_args.pop("error_probabilities", dem_arrays.error_probs)
+    else:
+        pcm = pcm_or_dem
+
+    # possibly ignore non-graphlike errors
+    if decoder_args.pop("ignore_non_graphlike_errors", False):
+        detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
+        error_is_not_graphlike = detectors_per_error > 2
+        if np.any(error_is_not_graphlike):
+            mask = np.ones(pcm.shape[1])
+            mask[error_is_not_graphlike] = 0
+            pcm = pcm @ scipy.sparse.diags(mask)
+
+    # retrieve a matching decoder from pymatching
+    return pymatching.Matching.from_check_matrix(
+        pcm, error_probabilities=error_probabilities, **decoder_args
+    )
 
 
 def get_decoder_RBP(
@@ -191,8 +222,8 @@ def get_decoder_RBP(
     error_priors = decoder_args.pop("error_priors", None)
     observable_error_matrix = decoder_args.pop("observable_error_matrix", None)
     include_decode_result = bool(decoder_args.pop("include_decode_result", False))
-    if decoder_args:
-        raise ValueError(  # pragma: no cover
+    if decoder_args:  # pragma: no cover
+        raise ValueError(
             f"Unrecognized arguments for a Relay-BP decoder: {list(decoder_args.keys())}"
         )
     return RelayBPDecoder(
