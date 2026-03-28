@@ -180,9 +180,9 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
         )
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
+        """Alias for CompiledSinterDecoder.decode_shots.  Predicts observable flips."""
         syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
-        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0].astype(int)
+        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
 
 class SubgraphDecoder(SinterDecoder):
