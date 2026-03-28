@@ -59,26 +59,28 @@ def get_decoder(
 ) -> Decoder:
     """Retrieve a decoder.
 
-    This method looks for a "with_*" keyword argument, and calls a matching "get_decoder_*" method,
-    passing all other arguments through.
+    This method looks for a keyword "with_<DECODER_NAME>: bool" argument, and returns
+    "get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)".
 
-    To support injecting custom decoders, this method also provides the following functionality:
-    - If passed the keyword argument "decoder_constructor", this method returns
-        "decoder_constructor(pcm_or_dem, **decoder_args)".
-    - If passed the keyword argument "static_decoder", this method returns "static_decoder".
+    This method also recognizes the following keyword arguments for injecting a custom decoder:
+    - decoder_constructor: return decoder_constructor(pcm_or_dem, **decoder_args).
+    - static_decoder: ignore all other arguments and return static_decoder.
 
-    If no decoder is specified, this method defaults to GUF (generalized union-find) for non-binary
+    If no decoder is specified, this method defaults to generalized union-find (GUF) for non-binary
     parity check matrices, and BP+OSD otherwise.
     """
+    # optionally inject a decoder constructor
     if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
         assert callable(decoder_constructor)
         return decoder_constructor(pcm_or_dem, **decoder_args)
 
+    # optionally inject a static decoder, ignoring all other arguments
     if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
         assert hasattr(static_decoder, "decode") and callable(getattr(static_decoder, "decode"))
         assert not decoder_args, "If passed a static decoder, we cannot process decoding arguments"
         return static_decoder
 
+    # look for and construct a recognized decoder
     for name in DECODER_CONSTRUCTORS.keys():
         if decoder_args.pop(f"with_{name}", False):
             decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{name}")
