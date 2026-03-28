@@ -280,17 +280,14 @@ def get_decoder_RBP(
 def get_decoder_lookup(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> LookupDecoder:
-    """Decoder based on a lookup table from errors to syndromes."""
+    """Decoder based on a lookup table that maps errors to syndromes."""
     return LookupDecoder(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
 
 
 def get_decoder_ILP(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> ILPDecoder:
-    """Decoder based on solving an integer linear program (ILP).
-
-    All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
-    """
+    """Decoder based on solving an integer linear program (ILP)."""
     return ILPDecoder(_to_pcm(pcm_or_dem), **decoder_args)
 
 
