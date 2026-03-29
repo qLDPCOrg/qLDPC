@@ -198,7 +198,7 @@ class NoiseRule:
         after: dict[str, float | Iterable[float]] = {},
         readout_error: float = 0,
         reset_error: float = 0,
-    ):
+    ) -> None:
         """Initializes a noise rule with specified error channels.
 
         Args:
@@ -303,40 +303,45 @@ class TargetedNoiseRule(NoiseRule):
         self,
         *,
         noisy_op: stim.CircuitInstruction,
-        tags: Collection[str] | None = None,
-        noise: stim.Circuit = stim.Circuit(),
+        noise: stim.Circuit,
         readout_error: float = 0,
         reset_error: float = 0,
-    ):
+        tags: Collection[str] | None = None,
+    ) -> None:
         """Initializes a targeted noise rule for a specific circuit instruction.
 
         Args:
             noisy_op: The circuit instruction that this rule targets.  Defines the gate name and
                 qubit targets to match against.  Gate args on this instruction are ignored during
                 matching.
+            noise: An explicit noise circuit to append after the matched operation.
+            readout_error: The probability that a measurement result is reported incorrectly.  Only
+                allowed for operations that produce measurement results.
+            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
+                operations that reset qubits.
             tags: If not None, only match operations whose tag exactly matches one of the given
                 strings.  If None, match operations regardless of their tag.
-            noise: An explicit noise circuit to append after the matched operation.  Defaults to an
-                empty circuit (no noise).
-            readout_error: The probability that a measurement result is reported incorrectly.  Only
-                allowed when noisy_op is a measurement.
-            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed
-                when noisy_op is a reset.
 
         Raises:
             ValueError: If readout_error or reset_error is not between 0 and 1 (inclusive).
         """
         super().__init__(readout_error=readout_error, reset_error=reset_error)
         self.noisy_op = noisy_op
-        self.tags: frozenset[str] | None = frozenset(tags) if tags is not None else None
         self.noise = noise
+        self.tags: frozenset[str] | None = frozenset(tags) if tags is not None else None
+
+    def __bool__(self) -> bool:
+        """Is this noise rule nontrivial?"""
+        nontrivial_noise = bool(self.noise) or bool(self.readout_error) or bool(self.reset_error)
+        nontrivial_targets = bool(self.noisy_op.targets_copy())
+        return nontrivial_noise and nontrivial_targets
 
     def is_targeted_noisy_op(self, op: stim.CircuitInstruction) -> bool:
-        """Returns whether the given operation matches this rule's target instruction.
+        """Determine whether the given operation matches this rule's target instruction.
 
         Two operations match if they have the same gate name and the same qubit target values in the
-        same order.  Gate args are ignored.  If self.tags is not None, op.tag must exactly match one
-        of the given tags.
+        same order.  Gate args are ignored.  If self.tags is not None, op.tag must exactly match an
+        element of self.tags.
 
         Args:
             op: The circuit instruction to check.
@@ -344,9 +349,7 @@ class TargetedNoiseRule(NoiseRule):
         Returns:
             True if op matches this rule's target instruction.  False otherwise.
         """
-        if op.name != self.noisy_op.name:
-            return False
-        if self.tags is not None and op.tag not in self.tags:
+        if op.name != self.noisy_op.name or (self.tags is not None and op.tag not in self.tags):
             return False
         return op.targets_copy() == self.noisy_op.targets_copy()
 
@@ -401,7 +404,8 @@ class TargetedNoiseRule(NoiseRule):
             assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
             qubit_targets = [target.value for target in targets if not target.is_combiner]
             error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
-            noise_after.append(stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error]))
+            error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
+            noise_after.append(error_op)
 
         noise_after += self.noise
 
@@ -426,7 +430,7 @@ class NoiseModel:
         idle_error: float | None = None,
         additional_error_waiting_for_m_or_r: float | None = None,
         rules: dict[str, NoiseRule] | None = None,
-    ):
+    ) -> None:
         """Initializes a noise model with specified parameters.
 
         Args:
