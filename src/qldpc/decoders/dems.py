@@ -69,15 +69,26 @@ class DetectorErrorModelArrays:
 
     @staticmethod
     def from_arrays(
-        detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.float64],
-        observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.float64],
-        error_probs: npt.NDArray[np.float64],
+        detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_],
+        observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_] | None,
+        error_probs: npt.NDArray[np.float64] | float,
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly."""
         dem_arrays = object.__new__(DetectorErrorModelArrays)
         dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(detector_flip_matrix)
-        dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(observable_flip_matrix)
-        dem_arrays.error_probs = np.asarray(error_probs)
+
+        num_error_mechanisms = dem_arrays.detector_flip_matrix.shape[0]
+        if observable_flip_matrix is None:
+            shape = (0, num_error_mechanisms)
+            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(shape, dtype=int)
+        else:
+            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(observable_flip_matrix)
+
+        if isinstance(error_probs, float):
+            dem_arrays.error_probs = np.array([error_probs] * num_error_mechanisms)
+        else:
+            dem_arrays.error_probs = np.asarray(error_probs)
+
         return dem_arrays
 
     @property

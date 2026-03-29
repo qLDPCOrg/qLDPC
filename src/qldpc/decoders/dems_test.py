@@ -50,6 +50,17 @@ def test_initialization() -> None:
     )
     assert np.allclose(other_dem_arrays.error_probs, dem_arrays.error_probs)
 
+    # initialize from detector_flip_matrix only
+    error_prob = 1e-3
+    other_dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+        dem_arrays.get_arrays()[0], None, error_prob
+    )
+    assert np.allclose(
+        other_dem_arrays.detector_flip_matrix.todense(), dem_arrays.detector_flip_matrix.todense()
+    )
+    assert other_dem_arrays.num_observables == 0
+    assert np.allclose(other_dem_arrays.error_probs, [error_prob] * dem_arrays.num_detectors)
+
 
 def test_simplify() -> None:
     """Simplify and merge errors."""

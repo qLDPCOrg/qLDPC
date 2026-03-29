@@ -46,32 +46,51 @@ def test_relay_bp() -> None:
     errors = np.array([error, error])
     syndromes = np.array([syndrome, syndrome])
 
-    decoder = decoders.get_decoder_RBP("RelayDecoderF32", matrix)
+    decoder = decoders.get_decoder_RBP(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
 
-    decoder = decoders.get_decoder_RBP("RelayDecoderF32", scipy.sparse.dok_matrix(matrix))
+    # decode from a sparse parity check matrix
+    decoder = decoders.get_decoder_RBP(scipy.sparse.dok_matrix(matrix))
     assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
+
+    # decode from a detector error model
+    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
+    decoder = decoders.get_decoder_RBP(dem)
+    assert np.array_equal(error, decoder.decode(syndrome))
 
     # fail to initialize a relay-bp decoder because relay-bp is not installed
     with (
         unittest.mock.patch.dict("sys.modules", {"relay_bp": None}),
         pytest.raises(ImportError, match="Failed to import relay-bp"),
     ):
-        decoders.get_decoder(np.array([[]]), with_RBP="RelayDecoderF64")
+        decoders.get_decoder(np.array([[]]), with_RBP=True)
 
     # fail to initialize a relay-bp decoder from an unrecognized name
     with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder(np.array([[]]), with_RBP="invalid_name")
+        decoders.get_decoder(np.array([[]]), with_RBP=True, name="invalid_name")
+
+
+def test_lookup() -> None:
+    """Lookup decoding should be straightforward."""
+    matrix, error, syndrome = get_toy_problem()
+
+    decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
+    assert np.array_equal(error, decoder.decode(syndrome))
+
+    # decode with a detector error model
+    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
+    decoder = decoders.get_decoder_lookup(dem, max_weight=2)
+    assert np.array_equal(error, decoder.decode(syndrome))
 
 
 def test_ilp_decoder() -> None:
     """Decode using an integer linear program."""
     matrix, error, syndrome = get_toy_problem()
-    decoder = decoders.ILPDecoder(matrix)
+    decoder = decoders.ILPDecoder(scipy.sparse.csc_matrix(matrix))
     assert np.array_equal(error, decoder.decode(syndrome))
 
-    # try again over the trinary field
+    # decode over the trinary field
     field = galois.GF(3)
     matrix = -matrix.view(field)
     error = -error.view(field)
@@ -134,7 +153,7 @@ def test_augmented_decoders() -> None:
 
 
 def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
-    """Decode an actual quantum code with random errors."""
+    """Decode a quantum code with random errors."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
     code = codes.SurfaceCode(4, field=3)
