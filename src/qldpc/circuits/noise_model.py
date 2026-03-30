@@ -185,6 +185,39 @@ def as_noiseless_circuit(circuit: stim.Circuit) -> stim.Circuit:
     return noiseless_circuit
 
 
+def immunize_noise(noise: stim.Circuit, immune_qubits: set[int]) -> stim.Circuit:
+    """Return a copy of a flat noise circuit with instructions targeting immune qubits removed.
+
+    An instruction is removed if any of its qubit targets belongs to immune_qubits.
+
+    Args:
+        noise: A flat noise circuit (no repeat blocks) to filter.
+        immune_qubits: Set of qubit indices that should not have noise applied to them.
+
+    Returns:
+        stim.Circuit: A filtered copy of the input circuit.
+    """
+    if not immune_qubits:
+        return noise
+    result = stim.Circuit()
+    for instruction in noise:
+        assert isinstance(instruction, stim.CircuitInstruction)
+        if not any(
+            (
+                target.is_qubit_target
+                or target.is_x_target
+                or target.is_y_target
+                or target.is_z_target
+            )
+            and target.value in immune_qubits
+            for target in instruction.targets_copy()
+            if not target.is_combiner
+        ):
+            result.append(instruction)
+    return result
+
+
+
 class NoiseRule:
     """Describes how to add noise to an operation.
 
@@ -242,8 +275,12 @@ class NoiseRule:
 
     def noisy_operation(
         self, op: stim.CircuitInstruction
+        self, op: stim.CircuitInstruction
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
+
+        Immunity to noise is not handled here.  The caller is responsible for filtering the
+        returned noise circuit using immunize_noise if needed.
 
         Args:
             op: The operation to add noise to.
@@ -267,18 +304,33 @@ class NoiseRule:
         noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
         noise_after = stim.Circuit()
 
-        qubit_targets = [target.value for target in targets if not target.is_combiner]
         if self.reset_error:
             assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
+            qubit_targets = [target.value for target in targets if not target.is_combiner]
             error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
-            error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
-            noise_after.append(error_op)
+            noise_after.append(stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error]))
 
-        for op_name, args in self.after.items():
-            error_op = stim.CircuitInstruction(op_name, qubit_targets, args)
-            noise_after.append(error_op)
+        noise_after += self._build_noise_after(op)
 
         return noisy_op, noise_after
+
+    def _build_noise_after(self, op: stim.CircuitInstruction) -> stim.Circuit:
+        """Build the extra noise circuit to append after the given operation.
+
+        Subclasses may override this to customize the noise that follows an operation.  Reset errors
+        are excluded here and handled separately in noisy_operation.
+
+        Args:
+            op: The operation being applied.
+
+        Returns:
+            stim.Circuit: Additional noise to append after the operation.
+        """
+        qubit_targets = [target.value for target in op.targets_copy() if not target.is_combiner]
+        noise = stim.Circuit()
+        for op_name, args in self.after.items():
+            noise.append(stim.CircuitInstruction(op_name, qubit_targets, args))
+        return noise
 
 
 class TargetedNoiseRule(NoiseRule):
@@ -343,14 +395,16 @@ class TargetedNoiseRule(NoiseRule):
         return op.targets_copy() == self.noisy_op.targets_copy()
 
     def noisy_operation(
-        self, op: stim.CircuitInstruction
+        self,
+        op: stim.CircuitInstruction,
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this targeted noise rule to the given operation.
 
+        Immunity to noise is not handled here.  The caller is responsible for filtering the
+        returned noise circuit using immunize_noise if needed.
+
         Args:
             op: The operation to add noise to.
-            immune_qubits: Set of qubit indices that should not have noise applied to them.  If any
-                target qubit of the matched operation is immune, no noise is emitted.
 
         Returns:
             stim.CircuitInstruction: The given operation, possibly modified to account for readout
@@ -359,9 +413,10 @@ class TargetedNoiseRule(NoiseRule):
         """
         if not self.is_targeted_noisy_op(op):
             return op, stim.Circuit()
-        noisy_op, noise_after = super().noisy_operation(op)
-        noise_after += self.noise
-        return noisy_op, noise_after
+        return super().noisy_operation(op)
+
+    def _build_noise_after(self, op: stim.CircuitInstruction) -> stim.Circuit:
+        return self.noise
 
 
 class NoiseModel:
@@ -562,8 +617,18 @@ class NoiseModel:
                 circuit.append(op)
             else:
                 noisy_op, after = rule.noisy_operation(op)
-                circuit.append(noisy_op)
-                noise_after_moment += after
+                op_targets_immune = immune_qubits and any(
+                    (
+                        target.is_qubit_target
+                        or target.is_x_target
+                        or target.is_y_target
+                        or target.is_z_target
+                    )
+                    and target.value in immune_qubits
+                    for target in op.targets_copy()
+                )
+                circuit.append(op if op_targets_immune else noisy_op)
+                noise_after_moment += immunize_noise(after, immune_qubits)
 
         # TODO: post-process noise_after_moment using immune_qubits
         # see comments:
