@@ -274,7 +274,6 @@ class NoiseRule:
 
     def noisy_operation(
         self, op: stim.CircuitInstruction
-        self, op: stim.CircuitInstruction
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 

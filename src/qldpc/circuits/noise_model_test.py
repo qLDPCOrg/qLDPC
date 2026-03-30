@@ -166,10 +166,10 @@ def test_targeted_gate_errors() -> None:
         clifford_2q_error=0.2,
         rules={
             "MZ": circuits.TargetedNoiseRule(
-                noisy_op=stim.CircuitInstruction("MZ", [0]), readout_error=0.3
+                noisy_op=stim.CircuitInstruction("MZ", [0]), noise=stim.Circuit(), readout_error=0.3
             ),
             "RX": circuits.TargetedNoiseRule(
-                noisy_op=stim.CircuitInstruction("RX", [1]), reset_error=0.4
+                noisy_op=stim.CircuitInstruction("RX", [1]), noise=stim.Circuit(), reset_error=0.4
             ),
         },
     )
