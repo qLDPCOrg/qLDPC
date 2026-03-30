@@ -48,7 +48,6 @@ The original code was written for the paper at "Inplace Access to the Surface Co
 from __future__ import annotations
 
 import collections
-import dataclasses
 from collections.abc import Collection, Iterable, Iterator
 
 import stim
