@@ -48,6 +48,7 @@ The original code was written for the paper at "Inplace Access to the Surface Co
 from __future__ import annotations
 
 import collections
+import dataclasses
 from collections.abc import Collection, Iterable, Iterator
 
 import stim
@@ -192,6 +193,10 @@ class NoiseRule:
     applied to a particular type of quantum operation.
     """
 
+    after: dict[str, float | Iterable[float]] = dataclasses.field(default_factory=dict)
+    readout_error: float
+    reset_error: float
+
     def __init__(
         self,
         *,
@@ -241,7 +246,7 @@ class NoiseRule:
         return bool(self.after) or bool(self.readout_error) or bool(self.reset_error)
 
     def noisy_operation(
-        self, op: stim.CircuitInstruction, *, immune_qubits: set[int] = set()
+        self, op: stim.CircuitInstruction
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 
@@ -253,26 +258,15 @@ class NoiseRule:
             stim.Circuit: Noise operations that should follow the given operation.
         """
         targets = op.targets_copy()
-        if immune_qubits and any(
-            (
-                target.is_qubit_target
-                or target.is_x_target
-                or target.is_y_target
-                or target.is_z_target
-            )
-            and target.value in immune_qubits
-            for target in targets
-        ):
-            return op, stim.Circuit()
-
         args = op.gate_args_copy()
+
         if self.readout_error:
             assert op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
             if not args:
                 args = [self.readout_error]
             else:
                 assert len(args) == 1
-                # combine bit-flip probabilities
+                # combine the bit-flip probabilities self.readout_error and args[0]
                 args = [1 - (1 - self.readout_error) * (1 - args[0])]
 
         noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
@@ -298,6 +292,10 @@ class TargetedNoiseRule(NoiseRule):
     Unlike NoiseRule, which applies to all operations of a given type, this rule matches only an
     exact gate-and-target combination, allowing fine-grained per-operation noise overrides.
     """
+
+    noisy_op: stim.CircuitInstruction
+    noise: stim.Circuit
+    tags: frozenset[str] | None
 
     def __init__(
         self,
@@ -354,10 +352,7 @@ class TargetedNoiseRule(NoiseRule):
         return op.targets_copy() == self.noisy_op.targets_copy()
 
     def noisy_operation(
-        self,
-        op: stim.CircuitInstruction,
-        *,
-        immune_qubits: set[int] = set(),
+        self, op: stim.CircuitInstruction
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this targeted noise rule to the given operation.
 
@@ -373,42 +368,8 @@ class TargetedNoiseRule(NoiseRule):
         """
         if not self.is_targeted_noisy_op(op):
             return op, stim.Circuit()
-
-        targets = op.targets_copy()
-        if immune_qubits and any(
-            (
-                target.is_qubit_target
-                or target.is_x_target
-                or target.is_y_target
-                or target.is_z_target
-            )
-            and target.value in immune_qubits
-            for target in targets
-        ):
-            return op, stim.Circuit()
-
-        args = op.gate_args_copy()
-        if self.readout_error:
-            assert op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
-            if not args:
-                args = [self.readout_error]
-            else:
-                assert len(args) == 1
-                # combine bit-flip probabilities
-                args = [1 - (1 - self.readout_error) * (1 - args[0])]
-
-        noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
-        noise_after = stim.Circuit()
-
-        if self.reset_error:
-            assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
-            qubit_targets = [target.value for target in targets if not target.is_combiner]
-            error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
-            error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
-            noise_after.append(error_op)
-
+        noisy_op, noise_after = super().noisy_operation(op)
         noise_after += self.noise
-
         return noisy_op, noise_after
 
 
@@ -609,9 +570,11 @@ class NoiseModel:
             if immune_op_tag in op.tag or (rule := self.get_noise_rule(op)) is None:
                 circuit.append(op)
             else:
-                noisy_op, after = rule.noisy_operation(op, immune_qubits=immune_qubits)
+                noisy_op, after = rule.noisy_operation(op)
                 circuit.append(noisy_op)
                 noise_after_moment += after
+
+        # TODO: deal with immmune_qubits
 
         circuit += noise_after_moment
 
