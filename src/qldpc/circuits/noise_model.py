@@ -565,7 +565,10 @@ class NoiseModel:
                 circuit.append(noisy_op)
                 noise_after_moment += after
 
-        # TODO: deal with immmune_qubits
+        # TODO: post-process noise_after_moment using immune_qubits
+        # see comments:
+        # - https://github.com/qLDPCOrg/qLDPC/issues/426#issuecomment-4144385907
+        # - https://github.com/qLDPCOrg/qLDPC/issues/426#issuecomment-4149324799
 
         circuit += noise_after_moment
 
