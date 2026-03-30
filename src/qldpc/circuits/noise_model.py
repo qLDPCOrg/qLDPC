@@ -217,7 +217,6 @@ def immunize_noise(noise: stim.Circuit, immune_qubits: set[int]) -> stim.Circuit
     return result
 
 
-
 class NoiseRule:
     """Describes how to add noise to an operation.
 
@@ -308,7 +307,9 @@ class NoiseRule:
             assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
             qubit_targets = [target.value for target in targets if not target.is_combiner]
             error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
-            noise_after.append(stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error]))
+            noise_after.append(
+                stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
+            )
 
         noise_after += self._build_noise_after(op)
 

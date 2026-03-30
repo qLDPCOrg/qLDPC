@@ -103,6 +103,123 @@ def test_gate_errors() -> None:
         noise_model.noisy_circuit(circuit, insert_ticks=False)
 
 
+def test_targeted_gate_errors() -> None:
+    """TargetedNoiseRule applies noise only to exact gate-and-qubit matches."""
+
+    # only CX 0 1 gets depolarizing noise; CX 1 2 is unaffected
+    circuit = stim.Circuit("""
+        CX 0 1 1 2
+        TICK
+        M 0
+        RX 1
+        MR 2
+    """)
+
+    targeted_cx = circuits.TargetedNoiseRule(
+        noisy_op=stim.CircuitInstruction("CX", [0, 1]),
+        noise=stim.Circuit("DEPOLARIZE2(0.2) 0 1"),
+    )
+    noise_model = circuits.NoiseModel(clifford_2q_error=targeted_cx)
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+        CX 0 1
+        DEPOLARIZE2(0.2) 0 1
+        CX 1 2
+        TICK
+        M 0
+        RX 1
+        MR 2
+    """),
+        noise_model.noisy_circuit(circuit),
+    )
+
+    # only CX 0 1 gets depolarizing noise but on 1 2
+    targeted_cx = circuits.TargetedNoiseRule(
+        noisy_op=stim.CircuitInstruction("CX", [0, 1]),
+        noise=stim.Circuit("DEPOLARIZE2(0.2) 1 2"),
+    )
+    noise_model = circuits.NoiseModel(clifford_2q_error=targeted_cx)
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+        CX 0 1
+        DEPOLARIZE2(0.2) 1 2
+        CX 1 2
+        TICK
+        M 0
+        RX 1
+        MR 2
+    """),
+        noise_model.noisy_circuit(circuit),
+    )
+
+    # targeted readout and reset errors on specific qubits
+    circuit = stim.Circuit("""
+        H 0
+        CX 0 1 1 2
+        TICK
+        M 0
+        RX 1
+        MR 2
+    """)
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error=0.1,
+        clifford_2q_error=0.2,
+        rules={
+            "MZ": circuits.TargetedNoiseRule(
+                noisy_op=stim.CircuitInstruction("MZ", [0]), readout_error=0.3
+            ),
+            "RX": circuits.TargetedNoiseRule(
+                noisy_op=stim.CircuitInstruction("RX", [1]), reset_error=0.4
+            ),
+        },
+    )
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+        H 0
+        DEPOLARIZE1(0.1) 0
+        CX 0 1
+        DEPOLARIZE2(0.2) 0 1
+        CX 1 2
+        DEPOLARIZE2(0.2) 1 2
+        TICK
+        MZ(0.3) 0
+        RX 1
+        MR 2
+        Z_ERROR(0.4) 1
+    """),
+        noise_model.noisy_circuit(circuit),
+    )
+
+    # # tags: only apply noise to operations with the matching tag
+    circuit = stim.Circuit("""
+        H[ancilla] 0
+        H 1
+        S 0
+        TICK
+        CX 0 1
+    """)
+    noise_model = circuits.NoiseModel(
+        clifford_2q_error=0.2,
+        clifford_1q_error=circuits.TargetedNoiseRule(
+            noisy_op=stim.CircuitInstruction("H", [0]),
+            tags={"ancilla"},
+            noise=stim.Circuit("DEPOLARIZE1(0.1) 0"),
+        ),
+    )
+    noisy_circuit = stim.Circuit("""
+        H[ancilla] 0
+        H 1
+        DEPOLARIZE1(0.1) 0
+        S 0
+        TICK
+        CX 0 1
+        DEPOLARIZE2(0.2) 0 1
+    """)
+    print("=====Expect", noisy_circuit)
+    print("=====But got", noise_model.noisy_circuit(circuit))
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+
 def test_idle_errors() -> None:
     """Add idling errors to a circuit."""
 

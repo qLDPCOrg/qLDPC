@@ -25,6 +25,7 @@ from .noise_model import (
     NoiseModel,
     NoiseRule,
     SI1000NoiseModel,
+    TargetedNoiseRule,
     as_noiseless_circuit,
 )
 from .syndrome_measurement import (
@@ -59,6 +60,7 @@ __all__ = [
     "NoiseModel",
     "NoiseRule",
     "SI1000NoiseModel",
+    "TargetedNoiseRule",
     "as_noiseless_circuit",
     "EdgeColoring",
     "EdgeColoringXZ",
