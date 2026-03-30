@@ -193,10 +193,6 @@ class NoiseRule:
     applied to a particular type of quantum operation.
     """
 
-    after: dict[str, float | Iterable[float]] = dataclasses.field(default_factory=dict)
-    readout_error: float
-    reset_error: float
-
     def __init__(
         self,
         *,
@@ -292,10 +288,6 @@ class TargetedNoiseRule(NoiseRule):
     Unlike NoiseRule, which applies to all operations of a given type, this rule matches only an
     exact gate-and-target combination, allowing fine-grained per-operation noise overrides.
     """
-
-    noisy_op: stim.CircuitInstruction
-    noise: stim.Circuit
-    tags: frozenset[str] | None
 
     def __init__(
         self,
