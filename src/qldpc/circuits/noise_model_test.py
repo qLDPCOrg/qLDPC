@@ -249,11 +249,14 @@ def test_immunity() -> None:
     # qubits can be immune to errors
     circuit = stim.Circuit("""
         H 0 1
+        CNOT 1 2
     """)
     noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
     noisy_circuit = stim.Circuit("""
         H 0 1
+        CNOT 1 2
         DEPOLARIZE1(0.1) 1
+        DEPOLARIZE2(0.1) 1 2
     """)
     assert _circuits_are_equivalent(
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False)
@@ -289,6 +292,72 @@ def test_immunity() -> None:
     tableau = stim.Tableau.random(5)
     noiseless_circuit = circuits.as_noiseless_circuit(tableau.to_circuit())
     assert noise_model.noisy_circuit(noiseless_circuit).to_tableau() == tableau
+
+
+def test_immune_marginalize() -> None:
+    circuit = stim.Circuit("""
+        CNOT 0 1
+        CNOT 1 2
+        CNOT 3 4
+    """)
+    noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
+
+    # error marginalize on part of DEPOLARIZE2 on qubit 0 1
+    noisy_circuit_marginalize = stim.Circuit("""
+        CNOT 0 1
+        CNOT 1 2
+        CNOT 3 4
+        DEPOLARIZE1(0.02) 2
+        DEPOLARIZE2(0.1) 3 4
+    """)
+    assert _circuits_are_equivalent(
+        noisy_circuit_marginalize,
+        noise_model.noisy_circuit(
+            circuit, immune_qubits=[0, 1], insert_ticks=False, marginalize=True
+        ),
+    )
+
+    # turn off marginalization
+    noisy_circuit_marginalize = stim.Circuit("""
+        CNOT 0 1
+        CNOT 1 2
+        CNOT 3 4
+        DEPOLARIZE2(0.1) 3 4
+    """)
+    assert _circuits_are_equivalent(
+        noisy_circuit_marginalize,
+        noise_model.noisy_circuit(
+            circuit, immune_qubits=[0, 1], insert_ticks=False, marginalize=False
+        ),
+    )
+
+    # test PAULI_CHANNEL_2
+    circuit = stim.Circuit("""
+        CNOT 0 1
+    """)
+    noise_model = circuits.NoiseModel(
+        clifford_2q_error=circuits.NoiseRule(
+            after={
+                "PAULI_CHANNEL_2": [0.01, 0.02, 0.03, 0.04, 0, 0, 0, 0.05, 0, 0, 0, 0.06, 0, 0, 0]
+            }
+        )
+    )
+
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+            CNOT 0 1
+            PAULI_CHANNEL_1(0.01, 0.02, 0.03) 1
+        """),
+        noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False, marginalize=True),
+    )
+
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+            CNOT 0 1
+            PAULI_CHANNEL_1(0.04, 0.05, 0.06) 0
+        """),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
+    )
 
 
 def test_classical_controls() -> None:
