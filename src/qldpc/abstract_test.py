@@ -205,8 +205,8 @@ def test_ring() -> None:
     x_i = sympy.Symbol("x_i")
     x_j = sympy.Symbol("x_j")
     symbols = {x_i: g_i, x_j: g_j}
-    poly_r = 4 * r_i**2 - 2 * r_i * r_j
-    poly_x = 4 * x_i**2 - 2 * x_i * x_j
+    poly_r = 4 * r_i**2 - 2 * r_i * r_j + r_j
+    poly_x = 4 * x_i**2 - 2 * x_i * x_j + x_j
     assert poly_r == ring.eval(poly_x, symbols)
 
     wrong_symbols = {x_i: r_i, x_j: r_j}
