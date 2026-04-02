@@ -572,12 +572,15 @@ class GroupRing:
         if any(not isinstance(value, GroupMember) for value in symbols.values()):
             raise ValueError("The symbols passed to Ring.eval must be GroupMember-valued")
 
+        # if applicable, convert python integers into SymPy integers
         if isinstance(expression, int):
             expression = sympy.Integer(expression)
 
-        # split coefficient and variable content of this term
+        # factor this term into its coefficient and variable content
         _coeff, monomial = expression.as_coeff_Mul()
         coeff: int | galois.FieldArray = int(_coeff)
+
+        # try to interpret coefficients with "invalid" but otherwise unambiguous values
         if not 0 <= coeff < self.field.order:
             if self.field.degree == 1:
                 # there is no ambiguity over prime number fields
@@ -590,6 +593,8 @@ class GroupRing:
                     f"The value of the coefficient {coeff} in expression {expression} is ambiguous"
                     f" over the finite field GF({self.field.order})"
                 )
+
+        # construct and return a member of this ring
         group_member = self.group.eval(monomial, symbols)
         return RingMember(self, (coeff, group_member))
 
