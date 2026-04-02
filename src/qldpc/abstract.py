@@ -432,7 +432,7 @@ class Group:
 
     def eval(
         self,
-        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
+        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int,
         symbols: dict[sympy.Symbol, GroupMember],
     ) -> GroupMember:
         """Convert a Sympy monomial into a member of group."""
@@ -1585,16 +1585,16 @@ PSL = ProjectiveSpecialLinearGroup
 
 
 def get_coefficient_and_exponents(
-    monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
+    monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int,
 ) -> tuple[int, list[tuple[sympy.Symbol, int]]]:
     """Extract the coefficients and exponents in a Sympy monomial expression.
 
     For example, this method takes 5 x**3 y**2 to (5, [(x, 3), (y, 2)])."""
+    if isinstance(monomial, (sympy.Integer, int)):
+        return int(monomial), []
     coeff, monomial = monomial.as_coeff_Mul()
     exponents = []
-    if isinstance(monomial, sympy.Integer):
-        coeff *= int(monomial)
-    elif isinstance(monomial, sympy.Symbol):
+    if isinstance(monomial, sympy.Symbol):
         exponents.append((monomial, 1))
     elif isinstance(monomial, sympy.Pow):
         base, exponent = monomial.as_base_exp()
