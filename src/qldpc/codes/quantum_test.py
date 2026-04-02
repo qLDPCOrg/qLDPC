@@ -26,8 +26,8 @@ import pytest
 import sympy
 from sympy.abc import x, y
 
+import qldpc
 from qldpc import abstract, codes
-from qldpc.math import block_matrix
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
@@ -120,10 +120,10 @@ def test_bivariate_bicycle_codes() -> None:
     assert code.dimension == 8
     for orders, poly_a, poly_b in code.get_equivalent_toric_layout_code_data():
         # assert that the polynomials look like 1 + x + ... and 1 + y + ...
-        exponents_a = [code.get_coefficient_and_exponents(term)[1] for term in poly_a.args]
-        exponents_b = [code.get_coefficient_and_exponents(term)[1] for term in poly_b.args]
-        assert {} in exponents_a and {x: 1} in exponents_a
-        assert {} in exponents_b and {y: 1} in exponents_b
+        exponents_a = [abstract.get_coefficient_and_exponents(term)[1] for term in poly_a.args]
+        exponents_b = [abstract.get_coefficient_and_exponents(term)[1] for term in poly_b.args]
+        assert [] in exponents_a and [(x, 1)] in exponents_a
+        assert [] in exponents_b and [(y, 1)] in exponents_b
 
         # assert that the code has equivalent parameters
         equiv_code = codes.BBCode(orders, poly_a, poly_b, field=3)
@@ -220,10 +220,6 @@ def test_quasi_cyclic_codes() -> None:
     # not enough orders provided
     with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
         codes.QCCode([], x, y)
-
-    # invalid coefficients
-    with pytest.raises(ValueError, match="Coefficient .* is invalid"):
-        codes.QCCode([2], 2 * x, x)
 
     # add placeholder symbols if necessary
     code = codes.QCCode([1, 2, 3], x, x * y)
@@ -352,7 +348,7 @@ def test_twisted_XZZX(width: int = 3) -> None:
     ring_code = codes.RingCode(width).matrix.T
     mat_1 = np.kron(ring_code, np.eye(width, dtype=int))
     mat_2 = codes.RingCode(num_qudits // 2).matrix.T
-    matrix = block_matrix(
+    matrix = qldpc.math.block_matrix(
         [
             [mat_1, 0, 0, mat_2.T],
             [0, mat_1.T, -mat_2, 0],

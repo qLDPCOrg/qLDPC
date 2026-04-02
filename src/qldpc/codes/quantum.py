@@ -22,7 +22,6 @@ import collections
 import functools
 import itertools
 import math
-import operator
 import os
 from collections.abc import Collection, Sequence
 
@@ -412,57 +411,9 @@ class QCCode(TBCode):
         self.symbol_gens = dict(zip(self.symbols, self.group.generators))
 
         # build defining matrices of a quasi-cyclic code; transpose the lift by convention
-        matrix_a = self.eval(self.poly_a).lift().T
-        matrix_b = self.eval(self.poly_b).lift().T
+        matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
+        matrix_b = self.ring.eval(self.poly_b, self.symbol_gens).lift().T
         super().__init__(matrix_a, matrix_b, field, promise_equal_distance_xz=True, validate=False)
-
-    def eval(self, expression: sympy.Basic) -> abstract.RingMember:
-        """Convert a sympy expression into an element of this code's group algebra."""
-        if isinstance(expression, sympy.Poly):
-            terms = sympy.Add.make_args(expression.as_expr())
-            return functools.reduce(operator.add, [self.eval(term) for term in terms])
-
-        coeff, monomial = expression.as_coeff_Mul()
-        member = self.to_group_member(monomial)
-        if not 0 <= int(coeff) < self.ring.field.order:
-            raise ValueError(
-                f"Coefficient {coeff} in expression {expression} is invalid over the finite"
-                f" field GF({self.ring.field.order})"
-            )
-        return abstract.RingMember(self.ring, (int(coeff), member))
-
-    def to_group_member(
-        self, monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul
-    ) -> abstract.GroupMember:
-        """Convert a monomial into an associated member of this code's base group."""
-        _, exponents = self.get_coefficient_and_exponents(monomial)
-
-        output = self.group.identity
-        for base, exponent in exponents.items():
-            output *= self.symbol_gens[base] ** exponent
-        return output
-
-    @staticmethod
-    def get_coefficient_and_exponents(
-        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
-    ) -> tuple[int, dict[sympy.Symbol, int]]:
-        """Extract the coefficients and exponents in a monomial expression.
-
-        For example, this method takes 5 x**3 y**2 to (5, {x: 3, y: 2})."""
-        coeff, monomial = monomial.as_coeff_Mul()
-        exponents = {}
-        if isinstance(monomial, sympy.Integer):
-            coeff *= int(monomial)
-        elif isinstance(monomial, sympy.Symbol):
-            exponents[monomial] = 1
-        elif isinstance(monomial, sympy.Pow):
-            base, exponent = monomial.as_base_exp()
-            exponents[base] = exponent
-        elif isinstance(monomial, sympy.Mul):
-            for factor in monomial.args:
-                base, exponent = factor.as_base_exp()
-                exponents[base] = exponent
-        return coeff, exponents
 
     def get_canonical_form(
         self, poly: sympy.Poly, orders: tuple[int, ...] | None = None
@@ -474,7 +425,8 @@ class QCCode(TBCode):
         # canonialize and add one term ata time
         new_poly = sympy.core.numbers.Zero()
         for term in poly.args:
-            coeff, exponents = self.get_coefficient_and_exponents(term)
+            coeff, _exponents = abstract.get_coefficient_and_exponents(term)
+            exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
             new_term = sympy.core.numbers.One()
             for symbol, order in zip(self.symbols, orders):
@@ -521,8 +473,8 @@ class QCCode(TBCode):
         # build matrices for each term in A and B
         terms_a = sympy.Add.make_args(self.poly_a.as_expr())
         terms_b = sympy.Add.make_args(self.poly_b.as_expr())
-        matrices_a = [self.eval(term).lift().T for term in terms_a]
-        matrices_b = [self.eval(term).lift().T for term in terms_b]
+        matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
+        matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
 
         # collect edges by type and index of a term in A or B
         edges_XL: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
@@ -781,7 +733,8 @@ class BBCode(QCCode):
 
     def as_exponent_vector(self, monomial: sympy.Mul) -> tuple[int, int]:
         """Express the given monomial as a vector of exponents, as in x**3/y**2 -> (3, -2)."""
-        _, exponents = self.get_coefficient_and_exponents(monomial)
+        _, _exponents = abstract.get_coefficient_and_exponents(monomial)
+        exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
         return (exponents.get(self.symbols[0], 0), exponents.get(self.symbols[1], 0))
 
     def change_poly_basis(

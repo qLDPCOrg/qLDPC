@@ -430,6 +430,23 @@ class Group:
         generators = [gen.to_gap_cycles() for gen in self.generators]
         return f"Group({','.join(generators)})"
 
+    def eval(
+        self,
+        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
+        symbols: dict[sympy.Symbol, GroupMember],
+    ) -> GroupMember:
+        """Convert a Sympy monomial into an associated member of group."""
+        coeff, exponents = get_coefficient_and_exponents(monomial)
+        if coeff != 1:
+            raise ValueError(
+                "Only monomials with a coefficient of one can be converted into a GroupMember"
+                f" (provided: {monomial})"
+            )
+        output = self.identity
+        for base, exponent in exponents:
+            output *= symbols[base] ** exponent
+        return output
+
 
 ################################################################################
 # group algebra and elements thereof
@@ -501,6 +518,36 @@ class GroupRing:
     def one(self) -> RingMember:
         """One (multiplicative identity) element."""
         return RingMember(self, self.group.identity)
+
+    def eval(
+        self, poly: sympy.Basic, symbols: dict[sympy.Symbol, GroupMember] | None = None
+    ) -> RingMember:
+        """Convert a polynomial into a member of this ring."""
+        if symbols is None:
+            free_symbols = sorted(sympy.Poly(poly).free_symbols)
+            symbols = dict(zip(free_symbols, self.group.generators))
+
+        if isinstance(poly, sympy.Poly):
+            # evaluate this polynomial one monomial term at time
+            terms = sympy.Add.make_args(poly.as_expr())
+            evaluated_terms = [self.eval(term, symbols) for term in terms]
+            return functools.reduce(operator.add, evaluated_terms)
+
+        # split coefficient and variable content of this term
+        _coeff, monomial = poly.as_coeff_Mul()
+        coeff: int | galois.FieldArray = int(_coeff)
+        if not 0 <= coeff < self.field.order:
+            if self.field.degree == 1:
+                coeff = int(coeff) % self.field.order
+            elif -self.field.order < coeff < 0:
+                coeff = -self.field(-coeff)
+            else:
+                raise ValueError(
+                    f"The value of the coefficient {coeff} in expression {poly} is ambiguous over"
+                    f" the finite field GF({self.field.order})"
+                )
+        member = self.group.eval(monomial, symbols)
+        return RingMember(self, (coeff, member))
 
     def get_primitive_central_idempotents(self) -> tuple[RingMember, ...]:
         """Get the primitive central idempotents of this ring.
@@ -1506,3 +1553,30 @@ class ProjectiveSpecialLinearGroup(Group):
 
 SL = SpecialLinearGroup
 PSL = ProjectiveSpecialLinearGroup
+
+
+################################################################################
+# miscellaneous helper methods that don't quite belong in qldpc.math
+
+
+def get_coefficient_and_exponents(
+    monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
+) -> tuple[int, list[tuple[sympy.Symbol, int]]]:
+    """Extract the coefficients and exponents in a Sympy monomial expression.
+
+    For example, this method takes 5 x**3 y**2 to (5, [(x, 3), (y, 2)])."""
+    # TODO: make sure this deals with non-commutative variables properly.  Probably make it a test.
+    coeff, monomial = monomial.as_coeff_Mul()
+    exponents = []
+    if isinstance(monomial, sympy.Integer):
+        coeff *= int(monomial)
+    elif isinstance(monomial, sympy.Symbol):
+        exponents.append((monomial, 1))
+    elif isinstance(monomial, sympy.Pow):
+        base, exponent = monomial.as_base_exp()
+        exponents.append((base, exponent))
+    elif isinstance(monomial, sympy.Mul):
+        for factor in monomial.args:
+            base, exponent = factor.as_base_exp()
+            exponents.append((base, exponent))
+    return int(coeff), exponents
