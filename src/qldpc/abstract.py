@@ -435,7 +435,7 @@ class Group:
         monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
         symbols: dict[sympy.Symbol, GroupMember],
     ) -> GroupMember:
-        """Convert a Sympy monomial into a member of group."""
+        """Convert a SymPy monomial into a member of group."""
         coeff, exponents = get_coefficient_and_exponents(monomial)
         if coeff != 1:
             raise ValueError(
@@ -561,7 +561,7 @@ class GroupRing:
     def eval(
         self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
     ) -> RingMember:
-        """Convert a Sympy expression (such as a polynomial) into a member of this ring."""
+        """Convert a SymPy expression (such as a polynomial) into a member of this ring."""
         if isinstance(expression, (sympy.Poly, sympy.Add)):
             # evaluate this polynomial one monomial term at time
             terms = sympy.Add.make_args(expression.as_expr())
@@ -1592,7 +1592,7 @@ PSL = ProjectiveSpecialLinearGroup
 def get_coefficient_and_exponents(
     monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
 ) -> tuple[int, list[tuple[sympy.Symbol, int]]]:
-    """Extract the coefficients and exponents in a Sympy monomial expression.
+    """Extract the coefficients and exponents in a SymPy monomial expression.
 
     For example, this method takes 5 * x**3 * y**2 to (5, [(x, 3), (y, 2)]).
     """
