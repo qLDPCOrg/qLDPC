@@ -1587,7 +1587,6 @@ def get_coefficient_and_exponents(
     """Extract the coefficients and exponents in a Sympy monomial expression.
 
     For example, this method takes 5 x**3 y**2 to (5, [(x, 3), (y, 2)])."""
-    # TODO: make sure this deals with non-commutative variables properly.  Probably make it a test.
     coeff, monomial = monomial.as_coeff_Mul()
     exponents = []
     if isinstance(monomial, sympy.Integer):

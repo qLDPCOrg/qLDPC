@@ -210,7 +210,7 @@ def test_ring() -> None:
     assert poly_r == ring.eval(poly_x, symbols)
 
     wrong_symbols = {x_i: r_i, x_j: r_j}
-    with pytest.raises(ValueError, match="GroupMember-valued"):
+    with pytest.raises(ValueError, match="must be GroupMember-valued"):
         ring.eval(1, wrong_symbols)
 
     # edge cases with non-prime number fields
