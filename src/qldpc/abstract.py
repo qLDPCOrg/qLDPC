@@ -435,7 +435,7 @@ class Group:
         monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
         symbols: dict[sympy.Symbol, GroupMember],
     ) -> GroupMember:
-        """Convert a Sympy monomial into an associated member of group."""
+        """Convert a Sympy monomial into a member of group."""
         coeff, exponents = get_coefficient_and_exponents(monomial)
         if coeff != 1:
             raise ValueError(
@@ -532,8 +532,10 @@ class GroupRing:
         coeff: int | galois.FieldArray = int(_coeff)
         if not 0 <= coeff < self.field.order:
             if self.field.degree == 1:
+                # there is no ambiguity over prime number fields
                 coeff = int(coeff) % self.field.order
             elif -self.field.order < coeff < 0:
+                # negative coefficients correspond to additive inverses
                 coeff = -self.field(-coeff)
             else:
                 raise ValueError(
