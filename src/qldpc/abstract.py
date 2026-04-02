@@ -558,11 +558,13 @@ class GroupRing:
             idempotents.append(RingMember(self, *terms))
         return tuple(idempotents)
 
-    def eval(self, poly: sympy.Basic | int, symbols: dict[sympy.Symbol, GroupMember]) -> RingMember:
-        """Convert a polynomial into a member of this ring."""
-        if isinstance(poly, (sympy.Poly, sympy.Add)):
+    def eval(
+        self, expression: sympy.Basic | int, symbols: dict[sympy.Symbol, GroupMember]
+    ) -> RingMember:
+        """Convert a Sympy expression (such as a polynomial) into a member of this ring."""
+        if isinstance(expression, (sympy.Poly, sympy.Add)):
             # evaluate this polynomial one monomial term at time
-            terms = sympy.Add.make_args(poly.as_expr())
+            terms = sympy.Add.make_args(expression.as_expr())
             evaluated_terms = [self.eval(term, symbols) for term in terms]
             return functools.reduce(operator.add, evaluated_terms)
 
@@ -570,11 +572,11 @@ class GroupRing:
         if any(not isinstance(value, GroupMember) for value in symbols.values()):
             raise ValueError("The symbols passed to Ring.eval must be GroupMember-valued")
 
-        if isinstance(poly, int):
-            poly = sympy.Integer(poly)
+        if isinstance(expression, int):
+            expression = sympy.Integer(expression)
 
         # split coefficient and variable content of this term
-        _coeff, monomial = poly.as_coeff_Mul()
+        _coeff, monomial = expression.as_coeff_Mul()
         coeff: int | galois.FieldArray = int(_coeff)
         if not 0 <= coeff < self.field.order:
             if self.field.degree == 1:
@@ -585,11 +587,11 @@ class GroupRing:
                 coeff = -self.field(-coeff)
             else:
                 raise ValueError(
-                    f"The value of the coefficient {coeff} in expression {poly} is ambiguous over"
-                    f" the finite field GF({self.field.order})"
+                    f"The value of the coefficient {coeff} in expression {expression} is ambiguous"
+                    f" over the finite field GF({self.field.order})"
                 )
-        member = self.group.eval(monomial, symbols)
-        return RingMember(self, (coeff, member))
+        group_member = self.group.eval(monomial, symbols)
+        return RingMember(self, (coeff, group_member))
 
 
 class RingMember:
