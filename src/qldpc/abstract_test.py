@@ -211,7 +211,7 @@ def test_ring() -> None:
 
     wrong_symbols = {x_i: r_i, x_j: r_j}
     with pytest.raises(ValueError, match="must be GroupMember-valued"):
-        ring.eval(1, wrong_symbols)
+        ring.eval(1, wrong_symbols)  # type:ignore[arg-type]
 
     # edge cases with non-prime number fields
     ring = abstract.GroupRing(group, field=4)

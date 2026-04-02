@@ -566,6 +566,7 @@ class GroupRing:
             evaluated_terms = [self.eval(term, symbols) for term in terms]
             return functools.reduce(operator.add, evaluated_terms)
 
+        # helpful error message
         if any(not isinstance(value, GroupMember) for value in symbols.values()):
             raise ValueError("The symbols passed to Ring.eval must be GroupMember-valued")
 
