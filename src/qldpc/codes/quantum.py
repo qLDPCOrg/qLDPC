@@ -1249,10 +1249,10 @@ class LPCode(CSSCode):
 
         num_copies = 5  # the number of surface codes to stitch together
         group = CyclicGroup(num_copies)
-        ring = GroupRing(group)
-        x = RingMember(ring, group.generators[0])  # generator of the cyclic group
+        x = group.generators[0]  # generator of the cyclic group
 
         # stitch together small surface codes by hand
+        ring = GroupRing(group)
         rep_matrix = RingArray.build([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], ring)
         int_matrix = RingArray.build([[0, x, 0, 0], [0, 0, x, 0], [0, 0, 0, x]], ring)
         code = LPCode(rep_matrix + int_matrix)
@@ -1326,7 +1326,7 @@ class SLPCode(CSSCode):
 
         group = CyclicGroup(2)
         ring = GroupRing(group)
-        x = group.generators[0]
+        x = group.generators[0]  # generator of the cyclic group
         matrix = RingArray.build([[1, x, x], [x, x, 1]], ring)  # Eq. 21 of arXiv:2404.18302v1
         code = SLPCode(matrix)
         assert code.get_code_params() == (18, 4, 2)
@@ -1335,7 +1335,7 @@ class SLPCode(CSSCode):
 
         group = CyclicGroup(3)
         ring = GroupRing(group)
-        x = RingMember(ring, group.generators[0])
+        x = ring.generators[0]    # generator of the cyclic group, as a member of the ring
         matrix = RingArray([[ring.one + x + x**2, ring.one + x, x]])  # Eq. 23 of arXiv:2404.18302v1
         code = SLPCode(matrix)
         assert code.get_code_params() == (27, 12, 2)

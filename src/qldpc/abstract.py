@@ -501,6 +501,11 @@ class GroupRing:
         """Is this ring semisimple?"""
         return bool(self.group.order % self.field.characteristic)
 
+    @property
+    def generators(self) -> list[RingMember]:
+        """Generators of this ring's base group."""
+        return [RingMember(self, gen) for gen in self.group.generators]
+
     def regular_lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
         """Lift a group member to its regular representation."""
         return self.group.regular_lift(member)
@@ -518,32 +523,6 @@ class GroupRing:
     def one(self) -> RingMember:
         """One (multiplicative identity) element."""
         return RingMember(self, self.group.identity)
-
-    def eval(self, poly: sympy.Basic, symbols: dict[sympy.Symbol, GroupMember]) -> RingMember:
-        """Convert a polynomial into a member of this ring."""
-        if isinstance(poly, sympy.Poly):
-            # evaluate this polynomial one monomial term at time
-            terms = sympy.Add.make_args(poly.as_expr())
-            evaluated_terms = [self.eval(term, symbols) for term in terms]
-            return functools.reduce(operator.add, evaluated_terms)
-
-        # split coefficient and variable content of this term
-        _coeff, monomial = poly.as_coeff_Mul()
-        coeff: int | galois.FieldArray = int(_coeff)
-        if not 0 <= coeff < self.field.order:
-            if self.field.degree == 1:
-                # there is no ambiguity over prime number fields
-                coeff = int(coeff) % self.field.order
-            elif -self.field.order < coeff < 0:
-                # negative coefficients correspond to additive inverses
-                coeff = -self.field(-coeff)
-            else:
-                raise ValueError(
-                    f"The value of the coefficient {coeff} in expression {poly} is ambiguous over"
-                    f" the finite field GF({self.field.order})"
-                )
-        member = self.group.eval(monomial, symbols)
-        return RingMember(self, (coeff, member))
 
     def get_primitive_central_idempotents(self) -> tuple[RingMember, ...]:
         """Get the primitive central idempotents of this ring.
@@ -578,6 +557,32 @@ class GroupRing:
             ]
             idempotents.append(RingMember(self, *terms))
         return tuple(idempotents)
+
+    def eval(self, poly: sympy.Basic, symbols: dict[sympy.Symbol, GroupMember]) -> RingMember:
+        """Convert a polynomial into a member of this ring."""
+        if isinstance(poly, sympy.Poly):
+            # evaluate this polynomial one monomial term at time
+            terms = sympy.Add.make_args(poly.as_expr())
+            evaluated_terms = [self.eval(term, symbols) for term in terms]
+            return functools.reduce(operator.add, evaluated_terms)
+
+        # split coefficient and variable content of this term
+        _coeff, monomial = poly.as_coeff_Mul()
+        coeff: int | galois.FieldArray = int(_coeff)
+        if not 0 <= coeff < self.field.order:
+            if self.field.degree == 1:
+                # there is no ambiguity over prime number fields
+                coeff = int(coeff) % self.field.order
+            elif -self.field.order < coeff < 0:
+                # negative coefficients correspond to additive inverses
+                coeff = -self.field(-coeff)
+            else:
+                raise ValueError(
+                    f"The value of the coefficient {coeff} in expression {poly} is ambiguous over"
+                    f" the finite field GF({self.field.order})"
+                )
+        member = self.group.eval(monomial, symbols)
+        return RingMember(self, (coeff, member))
 
 
 class RingMember:
@@ -1263,17 +1268,19 @@ class SymmetricGroup(Group):
 class QuaternionGroup(Group):
     """Quaternion group: 1, i, j, k, -1, -i, -j, -k."""
 
+    # multiplication table for this group
+    _table = [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [1, 4, 3, 6, 5, 0, 7, 2],
+        [2, 7, 4, 1, 6, 3, 0, 5],
+        [3, 2, 5, 4, 7, 6, 1, 0],
+        [4, 5, 6, 7, 0, 1, 2, 3],
+        [5, 0, 7, 2, 1, 4, 3, 6],
+        [6, 3, 0, 5, 2, 7, 4, 1],
+        [7, 6, 1, 0, 3, 2, 5, 4],
+    ]
+
     def __init__(self) -> None:
-        table = [
-            [0, 1, 2, 3, 4, 5, 6, 7],
-            [1, 4, 3, 6, 5, 0, 7, 2],
-            [2, 7, 4, 1, 6, 3, 0, 5],
-            [3, 2, 5, 4, 7, 6, 1, 0],
-            [4, 5, 6, 7, 0, 1, 2, 3],
-            [5, 0, 7, 2, 1, 4, 3, 6],
-            [6, 3, 0, 5, 2, 7, 4, 1],
-            [7, 6, 1, 0, 3, 2, 5, 4],
-        ]
 
         def integer_lift(member: int) -> npt.NDArray[np.int_]:
             """Representation from https://en.wikipedia.org/wiki/Quaternion_group."""
@@ -1293,8 +1300,21 @@ class QuaternionGroup(Group):
                 blocks = [[zero, -imag], [-imag, zero]]
             return sign * (np.block(blocks).T % 3).view(galois.GF(3))
 
-        group = Group.from_table(table, integer_lift=integer_lift)
+        group = Group.from_table(self._table, integer_lift=integer_lift)
         super()._init_from_group(group, name=QuaternionGroup.__name__)
+
+    @property
+    def generators(self) -> list[GroupMember]:
+        """Generators of the quaternion group: [i, j]."""
+        return [GroupMember(self._table[1]), GroupMember(self._table[2])]
+
+    def generate(self) -> Iterator[GroupMember]:
+        """Iterate over all group members."""
+        ii, jj = self.generators
+        kk = ii * jj
+        one = self.identity
+        minus_one = ii * ii
+        yield from [one, ii, jj, kk, minus_one, minus_one * ii, minus_one * jj, minus_one * kk]
 
 
 class SmallGroup(Group):

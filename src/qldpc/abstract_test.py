@@ -150,6 +150,12 @@ def test_random_symmetric_subset() -> None:
         group.random_symmetric_subset(size=0)
 
 
+def test_quaternion_group() -> None:
+    """Validate the multiplication table for the quaternion group."""
+    group = abstract.QuaternionGroup()
+    assert np.array_equal(group.table, group._table)
+
+
 def test_ring() -> None:
     """Construct elements of a group algebra."""
     group: abstract.Group
@@ -190,6 +196,14 @@ def test_ring() -> None:
     group = abstract.CyclicGroup(2)
     ring_member = abstract.RingMember(group, group.identity, *group.generators)
     assert ring_member.inverse() is None
+
+    # evaluate polynomials
+    group = abstract.QuaternionGroup()
+    ring = abstract.GroupRing(group, field=3)
+    ii, jj = ring.generators
+    print()
+    print()
+    print(ii, jj)
 
 
 def test_primitive_central_idempotents() -> None:
@@ -300,15 +314,18 @@ def test_ring_row_reduce(ring: abstract.GroupRing, pytestconfig: pytest.Config) 
     matrix: list[list[int | abstract.RingMember]] | abstract.RingArray
 
     one = ring.one
-    gen = ring.group.generators[0] * one
+    gen = ring.generators[0]
+    gen_inverse = gen.inverse()
+    assert gen_inverse is not None
+
     matrix = [
         [one + gen, gen],
         [gen + gen**2, gen**2],
         [0, one + gen],
     ]
     reduced_matrix = [
-        [gen.inverse() + one, one],
-        [-(one + gen) * (gen.inverse() + one), 0],
+        [gen_inverse + one, one],
+        [-(one + gen) * (gen_inverse + one), 0],
     ]
     assert np.array_equal(
         abstract.RingArray.build(matrix, ring).row_reduce(),

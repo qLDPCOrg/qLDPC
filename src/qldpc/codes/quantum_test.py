@@ -358,7 +358,7 @@ def test_twisted_XZZX(width: int = 3) -> None:
     # construct lifted product code
     group = abstract.CyclicGroup(num_qudits // 2)
     ring = abstract.GroupRing(group)
-    shift = abstract.RingMember(ring, group.generators[0])
+    shift = ring.generators[0]
     element_a = ring.one - shift**width
     element_b = ring.one - shift
     code = codes.LPCode([[element_a]], [[element_b]])
