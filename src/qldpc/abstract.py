@@ -558,13 +558,19 @@ class GroupRing:
             idempotents.append(RingMember(self, *terms))
         return tuple(idempotents)
 
-    def eval(self, poly: sympy.Basic, symbols: dict[sympy.Symbol, GroupMember]) -> RingMember:
+    def eval(self, poly: sympy.Basic | int, symbols: dict[sympy.Symbol, GroupMember]) -> RingMember:
         """Convert a polynomial into a member of this ring."""
-        if isinstance(poly, sympy.Poly):
+        if isinstance(poly, (sympy.Poly, sympy.Add)):
             # evaluate this polynomial one monomial term at time
             terms = sympy.Add.make_args(poly.as_expr())
             evaluated_terms = [self.eval(term, symbols) for term in terms]
             return functools.reduce(operator.add, evaluated_terms)
+
+        if any(not isinstance(value, GroupMember) for value in symbols.values()):
+            raise ValueError("The symbols passed to Ring.eval must be GroupMember-valued")
+
+        if isinstance(poly, int):
+            poly = sympy.Integer(poly)
 
         # split coefficient and variable content of this term
         _coeff, monomial = poly.as_coeff_Mul()

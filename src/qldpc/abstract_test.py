@@ -200,10 +200,24 @@ def test_ring() -> None:
     # evaluate polynomials
     group = abstract.QuaternionGroup()
     ring = abstract.GroupRing(group, field=3)
-    ii, jj = ring.generators
-    print()
-    print()
-    print(ii, jj)
+    g_i, g_j = group.generators
+    r_i, r_j = ring.generators
+    x_i = sympy.Symbol("x_i")
+    x_j = sympy.Symbol("x_j")
+    symbols = {x_i: g_i, x_j: g_j}
+    poly_r = 4 * r_i**2 - 2 * r_i * r_j
+    poly_x = 4 * x_i**2 - 2 * x_i * x_j
+    assert poly_r == ring.eval(poly_x, symbols)
+
+    wrong_symbols = {x_i: r_i, x_j: r_j}
+    with pytest.raises(ValueError, match="GroupMember-valued"):
+        ring.eval(1, wrong_symbols)
+
+    # edge cases with non-prime number fields
+    ring = abstract.GroupRing(group, field=4)
+    assert ring.eval(-3, symbols) == -ring.eval(3, symbols)
+    with pytest.raises(ValueError, match="The value of the coefficient .* is ambiguous"):
+        ring.eval(5, symbols)
 
 
 def test_primitive_central_idempotents() -> None:
