@@ -439,7 +439,7 @@ class Group:
         coeff, exponents = get_coefficient_and_exponents(monomial)
         if coeff != 1:
             raise ValueError(
-                "Only monomials with a coefficient of one can be converted into a GroupMember"
+                "Only monomials with a coefficient of 1 can be converted into a GroupMember"
                 f" (provided: {monomial})"
             )
         output = self.identity
@@ -519,14 +519,8 @@ class GroupRing:
         """One (multiplicative identity) element."""
         return RingMember(self, self.group.identity)
 
-    def eval(
-        self, poly: sympy.Basic, symbols: dict[sympy.Symbol, GroupMember] | None = None
-    ) -> RingMember:
+    def eval(self, poly: sympy.Basic, symbols: dict[sympy.Symbol, GroupMember]) -> RingMember:
         """Convert a polynomial into a member of this ring."""
-        if symbols is None:
-            free_symbols = sorted(sympy.Poly(poly).free_symbols)
-            symbols = dict(zip(free_symbols, self.group.generators))
-
         if isinstance(poly, sympy.Poly):
             # evaluate this polynomial one monomial term at time
             terms = sympy.Add.make_args(poly.as_expr())

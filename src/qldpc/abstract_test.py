@@ -17,20 +17,27 @@ limitations under the License.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import math
+import operator
+import random
 import unittest.mock
 from collections.abc import Callable
 
 import numpy as np
 import numpy.typing as npt
 import pytest
+import sympy
 
 from qldpc import abstract
 
 
-def test_permutation_group() -> None:
+def test_permutation_group(pytestconfig: pytest.Config) -> None:
     """Permutation members and group construction."""
+    seed = pytestconfig.getoption("randomly_seed")
+    random.seed(seed)
+
     gens = [abstract.GroupMember(seq) for seq in ([0, 1, 2], [1, 2, 0], [2, 0, 1])]
     assert gens[0] < gens[1] < gens[2]
 
@@ -46,6 +53,19 @@ def test_permutation_group() -> None:
     gens = [abstract.GroupMember(seq) for seq in itertools.permutations([0, 1, 2])]
     group = abstract.Group(*gens)
     assert not group.is_abelian
+
+    random.shuffle(gens)
+    symbols = {sympy.Symbol(f"x_{ii}", commutative=False): gen for ii, gen in enumerate(gens)}
+    exponents = [random.randint(-3, 3) for _ in range(len(gens))]
+    monomial = functools.reduce(
+        operator.mul, [symbol**exponent for symbol, exponent in zip(symbols, exponents)]
+    )
+    member = functools.reduce(
+        operator.mul, [gen**exponent for gen, exponent in zip(gens, exponents)]
+    )
+    assert member == group.eval(monomial, symbols)
+    with pytest.raises(ValueError, match="Only monomials with a coefficient of 1"):
+        group.eval(5 * monomial, symbols)
 
     assert abstract.Group.from_generating_mats([[1]]) == abstract.CyclicGroup(1)
 
@@ -197,8 +217,11 @@ def test_primitive_central_idempotents() -> None:
         assert all(idempotent == idempotent * idempotent for idempotent in idempotents)
 
 
-def test_ring_array() -> None:
+def test_ring_array(pytestconfig: pytest.Config) -> None:
     """Construct and lift a RingArray."""
+    seed = pytestconfig.getoption("randomly_seed")
+    np.random.seed(seed)
+
     int_matrix = np.random.randint(2, size=(3, 3))
     matrix = abstract.TrivialGroup.to_ring_array(int_matrix)
     assert matrix.group == abstract.TrivialGroup()
