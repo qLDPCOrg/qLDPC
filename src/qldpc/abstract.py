@@ -432,7 +432,7 @@ class Group:
 
     def eval(
         self,
-        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int,
+        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
         symbols: dict[sympy.Symbol, GroupMember],
     ) -> GroupMember:
         """Convert a Sympy monomial into a member of group."""
@@ -559,7 +559,7 @@ class GroupRing:
         return tuple(idempotents)
 
     def eval(
-        self, expression: sympy.Basic | int, symbols: dict[sympy.Symbol, GroupMember]
+        self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
     ) -> RingMember:
         """Convert a Sympy expression (such as a polynomial) into a member of this ring."""
         if isinstance(expression, (sympy.Poly, sympy.Add)):
@@ -573,7 +573,7 @@ class GroupRing:
             raise ValueError("The symbols passed to Ring.eval must be GroupMember-valued")
 
         # if applicable, convert python integers into SymPy integers
-        if isinstance(expression, int):
+        if isinstance(expression, (int, np.int_)):
             expression = sympy.Integer(expression)
 
         # factor this term into its coefficient and variable content
@@ -1590,12 +1590,12 @@ PSL = ProjectiveSpecialLinearGroup
 
 
 def get_coefficient_and_exponents(
-    monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int,
+    monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
 ) -> tuple[int, list[tuple[sympy.Symbol, int]]]:
     """Extract the coefficients and exponents in a Sympy monomial expression.
 
     For example, this method takes 5 x**3 y**2 to (5, [(x, 3), (y, 2)])."""
-    if isinstance(monomial, (sympy.Integer, int)):
+    if isinstance(monomial, (sympy.Integer, int, np.int_)):
         return int(monomial), []
     coeff, monomial = monomial.as_coeff_Mul()
     exponents = []
