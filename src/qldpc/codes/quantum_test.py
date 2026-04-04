@@ -255,6 +255,37 @@ def test_hypergraph_product(
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), validate=True)
 
+    # verify X and Z distance
+    dist_x = code.get_distance(Pauli.X)
+    dist_z = code.get_distance(Pauli.Z)
+    code._get_distance_exact = lambda _: NotImplemented  # type:ignore[method-assign,assignment]
+    assert dist_x == code.get_distance(Pauli.X)
+    assert dist_z == code.get_distance(Pauli.Z)
+
+
+def test_cyclic_hypergraph_product_codes() -> None:
+    """CHGPCode and CRCode."""
+
+    # verify Remark 3 from arxiv:2511.09683v2
+    code_a = codes.CHGPCode((4, 4), 1 - x, 1 - y, field=3)
+    code_b = codes.ToricCode(4, rotated=False, field=3)
+    assert np.array_equal(code_a.matrix_x, code_b.matrix_x)
+    assert np.array_equal(code_a.matrix_z, code_b.matrix_z)
+
+    # reproduce Table 3 from arxiv:2511.09683v2
+    chgp_codes = {
+        (15, 1 + x + x**4): ((450, 32, 8), (240, 8, 8)),
+        (21, 1 + x + x**5): ((882, 50, 10), (420, 10, 10)),
+        (28, 1 + x**2 + x**4 + x**10): ((1568, 200, 6), (336, 20, 6)),
+        (21, 1 + x + x**3 + x**8): ((882, 98, 8), (336, 14, 8)),
+        (30, 1 + x + x**2 + x**7): ((1800, 72, 14), (840, 12, 14)),
+        (31, 1 + x + x**2 + x**6 + x**27): ((1922, 200, 10), (620, 20, 10)),
+        (31, 1 + x + x**3 + x**9 + x**10): ((1922, 200, 12), (744, 20, 12)),
+    }
+    for (bits, poly), (c2_params, cr_params) in chgp_codes.items():
+        assert codes.CHGPCode(bits, poly).get_code_params() == c2_params
+        assert codes.CRCode(bits, poly).get_code_params() == cr_params
+
 
 @pytest.mark.parametrize("field", [2, 3])
 def test_subsystem_hypergraph_product(

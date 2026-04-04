@@ -148,7 +148,8 @@ def get_layout_search_space(
     - a relative shift (between L and R) of the qubit plaquettes of the BBCode.
     """
     # identify the sets of lattice vectors that are used to relabel qubit plaquettes
-    vector_pairs = itertools.combinations(np.ndindex(code.orders), 2)
+    vectors: list[tuple[int, int]] = list(np.ndindex(code.orders))  # type:ignore[arg-type]
+    vector_pairs = itertools.combinations(vectors, 2)
     lattice_vectors = [
         (vec_a, vec_b) if code.get_order(vec_a) >= code.get_order(vec_b) else (vec_b, vec_a)
         for vec_a, vec_b in vector_pairs
@@ -177,7 +178,7 @@ def get_layout_search_space(
             ]
 
         for basis_r in bases_r:
-            for shift_lr in np.ndindex(code.orders):
+            for shift_lr in vectors:
                 yield basis_l, basis_r, shift_lr
 
 
@@ -457,7 +458,7 @@ def get_completed_qubit_pos_func(
             lattice_shape = lattice_shape[::-1]
 
     # identify indices of lattice sites occupied by data qubits
-    data_qubit_loc_indices = np.ravel_multi_index(data_qubit_locs.T, dims=lattice_shape)
+    data_qubit_loc_indices = np.ravel_multi_index(tuple(data_qubit_locs.T), dims=lattice_shape)
 
     # identify unoccupied lattice sites and the indices of those lattice sites
     all_loc_indices = np.arange(len(code), dtype=int)

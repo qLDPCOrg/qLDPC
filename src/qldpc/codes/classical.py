@@ -24,7 +24,9 @@ import galois
 import networkx as nx
 import numpy as np
 import numpy.typing as npt
+import sympy
 
+from qldpc import abstract
 from qldpc.abstract import DEFAULT_FIELD_ORDER
 
 from .common import ClassicalCode
@@ -56,6 +58,29 @@ class RingCode(ClassicalCode):
 
         self._dimension = 1
         self._distance = bits
+
+
+class CyclicCode(ClassicalCode):
+    """Classical cyclic code.
+
+    A CyclicCode is determined by an integer block length and an integer polynomial in one variable.
+    The parity check matrix of a CyclicCode is obtained by interpreting the polynomial as an element
+    of a cyclic group algebra, and lifting this polynomial to a square matrix.  The multiplicative
+    identity and the generator of the group correspond, respectively, to the identity and shift
+    matrices.
+
+    The CyclicCode with polynomial 1 - x is a RingCode.
+    """
+
+    def __init__(self, bits: int, poly: sympy.Basic, field: int | None = None) -> None:
+        """Construct a cyclic code from a block length and a polynomial in one variable."""
+        if not isinstance(poly, sympy.Basic) or not len(poly.free_symbols) == 1:
+            raise ValueError(f"{poly} is not a univariate polynomial")
+        group = abstract.CyclicGroup(bits)
+        ring = abstract.GroupRing(group, field)
+        symbols = dict(zip(poly.free_symbols, group.generators))
+        matrix = ring.eval(poly, symbols).lift().T  # transpose the lift by convention
+        super().__init__(matrix, field)
 
 
 class HammingCode(ClassicalCode):
