@@ -1159,10 +1159,10 @@ class CHGPCode(HGPCode):
 
         If provided only one block length or one polynomial, use it for both underlying CyclicCodes.
         """
-        try:
-            bits_a = bits_b = int(dims)
-        except TypeError:
+        if hasattr(dims, "__iter__"):
             bits_a, bits_b = dims
+        else:
+            bits_a = bits_b = int(dims)
         code_a = CyclicCode(bits_a, poly_a, field)
         code_b = CyclicCode(bits_b, poly_b or poly_a, field)
         super().__init__(code_a, code_b, field)
