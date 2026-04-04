@@ -2092,11 +2092,11 @@ class T4Code(CSSCode):
         super().__init__(matrix_x, matrix_z, field)
 
     def get_edges(self) -> Sequence[tuple[int, int]]:
-        """Identify edges in the standard integer lattice Z^4 with pairs (i,j)
-        where i in Z^4 is the source vertex and j = 0,1,2,3 is the direction,
-        then project to the torus.
-        """
+        """Identify edges in the standard integer lattice Z^4.
 
+        Each edge is identified by a pair (ss, dd), where ss in Z^4 is the source vertex, and dd in
+        {0,1,2,3} is the direction, then project to the torus.
+        """
         I4 = np.eye(4, dtype=np.int32)
         diag = self.lattice_basis.diagonal()
         vertices = list(itertools.product(*[range(n) for n in diag]))
@@ -2110,19 +2110,17 @@ class T4Code(CSSCode):
                 edges.append((i, k))
         return edges
 
-    def target_vertex(self, n: int) -> int:
-        return self.edges[n][1]
+    def target_vertex(self, index: int) -> int:
+        return self.edges[index][1]
 
     def d1(self, n: int) -> npt.NDArray[np.int_]:
-        """Boundary operator: F[edges] -> F[vertices]."""
-
+        """Boundary operator: F[vertices] <- F[edges]."""
         IV = self.field.Identity(self.num_vertices)
         source, target = self.edges[n]
         return IV[target] - IV[source]
 
     def d2(self, n: int) -> npt.NDArray[np.int_]:
-        """Boundary operator: F[squares] -> F[edges]."""
-
+        """Boundary operator: F[edges] <- F[squares]."""
         I4V = self.field.Identity(4 * self.num_vertices)
         v, (i, j) = n // 6, self.face_basis[n % 6]
         bottom_edge = 4 * v + i
@@ -2132,12 +2130,11 @@ class T4Code(CSSCode):
         return I4V[bottom_edge] - I4V[top_edge] + I4V[right_edge] - I4V[left_edge]
 
     def d3(self, n: int) -> npt.NDArray[np.int_]:
-        """Boundary operator: F[cubes] -> F[squares].
+        """Boundary operator: F[squares] <- F[cubes].
 
-        For the boundary of a general cubical complex,
-        see Section 2.2.3 of the book 'Computational Homology' by T. Kaczynski, K. Mischaikow, and M. Mrozek.
+        For the boundary of a general cubical complex.
+        See Section 2.2.3 of "Computational Homology" by T. Kaczynski, K. Mischaikow, and M. Mrozek.
         """
-
         I6V = self.field.Identity(6 * self.num_vertices)
         v, (i, j, k) = n // 4, (idx for idx in range(4) if idx != n % 4)
         vi = self.target_vertex(4 * v + i)
