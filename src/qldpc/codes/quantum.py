@@ -1180,7 +1180,7 @@ class CRCode(HGPCode):
     def __init__(self, bits: int, poly: sympy.Basic, field: int | None = None) -> None:
         """Construct a CRCode from the block length and univariate polynomial of a CyclicCode.
 
-        The block length of the RingCode used in the hypergraph product is equal to the distance of
+        The block length of the RingCode used in the hypergraph product is set to the distance of
         the CyclicCode.
         """
         cyclic_code = CyclicCode(bits, poly, field)
