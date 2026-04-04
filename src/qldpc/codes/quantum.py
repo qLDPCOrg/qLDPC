@@ -1089,6 +1089,9 @@ class HGPCode(CSSCode):
         These operators are essentially those in Lemma 1 of arXiv:2204.10812v3, modified using pivot
         matrices similarly to Theorem VIII.10 of arXiv:2502.07150v1 to ensure pair-wise
         anti-commutation relations.
+
+        X-type logical operators are "horizontal" in sector (0, 0) and "vertical" in sector (1, 1).
+        Vice versa for Z-type logical operators.
         """
         assert code_a.field is code_b.field
         code_field = code_a.field
