@@ -39,16 +39,12 @@ def test_basic() -> None:
 def test_cyclic_codes() -> None:
     """Cyclic codes."""
 
-    with pytest.raises(ValueError, match="not a univariate polynomial"):
-        codes.CyclicCode(3, 4)
-
-    with pytest.raises(ValueError, match="not a univariate polynomial"):
-        codes.CyclicCode(5, x + y)
-
     # the RingCode is a CyclicCode
-    assert codes.RingCode(10, 9).is_equiv_to(codes.CyclicCode(10, 1 - x, 9))
+    code_a = codes.CyclicCode(5, 1 - x, field=9)
+    code_b = codes.RingCode(5, field=9)
+    assert np.array_equal(code_a.matrix, code_b.matrix)
 
-    # reproduce Table 2 from arxiv:2511.09683
+    # reproduce Table 2 from arxiv:2511.09683v2
     cyclic_codes = {
         (15, 1 + x + x**4): (15, 4, 8),
         (21, 1 + x + x**5): (21, 5, 10),
@@ -60,6 +56,12 @@ def test_cyclic_codes() -> None:
     }
     for (bits, poly), params in cyclic_codes.items():
         assert codes.CyclicCode(bits, poly).get_code_params() == params
+
+    with pytest.raises(ValueError, match="not a univariate polynomial"):
+        codes.CyclicCode(3, 4)
+
+    with pytest.raises(ValueError, match="not a univariate polynomial"):
+        codes.CyclicCode(5, x + y)
 
 
 def test_special_codes() -> None:

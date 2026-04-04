@@ -79,7 +79,7 @@ class CyclicCode(ClassicalCode):
         group = abstract.CyclicGroup(bits)
         ring = abstract.GroupRing(group, field)
         symbols = dict(zip(poly.free_symbols, group.generators))
-        matrix = ring.eval(poly, symbols).lift()
+        matrix = ring.eval(poly, symbols).lift().T  # transpose the lift by convention
         super().__init__(matrix, field)
 
 

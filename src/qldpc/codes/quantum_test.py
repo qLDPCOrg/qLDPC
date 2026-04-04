@@ -259,10 +259,13 @@ def test_hypergraph_product(
 def test_cyclic_hypergraph_product_codes() -> None:
     """CHGPCode and CRCode."""
 
-    # Verify Remark 3 from arxiv:2511.09683.
-    assert codes.CHGPCode((4, 4), 1 + x, 1 + y).is_equiv_to(codes.ToricCode(4, rotated=False))
+    # verify Remark 3 from arxiv:2511.09683v2
+    code_a = codes.CHGPCode((4, 4), 1 - x, 1 - y, field=3)
+    code_b = codes.ToricCode(4, rotated=False, field=3)
+    assert np.array_equal(code_a.matrix_x, code_b.matrix_x)
+    assert np.array_equal(code_a.matrix_z, code_b.matrix_z)
 
-    # Reproduce Table 3 from arxiv:2511.09683.
+    # reproduce Table 3 from arxiv:2511.09683v2
     chgp_codes = {
         (15, 1 + x + x**4): ((450, 32, 8), (240, 8, 8)),
         (21, 1 + x + x**5): ((882, 50, 10), (420, 10, 10)),
