@@ -39,16 +39,16 @@ def test_basic() -> None:
 def test_cyclic_codes() -> None:
     """Cyclic codes."""
 
-    with pytest.raises(ValueError, match="not a polynomial"):
+    with pytest.raises(ValueError, match="not a univariate polynomial"):
         codes.CyclicCode(3, 4)
 
-    with pytest.raises(ValueError, match="not univariate"):
+    with pytest.raises(ValueError, match="not a univariate polynomial"):
         codes.CyclicCode(5, x + y)
 
-    # Ring codes are cyclic.
+    # the RingCode is a CyclicCode
     assert codes.RingCode(10, 9).is_equiv_to(codes.CyclicCode(10, 1 - x, 9))
 
-    # Reproduce Table 2 from arxiv:2511.09683.
+    # reproduce Table 2 from arxiv:2511.09683
     cyclic_codes = {
         (15, 1 + x + x**4): (15, 4, 8),
         (21, 1 + x + x**5): (21, 5, 10),
