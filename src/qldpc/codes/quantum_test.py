@@ -255,6 +255,13 @@ def test_hypergraph_product(
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), validate=True)
 
+    # verify X and Z distance
+    dist_x = code.get_distance(Pauli.X)
+    dist_z = code.get_distance(Pauli.Z)
+    code._get_distance_exact = lambda _: NotImplemented  # type:ignore[method-assign,assignment]
+    assert dist_x == code.get_distance(Pauli.X)
+    assert dist_z == code.get_distance(Pauli.Z)
+
 
 def test_cyclic_hypergraph_product_codes() -> None:
     """CHGPCode and CRCode."""

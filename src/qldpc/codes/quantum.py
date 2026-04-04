@@ -1119,24 +1119,25 @@ class HGPCode(CSSCode):
         return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
-        """Exact distance calculation for hypergraph product codes, from arXiv:2308.15520."""
-        if pauli is not None:
-            # TODO: address the case of X and Z distance
-            return NotImplemented  # pragma: no cover
-        code_a = self.code_a
-        code_b = self.code_b
-        code_a_T = ClassicalCode(self.code_a.matrix.T)
-        code_b_T = ClassicalCode(self.code_b.matrix.T)
-        if code_a_T.get_distance() is np.nan or code_b_T.get_distance() is np.nan:
-            return min(code_a.get_distance(), code_b.get_distance())  # pragma: no cover
-        if code_a.get_distance() is np.nan or code_b.get_distance() is np.nan:
-            return min(code_a_T.get_distance(), code_b_T.get_distance())  # pragma: no cover
-        return min(
-            code_a.get_distance(),
-            code_b.get_distance(),
-            code_a_T.get_distance(),
-            code_b_T.get_distance(),
-        )
+        """Exact distance calculation for hypergraph product codes.
+
+        These calculations are based on arXiv:2308.15520, but additionally allow for the separate
+        calculation of X-distance and Z-distance.  The basic idea is to look for the minimum-weight
+        string operators in the (0, 0) and (1, 1) sectors of the HGPCode.
+        """
+        if pauli is None:
+            # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
+            return NotImplemented
+
+        if pauli is Pauli.X:
+            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance()
+            dist_b = self.code_b.get_distance()
+        else:
+            assert pauli is Pauli.Z
+            dist_a = self.code_a.get_distance()
+            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance()
+
+        return dist_a if dist_b is np.nan else dist_b if dist_a is np.nan else min(dist_a, dist_b)
 
 
 class CHGPCode(HGPCode):
