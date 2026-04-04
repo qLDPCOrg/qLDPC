@@ -1125,8 +1125,8 @@ class HGPCode(CSSCode):
         """Exact distance calculation for hypergraph product codes.
 
         These calculations are based on arXiv:2308.15520, but additionally allow for the separate
-        calculation of X-distance and Z-distance.  The basic idea is to look for the minimum-weight
-        string operators in the (0, 0) and (1, 1) sectors of the HGPCode.
+        calculation of X-distance and Z-distance.  The basic idea is to identify the size of
+        minimum-weight string operators in the (0, 0) and (1, 1) sectors of the HGPCode.
         """
         if pauli is None:
             # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
