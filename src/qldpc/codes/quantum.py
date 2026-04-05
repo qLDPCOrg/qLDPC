@@ -2109,25 +2109,32 @@ class T4Code(CSSCode):
                 k = [coset == c for c in cosets].index(True)
                 yield (source_vertex, k)
 
+    def _ones_vec(
+        self, length: int, positive: Sequence[int], negative: Sequence[int]
+    ) -> galois.FieldArray:
+        """Construct a vector of +/- ones at the given locations."""
+        output = self.field.Zeros(length)
+        output[list(positive)] += self.field(1)
+        output[list(negative)] -= self.field(1)
+        return output
+
     def _get_edge_target(self, edge_index: int) -> int:
         """The "target" vertex of an edge."""
         return self.edges[edge_index][1]
 
     def d1(self, edge_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator: F[vertices] <- F[edges]."""
-        IV = self.field.Identity(self.num_vertices)
         source, target = self.edges[edge_index]
-        return IV[target] - IV[source]
+        return self._ones_vec(self.num_vertices, [target], [source])
 
     def d2(self, face_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator: F[edges] <- F[faces]."""
-        I4V = self.field.Identity(self.num_edges)
         v, (i, j) = face_index // 6, self.face_basis[face_index % 6]
         bottom_edge = 4 * v + i
         left_edge = 4 * v + j
         right_edge = 4 * self._get_edge_target(bottom_edge) + j
         top_edge = 4 * self._get_edge_target(left_edge) + i
-        return I4V[bottom_edge] - I4V[top_edge] + I4V[right_edge] - I4V[left_edge]
+        return self._ones_vec(self.num_edges, [bottom_edge, right_edge], [top_edge, left_edge])
 
     def d3(self, cube_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator: F[faces] <- F[cubes].
@@ -2135,7 +2142,6 @@ class T4Code(CSSCode):
         For the boundary of a general cubical complex.
         See Section 2.2.3 of "Computational Homology" by T. Kaczynski, K. Mischaikow, and M. Mrozek.
         """
-        I6V = self.field.Identity(self.num_faces)
         v, (i, j, k) = cube_index // 4, (idx for idx in range(4) if idx != cube_index % 4)
         vi = self._get_edge_target(4 * v + i)
         vj = self._get_edge_target(4 * v + j)
@@ -2146,13 +2152,8 @@ class T4Code(CSSCode):
         top_face = 6 * vi + self.face_index[(j, k)]
         right_face = 6 * vj + self.face_index[(i, k)]
         back_face = 6 * vk + self.face_index[(i, j)]
-        return (
-            I6V[top_face]
-            - I6V[bottom_face]
-            + I6V[back_face]
-            - I6V[front_face]
-            + I6V[left_face]
-            - I6V[right_face]
+        return self._ones_vec(
+            self.num_faces, [top_face, back_face, left_face], [bottom_face, front_face, right_face]
         )
 
 
