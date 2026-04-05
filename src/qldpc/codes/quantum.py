@@ -2086,10 +2086,10 @@ class T4Code(CSSCode):
         self.face_basis = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
         self.face_index = {p: i for i, p in enumerate(self.face_basis)}
 
-        D1 = np.vstack([self.d1(n) for n in range(self.num_edges)]).T
-        D2 = np.vstack([self.d2(n) for n in range(self.num_faces)]).T
-        D3 = np.vstack([self.d3(n) for n in range(self.num_cubes)]).T
-        self.chain = ChainComplex([D1, D2, D3], skip_validation=skip_validation)
+        d_1 = np.vstack([self.d_1(n) for n in range(self.num_edges)]).T
+        d_2 = np.vstack([self.d_2(n) for n in range(self.num_faces)]).T
+        d_3 = np.vstack([self.d_3(n) for n in range(self.num_cubes)]).T
+        self.chain = ChainComplex([d_1, d_2, d_3], skip_validation=skip_validation)
 
         matrix_x, matrix_z = self.chain.op(2), self.chain.op(3).T
         assert not isinstance(matrix_x, abstract.RingArray)
@@ -2122,12 +2122,12 @@ class T4Code(CSSCode):
         """The "target" vertex of an edge."""
         return self.edges[edge_index][1]
 
-    def d1(self, edge_index: int) -> npt.NDArray[np.int_]:
+    def d_1(self, edge_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator: F[vertices] <- F[edges]."""
         source, target = self.edges[edge_index]
         return self._ones_vec(self.num_vertices, [target], [source])
 
-    def d2(self, face_index: int) -> npt.NDArray[np.int_]:
+    def d_2(self, face_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator: F[edges] <- F[faces]."""
         v, (i, j) = face_index // 6, self.face_basis[face_index % 6]
         bottom_edge = 4 * v + i
@@ -2136,7 +2136,7 @@ class T4Code(CSSCode):
         top_edge = 4 * self._get_edge_target(left_edge) + i
         return self._ones_vec(self.num_edges, [bottom_edge, right_edge], [top_edge, left_edge])
 
-    def d3(self, cube_index: int) -> npt.NDArray[np.int_]:
+    def d_3(self, cube_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator: F[faces] <- F[cubes].
 
         For the boundary of a general cubical complex.
