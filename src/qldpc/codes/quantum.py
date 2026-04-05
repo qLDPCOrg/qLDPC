@@ -2123,12 +2123,12 @@ class T4Code(CSSCode):
         return self.edges[edge_index][1]
 
     def d_1(self, edge_index: int) -> npt.NDArray[np.int_]:
-        """Boundary operator: F[vertices] <- F[edges]."""
+        """Boundary operator F[edges] -> F[vertices], evaluated at an edge."""
         source, target = self.edges[edge_index]
         return self._ones_vec(self.num_vertices, [target], [source])
 
     def d_2(self, face_index: int) -> npt.NDArray[np.int_]:
-        """Boundary operator: F[edges] <- F[faces]."""
+        """Boundary operator F[faces] -> F[edges], evaluated at a face."""
         v, (i, j) = face_index // 6, self.face_basis[face_index % 6]
         bottom_edge = 4 * v + i
         left_edge = 4 * v + j
@@ -2137,9 +2137,8 @@ class T4Code(CSSCode):
         return self._ones_vec(self.num_edges, [bottom_edge, right_edge], [top_edge, left_edge])
 
     def d_3(self, cube_index: int) -> npt.NDArray[np.int_]:
-        """Boundary operator: F[faces] <- F[cubes].
+        """Boundary operator F[cubes] -> F[faces], evaluated at a cube.
 
-        For the boundary of a general cubical complex.
         See Section 2.2.3 of "Computational Homology" by T. Kaczynski, K. Mischaikow, and M. Mrozek.
         """
         v, (i, j, k) = cube_index // 4, (idx for idx in range(4) if idx != cube_index % 4)
