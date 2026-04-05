@@ -2086,9 +2086,9 @@ class T4Code(CSSCode):
         self.face_basis = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
         self.face_index = {p: i for i, p in enumerate(self.face_basis)}
 
-        d_1 = np.vstack([self.d_1(n) for n in range(self.num_edges)]).T
-        d_2 = np.vstack([self.d_2(n) for n in range(self.num_faces)]).T
-        d_3 = np.vstack([self.d_3(n) for n in range(self.num_cubes)]).T
+        d_1 = np.vstack([self._d_1(n) for n in range(self.num_edges)]).T
+        d_2 = np.vstack([self._d_2(n) for n in range(self.num_faces)]).T
+        d_3 = np.vstack([self._d_3(n) for n in range(self.num_cubes)]).T
         self.chain = ChainComplex([d_1, d_2, d_3], skip_validation=skip_validation)
 
         matrix_x, matrix_z = self.chain.op(2), self.chain.op(3).T
@@ -2122,12 +2122,12 @@ class T4Code(CSSCode):
         """The "target" vertex of an edge."""
         return self.edges[edge_index][1]
 
-    def d_1(self, edge_index: int) -> npt.NDArray[np.int_]:
+    def _d_1(self, edge_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator F[edges] -> F[vertices], evaluated at an edge."""
         source, target = self.edges[edge_index]
         return self._ones_vec(self.num_vertices, [target], [source])
 
-    def d_2(self, face_index: int) -> npt.NDArray[np.int_]:
+    def _d_2(self, face_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator F[faces] -> F[edges], evaluated at a face."""
         v, (i, j) = face_index // 6, self.face_basis[face_index % 6]
         bottom_edge = 4 * v + i
@@ -2136,7 +2136,7 @@ class T4Code(CSSCode):
         top_edge = 4 * self._get_edge_target(left_edge) + i
         return self._ones_vec(self.num_edges, [bottom_edge, right_edge], [top_edge, left_edge])
 
-    def d_3(self, cube_index: int) -> npt.NDArray[np.int_]:
+    def _d_3(self, cube_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator F[cubes] -> F[faces], evaluated at a cube.
 
         See Section 2.2.3 of "Computational Homology" by T. Kaczynski, K. Mischaikow, and M. Mrozek.
