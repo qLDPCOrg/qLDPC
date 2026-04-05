@@ -2099,8 +2099,7 @@ class T4Code(CSSCode):
     def _iter_edges(self) -> Iterator[tuple[int, int]]:
         """Identify edges in the standard integer lattice Z^4.
 
-        Each edge is identified by a pair (ss, dd), where ss in Z^4 is the source vertex, and dd in
-        {0,1,2,3} is the direction, then project to the torus.
+        Each edge is identified by a (source_vertex, edge_direction) in (Z^4, {0,1,2,3}).
         """
         I4 = np.eye(4, dtype=np.int32)
         diag = self.lattice_basis.diagonal()
@@ -2114,7 +2113,7 @@ class T4Code(CSSCode):
                 yield (i, k)
 
     def _get_edge_orientation(self, edge_index: int) -> int:
-        """The direction in which an (ordered) edge is oriented, one of {0,1,2,3}."""
+        """The direction in which an edge is oriented, one of {0,1,2,3}."""
         return self.edges[edge_index][1]
 
     def d1(self, edge_index: int) -> npt.NDArray[np.int_]:
