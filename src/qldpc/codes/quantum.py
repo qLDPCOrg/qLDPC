@@ -2113,7 +2113,7 @@ class T4Code(CSSCode):
                 k = [coset == c for c in cosets].index(True)
                 yield (i, k)
 
-    def _edge_orientation(self, edge_index: int) -> int:
+    def _get_edge_orientation(self, edge_index: int) -> int:
         """The direction in which an (ordered) edge is oriented, one of {0,1,2,3}."""
         return self.edges[edge_index][1]
 
@@ -2129,8 +2129,8 @@ class T4Code(CSSCode):
         v, (i, j) = face_index // 6, self.face_basis[face_index % 6]
         bottom_edge = 4 * v + i
         left_edge = 4 * v + j
-        right_edge = 4 * self._edge_orientation(bottom_edge) + j
-        top_edge = 4 * self._edge_orientation(left_edge) + i
+        right_edge = 4 * self._get_edge_orientation(bottom_edge) + j
+        top_edge = 4 * self._get_edge_orientation(left_edge) + i
         return I4V[bottom_edge] - I4V[top_edge] + I4V[right_edge] - I4V[left_edge]
 
     def d3(self, cube_index: int) -> npt.NDArray[np.int_]:
@@ -2141,9 +2141,9 @@ class T4Code(CSSCode):
         """
         I6V = self.field.Identity(self.num_faces)
         v, (i, j, k) = cube_index // 4, (idx for idx in range(4) if idx != cube_index % 4)
-        vi = self._edge_orientation(4 * v + i)
-        vj = self._edge_orientation(4 * v + j)
-        vk = self._edge_orientation(4 * v + k)
+        vi = self._get_edge_orientation(4 * v + i)
+        vj = self._get_edge_orientation(4 * v + j)
+        vk = self._get_edge_orientation(4 * v + k)
         front_face = 6 * v + self.face_index[(i, j)]
         left_face = 6 * v + self.face_index[(i, k)]
         bottom_face = 6 * v + self.face_index[(j, k)]
