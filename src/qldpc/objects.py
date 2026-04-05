@@ -390,6 +390,7 @@ class ChainComplex:
         self,
         ops: Sequence[npt.NDArray[np.int_] | abstract.RingArray],
         field: int | None = None,
+        *,
         skip_validation: bool = False,
     ) -> None:
         # check that either all or none of the operators are defined over a group algebra

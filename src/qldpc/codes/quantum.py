@@ -2070,6 +2070,8 @@ class T4Code(CSSCode):
         self,
         matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         field: int | None = None,
+        *,
+        skip_validation: bool = False,
     ) -> None:
         """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
         self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
@@ -2087,8 +2089,7 @@ class T4Code(CSSCode):
         D1 = np.vstack([self.d1(n) for n in range(self.num_edges)]).T
         D2 = np.vstack([self.d2(n) for n in range(self.num_faces)]).T
         D3 = np.vstack([self.d3(n) for n in range(self.num_cubes)]).T
-        self.chain = ChainComplex([D1, D2, D3])
-        self.validate_homology()
+        self.chain = ChainComplex([D1, D2, D3], skip_validation=skip_validation)
 
         matrix_x, matrix_z = self.chain.op(2), self.chain.op(3).T
         assert not isinstance(matrix_x, abstract.RingArray)
@@ -2157,19 +2158,6 @@ class T4Code(CSSCode):
             + I6V[left_face]
             - I6V[right_face]
         )
-
-    def validate_homology(self) -> None:
-        """Check the Betti numbers of the chain complex."""
-
-        # the first Betti number of T^4 is 4
-        dim_ker_d1 = self.chain.op(1).shape[1] - np.linalg.matrix_rank(self.chain.op(1))  # type: ignore
-        dim_im_d2 = np.linalg.matrix_rank(self.chain.op(2))  # type: ignore
-        assert dim_ker_d1 - dim_im_d2 == 4
-
-        # the second Betti number of T^4 is 6
-        dim_ker_d2 = self.chain.op(2).shape[1] - np.linalg.matrix_rank(self.chain.op(2))  # type: ignore
-        dim_im_d3 = np.linalg.matrix_rank(self.chain.op(3))  # type: ignore
-        assert dim_ker_d2 - dim_im_d3 == 6
 
 
 ####################################################################################################

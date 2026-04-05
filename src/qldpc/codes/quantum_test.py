@@ -614,6 +614,22 @@ def test_4d_toric_codes() -> None:
         code = codes.T4Code(lattice)
         assert code.get_code_params() == params
 
+        # check the Betti numbers of the chain complex
+        d_1, d_2, d_3 = code.chain.ops
+        assert not isinstance(d_1, abstract.RingArray)
+        assert not isinstance(d_2, abstract.RingArray)
+        assert not isinstance(d_3, abstract.RingArray)
+
+        # the first Betti number of T^4 is 4
+        dim_ker_d1 = d_1.shape[1] - np.linalg.matrix_rank(d_1)
+        dim_im_d2 = np.linalg.matrix_rank(d_2)
+        assert dim_ker_d1 - dim_im_d2 == 4
+
+        # the second Betti number of T^4 is 6
+        dim_ker_d2 = d_2.shape[1] - np.linalg.matrix_rank(d_2)
+        dim_im_d3 = np.linalg.matrix_rank(d_3)
+        assert dim_ker_d2 - dim_im_d3 == 6
+
 
 def test_many_hypercube_code() -> None:
     """Goto's many-hypercube code."""
