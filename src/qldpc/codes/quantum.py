@@ -2084,25 +2084,16 @@ class T4Code(CSSCode):
         self.face_basis = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
         self.face_index = {p: i for i, p in enumerate(self.face_basis)}
 
-        D1 = np.vstack([self.d1(n) for n in range(self.num_edges)])
-        D2 = np.vstack([self.d2(n) for n in range(self.num_faces)])
-        D3 = np.vstack([self.d3(n) for n in range(self.num_cubes)])
-        self.chain = ChainComplex([D3, D2, D1])
+        D1 = np.vstack([self.d1(n) for n in range(self.num_edges)]).T
+        D2 = np.vstack([self.d2(n) for n in range(self.num_faces)]).T
+        D3 = np.vstack([self.d3(n) for n in range(self.num_cubes)]).T
+        self.chain = ChainComplex([D1, D2, D3])
         self.validate_homology()
 
-        matrix_x, matrix_z = D2.T, D3
-        # matrix_x, matrix_z = self.chain.op(1), self.chain.op(2).T
+        matrix_x, matrix_z = self.chain.op(2), self.chain.op(3).T
         assert not isinstance(matrix_x, abstract.RingArray)
         assert not isinstance(matrix_z, abstract.RingArray)
         super().__init__(matrix_x, matrix_z, field)
-
-        print()
-        print()
-        print()
-        print(D2.shape, D3.shape, len(self))
-        print(not np.any(D2 @ D3))
-        print(not np.any(D3 @ D2))
-        print()
 
     def _get_edges(self) -> Sequence[tuple[int, int]]:
         """Identify edges in the standard integer lattice Z^4.
@@ -2172,14 +2163,14 @@ class T4Code(CSSCode):
     def validate_homology(self) -> None:
         """Check the Betti numbers of the chain complex."""
 
-        # The first Betti number of T^4 is 4.
-        dim_ker_d1 = len(self.chain.op(3)) - np.linalg.matrix_rank(self.chain.op(3))  # type: ignore
+        # the first Betti number of T^4 is 4
+        dim_ker_d1 = self.chain.op(1).shape[1] - np.linalg.matrix_rank(self.chain.op(1))  # type: ignore
         dim_im_d2 = np.linalg.matrix_rank(self.chain.op(2))  # type: ignore
         assert dim_ker_d1 - dim_im_d2 == 4
 
-        # The second Betti number of T^4 is 6.
-        dim_ker_d2 = len(self.chain.op(2)) - np.linalg.matrix_rank(self.chain.op(2))  # type: ignore
-        dim_im_d3 = np.linalg.matrix_rank(self.chain.op(1))  # type: ignore
+        # the second Betti number of T^4 is 6
+        dim_ker_d2 = self.chain.op(2).shape[1] - np.linalg.matrix_rank(self.chain.op(2))  # type: ignore
+        dim_im_d3 = np.linalg.matrix_rank(self.chain.op(3))  # type: ignore
         assert dim_ker_d2 - dim_im_d3 == 6
 
 
