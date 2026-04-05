@@ -2056,10 +2056,10 @@ class T4Code(CSSCode):
     Homologically, a T4Code is the topological CSS code attached to the 3-term sub-complex in the
     middle of the 5-term chain-complex
 
-        F[vertices] <- F[edges] <- F[squares] <- F[cubes] <- F[tesseracts]
+        F[vertices] <- F[edges] <- F[faces] <- F[cubes] <- F[tesseracts]
 
-    of T^4 tiled by integer unit tesseracts.  Cubes have 6 squares on the boundary, and edges are
-    incident to 6 squares, so stabilizers have weight 6.
+    of T^4 tiled by integer unit tesseracts.  Cubes have 6 faces on the boundary, and edges are
+    incident to 6 faces, so stabilizers have weight 6.
 
     References:
     - https://arxiv.org/pdf/2506.15130v1
@@ -2076,22 +2076,35 @@ class T4Code(CSSCode):
 
         self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
         self.num_vertices = self.lattice_basis.det()
-        self.edges = self.get_edges()
+        self.num_edges = 4 * self.num_vertices
+        self.num_faces = 6 * self.num_vertices
+        self.num_cubes = 4 * self.num_vertices
+
+        self.edges = self._get_edges()
         self.face_basis = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
         self.face_index = {p: i for i, p in enumerate(self.face_basis)}
 
-        D1 = np.vstack([self.d1(n) for n in range(4 * self.num_vertices)])
-        D2 = np.vstack([self.d2(n) for n in range(6 * self.num_vertices)])
-        D3 = np.vstack([self.d3(n) for n in range(4 * self.num_vertices)])
+        D1 = np.vstack([self.d1(n) for n in range(self.num_edges)])
+        D2 = np.vstack([self.d2(n) for n in range(self.num_faces)])
+        D3 = np.vstack([self.d3(n) for n in range(self.num_cubes)])
         self.chain = ChainComplex([D3, D2, D1])
         self.validate_homology()
 
-        matrix_x, matrix_z = self.chain.op(1), self.chain.op(2).T
+        matrix_x, matrix_z = D2.T, D3
+        # matrix_x, matrix_z = self.chain.op(1), self.chain.op(2).T
         assert not isinstance(matrix_x, abstract.RingArray)
         assert not isinstance(matrix_z, abstract.RingArray)
         super().__init__(matrix_x, matrix_z, field)
 
-    def get_edges(self) -> Sequence[tuple[int, int]]:
+        print()
+        print()
+        print()
+        print(D2.shape, D3.shape, len(self))
+        print(not np.any(D2 @ D3))
+        print(not np.any(D3 @ D2))
+        print()
+
+    def _get_edges(self) -> Sequence[tuple[int, int]]:
         """Identify edges in the standard integer lattice Z^4.
 
         Each edge is identified by a pair (ss, dd), where ss in Z^4 is the source vertex, and dd in
@@ -2110,36 +2123,37 @@ class T4Code(CSSCode):
                 edges.append((i, k))
         return edges
 
-    def target_vertex(self, index: int) -> int:
-        return self.edges[index][1]
+    def _edge_orientation(self, edge_index: int) -> int:
+        """The direction in which an (ordered) edge is oriented, one of {0,1,2,3}."""
+        return self.edges[edge_index][1]
 
-    def d1(self, n: int) -> npt.NDArray[np.int_]:
+    def d1(self, edge_index: int) -> npt.NDArray[np.int_]:
         """Boundary operator: F[vertices] <- F[edges]."""
         IV = self.field.Identity(self.num_vertices)
-        source, target = self.edges[n]
+        source, target = self.edges[edge_index]
         return IV[target] - IV[source]
 
-    def d2(self, n: int) -> npt.NDArray[np.int_]:
-        """Boundary operator: F[edges] <- F[squares]."""
-        I4V = self.field.Identity(4 * self.num_vertices)
-        v, (i, j) = n // 6, self.face_basis[n % 6]
+    def d2(self, face_index: int) -> npt.NDArray[np.int_]:
+        """Boundary operator: F[edges] <- F[faces]."""
+        I4V = self.field.Identity(self.num_edges)
+        v, (i, j) = face_index // 6, self.face_basis[face_index % 6]
         bottom_edge = 4 * v + i
         left_edge = 4 * v + j
-        right_edge = 4 * self.target_vertex(bottom_edge) + j
-        top_edge = 4 * self.target_vertex(left_edge) + i
+        right_edge = 4 * self._edge_orientation(bottom_edge) + j
+        top_edge = 4 * self._edge_orientation(left_edge) + i
         return I4V[bottom_edge] - I4V[top_edge] + I4V[right_edge] - I4V[left_edge]
 
-    def d3(self, n: int) -> npt.NDArray[np.int_]:
-        """Boundary operator: F[squares] <- F[cubes].
+    def d3(self, cube_index: int) -> npt.NDArray[np.int_]:
+        """Boundary operator: F[faces] <- F[cubes].
 
         For the boundary of a general cubical complex.
         See Section 2.2.3 of "Computational Homology" by T. Kaczynski, K. Mischaikow, and M. Mrozek.
         """
-        I6V = self.field.Identity(6 * self.num_vertices)
-        v, (i, j, k) = n // 4, (idx for idx in range(4) if idx != n % 4)
-        vi = self.target_vertex(4 * v + i)
-        vj = self.target_vertex(4 * v + j)
-        vk = self.target_vertex(4 * v + k)
+        I6V = self.field.Identity(self.num_faces)
+        v, (i, j, k) = cube_index // 4, (idx for idx in range(4) if idx != cube_index % 4)
+        vi = self._edge_orientation(4 * v + i)
+        vj = self._edge_orientation(4 * v + j)
+        vk = self._edge_orientation(4 * v + k)
         front_face = 6 * v + self.face_index[(i, j)]
         left_face = 6 * v + self.face_index[(i, k)]
         bottom_face = 6 * v + self.face_index[(j, k)]
