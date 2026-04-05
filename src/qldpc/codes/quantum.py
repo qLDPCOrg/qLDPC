@@ -2097,23 +2097,20 @@ class T4Code(CSSCode):
         super().__init__(matrix_x, matrix_z, field)
 
     def _iter_edges(self) -> Iterator[tuple[int, int]]:
-        """Identify edges in the standard integer lattice Z^4.
-
-        Each edge is identified by a (source_vertex, edge_direction) in (Z^4, {0,1,2,3}).
-        """
+        """Identify edges in the standard integer lattice Z^4."""
         I4 = np.eye(4, dtype=np.int32)
         diag = self.lattice_basis.diagonal()
         vertices = list(itertools.product(*[range(n) for n in diag]))
         cosets = [self.lattice_basis.T.solve(sympy.Matrix(vertex)) % 1 for vertex in vertices]
-        for i in range(self.num_vertices):
-            for j in range(4):
-                edge = sympy.Matrix(vertices[i]) + sympy.Matrix(I4[j])
+        for source_vertex in range(self.num_vertices):
+            for edge_direction in range(4):
+                edge = sympy.Matrix(vertices[source_vertex]) + sympy.Matrix(I4[edge_direction])
                 coset = self.lattice_basis.T.solve(edge).applyfunc(sympy.frac)
                 k = [coset == c for c in cosets].index(True)
-                yield (i, k)
+                yield (source_vertex, k)
 
-    def _get_edge_direction(self, edge_index: int) -> int:
-        """The direction in which an edge is oriented, one of {0,1,2,3}."""
+    def _get_edge_target(self, edge_index: int) -> int:
+        """The "target" vertex of an edge."""
         return self.edges[edge_index][1]
 
     def d1(self, edge_index: int) -> npt.NDArray[np.int_]:
@@ -2128,8 +2125,8 @@ class T4Code(CSSCode):
         v, (i, j) = face_index // 6, self.face_basis[face_index % 6]
         bottom_edge = 4 * v + i
         left_edge = 4 * v + j
-        right_edge = 4 * self._get_edge_direction(bottom_edge) + j
-        top_edge = 4 * self._get_edge_direction(left_edge) + i
+        right_edge = 4 * self._get_edge_target(bottom_edge) + j
+        top_edge = 4 * self._get_edge_target(left_edge) + i
         return I4V[bottom_edge] - I4V[top_edge] + I4V[right_edge] - I4V[left_edge]
 
     def d3(self, cube_index: int) -> npt.NDArray[np.int_]:
@@ -2140,9 +2137,9 @@ class T4Code(CSSCode):
         """
         I6V = self.field.Identity(self.num_faces)
         v, (i, j, k) = cube_index // 4, (idx for idx in range(4) if idx != cube_index % 4)
-        vi = self._get_edge_direction(4 * v + i)
-        vj = self._get_edge_direction(4 * v + j)
-        vk = self._get_edge_direction(4 * v + k)
+        vi = self._get_edge_target(4 * v + i)
+        vj = self._get_edge_target(4 * v + j)
+        vk = self._get_edge_target(4 * v + k)
         front_face = 6 * v + self.face_index[(i, j)]
         left_face = 6 * v + self.face_index[(i, k)]
         bottom_face = 6 * v + self.face_index[(j, k)]
