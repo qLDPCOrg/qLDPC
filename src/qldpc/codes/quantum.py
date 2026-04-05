@@ -23,7 +23,7 @@ import functools
 import itertools
 import math
 import os
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterator, Sequence
 
 import galois
 import networkx as nx
@@ -2080,7 +2080,7 @@ class T4Code(CSSCode):
         self.num_faces = 6 * self.num_vertices
         self.num_cubes = 4 * self.num_vertices
 
-        self.edges = self._get_edges()
+        self.edges = list(self._iter_edges())
         self.face_basis = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
         self.face_index = {p: i for i, p in enumerate(self.face_basis)}
 
@@ -2095,7 +2095,7 @@ class T4Code(CSSCode):
         assert not isinstance(matrix_z, abstract.RingArray)
         super().__init__(matrix_x, matrix_z, field)
 
-    def _get_edges(self) -> Sequence[tuple[int, int]]:
+    def _iter_edges(self) -> Iterator[tuple[int, int]]:
         """Identify edges in the standard integer lattice Z^4.
 
         Each edge is identified by a pair (ss, dd), where ss in Z^4 is the source vertex, and dd in
@@ -2105,14 +2105,12 @@ class T4Code(CSSCode):
         diag = self.lattice_basis.diagonal()
         vertices = list(itertools.product(*[range(n) for n in diag]))
         cosets = [self.lattice_basis.T.solve(sympy.Matrix(vertex)) % 1 for vertex in vertices]
-        edges = []
         for i in range(self.num_vertices):
             for j in range(4):
                 edge = sympy.Matrix(vertices[i]) + sympy.Matrix(I4[j])
                 coset = self.lattice_basis.T.solve(edge).applyfunc(sympy.frac)
                 k = [coset == c for c in cosets].index(True)
-                edges.append((i, k))
-        return edges
+                yield (i, k)
 
     def _edge_orientation(self, edge_index: int) -> int:
         """The direction in which an (ordered) edge is oriented, one of {0,1,2,3}."""
