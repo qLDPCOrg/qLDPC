@@ -1366,11 +1366,14 @@ class QuditCode(AbstractCode):
         )
 
     def set_logical_ops(
-        self, logical_ops: npt.NDArray[np.int_] | Sequence[Sequence[int]], *, validate: bool = True
+        self,
+        logical_ops: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        *,
+        skip_validation: bool = False,
     ) -> None:
         """Set the logical operators of this code to the provided logical operators."""
         logical_ops = np.asarray(logical_ops, dtype=int).view(self.field)
-        if validate:
+        if not skip_validation:
             dimension = len(logical_ops) // 2
             logical_ops_x = logical_ops[:dimension]
             logical_ops_z = logical_ops[dimension:]
@@ -1388,7 +1391,7 @@ class QuditCode(AbstractCode):
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
-        validate: bool = True,
+        skip_validation: bool = False,
     ) -> None:
         """Set the X-type logical operators of this code.
 
@@ -1400,7 +1403,7 @@ class QuditCode(AbstractCode):
         self,
         logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
-        validate: bool = True,
+        skip_validation: bool = False,
     ) -> None:
         """Set the Z-type logical operators of this code.
 
@@ -2421,17 +2424,17 @@ class CSSCode(QuditCode):
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
-        validate: bool = True,
+        skip_validation: bool = False,
     ) -> None:
         """Set the logical operators of this code to the provided logical operators."""
         logical_ops = scipy.linalg.block_diag(logicals_ops_x, logicals_ops_z)
-        self.set_logical_ops(logical_ops, validate=validate)
+        self.set_logical_ops(logical_ops, skip_validation=skip_validation)
 
     def set_logical_ops_x(
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
-        validate: bool = True,
+        skip_validation: bool = False,
     ) -> None:
         """Set the X-type logical operators of this code.
 
@@ -2446,13 +2449,13 @@ class CSSCode(QuditCode):
         logicals_ops_x = np.asarray(logicals_ops_x).view(self.field)
         old_logicals_z = self.get_logical_ops(Pauli.Z)
         new_logicals_z = np.linalg.inv(old_logicals_z @ logicals_ops_x.T) @ old_logicals_z
-        self.set_logical_ops_xz(logicals_ops_x, new_logicals_z, validate=validate)
+        self.set_logical_ops_xz(logicals_ops_x, new_logicals_z, skip_validation=skip_validation)
 
     def set_logical_ops_z(
         self,
         logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
-        validate: bool = True,
+        skip_validation: bool = False,
     ) -> None:
         """Set the Z-type logical operators of this code.
 
@@ -2467,7 +2470,7 @@ class CSSCode(QuditCode):
         logicals_ops_z = np.asarray(logicals_ops_z).view(self.field)
         old_logicals_x = self.get_logical_ops(Pauli.X)
         new_logicals_x = np.linalg.inv(old_logicals_x @ logicals_ops_z.T) @ old_logicals_x
-        self.set_logical_ops_xz(new_logicals_x, logicals_ops_z, validate=validate)
+        self.set_logical_ops_xz(new_logicals_x, logicals_ops_z, skip_validation=skip_validation)
 
     def get_stabilizer_ops(
         self,

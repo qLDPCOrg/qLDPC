@@ -313,12 +313,12 @@ class TBCode(CSSCode):
         field: int | None = None,
         *,
         promise_equal_distance_xz: bool = False,
-        validate: bool = True,
+        skip_validation: bool = False,
     ) -> None:
         """Construct a two-block quantum code."""
         matrix_a = ClassicalCode(matrix_a, field).matrix
         matrix_b = ClassicalCode(matrix_b, field).matrix
-        if validate and not np.array_equal(matrix_a @ matrix_b, matrix_b @ matrix_a):
+        if not skip_validation and not np.array_equal(matrix_a @ matrix_b, matrix_b @ matrix_a):
             raise ValueError("The matrices provided for this TBCode do not commute")
 
         matrix_x = np.block([matrix_a, matrix_b])
@@ -414,7 +414,9 @@ class QCCode(TBCode):
         # build defining matrices of a quasi-cyclic code; transpose the lift by convention
         matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
         matrix_b = self.ring.eval(self.poly_b, self.symbol_gens).lift().T
-        super().__init__(matrix_a, matrix_b, field, promise_equal_distance_xz=True, validate=False)
+        super().__init__(
+            matrix_a, matrix_b, field, promise_equal_distance_xz=True, skip_validation=True
+        )
 
     def get_canonical_form(
         self, poly: sympy.Poly, orders: tuple[int, ...] | None = None
@@ -930,7 +932,7 @@ class HGPCode(CSSCode):
 
         if set_logicals:
             logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
-            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
+            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
 
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
@@ -1239,7 +1241,7 @@ class SHPCode(CSSCode):
 
         if set_logicals:
             logical_ops_xz = SHPCode.get_canonical_logical_ops(self.code_a, self.code_b)
-            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
+            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
 
     @staticmethod
     def get_matrix_product(

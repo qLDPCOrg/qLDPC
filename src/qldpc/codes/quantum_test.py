@@ -253,7 +253,7 @@ def test_hypergraph_product(
     assert_valid_subgraphs(code)
 
     # verify that the canonical logicals are valid
-    code.set_logical_ops(code.get_logical_ops(), validate=True)
+    code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
     # verify X and Z distance
     dist_x = code.get_distance(Pauli.X)
@@ -308,7 +308,7 @@ def test_subsystem_hypergraph_product(
     )
 
     # verify that the canonical logicals are valid
-    code.set_logical_ops(code.get_logical_ops(), validate=True)
+    code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
 
 def test_trivial_lift(

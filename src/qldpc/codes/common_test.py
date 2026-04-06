@@ -303,18 +303,18 @@ def test_qudit_codes() -> None:
     logical_ops = two_codes.get_logical_ops().copy()
     logical_ops[0], logical_ops[1] = logical_ops[1], logical_ops[0]
     with pytest.raises(ValueError, match="incorrect commutation relations"):
-        two_codes.set_logical_ops(logical_ops, validate=True)
+        two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
     # invalid modifications of logical operators break commutation relations
     logical_ops = two_codes.get_logical_ops().copy()
     logical_ops[0, -1] += two_codes.field(1)
     with pytest.raises(ValueError, match="violate parity checks"):
-        two_codes.set_logical_ops(logical_ops, validate=True)
+        two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
     # providing an incorrect number of logical operators throws an error
     logical_ops = two_codes.get_logical_ops().copy()[[0, two_codes.dimension], :]
     with pytest.raises(ValueError, match="incorrect number"):
-        two_codes.set_logical_ops(logical_ops, validate=True)
+        two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
     # stacking codes over different fields is not supported
     with pytest.raises(ValueError, match="different fields"):

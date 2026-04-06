@@ -159,7 +159,7 @@ def _get_logical_tableau_from_code_data(
     encoder: stim.Tableau,
     decoder: stim.Tableau,
     physical_circuit: stim.Circuit,
-    validate: bool = True,
+    skip_validation: bool = False,
 ) -> stim.Tableau:
     """Identify the logical tableau implemented by the physical circuit."""
     assert len(encoder) == len(decoder) >= dimension + gauge_dimension
@@ -178,7 +178,7 @@ def _get_logical_tableau_from_code_data(
         z_signs=z_signs[:dimension],
     )
 
-    if validate:
+    if not skip_validation:
         # identify sectors that address logical, gauge, and stabilizer qubits
         sector_l = slice(dimension)
         sector_g = slice(dimension, dimension + gauge_dimension)
