@@ -97,6 +97,7 @@ class RelayBPDecoder(BatchDecoder):
         name: str = "RelayDecoderF32",
         observable_error_matrix: IntegerArray | None = None,
         include_decode_result: bool = False,
+        **decoder_args: object,
     ) -> None:
         try:
             import relay_bp
@@ -144,7 +145,7 @@ class RelayBPDecoder(BatchDecoder):
 
         # build the decoder
         self.decoder = relay_bp.ObservableDecoderRunner(
-            getattr(relay_bp, name)(pcm, np.asarray(error_priors)),
+            getattr(relay_bp, name)(pcm, np.asarray(error_priors), **decoder_args),
             observable_error_matrix,
             include_decode_result,
         )
