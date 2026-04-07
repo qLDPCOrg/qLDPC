@@ -114,7 +114,8 @@ class RelayBPDecoder(BatchDecoder):
                 error rates).
             include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
             **decoder_kwargs: Arguments to pass to the "inner" (syndrome to error) decoder from
-                relay_bp.
+                relay_bp.  See https://pypi.org/project/relay-bp/ for the options (alpha,
+                alpha_iteration_scaling_factor, etc.).
         """
         try:
             import relay_bp
