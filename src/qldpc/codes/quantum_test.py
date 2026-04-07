@@ -765,5 +765,5 @@ def test_color_code_2D() -> None:
         [[7, 8], [8, 6], [6, 7]],
         [[8, 0], [9, 6], [6, 8]],
     ]
-    code = qldpc.codes.CCode(colors, plaquettes)
+    code = qldpc.codes.ColorCode(colors, plaquettes)
     print(code.matrix)

@@ -2375,7 +2375,7 @@ class SHYPSCode(SHPCode):
         self._dimension = dim_x * dim_z
 
 
-class CCode(CSSCode):
+class ColorCode(CSSCode):
     def __init__(
         self, colors: list[int], plaquettes: list[list[list[int]]], dimension: int = 2
     ) -> None:
