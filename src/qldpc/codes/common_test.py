@@ -614,10 +614,6 @@ def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
 
-    # code = codes.SteaneCode()
-    # code.forget_distance()
-    # assert code.get_distance() == 3
-
     # qubit code distance
     code = codes.QuditCode(codes.SHPCode(codes.RepetitionCode(2)).matrix).to_css()
     assert code.get_distance_exact(cutoff=len(code)) <= len(code)
