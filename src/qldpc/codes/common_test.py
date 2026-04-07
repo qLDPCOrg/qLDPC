@@ -442,8 +442,9 @@ def get_symplectic_form(half_dimension: int, field: type[galois.FieldArray]) -> 
     return math.block_matrix([[0, identity], [-identity, 0]]).view(field)
 
 
-def test_qudit_ops() -> None:
+def test_qudit_ops(pytestconfig: pytest.Config) -> None:
     """Logical and gauge operator construction for Galois qudit codes."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
     code: codes.QuditCode
 
     code = codes.FiveQubitCode()
@@ -470,6 +471,19 @@ def test_qudit_ops() -> None:
             logical_ops @ math.symplectic_conjugate(logical_ops).T,
             get_symplectic_form(code.dimension, code.field),
         )
+
+        logical_ops_x = logical_ops[: code.dimension]
+        logical_ops_z = logical_ops[code.dimension :]
+
+        # set logical X operators, determine suitable logical Z operators automatically
+        order = np.random.permutation(code.dimension)  # random permutation of logicals
+        code.set_logical_ops_x(logical_ops_x[order])
+        assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z[order])
+
+        # set logical Z operators, determine suitable logical X operators automatically
+        order = np.random.permutation(code.dimension)  # random permutation of logicals
+        code.set_logical_ops_z(logical_ops_z[order])
+        assert np.array_equal(code.get_logical_ops(Pauli.X), logical_ops_x[order])
 
     # test the guarantee of stabilizer canonicalization
     code = codes.FiveQubitCode()

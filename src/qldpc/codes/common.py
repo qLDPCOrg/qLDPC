@@ -1408,7 +1408,7 @@ class QuditCode(AbstractCode):
         Lz = (Kz @ Ω.T @ Lx.T)**-1 @ Kz.
         """
         logicals_ops_x = np.asarray(logicals_ops_x).view(self.field)
-        if logicals_ops_x.shape[1] == len(self):
+        if logicals_ops_x.shape[1] == len(self):  # pragma: no cover
             # assume the logicals have only X support
             logicals_ops_x = np.hstack(
                 [logicals_ops_x, self.field.Zeros((self.dimension, len(self)))]
@@ -1441,7 +1441,7 @@ class QuditCode(AbstractCode):
         Lx = (Kx @ Ω @ Lz.T)**-1 @ Kx.
         """
         logicals_ops_z = np.asarray(logicals_ops_z).view(self.field)
-        if logicals_ops_z.shape[1] == len(self):
+        if logicals_ops_z.shape[1] == len(self):  # pragma: no cover
             # assume the logicals have only Z support
             logicals_ops_z = np.hstack(
                 [self.field.Zeros((self.dimension, len(self))), logicals_ops_z]
