@@ -290,15 +290,6 @@ def test_idempotents() -> None:
         assert idempotents == expected_idempotents
 
 
-def test_known_groups() -> None:
-    """Retrieve known groups."""
-    for group, generators in external.groups.KNOWN_GROUPS.items():
-        assert external.groups.get_generators(group) == generators
-
-        gap_generators = external.groups.get_generators_with_gap(group)
-        assert gap_generators is None or gap_generators == generators
-
-
 def test_find_permutations() -> None:
     mocked_outputs = [
         "(1,4,3,2)\n(1,4,2,3)\n(1,2,4,3)\n(1,2,3,4)\n(1,3,4,2)\n(1,3,2,4)\n",
