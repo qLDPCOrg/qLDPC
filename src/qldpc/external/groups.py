@@ -174,25 +174,6 @@ def get_small_group_structure(order: int, index: int) -> str:
     return name
 
 
-def parse_cycles_from_gap_output(generators_str: str) -> GENERATORS_LIST:
-    generators = []
-    for line in generators_str.splitlines():
-        if not line.strip():
-            continue
-        if not bool(re.search(r"\d", line)):
-            continue
-        # extract list of cycles, where each cycle is a tuple of integers
-        cycles_str = line[1:-1].split(")(")
-        try:
-            cycles = [tuple(map(int, cycle.split(","))) for cycle in cycles_str if cycle]
-        except ValueError:
-            raise ValueError(f"Cannot extract cycles from string: {line}")
-        # decrement integers in the cycle by 1 to account for 0-indexing
-        cycles = [tuple(index - 1 for index in cycle) for cycle in cycles]
-        generators.append(cycles)
-    return generators
-
-
 def maybe_get_generators_from_gap(
     group: str, *, warning: str | None = None
 ) -> GENERATORS_LIST | None:
@@ -402,10 +383,10 @@ def get_permutation_symmetry_of_matrix(
 
     return [
         qldpc.abstract.GroupMember.from_sympy(Permutation(perm))
-        for perm in parse_cycles_from_gap_output(row_permutations_output)
+        for perm in parse_gap_permutations(row_permutations_output)
     ], [
         qldpc.abstract.GroupMember.from_sympy(Permutation(perm))
-        for perm in parse_cycles_from_gap_output(col_permutations_output)
+        for perm in parse_gap_permutations(col_permutations_output)
     ]
 
 

@@ -2377,7 +2377,7 @@ class SHYPSCode(SHPCode):
 
 class CCode(CSSCode):
     def __init__(
-        self, colors: list[int], plaquettes: list[list[list[int]]], dimension: int
+        self, colors: list[int], plaquettes: list[list[list[int]]], dimension: int = 2
     ) -> None:
         if len(colors) != len(plaquettes):
             raise ValueError("Every plaquette needs a color")
