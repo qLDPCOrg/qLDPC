@@ -113,9 +113,9 @@ class RelayBPDecoder(BatchDecoder):
                 constructed RelayBPDecoder will not be able to predict observable flips (or logical
                 error rates).
             include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
-            **decoder_kwargs: Arguments to pass to the "inner" (syndrome to error) decoder from
-                relay_bp.  See https://pypi.org/project/relay-bp/ for the options (alpha,
-                alpha_iteration_scaling_factor, etc.).
+            **decoder_kwargs: Arguments passed to the "inner" (syndrome -> error) decoder from
+                relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
+                for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
         """
         try:
             import relay_bp
