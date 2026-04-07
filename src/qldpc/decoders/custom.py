@@ -144,6 +144,12 @@ class RelayBPDecoder(BatchDecoder):
             observable_error_matrix = dem_arrays.observable_flip_matrix
             if error_priors is None:
                 error_priors = dem_arrays.error_probs
+            else:
+                warnings.warn(
+                    "Explicitly provided error_priors will override the error probabilities of the "
+                    "provided detector error model",
+                    stacklevel=2,
+                )
         else:
             pcm = pcm_or_dem
             if error_priors is None:
