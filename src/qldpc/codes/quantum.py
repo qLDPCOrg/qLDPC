@@ -2086,7 +2086,7 @@ class T4Code(CSSCode):
 
         self.edges = list(self._iter_edges())
         self.face_basis = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
-        self.face_index = {p: i for i, p in enumerate(self.face_basis)}
+        self.face_index = {face: index for index, face in enumerate(self.face_basis)}
 
         d_1 = np.vstack([self._d_1(n) for n in range(self.num_edges)]).T
         d_2 = np.vstack([self._d_2(n) for n in range(self.num_faces)]).T
