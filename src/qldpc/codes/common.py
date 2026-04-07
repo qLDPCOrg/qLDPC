@@ -1395,7 +1395,8 @@ class QuditCode(AbstractCode):
     ) -> None:
         """Set the X-type logical operators of this code.
 
-        Determine suitable Z-type logical operators automatically.
+        Determine suitable Z-type logical operators automatically.  This choice is unique mod
+        stabilizers.
 
         Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
         code, each with shape (k, 2*n).  We know Kx, Kz, and Lx.  To find a suitable choice of Lz,
@@ -1428,7 +1429,8 @@ class QuditCode(AbstractCode):
     ) -> None:
         """Set the Z-type logical operators of this code.
 
-        Determine suitable X-type logical operators automatically.
+        Determine suitable X-type logical operators automatically.  This choice is unique mod
+        stabilizers.
 
         Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
         code, each with shape (k, 2*n).  We know Kx, Kz, and Lz.  To find a suitable choice of Lx,
@@ -2480,7 +2482,8 @@ class CSSCode(QuditCode):
     ) -> None:
         """Set the X-type logical operators of this code.
 
-        Determine suitable Z-type logical operators automatically.
+        Determine suitable Z-type logical operators automatically.  This choice is unique mod
+        stabilizers.
 
         Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
         code, each with shape (k, n).  We know Kx, Kz, and Lx.  To find a suitable choice of Lz,
@@ -2505,7 +2508,8 @@ class CSSCode(QuditCode):
     ) -> None:
         """Set the Z-type logical operators of this code.
 
-        Determine suitable X-type logical operators automatically.
+        Determine suitable X-type logical operators automatically.  This choice is unique mod
+        stabilizers.
 
         Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
         code, each with shape (k, n).  We know Kx, Kz, and Lz.  To find a suitable choice of Lx,
