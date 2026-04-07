@@ -103,7 +103,7 @@ def find_layout_params(
         # compute a matrix of squared communication distances for this layout
         layout_params = folded_layout, basis_l, basis_r, shift_lr
         placement_matrix = get_placement_matrix(
-            code, layout_params, check_supports=check_supports, validate=False
+            code, layout_params, check_supports=check_supports, skip_validation=True
         )
         # minimize the maximum communication distance for this layout
         min_max_distance = get_min_max_communication_distance(
@@ -219,7 +219,7 @@ def get_placement_matrix(
     layout_params: LayoutParams,
     *,
     check_supports: npt.NDArray[np.int_] | None = None,
-    validate: bool = True,
+    skip_validation: bool = False,
 ) -> npt.NDArray[np.int_]:
     """Construct a placement matrix of squared maximum communication distances.
 
@@ -229,7 +229,7 @@ def get_placement_matrix(
     node's maximum squared distance to any of its neighbors in the Tanner graph of the code?
     """
     # identify how data qubits are permuted relative to the default data qubit layout
-    layout_data_locs = get_data_qubit_locs(code, layout_params, validate=validate)
+    layout_data_locs = get_data_qubit_locs(code, layout_params, skip_validation=skip_validation)
     layout_perm = np.lexsort(layout_data_locs.T)
     inverse_perm = np.empty_like(layout_perm)
     inverse_perm[layout_perm] = np.arange(layout_perm.size, dtype=int)
@@ -252,12 +252,12 @@ def get_placement_matrix(
 
 
 def get_data_qubit_locs(
-    code: qldpc.codes.BBCode, layout_params: LayoutParams, *, validate: bool = True
+    code: qldpc.codes.BBCode, layout_params: LayoutParams, *, skip_validation: bool = False
 ) -> npt.NDArray[np.int_]:
     """Get the locations of data qubits in particular layout of a BBCode."""
     folded_layout, basis_l, basis_r, shift_lr = layout_params
     orders = (code.get_order(basis_l[0]), code.get_order(basis_l[1]))
-    if validate:
+    if not skip_validation:
         assert code.is_valid_basis(*basis_l)
         assert code.is_valid_basis(*basis_r)
         assert orders == (code.get_order(basis_r[0]), code.get_order(basis_r[1]))
@@ -369,7 +369,7 @@ def get_qubit_pos_func(
     max_comm_distance: float | None = None,
     *,
     precision: float = DEFAULT_PRECISION,
-    validate: bool = True,
+    skip_validation: bool = False,
 ) -> Callable[[qldpc.objects.Node], tuple[int, int]]:
     """Construct a function that gives positions of qubits in particular layout of a BBCode.
 
@@ -397,7 +397,7 @@ def get_qubit_pos_func(
     if not np.all(biadjacency_matrix[check_loc_indices, check_qubit_indices]):
         raise ValueError(f"A maximum communication distance of {max_comm_distance} is unachievable")
 
-    data_qubit_locs = get_data_qubit_locs(code, layout_params, validate=validate)
+    data_qubit_locs = get_data_qubit_locs(code, layout_params, skip_validation=skip_validation)
     check_qubit_locs = candidate_locs[np.argsort(check_qubit_indices)]
 
     def get_qubit_pos(node: qldpc.objects.Node) -> tuple[int, int]:
