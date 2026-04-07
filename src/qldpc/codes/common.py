@@ -2515,7 +2515,7 @@ class CSSCode(QuditCode):
         code, each with shape (k, n).  We know Kx, Kz, and Lz.  To find a suitable choice of Lx,
         we write
         (1) Lx = M @ Kx for some basis-change matrix M in GL(k), and note that
-        (2) Lx @ Ω @ Lz.T = I_k.
+        (2) Lx @ Lz.T = I_k.
         Here I_k is the k × k identity matrix.
 
         Plugging (1) into (2), we find M = (Kx @ Lz.T)**-1, and in turn plug M into (1) to get
