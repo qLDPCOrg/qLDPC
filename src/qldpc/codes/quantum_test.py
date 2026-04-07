@@ -604,7 +604,7 @@ def test_generalized_surface_codes(size: int = 3) -> None:
 
 
 def test_4d_toric_codes() -> None:
-    """Reproduce Tabe 1 from arxiv:2506.15130v1."""
+    """Reproduce Tabe 1 from arXiv:2506.15130v1."""
     t4_codes = {
         ((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 0), (0, 0, 0, 2)): (12, 6, 2),
         ((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 1), (0, 0, 0, 3)): (18, 6, 3),
@@ -629,6 +629,11 @@ def test_4d_toric_codes() -> None:
         dim_ker_d2 = d_2.shape[1] - np.linalg.matrix_rank(d_2)
         dim_im_d3 = np.linalg.matrix_rank(d_3)
         assert dim_ker_d2 - dim_im_d3 == 6
+
+    # the "Hadamard lattice code" of arXiv:2506.15130v1
+    hadamard = [[1, 1], [1, -1]]
+    code = codes.T4Code(np.kron(hadamard, hadamard))
+    assert (len(code), code.dimension) == (96, 6)
 
 
 def test_many_hypercube_code() -> None:
