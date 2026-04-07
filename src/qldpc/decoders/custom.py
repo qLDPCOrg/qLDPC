@@ -260,7 +260,7 @@ class LookupDecoder(Decoder):
         Errors are sorted in decreasing weight (number of bits/qudits addressed nontrivially).
         """
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
-        matrix = code.matrix if not symplectic else math.symplectic_conjugate(code.matrix)
+        matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
 
         # identify the set of local errors that can occur
         repeat = 2 if symplectic else 1
@@ -470,7 +470,7 @@ class GUFDecoder(Decoder):
         else:
             # decoding a quantum code: the "weight" of an error vector is its symplectic weight
             self.get_weight = math.symplectic_weight
-            self.code = codes.QuditCode(math.symplectic_conjugate(matrix))
+            self.code = codes.QuditCode(-math.symplectic_conjugate(matrix))
 
         self.graph = self.code.graph.to_undirected()
 

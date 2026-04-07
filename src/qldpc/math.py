@@ -64,13 +64,13 @@ def string_to_op(string: stim.PauliString, num_qubits: int | None = None) -> npt
 def symplectic_conjugate(vectors: DenseIntegerArrayType) -> DenseIntegerArrayType:
     """Take symplectic vectors to their duals.
 
-    The symplectic conjugate of a Pauli string swaps its X and Z support, and multiplies its X
-    sector by -1, taking P = [P_x|P_z] -> [-P_z|P_x], such that the symplectic inner product between
-    Pauli strings P and Q is ⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = symplectic_conjugate(P) @ Q.
+    The symplectic conjugate of a Pauli string swaps its X and Z support, and multiplies its Z
+    sector by -1, taking Q = [Q_x|Q_z] -> [Q_z|-Q_x], such that the symplectic inner product between
+    Pauli strings P and Q is ⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @ symplectic_conjugate(Q).
     """
     assert vectors.shape[-1] % 2 == 0
     conjugated_vectors = vectors.copy().reshape(-1, 2, vectors.shape[-1] // 2)[:, ::-1, :]
-    conjugated_vectors[:, 0, :] *= -1
+    conjugated_vectors[:, 1, :] *= -1
     return conjugated_vectors.reshape(vectors.shape).view(type(vectors))
 
 

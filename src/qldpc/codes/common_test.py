@@ -288,12 +288,6 @@ def test_qudit_codes() -> None:
     # the logical ops of the redundant code are valid ops of the original code
     code.set_logical_ops(redundant_code.get_logical_ops())  # also validates the logical ops
 
-    # setting only X or Z-type logicals is not yet implemented for non-CSS codes
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        code.set_logical_ops_x([])
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        code.set_logical_ops_z([])
-
     # stacking two codes
     two_codes = codes.QuditCode.stack([code] * 2)
     assert len(two_codes) == len(code) * 2
@@ -467,13 +461,13 @@ def test_qudit_ops() -> None:
         stabilizer_ops = code.get_stabilizer_ops()
         logical_ops = code.get_logical_ops()
         gauge_ops = code.get_gauge_ops()
-        assert not np.any(math.symplectic_conjugate(stabilizer_ops) @ stabilizer_ops.T)
+        assert not np.any(stabilizer_ops @ math.symplectic_conjugate(stabilizer_ops).T)
         assert np.array_equal(
-            math.symplectic_conjugate(gauge_ops) @ gauge_ops.T,
+            gauge_ops @ math.symplectic_conjugate(gauge_ops).T,
             get_symplectic_form(code.gauge_dimension, code.field),
         )
         assert np.array_equal(
-            math.symplectic_conjugate(logical_ops) @ logical_ops.T,
+            logical_ops @ math.symplectic_conjugate(logical_ops).T,
             get_symplectic_form(code.dimension, code.field),
         )
 
@@ -581,8 +575,9 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
 def test_css_ops(pytestconfig: pytest.Config) -> None:
     """Logical and stabilizer operator construction for CSS codes."""
     seed = pytestconfig.getoption("randomly_seed")
+    code: codes.CSSCode
 
-    code: codes.CSSCode = codes.SHPCode(codes.ClassicalCode.random(4, 2, field=3, seed=seed))
+    code = codes.SHPCode(codes.ClassicalCode.random(4, 2, field=3, seed=seed))
 
     # set X-type logicals and determine Z-type logicals automatically
     other_code = codes.CSSCode(code.matrix_x, code.matrix_z)
