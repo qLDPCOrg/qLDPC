@@ -605,13 +605,14 @@ def test_generalized_surface_codes(size: int = 3) -> None:
 
 def test_4d_toric_codes() -> None:
     """Reproduce Tabe 1 from arXiv:2506.15130v1."""
-    for lattice_vecs, code_params in [
-        [((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 0), (0, 0, 0, 2)), (12, 6, 2)],
-        [((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 1), (0, 0, 0, 3)), (18, 6, 3)],
-        [((1, 0, 0, 1), (0, 1, 0, 2), (0, 0, 1, 3), (0, 0, 0, 5)), (30, 6, 4)],
-    ]:
-        code = codes.T4Code(lattice_vecs)
-        assert code.get_code_params() == code_params
+    t4_codes = {
+        ((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 0), (0, 0, 0, 2)): (12, 6, 2),
+        ((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 1), (0, 0, 0, 3)): (18, 6, 3),
+        ((1, 0, 0, 1), (0, 1, 0, 2), (0, 0, 1, 3), (0, 0, 0, 5)): (30, 6, 4),
+    }
+    for lattice, params in t4_codes.items():
+        code = codes.T4Code(lattice)
+        assert code.get_code_params() == params
 
         # check the Betti numbers of the chain complex
         d_1, d_2, d_3 = code.chain.ops
