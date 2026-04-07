@@ -99,6 +99,23 @@ class RelayBPDecoder(BatchDecoder):
         include_decode_result: bool = False,
         **decoder_args: object,
     ) -> None:
+        """Initialize a RelayBP decoder from the relay_bp package.
+
+        Args:
+            pcm_or_dem: A parity check matrix or detector error model (DEM).
+            error_priors: Priors probabilities for each error, or None.  If error_priors is None and
+                pcm_or_dem is a DEM, these are set to the error probabilities in the DEM by default.
+            name: The name of the RelayBP decoder to instantiate.  Must be one of the classes listed
+                under help(relay_bp.bp).
+            observable_error_matrix: A binary matrix whose rows specify which error mechanisms flip
+                which observables, or None.  If pcm_or_dem is a DEM, this matrix is extracted from
+                the DEM.  If pcm_or_dem is a matrix and observable_error_matrix is None, the
+                constructed RelayBPDecoder will not be able to predict observable flips (or logical
+                error rates).
+            include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
+            **decoder_kwargs: Arguments to pass to the "inner" (syndrome to error) decoder from
+                relay_bp.
+        """
         try:
             import relay_bp
         except ModuleNotFoundError:
@@ -119,18 +136,18 @@ class RelayBPDecoder(BatchDecoder):
 
         # extract relevant data from a detector error model
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            assert error_priors is None, (
-                "Cannot specify error_priors when providing a detector error model"
-            )
             assert observable_error_matrix is None, (
                 "Cannot specify an observable_error_matrix when providing a detector error model"
             )
             dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
             pcm = dem_arrays.detector_flip_matrix
-            error_priors = dem_arrays.error_probs
             observable_error_matrix = dem_arrays.observable_flip_matrix
+            if error_priors is None:
+                error_priors = dem_arrays.error_probs
         else:
             pcm = pcm_or_dem
+            if error_priors is None:
+                error_priors = [PLACEHOLDER_ERROR_RATE] * pcm.shape[1]
 
         # sanitize inputs
         if isinstance(pcm, galois.FieldArray):
@@ -138,8 +155,6 @@ class RelayBPDecoder(BatchDecoder):
         elif isinstance(pcm, scipy.sparse.spmatrix):
             pcm = pcm.tocsc()
             pcm.sort_indices()
-        if error_priors is None:
-            error_priors = [PLACEHOLDER_ERROR_RATE] * pcm.shape[1]
         if observable_error_matrix is None:
             observable_error_matrix = np.empty((0, 0), dtype=int)
 
