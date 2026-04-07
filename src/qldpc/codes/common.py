@@ -1391,25 +1391,65 @@ class QuditCode(AbstractCode):
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
+        symplectic: bool = True,
         skip_validation: bool = False,
     ) -> None:
         """Set the X-type logical operators of this code.
 
         Determine suitable Z-type logical operators automatically.
+
+        Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
+        code, each with dimensions (k, 2*n).  We know Kx, Kz, and Lx.  To find a suitable choice of
+        Lz, we write
+        (1) Lz = M @ Kz for some basis-change matrix M in GL(k, 2), and note that
+        (2) Lz @ Ω @ Lx.T = I_k (the k × k identity matrix).
+        Here Ω is the symplectic form, and I_k is the k × k identity matrix.
+
+        Plugging (1) into (2), we find M = (Kz @ Ω @ Lx.T)**-1, and in turn plug M into (1) to get
+        Lz = (Kz @ Ω @ Lx.T)**-1 @ Kz.
         """
-        raise NotImplementedError("QuditCode.set_logical_ops_x is not yet implemented :(")
+        logicals_ops_x = np.asarray(logicals_ops_x).view(self.field)
+        if symplectic is False:
+            # assume the logicals have only X support
+            logicals_ops_x = np.hstack(
+                [logicals_ops_x, self.field.Zeros(self.dimension, len(self))]
+            ).view(self.field)
+        old_logicals_z = self.get_logical_ops(Pauli.Z, symplectic=True)
+        basis_change = np.linalg.inv(math.symplectic_conjugate(old_logicals_z) @ logicals_ops_x.T)
+        new_logicals_z = basis_change @ old_logicals_z
+        self.set_logical_ops_xz(logicals_ops_x, new_logicals_z, skip_validation=skip_validation)
 
     def set_logical_ops_z(
         self,
         logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
+        symplectic: bool = True,
         skip_validation: bool = False,
     ) -> None:
-        """Set the Z-type logical operators of this code.
+        """Set the X-type logical operators of this code.
 
         Determine suitable X-type logical operators automatically.
+
+        Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
+        code, each with dimensions (k, 2*n).  We know Kx, Kz, and Lz.  To find a suitable choice of
+        Lz, we write
+        (1) Lx = M @ Kx for some basis-change matrix M in GL(k, 2), and note that
+        (2) Lx @ Ω @ Lz.T = I_k (the k × k identity matrix).
+        Here Ω is the symplectic form, and I_k is the k × k identity matrix.
+
+        Plugging (1) into (2), we find M = (Kx @ Ω @ Lz.T)**-1, and in turn plug M into (1) to get
+        Lx = (Kx @ Ω @ Lz.T)**-1 @ Kx.
         """
-        raise NotImplementedError("QuditCode.set_logical_ops_z is not yet implemented :(")
+        logicals_ops_z = np.asarray(logicals_ops_z).view(self.field)
+        if symplectic is False:
+            # assume the logicals have only Z support
+            logicals_ops_z = np.hstack(
+                [self.field.Zeros(self.dimension, len(self)), logicals_ops_z]
+            ).view(self.field)
+        old_logicals_x = self.get_logical_ops(Pauli.Z, symplectic=True)
+        basis_change = np.linalg.inv(math.symplectic_conjugate(old_logicals_x) @ logicals_ops_z.T)
+        new_logicals_x = basis_change @ old_logicals_x
+        self.set_logical_ops_xz(new_logicals_x, logicals_ops_z, skip_validation=skip_validation)
 
     def get_stabilizer_ops(
         self,
@@ -2430,47 +2470,47 @@ class CSSCode(QuditCode):
         logical_ops = scipy.linalg.block_diag(logicals_ops_x, logicals_ops_z)
         self.set_logical_ops(logical_ops, skip_validation=skip_validation)
 
-    def set_logical_ops_x(
-        self,
-        logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        *,
-        skip_validation: bool = False,
-    ) -> None:
-        """Set the X-type logical operators of this code.
+    # def set_logical_ops_x(
+    #     self,
+    #     logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+    #     *,
+    #     skip_validation: bool = False,
+    # ) -> None:
+    #     """Set the X-type logical operators of this code.
 
-        Determine suitable Z-type logical operators automatically.
+    #     Determine suitable Z-type logical operators automatically.
 
-        Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
-        code.  We know Kx, Kz, and Lx.  To find a suitable choice of Lz, we write
-        (1) Lz = P @ Kz for some matrix P, and note that
-        (2) Lz @ Lx.T = I (the identity matrix).
-        Combining these conditions, we find P = (Kz @ Lx.T)**-1, and set Lz = (Kz @ Lx.T)**-1 @ Kz.
-        """
-        logicals_ops_x = np.asarray(logicals_ops_x).view(self.field)
-        old_logicals_z = self.get_logical_ops(Pauli.Z)
-        new_logicals_z = np.linalg.inv(old_logicals_z @ logicals_ops_x.T) @ old_logicals_z
-        self.set_logical_ops_xz(logicals_ops_x, new_logicals_z, skip_validation=skip_validation)
+    #     Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
+    #     code.  We know Kx, Kz, and Lx.  To find a suitable choice of Lz, we write
+    #     (1) Lz = P @ Kz for some matrix P, and note that
+    #     (2) Lz @ Lx.T = I (the identity matrix).
+    #     Combining these conditions, we find P = (Kz @ Lx.T)**-1, and set Lz = (Kz @ Lx.T)**-1 @ Kz.
+    #     """
+    #     logicals_ops_x = np.asarray(logicals_ops_x).view(self.field)
+    #     old_logicals_z = self.get_logical_ops(Pauli.Z)
+    #     new_logicals_z = np.linalg.inv(old_logicals_z @ logicals_ops_x.T) @ old_logicals_z
+    #     self.set_logical_ops_xz(logicals_ops_x, new_logicals_z, skip_validation=skip_validation)
 
-    def set_logical_ops_z(
-        self,
-        logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        *,
-        skip_validation: bool = False,
-    ) -> None:
-        """Set the Z-type logical operators of this code.
+    # def set_logical_ops_z(
+    #     self,
+    #     logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+    #     *,
+    #     skip_validation: bool = False,
+    # ) -> None:
+    #     """Set the Z-type logical operators of this code.
 
-        Determine suitable X-type logical operators automatically.
+    #     Determine suitable X-type logical operators automatically.
 
-        Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
-        code.  We know Kx, Kz, and Lz.  To find a suitable choice of Lx, we write
-        (1) Lx = P @ Kx for some matrix P, and note that
-        (2) Lx @ Lz.T = I (the identity matrix).
-        Combining these conditions, we find P = (Kx @ Lz.T)**-1, and set Lx = (Kx @ Lz.T)**-1 @ Kx.
-        """
-        logicals_ops_z = np.asarray(logicals_ops_z).view(self.field)
-        old_logicals_x = self.get_logical_ops(Pauli.X)
-        new_logicals_x = np.linalg.inv(old_logicals_x @ logicals_ops_z.T) @ old_logicals_x
-        self.set_logical_ops_xz(new_logicals_x, logicals_ops_z, skip_validation=skip_validation)
+    #     Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
+    #     code.  We know Kx, Kz, and Lz.  To find a suitable choice of Lx, we write
+    #     (1) Lx = P @ Kx for some matrix P, and note that
+    #     (2) Lx @ Lz.T = I (the identity matrix).
+    #     Combining these conditions, we find P = (Kx @ Lz.T)**-1, and set Lx = (Kx @ Lz.T)**-1 @ Kx.
+    #     """
+    #     logicals_ops_z = np.asarray(logicals_ops_z).view(self.field)
+    #     old_logicals_x = self.get_logical_ops(Pauli.X)
+    #     new_logicals_x = np.linalg.inv(old_logicals_x @ logicals_ops_z.T) @ old_logicals_x
+    #     self.set_logical_ops_xz(new_logicals_x, logicals_ops_z, skip_validation=skip_validation)
 
     def get_stabilizer_ops(
         self,
