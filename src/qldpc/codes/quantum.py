@@ -2088,9 +2088,9 @@ class T4Code(CSSCode):
         self.face_basis = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
         self.face_index = {face: index for index, face in enumerate(self.face_basis)}
 
-        d_1 = np.vstack([self._d_1(n) for n in range(self.num_edges)]).T
-        d_2 = np.vstack([self._d_2(n) for n in range(self.num_faces)]).T
-        d_3 = np.vstack([self._d_3(n) for n in range(self.num_cubes)]).T
+        d_1 = np.vstack([self._d_1(edge) for edge in range(self.num_edges)]).T
+        d_2 = np.vstack([self._d_2(face) for face in range(self.num_faces)]).T
+        d_3 = np.vstack([self._d_3(cude) for cude in range(self.num_cubes)]).T
         self.chain = ChainComplex([d_1, d_2, d_3], skip_validation=skip_validation)
 
         matrix_x, matrix_z = self.chain.op(2), self.chain.op(3).T
