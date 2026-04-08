@@ -119,6 +119,7 @@ def get_state_prep_diagnostic_tasks(
     error_rates: Sequence[float],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
+    post_select_on_flags: bool = False,
     observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
 ) -> list[sinter.Task]:
     """Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
@@ -144,9 +145,16 @@ def get_state_prep_diagnostic_tasks(
     diagnostic_circuit = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables
     )
-    postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-    postselection_mask[: state_prep_circuit.num_measurements] = 1
-    postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
+    if post_select_on_flags:  # pragma: no cover
+        raise ValueError(
+            "Post-selection on state prep flags is currently unsupported due to a bug sinter.\n"
+            "See https://github.com/quantumlib/Stim/issues/887"
+        )
+        postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
+        postselection_mask[: state_prep_circuit.num_measurements] = 1
+        postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
+    else:
+        postselection_mask_bit_packed = None
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
