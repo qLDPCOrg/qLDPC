@@ -123,13 +123,13 @@ def get_state_prep_diagnostic_circuit(
     return state_prep_circuit + measurements_and_detectors, detector_record
 
 
-def get_state_prep_diagnostic_tasks(
+def get_state_prep_diagnostic_tasks(  # pragma: no cover
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
     error_rates: Sequence[float],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
-    post_select_on_flags: bool = False,
+    label: str | None = None,
     observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
 ) -> list[sinter.Task]:
     """Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
@@ -137,11 +137,47 @@ def get_state_prep_diagnostic_tasks(
     This method is essentially a helper function that wraps get_state_prep_diagnostic_circuit.
     See help(get_state_prep_diagnostic_circuit) for additional information.
 
+    As an example, if
+
+        tasks = get_state_prep_diagnostic_tasks(...)
+        decoder = qldpc.decoders.SinterDecoder(...)
+
+    then we can collect statistics with
+
+        stats = sinter.collect(
+            tasks=tasks,
+            decoders=["custom"],
+            custom_decoders={"custom": decoder},
+            num_workers=os.cpu_count(),
+            max_shots=10**5,
+            max_errors=100,
+        )
+
+    and plot the results with
+
+        import matplotlib.pyplot as plt
+
+        figure, axis = plt.subplots(figsize=(5, 4))
+        sinter.plot_error_rate(
+            ax=axis,
+            stats=stats,
+            x_func=lambda stats: stats.json_metadata["p"],
+        )
+
+        axis.set_ylabel("logical error rate")
+        axis.set_xlabel("physical error rate")
+        axis.loglog()
+        axis.grid(which="both")
+        figure.tight_layout()
+
+        plt.show()
+
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
         error_rates: The error rates at which to evaluate the provided family of noise models.
         noise_model_family: A single-parameter family of noise models for adding noise to circuits.
+        label: If not None, add {"label": label} to the json_metadata of the sinter tasks.
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -155,21 +191,15 @@ def get_state_prep_diagnostic_tasks(
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables
     )
-    if post_select_on_flags:  # pragma: no cover
-        raise ValueError(
-            "Post-selection on state prep flags is currently unsupported due to a bug sinter.\n"
-            "See https://github.com/quantumlib/Stim/issues/887"
-        )
-        postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-        postselection_mask[detector_record.get_events("flag")] = 1
-        postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
-    else:
-        postselection_mask_bit_packed = None
+    postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
+    postselection_mask[detector_record.get_events("flag")] = 1
+    postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
+    label_metadata = {"label": label} if label is not None else {}
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
             postselection_mask=postselection_mask_bit_packed,
-            json_metadata={"p": error_rate},
+            json_metadata={"p": error_rate} | label_metadata,
         )
         for error_rate in error_rates
     ]
