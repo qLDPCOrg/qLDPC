@@ -51,14 +51,15 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
         encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
 
         # errors flip parity checks as they should
+        stabilizers = code.get_stabilizer_ops()
         error_vec = code.field.Random(len(code) * 2)
         error_ops = stim.Circuit()
         for qubit in range(len(code)):
             xx_zz = (error_vec[qubit], error_vec[qubit + len(code)])
             error_ops.append(str(Pauli(xx_zz)), qubit)
-        measurements = circuits.get_pauli_product_measurements(code.matrix)
+        measurements = circuits.get_pauli_product_measurements(stabilizers)
         outcomes = (encoder + error_ops + measurements).reference_sample()
-        syndrome = code.matrix @ symplectic_conjugate(error_vec)
+        syndrome = stabilizers @ symplectic_conjugate(error_vec)
         assert np.array_equal(outcomes.astype(int), syndrome)
 
         # performing remaniing tests below with a tableau simulator
