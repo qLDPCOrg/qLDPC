@@ -263,9 +263,11 @@ def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim
 
 
 def get_pauli_product_measurements(op_vecs: npt.NDArray[np.int_]) -> stim.Circuit:
-    """Construct a circuit that measures Pauli strings identified by rows of a symplectic matrix.
+    """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
 
-    For example, passing the parity check matrix will measure stabilizers.
+    Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
+    If "code" is a QuditCode, for example, then passing "op_vecs=code.matrix" will measure the
+    parity checks of "code".
     """
     op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
 
