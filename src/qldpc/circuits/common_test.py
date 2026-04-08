@@ -75,7 +75,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
             string = op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 1
 
-        # logical Z operators have expectation value 0
+        # logical X operators have expectation value 0
         for op in code.get_logical_ops(Pauli.X, symplectic=True):
             string = op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 0
