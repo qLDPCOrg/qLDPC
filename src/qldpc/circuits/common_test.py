@@ -54,9 +54,8 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
         error_vec = code.field.Random(len(code) * 2)
         error_ops = stim.Circuit()
         for qubit in range(len(code)):
-            xx = error_vec[qubit]
-            zz = error_vec[qubit + len(code)]
-            error_ops.append(str(Pauli(xx, zz)), qubit)
+            xx_zz = (error_vec[qubit], error_vec[qubit + len(code)])
+            error_ops.append(str(Pauli(xx_zz)), qubit)
         measurements = circuits.get_pauli_product_measurements(code.matrix)
         outcomes = (encoder + error_ops + measurements).reference_sample()
         syndrome = code.matrix @ symplectic_conjugate(error_vec)
