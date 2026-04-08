@@ -25,6 +25,7 @@ import stim
 import qldpc
 from qldpc import codes
 
+from .bookkeeping import DetectorRecord
 from .common import get_pauli_product_measurements, restrict_to_qubits
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
@@ -35,7 +36,7 @@ def get_state_prep_diagnostic_circuit(
     state_prep_circuit: stim.Circuit,
     *,
     observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
-) -> stim.Circuit:
+) -> tuple[stim.Circuit, DetectorRecord]:
     """Annotate a logical state prep circuit with diagnostics for computing logical error rates.
 
     This method assume that all measurements in the provided circuit are post-selection flags,
@@ -63,19 +64,28 @@ def get_state_prep_diagnostic_circuit(
             state_prep_circuit.
 
     Returns:
-        An annotated circuit ready for stim/sinter simulations that compute logical error rates.
+        stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
+        circuits.DetectorRecord: A record of the detectors in the circuit, for which
+            - DetectorRecord.get_events("flag") is a list of indices for the flag detectors.
+            - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
+                stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
+
+    # initialize a record of the detectors in the circuit
+    detector_record = DetectorRecord()
 
     # flag detectors
     flag_detectors = stim.Circuit()
     for meas_index in range(-state_prep_circuit.num_measurements, 0):
         flag_detectors.append("DETECTOR", [stim.target_rec(meas_index)])
+    detector_record.append({"flag": range(state_prep_circuit.num_measurements)})
 
     # stabilizer measurements and detectors
     stabilizer_measurements = get_pauli_product_measurements(code.get_stabilizer_ops())
     stabilizer_detectors = stim.Circuit()
     for meas_index in range(-stabilizer_measurements.num_measurements, 0):
         stabilizer_detectors.append("DETECTOR", [stim.target_rec(meas_index)])
+    detector_record.append({ss: [ss] for ss in range(len(code.get_stabilizer_ops()))})
 
     # identify the symplectic matrix of observables to measure and annotate
     if observables is None:
@@ -110,7 +120,7 @@ def get_state_prep_diagnostic_circuit(
         + logical_op_annotations
     )
 
-    return state_prep_circuit + measurements_and_detectors
+    return state_prep_circuit + measurements_and_detectors, detector_record
 
 
 def get_state_prep_diagnostic_tasks(
@@ -142,7 +152,7 @@ def get_state_prep_diagnostic_tasks(
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.
     """
-    diagnostic_circuit = get_state_prep_diagnostic_circuit(
+    diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables
     )
     if post_select_on_flags:  # pragma: no cover
@@ -151,7 +161,7 @@ def get_state_prep_diagnostic_tasks(
             "See https://github.com/quantumlib/Stim/issues/887"
         )
         postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-        postselection_mask[: state_prep_circuit.num_measurements] = 1
+        postselection_mask[detector_record.get_events("flag")] = 1
         postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
     else:
         postselection_mask_bit_packed = None
