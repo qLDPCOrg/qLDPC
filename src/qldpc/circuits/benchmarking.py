@@ -186,7 +186,8 @@ def get_state_prep_diagnostic_tasks(  # pragma: no cover
             state_prep_circuit.
 
     Returns:
-        A list of sinter Tasks, one-to-one with the provided error_rates.
+        A list of sinter Tasks, one-to-one with the provided error_rates.  The rate of an individual
+            task is task.json_metadata["p"].
     """
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables
