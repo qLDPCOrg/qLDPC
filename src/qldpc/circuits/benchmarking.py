@@ -130,12 +130,16 @@ def get_state_prep_diagnostic_tasks(  # pragma: no cover
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
     label: str | None = None,
+    post_select_on_flags: bool = False,  # WARNING: will change in the future
     observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
 ) -> list[sinter.Task]:
     """Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
 
     This method is essentially a helper function that wraps get_state_prep_diagnostic_circuit.
     See help(get_state_prep_diagnostic_circuit) for additional information.
+
+    WARNING: the default value of post_select_on_flags will change once stim issue #844 is fixed:
+    https://github.com/quantumlib/Stim/pull/844
 
     As an example, if
 
@@ -178,6 +182,8 @@ def get_state_prep_diagnostic_tasks(  # pragma: no cover
         error_rates: The error rates at which to evaluate the provided family of noise models.
         noise_model_family: A single-parameter family of noise models for adding noise to circuits.
         label: If not None, add {"label": label} to the json_metadata of the sinter tasks.
+        post_select_on_flags: If True, sampling tasks post-select on nonzero measurement outcomes in
+            the provided state_prep_circuit.  Default: False (WARNING: default is likely to change).
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -192,9 +198,16 @@ def get_state_prep_diagnostic_tasks(  # pragma: no cover
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables
     )
-    postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-    postselection_mask[detector_record.get_events("flag")] = 1
-    postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
+    if post_select_on_flags:  # pragma: no cover
+        raise ValueError(
+            "Post selecting on flags is unsupported due to a bug in sinter:\n"
+            "https://github.com/quantumlib/Stim/pull/844"
+        )
+        postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
+        postselection_mask[detector_record.get_events("flag")] = 1
+        postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
+    else:
+        postselection_mask_bit_packed = None
     label_metadata = {"label": label} if label is not None else {}
     return [
         sinter.Task(
