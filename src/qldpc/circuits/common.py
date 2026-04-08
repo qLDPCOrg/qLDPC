@@ -199,6 +199,29 @@ def _get_logical_tableau_from_code_data(
     return logical_tableau
 
 
+def get_pauli_product_measurements(op_vecs: npt.NDArray[np.int_]) -> stim.Circuit:
+    """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
+
+    Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
+    If "code" is a QuditCode, for example, then passing "op_vecs=code.get_stabilizer_ops()" will
+    measure the stabilizers of "code".
+    """
+    op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
+    if op_graph.field.order != 2:  # pragma: no cover
+        raise ValueError("Circuit methods are only supported for qubit codes")
+
+    circuit = stim.Circuit()
+    for node_index in range(len(op_vecs)):
+        op_node = Node(node_index, is_data=False)
+        targets = [
+            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+            for _, data_node, edge_data in op_graph.edges(op_node, data=True)
+        ]
+        circuit.append("MPP", stim.target_combined_paulis(targets))
+
+    return circuit
+
+
 def with_remapped_qubits(
     circuit: stim.Circuit, qubit_map: Mapping[int, int] | Sequence[int], *, inverse: bool = False
 ) -> stim.Circuit:
@@ -260,26 +283,3 @@ def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim
         return stim.target_inv(new_qubit_value)
 
     return stim.GateTarget(new_qubit_value)
-
-
-def get_pauli_product_measurements(op_vecs: npt.NDArray[np.int_]) -> stim.Circuit:
-    """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
-
-    Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
-    If "code" is a QuditCode, for example, then passing "op_vecs=code.get_stabilizer_ops()" will
-    measure the stabilizers of "code".
-    """
-    op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
-    if op_graph.field.order != 2:  # pragma: no cover
-        raise ValueError("Circuit methods are only supported for qubit codes")
-
-    circuit = stim.Circuit()
-    for node_index in range(len(op_vecs)):
-        op_node = Node(node_index, is_data=False)
-        targets = [
-            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
-            for _, data_node, edge_data in op_graph.edges(op_node, data=True)
-        ]
-        circuit.append("MPP", stim.target_combined_paulis(targets))
-
-    return circuit
