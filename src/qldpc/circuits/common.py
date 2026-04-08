@@ -266,8 +266,8 @@ def get_pauli_product_measurements(op_vecs: npt.NDArray[np.int_]) -> stim.Circui
     """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
 
     Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
-    If "code" is a QuditCode, for example, then passing "op_vecs=code.matrix" will measure the
-    parity checks of "code".
+    If "code" is a QuditCode, for example, then passing "op_vecs=code.get_stabilizer_ops()" will
+    measure the stabilizers of "code".
     """
     op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
     if op_graph.field.order != 2:  # pragma: no cover
