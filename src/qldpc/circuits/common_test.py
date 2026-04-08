@@ -26,7 +26,7 @@ import stim
 import sympy.combinatorics as comb
 
 from qldpc import circuits, codes
-from qldpc.math import op_to_string
+from qldpc.math import op_to_string, symplectic_conjugate
 from qldpc.objects import Pauli
 
 
@@ -49,6 +49,20 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
 
     for code, only_zero in itertools.product(codes_to_test, [True, False]):
         encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
+
+        # errors flip parity checks as they should
+        error_vec = code.field.Random(len(code) * 2)
+        error_ops = stim.Circuit()
+        for qubit in range(len(code)):
+            xx = error_vec[qubit]
+            zz = error_vec[qubit + len(code)]
+            error_ops.append(str(Pauli(xx, zz)), qubit)
+        measurements = circuits.get_pauli_product_measurements(code.matrix)
+        outcomes = (encoder + error_ops + measurements).reference_sample()
+        syndrome = code.matrix @ symplectic_conjugate(error_vec)
+        assert np.array_equal(outcomes.astype(int), syndrome)
+
+        # performing remaniing tests below with a tableau simulator
         simulator = stim.TableauSimulator()
         simulator.do(encoder)
 

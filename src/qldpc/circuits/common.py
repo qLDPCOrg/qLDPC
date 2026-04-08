@@ -270,13 +270,15 @@ def get_pauli_product_measurements(op_vecs: npt.NDArray[np.int_]) -> stim.Circui
     parity checks of "code".
     """
     op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
+    if op_graph.field.order != 2:  # pragma: no cover
+        raise ValueError("Circuit methods are only supported for qubit codes")
 
     circuit = stim.Circuit()
     for node_index in range(len(op_vecs)):
-        observable_node = Node(node_index, is_data=False)
+        op_node = Node(node_index, is_data=False)
         targets = [
             stim.target_pauli(data_node.index, str(edge_data[Pauli]))
-            for _, data_node, edge_data in op_graph.edges(observable_node, data=True)
+            for _, data_node, edge_data in op_graph.edges(op_node, data=True)
         ]
         circuit.append("MPP", stim.target_combined_paulis(targets))
 

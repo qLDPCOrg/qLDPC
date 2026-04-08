@@ -11,6 +11,7 @@ from .common import (
     get_encoding_circuit,
     get_encoding_tableau,
     get_logical_tableau,
+    get_pauli_product_measurements,
     with_remapped_qubits,
 )
 from .memory import (
@@ -49,6 +50,7 @@ __all__ = [
     "get_encoding_circuit",
     "get_encoding_tableau",
     "get_logical_tableau",
+    "get_pauli_product_measurements",
     "with_remapped_qubits",
     "get_logical_bell_prep",
     "get_memory_experiment",
