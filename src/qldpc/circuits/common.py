@@ -22,10 +22,11 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import ParamSpec, TypeVar, Union
 
 import numpy as np
+import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
-from qldpc.objects import Pauli
+from qldpc.objects import Node, Pauli
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", bound=Union[stim.Circuit, stim.Tableau])
 Params = ParamSpec("Params")
@@ -259,3 +260,22 @@ def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim
         return stim.target_inv(new_qubit_value)
 
     return stim.GateTarget(new_qubit_value)
+
+
+def get_pauli_product_measurements(op_vecs: npt.NDArray[np.int_]) -> stim.Circuit:
+    """Construct a circuit that measures Pauli strings identified by rows of a symplectic matrix.
+
+    For example, passing the parity check matrix will measure stabilizers.
+    """
+    op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
+
+    circuit = stim.Circuit()
+    for node_index in range(len(op_vecs)):
+        observable_node = Node(node_index, is_data=False)
+        targets = [
+            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+            for _, data_node, edge_data in op_graph.edges(observable_node, data=True)
+        ]
+        circuit.append("MPP", stim.target_combined_paulis(targets))
+
+    return circuit

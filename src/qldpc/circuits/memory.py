@@ -24,7 +24,12 @@ from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from .bookkeeping import DetectorRecord, MeasurementRecord, MemoryExperimentParts, QubitIDs
-from .common import get_encoding_circuit, restrict_to_qubits, with_remapped_qubits
+from .common import (
+    get_encoding_circuit,
+    get_pauli_product_measurements,
+    restrict_to_qubits,
+    with_remapped_qubits,
+)
 from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
@@ -316,15 +321,9 @@ def _get_combined_memory_simulation_parts(
     )
 
     # measure all stabilizers
-    readout = stim.Circuit()
-    for check_index, check_id in enumerate(check_ids):
-        check_node = Node(check_index, is_data=False)
-        targets = [
-            f"{edge_data[Pauli]}{data_ids[data_node.index]}"
-            for _, data_node, edge_data in code.graph.edges(check_node, data=True)
-        ]
-        joined_targets = "*".join(targets)
-        readout.append(stim.CircuitInstruction(f"MPP {joined_targets}"))
+    readout = with_remapped_qubits(
+        get_pauli_product_measurements(code.matrix), qubit_ids.data + qubit_ids.check
+    )
 
     # update the measurement record, add detectors, and update the detector record
     readout.append("SHIFT_COORDS", [], (1, 0, 0))

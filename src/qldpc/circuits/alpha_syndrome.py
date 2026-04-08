@@ -24,16 +24,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
-import numpy.typing as npt
 import sinter
 import stim
 import tqdm
 
 from qldpc import codes, decoders
-from qldpc.objects import Node, Pauli, PauliXZ
+from qldpc.objects import Pauli, PauliXZ
 
 from .bookkeeping import MeasurementRecord, QubitIDs
-from .common import restrict_to_qubits, with_remapped_qubits
+from .common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
 from .noise_model import NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import SyndromeMeasurementStrategy
 
@@ -214,7 +213,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         logical_ops = code.get_logical_ops(opposite_basis, symplectic=True)
         opposite_basis_ops = np.vstack([stabilizers, logical_ops])
         opposite_basis_measurements = as_noiseless_circuit(
-            _get_pauli_product_measurements(opposite_basis_ops)
+            get_pauli_product_measurements(opposite_basis_ops)
         )
         num_stabilizers = len(stabilizers)
         num_observables = len(logical_ops)
@@ -370,23 +369,4 @@ def _schedule_to_circuit(schedule: GateSchedule, target_pauli: Pauli) -> stim.Ci
         for gate in gates:
             circuit.append(f"C{target_pauli}", gate)
         circuit.append("TICK")
-    return circuit
-
-
-def _get_pauli_product_measurements(op_matrix: npt.NDArray[np.int_]) -> stim.Circuit:
-    """Construct a circuit that measures Pauli strings represented by the rows of a matrix.
-
-    For example, passing the parity check matrix will measure stabilizers.
-    """
-    op_graph = codes.QuditCode.matrix_to_graph(op_matrix)
-
-    circuit = stim.Circuit()
-    for node_index in range(len(op_matrix)):
-        observable_node = Node(node_index, is_data=False)
-        targets = [
-            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
-            for _, data_node, edge_data in op_graph.edges(observable_node, data=True)
-        ]
-        circuit.append("MPP", stim.target_combined_paulis(targets))
-
     return circuit
