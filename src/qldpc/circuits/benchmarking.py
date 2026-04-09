@@ -46,7 +46,8 @@ def get_state_prep_diagnostic_circuit(
     - A detector for each measurement in the provided circuit.  These are called "flag" detectors".
     - Noiseless measurements of all stabilizers of the code.
     - A detector for each of the noiseless stabilizer measurements.
-    - Annotations of observables that should stabilize the state prepared by the provided circuit.
+    - Noisless measurements of observables that stabilize the state prepared by state_prep_circuit.
+    - Annotations of the measured observables (with OBSERVABLE_INCLUDE).
 
     The logical error rate of the diagnostic circuit is nominally the probability with which any of
     the annotated observables are flipped after decoding flag and stabilizer measurement outcomes.
