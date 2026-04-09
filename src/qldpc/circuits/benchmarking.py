@@ -136,16 +136,13 @@ def get_state_prep_diagnostic_tasks(
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
     | None = None,
-    post_select_on_flags: bool = False,  # WARNING: default value will change in the future
+    post_select_on_flags: bool = False,
     label: str | None = None,
 ) -> list[sinter.Task]:
     r"""Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
 
     This method is essentially a helper function that wraps get_state_prep_diagnostic_circuit.
     See help(get_state_prep_diagnostic_circuit) for additional information.
-
-    WARNING: the default value of post_select_on_flags will change once stim issue #844 is fixed:
-    https://github.com/quantumlib/Stim/pull/844
 
     As an example, if
 
@@ -200,8 +197,8 @@ def get_state_prep_diagnostic_tasks(
             data qubits of the code.  If None, observables are determined automatically by finding
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
-        post_select_on_flags: If True, sampling tasks post-select on nonzero measurement outcomes in
-            the provided state_prep_circuit.  Default: False (WARNING: default is likely to change).
+        post_select_on_flags: If True, post-select samples on nonzero measurement outcomes in the
+            provided state_prep_circuit.  Default: False.
         label: If not None, add {"label": label} to the json_metadata of the sinter tasks.
 
     Returns:
@@ -244,7 +241,7 @@ def get_logical_error_and_discard_rates(
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
     | None = None,
-    post_select_on_flags: bool = True,
+    post_select_on_flags: bool = False,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute logical error rates of the provided logical state prep circuit for the provided code.
 
@@ -273,8 +270,8 @@ def get_logical_error_and_discard_rates(
             data qubits of the code.  If None, observables are determined automatically by finding
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
-        post_select_on_flags: If True (the default), sampling tasks post-select on nonzero
-            measurement outcomes in the provided state_prep_circuit.
+        post_select_on_flags: If True, post-select samples on nonzero measurement outcomes in the
+            provided state_prep_circuit.  Default: False.
 
     Returns:
         An array of estimated logical error rates.
