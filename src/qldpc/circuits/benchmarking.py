@@ -138,7 +138,6 @@ def get_state_prep_diagnostic_tasks(
     | Sequence[stim.PauliString]
     | None = None,
     post_select_on_flags: bool = False,
-    label: str | None = None,
 ) -> list[sinter.Task]:
     r"""Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
 
@@ -200,7 +199,6 @@ def get_state_prep_diagnostic_tasks(
             state_prep_circuit.
         post_select_on_flags: If True, post-select samples on nonzero measurement outcomes in the
             provided state_prep_circuit.  Default: False.
-        label: If not None, add {"label": label} to the json_metadata of the sinter tasks.
 
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
@@ -219,12 +217,11 @@ def get_state_prep_diagnostic_tasks(
         )
     else:
         postselection_mask_bit_packed = None
-    label_metadata = {"label": label} if label is not None else {}
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
             postselection_mask=postselection_mask_bit_packed,
-            json_metadata={"p": error_rate} | label_metadata,
+            json_metadata={"p": error_rate},
         )
         for error_rate in error_rates
     ]
