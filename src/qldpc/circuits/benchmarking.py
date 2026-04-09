@@ -149,7 +149,7 @@ def get_nontrivial_logical_stabilizers(
     Returns:
         A list of logical Pauli operators supported on the data qubits of the provided code.
     """
-    if not skip_validation:
+    if not skip_validation:  # pragma: no cover
         _assert_logical_state_preparation(code, state_prep_circuit)
 
     # convert the circuit into a tableau

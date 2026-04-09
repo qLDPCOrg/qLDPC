@@ -42,6 +42,12 @@ def test_state_prep() -> None:
         MX 7
     """)
 
+    # invalid logical state preparation
+    with pytest.raises(ValueError, match="does not prepare a logical state"):
+        circuits.benchmarking._assert_logical_state_preparation(
+            code, state_prep_circuit + stim.Circuit("X 0")
+        )
+
     noise_model_family = circuits.DepolarizingNoiseModel
     error_rates = np.logspace(-3, -1, 5)
 
