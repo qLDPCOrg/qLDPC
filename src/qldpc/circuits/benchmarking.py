@@ -136,7 +136,7 @@ def get_state_prep_diagnostic_tasks(
     post_select_on_flags: bool = False,  # WARNING: default value will change in the future
     label: str | None = None,
 ) -> list[sinter.Task]:
-    """Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
+    r"""Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
 
     This method is essentially a helper function that wraps get_state_prep_diagnostic_circuit.
     See help(get_state_prep_diagnostic_circuit) for additional information.
