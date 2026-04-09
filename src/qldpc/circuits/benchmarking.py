@@ -44,6 +44,8 @@ def get_state_prep_diagnostic_circuit(
 ) -> tuple[stim.Circuit, DetectorRecord]:
     """Annotate a logical state prep circuit with diagnostics for computing logical error rates.
 
+    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
     - A detector for each measurement in the provided circuit.  These are called "flag" detectors".
@@ -133,6 +135,8 @@ def get_nontrivial_logical_stabilizers(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
 ) -> npt.NDArray[np.int_]:
     """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
+
+    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
@@ -303,6 +307,8 @@ def get_logical_error_and_discard_rates(
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute logical error rates of the provided logical state prep circuit for the provided code.
 
+    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+
     Each logical error rate is a fraction of the (possibly post-selected) shots in which observable
     flips are predicted incorrectly by the provided decoder.
 
@@ -388,7 +394,10 @@ def get_logical_error_and_discard_rates(
 def _assert_logical_state_preparation(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit
 ) -> None:
-    """Assert that the the provided circuit prepare a logical state of the provided code."""
+    """Assert that the the provided circuit prepare a logical state of the provided code.
+
+    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+    """
     simulator = stim.TableauSimulator()
     simulator.do(state_prep_circuit.without_noise())
     if not all(
