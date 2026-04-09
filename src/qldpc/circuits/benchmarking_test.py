@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 import stim
 
-from qldpc import circuits, codes, math
+from qldpc import circuits, codes, decoders, math
 from qldpc.objects import Pauli
 
 
@@ -71,3 +71,17 @@ def test_state_prep() -> None:
     )
     for error_rate, task in zip(error_rates, tasks):
         assert task.json_metadata["p"] == error_rate
+
+    error_rates = [0]
+    logical_error_rates, discard_rates = circuits.get_logical_error_and_discard_rates(
+        code,
+        state_prep_circuit,
+        error_rates,
+        noise_model_family,
+        sinter_decoder=decoders.SinterDecoder(),
+        num_samples=1,
+        observables=observables,  # TODO: REMOVE
+        post_select_on_flags=True,
+    )
+    assert np.array_equal(logical_error_rates, [0])
+    assert np.array_equal(discard_rates, [0])

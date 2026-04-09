@@ -309,8 +309,6 @@ def get_logical_error_and_discard_rates(
             dem = dem_arrays.post_selected_on(detector_record.get_events("flag")).to_dem()
             detector_record = detector_record.after_post_selection("flag")
             discard_rates[pp] = 1 - np.sum(shot_mask) / len(shot_mask)
-        else:
-            discard_rates[pp] = 0
 
         # compile a decoder for this detector error model
         compiled_sinter_decoder = sinter_decoder[pp].compile_decoder_for_dem(dem)
