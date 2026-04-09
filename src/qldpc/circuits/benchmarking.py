@@ -247,6 +247,7 @@ def get_logical_error_and_discard_rates(
 
     This method is provided as an alternative to get_state_prep_diagnostic_tasks, which currently
     cannot support post-selection due to a sinter bug: https://github.com/quantumlib/Stim/pull/844
+    Once this bug is fixed, it is recommended to instead use get_state_prep_diagnostic_tasks.
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
