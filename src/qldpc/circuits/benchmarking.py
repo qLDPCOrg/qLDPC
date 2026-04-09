@@ -36,7 +36,10 @@ def get_state_prep_diagnostic_circuit(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
     *,
-    observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
+    observables: npt.NDArray[np.int_]
+    | Sequence[Sequence[int]]
+    | Sequence[stim.PauliString]
+    | None = None,
 ) -> tuple[stim.Circuit, DetectorRecord]:
     """Annotate a logical state prep circuit with diagnostics for computing logical error rates.
 
@@ -98,11 +101,9 @@ def get_state_prep_diagnostic_circuit(
                 "The provided circuit prepares a state that is not stabilized by any logical"
                 " operators of the code"
             )
-    elif not isinstance(observables, np.ndarray):  # FIX
+    elif not isinstance(observables, np.ndarray):  # FIXME
         # convert Pauli strings into symplectic vectors
-        observables = np.array(
-            [math.string_to_op(string) for string in observables], dtype=int
-        )
+        observables = np.array([math.string_to_op(string) for string in observables], dtype=int)
 
     # observable measurements and annotations
     logical_op_measurements = get_pauli_product_measurements(observables)
@@ -131,7 +132,10 @@ def get_state_prep_diagnostic_tasks(
     error_rates: Sequence[float] | npt.NDArray[np.floating],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
-    observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
+    observables: npt.NDArray[np.int_]
+    | Sequence[Sequence[int]]
+    | Sequence[stim.PauliString]
+    | None = None,
     post_select_on_flags: bool = False,  # WARNING: default value will change in the future
     label: str | None = None,
 ) -> list[sinter.Task]:
@@ -236,7 +240,10 @@ def get_logical_error_and_discard_rates(
     *,
     sinter_decoder: sinter.Decoder | Sequence[sinter.Decoder],
     num_samples: int | Sequence[float],
-    observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
+    observables: npt.NDArray[np.int_]
+    | Sequence[Sequence[int]]
+    | Sequence[stim.PauliString]
+    | None = None,
     post_select_on_flags: bool = True,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute logical error rates of the provided logical state prep circuit for the provided code.

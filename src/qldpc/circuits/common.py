@@ -199,7 +199,9 @@ def _get_logical_tableau_from_code_data(
     return logical_tableau
 
 
-def get_pauli_product_measurements(op_vecs: npt.NDArray[np.int_]) -> stim.Circuit:
+def get_pauli_product_measurements(
+    op_vecs: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+) -> stim.Circuit:
     """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
 
     Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
