@@ -148,15 +148,15 @@ def get_nontrivial_logical_stabilizers(
     if not skip_validation:
         _assert_logical_state_preparation(code, state_prep_circuit)
 
-    # convert the circut into a tableau
-    tableau = state_prep_circuit.to_tableau(
+    # convert the circuit into a tableau
+    full_tableau = state_prep_circuit.to_tableau(
         ignore_noise=True, ignore_measurement=True, ignore_reset=True
     )
 
     # TODO: assert that the tableau does not prepare a logical state that is entangled with ancillas
 
     # remove ancilla qubits from the tableau
-    x2x, x2z, z2x, z2z, x_signs, z_signs = tableau.to_numpy()
+    x2x, x2z, z2x, z2z, x_signs, z_signs = full_tableau.to_numpy()
     tableau = stim.Tableau.from_numpy(
         x2x=x2x[: len(code), : len(code)],
         x2z=x2z[: len(code), : len(code)],
