@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import stim
 
 from qldpc import circuits, codes, math
@@ -45,6 +46,17 @@ def test_state_prep() -> None:
     # obsrevables can be specified by either a symplectic matrix or list of Pauli strings
     observables = code.get_logical_ops(Pauli.Z, symplectic=True)
     string_observables = [math.op_to_string(obs) for obs in observables]
+
+    # post selection is broken in sinter
+    with pytest.raises(ValueError, match="bug in sinter"):
+        circuits.get_state_prep_diagnostic_tasks(
+            code,
+            state_prep_circuit,
+            error_rates,
+            noise_model_family,
+            observables=string_observables,
+            post_select_on_flags=True,
+        )
 
     # build sinter tasks
     tasks = circuits.get_state_prep_diagnostic_tasks(

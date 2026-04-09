@@ -129,7 +129,7 @@ def get_state_prep_diagnostic_circuit(
 def get_state_prep_diagnostic_tasks(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
-    error_rates: Sequence[float],
+    error_rates: Sequence[float] | npt.NDArray[np.floating],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
     observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
@@ -213,9 +213,9 @@ def get_state_prep_diagnostic_tasks(
             "Post selecting on flags is unsupported due to a bug in sinter:\n"
             "https://github.com/quantumlib/Stim/pull/844"
         )
-        postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-        postselection_mask[detector_record.get_events("flag")] = 1
-        postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
+        # postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
+        # postselection_mask[detector_record.get_events("flag")] = 1
+        # postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
     else:
         postselection_mask_bit_packed = None
     label_metadata = {"label": label} if label is not None else {}
@@ -232,14 +232,14 @@ def get_state_prep_diagnostic_tasks(
 def get_logical_error_and_discard_rates(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
-    error_rates: Sequence[float],
+    error_rates: Sequence[float] | npt.NDArray[np.floating],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
     sinter_decoder: sinter.Decoder | Sequence[sinter.Decoder],
     num_samples: int | Sequence[float],
     observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
     post_select_on_flags: bool = True,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute logical error rates of the provided logical state prep circuit for the provided code.
 
     Each logical error rate is a fraction of the (possibly post-selected) shots in which observable
