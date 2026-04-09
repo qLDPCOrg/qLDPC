@@ -25,6 +25,8 @@ import qldpc
 import qldpc.cache
 import qldpc.external.gap
 
+import numpy as np
+
 
 @qldpc.cache.use_disk_cache(
     "codes",
@@ -86,6 +88,38 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
     return stabilizers, distance, is_css
 
 
+def _gap_define_sparse_matrix(matrix_var: str, field_order: int, matrix: np.ndarray) -> list[str]:
+    _, matrix_width = matrix.shape
+    # Turn matrix into sparse representation where `nonzero_entries[i][j][_]=l`
+    # means `matrix[i,l] == j+1`.
+    nonzero_entries = [
+        [np.nonzero(row == val)[0] for val in range(1, field_order)]
+        for row in matrix
+    ]
+    def nonzero_row_str(nonzeros):
+        all_field_vals = [
+            f'[{",".join(str(int(val)) for val in columns)}]'
+            for columns in nonzeros
+        ]
+        return f'[{",".join(all_field_vals)}]'
+    nonzero_str = ','.join( nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
+    commands = [
+        f'nz:=[{nonzero_str}];;',
+        f'F:=GF({field_order});;',
+        f'{matrix_var}:=[];',
+        f'for r in nz do',
+        f'  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;',
+        f'  for f in [1..{field_order-1}] do',
+        f'    for i in r[f] do',
+        f'      v[i+1]:=f*One(F);;',
+        f'    od;;',
+        f'  od;;',
+        f'  Append({matrix_var},[v]);;',
+        f'od;;',
+    ]
+    commands = [cmd.strip() for cmd in commands]
+    return commands
+
 def get_distance_bound(
     code: qldpc.codes.QuditCode,
     num_trials: int = 1,
@@ -115,8 +149,8 @@ def get_distance_bound(
         args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);;',
-            f"matrix_x := {code_x.matrix_as_string()};;",
-            f"matrix_z := {code_z.matrix_as_string()};;",
+            *_gap_define_sparse_matrix("matrix_x", code.field.order, code_x.matrix),
+            *_gap_define_sparse_matrix("matrix_z", code.field.order, code_z.matrix),
             f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
 
@@ -130,11 +164,12 @@ def get_distance_bound(
         args = ",".join([f"{one}*matrix", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);',
-            f"matrix := {riffled_code.matrix_as_string()};",
+            *_gap_define_sparse_matrix("matrix", code.field.order, riffled_code.matrix),
             f"Print(DistRandStab({args}:{kwargs}));",
         ]
 
-    output = qldpc.external.gap.get_output(*commands)
+    # Issue: Piped input somehow causes extra terminal output.  Fix: Ignore all but last line.
+    output = qldpc.external.gap.get_output(*commands, use_pipe=True).strip().splitlines()[-1]
 
     # strip whitespace and comments, and interpret the remaining text as the bound
     lines = [line.strip() for line in output.splitlines()]
