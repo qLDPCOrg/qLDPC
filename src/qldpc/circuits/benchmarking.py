@@ -101,7 +101,8 @@ def get_state_prep_diagnostic_circuit(
                 "The provided circuit prepares a state that is not stabilized by any logical"
                 " operators of the code"
             )
-    elif not isinstance(observables, np.ndarray):  # FIXME
+
+    if len(observables) > 0 and isinstance(observables[0], stim.PauliString):
         # convert Pauli strings into symplectic vectors
         observables = np.array([math.string_to_op(string) for string in observables], dtype=int)
 

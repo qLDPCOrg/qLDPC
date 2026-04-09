@@ -79,7 +79,7 @@ def test_state_prep() -> None:
         error_rates=[0],
         sinter_decoder=decoders.SinterDecoder(),
         num_samples=1,
-        observables=observables,  # TODO: REMOVE
+        observables=None,  # construct automatically
         post_select_on_flags=True,
     )
     assert np.array_equal(logical_error_rates, [0])
