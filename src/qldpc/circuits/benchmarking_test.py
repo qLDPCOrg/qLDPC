@@ -72,12 +72,11 @@ def test_state_prep() -> None:
     for error_rate, task in zip(error_rates, tasks):
         assert task.json_metadata["p"] == error_rate
 
-    error_rates = [0]
+    # cover alternative method for computing logical error rates
     logical_error_rates, discard_rates = circuits.get_logical_error_and_discard_rates(
         code,
         state_prep_circuit,
-        error_rates,
-        noise_model_family,
+        error_rates=[0],
         sinter_decoder=decoders.SinterDecoder(),
         num_samples=1,
         observables=observables,  # TODO: REMOVE

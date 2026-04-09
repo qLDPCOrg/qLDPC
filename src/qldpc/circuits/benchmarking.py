@@ -24,8 +24,7 @@ import numpy.typing as npt
 import sinter
 import stim
 
-import qldpc
-from qldpc import codes, decoders
+from qldpc import codes, decoders, math
 
 from .bookkeeping import DetectorRecord
 from .common import get_pauli_product_measurements, restrict_to_qubits
@@ -99,10 +98,10 @@ def get_state_prep_diagnostic_circuit(
                 "The provided circuit prepares a state that is not stabilized by any logical"
                 " operators of the code"
             )
-    elif not isinstance(observables, np.ndarray):
+    elif not isinstance(observables, np.ndarray):  # FIX
         # convert Pauli strings into symplectic vectors
         observables = np.array(
-            [qldpc.math.string_to_op(string) for string in observables], dtype=int
+            [math.string_to_op(string) for string in observables], dtype=int
         )
 
     # observable measurements and annotations
