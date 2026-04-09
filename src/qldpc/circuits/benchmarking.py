@@ -222,14 +222,14 @@ def get_state_prep_diagnostic_tasks(
     ]
 
 
-def get_logical_error_rates(
+def _get_logical_error_and_discard_rates(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
-    sinter_decoder: sinter.Decoder | Sequence[sinter.Decoder],
-    num_samples: int | Sequence[float],
     error_rates: Sequence[float],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
+    sinter_decoder: sinter.Decoder | Sequence[sinter.Decoder],
+    num_samples: int | Sequence[float],
     observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
     post_select_on_flags: bool = True,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
@@ -244,15 +244,15 @@ def get_logical_error_rates(
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
-        sinter_decoder: The circuit-level decoder used to predict observable flips, or a sequence of
-            circuit-level decoders (one for each error rate).
-        num_samples: The number of times to sample each noisy circuit, or a sequence of sample
-            numbers (one for each error rate).
         error_rates: The error rates at which to evaluate the provided family of noise models.
         noise_model_family: A single-parameter family of noise models for adding noise to circuits.
             Default: qldpc.circuits.DepolarizingNoiseModel.
 
     Keyword args:
+        sinter_decoder: The circuit-level decoder used to predict observable flips, or a sequence of
+            circuit-level decoders (one for each error rate).
+        num_samples: The number of times to sample each noisy circuit, or a sequence of sample
+            numbers (one for each error rate).
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
