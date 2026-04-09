@@ -170,6 +170,13 @@ def get_state_prep_diagnostic_tasks(
             x_func=lambda stats: stats.json_metadata["p"],
         )
 
+        axis.axline(
+            (0, 0),
+            slope=1,
+            color="k",
+            linestyle=":",
+            label=r"$p_{\mathrm{log}}=p_{\mathrm{phys}}$",
+        )
         axis.set_ylabel("logical error rate")
         axis.set_xlabel("physical error rate")
         axis.loglog()
