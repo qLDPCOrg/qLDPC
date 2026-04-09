@@ -209,13 +209,13 @@ def get_state_prep_diagnostic_tasks(
         code, state_prep_circuit, observables=observables
     )
     if post_select_on_flags:
+        postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
+        postselection_mask[detector_record.get_events("flag")] = 1
+        postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
         raise ValueError(
             "Post selecting on flags is unsupported due to a bug in sinter:\n"
             "https://github.com/quantumlib/Stim/pull/844"
         )
-        # postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-        # postselection_mask[detector_record.get_events("flag")] = 1
-        # postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
     else:
         postselection_mask_bit_packed = None
     label_metadata = {"label": label} if label is not None else {}
