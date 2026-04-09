@@ -368,15 +368,18 @@ def get_logical_error_and_discard_rates(
 
         # if applicable, post-select on flag detectors
         if post_select_on_flags:
+            # identify shots and detectors to remove
             flag_dets = detector_record.get_events("flag")
             shot_mask = ~np.any(det_data[:, flag_dets], axis=1)
             detector_mask = np.ones(dem.num_detectors, dtype=bool)
             detector_mask[flag_dets] = False
+
+            # post-select simulated data
             det_data = det_data[shot_mask][:, detector_mask]
             obs_data = obs_data[shot_mask]
-
             dem = dem_arrays.post_selected_on(detector_record.get_events("flag")).to_dem()
-            detector_record = detector_record.after_post_selection("flag")
+
+            # record the fraction of shots that were discarded
             discard_rates[pp] = 1 - np.sum(shot_mask) / len(shot_mask)
 
         # compile a decoder for this detector error model
