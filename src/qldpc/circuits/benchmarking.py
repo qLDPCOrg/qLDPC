@@ -23,7 +23,7 @@ import sinter
 import stim
 
 import qldpc
-from qldpc import codes
+from qldpc import codes, decoders
 
 from .bookkeeping import DetectorRecord
 from .common import get_pauli_product_measurements, restrict_to_qubits
@@ -56,6 +56,8 @@ def get_state_prep_diagnostic_circuit(
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
+
+    Keyword args:
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -123,15 +125,15 @@ def get_state_prep_diagnostic_circuit(
     return state_prep_circuit + measurements_and_detectors, detector_record
 
 
-def get_state_prep_diagnostic_tasks(  # pragma: no cover
+def get_state_prep_diagnostic_tasks(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
     error_rates: Sequence[float],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
-    label: str | None = None,
-    post_select_on_flags: bool = False,  # WARNING: will change in the future
     observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
+    post_select_on_flags: bool = False,  # WARNING: default value will change in the future
+    label: str | None = None,
 ) -> list[sinter.Task]:
     """Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
 
@@ -173,7 +175,6 @@ def get_state_prep_diagnostic_tasks(  # pragma: no cover
         axis.loglog()
         axis.grid(which="both")
         figure.tight_layout()
-
         plt.show()
 
     Args:
@@ -181,15 +182,17 @@ def get_state_prep_diagnostic_tasks(  # pragma: no cover
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
         error_rates: The error rates at which to evaluate the provided family of noise models.
         noise_model_family: A single-parameter family of noise models for adding noise to circuits.
-        label: If not None, add {"label": label} to the json_metadata of the sinter tasks.
-        post_select_on_flags: If True, sampling tasks post-select on nonzero measurement outcomes in
-            the provided state_prep_circuit.  Default: False (WARNING: default is likely to change).
+
+    Keyword args:
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
             data qubits of the code.  If None, observables are determined automatically by finding
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
+        post_select_on_flags: If True, sampling tasks post-select on nonzero measurement outcomes in
+            the provided state_prep_circuit.  Default: False (WARNING: default is likely to change).
+        label: If not None, add {"label": label} to the json_metadata of the sinter tasks.
 
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
@@ -198,7 +201,7 @@ def get_state_prep_diagnostic_tasks(  # pragma: no cover
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables
     )
-    if post_select_on_flags:  # pragma: no cover
+    if post_select_on_flags:
         raise ValueError(
             "Post selecting on flags is unsupported due to a bug in sinter:\n"
             "https://github.com/quantumlib/Stim/pull/844"
@@ -217,3 +220,97 @@ def get_state_prep_diagnostic_tasks(  # pragma: no cover
         )
         for error_rate in error_rates
     ]
+
+
+def get_logical_error_rates(
+    code: codes.QuditCode,
+    state_prep_circuit: stim.Circuit,
+    sinter_decoder: sinter.Decoder | Sequence[sinter.Decoder],
+    num_samples: int | Sequence[float],
+    error_rates: Sequence[float],
+    noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
+    *,
+    observables: npt.NDArray[np.int_] | Sequence[stim.PauliString] | None = None,
+    post_select_on_flags: bool = True,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """Compute logical error rates of the provided logical state prep circuit for the provided code.
+
+    Each logical error rate is a fraction of the (possibly post-selected) shots in which observable
+    flips are predicted incorrectly by the provided decoder.
+
+    This method is essentially an alternative to get_state_prep_diagnostic_tasks, which currently
+    cannot support post-selection due to a sinter bug: https://github.com/quantumlib/Stim/pull/844
+
+    Args:
+        code: The code whose logical state is prepared by the provided state_prep_circuit.
+        state_prep_circuit: A circuit that prepares a logical state of the provided code.
+        sinter_decoder: The circuit-level decoder used to predict observable flips, or a sequence of
+            circuit-level decoders (one for each error rate).
+        num_samples: The number of times to sample each noisy circuit, or a sequence of sample
+            numbers (one for each error rate).
+        error_rates: The error rates at which to evaluate the provided family of noise models.
+        noise_model_family: A single-parameter family of noise models for adding noise to circuits.
+            Default: qldpc.circuits.DepolarizingNoiseModel.
+
+    Keyword args:
+        observables: The observables that should stabilize the prepared state, or (by default) None.
+            If not None, the observables should be either a a matrix of symplectic row vectors, with
+            shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
+            data qubits of the code.  If None, observables are determined automatically by finding
+            all logical Pauli operators of the code that stabilize the state prepared by
+            state_prep_circuit.
+        post_select_on_flags: If True (the default), sampling tasks post-select on nonzero
+            measurement outcomes in the provided state_prep_circuit.
+
+    Returns:
+        An array of estimated logical error rates.
+        An array of discard rates, or the fraction of shots (for each noise model) that were
+            discarded due to post-selection on state preparation flags.  If post_select_on_flags is
+            False, this array contains only zeros.
+    """
+    diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
+        code, state_prep_circuit, observables=observables
+    )
+    if not hasattr(num_samples, "__getitem__"):
+        num_samples = [num_samples] * len(error_rates)
+    if not hasattr(sinter_decoder, "__getitem__"):
+        sinter_decoder = [sinter_decoder] * len(error_rates)
+
+    logical_error_rates = np.zeros(len(error_rates), dtype=float)
+    discard_rates = np.zeros(len(error_rates), dtype=float)
+    for pp, error_rate in enumerate(error_rates):
+        # sample detector and observable flips in the circuit
+        noise_model = noise_model_family(error_rate)
+        noisy_circuit = noise_model.noisy_circuit(diagnostic_circuit)
+        dem_arrays = decoders.DetectorErrorModelArrays(
+            noisy_circuit.detector_error_model(), simplify=True
+        )
+        dem = dem_arrays.to_dem()
+        sampler = dem.compile_sampler()
+        det_data, obs_data, err_data = sampler.sample(shots=num_samples[pp])
+
+        # if applicable, post-select on flag detectors
+        if post_select_on_flags:
+            flag_dets = detector_record.get_events("flag")
+            shot_mask = ~np.any(det_data[:, flag_dets], axis=1)
+            detector_mask = np.ones(dem.num_detectors, dtype=bool)
+            detector_mask[flag_dets] = False
+            det_data = det_data[shot_mask][:, detector_mask]
+            obs_data = obs_data[shot_mask]
+
+            dem = dem_arrays.post_selected_on(detector_record.get_events("flag")).to_dem()
+            detector_record = detector_record.after_post_selection("flag")
+            discard_rates[pp] = 1 - np.sum(shot_mask) / len(shot_mask)
+        else:
+            discard_rates[pp] = 0
+
+        # compile a decoder for this detector error model
+        compiled_sinter_decoder = sinter_decoder[pp].compile_decoder_for_dem(dem)
+
+        # decode and compute the logical error rate
+        predicted_flips = compiled_sinter_decoder.decode_shots(det_data)
+        obs_flips = obs_data ^ predicted_flips
+        failures = np.any(obs_flips, axis=1)
+        logical_error_rates[pp] = np.sum(failures) / len(failures)
+
+    return logical_error_rates, discard_rates

@@ -719,7 +719,10 @@ class ClassicalCode(AbstractCode):
 
     def get_logical_error_rate_func(
         self, num_samples: int, max_error_rate: float = 0.3, **decoder_kwargs: Any
-    ) -> Callable[[float | Sequence[float]], tuple[float, float]]:
+    ) -> Callable[
+        [float | Sequence[float]],
+        tuple[float, float] | tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+    ]:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
@@ -1929,7 +1932,10 @@ class QuditCode(AbstractCode):
         max_error_rate: float = 0.3,
         pauli_bias: Sequence[float] | None = None,
         **decoder_kwargs: Any,
-    ) -> Callable[[float | Sequence[float]], tuple[float, float]]:
+    ) -> Callable[
+        [float | Sequence[float]],
+        tuple[float, float] | tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+    ]:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
