@@ -31,10 +31,12 @@ def test_state_prep() -> None:
     # construct a state prep circuit for the Steane code
     code = codes.SteaneCode()
     state_prep_circuit = stim.Circuit("""
+        # state prep
         H 0 2 4
         CX 0 3 2 1 4 5
         CX 0 1 2 6 4 3
         CX 2 5 3 6
+        # flag a logical Z representative
         H 7
         CZ 7 1 7 3 7 5
         MX 7
