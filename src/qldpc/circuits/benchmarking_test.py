@@ -67,6 +67,7 @@ def test_state_prep() -> None:
         error_rates,
         noise_model_family,
         observables=string_observables,
+        post_select_on_flags=False,
     )
 
     print()
