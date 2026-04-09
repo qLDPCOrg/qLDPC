@@ -229,7 +229,7 @@ def get_state_prep_diagnostic_tasks(
     ]
 
 
-def _get_logical_error_and_discard_rates(
+def get_logical_error_and_discard_rates(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
     error_rates: Sequence[float],
@@ -245,7 +245,7 @@ def _get_logical_error_and_discard_rates(
     Each logical error rate is a fraction of the (possibly post-selected) shots in which observable
     flips are predicted incorrectly by the provided decoder.
 
-    This method is essentially an alternative to get_state_prep_diagnostic_tasks, which currently
+    This method is provided as an alternative to get_state_prep_diagnostic_tasks, which currently
     cannot support post-selection due to a sinter bug: https://github.com/quantumlib/Stim/pull/844
 
     Args:
