@@ -27,7 +27,7 @@ import stim
 from qldpc import codes, decoders, math
 
 from .bookkeeping import DetectorRecord
-from .common import get_pauli_product_measurements, restrict_to_qubits
+from .common import get_encoder_and_decoder, get_pauli_product_measurements, restrict_to_qubits
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
 
@@ -40,6 +40,7 @@ def get_state_prep_diagnostic_circuit(
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
     | None = None,
+    skip_validation: bool = False,
 ) -> tuple[stim.Circuit, DetectorRecord]:
     """Annotate a logical state prep circuit with diagnostics for computing logical error rates.
 
@@ -67,6 +68,8 @@ def get_state_prep_diagnostic_circuit(
             data qubits of the code.  If None, observables are determined automatically by finding
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
+        skip_validation: If True, skip the check to assert that the provided circuit prepares a
+            logical state fo the provided code.
 
     Returns:
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
@@ -75,6 +78,8 @@ def get_state_prep_diagnostic_circuit(
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
+    if not skip_validation:
+        _assert_logical_state_preparation(code, state_prep_circuit)
 
     # initialize a record of the detectors in the circuit
     detector_record = DetectorRecord()
@@ -92,18 +97,14 @@ def get_state_prep_diagnostic_circuit(
         stabilizer_detectors.append("DETECTOR", [stim.target_rec(meas_index)])
     detector_record.append({ss: [ss] for ss in range(len(code.get_stabilizer_ops()))})
 
-    # identify the symplectic matrix of observables to measure and annotate
+    # if none were provided, automatically find the logical Pauli stabilizers of the prepared state
     if observables is None:
-        # identify logical operators that stabilize the state prepared by the circuit
-        ...
-        if not np.any(observables):
-            raise ValueError(
-                "The provided circuit prepares a state that is not stabilized by any logical"
-                " operators of the code"
-            )
+        observables = get_nontrivial_logical_stabilizers(
+            code, state_prep_circuit, skip_validation=True
+        )
 
+    # if applicable, convert Pauli strings into symplectic vectors
     if len(observables) > 0 and isinstance(observables[0], stim.PauliString):
-        # convert Pauli strings into symplectic vectors
         observables = np.array([math.string_to_op(string) for string in observables], dtype=int)
 
     # observable measurements and annotations
@@ -127,6 +128,61 @@ def get_state_prep_diagnostic_circuit(
     return state_prep_circuit + measurements_and_detectors, detector_record
 
 
+@restrict_to_qubits
+def get_nontrivial_logical_stabilizers(
+    code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
+) -> npt.NDArray[np.int_]:
+    """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
+
+    Args:
+        code: The code whose logical state is prepared by the provided state_prep_circuit.
+        state_prep_circuit: A circuit that prepares a logical state of the provided code.
+
+    Keyword args:
+        skip_validation: If True, skip the check to assert that the provided circuit prepares a
+            logical state fo the provided code.
+
+    Returns:
+        A list of logical Pauli operators supported on the data qubits of the provided code.
+    """
+    if not skip_validation:
+        _assert_logical_state_preparation(code, state_prep_circuit)
+
+    # convert the circut into a tableau
+    tableau = state_prep_circuit.to_tableau(
+        ignore_noise=True, ignore_measurement=True, ignore_reset=True
+    )
+
+    # TODO: assert that the tableau does not prepare a logical state that is entangled with ancillas
+
+    # remove ancilla qubits from the tableau
+    x2x, x2z, z2x, z2z, x_signs, z_signs = tableau.to_numpy()
+    tableau = stim.Tableau.from_numpy(
+        x2x=x2x[: len(code), : len(code)],
+        x2z=x2z[: len(code), : len(code)],
+        z2x=z2x[: len(code), : len(code)],
+        z2z=z2z[: len(code), : len(code)],
+        x_signs=x_signs[: len(code)],
+        z_signs=z_signs[: len(code)],
+    )
+
+    # identify logical stabilizers of the code, in the logical Pauli basis
+    logical_stabilizers = []
+    encoder, decoder = get_encoder_and_decoder(code)
+    for stabilizer in tableau.to_stabilizers():
+        stabilizer_in_logical_basis = stabilizer.after(decoder, targets=range(len(code)))
+        logical_stabilizer = math.string_to_op(stabilizer_in_logical_basis[: code.dimension])
+        logical_stabilizers.append(logical_stabilizer)
+
+    # row-reduce to find a minimal basis of logical stabilizers
+    logical_stabilizers_rref = code.field(logical_stabilizers).row_reduce()
+    logical_stabilizers_rref = logical_stabilizers_rref[np.any(logical_stabilizers_rref, axis=1), :]
+    assert logical_stabilizers_rref.shape == (code.dimension, 2 * code.dimension)
+
+    # convert back into the basis of physical Pauli operators
+    return logical_stabilizers_rref @ code.get_logical_ops()
+
+
 def get_state_prep_diagnostic_tasks(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
@@ -138,6 +194,7 @@ def get_state_prep_diagnostic_tasks(
     | Sequence[stim.PauliString]
     | None = None,
     post_select_on_flags: bool = False,
+    skip_validation: bool = False,
 ) -> list[sinter.Task]:
     r"""Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
 
@@ -199,6 +256,8 @@ def get_state_prep_diagnostic_tasks(
             state_prep_circuit.
         post_select_on_flags: If True, post-select samples on nonzero measurement outcomes in the
             provided state_prep_circuit.  Default: False.
+        skip_validation: If True, skip the check to assert that the provided circuit prepares a
+            logical state fo the provided code.
 
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
@@ -240,6 +299,7 @@ def get_logical_error_and_discard_rates(
     | Sequence[stim.PauliString]
     | None = None,
     post_select_on_flags: bool = False,
+    skip_validation: bool = False,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute logical error rates of the provided logical state prep circuit for the provided code.
 
@@ -270,6 +330,8 @@ def get_logical_error_and_discard_rates(
             state_prep_circuit.
         post_select_on_flags: If True, post-select samples on nonzero measurement outcomes in the
             provided state_prep_circuit.  Default: False.
+        skip_validation: If True, skip the check to assert that the provided circuit prepares a
+            logical state fo the provided code.
 
     Returns:
         An array of estimated logical error rates.
@@ -321,3 +383,18 @@ def get_logical_error_and_discard_rates(
         logical_error_rates[pp] = np.sum(failures) / len(failures)
 
     return logical_error_rates, discard_rates
+
+
+def _assert_logical_state_preparation(
+    code: codes.QuditCode, state_prep_circuit: stim.Circuit
+) -> None:
+    """Assert that the the provided circuit prepare a logical state of the provided code."""
+    simulator = stim.TableauSimulator()
+    simulator.do(state_prep_circuit.without_noise())
+    if not all(
+        simulator.peek_observable_expectation(math.op_to_string(row)) == 1
+        for row in code.get_stabilizer_ops()
+    ):
+        raise ValueError(
+            "The provided circuit does not prepare a logical state of the provided code."
+        )
