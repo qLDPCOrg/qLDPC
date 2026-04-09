@@ -69,12 +69,5 @@ def test_state_prep() -> None:
         observables=string_observables,
         post_select_on_flags=False,
     )
-
-    print()
-    print()
-    print()
-    for task in tasks:
-        print()
-        print(task)
-    print()
-    print()
+    for error_rate, task in zip(error_rates, tasks):
+        assert task.json_metadata["p"] == error_rate
