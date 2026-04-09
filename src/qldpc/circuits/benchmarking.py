@@ -39,19 +39,17 @@ def get_state_prep_diagnostic_circuit(
 ) -> tuple[stim.Circuit, DetectorRecord]:
     """Annotate a logical state prep circuit with diagnostics for computing logical error rates.
 
-    This method assume that all measurements in the provided circuit are post-selection flags,
-    meaning that circuit runs in which these measurement outcomes are nonzero are discarded.
-
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
-    - A detector for each measurement in the input circuit.
+    - A detector for each measurement in the provided circuit.  These are called "flag" detectors".
     - Noiseless measurements of all stabilizers of the code.
-    - A detector for each stabilizer measurement.
+    - A detector for each of the noiseless stabilizer measurements.
     - Annotations of observables that should stabilize the state prepared by the provided circuit.
 
-    The logical error rate of the diagnostic circuit is the probability with which any of the
-    annotated observables are flipped after post-selecting on flags and decoding stabilizer
-    measurement outcomes.
+    The logical error rate of the diagnostic circuit is nominally the probability with which any of
+    the annotated observables are flipped after decoding flag and stabilizer measurement outcomes.
+    However, the details of decoding and the option to post-select on some detectors are left up
+    to the user.
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
@@ -169,7 +167,6 @@ def get_state_prep_diagnostic_tasks(
             stats=stats,
             x_func=lambda stats: stats.json_metadata["p"],
         )
-
         axis.axline(
             (0, 0),
             slope=1,
@@ -272,8 +269,8 @@ def get_logical_error_and_discard_rates(
 
     Returns:
         An array of estimated logical error rates.
-        An array of discard rates, or the fraction of shots (for each noise model) that were
-            discarded due to post-selection on state preparation flags.  If post_select_on_flags is
+        An array of discard rates, or the fraction of shots (for each simulated error rate) that
+            were discarded due to post-selection on state prep flags.  If post_select_on_flags is
             False, this array contains only zeros.
     """
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
