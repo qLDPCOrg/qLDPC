@@ -92,7 +92,7 @@ class RelayBPDecoder(BatchDecoder):
     def __init__(
         self,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-        error_priors: npt.NDArray[np.float64] | Sequence[float] | None = None,
+        error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
         *,
         name: str = "RelayDecoderF32",
         observable_error_matrix: IntegerArray | None = None,
@@ -240,7 +240,7 @@ class LookupDecoder(Decoder):
         max_weight: int,
         *,
         symplectic: bool = False,
-        error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
@@ -308,7 +308,7 @@ class LookupDecoder(Decoder):
 
     @staticmethod
     def build_penalty_func(
-        error_channel: npt.NDArray[np.float64] | Sequence[float],
+        error_channel: npt.NDArray[np.floating] | Sequence[float],
     ) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
         """Construct a penalty function from independent probabilities of individual errors."""
         error_channel = np.asarray(error_channel)

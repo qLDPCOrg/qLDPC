@@ -1955,7 +1955,7 @@ class QuditCode(AbstractCode):
         this method works.
         """
         # collect relative probabilities of Z, X, and Y errors
-        pauli_bias_zxy: npt.NDArray[np.float64] | None
+        pauli_bias_zxy: npt.NDArray[np.floating] | None
         if pauli_bias is not None:
             assert len(pauli_bias) == 3
             pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
@@ -2009,7 +2009,7 @@ class QuditCode(AbstractCode):
         num_samples: int,
         decoder: decoders.Decoder,
         logical_ops: npt.NDArray[np.int_],
-        pauli_bias_zxy: npt.NDArray[np.float64] | None,
+        pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[float, float]:
         """Estimate a fidelity and its standard error when decoding a fixed number of errors."""
         num_failures = 0
@@ -3043,7 +3043,7 @@ class CSSCode(QuditCode):
         this method works.
         """
         # collect relative probabilities of Z, X, and Y errors
-        pauli_bias_zxy: npt.NDArray[np.float64] | None
+        pauli_bias_zxy: npt.NDArray[np.floating] | None
         if pauli_bias is not None:
             assert len(pauli_bias) == 3
             pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
@@ -3108,7 +3108,7 @@ class CSSCode(QuditCode):
         decoder_z: decoders.Decoder,
         logicals_x: npt.NDArray[np.int_],
         logicals_z: npt.NDArray[np.int_],
-        pauli_bias_zxy: npt.NDArray[np.float64] | None,
+        pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[float, float]:
         """Estimate a fidelity and its standard error when decoding a fixed number of errors."""
         num_failures = 0
@@ -3190,7 +3190,7 @@ def _get_sample_allocation(
 
 def _get_error_probs_by_weight(
     block_length: int, error_rate: float, max_weight: int | None = None
-) -> npt.NDArray[np.float64]:
+) -> npt.NDArray[np.floating]:
     """Build an array whose k-th entry is the probability of a weight-k error in a code.
 
     If a code has block_length n and each bit has an independent probability p = error_rate of an

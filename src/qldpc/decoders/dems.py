@@ -42,7 +42,7 @@ class DetectorErrorModelArrays:
 
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
-    error_probs: npt.NDArray[np.float64]  # probability of occurrence for each error
+    error_probs: npt.NDArray[np.floating]  # probability of occurrence for each error
 
     def __init__(self, dem: stim.DetectorErrorModel, *, simplify: bool = True) -> None:
         """Initialize from a stim.DetectorErrorModel."""
@@ -57,7 +57,7 @@ class DetectorErrorModelArrays:
 
     def get_arrays(
         self,
-    ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.float64]]:
+    ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.floating]]:
         """The arrays of this DetectorErrorModelArrays.
 
         Returns:
@@ -71,7 +71,7 @@ class DetectorErrorModelArrays:
     def from_arrays(
         detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_],
         observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_] | None,
-        error_probs: npt.NDArray[np.float64] | float,
+        error_probs: npt.NDArray[np.floating] | float,
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly."""
         dem_arrays = object.__new__(DetectorErrorModelArrays)
@@ -156,7 +156,7 @@ class DetectorErrorModelArrays:
         errors: list[tuple[frozenset[int], frozenset[int], float]],
         num_detectors: int,
         num_observables: int,
-    ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.float64]]:
+    ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.floating]]:
         """Convert circuit errors into DetectorErrorModelArrays data."""
         # initialize empty arrays
         detector_flip_matrix = scipy.sparse.dok_matrix((num_detectors, len(errors)), dtype=np.uint8)

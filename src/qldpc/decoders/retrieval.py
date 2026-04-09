@@ -99,7 +99,7 @@ def get_decoder_BP_OSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
     f"""Decoder based on belief propagation with ordered statistics (BP+OSD).
@@ -130,7 +130,7 @@ def get_decoder_BP_LSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
     f"""Decoder based on belief propagation with localized statistics (BP+LSD).
@@ -161,7 +161,7 @@ def get_decoder_BF(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
     f"""Decoder based on belief finding (BF).
@@ -194,8 +194,8 @@ def get_decoder_BF(
 def _to_ldpc_inputs(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_rate: float,
-    error_channel: npt.NDArray[np.float64] | Sequence[float] | None,
-) -> tuple[IntegerArray, npt.NDArray[np.float64] | Sequence[float]]:
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
+) -> tuple[IntegerArray, npt.NDArray[np.floating] | Sequence[float]]:
     """Post-process the arguments to ldpc decoders."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
@@ -265,7 +265,7 @@ def get_decoder_MWPM(
 
 def get_decoder_RBP(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-    error_priors: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> RelayBPDecoder:
     """Relay-BP decoders.
