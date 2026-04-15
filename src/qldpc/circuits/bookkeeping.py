@@ -126,7 +126,7 @@ class Record(Mapping[Hashable, list[int]]):
     ) -> None:
         self.key_to_events = collections.defaultdict(list)
         if initial_record:
-            _record = {  # convert initial_record into dict[int, list[int]]
+            _record = {  # convert initial_record into dict[Hashable, list[int]]
                 key: list(events) if isinstance(events, Iterable) else [events]
                 for key, events in initial_record.items()
             }
@@ -173,7 +173,7 @@ class Record(Mapping[Hashable, list[int]]):
         (0, 1, ...) in the appended record are added to the current record as (n, n+1, ...).
         """
         assert repeat >= 0
-        _record = {  # convert input record into dict[int, list[int]]
+        _record = {  # convert input record into dict[Hashable, list[int]]
             key: list(events) if isinstance(events, Iterable) else [events]
             for key, events in record.items()
         }
