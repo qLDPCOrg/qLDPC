@@ -298,8 +298,14 @@ class ClassicalCode(AbstractCode):
         identified with the checks and bits of the code.  The check vertex c and the bit vertex b
         share an edge iff c addresses b; that is, edge (c, b) is in the graph iff H[c, b] != 0.
         """
-        graph = nx.DiGraph()
         matrix = np.asanyarray(matrix)
+
+        # initialize graph with nodes
+        graph = nx.DiGraph()
+        for bit in range(matrix.shape[1]):
+            graph.add_node(Node(index=bit, is_data=True))
+
+        # add edges
         for row, col in zip(*np.nonzero(matrix)):
             node_c = Node(index=int(row), is_data=False)
             node_d = Node(index=int(col), is_data=True)
@@ -904,11 +910,16 @@ class QuditCode(AbstractCode):
     @staticmethod
     def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
         """Convert a parity check matrix into a Tanner graph."""
+        matrix = np.reshape(matrix, (len(matrix), 2, -1))
+
+        # initialize graph with nodes
         graph = nx.DiGraph()
         graph.field = galois.GF(getattr(type(matrix), "order", DEFAULT_FIELD_ORDER))
-        _Pauli = Pauli if graph.field.order == 2 else QuditPauli
+        for qudit in range(matrix.shape[1]):
+            graph.add_node(Node(index=qudit, is_data=True))
 
-        matrix = np.reshape(matrix, (len(matrix), 2, -1))
+        # add edges
+        _Pauli = Pauli if graph.field.order == 2 else QuditPauli
         for row, xz, col in zip(*np.nonzero(matrix)):
             node_check = Node(index=int(row), is_data=False)
             node_qudit = Node(index=int(col), is_data=True)
