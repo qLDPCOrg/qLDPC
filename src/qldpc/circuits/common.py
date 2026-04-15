@@ -216,7 +216,7 @@ def get_pauli_product_measurements(
     # identify qubit indices
     num_qubits = sum(node.is_data for node in op_graph.nodes)
     assert qubits is None or len(qubits) == num_qubits, "Incorrect number of qubits provided"
-    qubits = qubits or range(num_qubits)
+    qubits = qubits or list(range(num_qubits))
 
     # build circuit of MPP instructions
     circuit = stim.Circuit()
