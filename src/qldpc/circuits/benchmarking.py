@@ -293,6 +293,7 @@ def get_state_prep_diagnostic_tasks(
 def get_logical_error_and_discard_rate(
     circuit_or_dem: stim.Circuit | stim.DetectorErrorModel,
     sinter_decoder: sinter.Decoder,
+    *,
     num_samples: int,
     flags: Sequence[int] | None = None,
 ) -> tuple[float, float]:
@@ -325,6 +326,8 @@ def get_logical_error_and_discard_rate(
     Args:
         circuit_or_dem: The circuit or detector error model we wish to sample.
         sinter_decoder: The circuit-level decoder used to predict observable flips.
+
+    Keyword args:
         num_samples: The number of times to the circuit_or_dem.
         flags: The detectors in circuit_or_dem to post-select on.
 
