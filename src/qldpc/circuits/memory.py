@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 from collections.abc import Collection, Sequence
+from typing import NamedTuple
 
 import numpy as np
 import stim
@@ -23,7 +24,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
-from .bookkeeping import DetectorRecord, MeasurementRecord, MemoryExperimentParts, QubitIDs
+from .bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
 from .common import (
     get_encoding_circuit,
     get_pauli_product_measurements,
@@ -32,6 +33,15 @@ from .common import (
 )
 from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
+
+
+class MemoryExperimentParts(NamedTuple):
+    initialization: stim.Circuit
+    qec_cycle: stim.Circuit
+    readout: stim.Circuit
+    measurement_record: MeasurementRecord
+    detector_record: DetectorRecord
+    qubit_ids: QubitIDs
 
 
 def get_memory_experiment(

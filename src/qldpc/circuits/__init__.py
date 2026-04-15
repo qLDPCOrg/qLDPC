@@ -8,7 +8,6 @@ from .benchmarking import (
 from .bookkeeping import (
     DetectorRecord,
     MeasurementRecord,
-    MemoryExperimentParts,
     QubitIDs,
     Record,
 )
@@ -22,6 +21,7 @@ from .common import (
     with_remapped_qubits,
 )
 from .memory import (
+    MemoryExperimentParts,
     get_logical_bell_prep,
     get_memory_experiment,
     get_memory_experiment_parts,
@@ -55,7 +55,6 @@ __all__ = [
     "get_state_prep_diagnostic_tasks",
     "DetectorRecord",
     "MeasurementRecord",
-    "MemoryExperimentParts",
     "QubitIDs",
     "Record",
     "get_encoder_and_decoder",
@@ -65,6 +64,7 @@ __all__ = [
     "get_pauli_product_measurements",
     "restrict_to_qubits",
     "with_remapped_qubits",
+    "MemoryExperimentParts",
     "get_logical_bell_prep",
     "get_memory_experiment",
     "get_memory_experiment_parts",
