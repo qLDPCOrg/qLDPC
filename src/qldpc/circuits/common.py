@@ -201,6 +201,7 @@ def _get_logical_tableau_from_code_data(
 
 def get_pauli_product_measurements(
     op_vecs: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+    qubits: Sequence[int] | None = None,
 ) -> stim.Circuit:
     """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
 
@@ -212,11 +213,17 @@ def get_pauli_product_measurements(
     if op_graph.field.order != 2:  # pragma: no cover
         raise ValueError("Circuit methods are only supported for qubit codes")
 
+    # identify qubit indices
+    num_qubits = sum(node.is_data for node in op_graph.nodes)
+    qubits = qubits or range(len(num_qubits))
+    assert len(qubits) == num_qubits, "Incorrect number of qubits provided"
+
+    # build circuit of MPP instructions
     circuit = stim.Circuit()
     for node_index in range(len(op_vecs)):
         op_node = Node(node_index, is_data=False)
         targets = [
-            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+            stim.target_pauli(qubits[data_node.index], str(edge_data[Pauli]))
             for _, data_node, edge_data in op_graph.edges(op_node, data=True)
         ]
         circuit.append("MPP", stim.target_combined_paulis(targets))
