@@ -21,7 +21,7 @@ import collections
 import copy
 import dataclasses
 import itertools
-from collections.abc import Hashable, ItemsView, Iterator, Mapping, Sequence
+from collections.abc import Hashable, ItemsView, Iterable, Iterator, Mapping, Sequence
 from typing import NamedTuple
 
 import numpy as np
@@ -121,10 +121,16 @@ class Record(Mapping[Hashable, list[int]]):
     num_events: int
     key_to_events: dict[Hashable, list[int]]
 
-    def __init__(self, initial_record: Mapping[Hashable, Sequence[int]] | None = None) -> None:
+    def __init__(
+        self, initial_record: Mapping[Hashable, Iterable[int] | int] | None = None
+    ) -> None:
         self.key_to_events = collections.defaultdict(list)
         if initial_record:
-            self.key_to_events |= {key: list(events) for key, events in initial_record.items()}
+            _record = {  # convert initial_record into dict[int, list[int]]
+                key: list(events) if isinstance(events, Iterable) else [events]
+                for key, events in initial_record.items()
+            }
+            self.key_to_events |= _record
         self.num_events = sum(len(events) for events in self.key_to_events.values())
 
     def __repr__(self) -> str:
@@ -159,7 +165,7 @@ class Record(Mapping[Hashable, list[int]]):
             {copy.deepcopy(key): copy.deepcopy(events) for key, events in self.items()}
         )
 
-    def append(self, record: Mapping[Hashable, Sequence[int]], repeat: int = 1) -> None:
+    def append(self, record: Mapping[Hashable, Iterable[int] | int], repeat: int = 1) -> None:
         """Append the given record to this one.
 
         All event numbers in the appended record are increased by the number of events in the current
@@ -167,8 +173,12 @@ class Record(Mapping[Hashable, list[int]]):
         (0, 1, ...) in the appended record are added to the current record as (n, n+1, ...).
         """
         assert repeat >= 0
-        num_events_in_record = sum(len(events) for _, events in record.items())
-        for key, events in record.items():
+        _record = {  # convert input record into dict[int, list[int]]
+            key: list(events) if isinstance(events, Iterable) else [events]
+            for key, events in record.items()
+        }
+        num_events_in_record = sum(len(events) for _, events in _record.items())
+        for key, events in _record.items():
             self.key_to_events[key].extend(
                 [
                     self.num_events + measurement + repetition * num_events_in_record
@@ -178,7 +188,7 @@ class Record(Mapping[Hashable, list[int]]):
             )
         self.num_events += num_events_in_record * repeat
 
-    def __iadd__(self, other: Mapping[Hashable, Sequence[int]]) -> Self:
+    def __iadd__(self, other: Mapping[Hashable, Iterable[int] | int]) -> Self:
         """Append the given record to this one.  See help(qldpc.circuits.Record.append)."""
         self.append(other)
         return self

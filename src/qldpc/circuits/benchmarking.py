@@ -97,7 +97,7 @@ def get_state_prep_diagnostic_circuit(
     stabilizer_detectors = stim.Circuit()
     for meas_index in range(-stabilizer_measurements.num_measurements, 0):
         stabilizer_detectors.append("DETECTOR", [stim.target_rec(meas_index)])
-    detector_record.append({ss: [ss] for ss in range(len(code.get_stabilizer_ops()))})
+    detector_record.append({ss: ss for ss in range(len(code.get_stabilizer_ops()))})
 
     # if none were provided, automatically find the logical Pauli stabilizers of the prepared state
     if observables is None:
@@ -297,7 +297,7 @@ def get_logical_error_and_discard_rates(
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
     sinter_decoder: sinter.Decoder | Sequence[sinter.Decoder],
-    num_samples: int | Sequence[float],
+    num_samples: int | Sequence[int],
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -348,9 +348,9 @@ def get_logical_error_and_discard_rates(
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables
     )
-    if not hasattr(num_samples, "__getitem__"):
+    if not isinstance(num_samples, Sequence):
         num_samples = [num_samples] * len(error_rates)
-    if not hasattr(sinter_decoder, "__getitem__"):
+    if not isinstance(sinter_decoder, Sequence):
         sinter_decoder = [sinter_decoder] * len(error_rates)
 
     logical_error_rates = np.zeros(len(error_rates), dtype=float)

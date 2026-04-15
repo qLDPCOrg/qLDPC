@@ -23,7 +23,7 @@ import functools
 import itertools
 import math
 import os
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 
 import galois
 import networkx as nx
@@ -1166,7 +1166,7 @@ class CHGPCode(HGPCode):
 
         If provided only one block length or one polynomial, use it for both underlying CyclicCodes.
         """
-        if hasattr(dims, "__iter__"):
+        if isinstance(dims, Iterable):
             bits_a, bits_b = dims
         else:
             bits_a = bits_b = int(dims)

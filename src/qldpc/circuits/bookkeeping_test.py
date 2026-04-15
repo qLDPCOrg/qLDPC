@@ -55,17 +55,18 @@ def test_records() -> None:
     base_record = base_record + circuits.Record({0: [1], 2: [0]})
     assert base_record.num_events == 3
     base_record += {1: [0, 1]}
+    base_record.append({1: 0}, repeat=2)
     base_record.append({1: [0, 1]}, repeat=2)
-    assert base_record[1] == [3, 4, 5, 6, 7, 8]
+    assert base_record[1] == [3, 4, 5, 6, 7, 8, 9, 10]
     assert len(base_record) == 3
     assert list(iter(base_record)) == list(base_record.keys())
     assert dict(base_record.items()) == base_record.key_to_events
 
     measurement_record = circuits.MeasurementRecord(base_record.key_to_events)
-    assert measurement_record.num_events == 9
-    assert measurement_record.get_target_rec(2) == stim.target_rec(-8)
-    assert measurement_record.get_target_rec(0) == stim.target_rec(-7)
-    assert measurement_record.get_target_rec(0, -2) == stim.target_rec(-9)
+    assert measurement_record.num_events == 11
+    assert measurement_record.get_target_rec(2) == stim.target_rec(-10)
+    assert measurement_record.get_target_rec(0) == stim.target_rec(-9)
+    assert measurement_record.get_target_rec(0, -2) == stim.target_rec(-11)
 
     with pytest.raises(ValueError, match="Invalid measurement index"):
         measurement_record.get_target_rec(3)
@@ -73,7 +74,7 @@ def test_records() -> None:
         measurement_record.get_target_rec(0, 2)
 
     detector_record = circuits.DetectorRecord(base_record.key_to_events)
-    assert detector_record.num_events == 9
+    assert detector_record.num_events == 11
     assert detector_record.get_detector(2) == 1
     assert detector_record.get_detector(0) == 2
     assert detector_record.get_detector(0, -2) == 0

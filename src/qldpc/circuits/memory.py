@@ -263,7 +263,7 @@ def _get_basis_memory_experiment_parts(
     # measure out the data qubits
     readout = stim.Circuit()
     readout.append(f"M{basis}", data_ids)
-    measurement_record.append({data_id: [mm] for mm, data_id in enumerate(data_ids)})
+    measurement_record.append({data_id: mm for mm, data_id in enumerate(data_ids)})
 
     # detectors for stabilizers that can be inferred from data qubit measurements
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
@@ -276,7 +276,7 @@ def _get_basis_memory_experiment_parts(
             + [measurement_record.get_target_rec(check_id)],
             (0, 0, kk),
         )
-    detector_record.append({check_id: [dd] for dd, check_id in enumerate(basis_check_ids)})
+    detector_record.append({check_id: dd for dd, check_id in enumerate(basis_check_ids)})
 
     # annotate all basis-type observables
     targets = [measurement_record.get_target_rec(data_id) for data_id in data_ids]
@@ -327,14 +327,14 @@ def _get_combined_memory_simulation_parts(
 
     # update the measurement record, add detectors, and update the detector record
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
-    measurement_record.append({check_id: [mm] for mm, check_id in enumerate(check_ids)})
+    measurement_record.append({check_id: mm for mm, check_id in enumerate(check_ids)})
     for kk, check_id in enumerate(check_ids):
         targets = [
             measurement_record.get_target_rec(check_id, -1),
             measurement_record.get_target_rec(check_id, -2),
         ]
         readout.append("DETECTOR", targets, (0, 0, kk))
-    detector_record.append({check_id: [dd] for dd, check_id in enumerate(check_ids)})
+    detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
 
     # annotate all observables
     observables = get_observables(code, data_ids)
@@ -508,7 +508,7 @@ def _get_qec_cycle(
     measurement_record.append(round_measurement_record)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
-    detector_record.append({check_id: [dd] for dd, check_id in enumerate(check_ids)})
+    detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
@@ -526,7 +526,7 @@ def _get_qec_cycle(
         # update the measurement and detector records to account for repetitions
         measurement_record.append(round_measurement_record, repeat=num_rounds - 2)
         detector_record.append(
-            {check_id: [dd] for dd, check_id in enumerate(check_ids)}, repeat=num_rounds - 1
+            {check_id: dd for dd, check_id in enumerate(check_ids)}, repeat=num_rounds - 1
         )
 
     return circuit, measurement_record, detector_record
