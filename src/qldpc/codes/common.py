@@ -302,7 +302,7 @@ class ClassicalCode(AbstractCode):
 
         # initialize graph with nodes
         graph = nx.DiGraph()
-        for bit in range(matrix.shape[1]):
+        for bit in range(matrix.shape[-1]):
             graph.add_node(Node(index=bit, is_data=True))
 
         # add edges
@@ -915,7 +915,7 @@ class QuditCode(AbstractCode):
         # initialize graph with nodes
         graph = nx.DiGraph()
         graph.field = galois.GF(getattr(type(matrix), "order", DEFAULT_FIELD_ORDER))
-        for qudit in range(matrix.shape[1]):
+        for qudit in range(matrix.shape[-1]):
             graph.add_node(Node(index=qudit, is_data=True))
 
         # add edges
