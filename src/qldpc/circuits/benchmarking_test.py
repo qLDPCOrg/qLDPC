@@ -78,15 +78,12 @@ def test_state_prep() -> None:
     for error_rate, task in zip(error_rates, tasks):
         assert task.json_metadata["p"] == error_rate
 
-    # cover alternative method for computing logical error rates
-    logical_error_rates, discard_rates = circuits.get_logical_error_and_discard_rates(
-        code,
-        state_prep_circuit,
-        error_rates=[0],
+    # bypass sinter to computing logical error rates
+    logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
+        tasks[0].circuit,
         sinter_decoder=decoders.SinterDecoder(),
         num_samples=1,
-        observables=None,  # construct automatically
-        post_select_on_flags=True,
+        flags=task.json_metadata["detector_record"].get_events("flag"),
     )
-    assert np.array_equal(logical_error_rates, [0])
-    assert np.array_equal(discard_rates, [0])
+    assert logical_error_rate == 0
+    assert discard_rate == 0
