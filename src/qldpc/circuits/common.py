@@ -215,7 +215,7 @@ def get_pauli_product_measurements(
 
     # identify qubit indices
     num_qubits = sum(node.is_data for node in op_graph.nodes)
-    qubits = qubits or range(len(num_qubits))
+    qubits = qubits or range(num_qubits)
     assert len(qubits) == num_qubits, "Incorrect number of qubits provided"
 
     # build circuit of MPP instructions
