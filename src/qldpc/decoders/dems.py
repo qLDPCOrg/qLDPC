@@ -44,8 +44,15 @@ class DetectorErrorModelArrays:
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
     error_probs: npt.NDArray[np.floating]  # probability of occurrence for each error
 
-    def __init__(self, dem: stim.DetectorErrorModel, *, simplify: bool = True) -> None:
+    def __init__(
+        self, circuit_or_dem: stim.Circuit | stim.DetectorErrorModel, *, simplify: bool = True
+    ) -> None:
         """Initialize from a stim.DetectorErrorModel."""
+        dem = (
+            circuit_or_dem.detector_error_model()
+            if isinstance(circuit_or_dem, stim.Circuit)
+            else circuit_or_dem
+        )
         errors = DetectorErrorModelArrays.get_circuit_errors(dem)
         if simplify:
             errors = DetectorErrorModelArrays.get_merged_circuit_errors(errors)

@@ -314,7 +314,7 @@ def get_logical_error_and_discard_rates(
 
     This method is provided as an alternative to get_state_prep_diagnostic_tasks, which currently
     cannot support post-selection due to a sinter bug: https://github.com/quantumlib/Stim/pull/844
-    Once this bug is fixed, it is recommended to instead use get_state_prep_diagnostic_tasks.
+    Once the bug is fixed, it is recommended to instead use get_state_prep_diagnostic_tasks.
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
@@ -353,45 +353,100 @@ def get_logical_error_and_discard_rates(
     if not isinstance(sinter_decoder, Sequence):
         sinter_decoder = [sinter_decoder] * len(error_rates)
 
+    # for each physical error rate, compute the logical error and discard rate
     logical_error_rates = np.zeros(len(error_rates), dtype=float)
     discard_rates = np.zeros(len(error_rates), dtype=float)
     for pp, error_rate in enumerate(error_rates):
-        # sample detector and observable flips in the circuit
         noise_model = noise_model_family(error_rate)
-        noisy_circuit = noise_model.noisy_circuit(diagnostic_circuit)
-        dem_arrays = decoders.DetectorErrorModelArrays(
-            noisy_circuit.detector_error_model(), simplify=True
+        noisy_diagnostic_circuit = noise_model.noisy_circuit(diagnostic_circuit)
+        logical_error_rates[pp], discard_rates[pp] = get_logical_error_and_discard_rate(
+            noisy_diagnostic_circuit,
+            sinter_decoder[pp],
+            num_samples[pp],
+            detector_record.get_events("flag"),
         )
-        dem = dem_arrays.to_dem()
-        sampler = dem.compile_sampler()
-        det_data, obs_data, err_data = sampler.sample(shots=num_samples[pp])
-
-        # if applicable, post-select on flag detectors
-        if post_select_on_flags:
-            # identify shots and detectors to remove
-            flag_dets = detector_record.get_events("flag")
-            shot_mask = ~np.any(det_data[:, flag_dets], axis=1)
-            detector_mask = np.ones(dem.num_detectors, dtype=bool)
-            detector_mask[flag_dets] = False
-
-            # post-select simulated data
-            det_data = det_data[shot_mask][:, detector_mask]
-            obs_data = obs_data[shot_mask]
-            dem = dem_arrays.post_selected_on(detector_record.get_events("flag")).to_dem()
-
-            # record the fraction of shots that were discarded
-            discard_rates[pp] = 1 - np.sum(shot_mask) / len(shot_mask)
-
-        # compile a decoder for this detector error model
-        compiled_sinter_decoder = sinter_decoder[pp].compile_decoder_for_dem(dem)
-
-        # decode and compute the logical error rate
-        predicted_flips = compiled_sinter_decoder.decode_shots(det_data)
-        obs_flips = obs_data ^ predicted_flips
-        failures = np.any(obs_flips, axis=1)
-        logical_error_rates[pp] = np.sum(failures) / len(failures)
 
     return logical_error_rates, discard_rates
+
+
+def get_logical_error_and_discard_rate(
+    circuit_or_dem: stim.Circuit | stim.DetectorErrorModel,
+    sinter_decoder: sinter.Decoder,
+    num_samples: int,
+    post_selection_detectors: Sequence[int] | None = None,
+) -> tuple[float, float]:
+    """Compute a logical error rate and discard rate of the provided cirucit.
+
+    Each logical error rate is a fraction of the (possibly post-selected) shots in which observable
+    flips are predicted incorrectly by the provided decoder.
+
+    This method is provided as an alternative to sinter, which currently cannot support post
+    selection due to a sinter bug: https://github.com/quantumlib/Stim/pull/844
+    Once the bug is fixed, it is recommended to instead build a sinter.Task and call sinter.collect.
+
+    The sinter.Task would use the post_selection_detectors as follows:
+        postselection_mask_bits = np.zeros(circuit_or_dem.num_detectors, dtype=int)
+        postselection_mask_bits[post_selection_detectors] = 1
+        postselection_mask = np.packbits(postselection_mask, bitorder="little")
+        task = sinter.Task(
+            circuit=circuit,
+            postselection_mask=postselection_mask_bit_packed,
+            decoder=
+        )
+    Sampling data would then be collected with:
+        stats = sinter.collect(
+            tasks=[task],  # or more maybe more tasks
+            decoders=["custom"],
+            custom_decoders={"custom": sinter_decoder},
+            num_shots=num_samples,
+            # other options such as num_workers=os.cpu_count() or max_errors=100,
+        )
+
+    Args:
+        circuit_or_dem: The circuit or detector error model we wish to sample.
+        sinter_decoder: The circuit-level decoder used to predict observable flips.
+        num_samples: The number of times to the circuit_or_dem.
+        post_selection_detectors: The detectors in circuit_or_dem to post-select on.
+
+    Returns:
+        A fraction of samples in which at least one observable was decoded incorrectly.
+        A fraction of samples that were discarded due to post-selection.
+    """
+    # build and simplify a detector error model
+    dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)
+    dem = dem_arrays.to_dem()
+
+    # sample detector and observable flips in the circuit
+    sampler = dem.compile_sampler()
+    det_data, obs_data, err_data = sampler.sample(shots=num_samples)
+
+    # if applicable, post-select on flag detectors
+    if post_selection_detectors:
+        # identify shots and detectors to remove
+        shot_mask = ~np.any(det_data[:, post_selection_detectors], axis=1)
+        detector_mask = np.ones(dem.num_detectors, dtype=bool)
+        detector_mask[post_selection_detectors] = False
+
+        # post-select simulated data
+        det_data = det_data[shot_mask][:, detector_mask]
+        obs_data = obs_data[shot_mask]
+        dem = dem_arrays.post_selected_on(post_selection_detectors).to_dem()
+
+        # record the fraction of shots that were discarded
+        discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
+    else:  # pragma: no cover
+        discard_rate = 0
+
+    # compile a decoder for this detector error model
+    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
+
+    # decode and compute the logical error rate
+    predicted_flips = compiled_sinter_decoder.decode_shots(det_data)
+    obs_flips = obs_data ^ predicted_flips
+    failures = np.any(obs_flips, axis=1)
+    logical_error_rate = np.sum(failures) / len(failures)
+
+    return logical_error_rate, discard_rate
 
 
 def _assert_logical_state_preparation(
