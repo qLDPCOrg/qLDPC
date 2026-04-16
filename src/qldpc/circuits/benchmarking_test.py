@@ -55,6 +55,17 @@ def test_state_prep() -> None:
     observables = code.get_logical_ops(Pauli.Z, symplectic=True)
     string_observables = [math.op_to_string(obs) for obs in observables]
 
+    # can only post-select on measurements in the circuit
+    with pytest.raises(ValueError, match="can only post-select on measurements indexed from"):
+        circuits.get_state_prep_diagnostic_tasks(
+            code,
+            state_prep_circuit,
+            error_rates,
+            noise_model_family,
+            observables=string_observables,
+            post_select=[-1],
+        )
+
     # post selection is broken in sinter
     with pytest.raises(ValueError, match="bug in sinter"):
         circuits.get_state_prep_diagnostic_tasks(
@@ -63,7 +74,7 @@ def test_state_prep() -> None:
             error_rates,
             noise_model_family,
             observables=string_observables,
-            post_select_on_flags=True,
+            post_select=[0],
         )
 
     # build sinter tasks
@@ -73,7 +84,6 @@ def test_state_prep() -> None:
         error_rates,
         noise_model_family,
         observables=string_observables,
-        post_select_on_flags=False,
     )
     for error_rate, task in zip(error_rates, tasks):
         assert task.json_metadata["p"] == error_rate
@@ -85,7 +95,6 @@ def test_state_prep() -> None:
         error_rates[:1],
         noise_model_family,
         observables=None,
-        post_select_on_flags=False,
     )[0]
     assert task == tasks[0]
 
@@ -94,7 +103,7 @@ def test_state_prep() -> None:
         task.circuit,
         sinter_decoder=decoders.SinterDecoder(),
         num_samples=1,
-        flags=task.json_metadata["flags"],
+        post_select=task.json_metadata["flags"],
     )
     assert logical_error_rate == 0
     assert discard_rate == 0
