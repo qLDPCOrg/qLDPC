@@ -103,7 +103,7 @@ def test_state_prep() -> None:
         task.circuit,
         sinter_decoder=decoders.SinterDecoder(),
         num_samples=1,
-        post_select=task.json_metadata["flags"],
+        post_select=range(state_prep_circuit.num_measurements),
     )
     assert logical_error_rate == 0
     assert discard_rate == 0

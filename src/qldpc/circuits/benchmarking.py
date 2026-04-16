@@ -288,7 +288,7 @@ def get_state_prep_diagnostic_tasks(
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
             postselection_mask=postselection_mask_bit_packed,
-            json_metadata={"p": error_rate, "flags": detector_record.get_events("flag")},
+            json_metadata={"p": error_rate},
         )
         for error_rate in error_rates
     ]
