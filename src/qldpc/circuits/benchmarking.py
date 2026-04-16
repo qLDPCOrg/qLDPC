@@ -130,63 +130,6 @@ def get_state_prep_diagnostic_circuit(
     return state_prep_circuit + measurements_and_detectors, detector_record
 
 
-@restrict_to_qubits
-def get_nontrivial_logical_stabilizers(
-    code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
-) -> npt.NDArray[np.int_]:
-    """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
-
-    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
-
-    Args:
-        code: The code whose logical state is prepared by the provided state_prep_circuit.
-        state_prep_circuit: A circuit that prepares a logical state of the provided code.
-
-    Keyword args:
-        skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state fo the provided code.
-
-    Returns:
-        A list of logical Pauli operators supported on the data qubits of the provided code.
-    """
-    if not skip_validation:  # pragma: no cover
-        _assert_logical_state_preparation(code, state_prep_circuit)
-
-    # convert the circuit into a tableau
-    full_tableau = state_prep_circuit.to_tableau(
-        ignore_noise=True, ignore_measurement=True, ignore_reset=True
-    )
-
-    # TODO: assert that the tableau does not prepare a logical state that is entangled with ancillas
-
-    # remove ancilla qubits from the tableau
-    x2x, x2z, z2x, z2z, x_signs, z_signs = full_tableau.to_numpy()
-    tableau = stim.Tableau.from_numpy(
-        x2x=x2x[: len(code), : len(code)],
-        x2z=x2z[: len(code), : len(code)],
-        z2x=z2x[: len(code), : len(code)],
-        z2z=z2z[: len(code), : len(code)],
-        x_signs=x_signs[: len(code)],
-        z_signs=z_signs[: len(code)],
-    )
-
-    # identify logical stabilizers of the code, in the logical Pauli basis
-    logical_stabilizers = []
-    encoder, decoder = get_encoder_and_decoder(code)
-    for stabilizer in tableau.to_stabilizers():
-        stabilizer_in_logical_basis = stabilizer.after(decoder, targets=range(len(code)))
-        logical_stabilizer = math.string_to_op(stabilizer_in_logical_basis[: code.dimension])
-        logical_stabilizers.append(logical_stabilizer)
-
-    # row-reduce to find a minimal basis of logical stabilizers
-    logical_stabilizers_rref = code.field(logical_stabilizers).row_reduce()
-    logical_stabilizers_rref = logical_stabilizers_rref[np.any(logical_stabilizers_rref, axis=1), :]
-    assert logical_stabilizers_rref.shape == (code.dimension, 2 * code.dimension)
-
-    # convert back into the basis of physical Pauli operators
-    return logical_stabilizers_rref @ code.get_logical_ops()
-
-
 def get_state_prep_diagnostic_tasks(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
@@ -373,6 +316,63 @@ def get_logical_error_and_discard_rate(
     logical_error_rate = np.sum(failures) / len(failures)
 
     return logical_error_rate, discard_rate
+
+
+@restrict_to_qubits
+def get_nontrivial_logical_stabilizers(
+    code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
+) -> npt.NDArray[np.int_]:
+    """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
+
+    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+
+    Args:
+        code: The code whose logical state is prepared by the provided state_prep_circuit.
+        state_prep_circuit: A circuit that prepares a logical state of the provided code.
+
+    Keyword args:
+        skip_validation: If True, skip the check to assert that the provided circuit prepares a
+            logical state fo the provided code.
+
+    Returns:
+        A list of logical Pauli operators supported on the data qubits of the provided code.
+    """
+    if not skip_validation:  # pragma: no cover
+        _assert_logical_state_preparation(code, state_prep_circuit)
+
+    # convert the circuit into a tableau
+    full_tableau = state_prep_circuit.to_tableau(
+        ignore_noise=True, ignore_measurement=True, ignore_reset=True
+    )
+
+    # TODO: assert that the tableau does not prepare a logical state that is entangled with ancillas
+
+    # remove ancilla qubits from the tableau
+    x2x, x2z, z2x, z2z, x_signs, z_signs = full_tableau.to_numpy()
+    tableau = stim.Tableau.from_numpy(
+        x2x=x2x[: len(code), : len(code)],
+        x2z=x2z[: len(code), : len(code)],
+        z2x=z2x[: len(code), : len(code)],
+        z2z=z2z[: len(code), : len(code)],
+        x_signs=x_signs[: len(code)],
+        z_signs=z_signs[: len(code)],
+    )
+
+    # identify logical stabilizers of the code, in the logical Pauli basis
+    logical_stabilizers = []
+    encoder, decoder = get_encoder_and_decoder(code)
+    for stabilizer in tableau.to_stabilizers():
+        stabilizer_in_logical_basis = stabilizer.after(decoder, targets=range(len(code)))
+        logical_stabilizer = math.string_to_op(stabilizer_in_logical_basis[: code.dimension])
+        logical_stabilizers.append(logical_stabilizer)
+
+    # row-reduce to find a minimal basis of logical stabilizers
+    logical_stabilizers_rref = code.field(logical_stabilizers).row_reduce()
+    logical_stabilizers_rref = logical_stabilizers_rref[np.any(logical_stabilizers_rref, axis=1), :]
+    assert logical_stabilizers_rref.shape == (code.dimension, 2 * code.dimension)
+
+    # convert back into the basis of physical Pauli operators
+    return logical_stabilizers_rref @ code.get_logical_ops()
 
 
 def _get_post_selection_indices(
