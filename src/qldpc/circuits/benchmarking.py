@@ -48,7 +48,7 @@ def get_state_prep_diagnostic_circuit(
 
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
-    - A detector for each measurement in the provided circuit.  These are called "flag" detectors".
+    - A detector for each measurement in the provided circuit.  These are called "flag detectors".
     - Noiseless measurements of all stabilizers of the code.
     - A detector for each of the noiseless stabilizer measurements.
     - Noisless measurements of observables that stabilize the state prepared by state_prep_circuit.
@@ -197,7 +197,7 @@ def get_state_prep_diagnostic_tasks(
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
     | None = None,
-    post_select_on_flags: bool = False,
+    post_select: bool | Sequence[int] = False,
     skip_validation: bool = False,
 ) -> list[sinter.Task]:
     r"""Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
@@ -258,8 +258,9 @@ def get_state_prep_diagnostic_tasks(
             data qubits of the code.  If None, observables are determined automatically by finding
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
-        post_select_on_flags: If True, post-select samples on nonzero measurement outcomes in the
-            provided state_prep_circuit.  Default: False.
+        post_select: If True, post-select on 0 measurement outcomes for all measurements in the
+            state_prep_circuit.  If provided a sequence of integers, post-select on the correponding
+            measurements (by index) in the state_prep_circuit.
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
             logical state fo the provided code.
 
@@ -270,9 +271,12 @@ def get_state_prep_diagnostic_tasks(
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables
     )
-    if post_select_on_flags:
+    post_selection_indices = _get_post_selection_indices(
+        post_select, state_prep_circuit.num_measurements
+    )
+    if post_selection_indices:
         postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-        postselection_mask[detector_record.get_events("flag")] = 1
+        postselection_mask[post_selection_indices] = 1
         postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
         raise ValueError(
             "Post selecting on flags is unsupported due to a bug in sinter:\n"
@@ -293,9 +297,8 @@ def get_state_prep_diagnostic_tasks(
 def get_logical_error_and_discard_rate(
     circuit_or_dem: stim.Circuit | stim.DetectorErrorModel,
     sinter_decoder: sinter.Decoder,
-    *,
     num_samples: int,
-    flags: Sequence[int] | None = None,
+    post_select: Sequence[int] = (),
 ) -> tuple[float, float]:
     """Compute a logical error rate and discard rate from samples of the provided cirucit.
 
@@ -308,7 +311,7 @@ def get_logical_error_and_discard_rate(
 
     The sinter.Task would use the post-selection flags as follows:
         postselection_mask_bits = np.zeros(circuit_or_dem.num_detectors, dtype=int)
-        postselection_mask_bits[flags] = 1
+        postselection_mask_bits[post_select] = 1
         postselection_mask = np.packbits(postselection_mask, bitorder="little")
         task = sinter.Task(
             circuit=circuit,
@@ -329,7 +332,7 @@ def get_logical_error_and_discard_rate(
 
     Keyword args:
         num_samples: The number of times to the circuit_or_dem.
-        flags: The detectors in circuit_or_dem to post-select on.
+        post_select: The detectors in circuit_or_dem to post-select on.
 
     Returns:
         A fraction of samples in which at least one observable was decoded incorrectly.
@@ -344,16 +347,16 @@ def get_logical_error_and_discard_rate(
     det_data, obs_data, err_data = sampler.sample(shots=num_samples)
 
     # if applicable, post-select on flag detectors
-    if flags:
+    if post_select:
         # identify shots and detectors to remove
-        shot_mask = ~np.any(det_data[:, flags], axis=1)
+        shot_mask = ~np.any(det_data[:, post_select], axis=1)
         detector_mask = np.ones(dem.num_detectors, dtype=bool)
-        detector_mask[flags] = False
+        detector_mask[post_select] = False
 
         # post-select simulated data
         det_data = det_data[shot_mask][:, detector_mask]
         obs_data = obs_data[shot_mask]
-        dem = dem_arrays.post_selected_on(flags).to_dem()
+        dem = dem_arrays.post_selected_on(post_select).to_dem()
 
         # record the fraction of shots that were discarded
         discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
@@ -370,6 +373,20 @@ def get_logical_error_and_discard_rate(
     logical_error_rate = np.sum(failures) / len(failures)
 
     return logical_error_rate, discard_rate
+
+
+def _get_post_selection_indices(
+    post_select: bool | Sequence[int], num_measurements: int
+) -> Sequence[int]:
+    """Parse a post selection argument."""
+    if isinstance(post_select, bool):
+        return tuple(range(num_measurements)) if post_select else ()
+    if not all(0 <= mm < num_measurements for mm in post_select):
+        raise ValueError(
+            f"A cirucit with {num_measurements} can only post-select on measurements indexed from"
+            f" 0 to {num_measurements - 1}; requested: {post_select}"
+        )
+    return post_select
 
 
 def _assert_logical_state_preparation(
