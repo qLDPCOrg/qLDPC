@@ -24,6 +24,7 @@ import itertools
 import math
 import os
 from collections.abc import Collection, Iterable, Iterator, Sequence
+from typing import TypeVar, Union
 
 import galois
 import networkx as nx
@@ -828,6 +829,11 @@ class BBCode(QCCode):
 # hypergraph product code, lifted product code, and their subsystem variants
 
 
+FieldOrRingArray = TypeVar(
+    "FieldOrRingArray", bound=Union[npt.NDArray[np.int_], npt.NDArray[np.object_]]
+)
+
+
 class HGPCode(CSSCode):
     """Hypergraph product code.
 
@@ -882,6 +888,8 @@ class HGPCode(CSSCode):
     - https://www.youtube.com/watch?v=iehMcUr2saM
     """
 
+    code_a: ClassicalCode
+    code_b: ClassicalCode
     sector_size: npt.NDArray[np.int_]
 
     def __init__(
@@ -991,9 +999,8 @@ class HGPCode(CSSCode):
 
     @staticmethod
     def get_matrix_product(
-        matrix_a: npt.NDArray[np.int_ | np.object_],
-        matrix_b: npt.NDArray[np.int_ | np.object_],
-    ) -> tuple[npt.NDArray[np.int_ | np.object_], npt.NDArray[np.int_ | np.object_]]:
+        matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
+    ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Hypergraph product of two parity check matrices."""
         # construct the nontrivial blocks of the final parity check matrices
         mat_H1_In2 = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
@@ -1246,9 +1253,8 @@ class SHPCode(CSSCode):
 
     @staticmethod
     def get_matrix_product(
-        matrix_a: npt.NDArray[np.int_ | np.object_],
-        matrix_b: npt.NDArray[np.int_ | np.object_],
-    ) -> tuple[npt.NDArray[np.int_ | np.object_], npt.NDArray[np.int_ | np.object_]]:
+        matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
+    ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Subsystem hypergraph product of two parity check matrices."""
         matrix_x = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int)).view(type(matrix_a))
         matrix_z = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b).view(type(matrix_a))
@@ -1340,6 +1346,10 @@ class LPCode(CSSCode):
     - https://arxiv.org/abs/2306.16400
     """
 
+    matrix_a: abstract.RingArray
+    matrix_b: abstract.RingArray
+    sector_size: npt.NDArray[np.int_]
+
     def __init__(
         self,
         matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
@@ -1348,19 +1358,19 @@ class LPCode(CSSCode):
         """Lifted product of two RingArrays, as in arXiv:2012.04068."""
         if matrix_b is None:
             matrix_b = matrix_a
-        matrix_a = abstract.RingArray(matrix_a)
-        matrix_b = abstract.RingArray(matrix_b)
-        field = matrix_a.field.order
+        self.matrix_a = abstract.RingArray(matrix_a)
+        self.matrix_b = abstract.RingArray(matrix_b)
+        field = self.matrix_a.field.order
 
         # identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = HGPCode.get_matrix_product(matrix_a, matrix_b)
+        matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
         assert isinstance(matrix_x, abstract.RingArray)
         assert isinstance(matrix_z, abstract.RingArray)
 
         # identify the number of qudits in each sector
-        self.sector_size = matrix_a.group.lift_dim * np.outer(
-            matrix_a.shape[::-1],
-            matrix_b.shape[::-1],
+        self.sector_size = self.matrix_a.group.lift_dim * np.outer(
+            self.matrix_a.shape[::-1],
+            self.matrix_b.shape[::-1],
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default

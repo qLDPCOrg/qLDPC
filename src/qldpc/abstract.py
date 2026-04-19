@@ -907,7 +907,8 @@ class RingArray(npt.NDArray[np.object_]):
 
     @staticmethod
     def build(
-        data: npt.NDArray[np.object_ | np.int_] | NestedSequence, ring: GroupRing | Group
+        data: npt.NDArray[np.int_] | npt.NDArray[np.object_] | NestedSequence,
+        ring: GroupRing | Group,
     ) -> RingArray:
         """Construct a RingArray.
 
