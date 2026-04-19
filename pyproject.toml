@@ -32,7 +32,7 @@ dependencies = [
   "pyperclip>=1.11.0",
   "scipy>=1.14.1",
   "sinter>=1.15.0",
-  "stim>=1.16.dev1768963940",
+  "stim>=1.16.dev1768963940,<1.16.dev1776477515", # 1.16.dev1776477515 doesn't have pre-built wheels for Python 3.12
   "sympy>=1.12",
 ]
 
@@ -43,9 +43,7 @@ dev = [
   "python-lsp-server[all]>=1.14.0",
   "relay-bp[stim]==0.2.1",
 ]
-relay-bp = [
-  "relay-bp[stim]==0.2.1",
-]
+relay-bp = ["relay-bp[stim]==0.2.1"]
 
 [project.urls]
 Repository = "https://github.com/qLDPCOrg/qLDPC"
