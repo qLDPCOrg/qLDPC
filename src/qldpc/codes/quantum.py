@@ -1106,8 +1106,8 @@ class HGPCode(CSSCode):
         assert code_a.field is code_b.field
         code_field = code_a.field
 
-        generator_a = code_a.generator.row_reduce()
-        generator_b = code_b.generator.row_reduce()
+        generator_a = code_a.matrix.null_space()
+        generator_b = code_b.matrix.null_space()
         generator_a_T = code_a.matrix.T.null_space()
         generator_b_T = code_b.matrix.T.null_space()
 
@@ -1272,8 +1272,8 @@ class SHPCode(CSSCode):
         assert code_x.field is code_z.field
         code_field = code_x.field
 
-        generator_x = code_x.generator.row_reduce()
-        generator_z = code_z.generator.row_reduce()
+        generator_x = code_x.matrix.null_space()
+        generator_z = code_z.matrix.null_space()
 
         pivots_x = code_field.Zeros(generator_x.shape)
         pivots_z = code_field.Zeros(generator_z.shape)
