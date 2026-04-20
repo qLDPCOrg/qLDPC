@@ -969,11 +969,11 @@ class RingArray(npt.NDArray[np.object_]):
         vals = [val.to_vector() for val in self.ravel()]
         return np.asarray(vals).ravel().view(self.field)
 
-    def null_space(self, *, force_heuristic: bool = True) -> RingArray:
+    def null_space(self, *, row_reduce: bool = True) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
 
         The transpose of the null-space matrix is annihilated by this RingArray, such that
-        np.any(self @ self.null_space().T) is False
+        np.any(self @ self.null_space().T) is np.False_.
         """
         assert self.ndim == 2
 
@@ -982,137 +982,70 @@ class RingArray(npt.NDArray[np.object_]):
         null_field_vectors = self.regular_lift().null_space()
 
         # collect ring-valued null row vectors (that is, transposed null column vectors)
-        null_vectors = ~RingArray.from_field_array(
+        null_space = ~RingArray.from_field_array(
             self.ring,
             null_field_vectors.reshape(len(null_field_vectors), -1, self.group.order),
         )
+        if not row_reduce:
+            return null_space
 
-        return null_vectors.row_reduce(force_heuristic=force_heuristic)
+        try:
+            return null_space.row_reduce()
+        except NotImplementedError as error:
+            raise NotImplementedError(
+                "Cannot row-reduce the null-space matrix of this RingArray.  Try calling"
+                f" RingArray.null_space(row_reduce=False).  Error from row reduction:\n{error}"
+            )
 
-    def row_reduce(self, *, force_heuristic: bool = True) -> RingArray:
-        """Compute the reduced row Echelon form of this RingArray, or the closest we can get to it.
+    def row_reduce(self) -> RingArray:
+        """Compute an appropriate generalization of the reduced row Echelon form for this RingArray.
 
-        Use a series of heuristics for (possibly only partial) row reduction.  Every row in the
-        returned RingArray is guaranteed to satisfy one the following:
-        (a) there is some column at which the row is 1 and all other rows are 0, or
-        (b) all entries of the row are non-invertible.
-        Moreover, all rows of the returned RingArray are linearly independent and nonzero.
+        In full generality, what we seek is a reduced Groebner basis for the row module of this
+        RingArray.  In some special cases, this basis coincides with the Howell normal form.
+        """
+        if isinstance(self.ring.group, CyclicGroup):
+            return self._row_reduce_principal_ideal()
+        if self.ring.is_semisimple:
+            return self._row_reduce_semisimple()
+        return self._row_reduce_general()
+
+    def _row_reduce_principal_ideal(self) -> RingArray:
+        """Compute the Howell normal form of this RingArray.
+
+        This method currently only supports rings whose underlying group is a cyclic group.
+        It can in principle be generalized to support any Principal ideal ring.
         """
         assert self.ndim == 2
+        assert isinstance(self.ring.group, CyclicGroup)
+        raise NotImplementedError("Work in progress...")
 
-        if self.ring.is_semisimple and not force_heuristic:
-            return self._exact_row_reduce()
-
-        if not force_heuristic:
-            warnings.warn(
-                "RingArray.row_reduce only supports exact row reduction for semisimple group"
-                " algebras, for which the field.characteristic does not divide the group.order."
-                "  Using heuristics for (possibly only partial) row reduction instead.",
-            )
-        return self._heuristic_row_reduce()
-
-    def _exact_row_reduce(self) -> RingArray:
-        """Perform exact row reduction based on the Wedderburn-Artin decomposition of the base ring.
+    def _row_reduce_semisimple(self) -> RingArray:
+        """Perform row reduction based on the Wedderburn-Artin decomposition of the base ring.
 
         A semisimple ring can be decomposed into a direct product of simple rings, which are in turn
         isomorphic to matrix algebras over finite fields.  This method thereby row-reduces a
-        RingArray over a semisimple ring by
+        RingArray over a semisimple ring by...
         (a) decomposing the RingArray into its simple components,
         (b) "lifting" each component to a matrix over a finite field,
-        (c) row-reducing these matrices, and
-        (d) mapping back to a RingArray over the original semisimple ring.
-        At least, that's the plan.  It has yet to be implemented.
-        """
-        assert self.ring.is_semisimple
-        raise NotImplementedError(
-            "We only aspire to perform exact row reduction over semisimple rings :("
-        )
-
-    def _heuristic_row_reduce(self) -> RingArray:
-        """Use heuristics for (possibly only partial) row reduction.
-
-        Warning: this method is unoptimized.  There is a lot of room for speeding things up.
-        """
-
-        # greedily convert invertible entries into "pivots" that are uniquely nonzero in some column
-        matrix = self._reduce_rows_with_invertible_entries()
-
-        # split matrix into rows with pivots, and all other rows
-        pivot_matrix, non_pivot_matrix = matrix._split_by_pivots()
-
-        if non_pivot_matrix.size:
-            # identify a minimal basis for the span of the non-pivot rows
-            non_pivot_matrix = non_pivot_matrix._remove_linearly_dependent_rows()
-
-        return np.vstack([pivot_matrix, non_pivot_matrix]).view(RingArray)
-
-    def _reduce_rows_with_invertible_entries(self, *, restart_call: bool = False) -> RingArray:
-        """Row-reduce greedily using invertible entries.
-
-        Loop over every row.  If that row contains an invertible entry, normalize the row by this
-        entry's inverse, and zero out all other rows at the corresponding column by subtracting off
-        an appropriate multiple of this row (as you would with ordinary Gaussian elimination).
+        (c) row-reducing these matrices using ordinary linear algebra over fields,
+        (d) mapping back to a RingArray over the original semisimple ring,
+        (e) removing rows that are ring-linear combinations of others, and
+        (f) putting the remaining rows into a normal form, with pivots.
         """
         assert self.ndim == 2
-        rows: slice | list[int]
-
-        matrix = self if restart_call else self.copy()
-        num_rows, num_cols = self.shape
-
-        row_reductions_made = False  # did we perform row reductions?
-        noninvertible_rows = []  # which rows have only non-invertible entries?
-        for row in range(num_rows):
-            row_vector = matrix[row]
-
-            # look for an invertible entry in this row
-            for col, entry in enumerate(row_vector):
-                if inverse := entry.inverse():
-                    break
-
-            """
-            If we found an invertible entry,
-            - multiply this row by the inverse, so that this entry is 1, and
-            - zero out the corresponding column in all other rows.
-            """
-            if inverse:
-                # "normalize" the entry to 1, and zero out its column in all other rows
-                new_vector = inverse * row_vector
-                matrix[row] = new_vector
-                for rows in [slice(None, row), slice(row + 1, num_rows)]:
-                    matrix[rows] = matrix[rows] - matrix[rows, col, None] * new_vector[None, :]
-                row_reductions_made = True
-
-            else:
-                noninvertible_rows.append(row)
-
-        if row_reductions_made and noninvertible_rows:
-            # some non-invertible entries may have become invertible, so try row-reducing again
-            rows = [row for row in noninvertible_rows if np.any(matrix[row])]
-            matrix[rows].view(RingArray)._reduce_rows_with_invertible_entries(restart_call=True)
-
-        return matrix
-
-    def _split_by_pivots(self, *, allow_non_units: bool = True) -> tuple[RingArray, RingArray]:
-        """Split into a matrix with all "pivot" rows, and a matrix with all other nonzero rows.
-
-        "Pivot" rows are those that are uniquely nonzero in some column.  If allow_non_unit is
-        False, this nonzero entry is also required to be a unit (invertible entry) of the base ring
-        (group algebra) of this RingArray.
-        """
-        self_as_bool = self.astype(bool)
-        pivot_rows = np.zeros(len(self), dtype=bool)
-        pivot_cols = np.sum(self_as_bool, axis=0) == 1
-        for col in np.argwhere(pivot_cols):
-            row = np.argwhere(self_as_bool[:, col])[0][0]
-            pivot_rows[row] = allow_non_units or self[row, col][0].inverse()
-        pivot_matrix = self[pivot_rows]
-        non_pivot_matrix = self[~pivot_rows]
-        return (
-            pivot_matrix.view(RingArray),
-            non_pivot_matrix[np.any(non_pivot_matrix, axis=1)].view(RingArray),
+        assert self.ring.is_semisimple
+        raise NotImplementedError(
+            "We only aspire to support row reduction for RingArrays over semisimple rings :("
         )
 
-    def _remove_linearly_dependent_rows(self) -> RingArray:
+    def _row_reduce_general(self) -> RingArray:
+        """Compute a reduced Groebner basis for the row module of this RingArray."""
+        assert self.ndim == 2
+        raise NotImplementedError(
+            "We need to compute a reduced Groebner basis, in full generality.  Here be dragons."
+        )
+
+    def _remove_ring_linearly_dependent_rows(self) -> RingArray:
         """Remove rows that can be expressed as ring-linear combinations of others.
 
         Due to peculiarities of working with modules (the generalization of a vector space when
