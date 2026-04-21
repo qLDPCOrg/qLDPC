@@ -624,10 +624,10 @@ class RingMember:
             value, member = (1, term) if isinstance(term, GroupMember) else term
             self._vec[member] += self.field(value)
 
-    def __repr__(self):
+    def __str__(self):
         if isinstance(self.group, CyclicGroup):
-            return galois.Poly(self.to_vector()[::-1], field=self.field).__repr__()
-        return super().__repr__()
+            return galois.Poly(self.to_vector()[::-1], field=self.field).__str__()
+        return super().__str__()
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -876,6 +876,11 @@ class RingArray(npt.NDArray[np.object_]):
             result = result.view(RingArray)
             setattr(result, "_ring", next(iter(rings), None))
         return result
+
+    def __str__(self):
+        if isinstance(self.group, CyclicGroup):
+            return np.array2string(self, formatter={"object": str}, separator=", ")
+        return super().__str__()
 
     @property
     def ring(self) -> GroupRing:
