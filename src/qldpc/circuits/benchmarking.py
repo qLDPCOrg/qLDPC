@@ -211,8 +211,8 @@ def get_state_prep_diagnostic_tasks(
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
             individual task is task.json_metadata["p"].
     """
-    diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
-        code, state_prep_circuit, observables=observables
+    diagnostic_circuit, _ = get_state_prep_diagnostic_circuit(
+        code, state_prep_circuit, observables=observables, skip_validation=skip_validation
     )
     post_selection_indices = _get_post_selection_indices(
         post_select, state_prep_circuit.num_measurements
@@ -240,7 +240,9 @@ def get_state_prep_diagnostic_tasks(
 def get_logical_error_and_discard_rate(
     circuit_or_dem: stim.Circuit | stim.DetectorErrorModel,
     sinter_decoder: sinter.Decoder,
+    *,
     num_samples: int,
+    dem_to_decode: stim.DetectorErrorModel | None = None,
     post_select: Sequence[int] = (),
 ) -> tuple[float, float]:
     """Compute a logical error rate and discard rate from samples of the provided cirucit.
@@ -275,6 +277,7 @@ def get_logical_error_and_discard_rate(
 
     Keyword args:
         num_samples: The number of times to the circuit_or_dem.
+        dem_to_decode: The detector error model to decode.  If None, use the DEM of circuit_or_dem.
         post_select: The detectors in circuit_or_dem to post-select on.
 
     Returns:
@@ -299,7 +302,8 @@ def get_logical_error_and_discard_rate(
         # post-select simulated data
         det_data = det_data[shot_mask][:, detector_mask]
         obs_data = obs_data[shot_mask]
-        dem = dem_arrays.post_selected_on(post_select).to_dem()
+        if dem_to_decode is None:
+            dem = dem_arrays.post_selected_on(post_select).to_dem()
 
         # record the fraction of shots that were discarded
         discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
@@ -307,7 +311,7 @@ def get_logical_error_and_discard_rate(
         discard_rate = 0
 
     # compile a decoder for this detector error model
-    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
+    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
 
     # decode and compute the logical error rate
     predicted_flips = compiled_sinter_decoder.decode_shots(det_data)
