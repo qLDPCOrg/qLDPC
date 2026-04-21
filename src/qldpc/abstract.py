@@ -626,24 +626,43 @@ class RingMember:
             self._vec[member] += self.field(value)
 
     def __str__(self) -> str:
-        if isinstance(self.group, AbelianGroup):
-            num_gens = len(self.group.generators)
-            if num_gens <= 3:
-                gens = [sympy.abc.x, sympy.abc.y, sympy.abc.z][:num_gens]
-            elif num_gens <= 26:
-                gens = sympy.symbols("a:z")[: len(self.group.orders)]
-            else:
-                index_length = int(np.ceil(np.log10(num_gens + 1)))
-                gens = [sympy.Symbol(f"x_{index:0{index_length}}") for index in range(num_gens)]
-            symbols = []
-            for powers in itertools.product(*[range(order) for order in self.group.orders]):
-                factors = [gen**power for gen, power in zip(gens, powers)]
-                symbols.append(functools.reduce(operator.mul, factors))
-            terms = [
-                int(coeff) * symbol for coeff, symbol in zip(self.to_vector(), symbols) if coeff
+        """Write this RingMember as a polynomial."""
+        # identify symbols for the generators of the base group
+        num_gens = len(self.group.generators)
+        if num_gens <= 26:
+            symbols = sympy.symbols("a:z", commutative=self.group.is_abelian)[-num_gens:]
+        else:
+            index_length = int(np.ceil(np.log10(num_gens + 1)))
+            symbols = [
+                sympy.Symbol(f"x_{index:0{index_length}}", commutative=self.group.is_abelian)
+                for index in range(num_gens)
             ]
-            return str(sum(terms) + sympy.core.numbers.Zero()).replace("**", "^")
-        return super().__str__()
+
+        if isinstance(self.group, AbelianGroup):
+            # Abelian groups are an easy special case for building the polynomial
+            monomials = []
+            for powers in itertools.product(*[range(order) for order in self.group.orders]):
+                factors = [symbol**power for symbol, power in zip(symbols, powers)]
+                monomials.append(functools.reduce(operator.mul, factors))
+            terms = [
+                int(coeff) * monomial
+                for coeff, monomial in zip(self.to_vector(), monomials)
+                if coeff
+            ]
+
+        else:
+            # general-purpose fallback
+            sympy_group = self.group.to_sympy()
+            gen_to_symbol = {gen: symbol for gen, symbol in zip(sympy_group.generators, symbols)}
+
+            terms = []
+            for x_g, gg in self:
+                gens = sympy_group.generator_product(gg, original=True)
+                factors = [gen_to_symbol[gen] for gen in gens]
+                monomial = functools.reduce(operator.mul, factors, 1)
+                terms.append(int(x_g) * monomial)
+
+        return str(sum(terms) + sympy.core.numbers.Zero()).replace("**", "^")
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -894,9 +913,7 @@ class RingArray(npt.NDArray[np.object_]):
         return result
 
     def __str__(self) -> str:
-        if isinstance(self.group, (CyclicGroup, AbelianGroup)):
-            return np.array2string(self, formatter={"object": str}, separator=", ")
-        return super().__str__()
+        return np.array2string(self, formatter={"object": str}, separator=", ")
 
     @property
     def ring(self) -> GroupRing:
