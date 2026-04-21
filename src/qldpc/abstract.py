@@ -1021,6 +1021,10 @@ class RingArray(npt.NDArray[np.object_]):
         # convert into 3-D, where the third dimension stores coefficients for group members
         field_array = self.to_field_array()
 
+        # The "modulus" of underlying polynomial ring for this RingArray: x^n - 1.
+        # Analogous to N in the ring of integers modulo N.
+        modulus_poly = galois.Poly([1] + [0] * (self.group.order - 2) + [-1], self.field)
+
         def _multiply(poly: galois.Poly, vec: galois.FieldArray) -> galois.FieldArray:
             """Multiply a member of a cyclic group algebra into an group-algebra-valued vector.
 
@@ -1080,8 +1084,14 @@ class RingArray(npt.NDArray[np.object_]):
                     field_array[pivot_row] = new_aa_vec
                     field_array[lower_row] = new_bb_vec
 
-                # reduce the pivot to a minimal representative
-                ...
+                """
+                Reduce the pivot, aa: find a ss for which ss * aa = gcd(aa, modulus) = gg.
+                Multiply the pivot row by ss, reducing aa to gg.
+                """
+                aa_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
+                gg_poly, ss_poly, _ = galois.egcd(aa_poly, modulus_poly)
+                if aa_poly != gg_poly:
+                    field_array[pivot_row] = _multiply(ss_poly, _multiply)
 
                 # reduce all rows above the pivot_row at the pivot_column
                 ...
