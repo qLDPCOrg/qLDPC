@@ -1050,9 +1050,9 @@ class RingArray(npt.NDArray[np.object_]):
 
             if pivot_found:
                 # zero out all rows below the pivot_row at the pivot column
-                for lower_row in range(pivot_row + 1, self.shape[0]):
+                for other_row in range(pivot_row + 1, self.shape[0]):
                     aa_vec = field_array[pivot_row]
-                    bb_vec = field_array[lower_row]
+                    bb_vec = field_array[other_row]
                     """
                     Let:
                         aa = aa_vec[pivot_row]
@@ -1067,7 +1067,7 @@ class RingArray(npt.NDArray[np.object_]):
                     (2) ensures that bb_vec gets zeroed out at the pivot column.
                     """
                     aa_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
-                    bb_poly = galois.Poly(field_array[lower_row, pivot_col, ::-1], field=self.field)
+                    bb_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
 
                     # find gg, ss, tt, uu, vv, and work around some typing bugs/errors in galois/mypy
                     gg_poly: galois.Poly
@@ -1080,7 +1080,7 @@ class RingArray(npt.NDArray[np.object_]):
                     new_aa_vec = _multiply(ss_poly, aa_vec) + _multiply(tt_poly, bb_vec)
                     new_bb_vec = _multiply(uu_poly, aa_vec) + _multiply(vv_poly, bb_vec)
                     field_array[pivot_row] = new_aa_vec
-                    field_array[lower_row] = new_bb_vec
+                    field_array[other_row] = new_bb_vec
 
                 """
                 Reduce the pivot, aa: find a ss for which ss * aa = gcd(aa, modulus) = gg.
@@ -1092,7 +1092,10 @@ class RingArray(npt.NDArray[np.object_]):
                     field_array[pivot_row] = _multiply(ss_poly, _multiply)
 
                 # reduce all rows above the pivot_row at the pivot_column
-                ...
+                for other_row in range(pivot_row):
+                    bb_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
+                    ss_poly = bb_poly // aa_poly
+                    field_array[other_row] -= _multiply(ss_poly, aa_vec)
 
                 # if the pivot is a zero divisor, append a row that annihilates the pivot
                 ...
