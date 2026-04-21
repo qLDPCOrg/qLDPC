@@ -1051,8 +1051,6 @@ class RingArray(npt.NDArray[np.object_]):
             if pivot_found:
                 # zero out all rows below the pivot_row at the pivot column
                 for lower_row in range(pivot_row + 1, self.shape[0]):
-                    if lower_row == pivot_row:
-                        continue
                     aa_vec = field_array[pivot_row]
                     bb_vec = field_array[lower_row]
                     """
