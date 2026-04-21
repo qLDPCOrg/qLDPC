@@ -629,7 +629,9 @@ class RingMember:
         """Write this RingMember as a polynomial."""
         # identify symbols for the generators of the base group
         num_gens = len(self.group.generators)
-        if num_gens <= 26:
+        if num_gens <= 3:
+            symbols = sympy.symbols("x:z", commutative=self.group.is_abelian)[:num_gens]
+        elif num_gens <= 26:
             symbols = sympy.symbols("a:z", commutative=self.group.is_abelian)[-num_gens:]
         else:
             index_length = int(np.ceil(np.log10(num_gens + 1)))
