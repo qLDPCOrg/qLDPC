@@ -1032,17 +1032,17 @@ class RingArray(npt.NDArray[np.object_]):
         # Analogous to N in the ring of integers modulo N.
         modulus_poly = galois.Poly([1] + [0] * (self.group.order - 2) + [-1], self.field)
 
-        def _multiply(poly: galois.Poly, vec: galois.FieldArray) -> galois.FieldArray:
-            """Multiply a member of a cyclic group algebra into an group-algebra-valued vector.
+        def _multiply(poly: galois.Poly, vecs: galois.FieldArray) -> galois.FieldArray:
+            """Multiply a member of a polynomial ring into a ring-valued matrix.
 
-            The first argument is represented by a galois polynomial, while the second element is
-            represented by an two-dimensional array of coefficients in the field, such that
-            vec[i, p] is the coefficient of x^p in the i-th entry of vec.
+            The first argument represents a ring member by a polynomial, while the second argument
+            represents a (vecs.ndim-1)-dimensional array of polynomials, such that
+            vecs[*entry, c] is the coefficient of x^c in the given entry of vec.
             """
-            new_vec = vec.Zeros(vec.shape)
+            new_vecs = vecs.Zeros(vecs.shape)
             for coeff, degree in zip(poly.nonzero_coeffs, poly.nonzero_degrees):
-                new_vec += coeff * np.roll(vec, degree, axis=1)
-            return new_vec
+                new_vecs += coeff * np.roll(vecs, degree, axis=-1)
+            return new_vecs
 
         pivot_row = 0
         pivot_col = 0
@@ -1063,6 +1063,8 @@ class RingArray(npt.NDArray[np.object_]):
             for other_row in range(pivot_row + 1, self.shape[0]):
                 aa_vec = field_array[pivot_row]
                 bb_vec = field_array[other_row]
+                if not np.any(bb_vec):
+                    continue
                 """
                 Let:
                     aa = aa_vec[pivot_row]
@@ -1076,8 +1078,8 @@ class RingArray(npt.NDArray[np.object_]):
                 Condition (3) ensures that this transformation is invertible.
                 Condition (2) ensures that bb_vec gets zeroed out at the pivot column.
                 """
-                aa_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
-                bb_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
+                aa_poly = galois.Poly(aa_vec[pivot_col, ::-1], field=self.field)
+                bb_poly = galois.Poly(bb_vec[pivot_col, ::-1], field=self.field)
 
                 # find gg, ss, tt, uu, vv, and work around some typing bugs/errors in galois/mypy
                 gg_poly: galois.Poly
@@ -1094,14 +1096,14 @@ class RingArray(npt.NDArray[np.object_]):
 
             """
             "Reduce" the pivot:
-            (1) Find ss for which ss * pivot = gcd(pivot, modulus).
-            (2) Multiply the pivot row by ss, reducing the pivot to gcd(pivot, modulus).
+            (1) Find ff for which ff * pivot = gcd(pivot, modulus).
+            (2) Multiply the pivot row by ff, reducing the pivot to gcd(pivot, modulus).
             """
             pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
-            gg_poly, ss_poly, _ = galois.egcd(pivot_poly, modulus_poly)
-            if pivot_poly != gg_poly:
-                field_array[pivot_row] = _multiply(ss_poly, field_array[pivot_row])
-                pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
+            gcd_poly, ff_poly, _ = galois.egcd(pivot_poly, modulus_poly)
+            if pivot_poly != gcd_poly:
+                field_array[pivot_row] = _multiply(ff_poly, field_array[pivot_row])
+                pivot_poly = gcd_poly
 
             # reduce all rows above the pivot_row at the pivot_column
             pivot_vec = field_array[pivot_row, pivot_col]
@@ -1112,20 +1114,20 @@ class RingArray(npt.NDArray[np.object_]):
                     field_array[other_row] -= _multiply(div_poly, pivot_vec)
 
             """
-            Check whether the pivot has a nontrivial annihilator, for which
-                annihilator * pivot = 0
+            Check whether the pivot has a nontrivial annihilator, with annihilator * pivot = 0.
             If a nontrivial annihilator is found, append a new row with the pivot annihilated.
             """
             annihilator_poly = modulus_poly // pivot_poly
             if annihilator_poly != 0:
-                field_array.append(_multiply(annihilator_poly, pivot_vec))
+                new_row = _multiply(annihilator_poly, field_array[pivot_row])
+                field_array = np.concatenate([field_array, new_row[np.newaxis]], axis=0)
 
             pivot_row += 1
             pivot_col += 1
 
         # remove all-zero rows and return
         field_array = field_array[np.any(field_array, axis=(1, 2))]
-        raise RingArray.from_field_array(self.ring, field_array)
+        return RingArray.from_field_array(self.ring, field_array)
 
     def _row_reduce_semisimple(self) -> RingArray:
         """Perform row reduction based on the Wedderburn-Artin decomposition of the base ring.
