@@ -107,3 +107,12 @@ def test_state_prep() -> None:
     )
     assert logical_error_rate == 0
     assert discard_rate == 0
+
+    # incompatible DEMs for sampling and decoding
+    with pytest.raises(ValueError, match="Incompatible detector error models"):
+        circuits.get_logical_error_and_discard_rate(
+            task.circuit,
+            sinter_decoder=decoders.SinterDecoder(),
+            num_samples=1,
+            dem_to_sample=stim.DetectorErrorModel(),
+        )

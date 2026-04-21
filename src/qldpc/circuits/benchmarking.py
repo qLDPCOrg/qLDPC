@@ -288,6 +288,18 @@ def get_logical_error_and_discard_rate(
     dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)
     dem = dem_arrays.to_dem()
 
+    if dem_to_decode is not None:
+        same_num_observables = dem_to_decode.num_observables == dem.num_observables
+        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors - len(post_select)
+        if not same_num_observables or not same_num_detectors:
+            raise ValueError(
+                f"Incompatible detector error models."
+                "\n(num_detectors, num_observables) in the DEM to sample (after post-selection):"
+                f" {(dem.num_detectors - len(post_select), dem.num_observables)}\n"
+                "\n(num_detectors, num_observables) in the DEM to decode:"
+                f" {(dem_to_decode.num_detectors, dem_to_decode.num_observables)}"
+            )
+
     # sample detector and observable flips in the circuit
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(shots=num_samples)
