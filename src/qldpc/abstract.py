@@ -624,6 +624,11 @@ class RingMember:
             value, member = (1, term) if isinstance(term, GroupMember) else term
             self._vec[member] += self.field(value)
 
+    def __repr__(self):
+        if isinstance(self.group, CyclicGroup):
+            return galois.Poly(self.to_vector()[::-1], field=self.field).__repr__()
+        return super().__repr__()
+
     def __eq__(self, other: object) -> bool:
         return (
             isinstance(other, RingMember)
