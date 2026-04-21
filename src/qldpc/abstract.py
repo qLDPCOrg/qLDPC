@@ -41,8 +41,8 @@ from typing import Any, Literal, TypeVar, Union
 import galois
 import numpy as np
 import numpy.typing as npt
-import sympy.abc
 import scipy.linalg
+import sympy.abc
 import sympy.combinatorics as comb
 import sympy.core
 
@@ -626,11 +626,23 @@ class RingMember:
             self._vec[member] += self.field(value)
 
     def __str__(self) -> str:
-        if isinstance(self.group, CyclicGroup):
+        if isinstance(self.group, AbelianGroup):
+            num_gens = len(self.group.generators)
+            if num_gens <= 3:
+                gens = [sympy.abc.x, sympy.abc.y, sympy.abc.z][:num_gens]
+            elif num_gens <= 26:
+                gens = sympy.symbols("a:z")[: len(self.group.orders)]
+            else:
+                index_length = int(np.ceil(np.log10(num_gens + 1)))
+                gens = [sympy.Symbol(f"x_{index:0{index_length}}") for index in range(num_gens)]
+            symbols = []
+            for powers in itertools.product(*[range(order) for order in self.group.orders]):
+                factors = [gen**power for gen, power in zip(gens, powers)]
+                symbols.append(functools.reduce(operator.mul, factors))
             terms = [
-                int(coeff) * sympy.abc.x**pow for pow, coeff in enumerate(self.to_vector()) if coeff
+                int(coeff) * symbol for coeff, symbol in zip(self.to_vector(), symbols) if coeff
             ]
-            return str(sum(terms) + sympy.core.numbers.Zero())
+            return str(sum(terms) + sympy.core.numbers.Zero()).replace("**", "^")
         return super().__str__()
 
     def __eq__(self, other: object) -> bool:
@@ -882,7 +894,7 @@ class RingArray(npt.NDArray[np.object_]):
         return result
 
     def __str__(self) -> str:
-        if isinstance(self.group, CyclicGroup):
+        if isinstance(self.group, (CyclicGroup, AbelianGroup)):
             return np.array2string(self, formatter={"object": str}, separator=", ")
         return super().__str__()
 
@@ -1272,7 +1284,10 @@ class AbelianGroup(Group):
     initialized with direct_sum=True, the group members get lifted to a direct sum ⨁_i L(g_i)^{a_i}.
     """
 
+    orders: tuple[int, ...]
+
     def __init__(self, *orders: int, direct_sum: bool = False) -> None:
+        self.orders = orders
         group = comb.named_groups.AbelianGroup(*orders)
         order_text = ",".join(map(str, orders))
         name = f"AbelianGroup({order_text})"
@@ -1313,6 +1328,7 @@ class CyclicGroup(AbelianGroup):
     """
 
     def __init__(self, order: int) -> None:
+        self.orders = (order,)
         identity_mat = np.eye(order, dtype=int)
 
         # build lift manually, which is faster than the default lift
