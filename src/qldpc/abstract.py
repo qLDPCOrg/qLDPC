@@ -664,7 +664,7 @@ class RingMember:
                 monomial = functools.reduce(operator.mul, factors, 1)
                 terms.append(int(x_g) * monomial)
 
-        return str(sum(terms) + sympy.core.numbers.Zero()).replace("**", "^")
+        return str(sum(terms) + sympy.core.numbers.Zero()).replace("**", "^").replace("*", " ")
 
     def __eq__(self, other: object) -> bool:
         return (
