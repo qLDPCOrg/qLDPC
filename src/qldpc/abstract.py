@@ -41,6 +41,7 @@ from typing import Any, Literal, TypeVar, Union
 import galois
 import numpy as np
 import numpy.typing as npt
+import sympy.abc
 import scipy.linalg
 import sympy.combinatorics as comb
 import sympy.core
@@ -624,9 +625,12 @@ class RingMember:
             value, member = (1, term) if isinstance(term, GroupMember) else term
             self._vec[member] += self.field(value)
 
-    def __str__(self):
+    def __str__(self) -> str:
         if isinstance(self.group, CyclicGroup):
-            return galois.Poly(self.to_vector()[::-1], field=self.field).__str__()
+            terms = [
+                int(coeff) * sympy.abc.x**pow for pow, coeff in enumerate(self.to_vector()) if coeff
+            ]
+            return str(sum(terms) + sympy.core.numbers.Zero())
         return super().__str__()
 
     def __eq__(self, other: object) -> bool:
@@ -877,7 +881,7 @@ class RingArray(npt.NDArray[np.object_]):
             setattr(result, "_ring", next(iter(rings), None))
         return result
 
-    def __str__(self):
+    def __str__(self) -> str:
         if isinstance(self.group, CyclicGroup):
             return np.array2string(self, formatter={"object": str}, separator=", ")
         return super().__str__()
