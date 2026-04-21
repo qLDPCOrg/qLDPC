@@ -36,7 +36,7 @@ import math
 import operator
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from typing import Any, Literal, Union
+from typing import Any, Literal, TypeVar, Union
 
 import galois
 import numpy as np
@@ -48,6 +48,10 @@ import sympy.core
 from qldpc import external
 
 DEFAULT_FIELD_ORDER = 2
+
+FieldOrRingArray = TypeVar(
+    "FieldOrRingArray", bound=Union[npt.NDArray[np.int_], npt.NDArray[np.object_]]
+)
 
 
 ################################################################################
@@ -1100,7 +1104,9 @@ class RingArray(npt.NDArray[np.object_]):
             (2) Multiply the pivot row by ff, reducing the pivot to gcd(pivot, modulus).
             """
             pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
-            gcd_poly, ff_poly, _ = galois.egcd(pivot_poly, modulus_poly)
+            gcd_poly: galois.Poly
+            ff_poly: galois.Poly
+            gcd_poly, ff_poly, _ = galois.egcd(pivot_poly, modulus_poly)  # type:ignore[assignment,arg-type]
             if pivot_poly != gcd_poly:
                 field_array[pivot_row] = _multiply(ff_poly, field_array[pivot_row])
                 pivot_poly = gcd_poly

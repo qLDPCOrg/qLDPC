@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Sequence
-from typing import TypeVar, Union
+from typing import Any, TypeVar, Union
 
 import galois
 import numpy as np
@@ -86,7 +86,7 @@ def symplectic_weight(vectors: npt.NDArray[np.int_]) -> int:
     return np.count_nonzero(vectors_x | vectors_z, axis=-1).reshape(vectors.shape[:-1])
 
 
-def first_nonzero_cols(matrix: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+def first_nonzero_cols(matrix: npt.NDArray[Any]) -> npt.NDArray[np.int_]:
     """Get the first nonzero column for every row in a matrix."""
     if matrix.size == 0:
         return np.array([], dtype=int)
