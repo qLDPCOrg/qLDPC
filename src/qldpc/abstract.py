@@ -1004,16 +1004,23 @@ class RingArray(npt.NDArray[np.object_]):
         RingArray.  In some special cases, this basis coincides with the Howell normal form.
         """
         if isinstance(self.group, CyclicGroup):
-            return self._row_reduce_principal_ideal()
+            return self._row_reduce_cyclic()
+        # TODO: special case for principal ideal rings that are not based on a cyclic group
         if self.ring.is_semisimple:
             return self._row_reduce_semisimple()
         return self._row_reduce_general()
 
-    def _row_reduce_principal_ideal(self) -> RingArray:
-        """Compute the Howell normal form of this RingArray.
+    def _row_reduce_cyclic(self) -> RingArray:
+        """Compute the Howell normal form of a RingArray based on the cyclic group.
 
-        This method currently only supports rings whose underlying group is a cyclic group.
-        It can in principle be generalized to support any Principal ideal ring.
+        If the base group is a cyclic group, then the base ring is a univariate polynomial ring.
+        The extended Euclidean algorithm (galois.egcd) then equips us with invertible row operations
+        that we can use to "reduce" the RingArray into a Howell normal form, which is the closest we
+        can get to a reduced row Echelon form (RREF) for this RingArray.
+
+        References:
+        - https://en.wikipedia.org/wiki/Howell_normal_form
+        - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
         assert self.ndim == 2
         assert isinstance(self.group, CyclicGroup)
@@ -1048,63 +1055,77 @@ class RingArray(npt.NDArray[np.object_]):
                     pivot_found = True
                     break
 
-            if pivot_found:
-                # zero out all rows below the pivot_row at the pivot column
-                for other_row in range(pivot_row + 1, self.shape[0]):
-                    aa_vec = field_array[pivot_row]
-                    bb_vec = field_array[other_row]
-                    """
-                    Let:
-                        aa = aa_vec[pivot_row]
-                        bb = bb_vec[other_row]
-                    We will transform rows as
-                        [aa_vec, bb_vec] --> [[ss, tt], [uu, vv]] @ [aa_vec, bb_vec]
-                    where
-                        (1) ss * aa + tt * bb = gcd(aa, bb) = gg
-                        (2) uu * aa + vv * bb = 0
-                        (3) det([[ss, tt], [uu, vv]]) = ss * vv - tt * uu = 1
-                    Condition (3) ensures that this transformation is invertible, while condition
-                    (2) ensures that bb_vec gets zeroed out at the pivot column.
-                    """
-                    aa_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
-                    bb_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
+            if not pivot_found:
+                pivot_col += 1
+                continue
 
-                    # find gg, ss, tt, uu, vv, and work around some typing bugs/errors in galois/mypy
-                    gg_poly: galois.Poly
-                    ss_poly: galois.Poly
-                    tt_poly: galois.Poly
-                    gg_poly, ss_poly, tt_poly = galois.egcd(aa_poly, bb_poly)  # type:ignore[assignment,arg-type]
-                    uu_poly = -bb_poly // gg_poly
-                    vv_poly = aa_poly // gg_poly
-
-                    new_aa_vec = _multiply(ss_poly, aa_vec) + _multiply(tt_poly, bb_vec)
-                    new_bb_vec = _multiply(uu_poly, aa_vec) + _multiply(vv_poly, bb_vec)
-                    field_array[pivot_row] = new_aa_vec
-                    field_array[other_row] = new_bb_vec
-
+            # use invertible row operations to zero out all rows below at the pivot column
+            for other_row in range(pivot_row + 1, self.shape[0]):
+                aa_vec = field_array[pivot_row]
+                bb_vec = field_array[other_row]
                 """
-                Reduce the pivot, aa: find a ss for which ss * aa = gcd(aa, modulus) = gg.
-                Multiply the pivot row by ss, reducing aa to gg.
+                Let:
+                    aa = aa_vec[pivot_row]
+                    bb = bb_vec[other_row]
+                We will transform rows as
+                    [aa_vec, bb_vec] --> [[ss, tt], [uu, vv]] @ [aa_vec, bb_vec]
+                where
+                    (1) ss * aa + tt * bb = gcd(aa, bb) = gg
+                    (2) uu * aa + vv * bb = 0
+                    (3) det([[ss, tt], [uu, vv]]) = ss * vv - tt * uu = 1
+                Condition (3) ensures that this transformation is invertible.
+                Condition (2) ensures that bb_vec gets zeroed out at the pivot column.
                 """
                 aa_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
-                gg_poly, ss_poly, _ = galois.egcd(aa_poly, modulus_poly)
-                if aa_poly != gg_poly:
-                    field_array[pivot_row] = _multiply(ss_poly, _multiply)
+                bb_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
 
-                # reduce all rows above the pivot_row at the pivot_column
-                for other_row in range(pivot_row):
-                    bb_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
-                    ss_poly = bb_poly // aa_poly
-                    field_array[other_row] -= _multiply(ss_poly, aa_vec)
+                # find gg, ss, tt, uu, vv, and work around some typing bugs/errors in galois/mypy
+                gg_poly: galois.Poly
+                ss_poly: galois.Poly
+                tt_poly: galois.Poly
+                gg_poly, ss_poly, tt_poly = galois.egcd(aa_poly, bb_poly)  # type:ignore[assignment,arg-type]
+                uu_poly = -bb_poly // gg_poly
+                vv_poly = aa_poly // gg_poly
 
-                # if the pivot is a zero divisor, append a row that annihilates the pivot
-                ...
+                new_aa_vec = _multiply(ss_poly, aa_vec) + _multiply(tt_poly, bb_vec)
+                new_bb_vec = _multiply(uu_poly, aa_vec) + _multiply(vv_poly, bb_vec)
+                field_array[pivot_row] = new_aa_vec
+                field_array[other_row] = new_bb_vec
 
-                pivot_row += 1
+            """
+            "Reduce" the pivot:
+            (1) Find ss for which ss * pivot = gcd(pivot, modulus).
+            (2) Multiply the pivot row by ss, reducing the pivot to gcd(pivot, modulus).
+            """
+            pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
+            gg_poly, ss_poly, _ = galois.egcd(pivot_poly, modulus_poly)
+            if pivot_poly != gg_poly:
+                field_array[pivot_row] = _multiply(ss_poly, field_array[pivot_row])
+                pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
 
+            # reduce all rows above the pivot_row at the pivot_column
+            pivot_vec = field_array[pivot_row, pivot_col]
+            for other_row in range(pivot_row):
+                other_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
+                div_poly = other_poly // pivot_poly
+                if div_poly != 0:
+                    field_array[other_row] -= _multiply(div_poly, pivot_vec)
+
+            """
+            Check whether the pivot has a nontrivial annihilator, for which
+                annihilator * pivot = 0
+            If a nontrivial annihilator is found, append a new row with the pivot annihilated.
+            """
+            annihilator_poly = modulus_poly // pivot_poly
+            if annihilator_poly != 0:
+                field_array.append(_multiply(annihilator_poly, pivot_vec))
+
+            pivot_row += 1
             pivot_col += 1
 
-        raise NotImplementedError("Work in progress...")
+        # remove all-zero rows and return
+        field_array = field_array[np.any(field_array, axis=(1, 2))]
+        raise RingArray.from_field_array(self.ring, field_array)
 
     def _row_reduce_semisimple(self) -> RingArray:
         """Perform row reduction based on the Wedderburn-Artin decomposition of the base ring.
