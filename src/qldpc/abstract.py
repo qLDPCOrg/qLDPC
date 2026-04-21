@@ -1079,7 +1079,7 @@ class RingArray(npt.NDArray[np.object_]):
 
         # The "modulus" of underlying polynomial ring for this RingArray: x^n - 1.
         # Analogous to N in the ring of integers modulo N.
-        modulus_poly = galois.Poly([1] + [0] * (self.group.order - 2) + [-1], self.field)
+        modulus_poly = galois.Poly([1] + [0] * (self.group.order - 1) + [-1], self.field)
 
         def _multiply(poly: galois.Poly, vecs: galois.FieldArray) -> galois.FieldArray:
             """Multiply a member of a polynomial ring into a ring-valued matrix.
