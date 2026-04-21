@@ -1157,12 +1157,11 @@ class RingArray(npt.NDArray[np.object_]):
                 pivot_poly = gcd_poly
 
             # reduce all rows above the pivot_row at the pivot_column
-            pivot_vec = field_array[pivot_row, pivot_col]
             for other_row in range(pivot_row):
                 other_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
                 div_poly = other_poly // pivot_poly
                 if div_poly != 0:
-                    field_array[other_row] -= _multiply(div_poly, pivot_vec)
+                    field_array[other_row] -= _multiply(div_poly, field_array[pivot_row])
 
             """
             Check whether the pivot has a nontrivial annihilator, with annihilator * pivot = 0.
