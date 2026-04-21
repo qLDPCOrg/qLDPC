@@ -114,5 +114,5 @@ def test_state_prep() -> None:
             task.circuit,
             sinter_decoder=decoders.SinterDecoder(),
             num_samples=1,
-            dem_to_sample=stim.DetectorErrorModel(),
+            dem_to_decode=stim.DetectorErrorModel(),
         )
