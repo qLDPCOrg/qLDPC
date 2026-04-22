@@ -191,6 +191,7 @@ def test_ring() -> None:
     ring = abstract.GroupRing(group, field=5)
     ring_member = abstract.RingMember(ring, group.identity, (3, group.generators[0]))
     assert ring_member.inverse() is not None
+    assert (0 * ring_member).inverse() is None
 
     # nonexistent inverse
     group = abstract.CyclicGroup(2)
@@ -310,67 +311,58 @@ def test_regular_rep(ring: abstract.GroupRing, pytestconfig: pytest.Config) -> N
         matrix.regular_lift() @ vector.to_field_vector(),
     )
 
-    assert not np.any(matrix @ matrix.null_space().T)
-    assert not np.any(matrix.regular_lift() @ matrix.null_space().regular_lift().T)
+    assert not np.any(matrix @ matrix.null_space(row_reduce=False).T)
+    assert not np.any(matrix.regular_lift() @ matrix.null_space(row_reduce=False).regular_lift().T)
     assert not np.any(matrix.regular_lift() @ matrix.regular_lift().null_space().T)
 
+    with pytest.raises(NotImplementedError, match="Cannot row-reduce"):
+        matrix.null_space(row_reduce=True)
 
-@pytest.mark.parametrize(
-    "ring",
-    [
-        abstract.GroupRing(abstract.DihedralGroup(3)),
-        abstract.GroupRing(abstract.AbelianGroup(2, 3), field=3),
-    ],
-)
-def test_ring_row_reduce(ring: abstract.GroupRing, pytestconfig: pytest.Config) -> None:
+
+def test_ring_row_reduce(pytestconfig: pytest.Config) -> None:
     """Row reduce a ring-valued matrix."""
-    seed = pytestconfig.getoption("randomly_seed")
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
     matrix: list[list[int | abstract.RingMember]] | abstract.RingArray
 
+    # we can row-reduce a RingArray built on the cyclic group
+    ring = abstract.GroupRing(abstract.CyclicGroup(5), field=3)
     one = ring.one
     gen = ring.generators[0]
     gen_inverse = gen.inverse()
     assert gen_inverse is not None
 
     matrix = [
-        [one + gen, gen],
-        [gen + gen**2, gen**2],
-        [0, one + gen],
-    ]
-    reduced_matrix = [
-        [gen_inverse + one, one],
-        [-(one + gen) * (gen_inverse + one), 0],
+        [one + gen, 0, gen],
+        [gen + gen**2, 0, gen**2],
+        [0, 0, one + gen],
     ]
     assert np.array_equal(
         abstract.RingArray.build(matrix, ring).row_reduce(),
-        abstract.RingArray.build(reduced_matrix, ring),
+        abstract.RingArray.build([[1, 0, 0], [0, 0, 1]], ring),
     )
 
-    # RingArray.row_reduce and _remove_linearly_dependent_rows have the same left-ring-linear span
-    num_rows, num_cols = 3, 5
-    coefficients = ring.field.Random((num_rows, num_cols, ring.group.order), seed=seed)
-    matrix = abstract.RingArray.from_field_array(ring, coefficients)
-    matrix_1 = matrix.row_reduce().regular_lift().row_reduce()
-    matrix_2 = matrix._remove_linearly_dependent_rows().regular_lift().row_reduce()
-    assert np.array_equal(
-        matrix_1[np.any(matrix_1, axis=1)],
-        matrix_2[np.any(matrix_2, axis=1)],
-    )
+    # we cannot reduce a RingArray based on other groups
+    for group, match in [
+        (abstract.AbelianGroup(3, 3), "We only aspire"),
+        (abstract.DihedralGroup(3), "Here be dragons"),
+    ]:
+        ring = abstract.GroupRing(group)
+        coefficients = ring.field.Random((1, 2, ring.group.order))
+        matrix = abstract.RingArray.from_field_array(ring, coefficients)
+        with pytest.raises(NotImplementedError, match=match):
+            matrix.row_reduce()
 
 
-def test_row_reduce_errors() -> None:
-    """Errors and warnings from RingArray.row_reduce."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(3))
-    coefficients = ring.field.Random((1, 2, ring.group.order))
-    matrix = abstract.RingArray.from_field_array(ring, coefficients)
-    with pytest.raises(NotImplementedError, match="We only aspire to perform exact row reduction"):
-        matrix.row_reduce(force_heuristic=False)
+def test_ring_linear_reduction() -> None:
+    """Remove rows that are ring-linearly-dependent on others."""
+    group = abstract.CyclicGroup(2)
+    ring = abstract.GroupRing(group, field=2)
+    xx = ring.generators[0]
+    matrix = abstract.RingArray.build([[1 + xx, 1]], ring)
 
-    ring = abstract.GroupRing(abstract.CyclicGroup(2))
-    coefficients = ring.field.Random((1, 2, ring.group.order))
-    matrix = abstract.RingArray.from_field_array(ring, coefficients)
-    with pytest.warns(UserWarning, match="Using heuristics"):
-        matrix.row_reduce(force_heuristic=False)
+    row_reduced_matrix = abstract.RingArray.build([[1 + xx, 1], [0, 1 + xx]], ring)
+    assert np.array_equal(matrix.row_reduce(), row_reduced_matrix)
+    assert np.array_equal(row_reduced_matrix.without_dependent_rows(), matrix * xx)
 
 
 @pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False)])

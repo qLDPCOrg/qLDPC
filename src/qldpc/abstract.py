@@ -1205,8 +1205,11 @@ class RingArray(npt.NDArray[np.object_]):
             "We need to compute a reduced Groebner basis, in full generality.  Here be dragons."
         )
 
-    def without_linearly_dependent_rows(self) -> RingArray:
-        """Remove rows that can be expressed as ring-linear combinations of others.
+    def without_dependent_rows(self) -> RingArray:
+        r"""Remove rows that can be expressed as left-ring-linear combinations of others.
+
+        A row v is a left-ring-linear combination of rows (w_1, w_2, ...) iff v = sum_i r_i w_i,
+        where (r_1, r_2, ...) are elements of the base ring.
 
         Due to peculiarities of working with modules (the generalization of a vector space when
         working over rings, rather than fields), we have to start by considering all rows in the
@@ -1215,8 +1218,8 @@ class RingArray(npt.NDArray[np.object_]):
         by accumulating linearly independent row vectors, is necessary because rows may have
         nontrivial annihilators, which is to say that a row v may have a ring element r for which
         r * v = 0 even though r and v are both nonzero.  It is therefore possible, for examle, for a
-        row v to lie in the left-ring-linear span of another row w (v = r * w for some r), but not
-        the other way around (there is no r for which w = r * v).
+        row v to lie in the ring-linear span of another row w (v = r * w for some r), but not the
+        other way around (there is no r for which w = r * v).
         """
         assert self.ndim == 2
 
