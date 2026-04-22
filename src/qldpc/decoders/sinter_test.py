@@ -54,6 +54,18 @@ def test_sinter_decoder() -> None:
             observable_flips,
         )
 
+    # the trivial decoder always returns a trival result
+    decoder = decoders.TrivialDecoder()
+    compiled_decoder = decoder.compile_decoder_for_dem(dem)
+    assert np.array_equal(
+        compiled_decoder.decode_shots(np.array(circuit_errors)),
+        np.zeros_like(observable_flips),
+    )
+    assert np.array_equal(
+        compiled_decoder.decode_shots_bit_packed(bit_packed_shots),
+        np.zeros_like(expected_flips),
+    )
+
 
 def test_subgraph_decoding() -> None:
     """Decode by parts."""

@@ -120,10 +120,12 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
     .compile_decoder_for_dem method returns a CompiledSinterDecoder.
     """
 
+    num_detectors: int
+
     def __init__(self, dem_arrays: DetectorErrorModelArrays, decoder: Decoder) -> None:
         self.dem_arrays = dem_arrays
         self.decoder = decoder
-        self.num_detectors = self.dem_arrays.num_detectors
+        self.num_detectors = dem_arrays.num_detectors
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -183,6 +185,52 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
         """Alias for CompiledSinterDecoder.decode_shots.  Predicts observable flips."""
         syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
         return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
+
+
+class TrivialDecoder(SinterDecoder):
+    """A trivial decoder that unconditionally predicts null errors/logical flips."""
+
+    def __init__(self) -> None: ...
+
+    def compile_decoder_for_dem(
+        self, dem: stim.DetectorErrorModel, *, simplify: bool = True
+    ) -> CompiledSinterDecoder:
+        """Creates a decoder preconfigured for the given detector error model.
+
+        See help(sinter.Decoder) for additional information.
+        """
+        return CompiledTrivialDecoder(dem.num_detectors, dem.num_observables)
+
+
+class CompiledTrivialDecoder(CompiledSinterDecoder):
+    """A compiled trivial decoder that unconditionally predicts null errors/logical flips."""
+
+    def __init__(self, num_detectors: int, num_observables: int) -> None:
+        self.num_detectors = num_detectors  # for compatibility with the parent class
+        self.num_observables = num_observables
+        self.packed_observable_size = (num_observables + 7) // 8
+
+    def decode_shots_bit_packed(
+        self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
+    ) -> npt.NDArray[np.uint8]:
+        """Predicts observable flips from the given detection events.
+
+        This method accepts and returns bit-packed data.
+
+        See help(sinter.CompiledDecoder) for additional information.
+        """
+        shape = (len(bit_packed_detection_event_data), self.packed_observable_size)
+        return np.zeros(shape, dtype=np.uint8)
+
+    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        """Predicts observable flips from the given detection events.
+
+        This method accepts and returns boolean data.
+
+        See help(sinter.CompiledDecoder) for additional information.
+        """
+        shape = (len(detection_event_data), self.num_observables)
+        return np.zeros(shape, dtype=np.uint8)
 
 
 class SubgraphDecoder(SinterDecoder):
