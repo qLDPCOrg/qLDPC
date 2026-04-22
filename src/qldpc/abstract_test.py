@@ -374,13 +374,13 @@ def test_ring_row_reduce(pytestconfig: pytest.Config) -> None:
 
 
 def test_ring_linear_reduction() -> None:
-    """Remove rows that are ring-linearly-dependent on others."""
+    """Remove rows that are left-ring-linearly-dependent on others."""
     group = abstract.CyclicGroup(2)
     ring = abstract.GroupRing(group, field=2)
     xx = ring.generators[0]
-    matrix = abstract.RingArray.build([[1 + xx, 1]], ring)
+    matrix = abstract.RingArray.build([[xx + 1, 1]], ring)
 
-    row_reduced_matrix = abstract.RingArray.build([[1 + xx, 1], [0, 1 + xx]], ring)
+    row_reduced_matrix = abstract.RingArray.build([[xx + 1, 1], [0, xx + 1]], ring)
     assert np.array_equal(matrix.row_reduce(), row_reduced_matrix)
     assert np.array_equal(row_reduced_matrix.without_dependent_rows(), matrix * xx)
 
