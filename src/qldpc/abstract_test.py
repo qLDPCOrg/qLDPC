@@ -221,6 +221,26 @@ def test_ring() -> None:
         ring.eval(5, symbols)
 
 
+def test_printing() -> None:
+    """Convert ring members and ring arrays into human-readable strings."""
+    ring = abstract.GroupRing(abstract.AbelianGroup(2, 2))
+    assert str(ring.zero) == "0"
+    assert str(ring.one) == "1"
+    assert [str(gg) for gg in ring.generators] == ["x", "y"]
+
+    ring = abstract.GroupRing(abstract.AbelianGroup(2, 2, 2, 2))
+    assert [str(gg) for gg in ring.generators] == ["w", "x", "y", "z"]
+
+    # the order of generators for non-Abelian groups is preserved
+    group = abstract.DihedralGroup(6)
+    ring = abstract.GroupRing(group, 3)
+    one = ring.one
+    xx, yy = ring.generators
+    vec = [one + yy * xx**2 * yy, xx + yy]
+    ring_array = abstract.RingArray.build(vec, ring)
+    assert str(ring_array) == "[1 + y x^2 y, x + y]"
+
+
 def test_primitive_central_idempotents() -> None:
     """Convert external primitive central idempotents into RingMembers."""
     with pytest.raises(ValueError, match="Only semisimple rings"):

@@ -633,7 +633,7 @@ class RingMember:
             symbols = sympy.symbols("x:z", commutative=self.group.is_abelian)[:num_gens]
         elif num_gens <= 26:
             symbols = sympy.symbols("a:z", commutative=self.group.is_abelian)[-num_gens:]
-        else:
+        else:  # pragma: no cover
             index_length = int(np.ceil(np.log10(num_gens + 1)))
             symbols = [
                 sympy.Symbol(f"x_{index:0{index_length}}", commutative=self.group.is_abelian)
