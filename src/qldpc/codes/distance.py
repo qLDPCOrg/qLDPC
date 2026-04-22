@@ -212,7 +212,7 @@ def _symplectic_weight(
     out &= _MASK0F
 
     out *= _MASK01
-    out >>= np.uint(56)
+    out >>= np.uint64(56)
     return out
 
 
