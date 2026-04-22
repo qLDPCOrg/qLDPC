@@ -1192,9 +1192,8 @@ class RingArray(npt.NDArray[np.object_]):
         (a) decomposing the RingArray into its simple components,
         (b) "lifting" each component to a matrix over a finite field,
         (c) row-reducing these matrices using ordinary linear algebra over fields,
-        (d) mapping back to a RingArray over the original semisimple ring,
-        (e) removing rows that are ring-linear combinations of others, and
-        (f) putting the remaining rows into a normal form, with pivots.
+        (d) mapping back to a RingArray over the original semisimple ring, and
+        (e) doing some final cleanup (TBD).
         """
         assert self.ndim == 2
         assert self.ring.is_semisimple
