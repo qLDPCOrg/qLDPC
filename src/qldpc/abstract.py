@@ -1155,7 +1155,12 @@ class RingArray(npt.NDArray[np.object_]):
                 field_array[pivot_row] = _multiply(ff_poly, field_array[pivot_row])
                 pivot_poly = gcd_poly
 
-            # reduce all rows above the pivot_row at the pivot_column
+            """
+            Reduce all rows above the pivot_row at the pivot_column.
+            If some value in the pivot_col above the pivot_row can be written as a multiple of the
+            pivot plus a remainder, use row operations to subtract off that multiple of the pivot,
+            leaving only the remainder.
+            """
             for other_row in range(pivot_row):
                 other_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
                 div_poly = other_poly // pivot_poly
