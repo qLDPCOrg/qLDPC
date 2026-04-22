@@ -96,7 +96,7 @@ def _gap_define_sparse_matrix(matrix_var: str, field_order: int, matrix: np.ndar
         [np.nonzero(row == val)[0] for val in range(1, field_order)] for row in matrix
     ]
 
-    def nonzero_row_str(nonzeros):
+    def nonzero_row_str(nonzeros: list[np.ndarray]) -> str:
         all_field_vals = [f"[{','.join(str(int(val)) for val in columns)}]" for columns in nonzeros]
         return f"[{','.join(all_field_vals)}]"
 

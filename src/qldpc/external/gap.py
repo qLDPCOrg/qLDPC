@@ -80,13 +80,15 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
             "-q",
             "--quitonbreak",
         ]
-        input = " ".join(commands)
+        script_input = " ".join(commands)
         if not use_pipe:
-            shell_commands.extend(["-c", input])
-            input = None
+            shell_commands.extend(["-c", script_input])
+            pipe_input = None
+        else:
+            pipe_input = script_input
         result = subprocess.run(
             shell_commands,
-            input=input,
+            input=pipe_input,
             capture_output=True,
             text=True,
         )
