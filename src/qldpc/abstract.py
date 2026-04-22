@@ -1168,8 +1168,8 @@ class RingArray(npt.NDArray[np.object_]):
             """
             annihilator_poly = modulus_poly // pivot_poly
             if annihilator_poly != 0:
-                new_row = _multiply(annihilator_poly, field_array[pivot_row])[np.newaxis]
-                field_array = np.concatenate([field_array, new_row], axis=0).view(self.field)
+                new_row = _multiply(annihilator_poly, field_array[pivot_row])
+                field_array = np.append(field_array, [new_row], axis=0).view(self.field)
 
             pivot_row += 1
             pivot_col += 1
