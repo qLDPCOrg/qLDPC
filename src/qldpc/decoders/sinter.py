@@ -213,7 +213,7 @@ class CompiledTrivialDecoder(CompiledSinterDecoder):
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
-        """Predicts observable flips from the given detection events.
+        """Unconditionally predicts no observable flips.
 
         This method accepts and returns bit-packed data.
 
@@ -223,7 +223,7 @@ class CompiledTrivialDecoder(CompiledSinterDecoder):
         return np.zeros(shape, dtype=np.uint8)
 
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        """Predicts observable flips from the given detection events.
+        """Unconditionally predicts no observable flips.
 
         This method accepts and returns boolean data.
 
