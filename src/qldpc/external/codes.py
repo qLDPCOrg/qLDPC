@@ -93,32 +93,31 @@ def _gap_define_sparse_matrix(matrix_var: str, field_order: int, matrix: np.ndar
     # Turn matrix into sparse representation where `nonzero_entries[i][j][_]=l`
     # means `matrix[i,l] == j+1`.
     nonzero_entries = [
-        [np.nonzero(row == val)[0] for val in range(1, field_order)]
-        for row in matrix
+        [np.nonzero(row == val)[0] for val in range(1, field_order)] for row in matrix
     ]
+
     def nonzero_row_str(nonzeros):
-        all_field_vals = [
-            f'[{",".join(str(int(val)) for val in columns)}]'
-            for columns in nonzeros
-        ]
-        return f'[{",".join(all_field_vals)}]'
-    nonzero_str = ','.join( nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
+        all_field_vals = [f"[{','.join(str(int(val)) for val in columns)}]" for columns in nonzeros]
+        return f"[{','.join(all_field_vals)}]"
+
+    nonzero_str = ",".join(nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
     commands = [
-        f'nz:=[{nonzero_str}];;',
-        f'F:=GF({field_order});;',
-        f'{matrix_var}:=[];',
-        f'for r in nz do',
-        f'  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;',
-        f'  for f in [1..{field_order-1}] do',
-        f'    for i in r[f] do',
-        f'      v[i+1]:=f*One(F);;',
-        f'    od;;',
-        f'  od;;',
-        f'  Append({matrix_var},[v]);;',
-        f'od;;',
+        f"nz:=[{nonzero_str}];;",
+        f"F:=GF({field_order});;",
+        f"{matrix_var}:=[];",
+        f"for r in nz do",
+        f"  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;",
+        f"  for f in [1..{field_order - 1}] do",
+        f"    for i in r[f] do",
+        f"      v[i+1]:=f*One(F);;",
+        f"    od;;",
+        f"  od;;",
+        f"  Append({matrix_var},[v]);;",
+        f"od;;",
     ]
     commands = [cmd.strip() for cmd in commands]
     return commands
+
 
 def get_distance_bound(
     code: qldpc.codes.QuditCode,
