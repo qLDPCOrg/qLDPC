@@ -24,6 +24,7 @@ import itertools
 import math
 import os
 from collections.abc import Collection, Iterable, Iterator, Sequence
+from typing import TypeVar, Union
 
 import galois
 import networkx as nx
@@ -35,7 +36,7 @@ from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
 from qldpc import abstract
-from qldpc.abstract import DEFAULT_FIELD_ORDER, FieldOrRingArray
+from qldpc.abstract import DEFAULT_FIELD_ORDER
 from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditPauli
 
 from .classical import (
@@ -826,6 +827,11 @@ class BBCode(QCCode):
 
 ####################################################################################################
 # hypergraph product code, lifted product code, and their subsystem variants
+
+
+FieldOrRingArray = TypeVar(
+    "FieldOrRingArray", bound=Union[npt.NDArray[np.int_], npt.NDArray[np.object_]]
+)
 
 
 class HGPCode(CSSCode):

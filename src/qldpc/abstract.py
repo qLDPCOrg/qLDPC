@@ -36,7 +36,7 @@ import math
 import operator
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from typing import Any, Literal, TypeVar, Union
+from typing import Any, Literal, Union
 
 import galois
 import numpy as np
@@ -49,10 +49,6 @@ import sympy.core
 from qldpc import external
 
 DEFAULT_FIELD_ORDER = 2
-
-FieldOrRingArray = TypeVar(
-    "FieldOrRingArray", bound=Union[npt.NDArray[np.int_], npt.NDArray[np.object_]]
-)
 
 
 ################################################################################
