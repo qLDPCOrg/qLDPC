@@ -5,6 +5,9 @@ a subgroup of the symmetric group.  Group members subclass the SymPy Permutation
 
 !!! WARNINGS !!!
 
+First and foremoest, this module does not promise to be performant.  If you need to do heavy
+numerical abstract algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
+
 This module only supports representations of group members by orthogonal matrices over finite
 fields.  The restriction to orthogonal representations allows identifying the "transpose" of a group
 member p with respect to a representation (lift) L, which is defined by enforcing L(p.T) = L(p).T.
