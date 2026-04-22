@@ -1213,9 +1213,9 @@ class RingArray(npt.NDArray[np.object_]):
         we remove that row.  "Trimming down" to a minimal basis, as opposed to "building one up"
         by accumulating linearly independent row vectors, is necessary because rows may have
         nontrivial annihilators, which is to say that a row v may have a ring element r for which
-        r * v = 0 even though r and v are both nonzero.  It is therefore possible, for examle, for a
-        row v to lie in the ring-linear span of another row w (v = r * w for some r), but not the
-        other way around (there is no r for which w = r * v).
+        r * v = 0 even though r and v are both nonzero.  It is therefore possible, for example, for
+        a row v to lie in the left-ring-linear span of another row w (v = r * w for some r), but not
+        the other way around (there is no r for which w = r * v).
         """
         assert self.ndim == 2
 
@@ -1236,7 +1236,7 @@ class RingArray(npt.NDArray[np.object_]):
         """
         field_matrix = (~ring_matrix).view(RingArray).regular_lift()
 
-        # throw out rows that can be expressed as ring-linear combinations of other rows
+        # throw out rows that can be expressed as left-ring-linear combinations of other rows
         rows_to_keep = np.ones((len(ring_matrix), self.group.order), dtype=bool)
         for row in range(len(ring_matrix) - 1, -1, -1):
             rows_to_keep[row, :] = False
