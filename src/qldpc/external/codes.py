@@ -21,11 +21,11 @@ import ast
 import re
 import urllib
 
+import numpy as np
+
 import qldpc
 import qldpc.cache
 import qldpc.external.gap
-
-import numpy as np
 
 
 @qldpc.cache.use_disk_cache(
@@ -105,15 +105,15 @@ def _gap_define_sparse_matrix(matrix_var: str, field_order: int, matrix: np.ndar
         f"nz:=[{nonzero_str}];;",
         f"F:=GF({field_order});;",
         f"{matrix_var}:=[];",
-        f"for r in nz do",
+        "for r in nz do",
         f"  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;",
         f"  for f in [1..{field_order - 1}] do",
-        f"    for i in r[f] do",
-        f"      v[i+1]:=f*One(F);;",
-        f"    od;;",
-        f"  od;;",
+        "    for i in r[f] do",
+        "      v[i+1]:=f*One(F);;",
+        "    od;;",
+        "  od;;",
         f"  Append({matrix_var},[v]);;",
-        f"od;;",
+        "od;;",
     ]
     commands = [cmd.strip() for cmd in commands]
     return commands
