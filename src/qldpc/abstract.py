@@ -859,8 +859,8 @@ class RingArray(npt.NDArray[np.object_]):
         for value in array.ravel():
             if not isinstance(value, RingMember):
                 raise ValueError(
-                    "Requirement failed: all entries of a RingArray must be RingMember-valued\n"
-                    "Try building an array with RingArray.build(...)"
+                    "Requirement failed: all entries of a RingArray must be RingMember-valued."
+                    "\nTry building an array with RingArray.build(...)"
                 )
             else:
                 if not (ring is None or ring == value.ring):
@@ -993,7 +993,7 @@ class RingArray(npt.NDArray[np.object_]):
         group = ring.group if isinstance(ring, GroupRing) else ring
         assert array.shape[-1] == group.order
         vals = [RingMember.from_vector(ring, entry) for entry in array.reshape(-1, group.order)]
-        return RingArray(np.array(vals, dtype=object).reshape(array.shape[:-1]))
+        return RingArray(np.array(vals, dtype=object).reshape(array.shape[:-1]), ring=ring)
 
     def to_field_array(self) -> galois.FieldArray:
         """Convert a RingArray into an array of coefficients (in a finite field) for each entry.
@@ -1032,17 +1032,17 @@ class RingArray(npt.NDArray[np.object_]):
         # collect ring-valued null row vectors (that is, transposed null column vectors)
         null_space = ~RingArray.from_field_array(
             self.ring,
-            null_field_vectors.reshape(len(null_field_vectors), -1, self.group.order),
+            null_field_vectors.reshape(len(null_field_vectors), self.shape[1], self.group.order),
         )
-        if not row_reduce:
+        if not row_reduce or not null_field_vectors.size:
             return null_space
 
         try:
             return null_space.row_reduce()
-        except NotImplementedError as error:
+        except NotImplementedError:
             raise NotImplementedError(
-                "Cannot row-reduce the null-space matrix of this RingArray.  Try calling"
-                f" RingArray.null_space(row_reduce=False).  Error from row reduction:\n{error}"
+                "Cannot row-reduce the null-space matrix of this RingArray."
+                "\nTry calling RingArray.null_space(row_reduce=False)"
             )
 
     def row_reduce(self) -> RingArray:
@@ -1053,7 +1053,7 @@ class RingArray(npt.NDArray[np.object_]):
         """
         if isinstance(self.group, CyclicGroup):
             return self._row_reduce_cyclic()
-        # TODO: special case for principal ideal rings that are not based on a cyclic group
+        # TODO: add special case for principal ideal rings that are not based on a cyclic group
         if self.ring.is_semisimple:
             return self._row_reduce_semisimple()
         return self._row_reduce_general()

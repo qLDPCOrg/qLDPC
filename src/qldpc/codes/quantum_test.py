@@ -369,6 +369,15 @@ def test_lift() -> None:
     assert code_HP.sector_size.sum() == code_HP.num_qudits + code_HP.num_checks
     assert code_LP.sector_size.sum() == code_LP.num_qudits + code_LP.num_checks
 
+    # build logical operators over the ring
+    ring_logicals_x, ring_logicals_z = codes.HGPCode.get_canonical_logical_ops(
+        code_LP.matrix_a, code_LP.matrix_b
+    )
+    assert np.array_equal(
+        (ring_logicals_x @ ring_logicals_z.T).lift(),
+        np.eye(code_LP.dimension, dtype=int),
+    )
+
 
 def test_twisted_XZZX(width: int = 3) -> None:
     """Verify twisted XZZX code in Eqs.(29) and (32) of arXiv:2202.01702v3."""
@@ -426,6 +435,35 @@ def test_lifted_product_codes() -> None:
         subsystem_code = codes.SLPCode(matrix)
         subsystem_rate = subsystem_code.dimension / subsystem_code.num_qudits
         assert subsystem_rate > rate
+
+
+def test_subsystem_lifted_product_codes() -> None:
+    """Subsystem lifted product codes in arXiv:2404.18302v1."""
+
+    # example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1
+    group = abstract.CyclicGroup(2)
+    ring = abstract.GroupRing(group)
+    xx = ring.generators[0]
+    matrix = abstract.RingArray.build([[1, xx, xx], [xx, xx, 1]], ring)  # Eq. 21
+    code = codes.SLPCode(matrix)
+    assert code.get_code_params() == (18, 4, 2)
+
+    # example 2 on page 6 of https://arxiv.org/pdf/2404.18302v1
+    group = abstract.CyclicGroup(3)
+    ring = abstract.GroupRing(group)
+    xx = ring.generators[0]
+    matrix = abstract.RingArray.build([[xx**2 + xx + 1, xx + 1, xx]], ring)  # Eq. 23
+    code = codes.SLPCode(matrix)
+    assert code.get_code_params() == (27, 12, 2)
+
+    # build logical operators over the ring
+    ring_logicals_x, ring_logicals_z = codes.SHPCode.get_canonical_logical_ops(
+        code.matrix_a, code.matrix_b
+    )
+    assert np.array_equal(
+        (ring_logicals_x @ ring_logicals_z.T).lift(),
+        np.eye(code.dimension, dtype=int),
+    )
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
