@@ -22,6 +22,7 @@ import re
 import urllib
 
 import numpy as np
+import numpy.typing as npt
 
 import qldpc
 import qldpc.cache
