@@ -129,14 +129,26 @@ class DetectorErrorModelArrays:
         """
         errors = []
         for instruction in dem.flattened():
-            if instruction.type == "error":
-                probability = instruction.args_copy()[0]
-                targets = instruction.targets_copy()
+            if instruction.type != "error":
+                continue
+            probability = instruction.args_copy()[0]
+
+            # Split the target list on ``^`` separators; an un-decomposed error yields one component.
+            components: list[list[stim.DemTarget]] = [[]]
+            for target in instruction.targets_copy():
+                if target.is_separator():
+                    components.append([])
+                else:
+                    components[-1].append(target)
+
+            for component in components:
+                if not component:
+                    continue
                 detectors = _values_that_occur_an_odd_number_of_times(
-                    [target.val for target in targets if target.is_relative_detector_id()]
+                    [t.val for t in component if t.is_relative_detector_id()]
                 )
                 observables = _values_that_occur_an_odd_number_of_times(
-                    [target.val for target in targets if target.is_logical_observable_id()]
+                    [t.val for t in component if t.is_logical_observable_id()]
                 )
                 errors.append((detectors, observables, probability))
         return errors
