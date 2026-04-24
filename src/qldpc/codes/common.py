@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import abc
 import collections
+import dataclasses
 import functools
 import itertools
 import random
 import warnings
-from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import Any, Iterator, cast
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from typing import Any, Iterator, TypeVar, cast
 
 import galois
 import networkx as nx
@@ -725,9 +726,7 @@ class ClassicalCode(AbstractCode):
 
     def get_logical_error_rate_func(
         self, num_samples: int, max_error_rate: float = 0.3, **decoder_kwargs: Any
-    ) -> Callable[
-        [float | Sequence[float]], tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]
-    ]:
+    ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
@@ -768,19 +767,7 @@ class ClassicalCode(AbstractCode):
                 weight, sample_allocation[weight], decoder
             )
 
-        @np.vectorize
-        def get_logical_error_rate(error_rate: float) -> tuple[float, float]:
-            """Compute a logical error rate in a code-capacity model."""
-            if error_rate > max_error_rate:
-                raise ValueError(
-                    "Cannot determine logical error rates for physical error rates greater than"
-                    f" {max_error_rate}.  Try running get_logical_error_rate_func with a larger"
-                    " max_error_rate."
-                )
-            probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
-
-        return get_logical_error_rate
+        return ErrorRateFunc(len(self), max_error_weight, max_error_rate, fidelities, variances)
 
     def _estimate_decoding_fidelity_and_variance(
         self, error_weight: int, num_samples: int, decoder: decoders.Decoder
@@ -1942,9 +1929,7 @@ class QuditCode(AbstractCode):
         max_error_rate: float = 0.3,
         pauli_bias: Sequence[float] | None = None,
         **decoder_kwargs: Any,
-    ) -> Callable[
-        [float | Sequence[float]], tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]
-    ]:
+    ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
@@ -1998,19 +1983,7 @@ class QuditCode(AbstractCode):
                 pauli_bias_zxy,
             )
 
-        @np.vectorize
-        def get_logical_error_rate(error_rate: float) -> tuple[float, float]:
-            """Compute a logical error rate in a code-capacity model."""
-            if error_rate > max_error_rate:
-                raise ValueError(
-                    "Cannot determine logical error rates for physical error rates greater than"
-                    f" {max_error_rate}.  Try running get_logical_error_rate_func with a larger"
-                    " max_error_rate."
-                )
-            probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
-
-        return get_logical_error_rate
+        return ErrorRateFunc(len(self), max_error_weight, max_error_rate, fidelities, variances)
 
     def _estimate_decoding_fidelity_and_variance(
         self,
@@ -3032,9 +3005,7 @@ class CSSCode(QuditCode):
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
-    ) -> Callable[
-        [float | Sequence[float]], tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]
-    ]:
+    ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
@@ -3097,19 +3068,7 @@ class CSSCode(QuditCode):
                 )
             )
 
-        @np.vectorize
-        def get_logical_error_rate(error_rate: float) -> tuple[float, float]:
-            """Compute a logical error rate in a code-capacity model."""
-            if error_rate > max_error_rate:
-                raise ValueError(
-                    "Cannot determine logical error rates for physical error rates greater than"
-                    f" {max_error_rate}.  Try running get_logical_error_rate_func with a larger"
-                    " max_error_rate."
-                )
-            probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
-
-        return get_logical_error_rate
+        return ErrorRateFunc(len(self), max_error_weight, max_error_rate, fidelities, variances)
 
     def _estimate_css_decoding_fidelity_and_variance(
         self,
@@ -3231,3 +3190,36 @@ def _get_error_probs_by_weight(
         for kk in range(max_weight + 1)
     ]
     return np.exp(log_probs)
+
+
+OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
+
+
+@dataclasses.dataclass
+class ErrorRateFunc:
+    block_length: int
+    max_weight: int
+    max_error_rate: float
+    fixed_weight_fidelities: npt.NDArray[np.floating]
+    fixed_weight_variances: npt.NDArray[np.floating]
+
+    def __call__(self, error_rate: OneOrManyFloats) -> tuple[OneOrManyFloats, OneOrManyFloats]:
+        """Compute a logical error rate in a code-capacity model."""
+        if isinstance(error_rate, Iterable):
+            results = [self(rate) for rate in error_rate]
+            return (  # type:ignore[return-value]
+                np.array([results[0] for result in results]),
+                np.array([results[1] for result in results]),
+            )
+        if error_rate > self.max_error_rate:
+            raise ValueError(
+                "Cannot determine logical error rates for physical error rates greater than"
+                f" {self.max_error_rate}.  Try calling <your_code>.get_logical_error_rate_func with"
+                " a larger max_error_rate."
+            )
+        fixed_weight_probs = _get_error_probs_by_weight(
+            self.block_length, error_rate, self.max_weight
+        )
+        fidelity = fixed_weight_probs @ self.fixed_weight_fidelities
+        variance = np.sqrt(fixed_weight_probs**2 @ self.fixed_weight_variances)
+        return 1 - float(fidelity), float(variance)
