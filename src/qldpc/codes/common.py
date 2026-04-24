@@ -3201,8 +3201,13 @@ OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 class ErrorRateFunc:
     """Container for importance-sampled fidelities at fixed error weights.
 
-    An instance "func" of this class can be called as "func(p)" or "func([p1, p2])" to combine
-    simulation data and determine a logical error rate at physical error rates p or (p1, p2).
+    An instance of this class is built and returned by the .get_logical_error_rate_func method of
+    ClassicalCode, QuditCode, and CSSCode.  If
+        func = code.get_logical_error_rate_func(...),
+    then "func" takes a physical error rate "p" as an argument, and returns two numbers:
+    (1) A logical error rate.
+    (2) An uncertainty (standard error) in the logical error rate.
+    If called with an array of physical error rates, this function returns two arrays.
     """
 
     num_error_locations: int  # the total number of error locations
