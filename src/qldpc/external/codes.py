@@ -91,8 +91,23 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
 
 def _gap_define_sparse_matrix(matrix_var: str, field_order: int, matrix: npt.NDArray[np.int_]) -> list[str]:
     _, matrix_width = matrix.shape
-    # Turn matrix into sparse representation where `nonzero_entries[i][j][_]=l`
-    # means `matrix[i,l] == j+1`.
+    # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
+    # where, for all values `l` in that list, `matrix[i,l] == j+1`.
+    # Example:
+    #     matrix_var: NDArray[F3] = [
+    #         [0, 0, 0, 1, 2, 1],
+    #         [1, 0, 0, 0, 0, 0],
+    #     ]
+    #     nonzero_entries: list[list[np.NDArray[np.int_]]] = [
+    #         [ # Sparse definition of the first matrix row, `matrix_var[0]`
+    #             [3, 5],  # Columns in this row that contain 1's: `matrix_var[0, 3] == 1`
+    #             [4],  # Columns in this row that contain 2's: `matrix_var[0, 4] == 2`
+    #         ],
+    #         [ # Sparse definition of the second matrix row, `matrix_var[1]`
+    #             [0],  # Columns in this row that contain 1's
+    #             [],  # Columns in this row that contain 2's
+    #         ],
+    #     ]
     nonzero_entries = [
         [np.nonzero(row == val)[0] for val in range(1, field_order)] for row in matrix
     ]
