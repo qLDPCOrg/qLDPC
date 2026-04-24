@@ -739,15 +739,17 @@ class ClassicalCode(AbstractCode):
         The logical error rate returned by the constructed function the probability with which a
         code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
 
-        The basic idea in this method is to first think of the decoding fidelity F(p) = 1 -
-        logical_error_rate(p) as a function of the physical error rate p, and decompose
+        The basic idea in this method is to think of the fidelity
+            F(p) = 1 - logical_error_rate(p)
+        as a function of the physical error rate p, and decompose
             F(p) = sum_k q_k(p) F_k,
-        where q_k(p) = (n choose k) p**k (1-p)**(n-k) is the probability of a weight-k error (here n
-        is total number of bits in the code), and F_k is the probability with which a weight-k error
-        is corrected by the decoder.  Importantly, F_k is independent of p.  We therefore use our
-        sample budget to compute estimates of F_k (according to some allocation of samples to each
-        weight k, which depends on the max_error_rate), and then recycle the values of F_k to
-        compute each F(p).
+        where
+            q_k(p) = (n choose k) p**k (1-p)**(n-k)
+        is the probability of a weight-k error (here n is total number of bits in the code), and F_k
+        is the probability with which a weight-k error is corrected by the decoder.  Importantly,
+        F_k is independent of p.  We therefore use our sample budget to compute estimates of F_k
+        (according to some allocation of samples to each weight k, which depends on the
+        max_error_rate), and then recycle the values of F_k to compute each F(p).
 
         There is one more minor trick, which is that we can use the fact that F_0 = 1 to simplify
             F(p) = q_0(p) + sum_(k>0) q_k(p) F_k.
@@ -3197,19 +3199,26 @@ OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 
 @dataclasses.dataclass
 class ErrorRateFunc:
-    block_length: int
-    max_weight: int
-    max_error_rate: float
+    """Container for importance-sampled fidelities at fixed error weights.
+
+    An instance "func" of this class can be called as "func(p)" or "func([p1, p2])" to combine
+    simulation data and determine a logical error rate at physical error rates p or (p1, p2).
+    """
+
+    num_error_locations: int  # the total number of error locations
+    max_error_rate: float  # the largest physical error rate we can consider
+
+    # mean fidelity (and variance thereof) conditioned on the weight of an error, specified by index
     fixed_weight_fidelities: npt.NDArray[np.floating]
     fixed_weight_variances: npt.NDArray[np.floating]
 
     def __call__(self, error_rate: OneOrManyFloats) -> tuple[OneOrManyFloats, OneOrManyFloats]:
-        """Compute a logical error rate in a code-capacity model."""
+        """Compute the logical error rate at a given physical error rate."""
         if isinstance(error_rate, Iterable):
             results = [self(rate) for rate in error_rate]
             return (  # type:ignore[return-value]
-                np.array([results[0] for result in results]),
-                np.array([results[1] for result in results]),
+                np.array([result[0] for result in results]),
+                np.array([result[1] for result in results]),
             )
         if error_rate > self.max_error_rate:
             raise ValueError(
@@ -3218,7 +3227,7 @@ class ErrorRateFunc:
                 " a larger max_error_rate."
             )
         fixed_weight_probs = _get_error_probs_by_weight(
-            self.block_length, error_rate, self.max_weight
+            self.num_error_locations, error_rate, self.max_error_weight
         )
         fidelity = fixed_weight_probs @ self.fixed_weight_fidelities
         variance = np.sqrt(fixed_weight_probs**2 @ self.fixed_weight_variances)
