@@ -142,8 +142,6 @@ class DetectorErrorModelArrays:
                     components[-1].append(target)
 
             for component in components:
-                if not component:
-                    continue
                 detectors = _values_that_occur_an_odd_number_of_times(
                     [t.val for t in component if t.is_relative_detector_id()]
                 )
