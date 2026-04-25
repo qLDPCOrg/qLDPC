@@ -89,7 +89,9 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
     return stabilizers, distance, is_css
 
 
-def _gap_define_sparse_matrix(matrix_var: str, field_order: int, matrix: npt.NDArray[np.int_]) -> list[str]:
+def _gap_define_sparse_matrix(
+    matrix_var: str, field_order: int, matrix: npt.NDArray[np.int_]
+) -> list[str]:
     _, matrix_width = matrix.shape
     # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
     # where, for all values `l` in that list, `matrix[i,l] == j+1`.
@@ -112,7 +114,7 @@ def _gap_define_sparse_matrix(matrix_var: str, field_order: int, matrix: npt.NDA
         [np.nonzero(row == val)[0] for val in range(1, field_order)] for row in matrix
     ]
 
-    def nonzero_row_str(nonzeros: list[np.NDArray[np.int_]]) -> str:
+    def nonzero_row_str(nonzeros: list[npt.NDArray[np.int_]]) -> str:
         all_field_vals = [f"[{','.join(str(int(val)) for val in columns)}]" for columns in nonzeros]
         return f"[{','.join(all_field_vals)}]"
 
