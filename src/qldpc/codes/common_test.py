@@ -225,13 +225,21 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
 def test_classical_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.RepetitionCode(2)
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=1, max_error_rate=1)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-    assert logical_error_rate([1])[0] == 1  # guaranteed logical error
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=1)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func([1])[0] == 1  # guaranteed logical error
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10, max_error_rate=0.5)
+    # compute discard rates
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=4, max_error_rate=0.5, discard_weights=[1]
+    )
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
+    assert logical_error_rate_func(0.5, discard_rate=True) == (0.5, 0)
+
+    # test cap on physical error rate
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=10, max_error_rate=0.5)
     with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+        logical_error_rate_func(1)
 
 
 ####################################################################################################
@@ -521,16 +529,19 @@ def test_quantum_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.FiveQubitCode()
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-
-    with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
     # guaranteed logical X and Z errors
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
-        logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
-        assert logical_error_rate(1)[0] == 1
+        logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
+        assert logical_error_rate_func(1)[0] == 1
+
+    # compute discard rates (trivial deterministic example)
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=1, max_error_rate=1, discard_weights=[1]
+    )
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
 
 
 def test_qudit_to_css() -> None:
@@ -725,13 +736,16 @@ def test_css_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.SteaneCode()
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-
-    with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=10)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
     # guaranteed logical X and Z errors
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
-        logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
-        assert logical_error_rate(1)[0] == 1
+        logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
+        assert logical_error_rate_func(1)[0] == 1
+
+    # compute discard rates (trivial deterministic example)
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=1, max_error_rate=1, discard_weights=[1]
+    )
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
