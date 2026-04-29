@@ -766,12 +766,11 @@ class ClassicalCode(AbstractCode):
 
         # compute decoding fidelities for each error weight
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        max_error_weight = len(sample_allocation) - 1
-        infidelities = np.ones(sample_allocation, dtype=float)
+        infidelities = np.ones(sample_allocation.size, dtype=float)
         infidelity_variances = np.zeros_like(infidelities)
         discard_rates = np.ones_like(infidelities)
         discard_rate_variances = np.zeros_like(discard_rates)
-        for weight in range(1, max_error_weight + 1):
+        for weight in range(1, len(sample_allocation)):
             (
                 infidelities[weight],
                 infidelity_variances[weight],
@@ -2006,12 +2005,11 @@ class QuditCode(AbstractCode):
 
         # compute decoding fidelities for each error weight
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        max_error_weight = len(sample_allocation) - 1
-        infidelities = np.ones(sample_allocation, dtype=float)
+        infidelities = np.ones(sample_allocation.size, dtype=float)
         infidelity_variances = np.zeros_like(infidelities)
         discard_rates = np.ones_like(infidelities)
         discard_rate_variances = np.zeros_like(discard_rates)
-        for weight in range(1, max_error_weight + 1):
+        for weight in range(1, len(sample_allocation)):
             (
                 infidelities[weight],
                 infidelity_variances[weight],
@@ -3112,12 +3110,11 @@ class CSSCode(QuditCode):
 
         # compute decoding fidelities for each error weight
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        max_error_weight = len(sample_allocation) - 1
-        infidelities = np.ones(sample_allocation, dtype=float)
+        infidelities = np.ones(sample_allocation.size, dtype=float)
         infidelity_variances = np.zeros_like(infidelities)
         discard_rates = np.ones_like(infidelities)
         discard_rate_variances = np.zeros_like(discard_rates)
-        for weight in range(1, max_error_weight + 1):
+        for weight in range(1, len(sample_allocation)):
             (
                 infidelities[weight],
                 infidelity_variances[weight],
