@@ -3329,7 +3329,7 @@ class ErrorRateFunc:
                 f" {self.max_error_rate}.  Try calling <YOUR_CODE>.get_logical_error_rate_func with"
                 " a larger max_error_rate."
             )
-        max_error_weight = self.fixed_weight_infidelities.size - 1
+        max_error_weight = self.fixed_weight_fidelities.size - 1
         fixed_weight_probs = _get_error_probs_by_weight(
             self.num_error_locations, error_rate, max_error_weight
         )
