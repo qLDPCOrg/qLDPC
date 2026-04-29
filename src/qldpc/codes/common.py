@@ -761,15 +761,13 @@ class ClassicalCode(AbstractCode):
         We thereby only need to sample errors of weight k > 0.
         """
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
-        if not isinstance(decoder, decoders.DirectDecoder):
-            decoder = decoders.DirectDecoder.from_indirect(decoder, self.matrix)
 
         # compute decoding fidelities for each error weight
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        infidelities = np.ones(sample_allocation.size, dtype=float)
+        infidelities = np.zeros(sample_allocation.size, dtype=float)
         infidelity_variances = np.zeros_like(infidelities)
-        discard_rates = np.ones_like(infidelities)
-        discard_rate_variances = np.zeros_like(discard_rates)
+        discard_rates = np.zeros_like(infidelities)
+        discard_rate_variances = np.zeros_like(infidelities)
         for weight in range(1, len(sample_allocation)):
             (
                 infidelities[weight],
@@ -801,14 +799,15 @@ class ClassicalCode(AbstractCode):
         for _ in range(num_samples):
             # construct an error
             error_locations = random.sample(range(len(self)), error_weight)
-            error = np.zeros(len(self), dtype=int)
+            error = self.field.Zeros(len(self))
             error[error_locations] = np.random.choice(range(1, self.field.order), size=error_weight)
 
-            # decode a corrupted all-zero code word
-            decoded_word = decoder.decode(error.view(np.ndarray))
-            if discard_weights and np.count_nonzero(decoded_word) in discard_weights:
+            # decode the error
+            syndrome = self.matrix @ error
+            decoded_error = decoder.decode(syndrome.view(np.ndarray)).view(self.field)
+            if discard_weights and np.count_nonzero(decoded_error) in discard_weights:
                 num_discards += 1
-            elif np.any(decoded_word):
+            elif np.any(decoded_error - error):
                 num_failures += 1
 
         if num_discards != num_samples:
@@ -1995,20 +1994,16 @@ class QuditCode(AbstractCode):
         decoder = decoders.get_decoder(
             math.symplectic_conjugate(self.matrix).view(np.ndarray), **decoder_kwargs
         )
-        if not isinstance(decoder, decoders.DirectDecoder):
-            decoder = decoders.DirectDecoder.from_indirect(
-                decoder, math.symplectic_conjugate(self.matrix).view(np.ndarray)
-            )
 
         # identify logical operators
         logical_ops = self.get_logical_ops()
 
         # compute decoding fidelities for each error weight
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        infidelities = np.ones(sample_allocation.size, dtype=float)
+        infidelities = np.zeros(sample_allocation.size, dtype=float)
         infidelity_variances = np.zeros_like(infidelities)
-        discard_rates = np.ones_like(infidelities)
-        discard_rate_variances = np.zeros_like(discard_rates)
+        discard_rates = np.zeros_like(infidelities)
+        discard_rate_variances = np.zeros_like(infidelities)
         for weight in range(1, len(sample_allocation)):
             (
                 infidelities[weight],
@@ -2044,6 +2039,7 @@ class QuditCode(AbstractCode):
         """Estimate a fidelity and its standard error when decoding a fixed number of errors."""
         num_failures = 0
         num_discards = 0
+        syndrome_matrix = -math.symplectic_conjugate(self.matrix)
         for _ in range(num_samples):
             # construct an error
             error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
@@ -2061,11 +2057,12 @@ class QuditCode(AbstractCode):
                 range(1, self.field.order), size=len(error_locs_z)
             )
 
-            error = np.concatenate([error_x, error_z])
-            correction = decoder.decode(error).view(self.field)
-            if discard_weights and math.symplectic_weight(correction) in discard_weights:
+            error = np.concatenate([error_x, error_z]).view(self.field)
+            syndrome = syndrome_matrix @ error
+            decoded_error = decoder.decode(syndrome.view(np.ndarray)).view(self.field)
+            if discard_weights and math.symplectic_weight(decoded_error) in discard_weights:
                 num_discards += 1
-            elif np.any(logical_ops @ math.symplectic_conjugate(correction)):
+            elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
                 num_failures += 1
 
         if num_discards != num_samples:
@@ -3099,10 +3096,6 @@ class CSSCode(QuditCode):
         decoder_z_kwargs = (decoder_z_kwargs or {}) | decoder_kwargs
         decoder_x = decoders.get_decoder(stabilizer_ops_z, **decoder_kwargs)
         decoder_z = decoders.get_decoder(stabilizer_ops_x, **decoder_kwargs)
-        if not isinstance(decoder_x, decoders.DirectDecoder):
-            decoder_x = decoders.DirectDecoder.from_indirect(decoder_x, stabilizer_ops_z)
-        if not isinstance(decoder_z, decoders.DirectDecoder):
-            decoder_z = decoders.DirectDecoder.from_indirect(decoder_z, stabilizer_ops_x)
 
         # identify logical operators
         logicals_x = self.get_logical_ops(Pauli.X)
@@ -3110,10 +3103,10 @@ class CSSCode(QuditCode):
 
         # compute decoding fidelities for each error weight
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        infidelities = np.ones(sample_allocation.size, dtype=float)
+        infidelities = np.zeros(sample_allocation.size, dtype=float)
         infidelity_variances = np.zeros_like(infidelities)
-        discard_rates = np.ones_like(infidelities)
-        discard_rate_variances = np.zeros_like(discard_rates)
+        discard_rates = np.zeros_like(infidelities)
+        discard_rate_variances = np.zeros_like(infidelities)
         for weight in range(1, len(sample_allocation)):
             (
                 infidelities[weight],
@@ -3160,17 +3153,18 @@ class CSSCode(QuditCode):
 
             # decode Z-type errors
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
-            error_z = np.zeros(len(self), dtype=int)
+            error_z = self.field.Zeros(len(self))
             error_z[error_locs_z] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_z)
             )
-            residual_z = decoder_z.decode(error_z).view(self.field)
+            syndrome_z = self.matrix_x @ error_z
+            decoded_error_z = decoder_z.decode(syndrome_z.view(np.ndarray)).view(self.field)
 
-            if discard_weights and np.count_nonzero(residual_z) in discard_weights:
+            if discard_weights and np.count_nonzero(decoded_error_z) in discard_weights:
                 num_discards += 1
                 continue
 
-            failure_z = np.any(logicals_x @ residual_z)
+            failure_z = np.any(logicals_x @ (decoded_error_z - error_z))
             if not discard_weights and failure_z:
                 # If we are _not_ post-selecting and there _was_ a decoding failure, then there is
                 # no need to consider X-type errors, because we will record one failure either way.
@@ -3179,15 +3173,16 @@ class CSSCode(QuditCode):
 
             # decode X-type errors
             error_locs_x = error_locations[error_paulis > 1]
-            error_x = np.zeros(len(self), dtype=int)
+            error_x = self.field.Zeros(len(self))
             error_x[error_locs_x] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_x)
             )
-            residual_x = decoder_x.decode(error_x).view(self.field)
-            if discard_weights and np.count_nonzero(residual_x) in discard_weights:
+            syndrome_x = self.matrix_z @ error_x
+            decoded_error_x = decoder_x.decode(syndrome_x.view(np.ndarray)).view(self.field)
+            if discard_weights and np.count_nonzero(decoded_error_x) in discard_weights:
                 num_discards += 1
                 continue
-            if failure_z or np.any(logicals_z @ residual_x):
+            if failure_z or np.any(logicals_z @ (decoded_error_x - error_x)):
                 num_failures += 1
 
         if num_discards != num_samples:
