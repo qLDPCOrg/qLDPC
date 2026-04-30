@@ -956,8 +956,8 @@ class WedderburnArtinTransformer:
     (Abelian) ring, then all n_i = 1, so
         R = ⨂_i D_i  (if R is Abelian).
 
-    An instance of this class is a container for transformers that map between R and the simple
-    components R_i.
+    An instance of this class is a container for transformers that project elements of R onto simple
+    components R_i, and embed elements of R_i back into R.
     """
 
     ring: GroupRing
@@ -1102,7 +1102,7 @@ class WedderburnArtinComponentTransformer:
         return RingArray(basis_in_ring), basis_in_field.view(self.field)
 
     def _get_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
-        r"""Embed elements of the simple component C into the extended field GF(q^d) ≅ GF(p^{kd}).
+        r"""Construct embeddings of elements of C into the extended field GF(q^d) ≅ GF(p^{kd}).
 
         If R is a finite Abelian group algebra, then C is isomorphic to a field extension of the
         base field GF(q) of R.  Mathematically,
