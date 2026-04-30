@@ -87,7 +87,7 @@ def test_ring() -> None:
     # edge cases with non-prime number fields
     ring = abstract.GroupRing(group, field=4)
     assert ring.eval(-3, symbols) == -ring.eval(3, symbols)
-    with pytest.raises(ValueError, match="The value of the coefficient .* is ambiguous"):
+    with pytest.raises(ValueError, match="The value .* is ambiguous"):
         ring.eval(5, symbols)
 
 

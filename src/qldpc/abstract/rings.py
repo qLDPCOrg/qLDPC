@@ -172,25 +172,29 @@ class GroupRing:
 
         # factor this term into its coefficient and variable content
         _coeff, monomial = expression.as_coeff_Mul()
-        coeff: int | galois.FieldArray = int(_coeff)
-
-        # try to interpret coefficients with "invalid" but otherwise unambiguous values
-        if not 0 <= coeff < self.field.order:
-            if self.field.degree == 1:
-                # there is no ambiguity over prime number fields
-                coeff = int(coeff) % self.field.order
-            elif -self.field.order < coeff < 0:
-                # negative coefficients correspond to additive inverses
-                coeff = -self.field(-coeff)
-            else:
-                raise ValueError(
-                    f"The value of the coefficient {coeff} in expression {expression} is ambiguous"
-                    f" over the finite field GF({self.field.order})"
-                )
+        coeff = self._eval_int(int(_coeff))
 
         # construct and return a member of this ring
         group_member = self.group.eval(monomial, symbols)
         return RingMember(self, (coeff, group_member))
+
+    def _eval_int(self, value: int) -> galois.FieldArray:
+        """Evaluate an integer as an element of the base field of this ring.
+
+        Some integers may have "invalid" but unambiguous interpretations as field members.
+        """
+        if not 0 <= value < self.field.order:
+            if self.field.degree == 1:
+                # there is no ambiguity over prime number fields
+                return self.field(int(value) % self.field.order)
+            elif -self.field.order < value < 0:
+                # negation corresponds to an additive inverse
+                return -self.field(-value)
+            else:
+                raise ValueError(
+                    f"The value of the integer {value} is ambiguous over GF({self.field.order})"
+                )
+        return self.field(value)
 
 
 class RingMember:
@@ -270,8 +274,8 @@ class RingMember:
         for gg, x_g in self._vec.items():
             yield x_g, gg
 
-    def __add__(self, other: int | GroupMember | RingMember) -> RingMember:
-        if isinstance(other, int):
+    def __add__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
+        if isinstance(other, (int, self.field)):
             return self + other * self.ring.one
 
         if isinstance(other, GroupMember):
@@ -287,14 +291,17 @@ class RingMember:
 
         return NotImplemented  # pragma: no cover
 
-    def __sub__(self, other: RingMember | GroupMember | int) -> RingMember:
+    def __sub__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         return self + (-1) * other
 
     def __radd__(self, other: GroupMember) -> RingMember:
         return self + other
 
-    def __mul__(self, other: int | GroupMember | RingMember) -> RingMember:
+    def __mul__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         if isinstance(other, int):
+            other = self.ring._eval_int(other)
+
+        if isinstance(other, self.field):
             # multiply coefficients by 'other'
             new_element = self.ring.zero
             for val, member in self:
@@ -317,8 +324,8 @@ class RingMember:
 
         return NotImplemented  # pragma: no cover
 
-    def __rmul__(self, other: int | GroupMember) -> RingMember:
-        if isinstance(other, int):
+    def __rmul__(self, other: int | galois.FieldArray | GroupMember) -> RingMember:
+        if isinstance(other, (int, self.field)):
             return self * other
 
         if isinstance(other, GroupMember):
