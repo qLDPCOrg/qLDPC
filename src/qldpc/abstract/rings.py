@@ -1026,7 +1026,10 @@ class WedderburnArtinComponentTransformer:
     dual_basis: galois.FieldArray  # dual basis of the embedded_basis in GF(p^(kd))
 
     def __init__(self, pci: RingMember, *, seed: np.random.Generator | int | None = None) -> None:
-        """Initialize from a primitive central idempotent of a ring."""
+        """Initialize from a primitive central idempotent (PCI) of a ring.
+
+        WARNING: This class assumes that the provided RingMember is indeed a PCI of its parent ring.
+        """
         self.pci = pci
         self.ring = pci.ring
 
@@ -1037,11 +1040,8 @@ class WedderburnArtinComponentTransformer:
                 "WedderburnArtinTransformer does not yet support non-Abelian rings"
             )
 
-        self.lifted_pci = pci.regular_lift()
-        if not np.array_equal(self.lifted_pci @ self.lifted_pci, self.lifted_pci):
-            raise ValueError("Primitive central idempotents should square to themselves")
-
         self.field = self.ring.field
+        self.lifted_pci = pci.regular_lift()
         self.dimension = np.linalg.matrix_rank(self.lifted_pci)
         self.basis_in_ring, self.basis_in_field = self._get_basis_in_ring_and_field(seed)
 

@@ -370,9 +370,6 @@ def test_wedderburn_artin_errors() -> None:
     with pytest.raises(ValueError, match="Invalid field"):
         transformer.recompose(galois.GF(3).Ones(2))
 
-    with pytest.raises(ValueError, match="should square to themselves"):
-        abstract.WedderburnArtinComponentTransformer(ring.generators[0])
-
     ring = abstract.GroupRing(abstract.CyclicGroup(2), 2)
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
         abstract.WedderburnArtinTransformer(ring)
