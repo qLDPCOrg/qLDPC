@@ -1127,12 +1127,17 @@ class HGPCode(CSSCode):
 
         logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
-        if isinstance(matrix_a, abstract.RingArray):
-            return (
+        return (
+            (
                 abstract.RingArray.build(logical_ops_x, field_or_ring),
                 abstract.RingArray.build(logical_ops_z, field_or_ring),
             )
-        return logical_ops_x.view(field_or_ring), logical_ops_z.view(field_or_ring)
+            if isinstance(matrix_a, abstract.RingArray)
+            else (
+                logical_ops_x.view(field_or_ring),
+                logical_ops_z.view(field_or_ring),
+            )
+        )
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for hypergraph product codes.
@@ -1290,12 +1295,17 @@ class SHPCode(CSSCode):
 
         logical_ops_x = np.kron(pivots_x, generator_z)
         logical_ops_z = np.kron(generator_x, pivots_z)
-        if isinstance(matrix_a, abstract.RingArray):
-            return (
+        return (
+            (
                 abstract.RingArray.build(logical_ops_x, field_or_ring),
                 abstract.RingArray.build(logical_ops_z, field_or_ring),
             )
-        return logical_ops_x.view(field_or_ring), logical_ops_z.view(field_or_ring)
+            if isinstance(matrix_a, abstract.RingArray)
+            else (
+                logical_ops_x.view(field_or_ring),
+                logical_ops_z.view(field_or_ring),
+            )
+        )
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for subsystem hypergraph product codes."""
