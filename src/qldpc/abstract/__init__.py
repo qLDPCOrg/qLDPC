@@ -22,6 +22,8 @@ from .rings import (
     Protograph,
     RingArray,
     RingMember,
+    WedderburnArtinComponentTransformer,
+    WedderburnArtinTransformer,
 )
 
 __all__ = [
@@ -46,4 +48,6 @@ __all__ = [
     "Protograph",
     "RingArray",
     "RingMember",
+    "WedderburnArtinComponentTransformer",
+    "WedderburnArtinTransformer",
 ]

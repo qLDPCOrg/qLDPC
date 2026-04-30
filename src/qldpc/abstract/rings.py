@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import collections
 import copy
+import dataclasses
 import functools
 import itertools
 import operator
@@ -172,25 +173,29 @@ class GroupRing:
 
         # factor this term into its coefficient and variable content
         _coeff, monomial = expression.as_coeff_Mul()
-        coeff: int | galois.FieldArray = int(_coeff)
-
-        # try to interpret coefficients with "invalid" but otherwise unambiguous values
-        if not 0 <= coeff < self.field.order:
-            if self.field.degree == 1:
-                # there is no ambiguity over prime number fields
-                coeff = int(coeff) % self.field.order
-            elif -self.field.order < coeff < 0:
-                # negative coefficients correspond to additive inverses
-                coeff = -self.field(-coeff)
-            else:
-                raise ValueError(
-                    f"The value of the coefficient {coeff} in expression {expression} is ambiguous"
-                    f" over the finite field GF({self.field.order})"
-                )
+        coeff = self._eval_int(int(_coeff))
 
         # construct and return a member of this ring
         group_member = self.group.eval(monomial, symbols)
         return RingMember(self, (coeff, group_member))
+
+    def _eval_int(self, value: int) -> galois.FieldArray:
+        """Evaluate an integer as an element of the base field of this ring.
+
+        Some integers may have "invalid" but unambiguous interpretations as field members.
+        """
+        if not 0 <= value < self.field.order:
+            if self.field.degree == 1:
+                # there is no ambiguity over prime number fields
+                return self.field(int(value) % self.field.order)
+            elif -self.field.order < value < 0:
+                # negation corresponds to an additive inverse
+                return -self.field(-value)
+            else:
+                raise ValueError(
+                    f"The value of the integer {value} is ambiguous over GF({self.field.order})"
+                )
+        return self.field(value)
 
 
 class RingMember:
@@ -270,8 +275,8 @@ class RingMember:
         for gg, x_g in self._vec.items():
             yield x_g, gg
 
-    def __add__(self, other: int | GroupMember | RingMember) -> RingMember:
-        if isinstance(other, int):
+    def __add__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
+        if isinstance(other, (int, self.field)):
             return self + other * self.ring.one
 
         if isinstance(other, GroupMember):
@@ -287,14 +292,17 @@ class RingMember:
 
         return NotImplemented  # pragma: no cover
 
-    def __sub__(self, other: RingMember | GroupMember | int) -> RingMember:
+    def __sub__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         return self + (-1) * other
 
     def __radd__(self, other: GroupMember) -> RingMember:
         return self + other
 
-    def __mul__(self, other: int | GroupMember | RingMember) -> RingMember:
+    def __mul__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         if isinstance(other, int):
+            other = self.ring._eval_int(other)
+
+        if isinstance(other, self.field):
             # multiply coefficients by 'other'
             new_element = self.ring.zero
             for val, member in self:
@@ -317,8 +325,8 @@ class RingMember:
 
         return NotImplemented  # pragma: no cover
 
-    def __rmul__(self, other: int | GroupMember) -> RingMember:
-        if isinstance(other, int):
+    def __rmul__(self, other: int | galois.FieldArray | GroupMember) -> RingMember:
+        if isinstance(other, (int, self.field)):
             return self * other
 
         if isinstance(other, GroupMember):
@@ -932,3 +940,351 @@ class Protograph(RingArray):  # pragma: no cover
             stacklevel=2,
         )
         return super().__getattribute__(name)
+
+
+class WedderburnArtinTransformer:
+    r"""Instrument for implementing the Wedderburn-Artin decomposition of semisimple rings.
+
+    The Wedderburn-Artin theorem states that every semisimple ring R is isomorphic to a direct
+    product of matrix algebras over division rings:
+        R ≅ ⨂_i R_i
+    where
+        R_i = D_i^{n_i × n_i},
+    and D^{n × n} denotes the space of n × n matrices over the division ring D.  By Wedderburn's
+    little theorem, every finite division ring is a finite field, so if R is a group algebra over a
+    finite field F then every division ring D_i is a field extension of F.  If R is a commutative
+    (Abelian) ring, then all n_i = 1, so
+        R = ⨂_i D_i  (if R is Abelian).
+
+    An instance of this class is a container for transformers that map between R and the simple
+    components R_i.
+    """
+
+    ring: GroupRing
+    transformers: list[WedderburnArtinComponentTransformer]
+    random_number_generator: np.random.Generator
+
+    def __init__(self, ring: GroupRing, *, seed: np.random.Generator | int | None = None) -> None:
+        if not ring.is_semisimple:
+            raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
+        self.ring = ring
+        self.random_number_generator = (
+            seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+        )
+        self.transformers = [
+            WedderburnArtinComponentTransformer(pci, seed=self.random_number_generator)
+            for pci in self.ring.get_primitive_central_idempotents()
+        ]
+
+    def decompose(self, element: RingMember) -> list[galois.FieldArray]:
+        """Decompose an element of the ring into its Wedderburn-Artin components."""
+        return [transformer.project(element) for transformer in self.transformers]
+
+    def recompose(self, components: Sequence[galois.FieldArray]) -> RingMember:
+        """Invert WedderburnArtinTransformer.decompose."""
+        if len(components) != len(self.transformers):
+            raise ValueError(
+                "Incorrect number of components provided to WedderburnArtinTransformer.recompose"
+            )
+        ring_member = RingMember(self.ring)
+        for component, transformer in zip(components, self.transformers):
+            ring_member += transformer.embed(component)
+        return ring_member
+
+
+@dataclasses.dataclass
+class WedderburnArtinComponentTransformer:
+    """Transformer to map between a semisimple ring R and a simple component R_i.
+
+    Let R = F[G] be a group algebra, whose elements can be written in the form
+        r = sum_{g in G} r_g g,
+    where each r_g is an element of F.  Each primitive central idempotent (PCI) of R acts as a
+    projector onto a simple component R_i that is isomorphic to set of matrices over a field
+    extension of F.  That is,
+        R ≅ ⨂_i R_i,
+    where
+        R_i = D_i^{n_i × n_i},
+    with each D_i a field extension of F.  If R is Abelian, then all n_i = 1, so R_i ≅ D_i.
+
+    This class is an instrument for projecting elements of R onto a simple component R_i, and
+    embedding elements of R_i back into R.
+    """
+
+    ring: GroupRing  # base ring, R
+    pci: RingMember  # primitive central idempotent (PCI) that projects onto this component of R
+    lifted_pci: galois.FieldArray  # PCI lifted to a matrix over GF(q)
+
+    field: type[galois.FieldArray]  # base field of the ring, F = GF(q) = GF(p^k)
+    dimension: int  # dimension d of the field extension GF(q^d) for this component of R
+    extended_field: type[galois.FieldArray]  # field extension GF(p^(kd)) ≅ GF(q^d)
+
+    basis_in_ring: RingArray  # basis B for this component of R, represented by elements of R
+    basis_in_field: galois.FieldArray  # same basis, lifted to field vectors over GF(q)
+
+    embedded_scalars: galois.FieldArray  # embedding of GF(q) into GF(p^(kd))
+    embedded_basis: galois.FieldArray  # embedding of B into GF(p^(kd))
+    dual_basis: galois.FieldArray  # dual basis of the embedded_basis in GF(p^(kd))
+
+    def __init__(self, pci: RingMember, *, seed: np.random.Generator | int | None = None) -> None:
+        """Initialize from a primitive central idempotent of a ring."""
+        self.pci = pci
+        self.ring = pci.ring
+
+        if not self.ring.is_semisimple:
+            raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
+        if not self.ring.is_abelian:
+            raise NotImplementedError(
+                "WedderburnArtinTransformer does not yet support non-Abelian rings"
+            )
+
+        self.lifted_pci = pci.regular_lift()
+        if not np.array_equal(self.lifted_pci @ self.lifted_pci, self.lifted_pci):
+            raise ValueError("Primitive central idempotents should square to themselves")
+
+        self.field = self.ring.field
+        self.dimension = np.linalg.matrix_rank(self.lifted_pci)
+        self.basis_in_ring, self.basis_in_field = self._get_basis_in_ring_and_field(seed)
+
+        self.embedded_scalars, self.embedded_basis = self._get_embeddings()
+        self.extended_field = type(self.embedded_scalars)
+        self.dual_basis = self._get_dual_basis()
+
+    def _get_basis_in_ring_and_field(
+        self, seed: np.random.Generator | int | None
+    ) -> tuple[RingArray, galois.FieldArray]:
+        r"""Construct a basis for a simple component C of a semisimple ring R.
+
+        Let e denote the primitive central idempotent (PCI) that projects onto C, and d = rank(e).
+
+        If R is a finite Abelian group algebra, then C is isomorphic to a field extension of the
+        base field GF(q) of R.  Mathematically,
+            C ≅ GF(q^d) ≅ GF(q)[x] / f(x),
+        where
+        - GF(q)[x] denotes the set of univariate polynomials with coefficients in GF(q), and
+        - f(x) ∈ GF(q)[x] is any irreducible polynomial with degree d.
+
+        Below, we construct a power basis for the space of polynomials over GF(q) with degree < d,
+            B = (b^0, b^1, b^2, ..., b^{d-1}),
+        where
+        - b ∈ C is called the generator of this power basis, and
+        - b^0 is defined to be the multiplicative identity in C; that is, b^0 = e.
+
+        The main requirement for B is that its elements are linearly independent over GF(q).
+        To find a suitable basis, we...
+        1. Pick a random element r of R.
+        2. Multiply this element by e to project onto C.
+        3. Check whether powers of the (r * e) span a GF(q)-linear vector space of sufficient
+            dimension (namely, d).  If so, we set b = r * e.  Otherwise, we go back to step 1.
+        """
+        if self.dimension == 1:
+            return RingArray([self.pci]), self.lifted_pci.reshape(1, -1).view(self.field)
+
+        group_generators = self.ring.group.generators
+        while True:
+            coeffs = self.field.Random(len(group_generators), seed=seed)
+            terms = [(coeff, gen) for coeff, gen in zip(coeffs, group_generators)]
+            random_member = RingMember(self.ring, *terms)
+            lifted_generator = self.lifted_pci @ random_member.regular_lift()
+            vectorized_powers = [
+                np.linalg.matrix_power(lifted_generator, power).ravel()
+                for power in range(2, self.dimension)
+            ]
+            basis_in_field = np.vstack(
+                [self.lifted_pci.ravel(), lifted_generator.ravel()] + vectorized_powers
+            )
+            if np.linalg.matrix_rank(basis_in_field) == self.dimension:
+                break
+
+        basis_in_ring = [self.pci]
+        for _ in range(self.dimension - 1):
+            basis_in_ring.append(basis_in_ring[-1] * random_member)
+
+        return RingArray(basis_in_ring), basis_in_field.view(self.field)
+
+    def _get_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
+        r"""Embed elements of the simple component C into the extended field GF(q^d) ≅ GF(p^{kd}).
+
+        If R is a finite Abelian group algebra, then C is isomorphic to a field extension of the
+        base field GF(q) of R.  Mathematically,
+            C ≅ GF(q^d) ≅ GF(q)[x] / f(x),
+        where
+        - GF(q)[x] denotes the set of univariate polynomials with coefficients in GF(q), and
+        - f(x) ∈ GF(q)[x] is any irreducible polynomial with degree d.
+
+        We previously found a power basis B = (b^0, b^1, b^2, ..., b^{d-1}) that spans a
+        GF(q)-linear space of polynomials in some generator b ∈ C.  This basis allows us to write
+        any element r ∈ C as a polynomial in GF(q)[b],
+            r = sum_{j=0}^d r_j b^j,
+        where all r_j ∈ GF(q).
+
+        We now seek to embed elements of C into GF(p^{kd}).  There are four parts to this embedding:
+        1. Constructing an extension GF(q^d) = GF(q)[x] / f(x) whose primitive element is b.
+        2. Constructing an extension GF(p^{kd}) = GF(p)[x] / g(x) that naturally contains b.
+        3. Embedding GF(q) scalars into GF(p^{kd}).
+        4. Embedding elements of the power basis B into GF(p^{kd}).
+
+        Returns:
+            - A 1-dimensional galois.FieldArray whose j-th element is the embedding of GF(q)(j).
+            - A 1-dimensional galois.FieldArray whose j-th element is the embedding of b^j.
+        """
+        if self.dimension == 1:
+            return self.field.elements, self.field.Ones([1])
+
+        """
+        PART 1
+        ------
+        To construct an extension GF(q^d) = GF(q)[x] / f(x) whose primitive element is b, we need
+        to construct an irreducible polynomial f(x) of degree d that has b as a root: f(b) = 0.
+        That is, we seek coefficients c_j ∈ GF(q) for which
+            f(b) = sum_{j=0}^d c_j b^j = 0.
+        We can set c_d = 1 withous loss of generality, reducing the problem to
+            sum_{j=0}^{d-1} c_j b^j = -b^d.
+        The remaining coefficients can be found by solving a linear system of equations.
+        """
+        lifted_gen = self.basis_in_field[1].reshape([self.ring.group.order] * 2)
+        gen_to_dim_power = np.linalg.matrix_power(lifted_gen, self.dimension)
+        linear_system = np.vstack([self.basis_in_field, -gen_to_dim_power.reshape(1, -1)]).T
+        poly_coeffs = linear_system.view(self.field).row_reduce()[: self.dimension, -1]
+        poly_coeffs = np.append(poly_coeffs, self.field(1))
+        irreducible_poly = galois.Poly(poly_coeffs[::-1], field=self.field)
+
+        """
+        PART 2
+        ------
+        To construct an extension GF(p^{kd}) = GF(p)[x] / g(x) that naturally contains b, we need
+        to construct an irreducible polynomial g(x) of degree kd that has b as a root: g(b) = 0.
+        We can build such a polynomial out of f(x) by multiplying all elements in the orbit of f(x)
+        under the Frobenius map z -> z^p:
+            g(x) = prod_{j=0}^{d-1} = f(x)^{p^j}.
+        Due to the properties of the Frobenius map, f(x)^{p^j} is just f(x) with its coefficients
+        raised to the power p^j.
+        See:
+        - https://en.wikipedia.org/wiki/Field_norm
+        - https://en.wikipedia.org/wiki/Frobenius_endomorphism
+        """
+        orbit = [
+            galois.Poly(poly_coeffs[::-1] ** (self.field.characteristic**power), field=self.field)
+            for power in range(self.field.degree)
+        ]
+        product_of_orbit = functools.reduce(operator.mul, orbit)
+        extension_irreducible_poly = galois.Poly(
+            product_of_orbit.coeffs, galois.GF(self.field.characteristic)
+        )
+        extended_field = galois.GF(
+            self.field.order**self.dimension, irreducible_poly=extension_irreducible_poly
+        )
+
+        """
+        PART 3
+        ------
+        To embed GF(q) scalars into GF(p^{kd}), we...
+            1. Identify the generator α of GF(q) = GF(p^k).
+            2. Find the minimal polynomial m(x) of α, which has α as a root in GF(p^k).
+            3. Interpret the coefficients of m(x) as elements of GF(p^{kd}).
+            4. Identify a root σ ∈ GF(p^{kd}) of m(x).
+        A scalar in GF(q) = GF(p^k) = GF(p) / m(x) can then be embedded into GF(p^{kd}) by...
+            1. Expanding the scalar as a polynomial in α with coefficients in GF(p).
+            2. Interpreting the coefficients as elements of GF(p^{kd}).
+            3. Replacing α by σ.
+        See:
+        - https://mhostetter.github.io/galois/v0.1.1/api/galois.GF/
+        - https://mhostetter.github.io/galois/v0.1.1/api/galois.FieldArray.minimal_poly/
+        """
+        minimal_poly = self.field.primitive_element.minimal_poly()
+        extended_minimal_poly = galois.Poly(minimal_poly.coeffs, field=extended_field)
+        embedded_root = extended_minimal_poly.roots()[0]
+        embedded_root_powers = [extended_field(1)]
+        for _ in range(self.field.order - 1):
+            embedded_root_powers.append(embedded_root_powers[-1] * embedded_root)
+        embedded_scalars = []
+        for scalar in self.field.elements:
+            poly_coeffs = scalar.vector()[::-1]
+            terms = [
+                extended_field(coeff) * power
+                for coeff, power in zip(poly_coeffs, embedded_root_powers)
+            ]
+            embedded_scalars.append(functools.reduce(operator.add, terms))
+
+        """
+        PART 4
+        ------
+        Finally, to embed elements of the power basis B into GF(p^{kd}) we...
+            1. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain the polynomial h(x).
+            2. Use any root of h(x) as the generator of the embedded power basis.
+        """
+        extended_irreducible_poly = galois.Poly(
+            [embedded_scalars[cc] for cc in irreducible_poly.coeffs], field=extended_field
+        )
+        embedded_generator = extended_irreducible_poly.roots()[0]
+        embedded_basis = [extended_field(1)]
+        for _ in range(self.dimension - 1):
+            embedded_basis.append(embedded_basis[-1] * embedded_generator)
+
+        return extended_field(embedded_scalars), extended_field(embedded_basis)
+
+    def _get_dual_basis(self) -> galois.FieldArray:
+        r"""Construct the dual of the power basis for GF(q^d) ≅ GF(p^{kd}).
+
+        For the power basis B = (b^0, b^1, b^2, ..., b^{d-1}), the dual basis
+            A = (a^0, a^1, a^2, ..., a^{d-1})
+        satisfies
+            Tr_{GF(q^d)/GF(q)}[a_i b^i] = delta_{ij},
+        where Tr_{GF(q^d)/GF(q)} denotes a field trace from GF(q^d) to GF(q); see self._field_trace.
+
+        The dual basis allows us to "pick off" the coefficients of a polynomial in GF(q)[x] / f(x),
+        which is useful for embedding elements of GF(p^{kd}) ≅ GF(q^d) back into the ring R by:
+        1. Mapping an element z ∈ GF(p^{kd}) to the vector (z_0, z_1, ...) with z_j = Tr[a_j z].
+        2. Constructing the ring member r_z = sum_j z_j b^j ∈ R,
+        Mechanically, this embedding procedure requires the dual basis to "live" in GF(p^{kd}).
+        """
+        if self.dimension == 1:
+            return self.extended_field.Ones([1])
+        matrix = self.extended_field(
+            [
+                self._field_trace(aa * bb)
+                for aa, bb in itertools.product(self.embedded_basis, repeat=2)
+            ]
+        ).reshape([self.dimension] * 2)
+        return np.linalg.inv(matrix) @ self.embedded_basis
+
+    def _field_trace(self, value: galois.FieldArray) -> galois.FieldArray:
+        """Compute the field trace from the extended field R_i into the base field of R.
+
+        The field trace of z from GF(q^d) to GF(q) is defined by
+            Tr_{GF(q^d)/GF(q)}[z] = sum_{i=0}^{d-1} z^{q^i}.
+
+        See:
+        - https://en.wikipedia.org/wiki/Field_trace
+        """
+        conjugates = [value ** (self.field.order**pow) for pow in range(self.dimension)]
+        return functools.reduce(operator.add, conjugates)
+
+    def project(self, element: RingMember) -> galois.FieldArray:
+        """Project an element of the ring R ≅ ⨂_i R_i onto a component R_i."""
+        if element.ring is not self.ring:
+            raise ValueError(
+                "A Wedderburn-Artin transformer initialized for one ring was asked to decompose an"
+                " element of a different ring"
+            )
+        lifted_pci = self.basis_in_field[0].reshape([self.ring.group.order] * 2)
+        projection = lifted_pci @ element.regular_lift()
+        linear_system = np.vstack([self.basis_in_field, projection.reshape(1, -1)]).T
+        coeffs = linear_system.view(self.ring.field).row_reduce()[: self.dimension, -1]
+        terms = [
+            self.embedded_scalars[coeffs[ss]] * self.embedded_basis[ss]
+            for ss in range(self.dimension)
+        ]
+        return functools.reduce(operator.add, terms)
+
+    def embed(self, element: galois.FieldArray) -> RingMember:
+        """Embed an element of a simple component R_i of R back into the ring R."""
+        if type(element) is not self.extended_field:
+            raise ValueError("Invalid field for an element of a simple component of a ring")
+        if self.dimension == 1:
+            return self.basis_in_ring[0] * element
+        coefficients = [
+            np.argmax(self.embedded_scalars == self._field_trace(dual * element))
+            for dual in self.dual_basis
+        ]
+        terms = [vec * coeff for vec, coeff in zip(self.basis_in_ring, coefficients)]
+        return functools.reduce(operator.add, terms)
