@@ -313,7 +313,12 @@ def test_wedderburn_artin_transformations(
     """Decompose semisimple rings into simple components."""
     seed = pytestconfig.getoption("randomly_seed")
 
-    transformer = abstract.WedderburnArtinTransformer(ring, seed=seed)
+    with unittest.mock.patch.object(
+        abstract.GroupRing,
+        "get_primitive_central_idempotents",
+        return_value=_get_primitive_central_idempotents(ring),
+    ):
+        transformer = abstract.WedderburnArtinTransformer(ring, seed=seed)
 
     # the embedding of ring.field = GF(q) scalars is a homomorphism
     for component_transformer in transformer.transformers:
@@ -347,7 +352,13 @@ def test_wedderburn_artin_errors() -> None:
 
     group = abstract.CyclicGroup(3)
     ring = abstract.GroupRing(group, 2)
-    transformer = abstract.WedderburnArtinTransformer(ring, seed=0)
+
+    with unittest.mock.patch.object(
+        abstract.GroupRing,
+        "get_primitive_central_idempotents",
+        return_value=_get_primitive_central_idempotents(ring),
+    ):
+        transformer = abstract.WedderburnArtinTransformer(ring, seed=0)
 
     with pytest.raises(ValueError, match="different ring"):
         different_ring = abstract.GroupRing(group, 4)
@@ -369,5 +380,25 @@ def test_wedderburn_artin_errors() -> None:
         abstract.WedderburnArtinComponentTransformer(ring.one)
 
     ring = abstract.GroupRing(abstract.DihedralGroup(3), 5)
-    with pytest.raises(NotImplementedError, match="does not yet support non-Abelian rings"):
+    with (
+        unittest.mock.patch.object(
+            abstract.GroupRing, "get_primitive_central_idempotents", return_value=[ring.one]
+        ),
+        pytest.raises(NotImplementedError, match="does not yet support non-Abelian rings"),
+    ):
         abstract.WedderburnArtinTransformer(ring)
+
+
+def _get_primitive_central_idempotents(ring: abstract.GroupRing) -> tuple[abstract.RingMember, ...]:
+    """Intercept abstract.GroupRing.get_primitive_central_idempotents for testing purposes."""
+    x = ring.generators[0]
+    if ring == abstract.GroupRing(abstract.CyclicGroup(3), 2):
+        return x**2 + x + 1, x**2 + x
+    if ring == abstract.GroupRing(abstract.CyclicGroup(4), 5):
+        return (
+            4 * x**3 + 4 * x**2 + 4 * x + 4,
+            x**3 + 4 * x**2 + x + 4,
+            2 * x**3 + x**2 + 3 * x + 4,
+            3 * x**3 + x**2 + 2 * x + 4,
+        )
+    return NotImplemented
