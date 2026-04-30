@@ -1266,8 +1266,7 @@ class WedderburnArtinComponentTransformer:
                 "A Wedderburn-Artin transformer initialized for one ring was asked to decompose an"
                 " element of a different ring"
             )
-        lifted_pci = self.basis_in_field[0].reshape([self.ring.group.order] * 2)
-        projection = lifted_pci @ element.regular_lift()
+        projection = self.lifted_pci @ element.regular_lift()
         linear_system = np.vstack([self.basis_in_field, projection.reshape(1, -1)]).T
         coeffs = linear_system.view(self.ring.field).row_reduce()[: self.dimension, -1]
         terms = [
