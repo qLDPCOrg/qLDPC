@@ -398,4 +398,4 @@ def _get_primitive_central_idempotents(ring: abstract.GroupRing) -> tuple[abstra
             2 * x**3 + x**2 + 3 * x + 4,
             3 * x**3 + x**2 + 2 * x + 4,
         )
-    return NotImplemented
+    return NotImplemented  # pragma: no cover
