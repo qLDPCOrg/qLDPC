@@ -1010,7 +1010,7 @@ class HGPCode(CSSCode):
 
         # construct the X-sector and Z-sector parity check matrices
         matrix_x = np.block([mat_H1_In2, mat_Im1_H2_T])
-        matrix_z = np.block([-mat_In1_H2, mat_H1_T_Im2])
+        matrix_z = np.block([-mat_In1_H2, mat_H1_T_Im2])  # type:ignore[misc]
         return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
@@ -1127,17 +1127,12 @@ class HGPCode(CSSCode):
 
         logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
-        return (
-            (
+        if isinstance(matrix_a, abstract.RingArray):
+            return (
                 abstract.RingArray.build(logical_ops_x, field_or_ring),
                 abstract.RingArray.build(logical_ops_z, field_or_ring),
             )
-            if isinstance(matrix_a, abstract.RingArray)
-            else (
-                logical_ops_x.view(field_or_ring),
-                logical_ops_z.view(field_or_ring),
-            )
-        )
+        return logical_ops_x.view(field_or_ring), logical_ops_z.view(field_or_ring)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for hypergraph product codes.
@@ -1295,17 +1290,12 @@ class SHPCode(CSSCode):
 
         logical_ops_x = np.kron(pivots_x, generator_z)
         logical_ops_z = np.kron(generator_x, pivots_z)
-        return (
-            (
+        if isinstance(matrix_a, abstract.RingArray):
+            return (
                 abstract.RingArray.build(logical_ops_x, field_or_ring),
                 abstract.RingArray.build(logical_ops_z, field_or_ring),
             )
-            if isinstance(matrix_a, abstract.RingArray)
-            else (
-                logical_ops_x.view(field_or_ring),
-                logical_ops_z.view(field_or_ring),
-            )
-        )
+        return logical_ops_x.view(field_or_ring), logical_ops_z.view(field_or_ring)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for subsystem hypergraph product codes."""
