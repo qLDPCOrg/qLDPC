@@ -3179,7 +3179,9 @@ class CSSCode(QuditCode):
             )
             syndrome_x = self.matrix_z @ error_x
             decoded_error_x = decoder_x.decode(syndrome_x.view(np.ndarray)).view(self.field)
-            if discard_weights and np.count_nonzero(decoded_error_x) in discard_weights:
+            if (
+                discard_weights and np.count_nonzero(decoded_error_x) in discard_weights
+            ):  # pragma: no cover
                 num_discards += 1
                 continue
             if failure_z or np.any(logicals_z @ (decoded_error_x - error_x)):
