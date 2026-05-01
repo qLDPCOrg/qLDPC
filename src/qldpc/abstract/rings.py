@@ -721,11 +721,11 @@ class RingArray(npt.NDArray[np.object_]):
         matrices = [matrix.row_reduce() for matrix in transformer.decompose_array(self)]
 
         def _remove_zero_rows(matrices: list[galois.FieldArray]) -> list[galois.FieldArray]:
+            """Remove rows that are zero in all components."""
             nonzero_rows = functools.reduce(
                 np.bitwise_or, [np.any(matrix, axis=1) for matrix in matrices]
             )
-            num_nonzero_rows = np.count_nonzero(nonzero_rows)
-            return [matrix[:num_nonzero_rows] for matrix in matrices]
+            return [matrix[nonzero_rows] for matrix in matrices]
 
         matrices = _remove_zero_rows(matrices)
 
