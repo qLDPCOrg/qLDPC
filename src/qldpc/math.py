@@ -82,10 +82,10 @@ def symplectic_weight(vectors: npt.NDArray[np.int_]) -> int:
 
 def first_nonzero_cols(matrix: npt.NDArray[np.generic]) -> npt.NDArray[np.int_]:
     """Get the first nonzero column for every row in a matrix."""
-    if matrix.size == 0:
+    _matrix = np.asanyarray(matrix)
+    if _matrix.size == 0:
         return np.array([], dtype=int)
-    assert matrix.ndim == 2
-    return np.argmax(matrix.view(np.ndarray).astype(bool), axis=1)
+    return np.argmax(_matrix.view(np.ndarray).astype(bool), axis=-1)
 
 
 def block_matrix(

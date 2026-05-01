@@ -212,16 +212,13 @@ def test_regular_rep(ring: abstract.GroupRing, pytestconfig: pytest.Config) -> N
         matrix.regular_lift() @ vector.to_field_vector(),
     )
 
-    assert not np.any(matrix @ matrix.null_space(row_reduce=False).T)
-    assert not np.any(matrix.regular_lift() @ matrix.null_space(row_reduce=False).regular_lift().T)
+    assert not np.any(matrix @ matrix.null_space().T)
+    assert not np.any(matrix.regular_lift() @ matrix.null_space().regular_lift().T)
     assert not np.any(matrix.regular_lift() @ matrix.regular_lift().null_space().T)
 
-    with pytest.raises(NotImplementedError, match="Cannot row-reduce"):
-        matrix.null_space(row_reduce=True)
 
-
-def test_ring_row_reduce(pytestconfig: pytest.Config) -> None:
-    """Row reduce a ring-valued matrix."""
+def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
+    """RingArrays can be row reduced in various ways."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
     matrix: list[list[int | abstract.RingMember]] | abstract.RingArray
 
@@ -232,52 +229,55 @@ def test_ring_row_reduce(pytestconfig: pytest.Config) -> None:
     gen_inverse = gen.inverse()
     assert gen_inverse is not None
 
-    matrix = [
-        [one + gen, 0, gen],
-        [gen + gen**2, 0, gen**2],
-        [0, 0, one + gen],
-    ]
-    assert np.array_equal(
-        abstract.RingArray.build(matrix).row_reduce(cyclic=True),
-        abstract.RingArray.build([[1, 0, 0], [0, 0, 1]], ring),
+    matrix = abstract.RingArray.build(
+        [
+            [one + gen, 0, gen],
+            [gen + gen**2, 0, gen**2],
+            [0, 0, one + gen],
+        ]
     )
+    matrix_row_reduced = abstract.RingArray.build([[1, 0, 0], [0, 0, 1], [0, 0, 0]], ring)
+    matrix_hnf = matrix_row_reduced[:2, :]  # without the all-zero row
+    assert np.array_equal(matrix.row_reduce(), matrix_row_reduced)
+    assert np.array_equal(matrix.howell_normal_form(), matrix_hnf)
+    assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf)
 
-    # cyclic row-reduction requires a cyclic group
-    group = abstract.AbelianGroup(3, 3)
-    with pytest.raises(ValueError, match="requires an underlying CyclicGroup"):
-        abstract.RingArray.build([[1, 0], [1, 1]], group).row_reduce(cyclic=True)
+    # RingArray.row_reduce requires semisimple rings
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    with pytest.raises(ValueError, match="only supports semisimple rings"):
+        abstract.RingArray.build([[1, 0], [1, 1]], ring).row_reduce()
 
-    # the non-cyclic Howell normal form requires a semisimple group
+    # the ordinary Howell normal form requires a semisimple ring
     ring = abstract.GroupRing(abstract.AbelianGroup(2, 2), field=2)
-    with pytest.raises(ValueError, match="not semisimple"):
+    with pytest.raises(ValueError, match="requires the base ring to be semisimple"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
-    # row-reduction for semisimple Abelian groups is not yet supported
-    group = abstract.AbelianGroup(3, 3)
-    with pytest.raises(NotImplementedError, match="Implementation .* still pending"):
-        abstract.RingArray.build([[1, 0], [1, 1]], group).row_reduce()
+    # the "polynomial" Howell normal form requires an underlying cyclic group
+    with pytest.raises(ValueError, match="requires an underlying CyclicGroup"):
+        abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form(poly=True)
 
     # row-reduction for semisimple non-Abelian groups is not yet supported
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    with pytest.raises(NotImplementedError, match="Implementation .* still pending"):
-        abstract.RingArray.build([[1, 0], [1, 1]], ring).row_reduce()
+    with pytest.raises(NotImplementedError, match="not yet support non-Abelian rings"):
+        abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
     # computing a reduced Groebner basis is the final boss
     ring = abstract.GroupRing(abstract.DihedralGroup(2), field=2)
     with pytest.raises(NotImplementedError, match="Here be dragons"):
-        abstract.RingArray.build([[1, 0], [1, 1]], ring).row_reduce()
+        abstract.RingArray.build([[1, 0], [1, 1]], ring).reduced_groebner_basis()
 
 
-def test_ring_linear_reduction() -> None:
-    """Remove rows that are left-ring-linearly-dependent on others."""
-    group = abstract.CyclicGroup(2)
-    ring = abstract.GroupRing(group, field=2)
+def test_ring_row_addition() -> None:
+    """There are two types of Howell normal form, and they can add rows to a RingArray."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
     x = ring.generators[0]
     matrix = abstract.RingArray.build([[x + 1, 1]])
 
-    row_reduced_matrix = abstract.RingArray.build([[x + 1, 1], [0, x + 1]])
-    assert np.array_equal(matrix.row_reduce(cyclic=True), row_reduced_matrix)
-    assert np.array_equal(row_reduced_matrix.without_dependent_rows(), matrix * x)
+    matrix_hnf = abstract.RingArray.build([[x**2 + x, x**2 + 1], [0, x**2 + x + 1]])
+    assert np.array_equal(matrix.howell_normal_form(), matrix_hnf)
+
+    matrix_hnf_poly = abstract.RingArray.build([[x + 1, 1], [0, x**2 + x + 1]])
+    assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf_poly)
 
 
 def test_deprecations() -> None:

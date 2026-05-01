@@ -650,7 +650,7 @@ class RingArray(npt.NDArray[np.object_]):
         vals = [val.to_vector() for val in self.ravel()]
         return np.asarray(vals).ravel().view(self.field)
 
-    def null_space(self, *, row_reduce: bool = True) -> RingArray:
+    def null_space(self) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
 
         The transpose of the null-space matrix is annihilated by this RingArray, such that
@@ -664,81 +664,122 @@ class RingArray(npt.NDArray[np.object_]):
 
         # collect ring-valued null row vectors (that is, transposed null column vectors)
         field_array_shape = (len(null_field_vectors), self.shape[1], self.group.order)
-        null_space = ~RingArray.from_field_array(
-            null_field_vectors.reshape(field_array_shape), self.ring
-        )
-        if not row_reduce or not null_field_vectors.size:
-            return null_space
+        return ~RingArray.from_field_array(null_field_vectors.reshape(field_array_shape), self.ring)
 
-        try:
-            return null_space.row_reduce()
-        except NotImplementedError:
-            raise NotImplementedError(
-                "Cannot row-reduce the null-space matrix of this RingArray."
-                "\nTry calling RingArray.null_space(row_reduce=False)"
-            )
+    def row_reduce(self) -> RingArray:
+        """Compute a generalized reduced row Echelon form of a RingArray over a semisimple ring.
 
-    def row_reduce(self, *, cyclic: bool = False) -> RingArray:
-        """Compute an appropriate generalization of the reduced row Echelon form of this RingArray.
-
-        By default (if cyclic is False), this method computes...
-        1. For semisimple rings, a Howell normal form.  See RingArray.howell_normal_form.
-        2. Otherwise, a reduced Groebner basis.  See RingArray.reduced_groebner_basis.
-
-        The default Howell normal form is computed using the notion of greatest common divisor (GCD)
-        that is induced by expanding ring members in the basis of primitive central idempotents.
-
-        If cyclic is True, this method instead computes a Howell normal form using the notion of GCD
-        that is induced polynomial division.  This form is only supported for cyclic group algebras,
-        which can be interpreted as univariate polynomial rings.
+        This method relies on the Wedderburn-Artin decomposition:
+        1. Decompose the matrix over a ring into matrices over simple components.
+        2. Put the matrices over simple components into RREF.
+        3. Re-combine the simple components into a matrix over the original ring.
         """
-        if cyclic is True:
-            return self.howell_normal_form(cyclic=True)
-        if self.ring.is_semisimple:
-            return self.howell_normal_form(cyclic=False)
-        return self.reduced_groebner_basis()
+        assert self.ndim == 2
+        if not self.ring.is_semisimple:
+            raise ValueError("RingArray.row_reduce only supports semisimple rings")
+        transformer = WedderburnArtinTransformer(self.ring)
+        matrices = [component.row_reduce() for component in transformer.decompose_array(self)]
+        return transformer.recompose_arrays(matrices)
 
-    def howell_normal_form(self, *, cyclic: bool = False) -> RingArray:
+    def howell_normal_form(self, *, poly: bool = False) -> RingArray:
         """Compute a Howell normal form of this RingArray.
 
-        By default (if cyclic is False), this method computes a Howell normal form using the
-        notion of greatest common divisor (GCD) that is induced by expanding ring members in the
-        basis of primitive central idempotents.  This form requires the base ring to be semisimple.
+        By default (if poly is False), this method first puts a RingArray into a generalized
+        reduced row Echelon form (see RingArray.row_reduce), then further post-processes the rows to
+        satisfy the Howell property.  Specifically, if a row r has a pivot p with a nontrivial
+        annihilator α (meaning α != 0 and α·p = 0), then the row r is replaced by α·r, and the row
+        (1 - α)·r is appended to the matrix.  This procedure requires the ring to be semisimple.
 
-        If cyclic is True, this method instead computes a Howell normal form using the notion of
-        GCD that is induced polynomial division.  This form is only supported for cyclic group
-        algebras, which can be interpreted as univariate polynomial rings.
+        If poly is True, then the base ring must be a cyclic group algebra.  In this case, this
+        method interprets the base ring as a univariate polynomial ring, and computes a Howell
+        normal form using a notion of row reduction that induced by polynomial division.
 
         References:
         - https://en.wikipedia.org/wiki/Howell_normal_form
         - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
         assert self.ndim == 2
-        if cyclic is True:
-            return self._howell_normal_form_cyclic()
-
+        if poly:
+            return self._howell_normal_form_poly()
         if not self.ring.is_semisimple:
             raise ValueError(
-                "The base ring for this RingArray is not semisimple, so we cannot compute a Howell"
-                " normal form based on primitive central idempotents"
+                "The ordinary Howell normal form requires the base ring to be semisimple"
             )
-
         if self.group.is_abelian:
             return self._howell_normal_form_abelian()
         return self._howell_normal_form_non_abelian()
 
-    def _howell_normal_form_cyclic(self) -> RingArray:
-        """Compute a Howell normal form of this RingArray.
+    def _howell_normal_form_abelian(self) -> RingArray:
+        """Compute the Howell normal form of a RingArray over a semisimple Abelian ring."""
+        assert self.ndim == 2 and self.ring.is_semisimple and self.group.is_abelian
 
-        If the base ring of this RingArray is a cyclic group algebra, this ring can be interpreted
-        as a univariate polynomial ring.  The extended Euclidean algorithm for univariate
-        polynomials (galois.egcd) then equips us with invertible row operations that we can use to
-        reduce this RingArray to a Howell normal form.
+        # identify the components of the reduced row Echelon form of this RingArray
+        transformer = WedderburnArtinTransformer(self.ring)
+        matrices = [matrix.row_reduce() for matrix in transformer.decompose_array(self)]
+        matrices = [matrix[np.any(matrix, axis=1)] for matrix in matrices]  # drop all-zero rows
+
+        pivot_row = 0
+        pivot_col = 0
+        num_rows, num_cols = self.shape
+        while pivot_row < num_rows and pivot_col < num_cols - 1:
+            """
+            Identify:
+            1. The column of the first nonzero value in the pivot_row of each component.
+            2. The column that will contain the pivot when we recombine the components.
+            """
+            pivot_cols = [
+                num_cols
+                if not np.any(matrix[pivot_row])
+                else np.argmax(matrix[pivot_row].view(np.ndarray).astype(bool))
+                for matrix in matrices
+            ]
+            pivot_col = min(pivot_cols)
+
+            """
+            Identify components of the ring in which the pivot is zero.  The projector onto such a
+            component is an annihilator of the pivot row.  If such an annihilator α exists, replace
+            the pivot row r -> α·r, and add (1 - α)·r as a new row to all matrices.
+            """
+            annihilating_components = [
+                cc for cc in range(len(matrices)) if pivot_col < pivot_cols[cc] < num_cols
+            ]
+            if annihilating_components:
+                for cc, matrix in enumerate(matrices):
+                    field = type(matrix)
+                    if cc in annihilating_components:
+                        new_row = matrix[pivot_row].copy()
+                        matrix[pivot_row] = 0
+                    else:
+                        new_row = field.Zeros(num_cols)
+                    matrices[cc] = np.vstack([matrix, new_row]).view(field)
+                num_rows += 1
+
+            pivot_row += 1
+
+        return transformer.recompose_arrays(matrices)
+
+    def _howell_normal_form_non_abelian(self) -> RingArray:
+        """Compute a Howell normal form of a RingArray over a semisimple non-Abelian ring."""
+        assert self.ndim == 2 and self.ring.is_semisimple
+        raise NotImplementedError(
+            "RingArray.howell_normal_form does not yet support non-Abelian rings"
+        )
+
+    def _howell_normal_form_poly(self) -> RingArray:
+        """Compute a Howell normal form of a RingArray using polynomial division.
+
+        If the base ring of a RingArray is a cyclic group algebra, then it can be interpreted as a
+        univariate polynomial ring, allowing us to compute greatest common divisors and perform row
+        reduction with polynomial division.
+
+        References:
+        - https://en.wikipedia.org/wiki/Howell_normal_form
+        - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
         if not isinstance(self.group, CyclicGroup):
             raise ValueError(
-                "The cyclic Howell normal form requires an underlying CyclicGroup, not"
-                f" {self.group}"
+                "The Howell normal form induced by polynomial division requires an underlying"
+                f" CyclicGroup, not {self.group}"
             )
 
         # convert into 3-D, where the third dimension stores coefficients for group members
@@ -851,26 +892,6 @@ class RingArray(npt.NDArray[np.object_]):
         field_array = field_array[np.any(field_array, axis=(1, 2))]
         return RingArray.from_field_array(field_array, self.ring)
 
-    def _howell_normal_form_abelian(self) -> RingArray:
-        """Compute a Howell normal form of this RingArray using the Wedderburn-Artin decomposition.
-
-        Implementation for Abelian rings.
-        """
-        assert self.ndim == 2 and self.ring.is_semisimple and self.group.is_abelian
-        raise NotImplementedError(
-            "Implementation of the Howell normal form for Abelian groups still pending..."
-        )
-
-    def _howell_normal_form_non_abelian(self) -> RingArray:
-        """Compute a Howell normal form of this RingArray using the Wedderburn-Artin decomposition.
-
-        Implementation for non-Abelian rings.
-        """
-        assert self.ndim == 2 and self.ring.is_semisimple
-        raise NotImplementedError(
-            "Implementation of the Howell normal form for non-Abelian groups still pending..."
-        )
-
     def reduced_groebner_basis(self) -> RingArray:
         """Compute a reduced Groebner basis for this RingArray.
 
@@ -880,54 +901,6 @@ class RingArray(npt.NDArray[np.object_]):
         raise NotImplementedError(
             "Computing a reduced Groebner basis is very mathematically involved.  Here be dragons."
         )
-
-    def without_dependent_rows(self) -> RingArray:
-        r"""Remove rows that can be expressed as left-ring-linear combinations of others.
-
-        A row v is a left-ring-linear combination of rows (w_1, w_2, ...) iff v = sum_i r_i w_i,
-        where (r_1, r_2, ...) are elements of the base ring.
-
-        Due to peculiarities of working with modules (the generalization of a vector space when
-        working over rings, rather than fields), we have to start by considering all rows in the
-        RingArray, and checking individually whether each row lies in the span of the rest; if so,
-        we remove that row.  "Trimming down" to a minimal basis, as opposed to "building one up"
-        by accumulating linearly independent row vectors, is necessary because rows may have
-        nontrivial annihilators, which is to say that a row v may have a ring element r for which
-        r * v = 0 even though r and v are both nonzero.  It is therefore possible, for example, for
-        a row v to lie in the left-ring-linear span of another row w (v = r * w for some r), but not
-        the other way around (there is no r for which w = r * v).
-        """
-        assert self.ndim == 2
-
-        # expand row vectors over the ring into row vectors over the field
-        field_vectors = self.to_field_array().reshape(len(self), -1).view(self.field)
-
-        # row-reduce over the field to find rows that are field-linearly independent
-        field_vectors = field_vectors.row_reduce()
-        field_vectors = field_vectors[np.any(field_vectors, axis=1)]  # remove all-zero rows
-        ring_matrix = RingArray.from_field_array(
-            field_vectors.reshape(len(field_vectors), -1, self.group.order), self.ring
-        )
-
-        """
-        Invert (transpose) the entries of the matrix to make them right-acting (that is, to
-        transform coefficients that are to the left of each row vector), and lift to a matrix over
-        the field.
-        """
-        field_matrix = (~ring_matrix).view(RingArray).regular_lift()
-
-        # throw out rows that can be expressed as left-ring-linear combinations of other rows
-        rows_to_keep = np.ones((len(ring_matrix), self.group.order), dtype=bool)
-        for row in range(len(ring_matrix) - 1, -1, -1):
-            rows_to_keep[row, :] = False
-            linear_system = np.vstack([field_matrix[rows_to_keep.ravel()], field_vectors[row]])
-            linear_system_rref = linear_system.T.view(self.field).row_reduce()
-            for row_rref in np.argwhere(linear_system_rref[:, -1]):
-                if not np.any(linear_system_rref[row_rref, :-1]):
-                    rows_to_keep[row, :] = True
-                    break
-
-        return ring_matrix[rows_to_keep[:, 0]].view(RingArray)
 
 
 class Protograph(RingArray):  # pragma: no cover
@@ -980,16 +953,33 @@ class WedderburnArtinTransformer:
         """Decompose an element of the ring into its Wedderburn-Artin components."""
         return [transformer.project(element) for transformer in self.transformers]
 
+    def decompose_array(self, array: RingArray) -> list[galois.FieldArray]:
+        """Decompose an array over a ring into its Wedderburn-Artin components."""
+        decomposed_arrays = []
+        for transformer in self.transformers:
+            values = transformer.extended_field([transformer.project(val) for val in array.ravel()])
+            decomposed_arrays.append(values.reshape(array.shape).view(transformer.extended_field))
+        return decomposed_arrays
+
     def recompose(self, components: Sequence[galois.FieldArray]) -> RingMember:
         """Invert WedderburnArtinTransformer.decompose."""
         if len(components) != len(self.transformers):
             raise ValueError(
                 "Incorrect number of components provided to WedderburnArtinTransformer.recompose"
             )
-        ring_member = RingMember(self.ring)
-        for component, transformer in zip(components, self.transformers):
-            ring_member += transformer.embed(component)
-        return ring_member
+        terms = [
+            transformer.embed(component)
+            for component, transformer in zip(components, self.transformers)
+        ]
+        return functools.reduce(operator.add, terms)
+
+    def recompose_arrays(self, arrays: Sequence[galois.FieldArray]) -> RingArray:
+        """Invert WedderburnArtinTransformer.decompose_array."""
+        shapes = [array.shape for array in arrays]
+        assert len(set(shapes)) == 1
+        shape = shapes[0]
+        values = [self.recompose([array[idx] for array in arrays]) for idx in np.ndindex(shape)]
+        return RingArray(values, ring=self.ring).reshape(shape)
 
 
 @dataclasses.dataclass
