@@ -272,6 +272,22 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
         abstract.RingArray.build([[1, 0], [1, 1]], ring).reduced_groebner_basis()
 
 
+def test_minimal_howell_form() -> None:
+    """We try to "merge" pivots in the Howell form as much as possible."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    with unittest.mock.patch.object(
+        abstract.GroupRing,
+        "get_primitive_central_idempotents",
+        return_value=_get_primitive_central_idempotents(ring),
+    ):
+        a, b = ring.get_primitive_central_idempotents()
+        matrix = abstract.RingArray.build([[a, b], [0, a]])
+        assert np.array_equal(
+            matrix.howell_normal_form(),
+            abstract.RingArray.build([[a, 0], [0, 1]]),
+        )
+
+
 def test_ring_row_addition() -> None:
     """There are two types of Howell normal form, and they can add rows to a RingArray."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)

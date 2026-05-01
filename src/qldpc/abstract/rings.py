@@ -670,7 +670,7 @@ class RingArray(npt.NDArray[np.object_]):
         return ~RingArray.from_field_array(null_field_vectors.reshape(field_array_shape), self.ring)
 
     def row_reduce(self) -> RingArray:
-        """Compute a generalized reduced row Echelon form of a RingArray over a semisimple ring.
+        """Compute a generalized reduced row echelon form of a RingArray over a semisimple ring.
 
         This method relies on the Wedderburn-Artin decomposition:
         1. Decompose the matrix over a ring into matrices over simple components.
@@ -688,9 +688,9 @@ class RingArray(npt.NDArray[np.object_]):
         """Compute a Howell normal form of this RingArray.
 
         By default (if poly is False), this method first puts a RingArray into a generalized
-        reduced row Echelon form (see RingArray.row_reduce), then further post-processes the rows to
+        reduced row echelon form (see RingArray.row_reduce), then further post-processes the rows to
         satisfy the Howell property.  Specifically, if a row r has a pivot p with a nontrivial
-        annihilator α (meaning α != 0 and α·p = 0), then the row r is replaced by (1 - α)·r, and the
+        annihilator α (meaning α != 0 and α·p = 0), then the row r is replaced by (1-α)·r, and the
         row α·r is appended to the matrix.  This procedure requires the ring to be semisimple.
 
         If poly is True, then the base ring must be a cyclic group algebra.  In this case, this
@@ -716,10 +716,18 @@ class RingArray(npt.NDArray[np.object_]):
         """Compute the Howell normal form of a RingArray over a semisimple Abelian ring."""
         assert self.ndim == 2 and self.ring.is_semisimple and self.group.is_abelian
 
-        # identify the components of the reduced row Echelon form of this RingArray
+        # identify the components of the reduced row echelon form of this RingArray
         transformer = WedderburnArtinTransformer(self.ring)
         matrices = [matrix.row_reduce() for matrix in transformer.decompose_array(self)]
-        matrices = [matrix[np.any(matrix, axis=1)] for matrix in matrices]  # drop all-zero rows
+
+        def _remove_zero_rows(matrices: list[galois.FieldArray]) -> list[galois.FieldArray]:
+            nonzero_rows = functools.reduce(
+                np.bitwise_or, [np.any(matrix, axis=1) for matrix in matrices]
+            )
+            num_nonzero_rows = np.count_nonzero(nonzero_rows)
+            return [matrix[:num_nonzero_rows] for matrix in matrices]
+
+        matrices = _remove_zero_rows(matrices)
 
         pivot_row = 0
         pivot_col = 0
@@ -739,9 +747,13 @@ class RingArray(npt.NDArray[np.object_]):
             pivot_col = min(pivot_cols)
 
             """
-            Identify components of the ring in which the pivot is zero.  The projector onto such a
-            component is an annihilator of the pivot.  If such an annihilator α exists, replace the
-            pivot row r -> (1 - α)·r, and add α·r as a new row to all matrices.
+            Let π be a projector onto the components in which the pivot is nonzero.  If π != 1, then
+            (1-π) is a nontrivial annihilator of the pivot.  In this case, in principle we need to
+            replace the pivot row r -> π·r, and add (1-π)·r as a new row to the matrix.  In
+            practice, this procedure messes up the reduced row echelon form of the matrix, so we
+            instead...
+            1. In the (1-π) sector, insert a zero row at the pivot_row and shift down rows below.
+            2. In the π sector, append a zero row to the matrix.
             """
             annihilating_components = [
                 cc for cc in range(len(matrices)) if pivot_col < pivot_cols[cc] < num_cols
@@ -750,15 +762,15 @@ class RingArray(npt.NDArray[np.object_]):
                 for cc, matrix in enumerate(matrices):
                     field = type(matrix)
                     if cc in annihilating_components:
-                        new_row = matrix[pivot_row].copy()
-                        matrix[pivot_row] = 0
+                        stack = [matrix[:pivot_row], field.Zeros(num_cols), matrix[pivot_row:]]
                     else:
-                        new_row = field.Zeros(num_cols)
-                    matrices[cc] = np.vstack([matrix, new_row]).view(field)
+                        stack = [matrix, field.Zeros(num_cols)]
+                    matrices[cc] = np.vstack(stack).view(field)
                 num_rows += 1
 
             pivot_row += 1
 
+        matrices = _remove_zero_rows(matrices)
         return transformer.recompose_arrays(matrices)
 
     def _howell_normal_form_non_abelian(self) -> RingArray:
