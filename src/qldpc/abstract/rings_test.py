@@ -116,7 +116,7 @@ def test_printing() -> None:
 def test_primitive_central_idempotents() -> None:
     """Convert external primitive central idempotents into RingMembers."""
     with pytest.raises(ValueError, match="Only semisimple rings"):
-        abstract.GroupRing(abstract.CyclicGroup(2), 2).get_primitive_central_idempotents()
+        abstract.GroupRing(abstract.CyclicGroup(2), field=2).get_primitive_central_idempotents()
 
     group = abstract.CyclicGroup(3)
     x = group.generators[0]
@@ -316,8 +316,8 @@ def test_deprecations() -> None:
 @pytest.mark.parametrize(
     "ring",
     [
-        abstract.GroupRing(abstract.CyclicGroup(3), 2),
-        abstract.GroupRing(abstract.CyclicGroup(4), 5),
+        abstract.GroupRing(abstract.CyclicGroup(3), field=2),
+        abstract.GroupRing(abstract.CyclicGroup(4), field=5),
     ],
 )
 def test_wedderburn_artin_transformations(
@@ -383,13 +383,13 @@ def test_wedderburn_artin_errors() -> None:
     with pytest.raises(ValueError, match="Invalid field"):
         transformer.recompose(galois.GF(3).Ones(2))
 
-    ring = abstract.GroupRing(abstract.CyclicGroup(2), 2)
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
         abstract.WedderburnArtinTransformer(ring)
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
         abstract.WedderburnArtinComponentTransformer(ring.one)
 
-    ring = abstract.GroupRing(abstract.DihedralGroup(3), 5)
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
     with (
         unittest.mock.patch.object(
             abstract.GroupRing, "get_primitive_central_idempotents", return_value=[ring.one]
