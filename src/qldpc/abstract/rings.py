@@ -655,6 +655,9 @@ class RingArray(npt.NDArray[np.object_]):
 
         The transpose of the null-space matrix is annihilated by this RingArray, such that
         np.any(self @ self.null_space().T) is np.False_.
+
+        Unlike galois.FieldArray.row_reduce, this method does not perform any row reduction on the
+        matrix of null-space row vectors.
         """
         assert self.ndim == 2
 
