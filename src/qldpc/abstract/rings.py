@@ -687,8 +687,8 @@ class RingArray(npt.NDArray[np.object_]):
         By default (if poly is False), this method first puts a RingArray into a generalized
         reduced row Echelon form (see RingArray.row_reduce), then further post-processes the rows to
         satisfy the Howell property.  Specifically, if a row r has a pivot p with a nontrivial
-        annihilator α (meaning α != 0 and α·p = 0), then the row r is replaced by α·r, and the row
-        (1 - α)·r is appended to the matrix.  This procedure requires the ring to be semisimple.
+        annihilator α (meaning α != 0 and α·p = 0), then the row r is replaced by (1 - α)·r, and the
+        row α·r is appended to the matrix.  This procedure requires the ring to be semisimple.
 
         If poly is True, then the base ring must be a cyclic group algebra.  In this case, this
         method interprets the base ring as a univariate polynomial ring, and computes a Howell
@@ -737,8 +737,8 @@ class RingArray(npt.NDArray[np.object_]):
 
             """
             Identify components of the ring in which the pivot is zero.  The projector onto such a
-            component is an annihilator of the pivot row.  If such an annihilator α exists, replace
-            the pivot row r -> α·r, and add (1 - α)·r as a new row to all matrices.
+            component is an annihilator of the pivot.  If such an annihilator α exists, replace the
+            pivot row r -> (1 - α)·r, and add α·r as a new row to all matrices.
             """
             annihilating_components = [
                 cc for cc in range(len(matrices)) if pivot_col < pivot_cols[cc] < num_cols
