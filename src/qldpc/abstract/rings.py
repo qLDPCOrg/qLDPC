@@ -982,7 +982,7 @@ class WedderburnArtinTransformer:
         assert len(set(shapes)) == 1
         shape = shapes[0]
         values = [self.recompose([array[idx] for array in arrays]) for idx in np.ndindex(shape)]
-        return RingArray(values, ring=self.ring).reshape(shape)
+        return RingArray(values, ring=self.ring).reshape(shape).view(RingArray)
 
 
 @dataclasses.dataclass
