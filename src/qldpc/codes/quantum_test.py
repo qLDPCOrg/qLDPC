@@ -369,16 +369,6 @@ def test_lift() -> None:
     assert code_HP.sector_size.sum() == code_HP.num_qudits + code_HP.num_checks
     assert code_LP.sector_size.sum() == code_LP.num_qudits + code_LP.num_checks
 
-    # build logical operators over the ring (PENDING)
-    with pytest.raises(NotImplementedError, match="Cannot row-reduce"):
-        ring_logicals_x, ring_logicals_z = codes.HGPCode.get_canonical_logical_ops(
-            code_LP.matrix_a, code_LP.matrix_b
-        )
-        # assert np.array_equal(
-        #     (ring_logicals_x @ ring_logicals_z.T).lift(),
-        #     np.eye(code_LP.dimension, dtype=int),
-        # )
-
 
 def test_twisted_XZZX(width: int = 3) -> None:
     """Verify twisted XZZX code in Eqs.(29) and (32) of arXiv:2202.01702v3."""
@@ -456,16 +446,6 @@ def test_subsystem_lifted_product_codes() -> None:
     matrix = abstract.RingArray.build([[xx**2 + xx + 1, xx + 1, xx]])  # Eq. 23
     code = codes.SLPCode(matrix)
     assert code.get_code_params() == (27, 12, 2)
-
-    # build logical operators over the ring (PENDING)
-    with pytest.raises(NotImplementedError, match="Cannot row-reduce"):
-        ring_logicals_x, ring_logicals_z = codes.SHPCode.get_canonical_logical_ops(
-            code.matrix_a, code.matrix_b
-        )
-        # assert np.array_equal(
-        #     (ring_logicals_x @ ring_logicals_z.T).lift(),
-        #     np.eye(code.dimension, dtype=int),
-        # )
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:

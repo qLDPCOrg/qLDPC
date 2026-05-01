@@ -1092,8 +1092,8 @@ class HGPCode(CSSCode):
 
     @staticmethod
     def get_canonical_logical_ops(
-        matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
-    ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
+        matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical operators for the hypergraph product code.
 
         These operators are essentially those in Lemma 1 of arXiv:2204.10812v3, modified using pivot
@@ -1103,20 +1103,20 @@ class HGPCode(CSSCode):
         X-type logical operators are "horizontal" in sector (0, 0) and "vertical" in sector (1, 1).
         Vice versa for Z-type logical operators.
         """
-        field_or_ring = type(matrix_a) if isinstance(matrix_a, galois.FieldArray) else matrix_a.ring
+        field = type(matrix_a)
 
         generator_a = matrix_a.null_space()
         generator_b = matrix_b.null_space()
         generator_a_T = matrix_a.T.null_space()
         generator_b_T = matrix_b.T.null_space()
 
-        pivots_a = np.zeros(generator_a.shape, dtype=int)
-        pivots_b = np.zeros(generator_b.shape, dtype=int)
+        pivots_a = field.Zeros(generator_a.shape)
+        pivots_b = field.Zeros(generator_b.shape)
         pivots_a[range(len(pivots_a)), qldpc.math.first_nonzero_cols(generator_a)] = 1
         pivots_b[range(len(pivots_b)), qldpc.math.first_nonzero_cols(generator_b)] = 1
 
-        pivots_a_T = np.zeros(generator_a_T.shape, dtype=int)
-        pivots_b_T = np.zeros(generator_b_T.shape, dtype=int)
+        pivots_a_T = field.Zeros(generator_a_T.shape)
+        pivots_b_T = field.Zeros(generator_b_T.shape)
         pivots_a_T[range(len(pivots_a_T)), qldpc.math.first_nonzero_cols(generator_a_T)] = 1
         pivots_b_T[range(len(pivots_b_T)), qldpc.math.first_nonzero_cols(generator_b_T)] = 1
 
@@ -1127,17 +1127,7 @@ class HGPCode(CSSCode):
 
         logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
-        return (
-            (
-                abstract.RingArray.build(logical_ops_x, field_or_ring),
-                abstract.RingArray.build(logical_ops_z, field_or_ring),
-            )
-            if isinstance(matrix_a, abstract.RingArray)
-            else (
-                logical_ops_x.view(field_or_ring),
-                logical_ops_z.view(field_or_ring),
-            )
-        )
+        return logical_ops_x.view(field), logical_ops_z.view(field)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for hypergraph product codes.
@@ -1272,40 +1262,26 @@ class SHPCode(CSSCode):
 
     @staticmethod
     def get_canonical_logical_ops(
-        matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
-    ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
+        matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical operators for the subsystem hypergraph product code.
 
         These operators are essentially those in Theorem VIII.10 of arXiv:2502.07150v1, generalized
         slightly to account for the possibility that code_x != code_z.
         """
-        field_or_ring = type(matrix_a) if isinstance(matrix_a, galois.FieldArray) else matrix_a.ring
-
-        generator_x = matrix_a.null_space()
-        pivots_x = np.zeros(generator_x.shape, dtype=int)
-        pivots_x[range(len(pivots_x)), qldpc.math.first_nonzero_cols(generator_x)] = 1
+        field = type(matrix_a)
 
         generator_x = matrix_a.null_space()
         generator_z = matrix_b.null_space()
 
-        pivots_x = np.zeros(generator_x.shape, dtype=int)
-        pivots_z = np.zeros(generator_z.shape, dtype=int)
+        pivots_x = field.Zeros(generator_x.shape)
+        pivots_z = field.Zeros(generator_z.shape)
         pivots_x[range(len(pivots_x)), qldpc.math.first_nonzero_cols(generator_x)] = 1
         pivots_z[range(len(pivots_z)), qldpc.math.first_nonzero_cols(generator_z)] = 1
 
         logical_ops_x = np.kron(pivots_x, generator_z)
         logical_ops_z = np.kron(generator_x, pivots_z)
-        return (
-            (
-                abstract.RingArray.build(logical_ops_x, field_or_ring),
-                abstract.RingArray.build(logical_ops_z, field_or_ring),
-            )
-            if isinstance(matrix_a, abstract.RingArray)
-            else (
-                logical_ops_x.view(field_or_ring),
-                logical_ops_z.view(field_or_ring),
-            )
-        )
+        return logical_ops_x.view(field), logical_ops_z.view(field)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for subsystem hypergraph product codes."""
