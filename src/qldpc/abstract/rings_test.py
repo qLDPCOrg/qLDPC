@@ -122,16 +122,16 @@ def test_primitive_central_idempotents() -> None:
     x = group.generators[0]
     one = group.identity
     ring = abstract.GroupRing(group, 2)
-    fake_output = (
-        ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
-        ((1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
-    )
     expected_idempotents = (
         abstract.RingMember(ring, one, x, x**2),
         abstract.RingMember(ring, x, x**2),
     )
+    external_output = (
+        ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+        ((1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+    )
     with unittest.mock.patch(
-        "qldpc.external.groups.get_primitive_central_idempotents", return_value=fake_output
+        "qldpc.external.groups.get_primitive_central_idempotents", return_value=external_output
     ):
         idempotents = ring.get_primitive_central_idempotents()
         assert idempotents == expected_idempotents
@@ -193,7 +193,7 @@ def test_transpose() -> None:
 @pytest.mark.parametrize(
     "ring",
     [
-        abstract.GroupRing(abstract.DihedralGroup(3)),
+        abstract.GroupRing(abstract.DihedralGroup(3), field=2),
         abstract.GroupRing(abstract.AbelianGroup(2, 3), field=4),
     ],
 )
@@ -238,9 +238,14 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
     )
     matrix_row_reduced = abstract.RingArray.build([[1, 0, 0], [0, 0, 1], [0, 0, 0]], ring)
     matrix_hnf = matrix_row_reduced[:2, :]  # without the all-zero row
-    assert np.array_equal(matrix.row_reduce(), matrix_row_reduced)
-    assert np.array_equal(matrix.howell_normal_form(), matrix_hnf)
-    assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf)
+    with unittest.mock.patch.object(
+        abstract.GroupRing,
+        "get_primitive_central_idempotents",
+        return_value=_get_primitive_central_idempotents(ring),
+    ):
+        assert np.array_equal(matrix.row_reduce(), matrix_row_reduced)
+        assert np.array_equal(matrix.howell_normal_form(), matrix_hnf)
+        assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf)
 
     # RingArray.row_reduce requires semisimple rings
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
@@ -273,11 +278,19 @@ def test_ring_row_addition() -> None:
     x = ring.generators[0]
     matrix = abstract.RingArray.build([[x + 1, 1]])
 
-    matrix_hnf = abstract.RingArray.build([[x**2 + x, x**2 + 1], [0, x**2 + x + 1]])
-    assert np.array_equal(matrix.howell_normal_form(), matrix_hnf)
-
-    matrix_hnf_poly = abstract.RingArray.build([[x + 1, 1], [0, x**2 + x + 1]])
-    assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf_poly)
+    with unittest.mock.patch.object(
+        abstract.GroupRing,
+        "get_primitive_central_idempotents",
+        return_value=_get_primitive_central_idempotents(ring),
+    ):
+        assert np.array_equal(
+            matrix.howell_normal_form(),
+            abstract.RingArray.build([[x**2 + x, x**2 + 1], [0, x**2 + x + 1]]),
+        )
+        assert np.array_equal(
+            matrix.howell_normal_form(poly=True),
+            abstract.RingArray.build([[x + 1, 1], [0, x**2 + x + 1]]),
+        )
 
 
 def test_deprecations() -> None:
@@ -389,13 +402,21 @@ def test_wedderburn_artin_errors() -> None:
 def _get_primitive_central_idempotents(ring: abstract.GroupRing) -> tuple[abstract.RingMember, ...]:
     """Intercept abstract.GroupRing.get_primitive_central_idempotents for testing purposes."""
     x = ring.generators[0]
-    if ring == abstract.GroupRing(abstract.CyclicGroup(3), 2):
-        return x**2 + x + 1, x**2 + x
-    if ring == abstract.GroupRing(abstract.CyclicGroup(4), 5):
+    if ring == abstract.GroupRing(abstract.CyclicGroup(3), field=2):
+        return (
+            x**2 + x + 1,
+            x**2 + x,
+        )
+    if ring == abstract.GroupRing(abstract.CyclicGroup(4), field=5):
         return (
             4 * x**3 + 4 * x**2 + 4 * x + 4,
             x**3 + 4 * x**2 + x + 4,
             2 * x**3 + x**2 + 3 * x + 4,
             3 * x**3 + x**2 + 2 * x + 4,
+        )
+    if ring == abstract.GroupRing(abstract.CyclicGroup(5), field=3):
+        return (
+            2 * x**4 + 2 * x**3 + 2 * x**2 + 2 * x + 2,
+            x**4 + x**3 + x**2 + x + 2,
         )
     return NotImplemented  # pragma: no cover
