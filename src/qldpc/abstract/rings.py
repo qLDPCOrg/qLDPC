@@ -733,7 +733,7 @@ class RingArray(npt.NDArray[np.object_]):
             pivot_cols = [
                 num_cols
                 if not np.any(matrix[pivot_row])
-                else np.argmax(matrix[pivot_row].view(np.ndarray).astype(bool))
+                else int(np.argmax(matrix[pivot_row].view(np.ndarray).astype(bool)))
                 for matrix in matrices
             ]
             pivot_col = min(pivot_cols)
