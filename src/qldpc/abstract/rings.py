@@ -731,7 +731,7 @@ class RingArray(npt.NDArray[np.object_]):
 
         pivot_row = 0
         pivot_col = 0
-        num_rows, num_cols = self.shape
+        num_rows, num_cols = matrices[0].shape
         while pivot_row < num_rows and pivot_col < num_cols - 1:
             """
             Identify:
@@ -740,8 +740,8 @@ class RingArray(npt.NDArray[np.object_]):
             """
             pivot_cols = [
                 num_cols
-                if not np.any(matrix[pivot_row])
-                else int(np.argmax(matrix[pivot_row].view(np.ndarray).astype(bool)))
+                if not np.any(row := matrix[pivot_row])
+                else int(np.argmax(row.view(np.ndarray).astype(bool)))
                 for matrix in matrices
             ]
             pivot_col = min(pivot_cols)
@@ -1048,10 +1048,10 @@ class WedderburnArtinComponentTransformer:
         self.field = self.ring.field
         self.lifted_pci = pci.regular_lift()
         self.dimension = np.linalg.matrix_rank(self.lifted_pci)
-        self.basis_in_ring, self.basis_in_field = self._get_basis_in_ring_and_field(seed)
+        self.extended_field = galois.GF(self.field.order**self.dimension)
 
+        self.basis_in_ring, self.basis_in_field = self._get_basis_in_ring_and_field(seed)
         self.embedded_scalars, self.embedded_basis = self._get_embeddings()
-        self.extended_field = type(self.embedded_scalars)
         self.dual_basis = self._get_dual_basis()
 
     def _get_basis_in_ring_and_field(
@@ -1080,6 +1080,11 @@ class WedderburnArtinComponentTransformer:
         2. Multiply this element by e to project onto C.
         3. Check whether powers of the (r * e) span a GF(q)-linear vector space of sufficient
             dimension (namely, d).  If so, we set b = r * e.  Otherwise, we go back to step 1.
+
+        Returns:
+            - The basis B as a 1-dimensional RingArray.
+            - The basis B as a matrix whose j-th row is b^j lifted to a matrix and flattened to a
+                vector.
         """
         if self.dimension == 1:
             return RingArray([self.pci]), self.lifted_pci.reshape(1, -1).view(self.field)
@@ -1109,24 +1114,9 @@ class WedderburnArtinComponentTransformer:
     def _get_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
         r"""Construct embeddings of elements of C into the extended field GF(q^d) ≅ GF(p^{kd}).
 
-        If R is a finite Abelian group algebra, then C is isomorphic to a field extension of the
-        base field GF(q) of R.  Mathematically,
-            C ≅ GF(q^d) ≅ GF(q)[x] / f(x),
-        where
-        - GF(q)[x] denotes the set of univariate polynomials with coefficients in GF(q), and
-        - f(x) ∈ GF(q)[x] is any irreducible polynomial with degree d.
-
-        We previously found a power basis B = (b^0, b^1, b^2, ..., b^{d-1}) that spans a
-        GF(q)-linear space of polynomials in some generator b ∈ C.  This basis allows us to write
-        any element r ∈ C as a polynomial in GF(q)[b],
-            r = sum_{j=0}^d r_j b^j,
-        where all r_j ∈ GF(q).
-
-        We now seek to embed elements of C into GF(p^{kd}).  There are four parts to this embedding:
-        1. Constructing an extension GF(q^d) = GF(q)[x] / f(x) whose primitive element is b.
-        2. Constructing an extension GF(p^{kd}) = GF(p)[x] / g(x) that naturally contains b.
-        3. Embedding GF(q) scalars into GF(p^{kd}).
-        4. Embedding elements of the power basis B into GF(p^{kd}).
+        There are two parts to this embedding:
+        1. Embedding GF(q) scalars into GF(p^{kd}).
+        2. Embedding the power basis B = (b^0, b^1, b^2, ..., b^{d-1}) for GF(q^d) into GF(p^{kd}).
 
         Returns:
             - A 1-dimensional galois.FieldArray whose j-th element is the embedding of GF(q)(j).
@@ -1137,50 +1127,6 @@ class WedderburnArtinComponentTransformer:
 
         """
         PART 1
-        ------
-        To construct an extension GF(q^d) = GF(q)[x] / f(x) whose primitive element is b, we need
-        to construct an irreducible polynomial f(x) of degree d that has b as a root: f(b) = 0.
-        That is, we seek coefficients c_j ∈ GF(q) for which
-            f(b) = sum_{j=0}^d c_j b^j = 0.
-        We can set c_d = 1 withous loss of generality, reducing the problem to
-            sum_{j=0}^{d-1} c_j b^j = -b^d.
-        The remaining coefficients can be found by solving a linear system of equations.
-        """
-        lifted_gen = self.basis_in_field[1].reshape([self.ring.group.order] * 2)
-        gen_to_dim_power = np.linalg.matrix_power(lifted_gen, self.dimension)
-        linear_system = np.vstack([self.basis_in_field, -gen_to_dim_power.reshape(1, -1)]).T
-        poly_coeffs = linear_system.view(self.field).row_reduce()[: self.dimension, -1]
-        poly_coeffs = np.append(poly_coeffs, self.field(1))
-        irreducible_poly = galois.Poly(poly_coeffs[::-1], field=self.field)
-
-        """
-        PART 2
-        ------
-        To construct an extension GF(p^{kd}) = GF(p)[x] / g(x) that naturally contains b, we need
-        to construct an irreducible polynomial g(x) of degree kd that has b as a root: g(b) = 0.
-        We can build such a polynomial out of f(x) by multiplying all elements in the orbit of f(x)
-        under the Frobenius map z -> z^p:
-            g(x) = prod_{j=0}^{d-1} = f(x)^{p^j}.
-        Due to the properties of the Frobenius map, f(x)^{p^j} is just f(x) with its coefficients
-        raised to the power p^j.
-        See:
-        - https://en.wikipedia.org/wiki/Field_norm
-        - https://en.wikipedia.org/wiki/Frobenius_endomorphism
-        """
-        orbit = [
-            galois.Poly(poly_coeffs[::-1] ** (self.field.characteristic**power), field=self.field)
-            for power in range(self.field.degree)
-        ]
-        product_of_orbit = functools.reduce(operator.mul, orbit)
-        extension_irreducible_poly = galois.Poly(
-            product_of_orbit.coeffs, galois.GF(self.field.characteristic)
-        )
-        extended_field = galois.GF(
-            self.field.order**self.dimension, irreducible_poly=extension_irreducible_poly
-        )
-
-        """
-        PART 3
         ------
         To embed GF(q) scalars into GF(p^{kd}), we...
             1. Identify the generator α of GF(q) = GF(p^k).
@@ -1195,37 +1141,49 @@ class WedderburnArtinComponentTransformer:
         - https://mhostetter.github.io/galois/v0.1.1/api/galois.GF/
         - https://mhostetter.github.io/galois/v0.1.1/api/galois.FieldArray.minimal_poly/
         """
-        minimal_poly = self.field.primitive_element.minimal_poly()
-        extended_minimal_poly = galois.Poly(minimal_poly.coeffs, field=extended_field)
-        embedded_root = extended_minimal_poly.roots()[0]
-        embedded_root_powers = [extended_field(1)]
+        minimal_poly = self.field.primitive_element.minimal_poly()  # this is m(x) ∈ GF(q)[x]
+        extended_minimal_poly = galois.Poly(minimal_poly.coeffs, field=self.extended_field)
+        embedded_root = extended_minimal_poly.roots()[0]  # this is σ ∈ GF(p^{kd})
+        embedded_root_powers = [self.extended_field(1)]
         for _ in range(self.field.order - 1):
             embedded_root_powers.append(embedded_root_powers[-1] * embedded_root)
         embedded_scalars = []
         for scalar in self.field.elements:
             poly_coeffs = scalar.vector()[::-1]
             terms = [
-                extended_field(coeff) * power
+                self.extended_field(coeff) * power
                 for coeff, power in zip(poly_coeffs, embedded_root_powers)
             ]
             embedded_scalars.append(functools.reduce(operator.add, terms))
 
         """
-        PART 4
+        PART 2
         ------
-        Finally, to embed elements of the power basis B into GF(p^{kd}) we...
-            1. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain the polynomial h(x).
-            2. Use any root of h(x) as the generator of the embedded power basis.
+        To embed elements of the power basis B into GF(p^{kd}) we...
+            1. Idenfity polynomial f(x) for which GF(q^d) = GF(q) / f(x) with f(b) = 0.
+            2. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain a polynomial g(x).
+            3. Use any root of g(x) as the generator of the embedded power basis.
+        To find f(x), we seek coefficients c_j ∈ GF(q) for which
+            f(b) = sum_{j=0}^d c_j b^j = 0.
+        We can set c_d = 1 withous loss of generality, reducing the problem to
+            sum_{j=0}^{d-1} c_j b^j = -b^d.
+        The remaining coefficients can be found by solving a linear system of equations.
         """
+        lifted_gen = self.basis_in_field[1].reshape([self.ring.group.order] * 2)
+        gen_to_dim_power = np.linalg.matrix_power(lifted_gen, self.dimension)
+        linear_system = np.vstack([self.basis_in_field, -gen_to_dim_power.reshape(1, -1)]).T
+        poly_coeffs = linear_system.view(self.field).row_reduce()[: self.dimension, -1]
+        poly_coeffs = np.append(poly_coeffs, self.field(1))
+        irreducible_poly = galois.Poly(poly_coeffs[::-1], field=self.field)  # this is f(x)
         extended_irreducible_poly = galois.Poly(
-            [embedded_scalars[cc] for cc in irreducible_poly.coeffs], field=extended_field
+            [embedded_scalars[cc] for cc in irreducible_poly.coeffs], field=self.extended_field
         )
         embedded_generator = extended_irreducible_poly.roots()[0]
-        embedded_basis = [extended_field(1)]
+        embedded_basis = [self.extended_field(1)]
         for _ in range(self.dimension - 1):
             embedded_basis.append(embedded_basis[-1] * embedded_generator)
 
-        return extended_field(embedded_scalars), extended_field(embedded_basis)
+        return self.extended_field(embedded_scalars), self.extended_field(embedded_basis)
 
     def _get_dual_basis(self) -> galois.FieldArray:
         r"""Construct the dual of the power basis for GF(q^d) ≅ GF(p^{kd}).
