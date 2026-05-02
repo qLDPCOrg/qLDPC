@@ -938,7 +938,7 @@ class HGPCode(CSSCode):
         )
 
         if set_logicals:
-            logical_ops_xz = HGPCode.get_canonical_logical_ops(
+            logical_ops_xz = HGPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
             )
             self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
@@ -1091,10 +1091,10 @@ class HGPCode(CSSCode):
         return node_map
 
     @staticmethod
-    def get_canonical_logical_ops(
+    def get_canonical_logical_line_ops(
         matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical operators for the hypergraph product code.
+        """Canonical logical line operators of a hypergraph product code.
 
         These operators are essentially those in Lemma 1 of arXiv:2204.10812v3, modified using pivot
         matrices similarly to Theorem VIII.10 of arXiv:2502.07150v1 to ensure pair-wise
@@ -1246,7 +1246,7 @@ class SHPCode(CSSCode):
         self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(code_field)
 
         if set_logicals:
-            logical_ops_xz = SHPCode.get_canonical_logical_ops(
+            logical_ops_xz = SHPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
             )
             self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
@@ -1261,10 +1261,10 @@ class SHPCode(CSSCode):
         return matrix_x, matrix_z
 
     @staticmethod
-    def get_canonical_logical_ops(
+    def get_canonical_logical_line_ops(
         matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical operators for the subsystem hypergraph product code.
+        """Canonical logical line operators of a subsystem hypergraph product code.
 
         These operators are essentially those in Theorem VIII.10 of arXiv:2502.07150v1, generalized
         slightly to account for the possibility that code_a != code_b.
@@ -1381,7 +1381,9 @@ class LPCode(CSSCode):
 
         if set_logicals:
             try:
-                logical_ops_xz = self.get_canonical_logical_ring_ops(self.matrix_a, self.matrix_b)
+                logical_ops_xz = self.get_canonical_ring_logical_line_ops(
+                    self.matrix_a, self.matrix_b
+                )
                 lifted_logical_ops_xz = self.get_lifted_logical_ops(*logical_ops_xz)
                 self.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
             except NotImplementedError:
@@ -1392,12 +1394,12 @@ class LPCode(CSSCode):
                 )
 
     @staticmethod
-    def get_canonical_logical_ring_ops(
+    def get_canonical_ring_logical_line_ops(
         matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
-        """Canonical logical operators over the base ring of a lifted product code.
+        """Canonical ring-logical line operators of a lifted product code.
 
-        Generalizes HGPCode.get_canonical_logical_ops.
+        Generalizes HGPCode.get_canonical_logical_line_ops.
         """
         ring = matrix_a.ring
 
@@ -1516,7 +1518,9 @@ class SLPCode(CSSCode):
 
         if set_logicals:
             try:
-                logical_ops_xz = self.get_canonical_logical_ring_ops(self.matrix_a, self.matrix_b)
+                logical_ops_xz = self.get_canonical_ring_logical_line_ops(
+                    self.matrix_a, self.matrix_b
+                )
                 lifted_logical_ops_xz = self.get_lifted_logical_ops(*logical_ops_xz)
                 self.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
             except NotImplementedError:
@@ -1527,12 +1531,12 @@ class SLPCode(CSSCode):
                 )
 
     @staticmethod
-    def get_canonical_logical_ring_ops(
+    def get_canonical_ring_logical_line_ops(
         matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
-        """Canonical logical operators over the base ring of a subsystem lifted product code.
+        """Canonical ring-logical line operators of a subsystem lifted product code.
 
-        Generalizes SHPCode.get_canonical_logical_ops.
+        Generalizes SHPCode.get_canonical_logical_line_ops.
         """
         ring = matrix_a.ring
 
