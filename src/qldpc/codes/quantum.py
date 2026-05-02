@@ -1353,6 +1353,8 @@ class LPCode(CSSCode):
         self,
         matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
         matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+        *,
+        set_logicals: bool = False,
     ) -> None:
         """Lifted product of two RingArrays, as in arXiv:2012.04068."""
         if matrix_b is None:
@@ -1376,6 +1378,85 @@ class LPCode(CSSCode):
         self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
+
+        if set_logicals:
+            try:
+                logical_ops_xz = self.get_canonical_logical_ring_ops(self.matrix_a, self.matrix_b)
+                lifted_logical_ops_xz = self.get_lifted_logical_ops(*logical_ops_xz)
+                self.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
+            except NotImplementedError:
+                raise NotImplementedError(
+                    "Cannot set canonical logical operators for this lifted product code, likely"
+                    " due to a choice of group algebra over which we do not know how to row-reduce"
+                    " matrices"
+                )
+
+    @staticmethod
+    def get_canonical_logical_ring_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[abstract.RingArray, abstract.RingArray]:
+        """Canonical logical operators over the base ring of a lifted product code.
+
+        Generalizes HGPCode.get_canonical_logical_ops.
+        """
+        ring = matrix_a.ring
+
+        generator_a = matrix_a.null_space().howell_normal_form()
+        generator_b = matrix_b.null_space().howell_normal_form()
+        generator_a_T = matrix_a.T.null_space().howell_normal_form()
+        generator_b_T = matrix_b.T.null_space().howell_normal_form()
+
+        def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
+            """Build a new matrix zeros out a row-reduced matrix everywhere except the pivots."""
+            new_matrix = np.zeros(matrix.shape, dtype=object)
+            for rr, row in enumerate(matrix):
+                pivot_col = np.argmax(row.view(np.ndarray).astype(bool))
+                new_matrix[rr, pivot_col] = matrix[rr, pivot_col].copy()
+            return abstract.RingArray.build(new_matrix, ring)
+
+        pivots_a = _get_pivot_matrix(generator_a)
+        pivots_b = _get_pivot_matrix(generator_b)
+        pivots_a_T = _get_pivot_matrix(generator_a_T)
+        pivots_b_T = _get_pivot_matrix(generator_b_T)
+
+        logical_ops_x_l = np.kron(pivots_a, generator_b)
+        logical_ops_z_l = np.kron(generator_a, pivots_b)
+        logical_ops_x_r = np.kron(generator_a_T, pivots_b_T)
+        logical_ops_z_r = np.kron(pivots_a_T, generator_b_T)
+
+        logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
+        logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
+        return (
+            abstract.RingArray.build(logical_ops_x, ring),
+            abstract.RingArray.build(logical_ops_z, ring),
+        )
+
+    @staticmethod
+    def get_lifted_logical_ops(
+        logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Lift logical operators over a ring to logical operators over the base field."""
+        ring = logical_ops_x.ring
+        num_columns = logical_ops_x.shape[1]
+        block_length = num_columns * ring.group.order
+
+        lifted_ops_x = ring.field.Zeros((0, block_length))
+        lifted_ops_z = ring.field.Zeros((0, block_length))
+        for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
+            inner_product = op_x @ op_z.T
+            if inner_product == ring.one:
+                ops_x = op_x.regular_lift()
+                ops_z = op_z.regular_lift()
+            else:
+                inner_product_lift = inner_product.lift()
+                sector_rank = np.linalg.matrix_rank(inner_product_lift)
+                basis_change = np.linalg.inv(inner_product_lift[:sector_rank, :sector_rank]).T
+                ops_x = op_x.regular_lift()[:sector_rank]
+                ops_z = basis_change @ op_z.regular_lift()[:sector_rank]
+            lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
+            lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
+
+        return lifted_ops_x, lifted_ops_z
 
 
 class SLPCode(CSSCode):
@@ -1416,6 +1497,8 @@ class SLPCode(CSSCode):
         self,
         matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
         matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+        *,
+        set_logicals: bool = False,
     ) -> None:
         """Subsystem lifted product of two RingArrays."""
         if matrix_b is None:
@@ -1430,6 +1513,55 @@ class SLPCode(CSSCode):
         assert isinstance(matrix_z, abstract.RingArray)
 
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=True)
+
+        if set_logicals:
+            try:
+                logical_ops_xz = self.get_canonical_logical_ring_ops(self.matrix_a, self.matrix_b)
+                lifted_logical_ops_xz = self.get_lifted_logical_ops(*logical_ops_xz)
+                self.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
+            except NotImplementedError:
+                raise NotImplementedError(
+                    "Cannot set canonical logical operators for this lifted product code, likely"
+                    " due to a choice of group algebra over which we do not know how to row-reduce"
+                    " matrices"
+                )
+
+    @staticmethod
+    def get_canonical_logical_ring_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[abstract.RingArray, abstract.RingArray]:
+        """Canonical logical operators over the base ring of a subsystem lifted product code.
+
+        Generalizes SHPCode.get_canonical_logical_ops.
+        """
+        ring = matrix_a.ring
+
+        generator_a = matrix_a.null_space().howell_normal_form()
+        generator_b = matrix_b.null_space().howell_normal_form()
+
+        def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
+            """Build a new matrix zeros out a row-reduced matrix everywhere except the pivots."""
+            new_matrix = np.zeros(matrix.shape, dtype=object)
+            for rr, row in enumerate(matrix):
+                pivot_col = np.argmax(row.view(np.ndarray).astype(bool))
+                new_matrix[rr, pivot_col] = matrix[rr, pivot_col].copy()
+            return abstract.RingArray.build(new_matrix, ring)
+
+        pivots_a = _get_pivot_matrix(generator_a)
+        pivots_b = _get_pivot_matrix(generator_b)
+        logical_ops_x = np.kron(pivots_a, generator_b)
+        logical_ops_z = np.kron(generator_a, pivots_b)
+        return (
+            abstract.RingArray.build(logical_ops_x, ring),
+            abstract.RingArray.build(logical_ops_z, ring),
+        )
+
+    @staticmethod
+    def get_lifted_logical_ops(
+        logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Lift logical operators over a ring to logical operators over the base field."""
+        return LPCode.get_lifted_logical_ops(logical_ops_x, logical_ops_z)
 
 
 ####################################################################################################

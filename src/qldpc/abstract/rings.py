@@ -55,6 +55,7 @@ class GroupRing:
 
     _group: Group
     _field: type[galois.FieldArray]
+    _transformer: WedderburnArtinTransformer | None = None
 
     def __init__(self, group: Group, field: int | None = None) -> None:
         self._group = group
@@ -69,6 +70,14 @@ class GroupRing:
     def field(self) -> type[galois.FieldArray]:
         """Base field of this ring."""
         return self._field
+
+    def get_transformer(
+        self, seed: np.random.Generator | int | None = None
+    ) -> WedderburnArtinTransformer:
+        """Instrument for the Wedderburn-Artin decomposition of this ring."""
+        if self._transformer is None or seed is not None:
+            self._transformer = WedderburnArtinTransformer(self, seed=seed)
+        return self._transformer
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -680,7 +689,7 @@ class RingArray(npt.NDArray[np.object_]):
         assert self.ndim == 2
         if not self.ring.is_semisimple:
             raise ValueError("RingArray.row_reduce only supports semisimple rings")
-        transformer = WedderburnArtinTransformer(self.ring)
+        transformer = self.ring.get_transformer()
         matrices = [component.row_reduce() for component in transformer.decompose_array(self)]
         return transformer.recompose_arrays(matrices)
 
@@ -717,7 +726,7 @@ class RingArray(npt.NDArray[np.object_]):
         assert self.ndim == 2 and self.ring.is_semisimple and self.group.is_abelian
 
         # identify the components of the reduced row echelon form of this RingArray
-        transformer = WedderburnArtinTransformer(self.ring)
+        transformer = self.ring.get_transformer()
         matrices = [matrix.row_reduce() for matrix in transformer.decompose_array(self)]
 
         def _remove_zero_rows(matrices: list[galois.FieldArray]) -> list[galois.FieldArray]:
