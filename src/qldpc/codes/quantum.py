@@ -1384,7 +1384,7 @@ class LPCode(CSSCode):
                 logical_ops_xz = self.get_canonical_ring_logical_line_ops(
                     self.matrix_a, self.matrix_b
                 )
-                lifted_logical_ops_xz = self.get_lifted_logical_ops(*logical_ops_xz)
+                lifted_logical_ops_xz = self.to_lifted_logical_ops(*logical_ops_xz)
                 self.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
             except NotImplementedError:
                 raise NotImplementedError(
@@ -1434,7 +1434,7 @@ class LPCode(CSSCode):
         )
 
     @staticmethod
-    def get_lifted_logical_ops(
+    def to_lifted_logical_ops(
         logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Lift logical operators over a ring to logical operators over the base field."""
@@ -1521,7 +1521,7 @@ class SLPCode(CSSCode):
                 logical_ops_xz = self.get_canonical_ring_logical_line_ops(
                     self.matrix_a, self.matrix_b
                 )
-                lifted_logical_ops_xz = self.get_lifted_logical_ops(*logical_ops_xz)
+                lifted_logical_ops_xz = self.to_lifted_logical_ops(*logical_ops_xz)
                 self.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
             except NotImplementedError:
                 raise NotImplementedError(
@@ -1561,11 +1561,11 @@ class SLPCode(CSSCode):
         )
 
     @staticmethod
-    def get_lifted_logical_ops(
+    def to_lifted_logical_ops(
         logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Lift logical operators over a ring to logical operators over the base field."""
-        return LPCode.get_lifted_logical_ops(logical_ops_x, logical_ops_z)
+        return LPCode.to_lifted_logical_ops(logical_ops_x, logical_ops_z)
 
 
 ####################################################################################################
