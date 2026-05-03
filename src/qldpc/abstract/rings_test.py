@@ -347,7 +347,7 @@ def test_wedderburn_artin_transformations(
         "get_primitive_central_idempotents",
         return_value=_get_primitive_central_idempotents(ring),
     ):
-        transformer = abstract.WedderburnArtinTransformer(ring, seed=seed)
+        transformer = ring.get_transformer(seed)
 
     # the embedding of ring.field = GF(q) scalars is a homomorphism
     for component_transformer in transformer.transformers:
@@ -387,7 +387,7 @@ def test_wedderburn_artin_errors() -> None:
         "get_primitive_central_idempotents",
         return_value=_get_primitive_central_idempotents(ring),
     ):
-        transformer = abstract.WedderburnArtinTransformer(ring, seed=0)
+        transformer = ring.get_transformer()
 
     with pytest.raises(ValueError, match="different ring"):
         different_ring = abstract.GroupRing(group, 4)
@@ -401,7 +401,7 @@ def test_wedderburn_artin_errors() -> None:
 
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
-        abstract.WedderburnArtinTransformer(ring)
+        ring.get_transformer()
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
         abstract.WedderburnArtinComponentTransformer(ring.one)
 
@@ -412,7 +412,7 @@ def test_wedderburn_artin_errors() -> None:
         ),
         pytest.raises(NotImplementedError, match="does not yet support non-Abelian rings"),
     ):
-        abstract.WedderburnArtinTransformer(ring)
+        ring.get_transformer()
 
 
 def _get_primitive_central_idempotents(ring: abstract.GroupRing) -> tuple[abstract.RingMember, ...]:
