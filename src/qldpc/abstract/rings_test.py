@@ -238,14 +238,9 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
     )
     matrix_row_reduced = abstract.RingArray.build([[1, 0, 0], [0, 0, 1], [0, 0, 0]], ring)
     matrix_hnf = matrix_row_reduced[:2, :]  # without the all-zero row
-    with unittest.mock.patch.object(
-        abstract.GroupRing,
-        "get_primitive_central_idempotents",
-        return_value=_get_primitive_central_idempotents(ring),
-    ):
-        assert np.array_equal(matrix.row_reduce(), matrix_row_reduced)
-        assert np.array_equal(matrix.howell_normal_form(), matrix_hnf)
-        assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf)
+    assert np.array_equal(matrix.row_reduce(), matrix_row_reduced)
+    assert np.array_equal(matrix.howell_normal_form(), matrix_hnf)
+    assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf)
 
     # RingArray.row_reduce requires semisimple rings
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
@@ -275,17 +270,12 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
 def test_minimal_howell_form() -> None:
     """We try to "merge" pivots in the Howell form as much as possible."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    with unittest.mock.patch.object(
-        abstract.GroupRing,
-        "get_primitive_central_idempotents",
-        return_value=_get_primitive_central_idempotents(ring),
-    ):
-        a, b = ring.get_primitive_central_idempotents()
-        matrix = abstract.RingArray.build([[a, b], [0, a]])
-        assert np.array_equal(
-            matrix.howell_normal_form(),
-            abstract.RingArray.build([[a, 0], [0, 1]]),
-        )
+    a, b = ring.get_primitive_central_idempotents()
+    matrix = abstract.RingArray.build([[a, b], [0, a]])
+    assert np.array_equal(
+        matrix.howell_normal_form(),
+        abstract.RingArray.build([[a, 0], [0, 1]]),
+    )
 
 
 def test_ring_row_addition() -> None:
@@ -293,20 +283,14 @@ def test_ring_row_addition() -> None:
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
     x = ring.generators[0]
     matrix = abstract.RingArray.build([[x + 1, 1]])
-
-    with unittest.mock.patch.object(
-        abstract.GroupRing,
-        "get_primitive_central_idempotents",
-        return_value=_get_primitive_central_idempotents(ring),
-    ):
-        assert np.array_equal(
-            matrix.howell_normal_form(),
-            abstract.RingArray.build([[x**2 + x, x**2 + 1], [0, x**2 + x + 1]]),
-        )
-        assert np.array_equal(
-            matrix.howell_normal_form(poly=True),
-            abstract.RingArray.build([[x + 1, 1], [0, x**2 + x + 1]]),
-        )
+    assert np.array_equal(
+        matrix.howell_normal_form(),
+        abstract.RingArray.build([[x**2 + x, x**2 + 1], [0, x**2 + x + 1]]),
+    )
+    assert np.array_equal(
+        matrix.howell_normal_form(poly=True),
+        abstract.RingArray.build([[x + 1, 1], [0, x**2 + x + 1]]),
+    )
 
 
 def test_deprecations() -> None:
@@ -342,12 +326,7 @@ def test_wedderburn_artin_transformations(
     """Decompose semisimple rings into simple components."""
     seed = pytestconfig.getoption("randomly_seed")
 
-    with unittest.mock.patch.object(
-        abstract.GroupRing,
-        "get_primitive_central_idempotents",
-        return_value=_get_primitive_central_idempotents(ring),
-    ):
-        transformer = ring.get_transformer(seed)
+    transformer = ring.get_transformer(seed)
 
     # the embedding of ring.field = GF(q) scalars is a homomorphism
     for component_transformer in transformer.transformers:
@@ -381,13 +360,7 @@ def test_wedderburn_artin_errors() -> None:
 
     group = abstract.CyclicGroup(3)
     ring = abstract.GroupRing(group, 2)
-
-    with unittest.mock.patch.object(
-        abstract.GroupRing,
-        "get_primitive_central_idempotents",
-        return_value=_get_primitive_central_idempotents(ring),
-    ):
-        transformer = ring.get_transformer()
+    transformer = ring.get_transformer()
 
     with pytest.raises(ValueError, match="different ring"):
         different_ring = abstract.GroupRing(group, 4)
@@ -413,26 +386,3 @@ def test_wedderburn_artin_errors() -> None:
         pytest.raises(NotImplementedError, match="does not yet support non-Abelian rings"),
     ):
         ring.get_transformer()
-
-
-def _get_primitive_central_idempotents(ring: abstract.GroupRing) -> tuple[abstract.RingMember, ...]:
-    """Intercept abstract.GroupRing.get_primitive_central_idempotents for testing purposes."""
-    x = ring.generators[0]
-    if ring == abstract.GroupRing(abstract.CyclicGroup(3), field=2):
-        return (
-            x**2 + x + 1,
-            x**2 + x,
-        )
-    if ring == abstract.GroupRing(abstract.CyclicGroup(4), field=5):
-        return (
-            4 * x**3 + 4 * x**2 + 4 * x + 4,
-            x**3 + 4 * x**2 + x + 4,
-            2 * x**3 + x**2 + 3 * x + 4,
-            3 * x**3 + x**2 + 2 * x + 4,
-        )
-    if ring == abstract.GroupRing(abstract.CyclicGroup(5), field=3):
-        return (
-            2 * x**4 + 2 * x**3 + 2 * x**2 + 2 * x + 2,
-            x**4 + x**3 + x**2 + x + 2,
-        )
-    return NotImplemented  # pragma: no cover

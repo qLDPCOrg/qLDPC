@@ -28,7 +28,9 @@ import pyperclip
 import qldpc.cache
 import qldpc.external.gap
 
-GENERATORS_LIST = list[list[tuple[int, ...]]]
+GeneratorsList = list[list[tuple[int, ...]]]
+IdempotentsList = list[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...]]
+
 GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 
 
@@ -38,7 +40,7 @@ GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 )
 def get_generators(
     group: str, *, warning_to_raise_if_calling_gap: str | None = None
-) -> GENERATORS_LIST:
+) -> GeneratorsList:
     """Retrieve GAP group generators."""
     # try retrieving a known group
     if generators := KNOWN_GROUPS.get(group):
@@ -64,7 +66,7 @@ def get_generators(
     raise ValueError("\n".join(message))
 
 
-def get_generators_from_magma(group: str) -> GENERATORS_LIST:
+def get_generators_from_magma(group: str) -> GeneratorsList:
     """Retrieve group generators from MAGMA."""
     print("Run the following command in MAGMA:")
     print()
@@ -174,7 +176,7 @@ def get_small_group_structure(order: int, index: int) -> str:
 
 def maybe_get_generators_from_gap(
     group: str, *, warning: str | None = None
-) -> GENERATORS_LIST | None:
+) -> GeneratorsList | None:
     """Retrieve GAP group generators from GAP directly."""
     try:
         qldpc.external.gap.require_package("GUAVA")
@@ -200,7 +202,7 @@ def maybe_get_generators_from_gap(
     return parse_gap_permutations(permutations)
 
 
-def maybe_get_generators_from_groupnames(group: str) -> GENERATORS_LIST | None:
+def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
     """Retrieve GAP group generators from GroupNames.org."""
     # extract order and index of a SmallGroup
     match = re.match(r"SmallGroup\(([0-9]+),([0-9]+)\)", group)
@@ -232,7 +234,7 @@ def maybe_get_generators_from_groupnames(group: str) -> GENERATORS_LIST | None:
     return parse_gap_permutations(permutations, cycle_sep=" ")
 
 
-def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GENERATORS_LIST:
+def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GeneratorsList:
     """Parse newline-separated GAP permutations.
 
     As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)].
@@ -291,13 +293,11 @@ def maybe_get_webpage(order: int) -> str | None:
         return None
 
 
-@qldpc.cache.use_disk_cache(
-    "idempotents",
-    key_func=lambda group, field: ("".join(group.split()), field),  # strip whitespace
-)
-def get_primitive_central_idempotents(
-    group: str, field: int
-) -> tuple[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...], ...] | None:
+# @qldpc.cache.use_disk_cache(
+#     "idempotents",
+#     key_func=lambda group, field: ("".join(group.split()), field),  # strip whitespace
+# )
+def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList | None:
     """Get the primitive central idempotents of a group algebra over a finite field.
 
     Primitive central idempotents of a ring are nonzero elements that:
@@ -316,6 +316,9 @@ def get_primitive_central_idempotents(
     element of galois.GF(field) cast to an integer, and the permutation is expressed in cyclic form,
     namely as a tuple of tuples of integers.
     """
+    # if pcis := KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get((group, field)):
+    #     return pcis
+
     qldpc.external.gap.require_package("Wedderga")
 
     idempotents_str = qldpc.external.gap.get_output(
@@ -361,10 +364,10 @@ def get_primitive_central_idempotents(
 
         idempotents.append(tuple(idempotent))
 
-    return tuple(idempotents)
+    return idempotents
 
 
-KNOWN_GROUPS: dict[str, GENERATORS_LIST] = {
+KNOWN_GROUPS: dict[str, GeneratorsList] = {
     "SmallGroup(1,1)": [[]],
     "Group(())": [[]],
     "AutomorphismGroup(CheckMatCode([[1,0,0,0,1,1,1,0,1,1],[0,1,0,0,1,0,0,1,1,0],[0,0,1,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,1,1,1]],GF(2)))": [
@@ -416,4 +419,80 @@ KNOWN_GROUPS: dict[str, GENERATORS_LIST] = {
         [(2, 3), (4, 7), (8, 11)],
         [(0, 10, 2, 11, 1, 9), (3, 8), (4, 7)],
     ],  # ToricCode(2) automorphism group (SWAP + Cliffords)
+}
+
+KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], IdempotentsList] = {
+    ("Group((1,2,3))", 2): [  # F2[C3]
+        ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+        ((1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+    ],
+    ("Group((1,2,3,4,5))", 2): [  # F2[C5]
+        (
+            (1, ((),)),
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+        ),
+        (
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+        ),
+    ],
+    ("Group((1,2,3,4,5,6,7))", 2): [  # F2[C7]
+        (
+            (1, ((),)),
+            (1, ((0, 1, 2, 3, 4, 5, 6),)),
+            (1, ((0, 2, 4, 6, 1, 3, 5),)),
+            (1, ((0, 3, 6, 2, 5, 1, 4),)),
+            (1, ((0, 4, 1, 5, 2, 6, 3),)),
+            (1, ((0, 5, 3, 1, 6, 4, 2),)),
+            (1, ((0, 6, 5, 4, 3, 2, 1),)),
+        ),
+        (
+            (1, ((),)),
+            (1, ((0, 3, 6, 2, 5, 1, 4),)),
+            (1, ((0, 5, 3, 1, 6, 4, 2),)),
+            (1, ((0, 6, 5, 4, 3, 2, 1),)),
+        ),
+        (
+            (1, ((),)),
+            (1, ((0, 1, 2, 3, 4, 5, 6),)),
+            (1, ((0, 2, 4, 6, 1, 3, 5),)),
+            (1, ((0, 4, 1, 5, 2, 6, 3),)),
+        ),
+    ],
+    ("Group((1,2))", 3): [  # F3[C2]
+        ((2, ((),)), (2, ((0, 1),))),
+        ((2, ((),)), (1, ((0, 1),))),
+    ],
+    ("Group((1,2,3,4))", 3): [  # F3[C4]
+        ((1, ((),)), (1, ((0, 1, 2, 3),)), (1, ((0, 2), (1, 3))), (1, ((0, 3, 2, 1),))),
+        ((1, ((),)), (2, ((0, 1, 2, 3),)), (1, ((0, 2), (1, 3))), (2, ((0, 3, 2, 1),))),
+        ((2, ((),)), (1, ((0, 2), (1, 3)))),
+    ],
+    ("Group((1,2,3,4,5))", 3): [  # F3[C5]
+        (
+            (2, ((),)),
+            (2, ((0, 1, 2, 3, 4),)),
+            (2, ((0, 2, 4, 1, 3),)),
+            (2, ((0, 3, 1, 4, 2),)),
+            (2, ((0, 4, 3, 2, 1),)),
+        ),
+        (
+            (2, ((),)),
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+        ),
+    ],
+    ("Group((1,2,3,4))", 5): [  # F5[C4]
+        ((4, ((),)), (4, ((0, 1, 2, 3),)), (4, ((0, 2), (1, 3))), (4, ((0, 3, 2, 1),))),
+        ((4, ((),)), (1, ((0, 1, 2, 3),)), (4, ((0, 2), (1, 3))), (1, ((0, 3, 2, 1),))),
+        ((4, ((),)), (3, ((0, 1, 2, 3),)), (1, ((0, 2), (1, 3))), (2, ((0, 3, 2, 1),))),
+        ((4, ((),)), (2, ((0, 1, 2, 3),)), (1, ((0, 2), (1, 3))), (3, ((0, 3, 2, 1),))),
+    ],
 }
