@@ -33,7 +33,7 @@ GAP_ROOT = os.path.join(os.path.dirname(os.path.dirname(qldpc.__file__)), "gap")
 @functools.cache
 def is_callable() -> bool:
     """Can we call GAP 4 from the command line?"""
-    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n"); QUIT;']
+    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
     try:
         result = subprocess.run(commands, capture_output=True, text=True)
         version = result.stdout.strip()
@@ -58,10 +58,10 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
     """Sanitize GAP commands: don't format Print statements, and quit at the end."""
     stream = "__stream__"
     prefix = [
-        f"{stream} := OutputTextUser();",
-        f"SetPrintFormattingStatus({stream},false);",
+        f"{stream} := OutputTextUser();;",
+        f"SetPrintFormattingStatus({stream},false);;",
     ]
-    suffix = ["QUIT;"]
+    suffix = ["QUIT;;"]
     commands = [cmd.replace("Print(", f"PrintTo({stream}, ") for cmd in commands]
     return tuple(prefix + commands + suffix)
 
@@ -163,7 +163,7 @@ def require_package(name: str, repo: str | None = None) -> bool:
     Returns:
         True if the requirement is satisfied (raises an error otherwise).
     """
-    availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
+    availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
 
     if availability.strip() == "fail":
         repo = repo or f"https://github.com/gap-packages/{name}"
