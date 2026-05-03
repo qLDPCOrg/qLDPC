@@ -271,6 +271,10 @@ def test_get_small_group_structure() -> None:
 
 def test_idempotents() -> None:
     """Find primitive central idempotents of a group algebra."""
+    # retrieve known PCIs
+    for (group, field), pcis in external.groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.items():
+        assert external.groups.get_primitive_central_idempotents(group, field) == pcis
+
     z_2 = galois.GF(2).primitive_element
     z_2_2 = galois.GF(4).primitive_element
     field = galois.GF(4)
