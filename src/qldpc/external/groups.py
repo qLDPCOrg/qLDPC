@@ -327,7 +327,7 @@ def get_primitive_central_idempotents(
     )
 
     coefficient_pattern = r"\(Z\(\d+(?:\^\d+)?\)(?:\^\d+)?\)"
-    cycle_pattern = r"\(\s?\d+(?:,\s?\d+)*\)|\(\)"
+    cycle_pattern = r"\(\s*\d+(?:,\s*\d+)*\)|\(\)"
     cycles_pattern = f"(?:{cycle_pattern})+"
     ring_term_pattern = rf"{coefficient_pattern}\*{cycles_pattern}"
     ring_member_pattern = rf"(?:{ring_term_pattern})(?:\+{ring_term_pattern})*"
