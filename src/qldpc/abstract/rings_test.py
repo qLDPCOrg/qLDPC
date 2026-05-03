@@ -115,27 +115,14 @@ def test_printing() -> None:
 
 def test_primitive_central_idempotents() -> None:
     """Convert external primitive central idempotents into RingMembers."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    x = ring.generators[0]
+    idempotents = ring.get_primitive_central_idempotents()
+    assert idempotents == (x**2 + x + 1, x**2 + x)
+    assert all(idempotent == idempotent * idempotent for idempotent in idempotents)
+
     with pytest.raises(ValueError, match="Only semisimple rings"):
         abstract.GroupRing(abstract.CyclicGroup(2), field=2).get_primitive_central_idempotents()
-
-    group = abstract.CyclicGroup(3)
-    x = group.generators[0]
-    one = group.identity
-    ring = abstract.GroupRing(group, 2)
-    expected_idempotents = (
-        abstract.RingMember(ring, one, x, x**2),
-        abstract.RingMember(ring, x, x**2),
-    )
-    external_output = (
-        ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
-        ((1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
-    )
-    with unittest.mock.patch(
-        "qldpc.external.groups.get_primitive_central_idempotents", return_value=external_output
-    ):
-        idempotents = ring.get_primitive_central_idempotents()
-        assert idempotents == expected_idempotents
-        assert all(idempotent == idempotent * idempotent for idempotent in idempotents)
 
 
 def test_ring_array(pytestconfig: pytest.Config) -> None:
