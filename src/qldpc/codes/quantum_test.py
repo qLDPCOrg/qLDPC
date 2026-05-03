@@ -377,7 +377,7 @@ def test_lift() -> None:
     assert np.all(line_weights <= weights)
 
 
-def test_twisted_XZZX(width: int = 3) -> None:
+def test_twisted_xzzx(width: int = 3) -> None:
     """Verify twisted XZZX code in Eqs.(29) and (32) of arXiv:2202.01702v3."""
     num_qudits = 2 * width**2
     code: codes.QuditCode
