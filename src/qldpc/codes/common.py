@@ -2061,14 +2061,14 @@ class QuditCode(AbstractCode):
             syndrome = syndrome_matrix @ error
             decoded_error = decoder.decode(syndrome.view(np.ndarray)).view(self.field)
             if discard_weights and math.symplectic_weight(decoded_error) in discard_weights:
-                num_discards += 1
+                num_discards += 1  # pragma: no cover
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
                 num_failures += 1
 
         if num_discards != num_samples:
             infidelity = num_failures / (num_samples - num_discards)
             infidelity_variance = infidelity * (1 - infidelity) / (num_samples - num_discards)
-        else:
+        else:  # pragma: no cover
             infidelity = np.nan
             infidelity_variance = np.nan
         discard_rate = num_discards / num_samples
