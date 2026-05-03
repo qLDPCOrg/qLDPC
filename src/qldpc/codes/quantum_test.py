@@ -470,6 +470,18 @@ def test_subsystem_lifted_product_codes() -> None:
     assert np.sum(line_weights) < np.sum(weights)
 
 
+def test_lifted_product_logical_errors(rows: int = 3, cols: int = 2) -> None:
+    """Not all lifted product codes support canonical line operators."""
+    group = abstract.CyclicGroup(2)
+    ring = abstract.GroupRing(group, field=2)
+    values = [[group.random() for _ in range(cols)] for _ in range(rows)]
+    matrix = abstract.RingArray.build(values, ring)
+    with pytest.raises(ValueError, match="not yet supported"):
+        codes.LPCode(matrix, set_logicals=True)
+    with pytest.raises(ValueError, match="not yet supported"):
+        codes.SLPCode(matrix, set_logicals=True)
+
+
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
     """Quantum Tanner code."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
