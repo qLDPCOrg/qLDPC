@@ -361,13 +361,20 @@ def test_lift() -> None:
 
     # check that the lifted product code is indeed smaller than the HGP code!
     code_HP = codes.HGPCode(lifted_matrix)
-    code_LP = codes.LPCode(ring_matrix)
+    code_LP = codes.LPCode(ring_matrix, set_logicals=True)
     assert code_HP.num_qudits > code_LP.num_qudits
     assert code_HP.num_checks > code_LP.num_checks
 
     # check total number of qubits
     assert code_HP.sector_size.sum() == code_HP.num_qudits + code_HP.num_checks
     assert code_LP.sector_size.sum() == code_LP.num_qudits + code_LP.num_checks
+
+    # line operators for the LPCode have lower weight than Gottesman-canonical logicals
+    logical_line_ops = code_LP.get_logical_ops()
+    logical_ops = code_LP.get_logical_ops(recompute=True)
+    line_weights = np.count_nonzero(logical_line_ops.view(np.ndarray), axis=1)
+    weights = np.count_nonzero(logical_ops.view(np.ndarray), axis=1)
+    assert np.all(line_weights <= weights)
 
 
 def test_twisted_XZZX(width: int = 3) -> None:
@@ -392,9 +399,17 @@ def test_twisted_XZZX(width: int = 3) -> None:
     shift = ring.generators[0]
     element_a = ring.one - shift**width
     element_b = ring.one - shift
-    code = codes.LPCode([[element_a]], [[element_b]])
+    code = codes.LPCode([[element_a]], [[element_b]], set_logicals=True)
     bias_tailoring_qubits = code.bias_tailoring_qubits
     assert np.array_equal(matrix, code.conjugated(bias_tailoring_qubits).matrix)
+
+    # the canonical line operators for this code are disjoint!
+    logical_ops = np.count_nonzero(code.get_logical_ops().view(np.ndarray), axis=0)
+    assert np.all(logical_ops == 1)
+
+    # ...which is not true of the Gottesman-canonical logicals
+    logical_ops = np.count_nonzero(code.get_logical_ops(recompute=True).view(np.ndarray), axis=0)
+    assert ~np.all(logical_ops == 1)
 
     # same construction with a chain complex
     matrix_a = abstract.RingArray([[element_a]])
@@ -422,7 +437,7 @@ def test_lifted_product_codes() -> None:
         rate = code.dimension / code.num_qudits
         assert rate >= 2 / 17
 
-        # the subsystem version of this code has a highe encoding rate
+        # the subsystem version of this code has a higher encoding rate
         subsystem_code = codes.SLPCode(matrix)
         subsystem_rate = subsystem_code.dimension / subsystem_code.num_qudits
         assert subsystem_rate > rate
@@ -444,8 +459,15 @@ def test_subsystem_lifted_product_codes() -> None:
     ring = abstract.GroupRing(group)
     xx = ring.generators[0]
     matrix = abstract.RingArray.build([[xx**2 + xx + 1, xx + 1, xx]])  # Eq. 23
-    code = codes.SLPCode(matrix)
+    code = codes.SLPCode(matrix, set_logicals=True)
     assert code.get_code_params() == (27, 12, 2)
+
+    # line operators for this code have (on average) lower weight than Gottesman-canonical logicals
+    logical_line_ops = code.get_logical_ops()
+    logical_ops = code.get_logical_ops(recompute=True)
+    line_weights = np.count_nonzero(logical_line_ops.view(np.ndarray), axis=1)
+    weights = np.count_nonzero(logical_ops.view(np.ndarray), axis=1)
+    assert np.sum(line_weights) < np.sum(weights)
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:

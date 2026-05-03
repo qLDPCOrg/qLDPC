@@ -1381,17 +1381,22 @@ class LPCode(CSSCode):
 
         if set_logicals:
             try:
-                logical_ops_xz = self.get_canonical_ring_logical_line_ops(
-                    self.matrix_a, self.matrix_b
+                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
+                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            except (ValueError, NotImplementedError) as error:
+                print(
+                    "Cannot set canonical logical operators for this code, likely due to a choice"
+                    " of group algebra for which some features are not yet supported"
                 )
-                lifted_logical_ops_xz = self.to_lifted_logical_ops(*logical_ops_xz)
-                self.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
-            except NotImplementedError:
-                raise NotImplementedError(
-                    "Cannot set canonical logical operators for this lifted product code, likely"
-                    " due to a choice of group algebra over which we do not know how to row-reduce"
-                    " matrices"
-                )
+                raise error
+
+    @staticmethod
+    def get_canonical_logical_line_ops(
+        matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Canonical logical line operators for a subsystem lifted product code."""
+        logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
+        return LPCode.to_lifted_logical_ops(*logical_ops_xz)
 
     @staticmethod
     def get_canonical_ring_logical_line_ops(
@@ -1518,17 +1523,22 @@ class SLPCode(CSSCode):
 
         if set_logicals:
             try:
-                logical_ops_xz = self.get_canonical_ring_logical_line_ops(
-                    self.matrix_a, self.matrix_b
+                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
+                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            except (ValueError, NotImplementedError) as error:
+                print(
+                    "Cannot set canonical logical operators for this code, likely due to a choice"
+                    " of group algebra for which some features are not yet supported"
                 )
-                lifted_logical_ops_xz = self.to_lifted_logical_ops(*logical_ops_xz)
-                self.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
-            except NotImplementedError:
-                raise NotImplementedError(
-                    "Cannot set canonical logical operators for this lifted product code, likely"
-                    " due to a choice of group algebra over which we do not know how to row-reduce"
-                    " matrices"
-                )
+                raise error
+
+    @staticmethod
+    def get_canonical_logical_line_ops(
+        matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Canonical logical line operators for a subsystem lifted product code."""
+        logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
+        return SLPCode.to_lifted_logical_ops(*logical_ops_xz)
 
     @staticmethod
     def get_canonical_ring_logical_line_ops(
