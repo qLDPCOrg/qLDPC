@@ -1393,7 +1393,7 @@ class LPCode(CSSCode):
 
     @staticmethod
     def get_canonical_logical_line_ops(
-        matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical line operators for a subsystem lifted product code."""
         logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
@@ -1536,7 +1536,7 @@ class SLPCode(CSSCode):
 
     @staticmethod
     def get_canonical_logical_line_ops(
-        matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical line operators for a subsystem lifted product code."""
         logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
