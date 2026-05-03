@@ -293,10 +293,10 @@ def maybe_get_webpage(order: int) -> str | None:
         return None
 
 
-# @qldpc.cache.use_disk_cache(
-#     "idempotents",
-#     key_func=lambda group, field: ("".join(group.split()), field),  # strip whitespace
-# )
+@qldpc.cache.use_disk_cache(
+    "idempotents",
+    key_func=lambda group, field: ("".join(group.split()), field),  # strip whitespace
+)
 def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList | None:
     """Get the primitive central idempotents of a group algebra over a finite field.
 
