@@ -1094,7 +1094,7 @@ class HGPCode(CSSCode):
     def get_canonical_logical_line_ops(
         matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical line operators of a hypergraph product code.
+        """Canonical logical line operators for a hypergraph product code.
 
         These operators are essentially those in Lemma 1 of arXiv:2204.10812v3, modified using pivot
         matrices similarly to Theorem VIII.10 of arXiv:2502.07150v1 to ensure pair-wise
@@ -1264,7 +1264,7 @@ class SHPCode(CSSCode):
     def get_canonical_logical_line_ops(
         matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical line operators of a subsystem hypergraph product code.
+        """Canonical logical line operators for a subsystem hypergraph product code.
 
         These operators are essentially those in Theorem VIII.10 of arXiv:2502.07150v1, generalized
         slightly to account for the possibility that code_a != code_b.
@@ -1397,7 +1397,7 @@ class LPCode(CSSCode):
     def get_canonical_ring_logical_line_ops(
         matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
-        """Canonical ring-logical line operators of a lifted product code.
+        """Canonical ring-logical line operators for a lifted product code.
 
         Generalizes HGPCode.get_canonical_logical_line_ops.
         """
@@ -1534,7 +1534,7 @@ class SLPCode(CSSCode):
     def get_canonical_ring_logical_line_ops(
         matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
-        """Canonical ring-logical line operators of a subsystem lifted product code.
+        """Canonical ring-logical line operators for a subsystem lifted product code.
 
         Generalizes SHPCode.get_canonical_logical_line_ops.
         """
