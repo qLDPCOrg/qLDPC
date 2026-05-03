@@ -1142,7 +1142,7 @@ class WedderburnArtinComponentTransformer:
             2. Find the minimal polynomial m(x) of α, which has α as a root in GF(p^k).
             3. Interpret the coefficients of m(x) as elements of GF(p^{kd}).
             4. Identify a root σ ∈ GF(p^{kd}) of m(x).
-        A scalar in GF(q) = GF(p^k) = GF(p) / m(x) can then be embedded into GF(p^{kd}) by...
+        A scalar in GF(q) = GF(p^k) = GF(p)[x] / m(x) can then be embedded into GF(p^{kd}) by...
             1. Expanding the scalar as a polynomial in α with coefficients in GF(p).
             2. Interpreting the coefficients as elements of GF(p^{kd}).
             3. Replacing α by σ.
@@ -1169,7 +1169,7 @@ class WedderburnArtinComponentTransformer:
         PART 2
         ------
         To embed elements of the power basis B into GF(p^{kd}) we...
-            1. Idenfity polynomial f(x) for which GF(q^d) = GF(q) / f(x) with f(b) = 0.
+            1. Idenfity polynomial f(x) for which GF(q^d) = GF(q)[x] / f(x) with f(b) = 0.
             2. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain a polynomial g(x).
             3. Use any root of g(x) as the generator of the embedded power basis.
         To find f(x), we seek coefficients c_j ∈ GF(q) for which

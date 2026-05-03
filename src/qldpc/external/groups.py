@@ -189,12 +189,12 @@ def maybe_get_generators_from_gap(
 
     # run GAP commands
     commands = [
-        'LoadPackage("guava", false);',
-        f"group := {group};",
-        "iso := IsomorphismPermGroup(group);",
-        "perm_group := Image(iso, group);",
-        "gens := GeneratorsOfGroup(perm_group);",
-        r'for gen in gens do Print(gen, "\n"); od;',
+        'LoadPackage("guava", false);;',
+        f"group := {group};;",
+        "iso := IsomorphismPermGroup(group);;",
+        "perm_group := Image(iso, group);;",
+        "gens := GeneratorsOfGroup(perm_group);;",
+        r'for gen in gens do Print(gen, "\n");; od;',
     ]
     permutations = qldpc.external.gap.get_output(*commands)
     return parse_gap_permutations(permutations)
@@ -319,15 +319,15 @@ def get_primitive_central_idempotents(
     qldpc.external.gap.require_package("Wedderga")
 
     idempotents_str = qldpc.external.gap.get_output(
-        'LoadPackage("wedderga", false);',
-        f"group := {group};",
-        f"ring := GroupRing(GF({field}), group);",
-        "idempotents := PrimitiveCentralIdempotentsByCharacterTable(ring);",
-        "Print(idempotents);",
+        'LoadPackage("wedderga", false);;',
+        f"group := {group};;",
+        f"ring := GroupRing(GF({field}), group);;",
+        "idempotents := PrimitiveCentralIdempotentsByCharacterTable(ring);;",
+        "Print(idempotents);;",
     )
 
     coefficient_pattern = r"\(Z\(\d+(?:\^\d+)?\)(?:\^\d+)?\)"
-    cycle_pattern = r"\(\d+(?:,\d+)*\)|\(\)"
+    cycle_pattern = r"\(\s*\d+(?:,\s*\d+)*\)|\(\)"
     cycles_pattern = f"(?:{cycle_pattern})+"
     ring_term_pattern = rf"{coefficient_pattern}\*{cycles_pattern}"
     ring_member_pattern = rf"(?:{ring_term_pattern})(?:\+{ring_term_pattern})*"
