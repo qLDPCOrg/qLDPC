@@ -1173,15 +1173,13 @@ class WedderburnArtinComponentTransformer:
             generator = RingMember.from_vector(generator_vec, self.ring)
             generator_mat = generator.regular_lift()
 
-            basis_in_field = [self.pci_vec, generator_vec]
+            basis = [self.pci_vec, generator_vec]
             for _ in range(self.degree - 2):
-                basis_in_field.append(generator_mat @ basis_in_field[-1])
+                basis.append(generator_mat @ basis[-1])
 
-            if np.linalg.matrix_rank(basis_in_field) == self.degree:
-                return (
-                    self.field(basis_in_field),
-                    RingArray.from_field_array(basis_in_field, self.ring),
-                )
+            if np.linalg.matrix_rank(basis) == self.degree:
+                basis_in_field = self.field(basis)
+                return basis_in_field, RingArray.from_field_array(basis_in_field, self.ring)
 
     def _get_primitive_idempotents(self) -> tuple[galois.FieldArray, RingArray]:
         """Decompose the PCI of S into primitive (possibly non-central) idempotents."""
