@@ -204,7 +204,7 @@ class Group:
 
     @property
     def is_abelian(self) -> bool:
-        """Is this group Abelian?"""
+        """Is this group abelian?"""
         return isinstance(self, AbelianGroup) or self._group.is_abelian
 
     @property
@@ -264,10 +264,31 @@ class Group:
 
     @functools.cache
     def regular_lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
-        """Lift a group member to its regular representation."""
+        r"""Lift a group member to its regular representation.
+
+        The regular representation encodes group action into matrix multiplication.
+        If Vec : G -> F_2^{|G|} lifts group members to standard basis vectors and g,h ∈ G, then
+            regular_lift(g) @ Vec(h) = Vec(g·h).
+        """
         matrix = np.zeros([self.order] * 2, dtype=int)
         for ii, gg in enumerate(self.generate()):
             matrix[self.index(member * gg), ii] = 1
+        return matrix
+
+    @functools.cache
+    def adjoint_lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
+        r"""Lift a group member to its adjoint representation.
+
+        The adjoint representation captures how group members get transformed by conjugation.
+        If Vec : G -> F_2^{|G|} lifts group members to standard basis vectors and g,h ∈ G, then
+            adjoint_lift(g) @ Vec(h) = Vec(g·h·g^{-1}).
+
+        If the group is abelian, the adjoint lift of every group member is the identity matrix.
+        """
+        inv_member = ~member
+        matrix = np.zeros([self.order] * 2, dtype=int)
+        for ii, gg in enumerate(self.generate()):
+            matrix[self.index(member * gg * inv_member), ii] = 1
         return matrix
 
     def lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
@@ -278,6 +299,20 @@ class Group:
     def lift_dim(self) -> int:
         """Dimension of the representation for this group."""
         return self.order if self._lift is None else self.lift(self.generators[0]).shape[0]
+
+    @functools.cache
+    def inversion_matrix(self) -> npt.NDArray[np.int_]:
+        """The matrix that maps any group member g ∈ G to its inverse g^{-1} = g.T.
+
+        The inversion matrix can be used to convert between left- and right-regular representations.
+        Whereas g.regular_lift() is the left-regular representation of g ∈ G, the right-regular
+        representation is
+            G.inversion_matrix() @ G.regular_lift(g).T @ G.inversion_matrix().
+        """
+        matrix = np.zeros([self.order] * 2, dtype=int)
+        for ii, gg in enumerate(self.generate()):
+            matrix[self.index(~gg), ii] = 1
+        return matrix
 
     @functools.cached_property
     def table(self) -> npt.NDArray[np.int_]:

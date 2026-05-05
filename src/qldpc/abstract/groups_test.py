@@ -93,33 +93,51 @@ def test_trivial_group() -> None:
 
 def test_lift() -> None:
     """Lift named group elements."""
-    assert_valid_lift(abstract.TrivialGroup())
-    assert_valid_lift(abstract.CyclicGroup(3))
-    assert_valid_lift(abstract.AbelianGroup(2, 3))
-    assert_valid_lift(abstract.AbelianGroup(2, 3, direct_sum=True))
-    assert_valid_lift(abstract.DihedralGroup(3))
-    assert_valid_lift(abstract.AlternatingGroup(3))
-    assert_valid_lift(abstract.SymmetricGroup(3))
-    assert_valid_lift(abstract.QuaternionGroup())
+    assert_valid_lifts(abstract.TrivialGroup())
+    assert_valid_lifts(abstract.CyclicGroup(3))
+    assert_valid_lifts(abstract.AbelianGroup(2, 3))
+    assert_valid_lifts(abstract.AbelianGroup(2, 3, direct_sum=True))
+    assert_valid_lifts(abstract.DihedralGroup(3))
+    assert_valid_lifts(abstract.AlternatingGroup(3))
+    assert_valid_lifts(abstract.SymmetricGroup(3))
+    assert_valid_lifts(abstract.QuaternionGroup())
 
 
-def assert_valid_lift(group: abstract.Group) -> None:
-    """Assert faithfulness of the regular and permutation representations of group members."""
+def assert_valid_lifts(group: abstract.Group) -> None:
+    """Assert the faithfulness of various representations of group members."""
+    # permutation and regular representations
     lifts: list[Callable[[abstract.GroupMember], npt.NDArray[np.int_]]] = [
-        group.lift,
         abstract.GroupMember.to_matrix,
+        group.lift,
     ]
     for lift in lifts:
         assert all(
             aa == bb or not np.array_equal(lift(aa), lift(bb))
-            for aa in group.generate()
-            for bb in group.generate()
+            for aa, bb in itertools.product(group.generate(), repeat=2)
         )
         assert all(
             np.array_equal(lift(aa) @ lift(bb), lift(aa * bb))
-            for aa in group.generate()
-            for bb in group.generate()
+            for aa, bb in itertools.product(group.generate(), repeat=2)
         )
+
+    # adjoint representation
+    assert all(
+        np.array_equal(
+            np.where(group.adjoint_lift(aa)[:, group.index(bb)]),
+            [[group.index(aa * bb * ~aa)]],
+        )
+        for aa, bb in itertools.product(group.generate(), repeat=2)
+    )
+
+    # invert elements: g -> g**(-1)
+    inversion_matrix = group.inversion_matrix()
+    assert all(
+        np.array_equal(
+            np.where(inversion_matrix[:, group.index(gg)]),
+            [[group.index(~gg)]],
+        )
+        for gg in group.generate()
+    )
 
 
 def test_group_product() -> None:
@@ -133,7 +151,7 @@ def test_group_product() -> None:
         [3, 2, 1, 0],
     ]
     group = abstract.Group.product(cycle, cycle)
-    assert_valid_lift(group)
+    assert_valid_lifts(group)
     assert group.generators == [shift @ identity, identity @ shift]
     assert np.array_equal(table, group.table)
     assert np.array_equal(table, abstract.Group.from_table(table).table)

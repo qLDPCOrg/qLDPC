@@ -103,7 +103,7 @@ def test_printing() -> None:
     ring = abstract.GroupRing(abstract.AbelianGroup(2, 2, 2, 2))
     assert [str(gg) for gg in ring.generators] == ["w", "x", "y", "z"]
 
-    # the order of generators for non-Abelian groups is preserved
+    # the order of generators for non-abelian groups is preserved
     group = abstract.DihedralGroup(6)
     ring = abstract.GroupRing(group, 3)
     one = ring.one
@@ -243,9 +243,9 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
     with pytest.raises(ValueError, match="requires an underlying CyclicGroup"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form(poly=True)
 
-    # row-reduction for semisimple non-Abelian groups is not yet supported
+    # row-reduction for semisimple non-abelian groups is not yet supported
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    with pytest.raises(NotImplementedError, match="not yet support non-Abelian rings"):
+    with pytest.raises(NotImplementedError, match="not yet support non-abelian rings"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
     # computing a reduced Groebner basis is the final boss
@@ -370,6 +370,6 @@ def test_wedderburn_artin_errors() -> None:
         unittest.mock.patch.object(
             abstract.GroupRing, "get_primitive_central_idempotents", return_value=[ring.one]
         ),
-        pytest.raises(NotImplementedError, match="does not yet support non-Abelian rings"),
+        pytest.raises(NotImplementedError, match="does not yet support non-abelian rings"),
     ):
         ring.get_transformer()
