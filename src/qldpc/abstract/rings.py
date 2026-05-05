@@ -1102,7 +1102,7 @@ class WedderburnArtinComponentTransformer:
         self.primitive_vecs = self._get_primitive_idempotents(seed)
         self.primitives = RingArray.from_field_array(self.primitive_vecs, self.ring)
 
-        # this is as far as we have gotten in supporting the decomposition of non-abelian rings
+        # our support of non-abelian rings is not yet complete
         if not self.ring.is_abelian:
             raise NotImplementedError(
                 "WedderburnArtinTransformer does not yet support non-abelian rings"
