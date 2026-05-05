@@ -18,7 +18,6 @@ limitations under the License.
 from __future__ import annotations
 
 import itertools
-import unittest.mock
 
 import galois
 import numpy as np
@@ -366,10 +365,5 @@ def test_wedderburn_artin_errors() -> None:
         abstract.WedderburnArtinComponentTransformer(ring.one)
 
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    with (
-        unittest.mock.patch.object(
-            abstract.GroupRing, "get_primitive_central_idempotents", return_value=[ring.one]
-        ),
-        pytest.raises(NotImplementedError, match="does not yet support non-abelian rings"),
-    ):
+    with pytest.raises(NotImplementedError, match="does not yet support non-abelian rings"):
         ring.get_transformer()

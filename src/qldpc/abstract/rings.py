@@ -1062,22 +1062,21 @@ class WedderburnArtinComponentTransformer:
     degree: int  # degree d of the field extension GF(q^d) for S
     size: int  # size (n) of the matrices in the isomorphism S ≅ GF(q^d)^{n × n}
 
+    extended_field: type[galois.FieldArray]  # field extension GF(p^(kd)) ≅ GF(q^d)
+    power_basis_in_field: galois.FieldArray  # basis B = (e, b, b^2, ..., b^{d-1}) for GF(q^d)
+    power_basis_in_ring: RingArray  # same basis, as native RingMember objects
+
+    embedded_scalars: galois.FieldArray  # embedding of GF(q) into GF(p^(kd))
+    embedded_power_basis: galois.FieldArray  # embedding of B into GF(p^(kd))
+    dual_power_basis: galois.FieldArray  # dual basis of the embedded_basis in GF(p^(kd))
+
     primitives: RingArray  # primitive (possibly non-central) idempotents of S
     primitive_vecs: galois.FieldArray  # representation of the primitives as field vectors
 
-    extended_field: type[galois.FieldArray]  # field extension GF(p^(kd)) ≅ GF(q^d)
-    basis_in_field: galois.FieldArray  # basis B = (e, b, b^2, ..., b^{d-1}) ∈ Z(S)^d for GF(q^d)
-    basis_in_ring: RingArray  # same basis, as native RingMember objects
-
-    embedded_scalars: galois.FieldArray  # embedding of GF(q) into GF(p^(kd))
-    embedded_basis: galois.FieldArray  # embedding of B into GF(p^(kd))
-    dual_basis: galois.FieldArray  # dual basis of the embedded_basis in GF(p^(kd))
-
-    def __init__(self, pci: RingMember, *, seed: np.random.Generator | int | None = None) -> None:
+    def __init__(self, pci: RingMember, *, seed: np.random.Generator | None = None) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring.
 
-        WARNING: This class assumes a valid input, and in particular does not verify that the
-            provided RingMember is indeed a PCI of its parent ring.
+        WARNING: This class assumes--and does not verify--that the provided RingMember is a PCI.
         """
         if not pci.ring.is_semisimple:
             raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
@@ -1094,18 +1093,20 @@ class WedderburnArtinComponentTransformer:
         self.size = int(math.sqrt(np.linalg.matrix_rank(self.pci_mat) // self.degree))
 
         self.extended_field = galois.GF(self.field.order**self.degree)
-        self.basis_in_field, self.basis_in_ring = self._get_power_basis(seed)
+        self.power_basis_in_field = self._get_power_basis(seed)
+        self.power_basis_in_ring = RingArray.from_field_array(self.power_basis_in_field, self.ring)
+
+        self.embedded_scalars, self.embedded_power_basis = self._get_scalar_embeddings()
+        self.dual_power_basis = self._get_dual_basis()
+
+        self.primitive_vecs = self._get_primitive_idempotents(seed)
+        self.primitives = RingArray.from_field_array(self.primitive_vecs, self.ring)
 
         # this is as far as we have gotten in supporting the decomposition of non-abelian rings
         if not self.ring.is_abelian:
             raise NotImplementedError(
                 "WedderburnArtinTransformer does not yet support non-abelian rings"
             )
-
-        self.primitive_vecs, self.primitives = self._get_primitive_idempotents()
-
-        self.embedded_scalars, self.embedded_basis = self._get_embeddings()
-        self.dual_basis = self._get_dual_basis()
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -1120,6 +1121,9 @@ class WedderburnArtinComponentTransformer:
             Z(R) ≅ ⋂_{generators g of G} ker(A(g) - 1).
         We can therefore find a basis for Z(S) by intersecting the null space of L(e) - 1 with the
         null spaces of A(g) - 1 for the generators g of G.
+
+        Returns:
+            - A 2-dimensional galois.FieldArray over GF(q) whose rows form a basis for Z(S).
         """
         # identify the null space of L(e) - 1, which spans S
         identity = self.field.Identity(self.ring.group.order)
@@ -1136,9 +1140,7 @@ class WedderburnArtinComponentTransformer:
 
         return center
 
-    def _get_power_basis(
-        self, seed: np.random.Generator | int | None
-    ) -> tuple[galois.FieldArray, RingArray]:
+    def _get_power_basis(self, seed: np.random.Generator | None) -> galois.FieldArray:
         r"""Construct a power basis for the field extension GF(q) -> GF(q^d).
 
         Mathematically,
@@ -1168,7 +1170,7 @@ class WedderburnArtinComponentTransformer:
             - A 2-dimensional galois.FieldArray whose j-th row is b^j as a vector in GF(q)^{|G|}.
         """
         if self.degree == 1:
-            return self.pci_vec.reshape(1, -1).view(self.field), RingArray([self.pci])
+            return self.pci_vec.reshape(1, -1).view(self.field)
 
         while True:
             generator_vec = self.field.Random(len(self.center), seed=seed) @ self.center
@@ -1181,19 +1183,10 @@ class WedderburnArtinComponentTransformer:
 
             if np.linalg.matrix_rank(basis) == self.degree:
                 basis_in_field = self.field(basis)
-                return basis_in_field, RingArray.from_field_array(basis_in_field, self.ring)
+                return basis_in_field
 
-    def _get_primitive_idempotents(self) -> tuple[galois.FieldArray, RingArray]:
-        """Decompose the PCI of S into primitive (possibly non-central) idempotents."""
-        if self.ring.is_abelian:
-            return self.pci_vec.reshape(1, -1).view(self.field), RingArray([self.pci])
-
-        return NotImplemented  # pragma: no cover
-
-    def _get_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
-        r"""Construct embeddings of elements of S into GF(p^{kd})^{n × n} ≅ GF(q^d)^{n × n}.
-
-        WARNING: currently only supports the abelian case of n = 1.
+    def _get_scalar_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
+        r"""Construct embeddings of elements in the center Z(S) into GF(p^{kd}) ≅ GF(q^d).
 
         There are two parts to this embedding:
         1. Embedding GF(q) scalars into GF(p^{kd}).
@@ -1241,8 +1234,9 @@ class WedderburnArtinComponentTransformer:
         PART 2
         ------
         To embed elements of the power basis B into GF(p^{kd}) we...
-            1. Idenfity polynomial f(x) for which GF(q^d) = GF(q)[x] / f(x) with f(b) = 0.
-            2. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain a polynomial g(x).
+            1. Idenfity the minimal polynomial f(x) of b, for which f(b) = 0.  This is the
+                polynomial we use to construct GF(q^d) = GF(q)[x] / f(x) with f(b) = 0.
+            2. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain the polynomial g(x).
             3. Use any root of g(x) as the generator of the embedded power basis.
         To find f(x), we seek coefficients f_j ∈ GF(q) for which
             f(b) = sum_{j=0}^d f_j b^j = 0,
@@ -1251,8 +1245,10 @@ class WedderburnArtinComponentTransformer:
             sum_{j=0}^{d-1} f_j b^j = -b^d.
         The remaining coefficients can be found by solving a linear system of equations.
         """
-        gen_to_dim_power = self.basis_in_ring[1].regular_lift() @ self.basis_in_field[-1]
-        linear_system = np.vstack([self.basis_in_field, -gen_to_dim_power.reshape(1, -1)]).T
+        gen_to_dim_power = (
+            self.power_basis_in_ring[1].regular_lift() @ self.power_basis_in_field[-1]
+        )
+        linear_system = np.column_stack([self.power_basis_in_field.T, -gen_to_dim_power])
         poly_coeffs = linear_system.view(self.field).row_reduce()[: self.degree, -1]
         poly_coeffs = np.append(poly_coeffs, self.field(1))
         irreducible_poly = galois.Poly(poly_coeffs[::-1], field=self.field)  # this is f(x)
@@ -1276,9 +1272,9 @@ class WedderburnArtinComponentTransformer:
         where Tr_{GF(q^d)/GF(q)} denotes a field trace from GF(q^d) to GF(q); see self.field_trace.
 
         The dual basis allows us to "pick off" the coefficients of a polynomial in GF(q)[x] / f(x),
-        which is useful for embedding elements of GF(p^{kd}) ≅ GF(q^d) back into the ring R by:
+        which is useful for embedding elements of GF(p^{kd}) ≅ GF(q^d) back into Z(S) by:
         1. Mapping an element z ∈ GF(p^{kd}) to the vector (z_0, z_1, ...) with z_j = Tr[a_j z].
-        2. Constructing the ring member r_z = sum_j z_j b^j ∈ R,
+        2. Combining these coefficients to recover sum_j z_j b^j ∈ Z(S),
         Mechanically, this embedding procedure requires the dual basis to "live" in GF(p^{kd}).
         """
         if self.degree == 1:
@@ -1286,13 +1282,13 @@ class WedderburnArtinComponentTransformer:
         matrix = self.extended_field(
             [
                 self.field_trace(aa * bb)
-                for aa, bb in itertools.product(self.embedded_basis, repeat=2)
+                for aa, bb in itertools.product(self.embedded_power_basis, repeat=2)
             ]
         ).reshape([self.degree] * 2)
-        return np.linalg.inv(matrix) @ self.embedded_basis
+        return np.linalg.inv(matrix) @ self.embedded_power_basis
 
     def field_trace(self, value: galois.FieldArray) -> galois.FieldArray:
-        """Compute the field trace from the extended field R_i into the base field of R.
+        """Compute the field trace from GF(q^d) to GF(q).
 
         The field trace of z from GF(q^d) to GF(q) is defined by
             Tr_{GF(q^d)/GF(q)}[z] = sum_{i=0}^{d-1} z^{q^i}.
@@ -1303,6 +1299,151 @@ class WedderburnArtinComponentTransformer:
         conjugates = [value ** (self.field.order**pow) for pow in range(self.degree)]
         return functools.reduce(operator.add, conjugates)
 
+    def _get_primitive_idempotents(
+        self, seed: np.random.Generator | None, idempotent_vec: galois.FieldArray | None = None
+    ) -> galois.FieldArray:
+        """Decompose an idempotent of S into primitive idempotents.
+
+        Recall that S ≅ GF(q^d)^{n × n}.  The PCI of S is the identity matrix of GF(q^d)^{n × n}.
+        If n = 1 (or: when R is abelian), then the multiplicative identity in GF(q^d) is the only
+        element of GF(q^d) that squares to itself, so the PCI of S is the only idempotent in S.
+        If n > 1, however, then the PCI can be decomoposed into primitive (non-central) idempotents,
+            e = sum_{i=1}^n e_i,
+        where e_i is essentially the |i><i| matrix element of GF(q^d)^{n × n}.
+
+        This method decomposes an idempotent of S into primitive idempotent recursively.  Given an
+        idempotent e_start, this method proceeds as follows:
+            1. Determine whether e_start is primitive.  If so, return {e_start}.
+            2. Find two or more idempotents that sum to e_start.
+            3. Decompose each of the idempotents found at step 2 by a recursive call to this method.
+            4. Return the combined set of all idempotents found from decomposition at step 3.
+
+        Returns:
+            - A 2-dimensional galois.FieldArray over GF(q) whose rows are primitive idempotents.
+        """
+        if self.ring.is_abelian:
+            return self.pci_vec.reshape(1, -1).view(self.field)
+        if idempotent_vec is None:
+            idempotent_vec = self.pci_vec
+
+        """
+        PART 1
+        ------
+        To determine whether the idempotent is primitive, we first identify the sub-algebra that it
+        projects onto, or the image of its adjoint representation (given by A(g): h -> g h g^{-1}).
+        If this image spans a d-dimensional vector space over GF(q), then it must be GF(q^d), which
+        means that the idempotent must be primitive.
+        """
+        idempotent = RingMember.from_vector(idempotent_vec, self.ring)
+        subalgebra_basis = idempotent.adjoint_lift().column_space()
+        if len(subalgebra_basis) == self.degree:
+            return idempotent_vec.reshape(1, -1).view(self.field)
+
+        """
+        PART 2
+        ------
+        At this point, we know that the idempotent e_start is not primitive, so we seek to decompose
+        e_start into a sum of two or more idempotents.  To this end, we proceed as follows:
+            1. Pick a random element α in the sub-algebra stabilized by e_start.
+            2. Find the minimal polynomial of α, or a minimal-degree polynomial m(x) with m(α) = 0.
+            3. Identify the irreducible factors of m(x).  If m(x) is irreducible, return to step 1.
+            4. Letting f_j(x) denote the irreducible factors of m(x), construct the polynomials
+                    g_j(x) = prod_{i != j} f_i(x).
+                If m(x) has no repeated factors, then g_j(x) = m(x) / f_j(x).
+        These polynomials will be used to construct idempotents that sum to e_start.
+        """
+
+        # find an element of the sub-algebra whose minimal polynomial has nontrivial factors
+        while True:
+            random_member = self.field.Random(len(subalgebra_basis), seed=seed) @ subalgebra_basis
+            minimal_poly, powers = self._get_minimal_polynomial(random_member, idempotent_vec)
+            factors, multiplicities = minimal_poly.factors()
+            if len(factors) > 1:
+                break
+
+        if any(multiplicity > 1 for multiplicity in multiplicities):  # pragma: no cover
+            # re-build the minimal polynomial to remove redundant factors
+            minimal_poly = functools.reduce(operator.mul, factors)
+
+        # above, we found factors f_j(x) of m(x); now, build the quotients g_j(x) = m(x) / f_j(x)
+        quotients = [minimal_poly // factor for factor in factors]
+
+        """
+        PART 3
+        ------
+        We now use the polynomial m(x), factors f_j(x), quotients g_j(x) = m(x) / f_j(x), and α to
+        construct idempotents that sum to e_start.  To this end, we use the extended Euclidean
+        algorithm to find polynomials u_j and v_j for which
+            u_j f_j + v_j g_j = gcd(f_j, g_j).
+        Note that gcd(f_j, g_j) must be a scalar because g_j is the product of irreducible
+        polynomials that do not include f_j.  We then define
+            F_j = u_j f_j / gcd(f_j, g_j),
+            G_j = v_j g_j / gcd(f_j, g_j).
+        Some observations:
+            1. By construction, F_j + G_j = 1, where "1" is e_start in this sub-algebra of S.
+            2. (F_j G_j)(x) contains a factor of (f_j g_j)(x) = m(x), so (F_j G_j)(α) = 0.
+            3. G_j(α) = G_j(α) (F_j + G_j)(α) = (G_j F_j)(α) + G_j(α)^2 = G_j(α)^2.
+            4. If i != j, then (G_i G_j)(x) contains a factor of m(x) so, (G_i G_j)(α) = 0.
+        Observation 3 implies that G_j(α) is idempotent, and observation 4 implies that these
+        idempotents are orthogonal, so {G_j(α)}_j is a set of orthogonal idempotents.
+        """
+
+        new_idempotents = []
+        for factor, quotient in zip(factors, quotients):
+            _, quotient_inverse, gcd = galois.egcd(factor, quotient)  # <- _, v_j(x), gcd
+            minimal_poly = quotient_inverse * quotient // gcd  # <- p_j(x)
+            new_idempotent = minimal_poly.coeffs[::-1] @ powers[: len(minimal_poly)]  # <- e_j
+            new_idempotents.append(new_idempotent)
+
+        # if sum_j G_j != e_start, then add the remainder to our set of new idempotents
+        if np.any(remainder := functools.reduce(operator.add, new_idempotents) - idempotent_vec):
+            new_idempotents.append(remainder)  # pragma: no cover
+
+        if len(new_idempotents) == self.size:  # pragma: no cover (we may not hit this in tests)
+            # the number of mutually orthogonal idempotents guarantees that they are primitive
+            return self.field(new_idempotents)
+        else:  # pragma: no cover (we may not hit this in tests)
+            # recursively decompose the new idempotents to find primitive idempotents
+            primitives = [self._get_primitive_idempotents(seed, id) for id in new_idempotents]
+            return np.vstack(primitives).view(self.field)
+
+    def _get_minimal_polynomial(
+        self, element: galois.FieldArray, idempotent: galois.FieldArray
+    ) -> tuple[galois.Poly, galois.FieldArray]:
+        """Find the minimal polynomial an element within a sub-algebra stabilized by an idempotent.
+
+        The minimal polynomial of α is the lowest-degree monic polynomial m(x) with m(α) = 0.
+        Here "monic" means that the m(x) has a leading coefficient of one:
+            m(x) = x^a + sum_{j=0}^{a-1} m_j x^j,
+        where all coefficients m_j ∈ GF(q), and we define x^0 to be the idempotent.
+
+        This method assumes--and does not verify---that:
+            1. The provided idempotent is an idempotent of R.
+            2. The provided element lives in the sub-algebra of R stabilized by the idempotent.
+
+        Returns:
+            - The minimal polynomial of the given RingMember.
+            - The powers of the element up to (but excluding) the degree of the polynomial.
+        """
+        # construct a basis of column vectors: (idempotent, element, element^2, ...)
+        element_mat = RingMember.from_vector(element, self.ring).regular_lift()
+        powers = idempotent.reshape(-1, 1).view(self.field)
+        while True:
+            new_powers = element_mat @ powers
+            powers = np.column_stack([powers, new_powers]).view(self.field)
+            rank = np.linalg.matrix_rank(powers)
+            if powers.shape[1] > rank:
+                break
+            element_mat = element_mat @ element_mat
+        basis = powers[:, :rank]  # the linearly independent powers
+        extra = powers[:, rank]  # element^rank
+
+        # expand element^rank as a linear combination of lower powers in the basis
+        linear_system = np.column_stack([basis, -extra]).view(self.field)
+        poly_coeffs = linear_system.row_reduce()[:rank, -1]
+        poly_coeffs = np.append(poly_coeffs, self.field(1))
+        return galois.Poly(poly_coeffs[::-1], field=self.field), basis.T
+
     def project(self, element: RingMember) -> galois.FieldArray:
         """Project an element of the ring R ≅ ⨂_i R_i onto a component R_i."""
         if element.ring is not self.ring:
@@ -1311,10 +1452,11 @@ class WedderburnArtinComponentTransformer:
                 " element of a different ring"
             )
         projection = self.pci_mat @ element.to_vector()
-        linear_system = np.vstack([self.basis_in_field, projection.reshape(1, -1)]).T
+        linear_system = np.column_stack([self.power_basis_in_field.T, projection])
         coeffs = linear_system.view(self.ring.field).row_reduce()[: self.degree, -1]
         terms = [
-            self.embedded_scalars[coeffs[ss]] * self.embedded_basis[ss] for ss in range(self.degree)
+            self.embedded_scalars[coeffs[ss]] * self.embedded_power_basis[ss]
+            for ss in range(self.degree)
         ]
         return functools.reduce(operator.add, terms)
 
@@ -1323,10 +1465,10 @@ class WedderburnArtinComponentTransformer:
         if type(element) is not self.extended_field:
             raise ValueError("Invalid field for an element of a simple component of a ring")
         if self.degree == 1:
-            return self.basis_in_ring[0] * element
+            return self.power_basis_in_ring[0] * element
         coefficients = [
             np.argmax(self.embedded_scalars == self.field_trace(dual * element))
-            for dual in self.dual_basis
+            for dual in self.dual_power_basis
         ]
-        terms = [vec * coeff for vec, coeff in zip(self.basis_in_ring, coefficients)]
+        terms = [vec * coeff for vec, coeff in zip(self.power_basis_in_ring, coefficients)]
         return functools.reduce(operator.add, terms)
