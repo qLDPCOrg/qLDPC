@@ -102,6 +102,11 @@ class GroupRing:
         return isinstance(self, AbelianGroup) or self._group.is_abelian
 
     @property
+    def is_abelian(self) -> bool:
+        """Is this ring abelian?  Alias for GroupRing.is_commutative."""
+        return self.is_commutative
+
+    @property
     def is_semisimple(self) -> bool:
         """Is this ring semisimple?"""
         return bool(self.group.order % self.field.characteristic)

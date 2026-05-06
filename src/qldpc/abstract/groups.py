@@ -209,10 +209,7 @@ class Group:
 
     @property
     def is_abelian(self) -> bool:
-        """Is this group abelian?
-
-        Alias for Group.is_commutative.
-        """
+        """Is this group abelian?  Alias for Group.is_commutative."""
         return self.is_commutative
 
     @property
