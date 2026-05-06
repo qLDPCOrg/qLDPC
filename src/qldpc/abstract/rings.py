@@ -1391,8 +1391,10 @@ class WedderburnArtinComponentTransformer:
         """
 
         new_idempotents = []
+        quotient_inverse: galois.Poly
+        gcd: galois.Poly
         for factor, quotient in zip(factors, quotients):
-            _, quotient_inverse, gcd = galois.egcd(factor, quotient)  # <- _, v_j(x), gcd
+            _, quotient_inverse, gcd = galois.egcd(factor, quotient)  # type:ignore[assignment,arg-type]
             minimal_poly = quotient_inverse * quotient // gcd  # <- p_j(x)
             new_idempotent = minimal_poly.coeffs[::-1] @ powers[: len(minimal_poly)]  # <- e_j
             new_idempotents.append(new_idempotent)
