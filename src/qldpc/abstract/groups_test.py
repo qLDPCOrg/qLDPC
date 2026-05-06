@@ -47,12 +47,12 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
     assert group.random() in group
     assert group.random(seed=0) == group.random(seed=0)
     assert group.to_sympy() == group._group
-    assert group.is_abelian
+    assert group.is_commutative
     assert group.to_gap_group() == "Group((1,2,3),(1,3,2))"
 
     gens = [abstract.GroupMember(seq) for seq in itertools.permutations([0, 1, 2])]
     group = abstract.Group(*gens)
-    assert not group.is_abelian
+    assert not group.is_commutative
 
     random.shuffle(gens)
     symbols = {sympy.Symbol(f"x_{ii}", commutative=False): gen for ii, gen in enumerate(gens)}

@@ -42,7 +42,7 @@ def test_ring() -> None:
     assert np.array_equal(zero.lift(), np.array(0, ndmin=2))
     assert np.array_equal(one.lift(), np.array(1, ndmin=2))
     assert "GF(3)" in str(ring)
-    assert ring.is_abelian
+    assert ring.is_commutative
     assert ring.is_semisimple
 
     # test inverses

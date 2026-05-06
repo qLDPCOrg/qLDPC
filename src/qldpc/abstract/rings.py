@@ -97,8 +97,8 @@ class GroupRing:
         return self.name
 
     @property
-    def is_abelian(self) -> bool:
-        """Is this ring abelian?"""
+    def is_commutative(self) -> bool:
+        """Is this ring commutative?"""
         return isinstance(self, AbelianGroup) or self._group.is_abelian
 
     @property
@@ -238,13 +238,13 @@ class RingMember:
         # identify symbols for the generators of the base group
         num_gens = len(self.group.generators)
         if num_gens <= 3:
-            symbols = sympy.symbols("x:z", commutative=self.group.is_abelian)[:num_gens]
+            symbols = sympy.symbols("x:z", commutative=self.group.is_commutative)[:num_gens]
         elif num_gens <= 26:
-            symbols = sympy.symbols("a:z", commutative=self.group.is_abelian)[-num_gens:]
+            symbols = sympy.symbols("a:z", commutative=self.group.is_commutative)[-num_gens:]
         else:  # pragma: no cover
             index_length = int(np.ceil(np.log10(num_gens + 1)))
             symbols = [
-                sympy.Symbol(f"x_{index:0{index_length}}", commutative=self.group.is_abelian)
+                sympy.Symbol(f"x_{index:0{index_length}}", commutative=self.group.is_commutative)
                 for index in range(num_gens)
             ]
 
@@ -730,13 +730,13 @@ class RingArray(npt.NDArray[np.object_]):
             raise ValueError(
                 "The ordinary Howell normal form requires the base ring to be semisimple"
             )
-        if self.group.is_abelian:
-            return self._howell_normal_form_abelian()
-        return self._howell_normal_form_non_abelian()
+        if self.group.is_commutative:
+            return self._howell_normal_form_commutative()
+        return self._howell_normal_form_non_commutative()
 
-    def _howell_normal_form_abelian(self) -> RingArray:
-        """Compute the Howell normal form of a RingArray over a semisimple abelian ring."""
-        assert self.ndim == 2 and self.ring.is_semisimple and self.group.is_abelian
+    def _howell_normal_form_commutative(self) -> RingArray:
+        """Compute the Howell normal form of a RingArray over a semisimple commutative ring."""
+        assert self.ndim == 2 and self.ring.is_semisimple and self.group.is_commutative
 
         # identify the components of the reduced row echelon form of this RingArray
         transformer = self.ring.get_transformer()
@@ -795,11 +795,11 @@ class RingArray(npt.NDArray[np.object_]):
         matrices = _remove_zero_rows(matrices)
         return transformer.recompose_arrays(matrices)
 
-    def _howell_normal_form_non_abelian(self) -> RingArray:
-        """Compute a Howell normal form of a RingArray over a semisimple non-abelian ring."""
+    def _howell_normal_form_non_commutative(self) -> RingArray:
+        """Compute a Howell normal form of a RingArray over a semisimple non-commutative ring."""
         assert self.ndim == 2 and self.ring.is_semisimple
         raise NotImplementedError(
-            "RingArray.howell_normal_form does not yet support non-abelian rings"
+            "RingArray.howell_normal_form does not yet support non-commutative rings"
         )
 
     def _howell_normal_form_poly(self) -> RingArray:
@@ -963,8 +963,8 @@ class WedderburnArtinTransformer:
     and D^{n × n} denotes the space of n × n matrices over the division ring D.  By Wedderburn's
     little theorem, every finite division ring is a finite field, so if R is a group algebra over a
     finite field F then every division ring D_i is a field extension of F.  If R is a commutative
-    (abelian) ring, then all n_i = 1, so
-        R = ⨂_i D_i  (if R is abelian).
+    ring, then all n_i = 1, so
+        R = ⨂_i D_i  (if R is commutative).
 
     This class is an instrument for decomposing elements of r ∈ R into simple components, taking
         r -> (r_1, r_2, ...) ∈ ⨂_i R_i,
@@ -1038,13 +1038,15 @@ class WedderburnArtinComponentTransformer:
     If G is abelian, then its size is n = 1, so S ≅ GF(q^d).
 
     The simple component S can be identified by a primitive central idempotent (PCI) e ∈ R, where
-        2. "Idempotent" means that e is a projector: e·e = e.
-        1. "Central" means that e commutes with all of R.
+        1. "Idempotent" means that e is a projector: e·e = e.
+        2. "Central" means that e commutes with all of R.
         3. "Primitive" means that e cannot be decomposed into a sum of central idempotents in R.
     Given a PCI e of R, the corresponding simple component is S = R·e = { r·e : r ∈ R }.
 
     This class is an instrument for projecting elements of R onto a simple component S corresponding
     to a provided PCI e, and embedding elements of S back into R.
+
+    Non-commutative rings are not yet supported.
 
     References:
     - https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
@@ -1102,10 +1104,10 @@ class WedderburnArtinComponentTransformer:
         self.primitive_vecs = self._get_primitive_idempotents(seed)
         self.primitives = RingArray.from_field_array(self.primitive_vecs, self.ring)
 
-        # our support of non-abelian rings is not yet complete
-        if not self.ring.is_abelian:
+        # our support of non-commutative rings is not yet complete
+        if not self.ring.is_commutative:
             raise NotImplementedError(
-                "WedderburnArtinTransformer does not yet support non-abelian rings"
+                "WedderburnArtinTransformer does not yet support non-commutative rings"
             )
 
     def _get_center(self) -> galois.FieldArray:
@@ -1129,8 +1131,8 @@ class WedderburnArtinComponentTransformer:
         identity = self.field.Identity(self.ring.group.order)
         center = (self.pci_mat - identity).null_space()
 
-        if self.ring.is_abelian:
-            # if R is abelian, then Z(S) = S, so we are done
+        if self.ring.is_commutative:
+            # if R is commutative, then Z(S) = S, so we are done
             return center
 
         # intersect with the null spaces of A(g) - 1 for all generators g
@@ -1305,8 +1307,8 @@ class WedderburnArtinComponentTransformer:
         """Decompose an idempotent of S into primitive idempotents.
 
         Recall that S ≅ GF(q^d)^{n × n}.  The PCI of S is the identity matrix of GF(q^d)^{n × n}.
-        If n = 1 (or: when R is abelian), then the multiplicative identity in GF(q^d) is the only
-        element of GF(q^d) that squares to itself, so the PCI of S is the only idempotent in S.
+        If n = 1 (or: when R is commutative), then the multiplicative identity in GF(q^d) is the
+        only element of GF(q^d) that squares to itself, so the PCI of S is the only idempotent in S.
         If n > 1, however, then the PCI can be decomoposed into primitive (non-central) idempotents,
             e = sum_{i=1}^n e_i,
         where e_i is essentially the |i><i| matrix element of GF(q^d)^{n × n}.
@@ -1321,7 +1323,7 @@ class WedderburnArtinComponentTransformer:
         Returns:
             - A 2-dimensional galois.FieldArray over GF(q) whose rows are primitive idempotents.
         """
-        if self.ring.is_abelian:
+        if self.ring.is_commutative:
             return self.pci_vec.reshape(1, -1).view(self.field)
         if idempotent_vec is None:
             idempotent_vec = self.pci_vec

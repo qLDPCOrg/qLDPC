@@ -203,9 +203,17 @@ class Group:
         return self._group.order()
 
     @property
-    def is_abelian(self) -> bool:
-        """Is this group abelian?"""
+    def is_commutative(self) -> bool:
+        """Is this group commutative (abelian)?"""
         return isinstance(self, AbelianGroup) or self._group.is_abelian
+
+    @property
+    def is_abelian(self) -> bool:
+        """Is this group abelian?
+
+        Alias for Group.is_commutative.
+        """
+        return self.is_commutative
 
     @property
     def generators(self) -> list[GroupMember]:
