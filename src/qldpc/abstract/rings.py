@@ -1440,7 +1440,7 @@ class WedderburnArtinComponentTransformer:
         """
 
         """
-        Part 1: Construct a matrix of linearly independent column vectors: [α^0, α^1, α^2, ...].
+        PART 1: Construct a matrix of linearly independent column vectors: [α^0, α^1, α^2, ...].
 
         We start with the one-column matrix [α^0], and repeatedly double the size of this matrix by
             [α^0] -> [α^0, α^1] -> [α^0, α^1, α^2, α^4] -> ...
@@ -1460,7 +1460,7 @@ class WedderburnArtinComponentTransformer:
         powers = powers[:, :rank]
 
         """
-        Part 2: Construct the minimal polynomial m(x) of α.
+        PART 2: Construct the minimal polynomial m(x) of α.
 
         This polynomial is defined by coefficients m_j for which
             m(α) = α^r + sum_{j=0}^{r-1} m_j α^r = 0.
