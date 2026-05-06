@@ -103,7 +103,11 @@ class GroupRing:
 
     @property
     def is_abelian(self) -> bool:
-        """Is this ring abelian?  Alias for GroupRing.is_commutative."""
+        """Is this ring abelian?
+
+        All rings are abelian with respect to addition, so this question concerns multiplication.
+        GroupRing.is_abelian method is therefore an alias for GroupRing.is_commutative.
+        """
         return self.is_commutative
 
     @property
