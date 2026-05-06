@@ -1245,13 +1245,13 @@ class WedderburnArtinComponentTransformer:
         PART 2
         ------
         To embed elements of the power basis B into GF(p^{kd}) we...
-            1. Idenfity the minimal polynomial f(x) of b, for which f(b) = 0.  This is the
+            1. Identify the minimal polynomial f(x) of b, for which f(b) = 0.  This is the
                 polynomial we use to construct GF(q^d) = GF(q)[x] / f(x) with f(b) = 0.
             2. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain the polynomial g(x).
             3. Use any root of g(x) as the generator of the embedded power basis.
         To find f(x), we seek coefficients f_j ∈ GF(q) for which
             f(b) = sum_{j=0}^d f_j b^j = 0,
-        where we define b^0 = e.  We can set f_d = 1 withous loss of generality, reducing the
+        where we define b^0 = e.  We can set f_d = 1 without loss of generality, reducing the
         problem to
             sum_{j=0}^{d-1} f_j b^j = -b^d.
         The remaining coefficients can be found by solving a linear system of equations.
@@ -1279,7 +1279,7 @@ class WedderburnArtinComponentTransformer:
         For the power basis B = (b^0, b^1, b^2, ..., b^{d-1}), the dual basis
             A = (a^0, a^1, a^2, ..., a^{d-1})
         satisfies
-            Tr_{GF(q^d)/GF(q)}[a_i b^i] = delta_{ij},
+            Tr_{GF(q^d)/GF(q)}[a_i b^j] = delta_{ij},
         where Tr_{GF(q^d)/GF(q)} denotes a field trace from GF(q^d) to GF(q); see self.field_trace.
 
         The dual basis allows us to "pick off" the coefficients of a polynomial in GF(q)[x] / f(x),
@@ -1404,8 +1404,8 @@ class WedderburnArtinComponentTransformer:
         gcd: galois.Poly
         for factor, quotient in zip(factors, quotients):
             _, quotient_inverse, gcd = galois.egcd(factor, quotient)  # type:ignore[assignment,arg-type]
-            minimal_poly = quotient_inverse * quotient // gcd  # <- p_j(x)
-            new_idempotent = minimal_poly.coeffs[::-1] @ powers[: len(minimal_poly)]  # <- e_j
+            idempotent_poly = quotient_inverse * quotient // gcd  # <- G_j(x)
+            new_idempotent = idempotent_poly.coeffs[::-1] @ powers[: len(idempotent_poly)]  # <- e_j
             new_idempotents.append(new_idempotent)
 
         # if sum_j G_j != e_start, then add the remainder to our set of new idempotents
