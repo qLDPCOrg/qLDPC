@@ -1107,8 +1107,8 @@ class WedderburnArtinComponentTransformer:
         self.power_basis_in_field = self._get_power_basis(seed)
         self.power_basis_in_ring = RingArray.from_field_array(self.power_basis_in_field, self.ring)
 
-        self.embedded_scalars, self.embedded_power_basis = self._get_scalar_embeddings()
-        self.dual_power_basis = self._get_dual_basis()
+        self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
+        self.dual_power_basis = self._get_dual_power_basis()
 
         self.primitive_vecs = self._get_primitive_idempotents(seed)
         self.primitives = RingArray.from_field_array(self.primitive_vecs, self.ring)
@@ -1196,7 +1196,7 @@ class WedderburnArtinComponentTransformer:
                 basis_in_field = self.field(basis)
                 return basis_in_field
 
-    def _get_scalar_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
+    def _get_center_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
         r"""Construct embeddings of elements in the center Z(S) into GF(p^{kd}) ≅ GF(q^d).
 
         There are two parts to this embedding:
@@ -1267,13 +1267,13 @@ class WedderburnArtinComponentTransformer:
             [embedded_scalars[cc] for cc in irreducible_poly.coeffs], field=self.extended_field
         )
         embedded_generator = extended_irreducible_poly.roots()[0]
-        embedded_basis = [self.extended_field(1)]
+        embedded_power_basis = [self.extended_field(1)]
         for _ in range(self.degree - 1):
-            embedded_basis.append(embedded_basis[-1] * embedded_generator)
+            embedded_power_basis.append(embedded_power_basis[-1] * embedded_generator)
 
-        return self.extended_field(embedded_scalars), self.extended_field(embedded_basis)
+        return self.extended_field(embedded_scalars), self.extended_field(embedded_power_basis)
 
-    def _get_dual_basis(self) -> galois.FieldArray:
+    def _get_dual_power_basis(self) -> galois.FieldArray:
         r"""Construct the dual of the power basis B for GF(q^d) ≅ GF(p^{kd}).
 
         For the power basis B = (b^0, b^1, b^2, ..., b^{d-1}), the dual basis
@@ -1284,8 +1284,8 @@ class WedderburnArtinComponentTransformer:
 
         The dual basis allows us to "pick off" the coefficients of a polynomial in GF(q)[x] / f(x),
         which is useful for embedding elements of GF(p^{kd}) ≅ GF(q^d) back into Z(S) by:
-        1. Mapping an element z ∈ GF(p^{kd}) to the vector (z_0, z_1, ...) with z_j = Tr[a_j z].
-        2. Combining these coefficients to recover sum_j z_j b^j ∈ Z(S),
+            1. Mapping z ∈ GF(p^{kd}) to the vector (z_0, z_1, ...) with z_j = Tr[a_j z].
+            2. Combining these coefficients to recover sum_j z_j b^j ∈ Z(S),
         Mechanically, this embedding procedure requires the dual basis to "live" in GF(p^{kd}).
         """
         if self.degree == 1:
