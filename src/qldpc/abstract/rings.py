@@ -1474,7 +1474,7 @@ class WedderburnArtinComponentTransformer:
         return functools.reduce(operator.add, terms)
 
     def embed(self, element: galois.FieldArray) -> RingMember:
-        """Embed an element of a simple component R_i of R back into the ring R."""
+        """Embed an element of the simple component S back into the parent ring R."""
         if type(element) is not self.extended_field:
             raise ValueError("Invalid field for an element of a simple component of a ring")
         if self.degree == 1:
