@@ -242,9 +242,9 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
     with pytest.raises(ValueError, match="requires an underlying CyclicGroup"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form(poly=True)
 
-    # row-reduction for semisimple non-abelian groups is not yet supported
+    # row-reduction for semisimple non-commutative rings is not yet supported
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    with pytest.raises(NotImplementedError, match="not yet support non-abelian rings"):
+    with pytest.raises(NotImplementedError, match="not yet support non-commutative rings"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
     # computing a reduced Groebner basis is the final boss
@@ -365,5 +365,5 @@ def test_wedderburn_artin_errors() -> None:
         abstract.WedderburnArtinComponentTransformer(ring.one)
 
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    with pytest.raises(NotImplementedError, match="does not yet support non-abelian rings"):
+    with pytest.raises(NotImplementedError, match="does not yet support non-commutative rings"):
         ring.get_transformer()
