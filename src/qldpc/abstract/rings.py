@@ -1101,7 +1101,7 @@ class WedderburnArtinComponentTransformer:
 
         self.center = self._get_center()
         self.degree = len(self.center)
-        self.size = int(math.sqrt(np.linalg.matrix_rank(self.pci_mat) // self.degree))
+        self.size = math.isqrt(np.linalg.matrix_rank(self.pci_mat) // self.degree)
 
         self.extended_field = galois.GF(self.field.order**self.degree)
         self.power_basis_in_field = self._get_power_basis(seed)
