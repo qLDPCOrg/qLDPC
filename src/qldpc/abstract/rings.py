@@ -1436,9 +1436,17 @@ class WedderburnArtinComponentTransformer:
 
         Returns:
             - The minimal polynomial of the given RingMember.
-            - The powers of the element up to (but excluding) the degree of the polynomial.
+            - A 2-dimensional galois.FieldArray over GF(q) whose j-th row is element^j.
         """
-        # construct a basis of column vectors: (idempotent, element, element^2, ...)
+
+        """
+        Part 1: Construct a matrix of linearly independent column vectors: [α^0, α^1, α^2, ...].
+
+        We start with the one-column matrix [α^0], and repeatedly double the size of this matrix by
+            [α^0] -> [α^0, α^1] -> [α^0, α^1, α^2, α^4] -> ...
+        We stop when the number of columns exceeds the rank r of the matrix, at which point we save
+        α^r for later use and throw out all but the first r columns, [α^0, α^1, α^2, ..., α^{r-1}].
+        """
         element_mat = RingMember.from_vector(element, self.ring).regular_lift()
         powers = idempotent.reshape(-1, 1).view(self.field)
         while True:
@@ -1448,14 +1456,21 @@ class WedderburnArtinComponentTransformer:
             if powers.shape[1] > rank:
                 break
             element_mat = element_mat @ element_mat
-        basis = powers[:, :rank]  # the linearly independent powers
         extra = powers[:, rank]  # element^rank
+        powers = powers[:, :rank]
 
-        # expand element^rank as a linear combination of lower powers in the basis
-        linear_system = np.column_stack([basis, -extra]).view(self.field)
+        """
+        Part 2: Construct the minimal polynomial m(x) of α.
+
+        This polynomial is defined by coefficients m_j for which
+            m(α) = α^r + sum_{j=0}^{r-1} m_j α^r = 0.
+        These coefficients can be found by solving a linear system of equations.
+        """
+        linear_system = np.column_stack([powers, -extra]).view(self.field)
         poly_coeffs = linear_system.row_reduce()[:rank, -1]
         poly_coeffs = np.append(poly_coeffs, self.field(1))
-        return galois.Poly(poly_coeffs[::-1], field=self.field), basis.T
+
+        return galois.Poly(poly_coeffs[::-1], field=self.field), powers.T
 
     def project(self, element: RingMember) -> galois.FieldArray:
         """Project an element of the ring R ≅ ⨂_i R_i onto a component R_i."""
