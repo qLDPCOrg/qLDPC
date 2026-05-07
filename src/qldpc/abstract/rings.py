@@ -1347,7 +1347,7 @@ class WedderburnArtinComponentTransformer:
         """
         idempotent = RingMember.from_vector(idempotent_vec, self.ring)
         subalgebra_basis = idempotent.adjoint_lift().column_space()
-        if len(subalgebra_basis) == self.degree:
+        if len(subalgebra_basis) == self.degree:  # pragma: no cover (we may not hit this in tests)
             return idempotent_vec.reshape(1, -1).view(self.field)
 
         """
