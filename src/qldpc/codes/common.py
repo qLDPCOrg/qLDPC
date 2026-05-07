@@ -3090,12 +3090,20 @@ class CSSCode(QuditCode):
 
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
+        same_x_and_z = (
+            np.array_equal(stabilizer_ops_x, stabilizer_ops_z),
+            decoder_x_kwargs == decoder_z_kwargs,
+        )
 
         # construct decoders
         decoder_x_kwargs = (decoder_x_kwargs or {}) | decoder_kwargs
         decoder_z_kwargs = (decoder_z_kwargs or {}) | decoder_kwargs
-        decoder_x = decoders.get_decoder(stabilizer_ops_z, **decoder_kwargs)
-        decoder_z = decoders.get_decoder(stabilizer_ops_x, **decoder_kwargs)
+        decoder_x = decoders.get_decoder(stabilizer_ops_z, **decoder_x_kwargs)
+        decoder_z = (
+            decoder_x
+            if same_x_and_z
+            else decoders.get_decoder(stabilizer_ops_x, **decoder_z_kwargs)
+        )
 
         # identify logical operators
         logicals_x = self.get_logical_ops(Pauli.X)
