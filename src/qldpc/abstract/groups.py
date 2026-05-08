@@ -200,7 +200,7 @@ class Group:
     @property
     def order(self) -> int:
         """Number of members in this group."""
-        return self._group.order()
+        return int(self._group.order())
 
     @property
     def is_commutative(self) -> bool:
@@ -268,16 +268,23 @@ class Group:
         return GroupMember.from_sympy(self._group.random())
 
     @functools.cache
-    def regular_lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
+    def regular_lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
         r"""Lift a group member to its regular representation.
 
         The regular representation encodes group action into matrix multiplication.
-        If Vec : G -> F_2^{|G|} lifts group members to standard basis vectors and g,h ∈ G, then
-            regular_lift(g) @ Vec(h) = Vec(g·h).
+        If Vec : G -> F_2^{|G|} maps group members to standard basis vectors and g,h ∈ G, then
+            G.regular_lift(g) @ Vec(h) = Vec(g·h).
+        If right is True, this method lifts a group member to its right-regular representation,
+        defined by
+            G.regular_lift(g, right=True) @ Vec(h) = Vec(h·g^{-1}).
+
+        See:
+        - https://en.wikipedia.org/wiki/Regular_representation
         """
         matrix = np.zeros([self.order] * 2, dtype=int)
-        for ii, gg in enumerate(self.generate()):
-            matrix[self.index(member * gg), ii] = 1
+        for ii, hh in enumerate(self.generate()):
+            jj = self.index(member * hh) if not right else self.index(hh * ~member)
+            matrix[jj, ii] = 1
         return matrix
 
     @functools.cache
@@ -292,8 +299,8 @@ class Group:
         """
         inv_member = ~member
         matrix = np.zeros([self.order] * 2, dtype=int)
-        for ii, gg in enumerate(self.generate()):
-            matrix[self.index(member * gg * inv_member), ii] = 1
+        for ii, hh in enumerate(self.generate()):
+            matrix[self.index(member * hh * inv_member), ii] = 1
         return matrix
 
     def lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
@@ -305,14 +312,14 @@ class Group:
         """Dimension of the representation for this group."""
         return self.order if self._lift is None else self.lift(self.generators[0]).shape[0]
 
-    @functools.cache
+    @functools.cached_property
     def inversion_matrix(self) -> npt.NDArray[np.int_]:
         """The matrix that maps any group member g ∈ G to its inverse g^{-1} = g.T.
 
         The inversion matrix can be used to convert between left- and right-regular representations.
         Whereas g.regular_lift() is the left-regular representation of g ∈ G, the right-regular
         representation is
-            G.inversion_matrix() @ G.regular_lift(g).T @ G.inversion_matrix().
+            G.inversion_matrix @ G.regular_lift(g).T @ G.inversion_matrix.
         """
         matrix = np.zeros([self.order] * 2, dtype=int)
         for ii, gg in enumerate(self.generate()):

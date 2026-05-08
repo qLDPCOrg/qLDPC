@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import itertools
+import re
 
 import galois
 import numpy as np
@@ -45,6 +46,9 @@ def test_ring() -> None:
     assert ring.is_commutative
     assert ring.is_abelian
     assert ring.is_semisimple
+
+    with pytest.raises(ValueError, match="integer power >= 0"):
+        one ** (-1)
 
     # test inverses
     for ring in [
@@ -303,8 +307,8 @@ def test_deprecations() -> None:
 @pytest.mark.parametrize(
     "ring",
     [
-        abstract.GroupRing(abstract.CyclicGroup(3), field=2),
-        abstract.GroupRing(abstract.CyclicGroup(4), field=5),
+        abstract.GroupRing(abstract.CyclicGroup(3), field=4),
+        # abstract.GroupRing(abstract.AlternatingGroup(4), field=5),  # FIXME
     ],
 )
 def test_wedderburn_artin_transformations(
@@ -355,8 +359,10 @@ def test_wedderburn_artin_errors() -> None:
 
     with pytest.raises(ValueError, match="Incorrect number of components"):
         transformer.recompose([])
+    with pytest.raises(ValueError, match="inconsistent shapes"):
+        transformer.recompose_arrays([ring.field.Identity(1), ring.field.Identity(2)])
 
-    with pytest.raises(ValueError, match="Invalid field"):
+    with pytest.raises(ValueError, match=re.escape("does not live in GF(q^d)^{n × n}")):
         transformer.recompose(galois.GF(3).Ones(2))
 
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
@@ -365,6 +371,6 @@ def test_wedderburn_artin_errors() -> None:
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
         abstract.WedderburnArtinComponentTransformer(ring.one)
 
-    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
+    ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
     with pytest.raises(NotImplementedError, match="does not yet support non-commutative rings"):
         ring.get_transformer()

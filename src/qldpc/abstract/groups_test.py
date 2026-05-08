@@ -131,10 +131,9 @@ def assert_valid_lifts(group: abstract.Group) -> None:
     )
 
     # invert elements: g -> g**(-1)
-    inversion_matrix = group.inversion_matrix()
     assert all(
         np.array_equal(
-            np.where(inversion_matrix[:, group.index(gg)]),
+            np.where(group.inversion_matrix[:, group.index(gg)]),
             [[group.index(~gg)]],
         )
         for gg in group.generate()
