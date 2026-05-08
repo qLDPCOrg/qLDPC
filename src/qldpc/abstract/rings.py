@@ -1030,6 +1030,12 @@ class WedderburnArtinTransformer:
             for pci in self.ring.get_primitive_central_idempotents()
         ]
 
+        # our support of non-commutative rings is not yet complete
+        if not self.ring.is_commutative:
+            raise NotImplementedError(
+                "WedderburnArtinTransformer does not yet support non-commutative rings"
+            )
+
     def decompose(self, element: RingMember) -> list[galois.FieldArray]:
         """Decompose an element of the ring into its Wedderburn-Artin components."""
         return [transformer.project(element) for transformer in self.transformers]
@@ -1150,12 +1156,6 @@ class WedderburnArtinComponentTransformer:
         self.matrix_basis_in_ring = RingArray.from_field_array(
             self.matrix_basis_in_field, self.ring
         )
-
-        # our support of non-commutative rings is not yet complete
-        if not self.ring.is_commutative:
-            raise NotImplementedError(
-                "WedderburnArtinTransformer does not yet support non-commutative rings"
-            )
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
