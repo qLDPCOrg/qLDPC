@@ -316,10 +316,8 @@ class Group:
     def inversion_matrix(self) -> npt.NDArray[np.int_]:
         """The matrix that maps any group member g ∈ G to its inverse g^{-1} = g.T.
 
-        The inversion matrix can be used to convert between left- and right-regular representations.
-        Whereas g.regular_lift() is the left-regular representation of g ∈ G, the right-regular
-        representation is
-            G.inversion_matrix @ G.regular_lift(g).T @ G.inversion_matrix.
+        If Vec : G -> F_2^{|G|} lifts group members to standard basis vectors and g ∈ G, then
+            G.inversion_matrix @ Vec(g) = Vec(g^{-1}).
         """
         matrix = np.zeros([self.order] * 2, dtype=int)
         for ii, gg in enumerate(self.generate()):
