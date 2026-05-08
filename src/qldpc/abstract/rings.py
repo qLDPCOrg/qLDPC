@@ -117,7 +117,7 @@ class GroupRing:
 
     @functools.cached_property
     def group_trace_matrix(self) -> galois.FieldArray:
-        """Construct the matrix for a trace over the group: x -> sum_{g in G} g x g^{-1}."""
+        """Construct the matrix for a trace over the group: r -> sum_{g in G} g r g^{-1}."""
         adjoints = [self.group.adjoint_lift(gg).view(self.field) for gg in self.group.generate()]
         return functools.reduce(operator.add, adjoints).view(self.field)
 

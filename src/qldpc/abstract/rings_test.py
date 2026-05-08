@@ -86,6 +86,12 @@ def test_ring() -> None:
     poly_x = 4 * x_i**2 - 2 * x_i * x_j + x_j
     assert poly_r == ring.eval(poly_x, symbols)
 
+    # the group trace projects any element of the ring into its center
+    aa_vec = ring.group_trace_matrix @ ring.field.Random(group.order)
+    aa = abstract.RingMember.from_vector(aa_vec, ring)
+    bb = abstract.RingMember.from_vector(ring.field.Random(group.order), ring)
+    assert aa * bb == bb * aa
+
     wrong_symbols = {x_i: r_i, x_j: r_j}
     with pytest.raises(ValueError, match="must be GroupMember-valued"):
         ring.eval(1, wrong_symbols)  # type:ignore[arg-type]
