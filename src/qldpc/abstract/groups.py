@@ -297,11 +297,7 @@ class Group:
 
         If the group is abelian, the adjoint lift of every group member is the identity matrix.
         """
-        inv_member = ~member
-        matrix = np.zeros([self.order] * 2, dtype=int)
-        for ii, hh in enumerate(self.generate()):
-            matrix[self.index(member * hh * inv_member), ii] = 1
-        return matrix
+        return self.regular_lift(member) @ self.regular_lift(member, right=True)
 
     def lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
         """Lift a group member to a representation by an orthogonal matrix."""

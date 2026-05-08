@@ -121,15 +121,6 @@ def assert_valid_lifts(group: abstract.Group) -> None:
             for aa, bb in itertools.product(group.generate(), repeat=2)
         )
 
-    # adjoint representation
-    assert all(
-        np.array_equal(
-            np.where(group.adjoint_lift(aa)[:, group.index(bb)]),
-            [[group.index(aa * bb * ~aa)]],
-        )
-        for aa, bb in itertools.product(group.generate(), repeat=2)
-    )
-
     # invert elements: g -> g**(-1)
     assert all(
         np.array_equal(
@@ -146,6 +137,15 @@ def assert_valid_lifts(group: abstract.Group) -> None:
             group.inversion_matrix @ group.regular_lift(gg) @ group.inversion_matrix,
         )
         for gg in group.generate()
+    )
+
+    # adjoint representation
+    assert all(
+        np.array_equal(
+            np.where(group.adjoint_lift(aa)[:, group.index(bb)]),
+            [[group.index(aa * bb * ~aa)]],
+        )
+        for aa, bb in itertools.product(group.generate(), repeat=2)
     )
 
 
