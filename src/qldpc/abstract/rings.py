@@ -1628,7 +1628,8 @@ class WedderburnArtinComponentTransformer:
                 " element of a different ring"
             )
         if self.size == 1:
-            return self._center_to_scalar(self.pci_reg @ element.to_vector()).reshape([1, 1])
+            scalar = self._center_to_scalar(self.pci_reg @ element.to_vector())
+            return scalar.reshape([1, 1]).view(self.extended_field)
         return NotImplemented  # pragma: no cover
 
     def embed(self, element: galois.FieldArray) -> RingMember:
