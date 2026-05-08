@@ -1040,37 +1040,25 @@ class WedderburnArtinTransformer:
         """Decompose an element of the ring into its Wedderburn-Artin components."""
         return [transformer.project(element) for transformer in self.transformers]
 
-    def decompose_array(self, array: RingArray) -> list[galois.FieldArray]:
-        """Decompose an array over a ring into its Wedderburn-Artin components."""
-        decomposed_arrays = []
-        for transformer in self.transformers:
-            values = transformer.extended_field([transformer.project(val) for val in array.ravel()])
-            decomposed_arrays.append(values.reshape(array.shape).view(transformer.extended_field))
-        return decomposed_arrays
-
     def recompose(self, components: Sequence[galois.FieldArray]) -> RingMember:
         """Invert WedderburnArtinTransformer.decompose."""
         if len(components) != len(self.transformers):
             raise ValueError(
                 "Incorrect number of components provided to WedderburnArtinTransformer.recompose"
             )
-        terms = [
-            transformer.embed(component)
-            for component, transformer in zip(components, self.transformers)
-        ]
+        terms = [trans.embed(comp) for comp, trans in zip(components, self.transformers)]
         return functools.reduce(operator.add, terms)
+
+    def decompose_array(self, array: RingArray) -> list[galois.FieldArray]:
+        """Decompose an array over a ring into its Wedderburn-Artin components."""
+        return [transformer.project_array(array) for transformer in self.transformers]
 
     def recompose_arrays(self, arrays: Sequence[galois.FieldArray]) -> RingArray:
         """Invert WedderburnArtinTransformer.decompose_array."""
         if not len(set([array.shape for array in arrays])) == 1:
             raise ValueError("Asked to recompose arrays of inconsistent shapes")
-        array_shape = arrays[0].shape
-        sizes = [transformer.size for transformer in self.transformers]
-        values = [
-            self.recompose([array[idx].reshape([size] * 2) for array, size in zip(arrays, sizes)])
-            for idx in np.ndindex(array_shape)
-        ]
-        return RingArray(values, ring=self.ring).reshape(array_shape).view(RingArray)
+        terms = [trans.embed_array(array) for array, trans in zip(arrays, self.transformers)]
+        return functools.reduce(operator.add, terms)
 
 
 @dataclasses.dataclass
@@ -1633,7 +1621,7 @@ class WedderburnArtinComponentTransformer:
         return NotImplemented  # pragma: no cover
 
     def embed(self, element: galois.FieldArray) -> RingMember:
-        """Embed an element of this simple component back into the parent ring R."""
+        """Embed an element of S ≅ GF(q^d)^{n × n} back into the parent ring R."""
         if type(element) is not self.extended_field or element.shape != (self.size, self.size):
             raise ValueError(r"The provided element does not live in GF(q^d)^{n × n}")
         if self.size == 1:
@@ -1642,3 +1630,13 @@ class WedderburnArtinComponentTransformer:
             vector = self._scalar_to_center(element[0, 0])
             return RingMember.from_vector(vector, self.ring)
         return NotImplemented  # pragma: no cover
+
+    def project_array(self, array: RingArray) -> galois.FieldArray:
+        """Project each entry of a RingArray into a simple component S ≅ GF(q^d)^{n × n}."""
+        values = self.extended_field([self.project(val) for val in array.ravel()])
+        return values.reshape(array.shape).view(self.extended_field)
+
+    def embed_array(self, array: galois.FieldArray) -> RingArray:
+        """Map an array of values in S ≅ GF(q^d)^{n × n} into an array over the parent ring R."""
+        values = [self.embed(value.reshape([self.size] * 2)) for value in array.ravel()]
+        return RingArray(values, ring=self.ring).reshape(array.shape).view(RingArray)
