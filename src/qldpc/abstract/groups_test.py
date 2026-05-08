@@ -92,7 +92,7 @@ def test_trivial_group() -> None:
         abstract.TrivialGroup.to_ring_array([])
 
 
-def test_lift() -> None:
+def test_lifts() -> None:
     """Lift named group elements."""
     assert_valid_lifts(abstract.TrivialGroup())
     assert_valid_lifts(abstract.CyclicGroup(3))
@@ -135,6 +135,15 @@ def assert_valid_lifts(group: abstract.Group) -> None:
         np.array_equal(
             np.where(group.inversion_matrix[:, group.index(gg)]),
             [[group.index(~gg)]],
+        )
+        for gg in group.generate()
+    )
+
+    # the inversion matrix converts between left- and right-regular representations
+    assert all(
+        np.array_equal(
+            group.regular_lift(gg, right=True),
+            group.inversion_matrix @ group.regular_lift(gg) @ group.inversion_matrix,
         )
         for gg in group.generate()
     )
