@@ -140,13 +140,19 @@ def assert_valid_lifts(group: abstract.Group) -> None:
     )
 
     # adjoint representation
-    assert all(
-        np.array_equal(
-            np.where(group.adjoint_lift(aa)[:, group.index(bb)]),
-            [[group.index(aa * bb * ~aa)]],
+    if group.is_abelian:
+        assert all(
+            np.array_equal(group.adjoint_lift(aa), np.identity(group.order, dtype=int))
+            for aa in group.generate()
         )
-        for aa, bb in itertools.product(group.generate(), repeat=2)
-    )
+    else:
+        assert all(
+            np.array_equal(
+                np.where(group.adjoint_lift(aa)[:, group.index(bb)]),
+                [[group.index(aa * bb * ~aa)]],
+            )
+            for aa, bb in itertools.product(group.generate(), repeat=2)
+        )
 
 
 def test_group_product() -> None:
