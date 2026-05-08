@@ -308,7 +308,7 @@ def test_deprecations() -> None:
     "ring",
     [
         abstract.GroupRing(abstract.CyclicGroup(3), field=4),
-        # abstract.GroupRing(abstract.AlternatingGroup(4), field=5),  # FIXME
+        # abstract.GroupRing(abstract.AlternatingGroup(4), field=5),  # pending
     ],
 )
 def test_wedderburn_artin_transformations(

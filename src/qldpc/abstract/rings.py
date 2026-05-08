@@ -1027,7 +1027,7 @@ class WedderburnArtinTransformer:
         )
         self.transformers = [
             WedderburnArtinComponentTransformer(pci, seed=self.random_number_generator)
-            for pci in self.ring.get_primitive_central_idempotents()[::-1]  # FIXME
+            for pci in self.ring.get_primitive_central_idempotents()
         ]
 
     def decompose(self, element: RingMember) -> list[galois.FieldArray]:
