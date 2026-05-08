@@ -3091,8 +3091,8 @@ class CSSCode(QuditCode):
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
         same_x_and_z = (
-            np.array_equal(stabilizer_ops_x, stabilizer_ops_z),
-            decoder_x_kwargs == decoder_z_kwargs,
+            np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
+            and decoder_x_kwargs == decoder_z_kwargs
         )
 
         # construct decoders
