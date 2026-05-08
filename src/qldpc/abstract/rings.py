@@ -1040,6 +1040,10 @@ class WedderburnArtinTransformer:
         """Decompose an element of the ring into its Wedderburn-Artin components."""
         return [transformer.project(element) for transformer in self.transformers]
 
+    def decompose_array(self, array: RingArray) -> list[galois.FieldArray]:
+        """Decompose an array over a ring into its Wedderburn-Artin components."""
+        return [transformer.project_array(array) for transformer in self.transformers]
+
     def recompose(self, components: Sequence[galois.FieldArray]) -> RingMember:
         """Invert WedderburnArtinTransformer.decompose."""
         if len(components) != len(self.transformers):
@@ -1048,10 +1052,6 @@ class WedderburnArtinTransformer:
             )
         terms = [trans.embed(comp) for comp, trans in zip(components, self.transformers)]
         return functools.reduce(operator.add, terms)
-
-    def decompose_array(self, array: RingArray) -> list[galois.FieldArray]:
-        """Decompose an array over a ring into its Wedderburn-Artin components."""
-        return [transformer.project_array(array) for transformer in self.transformers]
 
     def recompose_arrays(self, arrays: Sequence[galois.FieldArray]) -> RingArray:
         """Invert WedderburnArtinTransformer.decompose_array."""
