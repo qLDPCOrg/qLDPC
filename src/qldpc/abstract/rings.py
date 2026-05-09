@@ -1209,7 +1209,7 @@ class WedderburnArtinComponentTransformer:
                 If so, return B.  Otherwise, go back to step 1.
 
         Returns:
-            - A matrix in GF(q)^{d × |G|} whose j-th row is b^j as a vector in GF(q)^{|G|}.
+            - A matrix in GF(q)^{d × |G|} whose j-th row is b^j ∈ Z(S).
         """
         if self.degree == 1:
             return self.pci_vec.reshape(1, -1).view(self.field)
@@ -1339,7 +1339,7 @@ class WedderburnArtinComponentTransformer:
             2. Combining these coefficients to recover sum_j z_j b^j ∈ Z(S).
 
         Returns:
-            - A vector in GF(p^{kd}) whose j-th entry is E[a_j] as a scalar in GF(p^{kd}).
+            - A vector in GF(p^{kd}) whose j-th entry is the embedding E[a_j].
         """
         if self.degree == 1:
             return self.extended_field.Ones([1])
@@ -1373,7 +1373,7 @@ class WedderburnArtinComponentTransformer:
         off-diagonal matrix elements e_ij = |i><j| ∈ e_i S e_j.
 
         Returns:
-            - A matrix GF(q)^{n^2 × |G|} whose (ij, :) entry is |i><j| = e_ij ∈ S.
+            - A matrix in GF(q)^{n^2 × |G|} whose (ij, :) entry is |i><j| = e_ij ∈ S.
         """
         if self.ring.is_commutative:
             return self.pci_vec.reshape(1, 1, -1).view(self.field)
@@ -1435,7 +1435,7 @@ class WedderburnArtinComponentTransformer:
             4. Return the combined set of all idempotents found from decomposition at step 3.
 
         Returns:
-            - A galois.FieldArray in GF(q)^{n × |G|} whose rows are primitive idempotents.
+            - A matrix in GF(q)^{n × |G|} whose j-th row the primitive idempotent e_i ∈ S.
         """
         assert not self.ring.is_commutative  # this method should not have been called
         if idempotent_vec is None:
@@ -1538,8 +1538,8 @@ class WedderburnArtinComponentTransformer:
             2. The provided element lives in the sub-algebra of R stabilized by the idempotent.
 
         Returns:
-            - The minimal polynomial of the given RingMember.
-            - A 2-dimensional galois.FieldArray over GF(q) whose j-th row is element^j.
+            - The minimal polynomial of RingMember(element, self.ring).
+            - A matrix in GF(q)^{d × |G|} whose j-th row is element^j ∈ S.
         """
 
         """
@@ -1595,8 +1595,8 @@ class WedderburnArtinComponentTransformer:
         with matrix transposition in GF(q^d)^{n × n}.
 
         Returns:
-            - A 1-dimensional galois.FieldArray representing e_ij ∈ S as a vector in GF(q)^{|G|}.
-            - A 1-dimensional galois.FieldArray representing e_ji ∈ S as a vector in GF(q)^{|G|}.
+            - A vector in GF(q)^{|G|} representing e_ij ∈ S.
+            - A vector in GF(q)^{|G|} representing e_ji ∈ S.
         """
         # sample x_ij ∈ e_i R e_j and x_ji ∈ e_j R e_i
         vec_ij = self._random_nonzero_vec(len(basis_ij), seed) @ basis_ij
