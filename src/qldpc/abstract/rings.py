@@ -1147,9 +1147,7 @@ class WedderburnArtinComponentTransformer:
             self.embedded_scalars_inverse[int(pp)] = qq
 
         self.matrix_basis = self._get_matrix_basis(seed)
-        self.matrix_basis_dual = self._get_dual_basis(
-            self.matrix_basis.reshape(-1, self.matrix_basis.shape[-1])
-        ).reshape(self.matrix_basis.shape)
+        self.matrix_basis_dual = self._get_dual_basis(self.matrix_basis)
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -1375,8 +1373,7 @@ class WedderburnArtinComponentTransformer:
         off-diagonal matrix elements e_ij = |i><j| ∈ e_i S e_j.
 
         Returns:
-            - A tensor in GF(q)^{n × n × |G|} whose (i, j, :) entry is |i><j| = e_ij ∈ S as vector
-                in GF(q)^{|G|}.
+            - A matrix GF(q)^{n^2 × |G|} whose (ij, :) entry is |i><j| = e_ij ∈ S.
         """
         if self.ring.is_commutative:
             return self.pci_vec.reshape(1, 1, -1).view(self.field)
@@ -1416,7 +1413,7 @@ class WedderburnArtinComponentTransformer:
             basis_as_vecs[ii, jj, :] = basis_as_mats[ii, 0] @ basis_as_vecs[0, jj, :]
             basis_as_vecs[jj, ii, :] = basis_as_mats[jj, 0] @ basis_as_vecs[0, ii, :]
 
-        return basis_as_vecs
+        return basis_as_vecs.reshape(-1, basis_as_vecs.shape[-1])
 
     def _get_primitive_idempotents(
         self, seed: np.random.Generator, idempotent_vec: galois.FieldArray | None = None
