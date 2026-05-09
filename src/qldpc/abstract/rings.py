@@ -1600,9 +1600,8 @@ class WedderburnArtinComponentTransformer:
         projection_ji = idempotent_j.regular_lift() @ idempotent_i.regular_lift(right=True)
 
         # sample x_ij ∈ e_i R e_j and x_ji ∈ e_j R e_i
-        identity = self.field.Identity(len(projection_ji))
-        bases_ij = (projection_ij - identity).null_space()
-        bases_ji = (projection_ji - identity).null_space()
+        bases_ij = projection_ij.column_space()
+        bases_ji = projection_ji.column_space()
         vec_ij = self._random_nonzero_vec(len(bases_ij), seed) @ bases_ij
         vec_ji = self._random_nonzero_vec(len(bases_ji), seed) @ bases_ji
 
