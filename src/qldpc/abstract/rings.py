@@ -1146,6 +1146,7 @@ class WedderburnArtinComponentTransformer:
             self.embedded_scalars_inverse[int(pp)] = qq
 
         self.matrix_basis = self._get_matrix_basis(seed)
+        self.decomposition_coefficient_extractor = self._get_decomposition_coefficient_extractor()
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -1374,7 +1375,7 @@ class WedderburnArtinComponentTransformer:
             - A matrix in GF(q)^{n^2 × |G|} whose (ij, :) entry is |i><j| = e_ij ∈ S.
         """
         if self.ring.is_commutative:
-            return self.pci_vec.reshape(1, 1, -1).view(self.field)
+            return self.pci_vec.reshape(1, -1).view(self.field)
 
         # collect primitive idempotents along the diagonal of the matrix_basis
         pids_as_vecs = self._get_primitive_idempotents(seed)
@@ -1635,10 +1636,10 @@ class WedderburnArtinComponentTransformer:
             - A matrix in GF(q)^{n^2·d × |G|} that maps a ring member r to [s_ijk]_ijk.
         """
         # matrices representing the action of e_ij from multiplication on the left and right
-        matrix_basis_as_mat_l = self.field(
+        matrix_basis_as_mats_l = self.field(
             [self._regular_lift(vec) for vec in self.matrix_basis]
         ).reshape(self.size, self.size, self.ring.group.order, self.ring.group.order)
-        matrix_basis_as_mat_r = self.field(
+        matrix_basis_as_mats_r = self.field(
             [self._regular_lift(vec, right=True) for vec in self.matrix_basis]
         ).reshape(self.size, self.size, self.ring.group.order, self.ring.group.order)
 
@@ -1652,9 +1653,9 @@ class WedderburnArtinComponentTransformer:
         tensor = self.field(
             [
                 get_diagonal_entry_scalar
-                @ matrix_basis_as_mat_r[kk, jj]
-                @ matrix_basis_as_mat_r[kk, kk]
-                @ matrix_basis_as_mat_l[jj, jj]
+                @ matrix_basis_as_mats_r[kk, jj]
+                @ matrix_basis_as_mats_r[kk, kk]
+                @ matrix_basis_as_mats_l[jj, jj]
                 for jj, kk in itertools.product(range(self.size), repeat=2)
             ]
         )
@@ -1667,10 +1668,10 @@ class WedderburnArtinComponentTransformer:
                 "A Wedderburn-Artin transformer initialized for one ring was asked to decompose an"
                 " element of a different ring"
             )
-        if self.size == 1:
-            scalar = self._center_to_scalar(self.pci_reg @ element.to_vector())
-            return scalar.reshape([1, 1]).view(self.extended_field)
-        return NotImplemented  # pragma: no cover
+        coefficients = self.decomposition_coefficient_extractor @ element.to_vector()
+        embedded_coefficients = self.embedded_scalars[coefficients.view(np.ndarray)]
+        matrix_values = embedded_coefficients.reshape(-1, self.degree) @ self.embedded_power_basis
+        return matrix_values.reshape(self.size, self.size)
 
     def embed(self, element: galois.FieldArray) -> RingMember:
         """Embed an element of S ≅ GF(q^d)^{n × n} back into the parent ring R."""
