@@ -1107,6 +1107,7 @@ class WedderburnArtinComponentTransformer:
 
     extended_field: type[galois.FieldArray]  # field extension GF(p^(kd)) ≅ GF(q^d)
     embedded_scalars: galois.FieldArray  # embedding of GF(q) into GF(p^(kd))
+    embedded_scalars_inverse: galois.FieldArray  # inverse of the embedding of GF(q) into GF(p^(kd))
     embedded_power_basis: galois.FieldArray  # embedding of B into GF(p^(kd))
     embedded_power_basis_dual: galois.FieldArray  # dual of embedded_power_basis w.r.t. field trace
 
@@ -1138,6 +1139,11 @@ class WedderburnArtinComponentTransformer:
         self.extended_field = galois.GF(self.field.order**self.degree)
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
         self.embedded_power_basis_dual = self._get_embedded_power_basis_dual()
+
+        max_embedded_scalar = max(self.embedded_scalars.view(np.ndarray))
+        self.embedded_scalars_inverse = self.field.Zeros(max_embedded_scalar + 1)
+        for qq, pp in enumerate(self.embedded_scalars):
+            self.embedded_scalars_inverse[int(pp)] = qq
 
         self.matrix_basis_in_field = self._get_matrix_basis(seed)
 
@@ -1613,20 +1619,17 @@ class WedderburnArtinComponentTransformer:
         ).regular_lift()
         return vec_ij, scalar_inv_as_mat @ vec_ji
 
-    def _center_to_scalar(self, scalar_as_vec: galois.FieldArray) -> galois.FieldArray:
-        """Convert a scalar s ∈ Z(S) ≅ GF(q}^{|G|} into an element of GF(p^{kd}) ≅ GF(q^d)."""
-        power_basis_coeffs = self.power_basis_dual @ scalar_as_vec
+    def _center_to_scalar(self, vec_in_center: galois.FieldArray) -> galois.FieldArray:
+        """Convert a "scalar' s ∈ Z(S) ≅ GF(q}^{|G|} into an element of GF(p^{kd}) ≅ GF(q^d)."""
+        power_basis_coeffs = self.power_basis_dual @ vec_in_center
         embedded_power_basis_coeffs = self.embedded_scalars[power_basis_coeffs.view(np.ndarray)]
         return embedded_power_basis_coeffs @ self.embedded_power_basis
 
     def _scalar_to_center(self, scalar: galois.FieldArray) -> galois.FieldArray:
         """Embed a scalar in GF(p^{kd}) ≅ GF(q^d) back into the center Z(S) ≅ GF(q}^{|G|}."""
-        coefficients = [
-            np.argmax(self.embedded_scalars == self.field_trace(dual * scalar))
-            for dual in self.embedded_power_basis_dual
-        ]
-        terms = [vec * coeff for vec, coeff in zip(self.power_basis, coefficients)]
-        return functools.reduce(operator.add, terms)
+        embedded_coefficients = self.field_trace(self.embedded_power_basis_dual * scalar)
+        coefficients = self.embedded_scalars_inverse[embedded_coefficients.view(np.ndarray)]
+        return coefficients @ self.power_basis
 
     def project(self, element: RingMember) -> galois.FieldArray:
         """Project an element of the parent ring into a simple component S ≅ GF(q^d)^{n × n}."""
