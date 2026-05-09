@@ -40,6 +40,7 @@ import numpy.typing as npt
 import sympy.abc
 import sympy.core
 
+import qldpc
 from qldpc import external
 
 from .groups import DEFAULT_FIELD_ORDER, AbelianGroup, CyclicGroup, Group, GroupMember, TrivialGroup
@@ -1096,19 +1097,18 @@ class WedderburnArtinComponentTransformer:
     pci: RingMember  # primitive central idempotent (PCI) e that projects onto S
     pci_vec: galois.FieldArray  # representation of the PCI as a vector in GF(q)^{|G|}
     pci_reg: galois.FieldArray  # PCI lifted to its regular representation in GF(q)^{|G| × |G|}
-    pci_adj: galois.FieldArray  # PCI lifted to its adjoint representation in GF(q)^{|G| × |G|}
 
     center: galois.FieldArray  # basis for the center Z(S) of elements in S that commute with S
     degree: int  # degree d of the field extension GF(q^d) for S
     size: int  # size (n) of the matrices in the isomorphism S ≅ GF(q^d)^{n × n}
 
-    extended_field: type[galois.FieldArray]  # field extension GF(p^(kd)) ≅ GF(q^d)
-    power_basis_in_field: galois.FieldArray  # power basis B = (e, b, b^2, ..., b^{d-1}) for GF(q^d)
-    power_basis_in_ring: RingArray  # same basis, as native RingMember objects
+    power_basis: galois.FieldArray  # power basis B = (e, b, b^2, ..., b^{d-1}) for GF(q^d)
+    power_basis_dual: galois.FieldArray  # dual A of the power basis, for which A @ B.T = 1_d
 
+    extended_field: type[galois.FieldArray]  # field extension GF(p^(kd)) ≅ GF(q^d)
     embedded_scalars: galois.FieldArray  # embedding of GF(q) into GF(p^(kd))
     embedded_power_basis: galois.FieldArray  # embedding of B into GF(p^(kd))
-    dual_power_basis: galois.FieldArray  # dual basis of the embedded_basis in GF(p^(kd))
+    embedded_power_basis_dual: galois.FieldArray  # dual of embedded_power_basis w.r.t. field trace
 
     matrix_basis_in_field: galois.FieldArray  # matrix elements |i><j| for GF(q^d)^{n × n}
 
@@ -1132,12 +1132,12 @@ class WedderburnArtinComponentTransformer:
         self.degree = len(self.center)
         self.size = math.isqrt(np.linalg.matrix_rank(self.pci_reg) // self.degree)
 
-        self.extended_field = galois.GF(self.field.order**self.degree)
-        self.power_basis_in_field = self._get_power_basis(seed)
-        self.power_basis_in_ring = RingArray.from_field_array(self.power_basis_in_field, self.ring)
+        self.power_basis = self._get_power_basis(seed)
+        self.power_basis_dual = self._get_power_basis_dual()
 
+        self.extended_field = galois.GF(self.field.order**self.degree)
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
-        self.dual_power_basis = self._get_dual_power_basis()
+        self.embedded_power_basis_dual = self._get_embedded_power_basis_dual()
 
         self.matrix_basis_in_field = self._get_matrix_basis(seed)
 
@@ -1157,7 +1157,7 @@ class WedderburnArtinComponentTransformer:
         null spaces of A(g) - 1 for the generators g of G.
 
         Returns:
-            - A 2-dimensional galois.FieldArray over GF(q) whose rows form a basis for Z(S).
+            - A matrix in GF(q)^{d × |G|} whose rows form a basis for Z(S).
         """
         # identify the null space of L(e) - 1, which spans S
         center = self.pci_reg.column_space()  # equal to the null space of L(e) - 1
@@ -1175,7 +1175,7 @@ class WedderburnArtinComponentTransformer:
         return center
 
     def _get_power_basis(self, seed: np.random.Generator) -> galois.FieldArray:
-        r"""Construct a power basis for the field extension GF(q) -> GF(q^d).
+        r"""Construct a power basis for Z(S), used for the field extension GF(q) -> GF(q^d).
 
         Mathematically,
             GF(q^d) ≅ GF(q)[x] / f(x),
@@ -1187,10 +1187,10 @@ class WedderburnArtinComponentTransformer:
             (x^0, x^1, x^2, ..., x^{d-1}),
         form a "power basis" for GF(q)[x] / f(x).
 
-        We need to find elements of S that act as GF(q^d) scalars when mapping into GF(q^d)^{n × n}.
-        To this end, we identify a suitable element b of Z(S) (the subspace of "scalars" in S) that
-        can serve as the primitive element of a field extension GF(q)[x] / f(x).  Crucially, the
-        powers of this primitive element, collected into the power basis
+        We need to find elements of Z(S) that act as GF(q^d) scalars when embedding S into
+        GF(q^d)^{n × n}.  To this end, we identify a suitable generator b ∈ Z(S) that can serve as
+        the primitive element of a field extension GF(q)[x] / f(x).  Crucially, the powers of this
+        generator, collected into the power basis
             B = (b^0, b^1, b^2, ..., b^{d-1}),
         must be linearly independent.  Here b^0 = e is the identity element of S.
 
@@ -1201,7 +1201,7 @@ class WedderburnArtinComponentTransformer:
                 If so, return B.  Otherwise, go back to step 1.
 
         Returns:
-            - A 2-dimensional galois.FieldArray whose j-th row is b^j as a vector in GF(q)^{|G|}.
+            - A matrix in GF(q)^{d × |G|} whose j-th row is b^j as a vector in GF(q)^{|G|}.
         """
         if self.degree == 1:
             return self.pci_vec.reshape(1, -1).view(self.field)
@@ -1225,6 +1225,27 @@ class WedderburnArtinComponentTransformer:
             pass  # pragma: no cover
         return vector
 
+    def _get_power_basis_dual(self) -> galois.FieldArray:
+        r"""Construct the dual of the power basis B for GF(q^d) ≅ GF(p^{kd}).
+
+        For the power basis of row vectors, B = (b^0, b^1, b^2, ..., b^{d-1}), the dual basis
+            A = (a_0, a_1, a_2, ..., a_{d-1})
+        satisfies
+            A @ B.T = 1_d,
+        where 1_d is the d × d identity matrix.  If a ring member z ∈ Z(S) has the expansion
+            z = sum_{j=0}^{d-1} z_j b^j,
+        then A @ z = (z_0, z_1, ..., z_{d-1}).
+
+        Returns:
+            - A matrix in GF(q)^{d × |G|} whose j-th row is a_j as a vector in GF(q)^{|G|}.
+        """
+        basis = self.power_basis
+        pivot_cols = qldpc.math.first_nonzero_cols(basis.T.row_reduce())[: self.degree]
+        linearly_independent_cols = self.power_basis[:, pivot_cols]
+        dual_basis = self.field.Zeros(basis.shape)
+        dual_basis[:, pivot_cols] = np.linalg.inv(linearly_independent_cols)
+        return dual_basis
+
     def _get_center_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
         r"""Construct embeddings of elements in the center Z(S) into GF(p^{kd}) ≅ GF(q^d).
 
@@ -1233,8 +1254,8 @@ class WedderburnArtinComponentTransformer:
         2. Embedding the power basis B = (b^0, b^1, b^2, ..., b^{d-1}) for GF(q^d) into GF(p^{kd}).
 
         Returns:
-            - A 1-dimensional galois.FieldArray whose j-th element is the embedding of GF(q)(j).
-            - A 1-dimensional galois.FieldArray whose j-th element is the embedding of b^j.
+            - A vector in GF(p^{kd})^d whose j-th element is the embedding of GF(q)(j).
+            - A vector in GF(p^{kd})^d whose j-th element is the embedding of b^j.
         """
         if self.degree == 1:
             return self.field.elements, self.field.Ones([1])
@@ -1285,10 +1306,9 @@ class WedderburnArtinComponentTransformer:
             sum_{j=0}^{d-1} f_j b^j = -b^d.
         The remaining coefficients can be found by solving a linear system of equations.
         """
-        gen_to_dim_power = (
-            self.power_basis_in_ring[1].regular_lift() @ self.power_basis_in_field[-1]
-        )
-        linear_system = np.column_stack([self.power_basis_in_field.T, -gen_to_dim_power])
+        gen = RingMember.from_vector(self.power_basis[1], self.ring).regular_lift()
+        gen_to_dim_power = gen @ self.power_basis[-1]
+        linear_system = np.column_stack([self.power_basis.T, -gen_to_dim_power])
         poly_coeffs = linear_system.view(self.field).row_reduce()[: self.degree, -1]
         poly_coeffs = np.append(poly_coeffs, self.field(1))
         irreducible_poly = galois.Poly(poly_coeffs[::-1], field=self.field)  # this is f(x)
@@ -1302,20 +1322,26 @@ class WedderburnArtinComponentTransformer:
 
         return self.extended_field(embedded_scalars), self.extended_field(embedded_power_basis)
 
-    def _get_dual_power_basis(self) -> galois.FieldArray:
-        r"""Construct the dual of the power basis B for GF(q^d) ≅ GF(p^{kd}).
+    def _get_embedded_power_basis_dual(self) -> galois.FieldArray:
+        r"""Construct the dual of the embedded power basis E[B].
 
-        For the power basis B = (b^0, b^1, b^2, ..., b^{d-1}), the dual basis
-            A = (a^0, a^1, a^2, ..., a^{d-1})
+        Let E : GF(q)^{|G|} -> GF(p^{kd}) be the embedding of the center Z(S) into GF(p^{kd}).
+
+        For an embedded power basis E[B] = (E[b^0], E[b^1], E[b^2], ..., E[b^{d-1}]) ∈ GF(p^{kd})^d,
+        the dual basis
+            E[A] = (E[a_0], E[a_1], E[a_2], ..., E[a_{d-1}])
         satisfies
-            Tr_{GF(q^d)/GF(q)}[a_i b^j] = delta_{ij},
+            Tr_{GF(q^d)/GF(q)}[E[a_i] E[b^j]] = delta_{ij},
         where Tr_{GF(q^d)/GF(q)} denotes a field trace from GF(q^d) to GF(q); see self.field_trace.
 
-        The dual basis allows us to "pick off" the coefficients of a polynomial in GF(q)[x] / f(x),
-        which is useful for embedding elements of GF(p^{kd}) ≅ GF(q^d) back into Z(S) by:
-            1. Mapping z ∈ GF(p^{kd}) to the vector (z_0, z_1, ...) with z_j = Tr[a_j z].
-            2. Combining these coefficients to recover sum_j z_j b^j ∈ Z(S),
-        Mechanically, this embedding procedure requires the dual basis to "live" in GF(p^{kd}).
+        The dual basis allows us to "pick off" the coefficients of a polynomial in the center
+            Z(S) ≅ GF(q^d) ≅ GF(q)[x] / f(x)
+        that has been embedded into GF(p^{kd}), which is useful for mapping back into Z(S) by:
+            1. Mapping z ∈ GF(p^{kd}) to (z_0, z_1, ..., z_{d-1}) ∈ GF(q)^d with z_j = Tr[E[a_j] z].
+            2. Combining these coefficients to recover sum_j z_j b^j ∈ Z(S).
+
+        Returns:
+            - A vector in GF(p^{kd}) whose j-th entry is E[a_j] as a scalar in GF(p^{kd}).
         """
         if self.degree == 1:
             return self.extended_field.Ones([1])
@@ -1342,14 +1368,14 @@ class WedderburnArtinComponentTransformer:
     def _get_matrix_basis(self, seed: np.random.Generator) -> galois.FieldArray:
         """Construct standard basis of matrix elements |i><j| ∈ S ≅ GF(q^d)^{n × n}.
 
-        This method first decomposes the PCI e into primitive (possibly non-central) idempotents e_i
-        that sum to the PCI: e = sum_i e_i.  The primitive idempotents e_i are the "diagonal" matrix
-        elements |i><i|.  These idempotents are, in turn, used to construct off-diagonal matrix
-        elements e_ij = |i><j| ∈ e_i S e_j.
+        This method first decomposes the PCI e of S into primitive (possibly non-central)
+        idempotents e_i that sum to the PCI: e = sum_i e_i.  The primitive idempotents e_i are the
+        "diagonal" matrix elements |i><i|.  These idempotents are, in turn, used to construct
+        off-diagonal matrix elements e_ij = |i><j| ∈ e_i S e_j.
 
         Returns:
-            - A 3-dimensional galois.FieldArray matrix_basis over GF(q) for which
-                matrix_basis[i, j, :] is |i><j| = e_ij ∈ S as an element of GF(q)^{|G|}.
+            - A tensor in GF(q)^{n × n × |G|} whose (i, j, :) entry is |i><j| = e_ij ∈ S as vector
+                in GF(q)^{|G|}.
         """
         if self.ring.is_commutative:
             return self.pci_vec.reshape(1, 1, -1).view(self.field)
@@ -1399,7 +1425,7 @@ class WedderburnArtinComponentTransformer:
             4. Return the combined set of all idempotents found from decomposition at step 3.
 
         Returns:
-            - A 2-dimensional galois.FieldArray over GF(q) whose rows are primitive idempotents.
+            - A galois.FieldArray in GF(q)^{n × |G|} whose rows are primitive idempotents.
         """
         assert not self.ring.is_commutative  # this method should not have been called
         if idempotent_vec is None:
@@ -1588,21 +1614,17 @@ class WedderburnArtinComponentTransformer:
 
     def _center_to_scalar(self, scalar_as_vec: galois.FieldArray) -> galois.FieldArray:
         """Convert a scalar s ∈ Z(S) ≅ GF(q}^{|G|} into an element of GF(p^{kd}) ≅ GF(q^d)."""
-        linear_system = np.column_stack([self.power_basis_in_field.T, scalar_as_vec])
-        coeffs = linear_system.view(self.ring.field).row_reduce()[: self.degree, -1]
-        terms = [
-            self.embedded_scalars[coeffs[ss]] * self.embedded_power_basis[ss]
-            for ss in range(self.degree)
-        ]
-        return functools.reduce(operator.add, terms)
+        power_basis_coeffs = self.power_basis_dual @ scalar_as_vec
+        embedded_power_basis_coeffs = self.embedded_scalars[power_basis_coeffs.view(np.ndarray)]
+        return embedded_power_basis_coeffs @ self.embedded_power_basis
 
     def _scalar_to_center(self, scalar: galois.FieldArray) -> galois.FieldArray:
         """Embed a scalar GF(p^{kd}) ≅ GF(q^d) back into the center Z(S) ≅ GF(q}^{|G|}."""
         coefficients = [
             np.argmax(self.embedded_scalars == self.field_trace(dual * scalar))
-            for dual in self.dual_power_basis
+            for dual in self.embedded_power_basis_dual
         ]
-        terms = [vec * coeff for vec, coeff in zip(self.power_basis_in_field, coefficients)]
+        terms = [vec * coeff for vec, coeff in zip(self.power_basis, coefficients)]
         return functools.reduce(operator.add, terms)
 
     def project(self, element: RingMember) -> galois.FieldArray:
