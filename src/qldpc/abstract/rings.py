@@ -1363,7 +1363,8 @@ class WedderburnArtinComponentTransformer:
         - https://en.wikipedia.org/wiki/Field_trace
         """
         conjugates = [value ** (self.field.order**pow) for pow in range(self.degree)]
-        return functools.reduce(operator.add, conjugates)
+        values = self.extended_field(np.stack(conjugates, axis=0)).sum(axis=0)
+        return values.reshape(value.shape).view(self.extended_field)
 
     def _get_matrix_basis(self, seed: np.random.Generator) -> galois.FieldArray:
         """Construct standard basis of matrix elements |i><j| ∈ S ≅ GF(q^d)^{n × n}.
@@ -1619,7 +1620,7 @@ class WedderburnArtinComponentTransformer:
         return embedded_power_basis_coeffs @ self.embedded_power_basis
 
     def _scalar_to_center(self, scalar: galois.FieldArray) -> galois.FieldArray:
-        """Embed a scalar GF(p^{kd}) ≅ GF(q^d) back into the center Z(S) ≅ GF(q}^{|G|}."""
+        """Embed a scalar in GF(p^{kd}) ≅ GF(q^d) back into the center Z(S) ≅ GF(q}^{|G|}."""
         coefficients = [
             np.argmax(self.embedded_scalars == self.field_trace(dual * scalar))
             for dual in self.embedded_power_basis_dual
