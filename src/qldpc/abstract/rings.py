@@ -1111,7 +1111,6 @@ class WedderburnArtinComponentTransformer:
     dual_power_basis: galois.FieldArray  # dual basis of the embedded_basis in GF(p^(kd))
 
     matrix_basis_in_field: galois.FieldArray  # matrix elements |i><j| for GF(q^d)^{n × n}
-    matrix_basis_in_ring: RingArray  # same matrix elements, as native RingMember objects
 
     def __init__(self, pci: RingMember, *, seed: np.random.Generator | None = None) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring.
@@ -1141,9 +1140,6 @@ class WedderburnArtinComponentTransformer:
         self.dual_power_basis = self._get_dual_power_basis()
 
         self.matrix_basis_in_field = self._get_matrix_basis(seed)
-        self.matrix_basis_in_ring = RingArray.from_field_array(
-            self.matrix_basis_in_field, self.ring
-        )
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -1192,7 +1188,7 @@ class WedderburnArtinComponentTransformer:
         form a "power basis" for GF(q)[x] / f(x).
 
         We need to find elements of S that act as GF(q^d) scalars when mapping into GF(q^d)^{n × n}.
-        To this end, we identify a suitable element b of Z(S) (the subspace of scalars in S) that
+        To this end, we identify a suitable element b of Z(S) (the subspace of "scalars" in S) that
         can serve as the primitive element of a field extension GF(q)[x] / f(x).  Crucially, the
         powers of this primitive element, collected into the power basis
             B = (b^0, b^1, b^2, ..., b^{d-1}),
@@ -1353,7 +1349,7 @@ class WedderburnArtinComponentTransformer:
 
         Returns:
             - A 3-dimensional galois.FieldArray matrix_basis over GF(q) for which
-                matrix_basis[i, j, :] is |i><j| = e_ij ∈ Z(S) as an element of GF(q)^{|G|}.
+                matrix_basis[i, j, :] is |i><j| = e_ij ∈ S as an element of GF(q)^{|G|}.
         """
         if self.ring.is_commutative:
             return self.pci_vec.reshape(1, 1, -1).view(self.field)
@@ -1563,8 +1559,8 @@ class WedderburnArtinComponentTransformer:
         with matrix transposition in GF(q^d)^{n × n}.
 
         Returns:
-            - A 1-dimensional galois.FieldArray representing e_ij ∈ Z(S) as a vector in GF(q)^{|G|}.
-            - A 1-dimensional galois.FieldArray representing e_ji ∈ Z(S) as a vector in GF(q)^{|G|}.
+            - A 1-dimensional galois.FieldArray representing e_ij ∈ S as a vector in GF(q)^{|G|}.
+            - A 1-dimensional galois.FieldArray representing e_ji ∈ S as a vector in GF(q)^{|G|}.
         """
         # build projections onto e_i R e_j and e_j R e_i
         projection_ij = idempotent_i.regular_lift() @ idempotent_j.regular_lift(right=True)
