@@ -723,8 +723,8 @@ class RingArray(npt.NDArray[np.object_]):
         """
         assert self.ndim == 2
 
-        # field-valued null vectors of matrix.regular_lift() correspond to ring-valued null vectors
-        # of the matrix via conversion with RingArray.from_field_vector <> RingArray.to_field_vector
+        # field-valued null vectors of self.regular_lift() provide an overcomplete basis for
+        # the space of ring-valued null vectors
         null_field_vectors = self.regular_lift().null_space()
 
         # collect ring-valued null row vectors (that is, transposed null column vectors)
