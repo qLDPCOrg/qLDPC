@@ -1111,7 +1111,8 @@ class WedderburnArtinComponentTransformer:
     embedded_power_basis: galois.FieldArray  # embedding of B into GF(p^(kd))
     embedded_power_basis_dual: galois.FieldArray  # dual of embedded_power_basis w.r.t. field trace
 
-    matrix_basis_in_field: galois.FieldArray  # matrix elements |i><j| for GF(q^d)^{n × n}
+    matrix_basis: galois.FieldArray  # matrix elements |i><j| for GF(q^d)^{n × n}
+    matrix_basis_dual: galois.FieldArray  # dual of the matrix_basis
 
     def __init__(self, pci: RingMember, *, seed: np.random.Generator | None = None) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring.
@@ -1134,7 +1135,7 @@ class WedderburnArtinComponentTransformer:
         self.size = math.isqrt(np.linalg.matrix_rank(self.pci_reg) // self.degree)
 
         self.power_basis = self._get_power_basis(seed)
-        self.power_basis_dual = self._get_power_basis_dual()
+        self.power_basis_dual = self._get_dual_basis(self.power_basis)
 
         self.extended_field = galois.GF(self.field.order**self.degree)
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
@@ -1146,6 +1147,9 @@ class WedderburnArtinComponentTransformer:
             self.embedded_scalars_inverse[int(pp)] = qq
 
         self.matrix_basis = self._get_matrix_basis(seed)
+        self.matrix_basis_dual = self._get_dual_basis(
+            self.matrix_basis.reshape(-1, self.matrix_basis.shape[-1])
+        ).reshape(self.matrix_basis.shape)
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -1231,26 +1235,13 @@ class WedderburnArtinComponentTransformer:
             pass  # pragma: no cover
         return vector
 
-    def _get_power_basis_dual(self) -> galois.FieldArray:
-        r"""Construct the dual of the power basis B for GF(q^d) ≅ GF(p^{kd}).
-
-        For the power basis of row vectors, B = (b^0, b^1, b^2, ..., b^{d-1}), the dual basis
-            A = (a_0, a_1, a_2, ..., a_{d-1})
-        satisfies
-            A @ B.T = 1_d,
-        where 1_d is the d × d identity matrix.  If a ring member z ∈ Z(S) has the expansion
-            z = sum_{j=0}^{d-1} z_j b^j,
-        then A @ z = (z_0, z_1, ..., z_{d-1}).
-
-        Returns:
-            - A matrix in GF(q)^{d × |G|} whose j-th row is a_j as a vector in GF(q)^{|G|}.
-        """
-        basis = self.power_basis
-        pivot_cols = qldpc.math.first_nonzero_cols(basis.T.row_reduce())[: self.degree]
-        linearly_independent_cols = self.power_basis[:, pivot_cols]
-        dual_basis = self.field.Zeros(basis.shape)
-        dual_basis[:, pivot_cols] = np.linalg.inv(linearly_independent_cols)
-        return dual_basis
+    def _get_dual_basis(self, basis: galois.FieldArray) -> galois.FieldArray:
+        """Construct a dual basis, for which dual_basis @ basis.T = identity_matrix."""
+        pivot_cols = qldpc.math.first_nonzero_cols(basis.row_reduce())[: len(basis)]
+        linearly_independent_cols = basis[:, pivot_cols].view(type(basis))
+        dual_basis = type(basis).Zeros(basis.shape)
+        dual_basis[:, pivot_cols] = np.linalg.inv(linearly_independent_cols).T
+        return dual_basis.view(type(basis))
 
     def _get_center_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
         r"""Construct embeddings of elements in the center Z(S) into GF(p^{kd}) ≅ GF(q^d).
