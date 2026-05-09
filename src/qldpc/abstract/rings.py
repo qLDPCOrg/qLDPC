@@ -1145,7 +1145,7 @@ class WedderburnArtinComponentTransformer:
         for qq, pp in enumerate(self.embedded_scalars):
             self.embedded_scalars_inverse[int(pp)] = qq
 
-        self.matrix_basis_in_field = self._get_matrix_basis(seed)
+        self.matrix_basis = self._get_matrix_basis(seed)
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -1312,8 +1312,7 @@ class WedderburnArtinComponentTransformer:
             sum_{j=0}^{d-1} f_j b^j = -b^d.
         The remaining coefficients can be found by solving a linear system of equations.
         """
-        gen = RingMember.from_vector(self.power_basis[1], self.ring).regular_lift()
-        gen_to_dim_power = gen @ self.power_basis[-1]
+        gen_to_dim_power = self._regular_lift(self.power_basis[1]) @ self.power_basis[-1]
         linear_system = np.column_stack([self.power_basis.T, -gen_to_dim_power])
         poly_coeffs = linear_system.view(self.field).row_reduce()[: self.degree, -1]
         poly_coeffs = np.append(poly_coeffs, self.field(1))
@@ -1327,6 +1326,10 @@ class WedderburnArtinComponentTransformer:
             embedded_power_basis.append(embedded_power_basis[-1] * embedded_generator)
 
         return self.extended_field(embedded_scalars), self.extended_field(embedded_power_basis)
+
+    def _regular_lift(self, vector: galois.FieldArray, *, right: bool = False) -> galois.FieldArray:
+        """Lift a member of S from GF(q)^{|G|} to a matrix that encodes ring multiplication."""
+        return RingMember.from_vector(vector, self.ring).regular_lift(right=right)
 
     def _get_embedded_power_basis_dual(self) -> galois.FieldArray:
         r"""Construct the dual of the embedded power basis E[B].
@@ -1388,29 +1391,41 @@ class WedderburnArtinComponentTransformer:
             return self.pci_vec.reshape(1, 1, -1).view(self.field)
 
         # collect primitive idempotents along the diagonal of the matrix_basis
-        primitive_idempotents_as_vecs = self._get_primitive_idempotents(seed)
-        matrix_basis = self.field.Zeros([self.size, self.size, self.ring.group.order])
-        matrix_basis[np.arange(self.size), np.arange(self.size), :] = primitive_idempotents_as_vecs
+        pids_as_vecs = self._get_primitive_idempotents(seed)
+        basis_as_vecs = self.field.Zeros([self.size, self.size, self.ring.group.order])
+        basis_as_vecs[np.arange(self.size), np.arange(self.size), :] = pids_as_vecs
+
+        # construct matrices for left- and right-multiplication by the primitive idempotents
+        pids_left = [self._regular_lift(idempotent) for idempotent in pids_as_vecs]
+        pids_right = [self._regular_lift(idempotent, right=True) for idempotent in pids_as_vecs]
 
         # construct the off-diagonal matrix elements |0><i| and |i><0|
-        primitive_idempotents = [
-            RingMember.from_vector(idempotent, self.ring)
-            for idempotent in primitive_idempotents_as_vecs
-        ]
-        mats = {}  # regular representations of |0><i| and |i><0|
         for ii in range(1, self.size):
-            matrix_basis[0, ii, :], matrix_basis[ii, 0, :] = self._get_off_diagonal_elements(
-                primitive_idempotents[0], primitive_idempotents[ii], seed
+            # projections onto e_0 R e_i and e_i R e_0
+            projection_0_i = pids_left[0] @ pids_right[ii]
+            projection_i_0 = pids_left[ii] @ pids_right[0]
+
+            # bases for e_0 R e_i and e_i R e_0 in GF(q)^{|G|}
+            basis_0_i = projection_0_i.column_space()
+            basis_i_0 = projection_i_0.column_space()
+
+            # choose suitable elements of e_0 R e_i and e_i R e_0 as |0><i| and |i><0|
+            basis_as_vecs[0, ii, :], basis_as_vecs[ii, 0, :] = self._get_off_diagonal_basis_vecs(
+                basis_0_i, basis_i_0, seed
             )
-            mats[0, ii] = RingMember.from_vector(matrix_basis[0, ii, :], self.ring).regular_lift()
-            mats[ii, 0] = RingMember.from_vector(matrix_basis[ii, 0, :], self.ring).regular_lift()
+
+        # build left-regular representations of |0><i| and |i><0|
+        basis_as_mats = {}
+        for ii in range(1, self.size):
+            basis_as_mats[0, ii] = self._regular_lift(basis_as_vecs[0, ii, :])
+            basis_as_mats[ii, 0] = self._regular_lift(basis_as_vecs[ii, 0, :])
 
         # construct the remaining matrix elements |i><j| = |i><0|·|0><j|
         for ii, jj in itertools.combinations(range(1, self.size), r=2):
-            matrix_basis[ii, jj, :] = mats[ii, 0] @ matrix_basis[0, jj, :]
-            matrix_basis[jj, ii, :] = mats[jj, 0] @ matrix_basis[0, ii, :]
+            basis_as_vecs[ii, jj, :] = basis_as_mats[ii, 0] @ basis_as_vecs[0, jj, :]
+            basis_as_vecs[jj, ii, :] = basis_as_mats[jj, 0] @ basis_as_vecs[0, ii, :]
 
-        return matrix_basis
+        return basis_as_vecs
 
     def _get_primitive_idempotents(
         self, seed: np.random.Generator, idempotent_vec: galois.FieldArray | None = None
@@ -1547,7 +1562,7 @@ class WedderburnArtinComponentTransformer:
         We stop when the number of columns exceeds the rank r of the matrix, at which point we save
         α^r for later use and throw out all but the first r columns, [α^0, α^1, α^2, ..., α^{r-1}].
         """
-        element_mat = RingMember.from_vector(element, self.ring).regular_lift()
+        element_mat = self._regular_lift(element)
         powers = idempotent.reshape(-1, 1).view(self.field)
         while True:
             new_powers = element_mat @ powers
@@ -1572,8 +1587,8 @@ class WedderburnArtinComponentTransformer:
 
         return galois.Poly(poly_coeffs[::-1], field=self.field), powers.T
 
-    def _get_off_diagonal_elements(
-        self, idempotent_i: RingMember, idempotent_j: RingMember, seed: np.random.Generator
+    def _get_off_diagonal_basis_vecs(
+        self, basis_ij: galois.FieldArray, basis_ji: galois.FieldArray, seed: np.random.Generator
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Construct standard-basis matrix elements |i><j| and |j><i| of S ≅ GF(q^d)^{n × n}.
 
@@ -1595,27 +1610,18 @@ class WedderburnArtinComponentTransformer:
             - A 1-dimensional galois.FieldArray representing e_ij ∈ S as a vector in GF(q)^{|G|}.
             - A 1-dimensional galois.FieldArray representing e_ji ∈ S as a vector in GF(q)^{|G|}.
         """
-        # build projections onto e_i R e_j and e_j R e_i
-        projection_ij = idempotent_i.regular_lift() @ idempotent_j.regular_lift(right=True)
-        projection_ji = idempotent_j.regular_lift() @ idempotent_i.regular_lift(right=True)
-
         # sample x_ij ∈ e_i R e_j and x_ji ∈ e_j R e_i
-        bases_ij = projection_ij.column_space()
-        bases_ji = projection_ji.column_space()
-        vec_ij = self._random_nonzero_vec(len(bases_ij), seed) @ bases_ij
-        vec_ji = self._random_nonzero_vec(len(bases_ji), seed) @ bases_ji
+        vec_ij = self._random_nonzero_vec(len(basis_ij), seed) @ basis_ij
+        vec_ji = self._random_nonzero_vec(len(basis_ji), seed) @ basis_ji
 
         # construct y_i = α e_i, z = α e, and extract α as a scalar in GF(p^{kd})
-        vec_i = RingMember.from_vector(vec_ij, self.ring).regular_lift() @ vec_ji
-        vec_z = self.ring.group_trace_matrix @ vec_i
+        vec_i = self._regular_lift(vec_ij) @ vec_ji
         normalization = (self.field(1) * self.size) / (self.field(1) * self.ring.group.order)
         vec_z = self.ring.group_trace_matrix @ vec_i * normalization
         scalar = self._center_to_scalar(vec_z)
 
         # return e_ij = x_ij, e_ji = x_ji / α
-        scalar_inv_as_mat = RingMember.from_vector(
-            self._scalar_to_center(scalar ** (-1)), self.ring
-        ).regular_lift()
+        scalar_inv_as_mat = self._regular_lift(self._scalar_to_center(scalar ** (-1)))
         return vec_ij, scalar_inv_as_mat @ vec_ji
 
     def _center_to_scalar(self, vec_in_center: galois.FieldArray) -> galois.FieldArray:
