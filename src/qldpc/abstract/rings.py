@@ -1112,7 +1112,6 @@ class WedderburnArtinComponentTransformer:
     embedded_power_basis_dual: galois.FieldArray  # dual of embedded_power_basis w.r.t. field trace
 
     matrix_basis: galois.FieldArray  # matrix elements |i><j| for GF(q^d)^{n × n}
-    matrix_basis_dual: galois.FieldArray  # dual of the matrix_basis
 
     def __init__(self, pci: RingMember, *, seed: np.random.Generator | None = None) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring.
@@ -1147,7 +1146,6 @@ class WedderburnArtinComponentTransformer:
             self.embedded_scalars_inverse[int(pp)] = qq
 
         self.matrix_basis = self._get_matrix_basis(seed)
-        self.matrix_basis_dual = self._get_dual_basis(self.matrix_basis)
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -1384,14 +1382,14 @@ class WedderburnArtinComponentTransformer:
         basis_as_vecs[np.arange(self.size), np.arange(self.size), :] = pids_as_vecs
 
         # construct matrices for left- and right-multiplication by the primitive idempotents
-        pids_left = [self._regular_lift(idempotent) for idempotent in pids_as_vecs]
-        pids_right = [self._regular_lift(idempotent, right=True) for idempotent in pids_as_vecs]
+        pid_mats_l = [self._regular_lift(idempotent) for idempotent in pids_as_vecs]
+        pid_mats_r = [self._regular_lift(idempotent, right=True) for idempotent in pids_as_vecs]
 
         # construct the off-diagonal matrix elements |0><i| and |i><0|
         for ii in range(1, self.size):
             # projections onto e_0 R e_i and e_i R e_0
-            projection_0_i = pids_left[0] @ pids_right[ii]
-            projection_i_0 = pids_left[ii] @ pids_right[0]
+            projection_0_i = pid_mats_l[0] @ pid_mats_r[ii]
+            projection_i_0 = pid_mats_l[ii] @ pid_mats_r[0]
 
             # bases for e_0 R e_i and e_i R e_0 in GF(q)^{|G|}
             basis_0_i = projection_0_i.column_space()
@@ -1623,6 +1621,44 @@ class WedderburnArtinComponentTransformer:
         embedded_coefficients = self.field_trace(self.embedded_power_basis_dual * scalar)
         coefficients = self.embedded_scalars_inverse[embedded_coefficients.view(np.ndarray)]
         return coefficients @ self.power_basis
+
+    def _get_decomposition_coefficient_extractor(self) -> galois.FieldArray:
+        """Build the linear map that extracts the entries in GF(q^d)^{n × n} as vectors in GF(q).
+
+        Consider a ring member r ∈ R ≅ GF(q)^{|G|} whose projection s = r·e ∈ S has the expansion
+            s = sum_{i,j,k} s_ijk b^i e_jk ∈ GF(q)^{|G|},
+        where each coefficient s_ijk ∈ GF(q).  This method constructs the linear map
+            GF(q)^{|G|} -> GF(q)^{n × n × d}
+        that takes a ring member r to the coefficients s_ijk.
+
+        Returns:
+            - A matrix in GF(q)^{n^2·d × |G|} that maps a ring member r to [s_ijk]_ijk.
+        """
+        # matrices representing the action of e_ij from multiplication on the left and right
+        matrix_basis_as_mat_l = self.field(
+            [self._regular_lift(vec) for vec in self.matrix_basis]
+        ).reshape(self.size, self.size, self.ring.group.order, self.ring.group.order)
+        matrix_basis_as_mat_r = self.field(
+            [self._regular_lift(vec, right=True) for vec in self.matrix_basis]
+        ).reshape(self.size, self.size, self.ring.group.order, self.ring.group.order)
+
+        # construct a matrix that maps α e_i -> (α_0, α_1, ..., α_{d-1}), where α = sum_j α_j b^j
+        normalization = (self.field(1) * self.size) / (self.field(1) * self.ring.group.order)
+        get_diagonal_entry_scalar = (
+            self.power_basis_dual @ self.ring.group_trace_matrix * normalization
+        )
+
+        # take r -> (e_j r e_k e_kj) = s_jk e_j -> s_ijk
+        tensor = self.field(
+            [
+                get_diagonal_entry_scalar
+                @ matrix_basis_as_mat_r[kk, jj]
+                @ matrix_basis_as_mat_r[kk, kk]
+                @ matrix_basis_as_mat_l[jj, jj]
+                for jj, kk in itertools.product(range(self.size), repeat=2)
+            ]
+        )
+        return tensor.reshape(self.size**2 * self.degree, self.ring.group.order).view(self.field)
 
     def project(self, element: RingMember) -> galois.FieldArray:
         """Project an element of the parent ring into a simple component S ≅ GF(q^d)^{n × n}."""
