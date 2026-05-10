@@ -1113,6 +1113,10 @@ class WedderburnArtinComponentTransformer:
 
     matrix_basis: galois.FieldArray  # matrix elements |i><j| for GF(q^d)^{n × n}
 
+    # matrices to project R -> S ≅ GF(q^d)^{n × n} ≅ GF(q)^{n × n × d}, and embed back into R
+    decomposition_coefficient_extractor: galois.FieldArray
+    decomposition_coefficient_recombiner: galois.FieldArray
+
     def __init__(self, pci: RingMember, *, seed: np.random.Generator | None = None) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring.
 
@@ -1147,6 +1151,7 @@ class WedderburnArtinComponentTransformer:
 
         self.matrix_basis = self._get_matrix_basis(seed)
         self.decomposition_coefficient_extractor = self._get_decomposition_coefficient_extractor()
+        self.decomposition_coefficient_recombiner = self._get_decomposition_coefficient_recombiner()
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -1344,13 +1349,13 @@ class WedderburnArtinComponentTransformer:
             return self.extended_field.Ones([1])
         matrix = self.extended_field(
             [
-                self.field_trace(aa * bb)
+                self.extended_field_trace(aa * bb)
                 for aa, bb in itertools.product(self.embedded_power_basis, repeat=2)
             ]
         ).reshape([self.degree] * 2)
         return np.linalg.inv(matrix) @ self.embedded_power_basis
 
-    def field_trace(self, value: galois.FieldArray) -> galois.FieldArray:
+    def extended_field_trace(self, value: galois.FieldArray) -> galois.FieldArray:
         """Compute the field trace from GF(q^d) to GF(q).
 
         The field trace of z from GF(q^d) to GF(q) is defined by
@@ -1619,12 +1624,12 @@ class WedderburnArtinComponentTransformer:
 
     def _scalar_to_center(self, scalar: galois.FieldArray) -> galois.FieldArray:
         """Embed a scalar in GF(p^{kd}) ≅ GF(q^d) back into the center Z(S) ≅ GF(q}^{|G|}."""
-        embedded_coefficients = self.field_trace(self.embedded_power_basis_dual * scalar)
+        embedded_coefficients = self.extended_field_trace(self.embedded_power_basis_dual * scalar)
         coefficients = self.embedded_scalars_inverse[embedded_coefficients.view(np.ndarray)]
         return coefficients @ self.power_basis
 
     def _get_decomposition_coefficient_extractor(self) -> galois.FieldArray:
-        """Build the linear map that extracts the entries in GF(q^d)^{n × n} as vectors in GF(q).
+        """Build a matrix that maps elements of S to their GF(q) coefficients in GF(q^d)^{n × n}.
 
         Consider a ring member r ∈ R ≅ GF(q)^{|G|} whose projection s = r·e ∈ S has the expansion
             s = sum_{i,j,k} s_ijk b^i e_jk ∈ GF(q)^{|G|},
@@ -1661,6 +1666,24 @@ class WedderburnArtinComponentTransformer:
         )
         return tensor.reshape(self.size**2 * self.degree, self.ring.group.order).view(self.field)
 
+    def _get_decomposition_coefficient_recombiner(self) -> galois.FieldArray:
+        """Build a matrix that embeds GF(q) coefficients of GF(q^d)^{n × n} into S.
+
+        The matrix built here is a left pseudo-inverse of that built in
+        _get_decomposition_coefficient_extractor.
+
+        Returns:
+            - A matrix in GF(q)^{|G| × n^2·d} that maps [s_ijk]_ijk to s ∈ S ≅ GF(q)^{|G|}.
+        """
+        power_basis_mats = [self._regular_lift(bb) for bb in self.power_basis]
+        return self.field(
+            [
+                power_basis_mats[ii] @ self.matrix_basis[jj_kk]
+                for jj_kk in range(self.size**2)
+                for ii in range(self.degree)
+            ]
+        ).T.view(self.field)
+
     def project(self, element: RingMember) -> galois.FieldArray:
         """Project an element of the parent ring into a simple component S ≅ GF(q^d)^{n × n}."""
         if element.ring is not self.ring:
@@ -1677,6 +1700,13 @@ class WedderburnArtinComponentTransformer:
         """Embed an element of S ≅ GF(q^d)^{n × n} back into the parent ring R."""
         if type(element) is not self.extended_field or element.shape != (self.size, self.size):
             raise ValueError(r"The provided element does not live in GF(q^d)^{n × n}")
+        embedded_coefficients = self.extended_field_trace(
+            np.outer(element.ravel(), self.embedded_power_basis_dual).view(self.extended_field)
+        ).reshape(*element.shape, self.degree)
+        coefficients = self.embedded_scalars_inverse[embedded_coefficients.view(np.ndarray)]
+        vector = self.decomposition_coefficient_recombiner @ coefficients.ravel()
+        return RingMember.from_vector(vector, self.ring)
+
         if self.size == 1:
             if self.degree == 1:
                 return self.pci * element[0, 0]
