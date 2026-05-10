@@ -1740,7 +1740,7 @@ class WedderburnArtinComponentTransformer:
                 "A Wedderburn-Artin transformer initialized for one ring was asked to decompose an"
                 " element of a different ring"
             )
-        vectors = array.ravel().to_field_array()
+        vectors = array.to_field_array().reshape(array.size, self.ring.group.order)
         coefficients = vectors @ self.decomposition_coefficient_extractor.T
         embedded_coefficients = self.embedded_scalars[coefficients.view(np.ndarray)]
         matrix_values = (
