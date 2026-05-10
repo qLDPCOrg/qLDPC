@@ -347,8 +347,11 @@ def test_wedderburn_artin_transformations(
     assert separate == transformer.decompose(member_a * member_b)
 
     # the Wedderburn-Artin decomposition is invertible
-    assert member_a == transformer.recompose(transformer.decompose(member_a))
-    assert member_b == transformer.recompose(transformer.decompose(member_b))
+    ring_array = abstract.RingArray([member_a, member_b])
+    assert np.array_equal(
+        ring_array,
+        transformer.recompose_array(transformer.decompose_array(ring_array)),
+    )
 
 
 def test_wedderburn_artin_errors() -> None:
@@ -366,7 +369,7 @@ def test_wedderburn_artin_errors() -> None:
     with pytest.raises(ValueError, match="Incorrect number of components"):
         transformer.recompose([])
     with pytest.raises(ValueError, match="inconsistent shapes"):
-        transformer.recompose_arrays([ring.field.Identity(1), ring.field.Identity(2)])
+        transformer.recompose_array([ring.field.Identity(1), ring.field.Identity(2)])
 
     with pytest.raises(ValueError, match=re.escape("does not live in GF(q^d)^{n × n}")):
         transformer.recompose(galois.GF(3).Ones(2))

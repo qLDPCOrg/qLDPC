@@ -1054,7 +1054,7 @@ class WedderburnArtinTransformer:
         terms = [trans.embed(comp) for comp, trans in zip(components, self.transformers)]
         return functools.reduce(operator.add, terms)
 
-    def recompose_arrays(self, arrays: Sequence[galois.FieldArray]) -> RingArray:
+    def recompose_array(self, arrays: Sequence[galois.FieldArray]) -> RingArray:
         """Invert WedderburnArtinTransformer.decompose_array."""
         if not len(set([array.shape for array in arrays])) == 1:
             raise ValueError("Asked to recompose arrays of inconsistent shapes")
@@ -1702,24 +1702,33 @@ class WedderburnArtinComponentTransformer:
             raise ValueError(r"The provided element does not live in GF(q^d)^{n × n}")
         embedded_coefficients = self.extended_field_trace(
             np.outer(element.ravel(), self.embedded_power_basis_dual).view(self.extended_field)
-        ).reshape(*element.shape, self.degree)
+        ).ravel()
         coefficients = self.embedded_scalars_inverse[embedded_coefficients.view(np.ndarray)]
-        vector = self.decomposition_coefficient_recombiner @ coefficients.ravel()
+        vector = self.decomposition_coefficient_recombiner @ coefficients
         return RingMember.from_vector(vector, self.ring)
-
-        if self.size == 1:
-            if self.degree == 1:
-                return self.pci * element[0, 0]
-            vector = self._scalar_to_center(element[0, 0])
-            return RingMember.from_vector(vector, self.ring)
-        return NotImplemented  # pragma: no cover
 
     def project_array(self, array: RingArray) -> galois.FieldArray:
         """Project each entry of a RingArray into a simple component S ≅ GF(q^d)^{n × n}."""
-        values = self.extended_field([self.project(val) for val in array.ravel()])
-        return values.reshape(array.shape).view(self.extended_field)
+        if array.ring is not self.ring:
+            raise ValueError(
+                "A Wedderburn-Artin transformer initialized for one ring was asked to decompose"
+                " elements of a different ring"
+            )
+        vectors = array.to_field_array().reshape(array.size, -1)
+        coefficients = vectors @ self.decomposition_coefficient_extractor.T
+        embedded_coefficients = self.embedded_scalars[coefficients.view(np.ndarray)]
+        matrix_values = embedded_coefficients.reshape(-1, self.degree) @ self.embedded_power_basis
+        return matrix_values.reshape(*array.shape, self.size, self.size).view(self.extended_field)
 
     def embed_array(self, array: galois.FieldArray) -> RingArray:
         """Map an array of values in S ≅ GF(q^d)^{n × n} into an array over the parent ring R."""
-        values = [self.embed(value.reshape([self.size] * 2)) for value in array.ravel()]
-        return RingArray(values, ring=self.ring).reshape(array.shape).view(RingArray)
+        if type(array) is not self.extended_field or array.shape[-2:] != (self.size, self.size):
+            raise ValueError(r"The provided array does not store matrices in GF(q^d)^{n × n}")
+        embedded_coefficients = self.extended_field_trace(
+            np.outer(array.ravel(), self.embedded_power_basis_dual).view(self.extended_field)
+        ).reshape(-1, self.size**2 * self.degree)
+        coefficients = self.embedded_scalars_inverse[embedded_coefficients.view(np.ndarray)]
+        new_array = coefficients @ self.decomposition_coefficient_recombiner.T
+        return RingArray.from_field_array(
+            new_array.reshape(*array.shape[:-2], self.ring.group.order), self.ring
+        )
