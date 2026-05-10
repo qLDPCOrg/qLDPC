@@ -333,20 +333,22 @@ def test_wedderburn_artin_transformations(
             proj_a_b = component_transformer.embedded_scalars[aa * bb]
             assert proj_a * proj_b == proj_a_b
 
-    # the embedding of ring members is a homomorphism
+    # the Wedderburn-Artin decomposition is an isomorphism
     coeffs_a = ring.field.Random(ring.group.order, seed=seed + 1)
     coeffs_b = ring.field.Random(ring.group.order, seed=seed + 2)
     terms_a = [(coeff, gen) for coeff, gen in zip(coeffs_a, ring.group.generate())]
     terms_b = [(coeff, gen) for coeff, gen in zip(coeffs_b, ring.group.generate())]
     member_a = abstract.RingMember(ring, *terms_a)
     member_b = abstract.RingMember(ring, *terms_b)
+    member_ab = member_a * member_b
     separate = [
         component_transformer.project(member_a) * component_transformer.project(member_b)
         for component_transformer in transformer.transformers
     ]
-    assert separate == transformer.decompose(member_a * member_b)
+    assert separate == transformer.decompose(member_ab)
+    assert transformer.recompose(separate) == member_ab
 
-    # the Wedderburn-Artin decomposition is invertible
+    # we can also decompose RingArrays
     ring_array = abstract.RingArray([member_a, member_b])
     assert np.array_equal(
         ring_array,
@@ -362,17 +364,24 @@ def test_wedderburn_artin_errors() -> None:
     ring = abstract.GroupRing(group, 2)
     transformer = ring.get_transformer()
 
+    different_ring = abstract.GroupRing(group, 4)
     with pytest.raises(ValueError, match="different ring"):
-        different_ring = abstract.GroupRing(group, 4)
         transformer.decompose(different_ring.one)
+    with pytest.raises(ValueError, match="different ring"):
+        transformer.decompose_array(abstract.RingArray([different_ring.one]))
 
     with pytest.raises(ValueError, match="Provided .* components for a ring that should have"):
         transformer.recompose([])
+    with pytest.raises(ValueError, match="Provided .* components for a ring that should have"):
+        transformer.recompose_array([])
+
     with pytest.raises(ValueError, match="inconsistent shapes"):
         transformer.recompose_array([ring.field.Identity(1), ring.field.Identity(2)])
 
     with pytest.raises(ValueError, match=re.escape("does not live in GF(q^d)^{n × n}")):
         transformer.recompose(galois.GF(3).Ones(2))
+    with pytest.raises(ValueError, match=re.escape("does not store matrices in GF(q^d)^{n × n}")):
+        transformer.recompose_array(galois.GF(3).Ones(2))
 
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
