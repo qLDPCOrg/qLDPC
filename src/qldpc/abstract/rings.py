@@ -743,8 +743,11 @@ class RingArray(npt.NDArray[np.object_]):
         if not self.ring.is_semisimple:
             raise ValueError("RingArray.row_reduce only supports semisimple rings")
         transformer = self.ring.get_transformer()
-        matrices = [component.row_reduce() for component in transformer.decompose_array(self)]
-        return transformer.recompose_arrays(matrices)
+        matrices = [
+            component.row_reduce()
+            for component in transformer.decompose_array(self, merge_blocks=True)
+        ]
+        return transformer.recompose_array(matrices, from_blocks=True)
 
     def howell_normal_form(self, *, poly: bool = False) -> RingArray:
         """Compute a Howell normal form of this RingArray.
@@ -780,7 +783,9 @@ class RingArray(npt.NDArray[np.object_]):
 
         # identify the components of the reduced row echelon form of this RingArray
         transformer = self.ring.get_transformer()
-        matrices = [matrix.row_reduce() for matrix in transformer.decompose_array(self)]
+        matrices = [
+            matrix.row_reduce() for matrix in transformer.decompose_array(self, merge_blocks=True)
+        ]
 
         def _remove_zero_rows(matrices: list[galois.FieldArray]) -> list[galois.FieldArray]:
             """Remove rows that are zero in all components."""
@@ -833,7 +838,7 @@ class RingArray(npt.NDArray[np.object_]):
             pivot_row += 1
 
         matrices = _remove_zero_rows(matrices)
-        return transformer.recompose_arrays(matrices)
+        return transformer.recompose_array(matrices, from_blocks=True)
 
     def _howell_normal_form_non_commutative(self) -> RingArray:
         """Compute a Howell normal form of a RingArray over a semisimple non-commutative ring."""
@@ -1038,27 +1043,52 @@ class WedderburnArtinTransformer:
             )
 
     def decompose(self, element: RingMember) -> list[galois.FieldArray]:
-        """Decompose an element of the ring into its Wedderburn-Artin components."""
+        """Decompose an element of a ring into its Wedderburn-Artin components."""
         return [transformer.project(element) for transformer in self.transformers]
 
-    def decompose_array(self, array: RingArray) -> list[galois.FieldArray]:
-        """Decompose an array over a ring into its Wedderburn-Artin components."""
-        return [transformer.project_array(array) for transformer in self.transformers]
+    def decompose_array(
+        self, array: RingArray, *, merge_blocks: bool = False
+    ) -> list[galois.FieldArray]:
+        """Decompose a RingArray element-wise into Wedderburn-Artin components.
+
+        Each component of N-dimensional RingArray is an (N+2)-dimensional galois.FieldArray.
+
+        If merge_blocks is True, this method treats each projected element as a block matrix in the
+        last two axes of the provided array, such that a projection with shape
+            (..., r, c, rb, cb)
+            is transposed and reshaped into an array with shape
+            (..., r * rb, c * cb).
+        """
+        return [
+            transformer.project_array(array, merge_blocks=merge_blocks)
+            for transformer in self.transformers
+        ]
 
     def recompose(self, components: Sequence[galois.FieldArray]) -> RingMember:
         """Invert WedderburnArtinTransformer.decompose."""
         if len(components) != len(self.transformers):
             raise ValueError(
-                "Incorrect number of components provided to WedderburnArtinTransformer.recompose"
+                f"Provided {len(components)} WedderburnArtinTransformer components for a ring that"
+                f" should have {len(self.transformers)}"
             )
         terms = [trans.embed(comp) for comp, trans in zip(components, self.transformers)]
         return functools.reduce(operator.add, terms)
 
-    def recompose_array(self, arrays: Sequence[galois.FieldArray]) -> RingArray:
+    def recompose_array(
+        self, components: Sequence[galois.FieldArray], *, from_blocks: bool = False
+    ) -> RingArray:
         """Invert WedderburnArtinTransformer.decompose_array."""
-        if not len(set([array.shape for array in arrays])) == 1:
+        if len(components) != len(self.transformers):
+            raise ValueError(
+                f"Provided {len(components)} WedderburnArtinTransformer components for a ring that"
+                f" should have {len(self.transformers)}"
+            )
+        if not len(set([array.shape for array in components])) == 1:
             raise ValueError("Asked to recompose arrays of inconsistent shapes")
-        terms = [trans.embed_array(array) for array, trans in zip(arrays, self.transformers)]
+        terms = [
+            trans.embed_array(array, from_blocks=from_blocks)
+            for array, trans in zip(components, self.transformers)
+        ]
         return functools.reduce(operator.add, terms)
 
 
@@ -1696,8 +1726,40 @@ class WedderburnArtinComponentTransformer:
         matrix_values = embedded_coefficients.reshape(-1, self.degree) @ self.embedded_power_basis
         return matrix_values.reshape(self.size, self.size)
 
+    def project_array(self, array: RingArray, *, merge_blocks: bool = False) -> galois.FieldArray:
+        """Project a RingArray element-wise into a simple component S ≅ GF(q^d)^{n × n}.
+
+        An N-dimensional RingArray gets projected into an (N+2)-dimensional galois.FieldArray.
+
+        If merge_blocks is True, this method treats each projected element as a block matrix in the
+        last two axes of the provided array, such that a projection with shape
+            (..., r, c, self.size, self.size)
+            is transposed and reshaped into an array with shape
+            (..., r * self.size, c * self.size).
+        """
+        if array.ring is not self.ring:
+            raise ValueError(
+                "A Wedderburn-Artin transformer initialized for one ring was asked to decompose an"
+                " element of a different ring"
+            )
+        vectors = array.to_field_array().reshape(array.size, -1)
+        coefficients = vectors @ self.decomposition_coefficient_extractor.T
+        embedded_coefficients = self.embedded_scalars[coefficients.view(np.ndarray)]
+        matrix_values = embedded_coefficients.reshape(-1, self.degree) @ self.embedded_power_basis
+        matrix_values = matrix_values.reshape(*array.shape, self.size, self.size)
+        if merge_blocks:
+            assert array.ndim >= 2
+            matrix_values = (
+                matrix_values.reshape(-1, array.shape[-2], array.shape[-1], self.size, self.size)
+                .transpose(0, 1, 3, 2, 4)
+                .reshape(
+                    *array.shape[:-2], array.shape[-2] * self.size, array.shape[-1] * self.size
+                )
+            )
+        return matrix_values.view(self.extended_field)
+
     def embed(self, element: galois.FieldArray) -> RingMember:
-        """Embed an element of S ≅ GF(q^d)^{n × n} back into the parent ring R."""
+        """Invert WedderburnArtinComponentTransformer.project."""
         if type(element) is not self.extended_field or element.shape != (self.size, self.size):
             raise ValueError(r"The provided element does not live in GF(q^d)^{n × n}")
         embedded_coefficients = self.extended_field_trace(
@@ -1707,21 +1769,17 @@ class WedderburnArtinComponentTransformer:
         vector = self.decomposition_coefficient_recombiner @ coefficients
         return RingMember.from_vector(vector, self.ring)
 
-    def project_array(self, array: RingArray) -> galois.FieldArray:
-        """Project each entry of a RingArray into a simple component S ≅ GF(q^d)^{n × n}."""
-        if array.ring is not self.ring:
-            raise ValueError(
-                "A Wedderburn-Artin transformer initialized for one ring was asked to decompose"
-                " elements of a different ring"
+    def embed_array(self, array: galois.FieldArray, *, from_blocks: bool = False) -> RingArray:
+        """Invert WedderburnArtinComponentTransformer.project_array."""
+        if from_blocks:
+            block_rows, rem_rows = divmod(array.shape[-2], self.size)
+            block_cols, rem_cols = divmod(array.shape[-1], self.size)
+            assert rem_rows == rem_cols == 0
+            array = (
+                array.reshape(-1, block_rows, self.size, block_cols, self.size)
+                .transpose(0, 1, 3, 2, 4)
+                .reshape(*array.shape[:-2], block_rows, block_cols, self.size, self.size)
             )
-        vectors = array.to_field_array().reshape(array.size, -1)
-        coefficients = vectors @ self.decomposition_coefficient_extractor.T
-        embedded_coefficients = self.embedded_scalars[coefficients.view(np.ndarray)]
-        matrix_values = embedded_coefficients.reshape(-1, self.degree) @ self.embedded_power_basis
-        return matrix_values.reshape(*array.shape, self.size, self.size).view(self.extended_field)
-
-    def embed_array(self, array: galois.FieldArray) -> RingArray:
-        """Map an array of values in S ≅ GF(q^d)^{n × n} into an array over the parent ring R."""
         if type(array) is not self.extended_field or array.shape[-2:] != (self.size, self.size):
             raise ValueError(r"The provided array does not store matrices in GF(q^d)^{n × n}")
         embedded_coefficients = self.extended_field_trace(

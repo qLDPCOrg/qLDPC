@@ -366,7 +366,7 @@ def test_wedderburn_artin_errors() -> None:
         different_ring = abstract.GroupRing(group, 4)
         transformer.decompose(different_ring.one)
 
-    with pytest.raises(ValueError, match="Incorrect number of components"):
+    with pytest.raises(ValueError, match="Provided .* components for a ring that should have"):
         transformer.recompose([])
     with pytest.raises(ValueError, match="inconsistent shapes"):
         transformer.recompose_array([ring.field.Identity(1), ring.field.Identity(2)])
