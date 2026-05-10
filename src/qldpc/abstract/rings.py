@@ -1257,8 +1257,8 @@ class WedderburnArtinComponentTransformer:
             for _ in range(self.degree - 2):
                 basis.append(generator_mat @ basis[-1])
 
-            if np.linalg.matrix_rank(basis) == self.degree:
-                basis_in_field = self.field(basis)
+            basis_in_field = self.field(basis)
+            if np.linalg.matrix_rank(basis_in_field) == self.degree:
                 return basis_in_field
 
     def _random_nonzero_vec(self, length: int, seed: np.random.Generator) -> galois.FieldArray:
