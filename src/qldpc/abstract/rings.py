@@ -668,7 +668,7 @@ class RingArray(npt.NDArray[np.object_]):
         the vector of coefficients for the RingMember at ring_array[a, b].
         """
         vals = [val.to_vector() for val in self.ravel()]
-        return np.asarray(vals).reshape(*self.shape, self.group.order).view(self.field)
+        return np.asarray(vals, dtype=int).reshape(*self.shape, self.group.order).view(self.field)
 
     @classmethod
     def from_field_array(cls, array: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingArray:
@@ -686,7 +686,8 @@ class RingArray(npt.NDArray[np.object_]):
             array, ring = ring, array
         array = np.asanyarray(array)
         group = ring.group if isinstance(ring, GroupRing) else ring
-        vals = [RingMember.from_vector(entry, ring) for entry in array.reshape(-1, group.order)]
+        vectors = array.reshape(array.size // group.order, group.order)
+        vals = [RingMember.from_vector(vector, ring) for vector in vectors]
         return RingArray(np.array(vals, dtype=object).reshape(array.shape[:-1]), ring=ring)
 
     def to_field_vector(self) -> galois.FieldArray:
@@ -709,8 +710,8 @@ class RingArray(npt.NDArray[np.object_]):
             vector, ring = ring, vector
         vector = np.asanyarray(vector)
         group = ring.group if isinstance(ring, GroupRing) else ring
-        assert vector.size % group.order == 0
-        return RingArray.from_field_array(vector.reshape(-1, group.order), ring)
+        entries_as_vecs = vector.reshape(vector.size // group.order, group.order)
+        return RingArray.from_field_array(entries_as_vecs, ring)
 
     def null_space(self) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
@@ -1262,7 +1263,10 @@ class WedderburnArtinComponentTransformer:
         return vector
 
     def _get_dual_basis(self, basis: galois.FieldArray) -> galois.FieldArray:
-        """Construct a dual basis, for which dual_basis @ basis.T = identity_matrix."""
+        """Construct a dual basis, for which dual_basis @ basis.T = identity_matrix.
+
+        Assumes that the provided basis is a wide matrix with full rank.
+        """
         pivot_cols = qldpc.math.first_nonzero_cols(basis.row_reduce())[: len(basis)]
         linearly_independent_cols = basis[:, pivot_cols].view(type(basis))
         dual_basis = type(basis).Zeros(basis.shape)
@@ -1736,15 +1740,21 @@ class WedderburnArtinComponentTransformer:
                 "A Wedderburn-Artin transformer initialized for one ring was asked to decompose an"
                 " element of a different ring"
             )
-        vectors = array.to_field_array().reshape(array.size, -1)
+        vectors = array.ravel().to_field_array()
         coefficients = vectors @ self.decomposition_coefficient_extractor.T
         embedded_coefficients = self.embedded_scalars[coefficients.view(np.ndarray)]
-        matrix_values = embedded_coefficients.reshape(-1, self.degree) @ self.embedded_power_basis
+        matrix_values = (
+            embedded_coefficients.reshape(array.size * self.size**2, self.degree)
+            @ self.embedded_power_basis
+        )
         matrix_values = matrix_values.reshape(*array.shape, self.size, self.size)
         if merge_blocks:
             assert array.ndim >= 2
+            repeat = array.size // (array.shape[-2] * array.shape[-1]) if array.size else 0
             matrix_values = (
-                matrix_values.reshape(-1, array.shape[-2], array.shape[-1], self.size, self.size)
+                matrix_values.reshape(
+                    repeat, array.shape[-2], array.shape[-1], self.size, self.size
+                )
                 .transpose(0, 1, 3, 2, 4)
                 .reshape(
                     *array.shape[:-2], array.shape[-2] * self.size, array.shape[-1] * self.size
@@ -1769,8 +1779,9 @@ class WedderburnArtinComponentTransformer:
             block_rows, rem_rows = divmod(array.shape[-2], self.size)
             block_cols, rem_cols = divmod(array.shape[-1], self.size)
             assert rem_rows == rem_cols == 0
+            repeat = array.size // (block_rows * block_cols * self.size**2) if array.size else 0
             array = (
-                array.reshape(-1, block_rows, self.size, block_cols, self.size)
+                array.reshape(repeat, block_rows, self.size, block_cols, self.size)
                 .transpose(0, 1, 3, 2, 4)
                 .reshape(*array.shape[:-2], block_rows, block_cols, self.size, self.size)
             ).view(type(array))
@@ -1778,7 +1789,7 @@ class WedderburnArtinComponentTransformer:
             raise ValueError(r"The provided array does not store matrices in GF(q^d)^{n × n}")
         embedded_coefficients = self.extended_field_trace(
             np.outer(array.ravel(), self.embedded_power_basis_dual).view(self.extended_field)
-        ).reshape(-1, self.size**2 * self.degree)
+        ).reshape(*array.shape[:-2], self.size**2 * self.degree)
         coefficients = self.embedded_scalars_inverse[embedded_coefficients.view(np.ndarray)]
         new_array = coefficients @ self.decomposition_coefficient_recombiner.T
         return RingArray.from_field_array(
