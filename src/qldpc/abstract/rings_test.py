@@ -325,13 +325,25 @@ def test_wedderburn_artin_transformations(
 
     transformer = ring.get_transformer(seed)
 
-    # the embedding of ring.field = GF(q) scalars is a homomorphism
+    # the embedding of ring.field = GF(q) scalars is an isomorphism
     for component_transformer in transformer.transformers:
+        for aa in ring.field.elements:
+            embedded_a = component_transformer.embedded_scalars[aa]
+            assert aa == component_transformer.embedded_scalars_inverse[embedded_a]
         for aa, bb in itertools.product(ring.field.elements, repeat=2):
-            proj_a = component_transformer.embedded_scalars[aa]
-            proj_b = component_transformer.embedded_scalars[bb]
-            proj_a_b = component_transformer.embedded_scalars[aa * bb]
-            assert proj_a * proj_b == proj_a_b
+            embedded_a = component_transformer.embedded_scalars[aa]
+            embedded_b = component_transformer.embedded_scalars[bb]
+            embedded_ab = component_transformer.embedded_scalars[aa * bb]
+            assert embedded_a * embedded_b == embedded_ab
+
+    # map to and from decomposition coefficients
+    for component_transformer in transformer.transformers:
+        component_basis = component_transformer.pci_reg.column_space()
+        random_vec = ring.field.Random(len(component_basis), seed=seed + 1) @ component_basis
+        coefficients = component_transformer.decomposition_coefficient_extractor @ random_vec
+        assert np.array_equal(
+            random_vec, component_transformer.decomposition_coefficient_recombiner @ coefficients
+        )
 
     # the Wedderburn-Artin decomposition is an isomorphism
     coeffs_a = ring.field.Random(ring.group.order, seed=seed + 1)
