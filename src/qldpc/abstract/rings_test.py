@@ -314,7 +314,7 @@ def test_deprecations() -> None:
     "ring",
     [
         abstract.GroupRing(abstract.CyclicGroup(3), field=4),
-        # abstract.GroupRing(abstract.AlternatingGroup(4), field=5),  # pending
+        # abstract.GroupRing(abstract.AlternatingGroup(4), field=5),
     ],
 )
 def test_wedderburn_artin_transformations(
@@ -336,7 +336,21 @@ def test_wedderburn_artin_transformations(
             embedded_ab = component_transformer.embedded_scalars[aa * bb]
             assert embedded_a * embedded_b == embedded_ab
 
-    # map to and from decomposition coefficients
+    # check embedding of the power basis for GF(q^d) and the standard basis for the matrix algebra
+    for component_transformer in transformer.transformers:
+        size = component_transformer.size
+        degree = component_transformer.degree
+        for ii, jk in itertools.product(range(degree), range(size**2)):
+            # map b^i |j><k| to a tensor that is 1 at (i, j, k)
+            matrix_element = component_transformer.matrix_basis[jk]
+            scalar = component_transformer.power_basis[ii]
+            vec = abstract.RingMember.from_vector(scalar, ring).regular_lift() @ matrix_element
+            coefficients = component_transformer.decomposition_coefficient_extractor @ vec
+            expected_value = ring.field.Zeros((size**2, degree))
+            expected_value[jk, ii] = 1
+            assert np.array_equal(coefficients, expected_value.ravel())
+
+    # the extraction of decomposition coefficients is invertible
     for component_transformer in transformer.transformers:
         component_basis = component_transformer.pci_reg.column_space()
         random_vec = ring.field.Random(len(component_basis), seed=seed + 1) @ component_basis
@@ -357,7 +371,7 @@ def test_wedderburn_artin_transformations(
         component_transformer.project(member_a) * component_transformer.project(member_b)
         for component_transformer in transformer.transformers
     ]
-    assert separate == transformer.decompose(member_ab)
+    assert all(np.array_equal(aa, bb) for aa, bb in zip(separate, transformer.decompose(member_ab)))
     assert transformer.recompose(separate) == member_ab
 
     # we can also decompose RingArrays
@@ -400,7 +414,3 @@ def test_wedderburn_artin_errors() -> None:
         ring.get_transformer()
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
         abstract.WedderburnArtinComponentTransformer(ring.one)
-
-    ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
-    with pytest.raises(NotImplementedError, match="does not yet support non-commutative rings"):
-        ring.get_transformer()

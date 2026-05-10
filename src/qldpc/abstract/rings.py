@@ -1036,12 +1036,6 @@ class WedderburnArtinTransformer:
             for pci in self.ring.get_primitive_central_idempotents()
         ]
 
-        # our support of non-commutative rings is not yet complete
-        if not self.ring.is_commutative:
-            raise NotImplementedError(
-                "WedderburnArtinTransformer does not yet support non-commutative rings"
-            )
-
     def decompose(self, element: RingMember) -> list[galois.FieldArray]:
         """Decompose an element of a ring into its Wedderburn-Artin components."""
         return [transformer.project(element) for transformer in self.transformers]
