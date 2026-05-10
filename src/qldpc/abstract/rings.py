@@ -1779,7 +1779,7 @@ class WedderburnArtinComponentTransformer:
                 array.reshape(-1, block_rows, self.size, block_cols, self.size)
                 .transpose(0, 1, 3, 2, 4)
                 .reshape(*array.shape[:-2], block_rows, block_cols, self.size, self.size)
-            )
+            ).view(type(array))
         if type(array) is not self.extended_field or array.shape[-2:] != (self.size, self.size):
             raise ValueError(r"The provided array does not store matrices in GF(q^d)^{n × n}")
         embedded_coefficients = self.extended_field_trace(
