@@ -1077,8 +1077,8 @@ class WedderburnArtinTransformer:
                 f"Provided {len(components)} WedderburnArtinTransformer components for a ring that"
                 f" should have {len(self.transformers)}"
             )
-        if not len(set([array.shape for array in components])) == 1:
-            raise ValueError("Asked to recompose arrays of inconsistent shapes")
+        if not len(set([array.shape[:-2] for array in components])) == 1:
+            raise ValueError("Asked to combine arrays of inconsistent shapes")
         terms = [
             trans.embed_array(array, from_blocks=from_blocks)
             for array, trans in zip(components, self.transformers)

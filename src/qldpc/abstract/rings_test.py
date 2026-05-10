@@ -314,7 +314,7 @@ def test_deprecations() -> None:
     "ring",
     [
         abstract.GroupRing(abstract.CyclicGroup(3), field=4),
-        # abstract.GroupRing(abstract.AlternatingGroup(4), field=5),
+        abstract.GroupRing(abstract.AlternatingGroup(4), field=5),
     ],
 )
 def test_wedderburn_artin_transformations(
@@ -368,7 +368,7 @@ def test_wedderburn_artin_transformations(
     member_b = abstract.RingMember(ring, *terms_b)
     member_ab = member_a * member_b
     separate = [
-        component_transformer.project(member_a) * component_transformer.project(member_b)
+        component_transformer.project(member_a) @ component_transformer.project(member_b)
         for component_transformer in transformer.transformers
     ]
     assert all(np.array_equal(aa, bb) for aa, bb in zip(separate, transformer.decompose(member_ab)))
@@ -402,7 +402,7 @@ def test_wedderburn_artin_errors() -> None:
         transformer.recompose_array([])
 
     with pytest.raises(ValueError, match="inconsistent shapes"):
-        transformer.recompose_array([ring.field.Identity(1), ring.field.Identity(2)])
+        transformer.recompose_array([ring.field.Zeros((1, 1, 1)), ring.field.Zeros((1, 1))])
 
     with pytest.raises(ValueError, match=re.escape("does not live in GF(q^d)^{n × n}")):
         transformer.recompose(galois.GF(3).Ones(2))
