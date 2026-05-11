@@ -806,12 +806,8 @@ class RingArray(npt.NDArray[np.object_]):
             1. The column of the first nonzero value in the pivot_row of each component.
             2. The column that will contain the pivot when we recombine the components.
             """
-            pivot_cols = [
-                num_cols
-                if not np.any(row := matrix[pivot_row])
-                else int(np.argmax(row.view(np.ndarray).astype(bool)))
-                for matrix in matrices
-            ]
+            pivot_rows_as_bools = [matrix[pivot_row].view(np.ndarray).astype(bool) for matrix in matrices]
+            pivot_cols = qldpc.math.first_nonzero_cols(pivot_rows_as_bools)
             pivot_col = min(pivot_cols)
 
             """

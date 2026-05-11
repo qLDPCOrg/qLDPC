@@ -80,18 +80,21 @@ def symplectic_weight(vectors: npt.NDArray[np.int_]) -> int:
     return np.count_nonzero(vectors_x | vectors_z, axis=-1).reshape(vectors.shape[:-1])
 
 
-def first_nonzero_cols(matrix: npt.NDArray[np.generic]) -> npt.NDArray[np.int_]:
+def first_nonzero_cols(
+    matrix: npt.NDArray[np.generic] | Sequence[npt.NDArray[np.generic]],
+) -> npt.NDArray[np.int_]:
     """Get the first nonzero column for every row in a matrix.
 
     If all columns are zero in a particular row, the column valus is set to the number of columns.
     If the array has more than two dimensions, return for each "row" r, the first "column" c for
     which array[r, c] is not all zero.
     """
-    if matrix.ndim < 2:
-        raise ValueError(f"Cannot identify nonzero columns in array with dimension {matrix.ndim}")
-    if matrix.size == 0:
+    _matrix = np.asarray(matrix)
+    if _matrix.ndim < 2:
+        raise ValueError(f"Cannot identify nonzero columns in array with dimension {_matrix.ndim}")
+    if _matrix.size == 0:
         return np.array([], dtype=int)
-    nonzero_mask = np.any(matrix.view(np.ndarray).astype(bool), axis=tuple(range(2, matrix.ndim)))
+    nonzero_mask = np.any(_matrix.view(np.ndarray).astype(bool), axis=tuple(range(2, _matrix.ndim)))
     has_any_nonzero_in_row = np.any(nonzero_mask, axis=1)
     first_nonzero_col_index = np.argmax(nonzero_mask, axis=1)
     first_nonzero_col_index[~has_any_nonzero_in_row] = nonzero_mask.shape[1]
