@@ -3270,23 +3270,17 @@ class ErrorRateFunc:
 
     @functools.cached_property
     def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight.
-
-        Use the "plus four rule" to smooth estimates that had zero failures.
-        See https://en.wikipedia.org/wiki/Additive_smoothing
-        """
-        num_samples_kept = self.num_samples - self.num_discards
-        return (self.num_failures + 2) / (num_samples_kept + 4)
+        """Mean infidelity at each error weight."""
+        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
+        num_samples_kept[num_samples_kept == 0] = np.inf
+        return self.num_failures / num_samples_kept
 
     @functools.cached_property
     def infidelity_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the infidelity at each error weight.
-
-        Use the "plus four rule" to smooth estimates that had zero failures.
-        See https://en.wikipedia.org/wiki/Additive_smoothing
-        """
-        num_samples_kept = self.num_samples - self.num_discards
-        return self.infidelities * (1 - self.infidelities) / (num_samples_kept + 4)
+        """Variance of the infidelity at each error weight."""
+        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
+        num_samples_kept[num_samples_kept == 0] = np.inf
+        return self.infidelities * (1 - self.infidelities) / num_samples_kept
 
     @functools.cached_property
     def discard_rates(self) -> npt.NDArray[np.floating]:
