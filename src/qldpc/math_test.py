@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import galois
 import numpy as np
 import pytest
 import stim
@@ -43,10 +44,38 @@ def test_vectors() -> None:
     vectors_conj = np.array([[1, 0], [2, -1]], dtype=int)
     assert np.array_equal(qldpc.math.symplectic_weight(vectors), [1, 1])
     assert np.array_equal(qldpc.math.symplectic_conjugate(vectors), vectors_conj)
-
-    assert np.array_equal(qldpc.math.first_nonzero_cols(np.empty(0, dtype=int)), [])
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors), [1, 0])
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors_conj), [0, 0])
+
+
+def test_nonzero_cols() -> None:
+    """Edge cases in finding the pivot columns."""
+    with pytest.raises(ValueError, match="Cannot identify nonzero columns"):
+        empty_array = np.array([], dtype=int)
+        qldpc.math.first_nonzero_cols(empty_array)
+
+    empty_matrix = np.array([], ndmin=2, dtype=int)
+    assert qldpc.math.first_nonzero_cols(empty_matrix).size == 0
+
+    zero_matrix = np.zeros((1, 1), dtype=int)
+    assert np.array_equal(qldpc.math.first_nonzero_cols(zero_matrix), [1])
+
+    tensor = np.ones((1, 1, 1), dtype=int)
+    assert np.array_equal(qldpc.math.first_nonzero_cols(tensor), [0])
+
+
+def test_dual_basis(pytestconfig: pytest.Config) -> None:
+    """Construst dual bases."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
+
+    field = galois.GF(2)
+    basis = field.Random((4, 5)).row_reduce()
+    basis = basis[qldpc.math.first_nonzero_cols(basis) < basis.shape[1]]
+    dual_basis = qldpc.math.get_dual_basis(basis)
+    assert np.array_equal(dual_basis @ basis.T, field.Identity(len(basis)))
+
+    with pytest.raises(ValueError, match="wide matrices of full rank"):
+        qldpc.math.get_dual_basis(field.Random((2, 1)))
 
 
 def test_block_matrix() -> None:

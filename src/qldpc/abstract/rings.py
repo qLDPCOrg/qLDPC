@@ -1163,7 +1163,7 @@ class WedderburnArtinComponentTransformer:
         self.size = math.isqrt(np.linalg.matrix_rank(self.pci_reg) // self.degree)
 
         self.power_basis = self._get_power_basis(seed)
-        self.power_basis_dual = self._get_dual_basis(self.power_basis)
+        self.power_basis_dual = qldpc.math.get_dual_basis(self.power_basis, validate=False)
 
         self.extended_field = galois.GF(self.field.order**self.degree)
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
@@ -1261,17 +1261,6 @@ class WedderburnArtinComponentTransformer:
         while not np.any(vector := self.field.Random(len(self.center), seed=seed)):
             pass  # pragma: no cover
         return vector
-
-    def _get_dual_basis(self, basis: galois.FieldArray) -> galois.FieldArray:
-        """Construct a dual basis, for which dual_basis @ basis.T = identity_matrix.
-
-        Assumes that the provided basis is a wide matrix with full rank.
-        """
-        pivot_cols = qldpc.math.first_nonzero_cols(basis.row_reduce())[: len(basis)]
-        linearly_independent_cols = basis[:, pivot_cols].view(type(basis))
-        dual_basis = type(basis).Zeros(basis.shape)
-        dual_basis[:, pivot_cols] = np.linalg.inv(linearly_independent_cols).T
-        return dual_basis.view(type(basis))
 
     def _get_center_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
         r"""Construct embeddings of elements in the center Z(S) into GF(p^{kd}) ≅ GF(q^d).
