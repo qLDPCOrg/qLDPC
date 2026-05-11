@@ -762,28 +762,18 @@ class ClassicalCode(AbstractCode):
         """
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
 
-        # compute decoding fidelities for each error weight
+        # sample errors of fixed weight and record failure/discard counts
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        infidelities = np.zeros(sample_allocation.size, dtype=float)
-        infidelity_variances = np.zeros_like(infidelities)
-        discard_rates = np.zeros_like(infidelities)
-        discard_rate_variances = np.zeros_like(infidelities)
+        num_failures = np.zeros(sample_allocation.size, dtype=int)
+        num_discards = np.zeros(sample_allocation.size, dtype=int)
         for weight in range(1, len(sample_allocation)):
-            (
-                infidelities[weight],
-                infidelity_variances[weight],
-                discard_rates[weight],
-                discard_rate_variances[weight],
-            ) = self._estimate_decoding_infidelity_and_variance(
-                weight, sample_allocation[weight], decoder, discard_weights
+            num_failures[weight], num_discards[weight] = (
+                self._estimate_decoding_infidelity_and_variance(
+                    weight, sample_allocation[weight], decoder, discard_weights
+                )
             )
         return ErrorRateFunc(
-            1 - infidelities,
-            infidelity_variances,
-            1 - discard_rates,
-            discard_rate_variances,
-            len(self),
-            max_error_rate,
+            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
         )
 
     def _estimate_decoding_infidelity_and_variance(
@@ -792,8 +782,8 @@ class ClassicalCode(AbstractCode):
         num_samples: int,
         decoder: decoders.Decoder,
         discard_weights: Collection[int],
-    ) -> tuple[float, float, float, float]:
-        """Estimate a fidelity and its variance when decoding a fixed number of errors."""
+    ) -> tuple[int, int]:
+        """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
         num_discards = 0
         for _ in range(num_samples):
@@ -810,15 +800,7 @@ class ClassicalCode(AbstractCode):
             elif np.any(decoded_error - error):
                 num_failures += 1
 
-        if num_discards != num_samples:
-            infidelity = num_failures / (num_samples - num_discards)
-            infidelity_variance = infidelity * (1 - infidelity) / (num_samples - num_discards)
-        else:
-            infidelity = np.nan
-            infidelity_variance = np.nan
-        discard_rate = num_discards / num_samples
-        discard_rate_variance = discard_rate * (1 - discard_rate) / num_samples
-        return infidelity, infidelity_variance, discard_rate, discard_rate_variance
+        return num_failures, num_discards
 
 
 ################################################################################
@@ -1998,33 +1980,23 @@ class QuditCode(AbstractCode):
         # identify logical operators
         logical_ops = self.get_logical_ops()
 
-        # compute decoding fidelities for each error weight
+        # sample errors of fixed weight and record failure/discard counts
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        infidelities = np.zeros(sample_allocation.size, dtype=float)
-        infidelity_variances = np.zeros_like(infidelities)
-        discard_rates = np.zeros_like(infidelities)
-        discard_rate_variances = np.zeros_like(infidelities)
+        num_failures = np.zeros(sample_allocation.size, dtype=int)
+        num_discards = np.zeros(sample_allocation.size, dtype=int)
         for weight in range(1, len(sample_allocation)):
-            (
-                infidelities[weight],
-                infidelity_variances[weight],
-                discard_rates[weight],
-                discard_rate_variances[weight],
-            ) = self._estimate_decoding_fidelity_and_variance(
-                weight,
-                sample_allocation[weight],
-                decoder,
-                logical_ops,
-                pauli_bias_zxy,
-                discard_weights,
+            num_failures[weight], num_discards[weight] = (
+                self._estimate_decoding_fidelity_and_variance(
+                    weight,
+                    sample_allocation[weight],
+                    decoder,
+                    logical_ops,
+                    pauli_bias_zxy,
+                    discard_weights,
+                )
             )
         return ErrorRateFunc(
-            1 - infidelities,
-            infidelity_variances,
-            1 - discard_rates,
-            discard_rate_variances,
-            len(self),
-            max_error_rate,
+            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
         )
 
     def _estimate_decoding_fidelity_and_variance(
@@ -2035,8 +2007,8 @@ class QuditCode(AbstractCode):
         logical_ops: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
         discard_weights: Collection[int],
-    ) -> tuple[float, float, float, float]:
-        """Estimate a fidelity and its standard error when decoding a fixed number of errors."""
+    ) -> tuple[int, int]:
+        """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
         num_discards = 0
         syndrome_matrix = -math.symplectic_conjugate(self.matrix)
@@ -2065,15 +2037,7 @@ class QuditCode(AbstractCode):
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
                 num_failures += 1
 
-        if num_discards != num_samples:
-            infidelity = num_failures / (num_samples - num_discards)
-            infidelity_variance = infidelity * (1 - infidelity) / (num_samples - num_discards)
-        else:  # pragma: no cover
-            infidelity = np.nan
-            infidelity_variance = np.nan
-        discard_rate = num_discards / num_samples
-        discard_rate_variance = discard_rate * (1 - discard_rate) / num_samples
-        return infidelity, infidelity_variance, discard_rate, discard_rate_variance
+        return num_failures, num_discards
 
 
 class CSSCode(QuditCode):
@@ -3109,35 +3073,25 @@ class CSSCode(QuditCode):
         logicals_x = self.get_logical_ops(Pauli.X)
         logicals_z = self.get_logical_ops(Pauli.Z)
 
-        # compute decoding fidelities for each error weight
+        # sample errors of fixed weight and record failure/discard counts
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        infidelities = np.zeros(sample_allocation.size, dtype=float)
-        infidelity_variances = np.zeros_like(infidelities)
-        discard_rates = np.zeros_like(infidelities)
-        discard_rate_variances = np.zeros_like(infidelities)
+        num_failures = np.zeros(sample_allocation.size, dtype=int)
+        num_discards = np.zeros(sample_allocation.size, dtype=int)
         for weight in range(1, len(sample_allocation)):
-            (
-                infidelities[weight],
-                infidelity_variances[weight],
-                discard_rates[weight],
-                discard_rate_variances[weight],
-            ) = self._estimate_css_decoding_fidelity_and_variance(
-                weight,
-                sample_allocation[weight],
-                decoder_x,
-                decoder_z,
-                logicals_x,
-                logicals_z,
-                pauli_bias_zxy,
-                discard_weights,
+            num_failures[weight], num_discards[weight] = (
+                self._estimate_css_decoding_fidelity_and_variance(
+                    weight,
+                    sample_allocation[weight],
+                    decoder_x,
+                    decoder_z,
+                    logicals_x,
+                    logicals_z,
+                    pauli_bias_zxy,
+                    discard_weights,
+                )
             )
         return ErrorRateFunc(
-            1 - infidelities,
-            infidelity_variances,
-            1 - discard_rates,
-            discard_rate_variances,
-            len(self),
-            max_error_rate,
+            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
         )
 
     def _estimate_css_decoding_fidelity_and_variance(
@@ -3150,8 +3104,8 @@ class CSSCode(QuditCode):
         logicals_z: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
         discard_weights: Collection[int],
-    ) -> tuple[float, float, float, float]:
-        """Estimate a fidelity and its standard error when decoding a fixed number of errors."""
+    ) -> tuple[int, int]:
+        """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
         num_discards = 0
         for _ in range(num_samples):
@@ -3195,15 +3149,7 @@ class CSSCode(QuditCode):
             if failure_z or np.any(logicals_z @ (decoded_error_x - error_x)):
                 num_failures += 1
 
-        if num_discards != num_samples:
-            infidelity = num_failures / (num_samples - num_discards)
-            infidelity_variance = infidelity * (1 - infidelity) / (num_samples - num_discards)
-        else:
-            infidelity = np.nan
-            infidelity_variance = np.nan
-        discard_rate = num_discards / num_samples
-        discard_rate_variance = discard_rate * (1 - discard_rate) / num_samples
-        return infidelity, infidelity_variance, discard_rate, discard_rate_variance
+        return num_failures, num_discards
 
 
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
@@ -3245,6 +3191,9 @@ def _get_sample_allocation(
     # increasing num_samples if necessary to deal with weird edge cases from round-off errors
     while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
         num_samples += 1  # pragma: no cover
+
+    # allocate one sample to k=0 to fix an edge case in ErrorRateFunc
+    sample_allocation[0] = 1
 
     # truncate trailing zeros and return
     nonzero = np.nonzero(sample_allocation)[0]
@@ -3290,7 +3239,7 @@ OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 
 @dataclasses.dataclass
 class ErrorRateFunc:
-    """Container for importance-sampled fidelities at fixed error weights.
+    """Container computing logical error and discard rates from importance-sampled simulation data.
 
     An instance of this class is built and returned by the .get_logical_error_rate_func method of
     ClassicalCode, QuditCode, and CSSCode.  If
@@ -3304,16 +3253,50 @@ class ErrorRateFunc:
     error rate.
     """
 
-    # mean and variance of fidelity, conditioned on the weight of an error
-    fixed_weight_fidelities: npt.NDArray[np.floating]
-    fixed_weight_fidelity_variances: npt.NDArray[np.floating]
+    # number of times we simulated each error weight
+    num_samples: npt.NDArray[np.int_]
 
-    # mean and variance of the survival rate, conditioned on the weight of an error
-    fixed_weight_survival_rates: npt.NDArray[np.floating]
-    fixed_weight_survival_rate_variances: npt.NDArray[np.floating]
+    # number of failures and discards by error weight
+    num_failures: npt.NDArray[np.int_]
+    num_discards: npt.NDArray[np.int_]
 
     num_error_locations: int  # total number of error locations
     max_error_rate: float  # largest physical error rate we can consider
+
+    @property
+    def max_error_weight(self) -> int:
+        """Max error weight considered."""
+        return self.num_samples.size - 1
+
+    @functools.cached_property
+    def infidelities(self) -> npt.NDArray[np.floating]:
+        """Mean infidelity at each error weight.
+
+        Use the "plus four rule" to smooth estimates that had zero failures.
+        See https://en.wikipedia.org/wiki/Additive_smoothing
+        """
+        num_samples_kept = self.num_samples - self.num_discards
+        return (self.num_failures + 2) / (num_samples_kept + 4)
+
+    @functools.cached_property
+    def infidelity_variances(self) -> npt.NDArray[np.floating]:
+        """Variance of the infidelity at each error weight.
+
+        Use the "plus four rule" to smooth estimates that had zero failures.
+        See https://en.wikipedia.org/wiki/Additive_smoothing
+        """
+        num_samples_kept = self.num_samples - self.num_discards
+        return self.infidelities * (1 - self.infidelities) / (num_samples_kept + 4)
+
+    @functools.cached_property
+    def discard_rates(self) -> npt.NDArray[np.floating]:
+        """Discard rate at each error weight."""
+        return self.num_discards / self.num_samples
+
+    @functools.cached_property
+    def discard_rate_variances(self) -> npt.NDArray[np.floating]:
+        """Variance of the discard rate at each error weight."""
+        return self.discard_rates * (1 - self.discard_rates) / self.num_samples
 
     def __call__(
         self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
@@ -3331,16 +3314,15 @@ class ErrorRateFunc:
                 f" {self.max_error_rate}.  Try calling <YOUR_CODE>.get_logical_error_rate_func with"
                 " a larger max_error_rate."
             )
-        max_error_weight = self.fixed_weight_fidelities.size - 1
-        fixed_weight_probs = _get_error_probs_by_weight(
-            self.num_error_locations, error_rate, max_error_weight
+        weight_probs = _get_error_probs_by_weight(
+            self.num_error_locations, error_rate, self.max_error_weight
         )
         if discard_rate:
-            values = self.fixed_weight_survival_rates
-            variances = self.fixed_weight_survival_rate_variances
+            values = 1 - self.discard_rates
+            variances = self.discard_rate_variances
         else:
-            values = self.fixed_weight_fidelities
-            variances = self.fixed_weight_fidelity_variances
-        value = fixed_weight_probs @ values
-        variance = np.sqrt(fixed_weight_probs**2 @ variances)
+            values = 1 - self.infidelities
+            variances = self.infidelity_variances
+        value = weight_probs @ values
+        variance = np.sqrt(weight_probs**2 @ variances)
         return 1 - float(value), float(variance)
