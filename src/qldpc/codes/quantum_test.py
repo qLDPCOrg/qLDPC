@@ -500,9 +500,9 @@ def test_lifted_product_line_logicals(
     ring = abstract.GroupRing(group, field=2)
     values = [[group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
-    with pytest.raises(ValueError, match="not yet supported"):
+    with pytest.raises(ValueError, match="requires .* semisimple"):
         codes.LPCode(matrix, set_logicals=True)
-    with pytest.raises(ValueError, match="not yet supported"):
+    with pytest.raises(ValueError, match="requires .* semisimple"):
         codes.SLPCode(matrix, set_logicals=True)
 
 
