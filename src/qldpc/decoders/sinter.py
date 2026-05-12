@@ -338,9 +338,9 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_decoder = SinterDecoder.compile_decoder_for_dem(self, subgraph_dem)
             subgraph_decoders.append(subgraph_decoder)
 
-        if getattr(subgraph_decoder.decoder, "has_erasure_bit", False):
-            subgraph_observables[ss].append(num_observables)
-            num_observables += 1
+            if getattr(subgraph_decoder.decoder, "has_erasure_bit", False):
+                subgraph_observables[ss].append(num_observables)
+                num_observables += 1
 
         return CompiledSubgraphDecoder(
             self.subgraph_detectors,
