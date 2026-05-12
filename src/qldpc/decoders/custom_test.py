@@ -177,15 +177,22 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
     decoder = decoders.LookupDecoder(
         code.matrix,
         symplectic=True,
+        add_erasure_bit=True,
         max_weight=2,
         penalty_func=lambda vec: int(np.count_nonzero(vec)),
     )
     decoded_error = decoder.decode(syndrome).view(code.field)
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
+    assert decoded_error[-1] == 0
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
 
-    decoder = decoders.WeightedLookupDecoder(code.matrix, symplectic=True, max_weight=2)
+    decoder = decoders.WeightedLookupDecoder(
+        code.matrix, symplectic=True, add_erasure_bit=True, max_weight=2
+    )
     decoded_error = decoder.decode(syndrome).view(code.field)
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
+    assert decoded_error[-1] == 0
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
 
 
 def test_penalty_func() -> None:

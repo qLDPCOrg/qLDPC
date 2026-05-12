@@ -240,6 +240,7 @@ class LookupDecoder(Decoder):
         max_weight: int,
         *,
         symplectic: bool = False,
+        add_erasure_bit: bool = False,
         error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
@@ -259,6 +260,9 @@ class LookupDecoder(Decoder):
                 "Cannot specify both an error_channel and a penalty_func"
             )
 
+        def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.hstack([error, [0]]) if add_erasure_bit else error
+
         penalty_func = penalty_func or (
             self.build_penalty_func(error_channel) if error_channel is not None else None
         )
@@ -269,10 +273,15 @@ class LookupDecoder(Decoder):
         error_weights: dict[tuple[int, ...], float] = {}
         for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
             if penalty_func is None:
-                self.syndrome_to_correction[syndrome] = error
+                self.syndrome_to_correction[syndrome] = _maybe_add_erasure_bit(error)
             elif (error_weight := penalty_func(error)) <= error_weights.get(syndrome, np.inf):
                 error_weights[syndrome] = error_weight
-                self.syndrome_to_correction[syndrome] = error
+                self.syndrome_to_correction[syndrome] = _maybe_add_erasure_bit(error)
+
+        self.has_erasure_bit = add_erasure_bit
+        self.default_correction = np.zeros(self.shape[1], dtype=int)
+        if add_erasure_bit:
+            self.default_correction = np.hstack([self.default_correction, [1]])
 
     @staticmethod
     def iter_errors_and_syndromes(
@@ -303,7 +312,7 @@ class LookupDecoder(Decoder):
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         return self.syndrome_to_correction.get(
-            tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int)
+            tuple(syndrome.view(np.ndarray)), self.default_correction
         ).copy()
 
     @staticmethod
@@ -339,6 +348,7 @@ class WeightedLookupDecoder(LookupDecoder):
         max_weight: int,
         *,
         symplectic: bool = False,
+        add_erasure_bit: bool = False,
     ) -> None:
         pcm = (
             DetectorErrorModelArrays(pcm_or_dem).detector_flip_matrix
@@ -346,12 +356,20 @@ class WeightedLookupDecoder(LookupDecoder):
             else pcm_or_dem
         )
 
+        def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.hstack([error, [0]]) if add_erasure_bit else error
+
         self.shape: tuple[int, ...] = pcm.shape
         self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
             collections.defaultdict(list)
         )
         for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
-            self.syndrome_to_candidates[syndrome].append(error)
+            self.syndrome_to_candidates[syndrome].append(_maybe_add_erasure_bit(error))
+
+        self.has_erasure_bit = add_erasure_bit
+        self.default_correction = np.zeros(self.shape[1], dtype=int)
+        if add_erasure_bit:
+            self.default_correction = np.hstack([self.default_correction, [1]])
 
     def decode(
         self,
@@ -362,7 +380,7 @@ class WeightedLookupDecoder(LookupDecoder):
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         errors = self.syndrome_to_candidates.get(
-            tuple(syndrome.view(np.ndarray)), [np.zeros(self.shape[1], dtype=int)]
+            tuple(syndrome.view(np.ndarray)), [self.default_correction]
         )
         return (min(errors, key=penalty_func) if penalty_func is not None else errors[-1]).copy()
 
