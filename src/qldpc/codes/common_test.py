@@ -231,7 +231,7 @@ def test_classical_capacity() -> None:
 
     # compute discard rates
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=4, max_error_rate=0.5, discard_weights=[1]
+        num_samples=4, max_error_rate=0.5, discard_weight=1
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
     assert logical_error_rate_func(0.5, discard_rate=True) == (0.5, 0)
@@ -539,7 +539,7 @@ def test_quantum_capacity() -> None:
 
     # compute discard rates (trivial deterministic example)
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=1, max_error_rate=1, discard_weights=[1]
+        num_samples=1, max_error_rate=1, discard_weight=1
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
 
@@ -746,6 +746,6 @@ def test_css_capacity() -> None:
 
     # compute discard rates (trivial deterministic example)
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=1, max_error_rate=1, discard_weights=[1]
+        num_samples=1, max_error_rate=1, discard_weight=1
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
