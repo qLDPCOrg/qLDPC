@@ -507,6 +507,11 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.error_probs[d_errors],
             )
             window_decoder = self.get_configured_decoder(window_dem_arrays)
+            if getattr(window_decoder, "has_erasure_bit", False):
+                raise NotImplementedError(
+                    f"{type(self)} does not yet suport erasure decoding.\nIf you would like to see "
+                    "this feature, please file an issue at https://github.com/qLDPCOrg/qLDPC/issues"
+                )
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -607,11 +612,12 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
             ) % 2
 
             # decode this syndrome and update the net error appropriately
-            net_error[:, errors] = (
+            decoded_error = (
                 decoder.decode_batch(syndromes)
                 if hasattr(decoder, "decode_batch")
                 else np.array([decoder.decode(syndrome) for syndrome in syndromes])
-            )[:, error_locs]
+            )
+            net_error[:, errors] = decoded_error[:, error_locs]
 
         return net_error
 
