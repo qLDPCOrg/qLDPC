@@ -239,6 +239,21 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(matrix.howell_normal_form(), matrix_hnf)
     assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf)
 
+    # matrix components of non-commutative rings get "standardized" to place pivots on the diagonal
+    ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
+    transformer = ring.get_transformer()
+    component_transformer = transformer.transformers[-1]
+    e3_13 = component_transformer.embed(
+        component_transformer.extended_field([[0, 0, 1], [0, 0, 0], [0, 0, 0]])
+    )
+    e3_33 = component_transformer.embed(
+        component_transformer.extended_field([[0, 0, 0], [0, 0, 0], [0, 0, 1]])
+    )
+    assert np.array_equal(
+        abstract.RingArray.build([[e3_13]]).howell_normal_form(),
+        abstract.RingArray.build([[e3_33]]),
+    )
+
     # RingArray.row_reduce requires semisimple rings
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     with pytest.raises(ValueError, match="only supports semisimple rings"):
@@ -252,11 +267,6 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
     # the "polynomial" Howell normal form requires an underlying cyclic group
     with pytest.raises(ValueError, match="requires an underlying CyclicGroup"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form(poly=True)
-
-    # row-reduction for semisimple non-commutative rings is not yet supported
-    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    with pytest.raises(NotImplementedError, match="not yet support non-commutative rings"):
-        abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
     # computing a reduced Groebner basis is the final boss
     ring = abstract.GroupRing(abstract.DihedralGroup(2), field=2)
@@ -276,7 +286,7 @@ def test_minimal_howell_form() -> None:
 
 
 def test_ring_row_addition() -> None:
-    """There are two types of Howell normal form, and they can add rows to a RingArray."""
+    """The Howell normal form can add rows to a RingArray."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
     x = ring.generators[0]
     matrix = abstract.RingArray.build([[x + 1, 1]])

@@ -50,10 +50,6 @@ def test_vectors() -> None:
 
 def test_nonzero_cols() -> None:
     """Edge cases in finding the pivot columns."""
-    with pytest.raises(ValueError, match="Cannot identify nonzero columns"):
-        empty_array = np.array([], dtype=int)
-        qldpc.math.first_nonzero_cols(empty_array)
-
     empty_matrix = np.array([], ndmin=2, dtype=int)
     assert qldpc.math.first_nonzero_cols(empty_matrix).size == 0
 

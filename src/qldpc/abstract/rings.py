@@ -719,8 +719,10 @@ class RingArray(npt.NDArray[np.object_]):
         The transpose of the null-space matrix is annihilated by this RingArray, such that
         np.any(self @ self.null_space().T) is np.False_.
 
-        Unlike galois.FieldArray.row_reduce, this method does not perform any row reduction on the
-        matrix of null-space row vectors.
+        Due to the subtleties of defining row reduction for a matrix over a ring, this method does
+        not row-reduce the matrix of null-space row vectors.  The rows of the matrix returned by
+        this method are therefore generally an overcomplete basis for the null space of this
+        RingArray.
         """
         assert self.ndim == 2
 
@@ -732,18 +734,21 @@ class RingArray(npt.NDArray[np.object_]):
         field_array_shape = (len(null_field_vectors), self.shape[1], self.group.order)
         return ~RingArray.from_field_array(null_field_vectors.reshape(field_array_shape), self.ring)
 
-    def row_reduce(self) -> RingArray:
+    def row_reduce(self, transformer: WedderburnArtinTransformer | None = None) -> RingArray:
         """Compute a generalized reduced row echelon form of a RingArray over a semisimple ring.
 
         This method relies on the Wedderburn-Artin decomposition:
         1. Decompose the matrix over a ring into matrices over simple components.
         2. Put the matrices over simple components into RREF.
         3. Re-combine the simple components into a matrix over the original ring.
+
+        The RREF of a RingArray over a commutative ring is unique.  For non-commutative rings, the
+        RREF is only unique up to a choice of matrix basis for simple components of the ring.
         """
         assert self.ndim == 2
         if not self.ring.is_semisimple:
             raise ValueError("RingArray.row_reduce only supports semisimple rings")
-        transformer = self.ring.get_transformer()
+        transformer = transformer or self.ring.get_transformer()
         matrices = [
             component.row_reduce()
             for component in transformer.decompose_array(self, merge_blocks=True)
@@ -753,53 +758,57 @@ class RingArray(npt.NDArray[np.object_]):
     def howell_normal_form(self, *, poly: bool = False) -> RingArray:
         """Compute a Howell normal form of this RingArray.
 
-        By default (if poly is False), this method first puts a RingArray into a generalized
-        reduced row echelon form (see RingArray.row_reduce), then further post-processes the rows to
-        satisfy the Howell property.  Specifically, if a row r has a pivot p with a nontrivial
-        annihilator α (meaning α != 0 and α·p = 0), then the row r is replaced by (1-α)·r, and the
-        row α·r is appended to the matrix.  This procedure requires the ring to be semisimple.
+        Alias for:
+            - RingArray.howell_normal_form_semisimple (if poly is False, the default), or
+            - RingArray.howell_normal_form_poly (if poly is True).
+        See the documentation of those methods for additional information.
+        """
+        if poly:
+            return self.howell_normal_form_poly()
+        return self.howell_normal_form_semisimple()
 
-        If poly is True, then the base ring must be a cyclic group algebra.  In this case, this
-        method interprets the base ring as a univariate polynomial ring, and computes a Howell
-        normal form using a notion of row reduction that induced by polynomial division.
+    def howell_normal_form_semisimple(
+        self, transformer: WedderburnArtinTransformer | None = None
+    ) -> RingArray:
+        """Compute a Howell normal form (HNF) of a RingArray over a semisimple ring.
+
+        This method first puts a RingArray into a generalized reduced row echelon form (see
+        RingArray.row_reduce), then further post-processes the rows to satisfy the Howell property.
+        Specifically, if a row r has a pivot p with a nontrivial annihilator α (meaning α != 0 and
+        α·p = 0), then the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
+
+        The HNF of a RingArray over a commutative ring is unique.  For non-commutative rings, the
+        HNF is only unique up to a choice of matrix basis for simple components of the ring.
 
         References:
         - https://en.wikipedia.org/wiki/Howell_normal_form
         - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
         assert self.ndim == 2
-        if poly:
-            return self._howell_normal_form_poly()
         if not self.ring.is_semisimple:
             raise ValueError(
                 "The ordinary Howell normal form requires the base ring to be semisimple"
             )
-        if self.group.is_commutative:
-            return self._howell_normal_form_commutative()
-        return self._howell_normal_form_non_commutative()
+        transformer = transformer or self.ring.get_transformer()
+        num_components = len(transformer.transformers)
 
-    def _howell_normal_form_commutative(self) -> RingArray:
-        """Compute the Howell normal form of a RingArray over a semisimple commutative ring."""
-        assert self.ndim == 2 and self.ring.is_semisimple and self.group.is_commutative
-
-        # identify the components of the reduced row echelon form of this RingArray
-        transformer = self.ring.get_transformer()
+        # identify and row-reduce the components of this RingArray
         matrices = [
-            matrix.row_reduce() for matrix in transformer.decompose_array(self, merge_blocks=True)
+            _get_block_howell_form(component_transformer.project_array(self))
+            for component_transformer in transformer.transformers
         ]
 
-        def _remove_zero_rows(matrices: list[galois.FieldArray]) -> list[galois.FieldArray]:
-            """Remove rows that are zero in all components."""
-            nonzero_rows = functools.reduce(
-                np.bitwise_or, [np.any(matrix, axis=1) for matrix in matrices]
-            )
-            return [matrix[nonzero_rows] for matrix in matrices]
-
-        matrices = _remove_zero_rows(matrices)
+        # pad zero rows to components that have fewer rows
+        num_rows = max(len(matrix) for matrix in matrices)
+        for mm, matrix in enumerate(matrices):
+            if len(matrix) < num_rows:
+                field = type(matrix)
+                stack = [matrix, field.Zeros((1, *matrix.shape[1:]))]
+                matrices[mm] = np.concatenate(stack).view(field)
 
         pivot_row = 0
         pivot_col = 0
-        num_rows, num_cols = matrices[0].shape
+        num_rows, num_cols = matrices[0].shape[:2]
         while pivot_row < num_rows and pivot_col < num_cols - 1:
             """
             Identify:
@@ -807,46 +816,48 @@ class RingArray(npt.NDArray[np.object_]):
             2. The column that will contain the pivot when we recombine the components.
             """
             pivot_rows_as_bools = [
-                matrix[pivot_row].view(np.ndarray).astype(bool) for matrix in matrices
+                np.any(matrix[pivot_row].view(np.ndarray).astype(bool), axis=(1, 2))
+                for matrix in matrices
             ]
             pivot_cols = qldpc.math.first_nonzero_cols(pivot_rows_as_bools)
             pivot_col = min(pivot_cols)
 
             """
             Let π be a projector onto the components in which the pivot is nonzero.  If π != 1, then
-            (1-π) is a nontrivial annihilator of the pivot.  In this case, in principle we need to
-            replace the pivot row r -> π·r, and add (1-π)·r as a new row to the matrix.  In
-            practice, this procedure messes up the reduced row echelon form of the matrix, so we
-            instead...
+            (1-π) is a nontrivial annihilator of the pivot.  If, moreover, (1-π)·r is nonzero, then
+            (1-π)·r contains a "hidden" pivot in a later column.  In this caes, we in principle need
+            to replace r -> π·r and add (1-π)·r as a new row to the matrix.  In practice, this
+            procedure messes up the reduced row echelon form of the matrix, so we instead...
             1. In the (1-π) sector, insert a zero row at the pivot_row and shift down rows below.
             2. In the π sector, append a zero row to the matrix.
             """
-            annihilating_components = [
+            components_with_hidden_pivots = [
                 cc for cc in range(len(matrices)) if pivot_col < pivot_cols[cc] < num_cols
             ]
-            if annihilating_components:
-                for cc, matrix in enumerate(matrices):
+            if components_with_hidden_pivots:
+                for cc in range(num_components):
+                    matrix = matrices[cc]
+                    size = transformer.transformers[cc].size
                     field = type(matrix)
-                    if cc in annihilating_components:
-                        stack = [matrix[:pivot_row], field.Zeros(num_cols), matrix[pivot_row:]]
+                    zero_row = field.Zeros((1, num_cols, size, size))
+                    if cc in components_with_hidden_pivots:
+                        stack = [matrix[:pivot_row], zero_row, matrix[pivot_row:]]
                     else:
-                        stack = [matrix, field.Zeros(num_cols)]
-                    matrices[cc] = np.vstack(stack).view(field)
+                        stack = [matrix, zero_row]
+                    matrices[cc] = np.concatenate(stack).view(field)
                 num_rows += 1
 
             pivot_row += 1
 
-        matrices = _remove_zero_rows(matrices)
-        return transformer.recompose_array(matrices, from_blocks=True)
-
-    def _howell_normal_form_non_commutative(self) -> RingArray:
-        """Compute a Howell normal form of a RingArray over a semisimple non-commutative ring."""
-        assert self.ndim == 2 and self.ring.is_semisimple
-        raise NotImplementedError(
-            "RingArray.howell_normal_form does not yet support non-commutative rings"
+        # remove rows that are zero in all components and return
+        nonzero_rows = functools.reduce(
+            np.bitwise_or,
+            [np.any(matrix, axis=(1, 2, 3)) for matrix in matrices],
         )
+        matrices = [matrix[nonzero_rows] for matrix in matrices]
+        return transformer.recompose_array(matrices)
 
-    def _howell_normal_form_poly(self) -> RingArray:
+    def howell_normal_form_poly(self) -> RingArray:
         """Compute a Howell normal form of a RingArray using polynomial division.
 
         If the base ring of a RingArray is a cyclic group algebra, then it can be interpreted as a
@@ -857,6 +868,7 @@ class RingArray(npt.NDArray[np.object_]):
         - https://en.wikipedia.org/wiki/Howell_normal_form
         - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
+        assert self.ndim == 2
         if not isinstance(self.group, CyclicGroup):
             raise ValueError(
                 "The Howell normal form induced by polynomial division requires an underlying"
@@ -1738,14 +1750,14 @@ class WedderburnArtinComponentTransformer:
         if merge_blocks:
             assert array.ndim >= 2
             repeat = array.size // (array.shape[-2] * array.shape[-1]) if array.size else 0
+            old_shape = (repeat, array.shape[-2], array.shape[-1], self.size, self.size)
+            new_shape = (
+                *array.shape[:-2],
+                array.shape[-2] * self.size,
+                array.shape[-1] * self.size,
+            )
             matrix_values = (
-                matrix_values.reshape(
-                    repeat, array.shape[-2], array.shape[-1], self.size, self.size
-                )
-                .transpose(0, 1, 3, 2, 4)
-                .reshape(
-                    *array.shape[:-2], array.shape[-2] * self.size, array.shape[-1] * self.size
-                )
+                matrix_values.reshape(old_shape).transpose(0, 1, 3, 2, 4).reshape(new_shape)
             )
         return matrix_values.view(self.extended_field)
 
@@ -1766,12 +1778,12 @@ class WedderburnArtinComponentTransformer:
             block_rows, rem_rows = divmod(array.shape[-2], self.size)
             block_cols, rem_cols = divmod(array.shape[-1], self.size)
             assert rem_rows == rem_cols == 0
-            repeat = array.size // (block_rows * block_cols * self.size**2) if array.size else 0
-            array = (
-                array.reshape(repeat, block_rows, self.size, block_cols, self.size)
-                .transpose(0, 1, 3, 2, 4)
-                .reshape(*array.shape[:-2], block_rows, block_cols, self.size, self.size)
-            ).view(type(array))
+            repeat = array.size // (array.shape[-2] * array.shape[-1]) if array.size else 0
+            old_shape = (repeat, block_rows, self.size, block_cols, self.size)
+            new_shape = (*array.shape[:-2], block_rows, block_cols, self.size, self.size)
+            array = (array.reshape(old_shape).transpose(0, 1, 3, 2, 4).reshape(new_shape)).view(
+                type(array)
+            )
         if type(array) is not self.extended_field or array.shape[-2:] != (self.size, self.size):
             raise ValueError(r"The provided array does not store matrices in GF(q^d)^{n × n}")
         embedded_coefficients = self.extended_field_trace(
@@ -1782,3 +1794,49 @@ class WedderburnArtinComponentTransformer:
         return RingArray.from_field_array(
             new_array.reshape(*array.shape[:-2], self.ring.group.order), self.ring
         )
+
+
+def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
+    """Compute a block-Howell normal form of the provided block matrix.
+
+    The provided matrix should be 4-dimensional, with matrix[i, j] storing a square block at (i, j).
+    The block-Howell form is essentially the same as the row-reduced echelon form (when the matrix
+    is expanded into a 2-dimensional array), except pivots are shifted down (by inserting zero rows)
+    to always lie on the diagonal of each block.
+    """
+    assert matrix.ndim == 4 and matrix.shape[-1] == matrix.shape[-2]
+    num_block_rows, num_block_cols, size, _ = matrix.shape
+
+    # row-reduce as an expanded matrix
+    shape = (num_block_rows * size, num_block_cols * size)
+    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).row_reduce()
+
+    # remove rows of all-zero blocks
+    shape = (num_block_rows, size, num_block_cols, size)
+    matrix = matrix.reshape(shape).transpose(0, 2, 1, 3)
+    matrix = matrix[qldpc.math.first_nonzero_cols(matrix) < num_block_cols]
+    num_block_rows = matrix.shape[0]
+
+    if size == 1:
+        return matrix.view(type(matrix))
+
+    # expand and shift pivots so that they always lie on the diagonal of each block
+    shape = (num_block_rows * size, num_block_cols * size)
+    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape)
+
+    pivot_row, pivot_col = -1, 0
+    num_cols = matrix.shape[1]
+    while pivot_row < matrix.shape[0] - 1:
+        pivot_row += 1
+        pivot_col = qldpc.math.first_nonzero_cols(matrix[pivot_row])[0]
+        if pivot_col < num_cols and (pad := (pivot_col - pivot_row) % size):
+            zero_rows = np.zeros((pad, num_cols), dtype=int)
+            matrix = np.concatenate([matrix[:pivot_row], zero_rows, matrix[pivot_row:]])
+            pivot_row += pad
+
+    # strip off extra rows and re-collect into a 4-D block matrix
+    num_block_rows = matrix.shape[0] // size
+    matrix = matrix[: num_block_rows * size]
+    shape = (num_block_rows, size, num_block_cols, size)
+    matrix = matrix.reshape(shape).transpose(0, 2, 1, 3)
+    return matrix

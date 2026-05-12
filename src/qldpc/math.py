@@ -89,9 +89,7 @@ def first_nonzero_cols(
     If the array has more than two dimensions, return for each "row" r, the first "column" c for
     which array[r, c] is not all zero.
     """
-    _matrix = np.asarray(matrix)
-    if _matrix.ndim < 2:
-        raise ValueError(f"Cannot identify nonzero columns in array with dimension {_matrix.ndim}")
+    _matrix = np.atleast_2d(np.asarray(matrix))
     if _matrix.size == 0:
         return np.array([], dtype=int)
     nonzero_mask = np.any(_matrix.view(np.ndarray).astype(bool), axis=tuple(range(2, _matrix.ndim)))
