@@ -86,7 +86,6 @@ class SinterDecoder(Decoder, sinter.Decoder):
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
-        # add erasure bits, if necessary
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         decoder = self.get_configured_decoder(dem_arrays)
@@ -525,13 +524,6 @@ class SequentialWindowDecoder(SinterDecoder):
 
             # update the history of errors that are addressed by preceding windows
             addressed_errors |= c_errors
-
-        # add erasure bits, if necessary
-        num_erasure_bits = sum(
-            getattr(decoder, "has_erasure_bit", False) for decoder in window_decoders
-        )
-        if num_erasure_bits:
-            dem_arrays = dem_arrays.with_erasure_bit(num_erasure_bits)
 
         return CompiledSequentialWindowDecoder(
             dem_arrays, window_detectors, window_errors, window_decoders
