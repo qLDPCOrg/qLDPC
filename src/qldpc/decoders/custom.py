@@ -220,18 +220,22 @@ class LookupDecoder(Decoder):
     decreasing weight.  For each error ee, it computes the corresponding syndrome ss, and assigns
     syndrome ss the "correction" ee, overriding any previously assigned correction if present.
 
-    If provided a penalty_func that maps an error to a real number (i.e., a penalty), the decoder
-    only assigns correction ee to syndrome ss if (a) ss has no assigned correction, or (b) the
-    penalty of ee is <= the penalty of the correction currently assigned to ss.
+    If initialized with symplectic=True, this decoder treats the provided parity check matrix as that
+    of a QuditCode, with the first and last half of the columns denoting, respectively, the X and Z
+    support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
+    support by the first and second half of their entries.
+
+    If initialized with add_erasure_bit=True, this decoder appends a bit to all decoded errors.  If
+    asked to decode a syndrome that was not observed when constructing the lookup table, the erasure
+    bit is set to 1.  The erasure bit is set to 0 otherwise.
 
     If provided an error_channel of independent probabilities for each "error mechanism" (associated
     with one column of the parity check matrix), construct a penalty_func that penalizes unlikely
     errors.
 
-    If initialized with symplectic=True, this decoder treats the provided parity check matrix as that
-    of a QuditCode, with the first and last half of the columns denoting, respectively, the X and Z
-    support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
-    support by the first and second half of their entries.
+    If provided a penalty_func that maps an error to a real number (i.e., a penalty), the decoder
+    only assigns correction ee to syndrome ss if (a) ss has no assigned correction, or (b) the
+    penalty of ee is <= the penalty of the correction currently assigned to ss.
     """
 
     def __init__(
