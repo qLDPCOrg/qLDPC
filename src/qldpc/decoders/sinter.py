@@ -89,6 +89,8 @@ class SinterDecoder(Decoder, sinter.Decoder):
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         decoder = self.get_configured_decoder(dem_arrays)
+        if getattr(decoder, "has_erasure_bit", False):
+            dem_arrays = dem_arrays.with_erasure_bit()
         return CompiledSinterDecoder(dem_arrays, decoder)
 
     def get_configured_decoder(self, dem_arrays: DetectorErrorModelArrays) -> Decoder:
