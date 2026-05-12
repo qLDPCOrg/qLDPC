@@ -86,6 +86,7 @@ class SinterDecoder(Decoder, sinter.Decoder):
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
+        # add erasure bits, if necessary
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         decoder = self.get_configured_decoder(dem_arrays)
@@ -292,9 +293,9 @@ class SubgraphDecoder(SinterDecoder):
                 f" number of observable sets ({num_observable_sets})"
             )
 
-        self.subgraph_detectors = list(map(list, subgraph_detectors))
+        self.subgraph_detectors = [sorted(dets) for dets in subgraph_detectors]
         self.subgraph_observables = (
-            None if subgraph_observables is None else list(map(list, subgraph_observables))
+            None if subgraph_observables is None else [sorted(obs) for obs in subgraph_observables]
         )
 
         SinterDecoder.__init__(
@@ -313,14 +314,17 @@ class SubgraphDecoder(SinterDecoder):
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         subgraph_observables = (
-            [slice(None)] * self.num_subgraphs
+            [list(range(dem.num_observables))] * self.num_subgraphs
             if self.subgraph_observables is None
             else self.subgraph_observables
         )
+        num_observables = dem.num_observables
 
         # build a decoder for each subgraph
         subgraph_decoders = []
-        for detectors, observables in zip(self.subgraph_detectors, subgraph_observables):
+        for ss, (detectors, observables) in enumerate(
+            zip(self.subgraph_detectors, subgraph_observables)
+        ):
             # identify the error mechanisms that flip these detectors
             errors = dem_arrays.detector_flip_matrix[detectors].getnnz(axis=0) != 0
 
@@ -335,12 +339,16 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_decoder = SinterDecoder.compile_decoder_for_dem(self, subgraph_dem)
             subgraph_decoders.append(subgraph_decoder)
 
+        if getattr(subgraph_decoder.decoder, "has_erasure_bit", False):
+            subgraph_observables[ss].append(num_observables)
+            num_observables += 1
+
         return CompiledSubgraphDecoder(
             self.subgraph_detectors,
             subgraph_observables,
             subgraph_decoders,
             dem.num_detectors,
-            dem.num_observables,
+            num_observables,
         )
 
 
@@ -512,6 +520,13 @@ class SequentialWindowDecoder(SinterDecoder):
 
             # update the history of errors that are addressed by preceding windows
             addressed_errors |= c_errors
+
+        # add erasure bits, if necessary
+        num_erasure_bits = sum(
+            getattr(decoder, "has_erasure_bit", False) for decoder in window_decoders
+        )
+        if num_erasure_bits:
+            dem_arrays = dem_arrays.with_erasure_bit(num_erasure_bits)
 
         return CompiledSequentialWindowDecoder(
             dem_arrays, window_detectors, window_errors, window_decoders
