@@ -1804,25 +1804,28 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     is expanded into a 2-dimensional array), except pivots are shifted down (by inserting zero rows)
     to always lie on the diagonal of each block.
     """
+    shape: tuple[int, ...]
+
     assert matrix.ndim == 4 and matrix.shape[-1] == matrix.shape[-2]
+    field = type(matrix)
     num_block_rows, num_block_cols, size, _ = matrix.shape
 
     # row-reduce as an expanded matrix
     shape = (num_block_rows * size, num_block_cols * size)
-    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).row_reduce()
+    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_reduce()
 
     # remove rows of all-zero blocks
     shape = (num_block_rows, size, num_block_cols, size)
-    matrix = matrix.reshape(shape).transpose(0, 2, 1, 3)
+    matrix = matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
     matrix = matrix[qldpc.math.first_nonzero_cols(matrix) < num_block_cols]
     num_block_rows = matrix.shape[0]
 
     if size == 1:
-        return matrix.view(type(matrix))
+        return matrix.view(field)
 
     # expand and shift pivots so that they always lie on the diagonal of each block
     shape = (num_block_rows * size, num_block_cols * size)
-    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape)
+    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field)
 
     pivot_row, pivot_col = -1, 0
     num_cols = matrix.shape[1]
@@ -1831,12 +1834,11 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
         pivot_col = qldpc.math.first_nonzero_cols(matrix[pivot_row])[0]
         if pivot_col < num_cols and (pad := (pivot_col - pivot_row) % size):
             zero_rows = np.zeros((pad, num_cols), dtype=int)
-            matrix = np.concatenate([matrix[:pivot_row], zero_rows, matrix[pivot_row:]])
+            matrix = np.concatenate([matrix[:pivot_row], zero_rows, matrix[pivot_row:]]).view(field)
             pivot_row += pad
 
     # strip off extra rows and re-collect into a 4-D block matrix
     num_block_rows = matrix.shape[0] // size
     matrix = matrix[: num_block_rows * size]
     shape = (num_block_rows, size, num_block_cols, size)
-    matrix = matrix.reshape(shape).transpose(0, 2, 1, 3)
-    return matrix
+    return matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
