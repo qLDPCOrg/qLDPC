@@ -38,7 +38,7 @@ def test_restriction() -> None:
 
 
 def test_pauli_product_measurements_qubit_only() -> None:
-    """get_pauli_product_measurements raises an error for non-qubit (qutrit) codes."""
+    """Circuit methods are only supported for qubit codes."""
     with pytest.raises(ValueError, match="only supported for qubit codes"):
         circuits.get_pauli_product_measurements(codes.SurfaceCode(2, field=3).get_stabilizer_ops())
 
