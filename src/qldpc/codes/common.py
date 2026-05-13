@@ -775,16 +775,6 @@ class ClassicalCode(AbstractCode):
         self, error_weight: int, num_samples: int, decoder: decoders.Decoder
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
-
-        def _get_error_and_erasure(
-            syndrome: npt.NDArray[np.int_],
-        ) -> tuple[galois.FieldArray, bool]:
-            """Decode a syndrome and extract an erasure bit, if applicable."""
-            error = decoder.decode(syndrome.view(np.ndarray))
-            if getattr(decoder, "has_erasure_bit", False):
-                return error[:-1].view(self.field), bool(error[-1])
-            return error.view(self.field), False
-
         num_failures = 0
         num_discards = 0
         for _ in range(num_samples):
@@ -795,7 +785,7 @@ class ClassicalCode(AbstractCode):
 
             # decode the error
             syndrome = self.matrix @ error
-            decoded_error, erasure = _get_error_and_erasure(syndrome)
+            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
             if erasure:
                 num_discards += 1
             elif np.any(decoded_error - error):
@@ -2002,16 +1992,6 @@ class QuditCode(AbstractCode):
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
-
-        def _get_error_and_erasure(
-            syndrome: npt.NDArray[np.int_],
-        ) -> tuple[galois.FieldArray, bool]:
-            """Decode a syndrome and extract an erasure bit, if applicable."""
-            error = decoder.decode(syndrome.view(np.ndarray))
-            if getattr(decoder, "has_erasure_bit", False):
-                return error[:-1].view(self.field), bool(error[-1])
-            return error.view(self.field), False
-
         num_failures = 0
         num_discards = 0
         syndrome_matrix = -math.symplectic_conjugate(self.matrix)
@@ -2034,7 +2014,7 @@ class QuditCode(AbstractCode):
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
-            decoded_error, erasure = _get_error_and_erasure(syndrome)
+            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
             if erasure:
                 num_discards += 1  # pragma: no cover
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
@@ -3106,16 +3086,6 @@ class CSSCode(QuditCode):
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
-
-        def _get_error_and_erasure(
-            decoder: decoders.Decoder, syndrome: npt.NDArray[np.int_]
-        ) -> tuple[galois.FieldArray, bool]:
-            """Decode a syndrome and extract an erasure bit, if applicable."""
-            error = decoder.decode(syndrome.view(np.ndarray))
-            if getattr(decoder, "has_erasure_bit", False):
-                return error[:-1].view(self.field), bool(error[-1])
-            return error.view(self.field), False
-
         num_failures = 0
         num_discards = 0
         for _ in range(num_samples):
@@ -3157,88 +3127,6 @@ class CSSCode(QuditCode):
                 num_failures += 1
 
         return num_failures, num_discards
-
-
-def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
-    """Join index slices together into one slice."""
-    return np.concatenate(
-        [
-            np.arange(sector.start or 0, sector.stop, sector.step or 1, dtype=int)
-            if isinstance(sector, slice)
-            else sector
-            for sector in sectors
-        ]
-    ).astype(int)
-
-
-def _is_canonicalized(matrix: npt.NDArray[np.int_]) -> bool:
-    """Is the given matrix in canonical (row-reduced) form?"""
-    return all(
-        matrix[row, pivot] and not np.any(matrix[:row, pivot])
-        for row, pivot in enumerate(math.first_nonzero_cols(matrix))
-    )
-
-
-def _get_sample_allocation(
-    num_samples: int, block_length: int, max_error_rate: float
-) -> npt.NDArray[np.int_]:
-    """Construct an allocation of samples by error weight.
-
-    This method returns an array whose k-th entry is the number of samples to devote to errors of
-    weight k, given a maximum error rate that we care about.
-    """
-    probs = _get_error_probs_by_weight(block_length, max_error_rate)
-
-    # zero out the distribution at k=0, flatten it out to the left of its peak, and renormalize
-    probs[0] = 0
-    probs[1 : np.argmax(probs)] = probs.max()
-    probs /= np.sum(probs)
-
-    # assign sample numbers according to the probability distribution constructed above,
-    # increasing num_samples if necessary to deal with weird edge cases from round-off errors
-    while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
-        num_samples += 1  # pragma: no cover
-
-    # allocate one sample to k=0 to fix an edge case in ErrorRateFunc
-    sample_allocation[0] = 1
-
-    # truncate trailing zeros and return
-    nonzero = np.nonzero(sample_allocation)[0]
-    return sample_allocation[: nonzero[-1] + 1]
-
-
-def _get_error_probs_by_weight(
-    block_length: int, error_rate: float, max_weight: int | None = None
-) -> npt.NDArray[np.floating]:
-    """Build an array whose k-th entry is the probability of a weight-k error in a code.
-
-    If a code has block_length n and each bit has an independent probability p = error_rate of an
-    error, then the probability of k errors is (n choose k) p**k (1-p)**(n-k).
-
-    We compute the above probability using logarithms because otherwise the combinatorial factor
-    (n choose k) might be too large to handle.
-    """
-    max_weight = max_weight or block_length
-
-    # deal with some pathological cases
-    if error_rate == 0:
-        probs = np.zeros(max_weight + 1)
-        probs[0] = 1
-        return probs
-    elif error_rate == 1:
-        probs = np.zeros(max_weight + 1)
-        probs[block_length:] = 1
-        return probs
-
-    log_error_rate = np.log(error_rate)
-    log_one_minus_error_rate = np.log(1 - error_rate)
-    log_probs = [
-        math.log_choose(block_length, kk)
-        + kk * log_error_rate
-        + (block_length - kk) * log_one_minus_error_rate
-        for kk in range(max_weight + 1)
-    ]
-    return np.exp(log_probs)
 
 
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
@@ -3327,3 +3215,96 @@ class ErrorRateFunc:
         value = weight_probs @ values
         variance = np.sqrt(weight_probs**2 @ variances)
         return 1 - float(value), float(variance)
+
+
+def _get_sample_allocation(
+    num_samples: int, block_length: int, max_error_rate: float
+) -> npt.NDArray[np.int_]:
+    """Construct an allocation of samples by error weight.
+
+    This method returns an array whose k-th entry is the number of samples to devote to errors of
+    weight k, given a maximum error rate that we care about.
+    """
+    probs = _get_error_probs_by_weight(block_length, max_error_rate)
+
+    # zero out the distribution at k=0, flatten it out to the left of its peak, and renormalize
+    probs[0] = 0
+    probs[1 : np.argmax(probs)] = probs.max()
+    probs /= np.sum(probs)
+
+    # assign sample numbers according to the probability distribution constructed above,
+    # increasing num_samples if necessary to deal with weird edge cases from round-off errors
+    while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
+        num_samples += 1  # pragma: no cover
+
+    # allocate one sample to k=0 to fix an edge case in ErrorRateFunc
+    sample_allocation[0] = 1
+
+    # truncate trailing zeros and return
+    nonzero = np.nonzero(sample_allocation)[0]
+    return sample_allocation[: nonzero[-1] + 1]
+
+
+def _get_error_probs_by_weight(
+    block_length: int, error_rate: float, max_weight: int | None = None
+) -> npt.NDArray[np.floating]:
+    """Build an array whose k-th entry is the probability of a weight-k error in a code.
+
+    If a code has block_length n and each bit has an independent probability p = error_rate of an
+    error, then the probability of k errors is (n choose k) p**k (1-p)**(n-k).
+
+    We compute the above probability using logarithms because otherwise the combinatorial factor
+    (n choose k) might be too large to handle.
+    """
+    max_weight = max_weight or block_length
+
+    # deal with some pathological cases
+    if error_rate == 0:
+        probs = np.zeros(max_weight + 1)
+        probs[0] = 1
+        return probs
+    elif error_rate == 1:
+        probs = np.zeros(max_weight + 1)
+        probs[block_length:] = 1
+        return probs
+
+    log_error_rate = np.log(error_rate)
+    log_one_minus_error_rate = np.log(1 - error_rate)
+    log_probs = [
+        math.log_choose(block_length, kk)
+        + kk * log_error_rate
+        + (block_length - kk) * log_one_minus_error_rate
+        for kk in range(max_weight + 1)
+    ]
+    return np.exp(log_probs)
+
+
+def _get_error_and_erasure(
+    decoder: decoders.Decoder,
+    syndrome: galois.FieldArray,
+) -> tuple[galois.FieldArray, bool]:
+    """Decode a syndrome and extract an erasure bit, if applicable."""
+    error = decoder.decode(syndrome.view(np.ndarray))
+    if getattr(decoder, "has_erasure_bit", False):
+        return error[:-1].view(type(syndrome)), bool(error[-1])
+    return error.view(type(syndrome)), False
+
+
+def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
+    """Join index slices together into one slice."""
+    return np.concatenate(
+        [
+            np.arange(sector.start or 0, sector.stop, sector.step or 1, dtype=int)
+            if isinstance(sector, slice)
+            else sector
+            for sector in sectors
+        ]
+    ).astype(int)
+
+
+def _is_canonicalized(matrix: npt.NDArray[np.int_]) -> bool:
+    """Is the given matrix in canonical (row-reduced) form?"""
+    return all(
+        matrix[row, pivot] and not np.any(matrix[:row, pivot])
+        for row, pivot in enumerate(math.first_nonzero_cols(matrix))
+    )
