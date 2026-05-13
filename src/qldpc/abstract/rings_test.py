@@ -275,7 +275,7 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
 
 
 def test_minimal_howell_form() -> None:
-    """We try to "merge" pivots in the Howell form as much as possible."""
+    """Howell normal form merges compatible pivots to reduce the number of rows."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
     a, b = ring.get_primitive_central_idempotents()
     matrix = abstract.RingArray.build([[a, b], [0, a]])
@@ -301,7 +301,7 @@ def test_ring_row_addition() -> None:
 
 
 def test_deprecations() -> None:
-    """Throw warnings... for now."""
+    """Deprecated call signatures emit DeprecationWarning."""
     ring = abstract.GroupRing(abstract.TrivialGroup())
 
     vector = ring.field.Random(ring.group.order)
