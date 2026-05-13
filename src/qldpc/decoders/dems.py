@@ -230,11 +230,11 @@ class DetectorErrorModelArrays:
         but flips one newly added observable.  The erasure bit thereby allows decoders to indicate
         erasure by flipping the erasure bit.
         """
-        detector_flip_blocks = [
+        detector_flip_stack = [
             self.detector_flip_matrix,
             scipy.sparse.csc_matrix((self.num_detectors, bits)),
         ]
-        detector_flip_matrix = scipy.sparse.bmat(detector_flip_blocks, format="csc")
+        detector_flip_matrix = scipy.sparse.hstack(detector_flip_stack, format="csc")
 
         observable_flip_blocks = [
             [self.observable_flip_matrix, None],
