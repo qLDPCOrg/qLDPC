@@ -71,6 +71,16 @@ def test_sinter_decoder() -> None:
     )
 
 
+def test_sinter_decoder_without_priors() -> None:
+    """SinterDecoder with a static decoder leaves priors_arg unset."""
+    matrix = np.eye(3, 2, dtype=int)
+    static = decoders.get_decoder_lookup(matrix, max_weight=2)
+    decoder = decoders.SinterDecoder(static_decoder=static)
+    assert decoder.priors_arg is None
+    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
+    decoder.compile_decoder_for_dem(dem)
+
+
 def test_subgraph_decoding() -> None:
     """Decode by parts."""
     # construct a simple detector error model and sample from it

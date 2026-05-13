@@ -37,6 +37,12 @@ def test_restriction() -> None:
         circuits.get_encoding_circuit(code)
 
 
+def test_pauli_product_measurements_qubit_only() -> None:
+    """Circuit methods are only supported for qubit codes."""
+    with pytest.raises(ValueError, match="only supported for qubit codes"):
+        circuits.get_pauli_product_measurements(codes.SurfaceCode(2, field=3).get_stabilizer_ops())
+
+
 def test_state_prep(pytestconfig: pytest.Config) -> None:
     """Prepare all-0 logical states of qubit codes."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))

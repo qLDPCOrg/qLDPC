@@ -239,7 +239,7 @@ def get_decoder_MWPM(
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix
-        if decoder_args.get("error_probabilities") is not None:  # pragma: no cover
+        if decoder_args.get("error_probabilities") is not None:
             warnings.warn(
                 "Explicitly provided error_probabilities will override the error probabilities of"
                 " the provided detector error model",

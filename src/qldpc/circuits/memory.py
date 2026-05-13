@@ -409,7 +409,7 @@ def get_observables(
     Returns:
         A Stim circuit of OBSERVABLE_INCLUDE instructions.
     """
-    if basis not in (None, Pauli.X, Pauli.Z):  # pragma: no cover
+    if basis not in (None, Pauli.X, Pauli.Z):
         raise ValueError(
             f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"
         )

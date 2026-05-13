@@ -70,6 +70,14 @@ def test_relay_bp() -> None:
     with pytest.raises(ValueError, match="name not recognized"):
         decoders.get_decoder(np.array([[]]), with_RBP=True, name="invalid_name")
 
+    # fail when a decoder name string is passed where the matrix should be
+    with pytest.raises(ValueError, match="breaking change"):
+        decoders.RelayBPDecoder("MinSumBPDecoderF32")
+
+    # passing explicit error_priors alongside a DEM emits a warning
+    with pytest.warns(UserWarning, match="will override"):
+        decoders.RelayBPDecoder(dem, error_priors=[0.1, 0.1])
+
 
 def test_lookup() -> None:
     """Lookup decoding should be straightforward."""
@@ -82,6 +90,10 @@ def test_lookup() -> None:
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
     decoder = decoders.get_decoder_lookup(dem, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
+
+    # passing an explicit penalty_func alongside a DEM emits a warning
+    with pytest.warns(UserWarning, match="will override"):
+        decoders.LookupDecoder(dem, max_weight=2, penalty_func=lambda v: float(np.count_nonzero(v)))
 
 
 def test_ilp_decoder() -> None:

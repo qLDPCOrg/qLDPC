@@ -71,6 +71,10 @@ def test_decoding() -> None:
     assert np.array_equal(error, decoders.decode(dem, syndrome, with_MWPM=True))
     assert np.array_equal(error, decoders.decode(dem, syndrome, with_ILP=True))
 
+    # passing explicit error_probabilities alongside a DEM emits a warning
+    with pytest.warns(UserWarning, match="will override"):
+        decoders.decode(dem, syndrome, with_MWPM=True, error_probabilities=[0.1, 0.1])
+
     # add a non-graphlike error mechanism, which MWPM can ignore upon request
     matrix = np.hstack([matrix, np.ones((3, 1))])
     error = np.concatenate([error, [0]])
