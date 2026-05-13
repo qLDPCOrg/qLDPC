@@ -231,17 +231,17 @@ class DetectorErrorModelArrays:
         erasure by flipping the erasure bit.
         """
         detector_flip_matrix = scipy.sparse.hstack(
-            [self.detector_flip_matrix, scipy.sparce.csc_matrix((self.num_detectors, bits))],
+            [self.detector_flip_matrix, scipy.sparse.csc_matrix((self.num_detectors, bits))],
             format="csc",
         )
 
         observable_flip_matrix = self.observable_flip_matrix
         observable_flip_matrix = scipy.sparse.hstack(
-            [observable_flip_matrix, scipy.sparce.csc_matrix((self.num_observables, bits))],
+            [observable_flip_matrix, scipy.sparse.csc_matrix((self.num_observables, bits))],
             format="csc",
         )
         observable_flip_matrix = scipy.sparse.vstack(
-            [observable_flip_matrix, scipy.sparce.csc_matrix((bits, self.num_errors + bits))],
+            [observable_flip_matrix, scipy.sparse.csc_matrix((bits, self.num_errors + bits))],
             format="csc",
         )
         for bit_index in range(-1, -bits - 1, -1):
