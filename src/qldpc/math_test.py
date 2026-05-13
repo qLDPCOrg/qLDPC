@@ -61,7 +61,7 @@ def test_nonzero_cols() -> None:
 
 
 def test_dual_basis(pytestconfig: pytest.Config) -> None:
-    """Construst dual bases."""
+    """Construct dual bases."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
     field = galois.GF(2)
@@ -75,6 +75,7 @@ def test_dual_basis(pytestconfig: pytest.Config) -> None:
 
 
 def test_block_matrix() -> None:
+    """block_matrix assembles a nested block structure into a single NumPy array."""
     eye = np.eye(2, dtype=float)
     zero = np.zeros_like(eye)
     blocks = [[eye, 1], [0, eye]]
