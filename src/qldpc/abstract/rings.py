@@ -2,7 +2,7 @@
 
 !!! WARNINGS !!!
 
-First and foremoest, this module does not promise to be performant.  If you need to do heavy
+First and foremost, this module does not promise to be performant.  If you need to do heavy
 numerical abstract algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
 
 

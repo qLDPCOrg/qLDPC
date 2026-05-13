@@ -108,7 +108,7 @@ def get_decoder_BP_OSD(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
@@ -139,7 +139,7 @@ def get_decoder_BP_LSD(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
@@ -170,7 +170,7 @@ def get_decoder_BF(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.

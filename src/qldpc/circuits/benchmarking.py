@@ -76,7 +76,7 @@ def get_state_prep_diagnostic_circuit(
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state fo the provided code.
+            logical state of the provided code.
 
     Returns:
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
@@ -210,7 +210,7 @@ def get_state_prep_diagnostic_tasks(
             state_prep_circuit.  If provided a sequence of integers, post-select on the correponding
             measurements (by index) in the state_prep_circuit.
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state fo the provided code.
+            logical state of the provided code.
 
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
@@ -250,7 +250,7 @@ def get_logical_error_and_discard_rate(
     dem_to_decode: stim.DetectorErrorModel | None = None,
     post_select: Sequence[int] = (),
 ) -> tuple[float, float]:
-    """Compute a logical error rate and discard rate from samples of the provided cirucit.
+    """Compute a logical error rate and discard rate from samples of the provided circuit.
 
     Each logical error rate is a fraction of the (possibly post-selected) shots in which observable
     flips are predicted incorrectly by the provided decoder.
@@ -353,7 +353,7 @@ def get_nontrivial_logical_stabilizers(
 
     Keyword args:
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state fo the provided code.
+            logical state of the provided code.
 
     Returns:
         A list of logical Pauli operators supported on the data qubits of the provided code.
@@ -398,7 +398,7 @@ def _get_post_selection_indices(
         return tuple(range(num_measurements)) if post_select else ()
     if not all(0 <= mm < num_measurements for mm in post_select):
         raise ValueError(
-            f"A cirucit with {num_measurements} can only post-select on measurements indexed from"
+            f"A circuit with {num_measurements} can only post-select on measurements indexed from"
             f" 0 to {num_measurements - 1}; requested: {post_select}"
         )
     return post_select
