@@ -71,6 +71,19 @@ def test_sinter_decoder() -> None:
     )
 
 
+def test_sinter_decoder_no_priors() -> None:
+    """SinterDecoder works when the inner decoder needs no error priors (e.g. GUF)."""
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 L0
+    """)
+    decoder = decoders.SinterDecoder(with_GUF=True)
+    assert decoder.priors_arg is None
+    compiled = decoder.compile_decoder_for_dem(dem)
+    # known syndrome [1] → observable flip [1]; unknown [0] → no flip
+    result = compiled.decode_shots(np.array([[1], [0]], dtype=np.uint8))
+    assert np.array_equal(result, [[1], [0]])
+
+
 def test_subgraph_decoding() -> None:
     """Decode by parts."""
     # construct a simple detector error model and sample from it

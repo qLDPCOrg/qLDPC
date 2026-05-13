@@ -128,7 +128,7 @@ class RelayBPDecoder(BatchDecoder):
                 f"Relay-BP decoder name not recognized: {name}\n"
                 "See 'import relay_bp; help(relay_bp.bp)' for available Relay-BP decoders"
             )
-        if isinstance(pcm_or_dem, str):  # pragma: no cover
+        if isinstance(pcm_or_dem, str):
             raise ValueError(
                 "I think you provided a Relay-BP decoder decoder name in place of a parity check"
                 " matrix.  There was breaking change to this API.  See"
@@ -145,7 +145,7 @@ class RelayBPDecoder(BatchDecoder):
             observable_error_matrix = dem_arrays.observable_flip_matrix
             if error_priors is None:
                 error_priors = dem_arrays.error_probs
-            else:  # pragma: no cover
+            else:
                 warnings.warn(
                     "Explicitly provided error_priors will override the error probabilities of the "
                     "provided detector error model",
@@ -247,7 +247,7 @@ class LookupDecoder(Decoder):
             dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
             pcm = dem_arrays.detector_flip_matrix
             error_channel = dem_arrays.error_probs
-            if penalty_func is not None:  # pragma: no cover
+            if penalty_func is not None:
                 warnings.warn(
                     "Explicitly provided penalty_func will override the error probabilities of the "
                     "provided detector error model",
