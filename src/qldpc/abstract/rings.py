@@ -1800,9 +1800,9 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     """Compute a block-Howell normal form of the provided block matrix.
 
     The provided matrix should be 4-dimensional, with matrix[i, j] storing a square block at (i, j).
-    The block-Howell form is essentially the same as the row-reduced echelon form (when the matrix
-    is expanded into a 2-dimensional array), except pivots are shifted down (by inserting zero rows)
-    to always lie on the diagonal of each block.
+    The block-Howell form is essentially the same as the row-reduced echelon form when the matrix
+    is expanded into a 2-dimensional array, except zero rows are inserted to shift pivots down so
+    that they always lie on the diagonal of a block.
     """
     shape: tuple[int, ...]
 
@@ -1810,7 +1810,7 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     field = type(matrix)
     num_block_rows, num_block_cols, size, _ = matrix.shape
 
-    # row-reduce as an expanded matrix
+    # row-reduce as an expanded 2-D matrix
     shape = (num_block_rows * size, num_block_cols * size)
     matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_reduce()
 
@@ -1823,10 +1823,11 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     if size == 1:
         return matrix.view(field)
 
-    # expand and shift pivots so that they always lie on the diagonal of each block
+    # expand into a 2-D matrix
     shape = (num_block_rows * size, num_block_cols * size)
     matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field)
 
+    # insert zero rows to shift pivots down so that they always lie on the diagonal of a block
     pivot_row, pivot_col = -1, 0
     num_cols = matrix.shape[1]
     while pivot_row < matrix.shape[0] - 1:
@@ -1837,7 +1838,7 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
             matrix = np.concatenate([matrix[:pivot_row], zero_rows, matrix[pivot_row:]]).view(field)
             pivot_row += pad
 
-    # strip off extra rows and re-collect into a 4-D block matrix
+    # strip off extra rows and re-collect into a 4-D array
     num_block_rows = matrix.shape[0] // size
     matrix = matrix[: num_block_rows * size]
     shape = (num_block_rows, size, num_block_cols, size)

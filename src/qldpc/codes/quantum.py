@@ -1415,9 +1415,8 @@ class LPCode(CSSCode):
         def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
             """Build a new matrix zeros out a row-reduced matrix everywhere except the pivots."""
             new_matrix = np.zeros(matrix.shape, dtype=object)
-            for rr, row in enumerate(matrix):
-                pivot_col = np.argmax(row.view(np.ndarray).astype(bool))
-                new_matrix[rr, pivot_col] = matrix[rr, pivot_col].copy()
+            for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix)):
+                new_matrix[row, col] = matrix[row, col].copy()
             return abstract.RingArray.build(new_matrix, ring)
 
         pivots_a = _get_pivot_matrix(generator_a)
@@ -1554,9 +1553,8 @@ class SLPCode(CSSCode):
         def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
             """Build a new matrix zeros out a row-reduced matrix everywhere except the pivots."""
             new_matrix = np.zeros(matrix.shape, dtype=object)
-            for rr, row in enumerate(matrix):
-                pivot_col = np.argmax(row.view(np.ndarray).astype(bool))
-                new_matrix[rr, pivot_col] = matrix[rr, pivot_col].copy()
+            for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix)):
+                new_matrix[row, col] = matrix[row, col].copy()
             return abstract.RingArray.build(new_matrix, ring)
 
         pivots_a = _get_pivot_matrix(generator_a)
