@@ -230,22 +230,17 @@ class DetectorErrorModelArrays:
         but flips one newly added observable.  The erasure bit thereby allows decoders to indicate
         erasure by flipping the erasure bit.
         """
-        detector_flip_matrix = scipy.sparse.hstack(
-            [self.detector_flip_matrix, scipy.sparse.csc_matrix((self.num_detectors, bits))],
-            format="csc",
-        )
+        detector_flip_blocks = [
+            self.detector_flip_matrix,
+            scipy.sparse.csc_matrix((self.num_detectors, bits)),
+        ]
+        detector_flip_matrix = scipy.sparse.bmat(detector_flip_blocks, format="csc")
 
-        observable_flip_matrix = self.observable_flip_matrix
-        observable_flip_matrix = scipy.sparse.hstack(
-            [observable_flip_matrix, scipy.sparse.csc_matrix((self.num_observables, bits))],
-            format="csc",
-        )
-        observable_flip_matrix = scipy.sparse.vstack(
-            [observable_flip_matrix, scipy.sparse.csc_matrix((bits, self.num_errors + bits))],
-            format="csc",
-        )
-        for bit_index in range(-1, -bits - 1, -1):
-            observable_flip_matrix[bit_index, bit_index] = 1
+        observable_flip_blocks = [
+            [self.observable_flip_matrix, None],
+            [None, scipy.sparse.eye(bits, dtype=int, format="csc")],
+        ]
+        observable_flip_matrix = scipy.sparse.bmat(observable_flip_blocks, format="csc")
 
         detector_flip_matrix.eliminate_zeros()
         observable_flip_matrix.eliminate_zeros()
