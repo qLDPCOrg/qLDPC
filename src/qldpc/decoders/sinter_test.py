@@ -98,6 +98,75 @@ def test_subgraph_decoding() -> None:
         decoders.SubgraphDecoder([[0], [1], [2]], [[0]])
 
 
+def test_sinter_decoder_with_erasure() -> None:
+    """compile_decoder_for_dem expands the DEM with an erasure observable when has_erasure_bit."""
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0
+        error(0.1) D1 L0
+    """)
+    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=1, add_erasure_bit=True)
+    compiled = decoder.compile_decoder_for_dem(dem)
+
+    # one extra observable for the erasure bit
+    assert compiled.dem_arrays.num_observables == dem.num_observables + 1
+
+    # known syndromes: correct observables, erasure bit = 0
+    shots = np.array([[1, 0], [0, 1]], dtype=np.uint8)
+    result = compiled.decode_shots(shots)
+    assert result.shape == (2, dem.num_observables + 1)
+    assert np.array_equal(result[:, :-1], [[0], [1]])  # L0: not flipped by D0, flipped by D1
+    assert np.all(result[:, -1] == 0)
+
+    # unknown syndrome (no weight-1 error explains both D0 and D1): erasure bit = 1
+    assert compiled.decode_shots(np.array([[1, 1]], dtype=np.uint8))[0, -1] == 1
+
+
+def test_subgraph_decoder_with_erasure() -> None:
+    """SubgraphDecoder appends one erasure observable per subgraph that has_erasure_bit."""
+    # error 0 flips both D0 and D1 (so D0-alone is an unknown syndrome for subgraph 0)
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 D1 L0
+        error(0.1) D2 L1
+    """)
+    decoder = decoders.SubgraphDecoder(
+        [[0, 1], [2]], with_lookup=True, max_weight=1, add_erasure_bit=True
+    )
+    compiled = decoder.compile_decoder_for_dem(dem)
+
+    # two original observables plus one erasure observable per subgraph
+    assert compiled.num_observables == dem.num_observables + 2
+
+    # known syndromes: correct logical observables, both erasure bits = 0
+    shots = np.array([[1, 1, 0], [0, 0, 1], [0, 0, 0]], dtype=np.uint8)
+    result = compiled.decode_shots(shots)
+    assert result.shape == (3, dem.num_observables + 2)
+    assert np.array_equal(result[:, :2], [[1, 0], [0, 1], [0, 0]])  # L0, L1
+    assert np.all(result[:, 2:] == 0)
+
+    # D0 alone is not explained by any weight-1 error in subgraph 0: erasure_0 fires, erasure_1 does not
+    unknown_result = compiled.decode_shots(np.array([[1, 0, 0]], dtype=np.uint8))
+    assert unknown_result[0, 2] == 1  # erasure for subgraph 0
+    assert unknown_result[0, 3] == 0  # no erasure for subgraph 1
+
+    # compile_decoder_for_dem must not mutate self.subgraph_observables: second compile is identical
+    compiled_2 = decoder.compile_decoder_for_dem(dem)
+    assert compiled_2.num_observables == compiled.num_observables
+    assert np.array_equal(compiled_2.decode_shots(shots), result)
+
+
+def test_sequential_window_decoder_erasure_not_implemented() -> None:
+    """SequentialWindowDecoder raises NotImplementedError when has_erasure_bit is set."""
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 L0
+        error(0.1) D1 L1
+    """)
+    decoder = decoders.SequentialWindowDecoder(
+        [[0], [1]], with_lookup=True, max_weight=1, add_erasure_bit=True
+    )
+    with pytest.raises(NotImplementedError, match="erasure"):
+        decoder.compile_decoder_for_dem(dem)
+
+
 def test_sequential_decoding() -> None:
     """Decode segments sequentially."""
     # construct a simple detector error model and sample from it
