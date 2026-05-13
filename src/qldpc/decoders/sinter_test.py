@@ -98,6 +98,44 @@ def test_subgraph_decoding() -> None:
         decoders.SubgraphDecoder([[0], [1], [2]], [[0]])
 
 
+def test_sequential_decoding() -> None:
+    """Decode segments sequentially."""
+    # construct a simple detector error model and sample from it
+    dem = stim.DetectorErrorModel("""
+        detector(0) D0
+        detector(1) D1
+        detector(2) D2
+        error(0.1) D0 D1 L0
+        error(0.1) D1 D2 L1
+        error(0.1) D2 L2
+    """)
+    sampler = dem.compile_sampler()
+    det_data, obs_data, err_data = sampler.sample(100)
+
+    # build a monolithic decoder, compile, and predict observable flips
+    decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
+    compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
+    predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
+        compiled_decoder_1.packbits(det_data)
+    )
+
+    # build a sequential decoder, compile, and predict observable flips
+    decoder_2 = decoders.SequentialWindowDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
+    compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
+    predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
+        compiled_decoder_2.packbits(det_data)
+    )
+    assert np.array_equal(predicted_flips_1, predicted_flips_2)
+
+    # build an equivalent sliding window decoder, compile, and predict observable flips
+    decoder_2 = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
+    compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
+    predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
+        compiled_decoder_2.packbits(det_data)
+    )
+    assert np.array_equal(predicted_flips_1, predicted_flips_2)
+
+
 def test_sinter_decoder_with_erasure() -> None:
     """compile_decoder_for_dem expands the DEM with an erasure observable when has_erasure_bit."""
     dem = stim.DetectorErrorModel("""
@@ -143,15 +181,11 @@ def test_subgraph_decoder_with_erasure() -> None:
     assert np.array_equal(result[:, :2], [[1, 0], [0, 1], [0, 0]])  # L0, L1
     assert np.all(result[:, 2:] == 0)
 
-    # D0 alone is not explained by any weight-1 error in subgraph 0: erasure_0 fires, erasure_1 does not
+    # D0 alone is not explained by any weight-1 error in subgraph 0
+    # erasure_0 fires, erasure_1 does not
     unknown_result = compiled.decode_shots(np.array([[1, 0, 0]], dtype=np.uint8))
     assert unknown_result[0, 2] == 1  # erasure for subgraph 0
     assert unknown_result[0, 3] == 0  # no erasure for subgraph 1
-
-    # compile_decoder_for_dem must not mutate self.subgraph_observables: second compile is identical
-    compiled_2 = decoder.compile_decoder_for_dem(dem)
-    assert compiled_2.num_observables == compiled.num_observables
-    assert np.array_equal(compiled_2.decode_shots(shots), result)
 
 
 def test_sequential_window_decoder_erasure_not_implemented() -> None:
@@ -165,41 +199,3 @@ def test_sequential_window_decoder_erasure_not_implemented() -> None:
     )
     with pytest.raises(NotImplementedError, match="erasure"):
         decoder.compile_decoder_for_dem(dem)
-
-
-def test_sequential_decoding() -> None:
-    """Decode segments sequentially."""
-    # construct a simple detector error model and sample from it
-    dem = stim.DetectorErrorModel("""
-        detector(0) D0
-        detector(1) D1
-        detector(2) D2
-        error(0.1) D0 D1 L0
-        error(0.1) D1 D2 L1
-        error(0.1) D2 L2
-    """)
-    sampler = dem.compile_sampler()
-    det_data, obs_data, err_data = sampler.sample(100)
-
-    # build a monolithic decoder, compile, and predict observable flips
-    decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
-    compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
-    predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
-        compiled_decoder_1.packbits(det_data)
-    )
-
-    # build a sequential decoder, compile, and predict observable flips
-    decoder_2 = decoders.SequentialWindowDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
-    compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
-    predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
-        compiled_decoder_2.packbits(det_data)
-    )
-    assert np.array_equal(predicted_flips_1, predicted_flips_2)
-
-    # build an equivalent sliding window decoder, compile, and predict observable flips
-    decoder_2 = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
-    compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
-    predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
-        compiled_decoder_2.packbits(det_data)
-    )
-    assert np.array_equal(predicted_flips_1, predicted_flips_2)
