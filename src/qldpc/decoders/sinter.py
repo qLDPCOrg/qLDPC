@@ -508,7 +508,7 @@ class SequentialWindowDecoder(SinterDecoder):
             window_decoder = self.get_configured_decoder(window_dem_arrays)
             if getattr(window_decoder, "has_erasure_bit", False):
                 raise NotImplementedError(
-                    f"{type(self)} does not yet suport erasure decoding.\nIf you would like to see "
+                    f"{type(self)} does not yet support erasure decoding.\nIf you would like to see "
                     "this feature, please file an issue at https://github.com/qLDPCOrg/qLDPC/issues"
                 )
 
