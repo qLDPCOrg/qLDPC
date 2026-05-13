@@ -170,7 +170,7 @@ def require_package(name: str, repo: str | None = None) -> bool:
         if not is_callable():
             raise ModuleNotFoundError(
                 f"GAP package '{name}' is required but not installed.\n"
-                f"You may be able to find this pacakge at {repo}"
+                f"You may be able to find this package at {repo}"
             )
 
         response = (
