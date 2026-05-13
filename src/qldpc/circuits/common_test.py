@@ -62,7 +62,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
         syndrome = stabilizers @ symplectic_conjugate(error_vec)
         assert np.array_equal(outcomes.astype(int), syndrome)
 
-        # performing remaniing tests below with a tableau simulator
+        # performing remaining tests below with a tableau simulator
         simulator = stim.TableauSimulator()
         simulator.do(encoder)
 
