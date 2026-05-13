@@ -242,8 +242,6 @@ class DetectorErrorModelArrays:
         ]
         observable_flip_matrix = scipy.sparse.bmat(observable_flip_blocks, format="csc")
 
-        detector_flip_matrix.eliminate_zeros()
-        observable_flip_matrix.eliminate_zeros()
         return DetectorErrorModelArrays.from_arrays(
             detector_flip_matrix,
             observable_flip_matrix,
