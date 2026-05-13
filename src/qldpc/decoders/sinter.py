@@ -315,7 +315,7 @@ class SubgraphDecoder(SinterDecoder):
         subgraph_observables = (
             [list(range(dem.num_observables)) for _ in range(self.num_subgraphs)]
             if self.subgraph_observables is None
-            else self.subgraph_observables
+            else [list(obs) for obs in self.subgraph_observables]
         )
         num_observables = dem.num_observables
 
