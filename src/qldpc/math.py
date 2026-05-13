@@ -85,7 +85,7 @@ def first_nonzero_cols(
 ) -> npt.NDArray[np.int_]:
     """Get the first nonzero column for every row in a matrix.
 
-    If all columns are zero in a particular row, the column valus is set to the number of columns.
+    If all columns are zero in a particular row, the column value is set to the number of columns.
     If the array has more than two dimensions, return for each "row" r, the first "column" c for
     which array[r, c] is not all zero.
     """

@@ -153,7 +153,7 @@ def test_augmented_decoders() -> None:
 
 
 def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
-    """Decode a quantum code with random errors."""
+    """Decode random weight-2 errors in a GF(3) surface code."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
     code = codes.SurfaceCode(4, field=3)

@@ -29,8 +29,12 @@ def test_sinter_decoder() -> None:
         error(0.0002) D0 D1
         error(0.0003) D2 L1
     """)
+
+    # mock some circuit errors associated and observable flips
+    # each row of circuit_errors indicates which error mechanisms fired in a shot
     circuit_errors = [[1, 0, 0], [1, 1, 0], [1, 0, 1]]
     observable_flips = [[0, 0], [0, 0], [0, 1]]
+
     bit_packed_shots = np.packbits(circuit_errors, bitorder="little", axis=1)
     expected_flips = np.packbits(observable_flips, bitorder="little", axis=1)
 
@@ -54,7 +58,7 @@ def test_sinter_decoder() -> None:
             observable_flips,
         )
 
-    # the trivial decoder always returns a trival result
+    # the trivial decoder always returns a trivial result
     decoder = decoders.TrivialDecoder()
     compiled_decoder = decoder.compile_decoder_for_dem(dem)
     assert np.array_equal(
@@ -78,12 +82,13 @@ def test_subgraph_decoding() -> None:
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
 
-    # build a monolithic decoder, compile, and predict observable flips
+    # build a monolithic lookup-table decoder, compile, and predict observable flips
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
     )
+    assert np.array_equal(predicted_flips_1, compiled_decoder_1.packbits(obs_data))
 
     # build a subgraph decoder, compile, and predict observable flips
     decoder_2 = decoders.SubgraphDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
@@ -112,12 +117,13 @@ def test_sequential_decoding() -> None:
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
 
-    # build a monolithic decoder, compile, and predict observable flips
+    # build a monolithic lookup-table decoder, compile, and predict observable flips
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
     )
+    assert np.array_equal(predicted_flips_1, compiled_decoder_1.packbits(obs_data))
 
     # build a sequential decoder, compile, and predict observable flips
     decoder_2 = decoders.SequentialWindowDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)

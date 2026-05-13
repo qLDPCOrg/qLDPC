@@ -173,7 +173,7 @@ def test_group_product() -> None:
 
 
 def test_random_symmetric_subset() -> None:
-    """Cover Group.random_symmetric_subset."""
+    """Group.random_symmetric_subset generates properly symmetric subsets of the requested size."""
     group = abstract.CyclicGroup(2) * abstract.CyclicGroup(3)
     for seed in [0, 1]:
         subset = group.random_symmetric_subset(size=2, seed=seed)

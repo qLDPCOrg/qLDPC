@@ -112,7 +112,7 @@ def test_maybe_get_generators_from_gap() -> None:
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2a)\n"),
         pytest.raises(ValueError, match="Cannot extract cycle"),
     ):
-        assert external.groups.maybe_get_generators_from_gap(GROUP) is None
+        external.groups.maybe_get_generators_from_gap(GROUP)
 
     # everything works as expected
     with (

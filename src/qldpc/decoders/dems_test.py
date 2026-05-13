@@ -65,6 +65,13 @@ def test_initialization() -> None:
 def test_simplify() -> None:
     """Simplify and merge errors."""
 
+    # simplification rules exercised below:
+    # - D0 D0 D0 → D0 (odd number of like targets collapses to one)
+    # - error(0) and error(p) with even-count targets (D2 D2) are dropped
+    # - two errors with identical syndromes merge via the XOR formula:
+    #   p_combined = p1 + p2 - 2*p1*p2  (probability of an odd number of occurrences)
+    #   e.g. 0.001 D0 and 0.003 D0  →  0.001 + 0.003 - 2*0.001*0.003 ≈ 0.004
+    #        0.002 D0D3 and 0.004 D0D3  →  0.002 + 0.004 - 2*0.002*0.004 ≈ 0.006
     dem = stim.DetectorErrorModel("""
         error(0.001) D0 D0 D0
         error(0.002) D0 D3
