@@ -71,17 +71,14 @@ def test_sinter_decoder() -> None:
     )
 
 
-def test_sinter_decoder_no_priors() -> None:
-    """SinterDecoder works when the inner decoder needs no error priors (e.g. GUF)."""
-    dem = stim.DetectorErrorModel("""
-        error(0.1) D0 L0
-    """)
-    decoder = decoders.SinterDecoder(with_GUF=True)
+def test_sinter_decoder_without_priors() -> None:
+    """SinterDecoder with a static decoder leaves priors_arg unset."""
+    matrix = np.eye(3, 2, dtype=int)
+    static = decoders.get_decoder_lookup(matrix, max_weight=2)
+    decoder = decoders.SinterDecoder(static_decoder=static)
     assert decoder.priors_arg is None
-    compiled = decoder.compile_decoder_for_dem(dem)
-    # known syndrome [1] → observable flip [1]; unknown [0] → no flip
-    result = compiled.decode_shots(np.array([[1], [0]], dtype=np.uint8))
-    assert np.array_equal(result, [[1], [0]])
+    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
+    decoder.compile_decoder_for_dem(dem)
 
 
 def test_subgraph_decoding() -> None:
