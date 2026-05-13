@@ -57,14 +57,12 @@ def test_hamming_and_tetrahedral_codes() -> None:
     assert tetrahedral_code.get_code_params() == (15, 1, 3)
     assert tetrahedral_code.is_equiv_to(codes.TetrahedralCode(algebraic=True))
 
-    """
-    The tetrahedral code (TC) can be constructed by concatenating the quantum Hamming code (QHC)
-    with a classical code on the logical X operators of the QHC, as we show below.  To this end, we
-    first decompose the logical X operator of the TC into a product of logical X operators of the
-    QHC, which can be found by checking (anti-)commutation with the logical Zs of the QHC.  We then
-    concatenate the QHC with a classical code that has only this combination of QHC logical Xs as a
-    nontrivial code word.
-    """
+    # The tetrahedral code (TC) can be constructed by concatenating the quantum Hamming code (QHC)
+    # with a classical code on the logical X operators of the QHC, as we show below.  To this end,
+    # we first decompose the logical X operator of the TC into a product of logical X operators of
+    # the QHC, which can be found by checking (anti-)commutation with the logical Zs of the QHC.
+    # We then concatenate the QHC with a classical code that has only this combination of QHC
+    # logical Xs as a nontrivial code word.
     decomposition = (
         tetrahedral_code.get_logical_ops(Pauli.X) @ quantum_hamming_code.get_logical_ops(Pauli.Z).T
     )
@@ -215,7 +213,7 @@ def get_dist_l1(
 
 
 def test_quasi_cyclic_codes() -> None:
-    """Multivariave versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
+    """Multivariate versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
 
     # not enough orders provided
     with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
@@ -604,7 +602,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     assert codes.CSSCode.get_distance(code, Pauli.Z) == rows
     assert_valid_subgraphs(code)
 
-    # the bais-tailored rotated surface code is an XZZX code
+    # the bias-tailored rotated surface code is an XZZX code
     code = codes.SurfaceCode(max(rows, cols), rotated=True)
     for row in code.conjugated(code.bias_tailoring_qubits).matrix:
         row_x, row_z = row[: code.num_qudits], row[-code.num_qudits :]
@@ -645,7 +643,7 @@ def test_toric_codes() -> None:
     code = codes.ToricCode(2, rotated=True)
     assert len(code.matrix_x) == len(code.matrix_z) == 1
 
-    # the bais-tailored rotated toric code is an XZZX code
+    # the bias-tailored rotated toric code is an XZZX code
     rows, cols = 6, 4
     code = codes.ToricCode(rows, cols, rotated=True)
     for row in code.conjugated(code.bias_tailoring_qubits).matrix:
@@ -684,7 +682,7 @@ def test_generalized_surface_codes(size: int = 3) -> None:
 
 
 def test_4d_toric_codes() -> None:
-    """Reproduce Tabe 1 from arXiv:2506.15130v1."""
+    """Reproduce Table 1 from arXiv:2506.15130v1."""
     t4_codes = {
         ((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 0), (0, 0, 0, 2)): (12, 6, 2),
         ((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 1), (0, 0, 0, 3)): (18, 6, 3),

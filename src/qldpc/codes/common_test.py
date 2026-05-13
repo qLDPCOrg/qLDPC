@@ -289,7 +289,7 @@ def test_qudit_codes() -> None:
     assert code.is_equiv_to(codes.QuditCode(code))
     assert_valid_subgraphs(code)
 
-    # equivlence to code with redundant stabilizers
+    # equivalence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
     assert code.is_equiv_to(redundant_code)
 
@@ -570,10 +570,10 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert code.num_checks == code.num_checks_x + code.num_checks_z
     assert code == codes.CSSCode(code.code_x, code.code_z)
 
-    # equivlence to QuditCode with the same parity check matrix
+    # equivalence to QuditCode with the same parity check matrix
     assert code.is_equiv_to(codes.QuditCode(code.matrix))
 
-    # equivlence to code with redundant stabilizers
+    # equivalence to code with redundant stabilizers
     redundant_code = codes.CSSCode(np.vstack([code.matrix_x, code.matrix_x]), code.matrix_z)
     assert codes.CSSCode.equiv(code, redundant_code)
 
