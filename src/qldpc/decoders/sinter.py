@@ -313,7 +313,7 @@ class SubgraphDecoder(SinterDecoder):
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         subgraph_observables = (
-            [list(range(dem.num_observables))] * self.num_subgraphs
+            [list(range(dem.num_observables)) for _ in range(self.num_subgraphs)]
             if self.subgraph_observables is None
             else self.subgraph_observables
         )
