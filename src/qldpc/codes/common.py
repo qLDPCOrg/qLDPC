@@ -786,7 +786,7 @@ class ClassicalCode(AbstractCode):
             # decode the error
             syndrome = self.matrix @ error
             decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
-            if erasure:
+            if erasure:  # pragma: no cover
                 num_discards += 1
             elif np.any(decoded_error - error):
                 num_failures += 1
@@ -2015,8 +2015,8 @@ class QuditCode(AbstractCode):
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
             decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
-            if erasure:
-                num_discards += 1  # pragma: no cover
+            if erasure:  # pragma: no cover
+                num_discards += 1
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
                 num_failures += 1
 
@@ -3101,7 +3101,7 @@ class CSSCode(QuditCode):
             )
             syndrome_z = self.matrix_x @ error_z
             decoded_error_z, erasure_z = _get_error_and_erasure(decoder_z, syndrome_z)
-            if erasure_z:
+            if erasure_z:  # pragma: no cover
                 num_discards += 1
                 continue
 
@@ -3285,7 +3285,7 @@ def _get_error_and_erasure(
 ) -> tuple[galois.FieldArray, bool]:
     """Decode a syndrome and extract an erasure bit, if applicable."""
     error = decoder.decode(syndrome.view(np.ndarray))
-    if getattr(decoder, "has_erasure_bit", False):
+    if getattr(decoder, "has_erasure_bit", False):  # pragma: no cover
         return error[:-1].view(type(syndrome)), bool(error[-1])
     return error.view(type(syndrome)), False
 

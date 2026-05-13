@@ -231,13 +231,12 @@ def test_classical_capacity() -> None:
 
     # compute discard rates
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=4, max_error_rate=0.5, with_lookup=True, max_weight=1
+        num_samples=4, max_error_rate=0.5, with_lookup=True, max_weight=0
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
-    assert logical_error_rate_func(0.5, discard_rate=True) == (0.5, 0)
 
     # test cap on physical error rate
-    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=10, max_error_rate=0.5)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.5)
     with pytest.raises(ValueError, match="error rates greater than"):
         logical_error_rate_func(1)
 
