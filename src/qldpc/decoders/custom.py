@@ -338,7 +338,7 @@ class LookupDecoder(Decoder):
                 obs_flip = observable_flip_matrix @ error % 2
             return tuple(obs_flip.tolist())
 
-        # For each "key" = (syndrome, observable_flip) combination, keep track of:
+        # For each "key" = (syndrome, observable_flip) combination, identify:
         # 1. The net probability of each key.
         # 2. The most likely error for each key.
         # 3. The probability of the most likely error for each key.
@@ -346,7 +346,6 @@ class LookupDecoder(Decoder):
         net_probs: dict[Bitstring, dict[Bitstring, float]] = collections.defaultdict(dict)
         most_likely_errors: dict[tuple[Bitstring, Bitstring], npt.NDArray[np.int_]] = {}
         most_likely_error_probs: dict[tuple[Bitstring, Bitstring], float] = {}
-
         for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
             obs_flip = _get_obs_flip(error)
             prob = np.exp(-penalty_func(error))
