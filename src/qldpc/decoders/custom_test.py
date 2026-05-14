@@ -92,10 +92,6 @@ def test_lookup() -> None:
     decoder = decoders.get_decoder_lookup(dem, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
 
-    # passing an explicit penalty_func alongside a DEM emits a warning
-    with pytest.warns(UserWarning, match="will override"):
-        decoders.LookupDecoder(dem, max_weight=2, penalty_func=lambda v: float(np.count_nonzero(v)))
-
 
 def test_lookup_observable() -> None:
     """Lookup decoding that targets the most likely observable flip for each syndrome.
@@ -105,53 +101,47 @@ def test_lookup_observable() -> None:
     answer than simply picking the single most likely error when degenerate errors (sharing the same
     observable flip) collectively outweigh a more probable individual error with a different flip.
     """
-    # Primary case: DEM with observables.  The observable flip matrix is auto-extracted.
-    # Two mechanisms both trigger detector D0:
-    #   error(0.08) D0     — no observable flip (obs_flip=0)
-    #   error(0.12) D0 L0  — flips observable L0 (obs_flip=1)
-    # The second mechanism is more likely, so the decoder should predict obs_flip=1 for syndrome (1,).
-    # Note: with a DEM, simplification merges mechanisms with identical patterns, so this example
-    # has exactly one mechanism per observable-flip class.  The explicit-matrix test below shows the
-    # case where summing over multiple mechanisms per class changes the answer.
-    dem = stim.DetectorErrorModel("""
-        error(0.08) D0
-        error(0.12) D0 L0
-    """)
-    dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    decoder = decoders.LookupDecoder(dem, max_weight=1)
-    syndrome = np.array([1], dtype=int)
-    obs_flip = int(
-        np.asarray(dem_arrays.observable_flip_matrix @ decoder.decode(syndrome), dtype=int).ravel()[0]
-        % 2
-    )
-    assert obs_flip == 1
-
-    # When a DEM has no observables, no observable flip matrix is set and the decoder works normally.
-    dem_no_obs = stim.DetectorErrorModel("error(0.1) D0")
-    assert np.any(decoders.LookupDecoder(dem_no_obs, max_weight=1).decode(syndrome) != 0)
-
-    # Explicit matrix path: shows the case where summing probabilities changes the answer.
-    # Three mechanisms all give syndrome (1,):
-    #   mechanism 0: obs_flip=0, p=0.10  ← highest individual probability
-    #   mechanism 1: obs_flip=1, p=0.09
-    #   mechanism 2: obs_flip=1, p=0.06
+    # Three mechanisms all trigger detector D0, giving syndrome (1,):
+    #   error(0.10) D0     — obs_flip=0, highest individual probability
+    #   error(0.09) D0 L0  — obs_flip=1
+    #   error(0.06) D0 L0  — obs_flip=1 (same pattern as above)
+    # simplify=False keeps both D0 L0 mechanisms separate so their probabilities accumulate.
+    # (With the default simplify=True they would be merged, and both decoders would agree.)
     # Picking the single most likely error gives obs_flip=0.
-    # Summing by observable-flip class: obs_flip=0 total=0.10, obs_flip=1 total=0.15 → obs_flip=1 wins.
-    pcm = np.array([[1, 1, 1]], dtype=int)
-    obs_matrix = np.array([[0, 1, 1]], dtype=int)
-    error_channel = np.array([0.10, 0.09, 0.06])
+    # Summing per observable-flip class: obs_flip=0 total=0.10, obs_flip=1 total=0.15 → obs_flip=1 wins.
+    dem = stim.DetectorErrorModel("""
+        error(0.10) D0
+        error(0.09) D0 L0
+        error(0.06) D0 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=False)
+    syndrome = np.array([1], dtype=int)
 
-    standard_decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_channel)
-    assert int((obs_matrix @ standard_decoder.decode(syndrome) % 2)[0]) == 0
-
-    obs_decoder = decoders.LookupDecoder(
-        pcm, max_weight=1, error_channel=error_channel, observable_flip_matrix=obs_matrix
+    # Standard decoder (no observable awareness): picks the single highest-probability error → obs_flip=0.
+    standard_decoder = decoders.LookupDecoder(
+        dem_arrays.detector_flip_matrix, max_weight=1, error_channel=dem_arrays.error_probs
     )
-    assert int((obs_matrix @ obs_decoder.decode(syndrome) % 2)[0]) == 1
+    result_std = standard_decoder.decode(syndrome)
+    assert (
+        int(np.asarray(dem_arrays.observable_flip_matrix @ result_std, dtype=int).ravel()[0] % 2)
+        == 0
+    )
+
+    # Observable-aware decoder: uses the full DEM (observable_flip_matrix auto-extracted) → obs_flip=1.
+    obs_decoder = decoders.LookupDecoder(dem, max_weight=1, simplify=False)
+    result_obs = obs_decoder.decode(syndrome)
+    assert (
+        int(np.asarray(dem_arrays.observable_flip_matrix @ result_obs, dtype=int).ravel()[0] % 2)
+        == 1
+    )
 
     # Providing an observable_flip_matrix without error probabilities raises an error.
-    with pytest.raises(AssertionError, match="error_channel or penalty_func"):
-        decoders.LookupDecoder(pcm, max_weight=1, observable_flip_matrix=obs_matrix)
+    with pytest.raises(ValueError, match="stim.DetectorErrorModel, error_channel, or penalty_func"):
+        decoders.LookupDecoder(
+            dem_arrays.detector_flip_matrix,
+            max_weight=1,
+            observable_flip_matrix=dem_arrays.observable_flip_matrix,
+        )
 
 
 def test_ilp_decoder() -> None:

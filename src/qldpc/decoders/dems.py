@@ -146,16 +146,14 @@ class DetectorErrorModelArrays:
         errors: list[tuple[frozenset[int], frozenset[int], float]],
     ) -> list[tuple[frozenset[int], frozenset[int], float]]:
         """Merge circuit errors that flip the same detectors and observables."""
-        # organize errors by the detectors and observables that they flip
-        merged_errors = collections.defaultdict(list)
-        for detector_ids, observable_ids, probability in errors:
-            if (detector_ids or observable_ids) and probability:
-                merged_errors[detector_ids, observable_ids].append(probability)
-
-        # combine the probabilities of occurrence for equivalent error mechanisms
+        merged_errors: dict[tuple[frozenset[int], frozenset[int]], float] = {}
+        for detector_ids, observable_ids, prob in errors:
+            key = (detector_ids, observable_ids)
+            previous_prob = merged_errors.get(key, 0.0)
+            merged_errors[key] = previous_prob + prob - 2 * previous_prob * prob
         return [
-            (detectors, observables, _probability_of_an_odd_number_of_events(probabilities))
-            for (detectors, observables), probabilities in merged_errors.items()
+            (detectors, observables, prob)
+            for (detectors, observables), prob in merged_errors.items()
         ]
 
     @staticmethod
@@ -252,19 +250,3 @@ class DetectorErrorModelArrays:
 def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
     """Subset of items that occur an odd number of times."""
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
-
-
-def _probability_of_an_odd_number_of_events(event_probabilities: Collection[float]) -> float:
-    """Identify the probability that an odd number of (otherwise independent) events occurs."""
-    net_probability = 0.0
-    num_events = len(event_probabilities)
-    for num_events_that_occur in range(1, num_events + 1, 2):
-        for events_that_occur in itertools.combinations(range(num_events), num_events_that_occur):
-            probability_that_these_events_occur = np.prod(
-                [
-                    prob if event in events_that_occur else 1 - prob
-                    for event, prob in enumerate(event_probabilities)
-                ]
-            )
-            net_probability += float(probability_that_these_events_occur)
-    return net_probability
