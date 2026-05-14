@@ -745,8 +745,8 @@ def test_css_capacity() -> None:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
 
-    # pauli_bias convention is (X, Y, Z); (0,0,1) = pure Z: Z syndromes are always nonzero so
-    # the Z erasure path fires deterministically for any nonzero weight
+    # pauli_bias convention is (X, Y, Z); (0, 0, 1) = pure Z
+    # if the max_weight for lookup is 0, any Z syndrome triggers erasure
     logical_error_rate_func_z = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
@@ -756,11 +756,9 @@ def test_css_capacity() -> None:
         add_erasure_bit=True,
     )
     assert logical_error_rate_func_z(0, discard_rate=True) == (0, 0)  # no errors at p=0
-    assert logical_error_rate_func_z(0.9, discard_rate=True)[0] > 0  # Z syndromes → erasure
+    assert logical_error_rate_func_z(0.5, discard_rate=True)[0] > 0  # Z syndromes → erasure
 
-    # (1,0,0) = pure X: Z syndromes are always zero so samples reach the X decoder; weight-6
-    # X errors have syndrome = the missing qubit's column in matrix_z (always nonzero), triggering
-    # X erasure deterministically
+    # (1 ,0, 0) = pure X: Z syndromes are always zero so samples reach the X decoder
     logical_error_rate_func_x = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
@@ -770,4 +768,4 @@ def test_css_capacity() -> None:
         add_erasure_bit=True,
     )
     assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
-    assert logical_error_rate_func_x(0.9, discard_rate=True)[0] > 0  # X syndromes → erasure
+    assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
