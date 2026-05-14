@@ -153,6 +153,7 @@ class DetectorErrorModelArrays:
         return [
             (detectors, observables, prob)
             for (detectors, observables), prob in merged_errors.items()
+            if (detectors or observables) and prob  # drop inconsequential error mechanisms
         ]
 
     @staticmethod
