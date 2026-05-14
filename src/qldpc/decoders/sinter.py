@@ -51,6 +51,14 @@ class SinterDecoder(Decoder, sinter.Decoder):
                 custom decoder from a detector error model.
         """
         self.decoder_kwargs = decoder_kwargs
+        if (
+            "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs
+        ):  # pragma: no cover
+            raise ValueError(
+                "The 'priors_arg' and 'log_likelihood_priors' arguments to a SinterDecoder are"
+                " DEFUNCT and should no longer be necessary.\nIf you need these arguments restored,"
+                " please open an issue at https://github.com/qLDPCOrg/qLDPC/issues"
+            )
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
@@ -233,7 +241,7 @@ class SubgraphDecoder(SinterDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.decoder_kwargs = decoder_kwargs
+        SinterDecoder.__init__(**decoder_kwargs)
 
         # consistency checks
         self.num_subgraphs = len(subgraph_detectors)
@@ -402,7 +410,7 @@ class SequentialWindowDecoder(SinterDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.decoder_kwargs = decoder_kwargs
+        SinterDecoder.__init__(**decoder_kwargs)
 
         assert commit_regions is None or len(detection_regions) == len(commit_regions)
         self.windows = [
@@ -614,7 +622,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.decoder_kwargs = decoder_kwargs
+        SinterDecoder.__init__(**decoder_kwargs)
 
         if not window_size >= stride > 0:  # pragma: no cover
             raise ValueError(
