@@ -245,10 +245,6 @@ class LookupDecoder(Decoder):
     error from the group with the highest total probability.  When initialized from a
     DetectorErrorModel that contains observables, the observable_flip_matrix is extracted
     automatically.
-
-    By default, if initialized with a DetectorErrorModel (DEM) this decoder merges error mechanisms
-    that have the same (syndrome, observable_flip) signature.  Simplifying can be disabled with
-    simplify=False.
     """
 
     def __init__(
@@ -261,7 +257,6 @@ class LookupDecoder(Decoder):
         error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
         observable_flip_matrix: IntegerArray | None = None,
-        simplify: bool = True,
     ) -> None:
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
             # Initialize from a stim.DetectorErrorModel:
@@ -276,7 +271,7 @@ class LookupDecoder(Decoder):
                     "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
                     " providing a stim.DetectorErrorModel to a LookupDecoder"
                 )
-            dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=simplify)
+            dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
             pcm = dem_arrays.detector_flip_matrix
             error_channel = dem_arrays.error_probs
             if dem_arrays.num_observables > 0:
@@ -309,14 +304,14 @@ class LookupDecoder(Decoder):
         self.shape: tuple[int, ...] = pcm.shape
         self.has_erasure_bit = add_erasure_bit
         self.default_error_to_return = np.zeros(self.shape[1], dtype=int)
-        if add_erasure_bit:
+        if self.has_erasure_bit:
             self.default_error_to_return = np.hstack([self.default_error_to_return, [1]])
+
+        def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.hstack([error, [0]]) if self.has_erasure_bit else error
 
         # start working on the decoding map from syndrome -> error
         self.syndrome_to_error: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
-
-        def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            return np.hstack([error, [0]]) if add_erasure_bit else error
 
         if observable_flip_matrix is None:
             # Loop over all errors in decreasing weight.  Assign each syndrome its most likely error.
@@ -333,7 +328,7 @@ class LookupDecoder(Decoder):
 
         # If we got here, we are building a lookup table that maps each syndrome to an error that
         # induces the most likely observable flips.
-        assert penalty_func is not None
+        assert penalty_func is not None  # primarily for type-checking reasons
 
         def _get_obs_flip(error: npt.NDArray[np.int_]) -> tuple[int, ...]:
             """Map an error to its induced observable flips."""

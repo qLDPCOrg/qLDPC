@@ -112,13 +112,18 @@ def test_observable_lookup_decoding() -> None:
     assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [0])
 
     # provided a DEM, the LookupDecoder will simplify and predict the most likely observable flip
-    decoder = decoders.LookupDecoder(dem, max_weight=1, simplify=False)
+    decoder = decoders.LookupDecoder(dem, max_weight=1)
     assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
 
     # The above example is "trivial" in the sense that simplifying the DEM is sufficient to predict
-    # the correct observable flips.  However, sometimes simplifying is not enough.  Consider the
-    # following DEM, in which each error has a unique (detector, observable) patterns, so
-    # simplifying changes nothing:
+    # the correct observable flips....
+    dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=True)
+    pcm, obs_matrix, error_probs = dem_arrays.get_arrays()
+    decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_probs)
+    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
+
+    # However, sometimes simplifying is not enough.  Consider th following DEM, in which each error
+    # has a unique (detector, observable) patterns, so simplifying changes nothing:
     dem = stim.DetectorErrorModel("""
         error(0.04) D0 D1  # E0: syndrome (1, 1), obs_flip=0
         error(0.25) D0     # E1: syndrome (1, 0), obs_flip=0
