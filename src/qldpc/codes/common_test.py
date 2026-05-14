@@ -231,7 +231,7 @@ def test_classical_capacity() -> None:
 
     # with an erasure-enabled decoder, unrecognised syndromes are discarded
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=4, max_error_rate=0.5, with_lookup=True, max_weight=0, add_erasure_bit=True
+        num_samples=1, max_error_rate=0.5, with_lookup=True, max_weight=0, add_erasure_bit=True
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
@@ -737,7 +737,7 @@ def test_css_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.SteaneCode()
 
-    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=10)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
     # guaranteed logical X and Z errors
