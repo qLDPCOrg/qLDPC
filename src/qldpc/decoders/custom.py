@@ -278,6 +278,7 @@ class LookupDecoder(Decoder):
                 )
             dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=simplify)
             pcm = dem_arrays.detector_flip_matrix
+            error_channel = dem_arrays.error_probs
             if dem_arrays.num_observables > 0:
                 observable_flip_matrix = dem_arrays.observable_flip_matrix
 
@@ -288,7 +289,11 @@ class LookupDecoder(Decoder):
                 raise ValueError(
                     "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
                 )
-            if observable_flip_matrix is not None and penalty_func is None:
+            if (
+                observable_flip_matrix is not None
+                and penalty_func is None
+                and error_channel is None
+            ):
                 raise ValueError(
                     "Predicting observable flips with a LookupDecoder requires providing a"
                     " stim.DetectorErrorModel, error_channel, or penalty_func"
