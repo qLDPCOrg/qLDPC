@@ -333,9 +333,7 @@ class LookupDecoder(Decoder):
         def _get_obs_flip(error: npt.NDArray[np.int_]) -> tuple[int, ...]:
             """Map an error to its induced observable flips."""
             if isinstance(observable_flip_matrix, galois.FieldArray):
-                field = type(observable_flip_matrix)
-                error = error.view(type(observable_flip_matrix))
-                obs_flip = observable_flip_matrix @ error.view(field)
+                obs_flip = observable_flip_matrix @ error.view(type(observable_flip_matrix))
             else:
                 obs_flip = observable_flip_matrix @ error % 2
             return tuple(obs_flip.tolist())
