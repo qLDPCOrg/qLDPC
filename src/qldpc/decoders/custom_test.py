@@ -96,6 +96,59 @@ def test_lookup() -> None:
         decoders.LookupDecoder(dem, max_weight=2, penalty_func=lambda v: float(np.count_nonzero(v)))
 
 
+def test_lookup_observable() -> None:
+    """Observable-flip-aware lookup decoding (MAP obs_flip vs MAP error)."""
+    # Toy problem: 1 detector, 3 error mechanisms.
+    # Mechanism 0: flips detector only (obs_flip 0), p=0.10
+    # Mechanism 1: flips detector and observable (obs_flip 1), p=0.09
+    # Mechanism 2: flips detector and observable (obs_flip 1), p=0.06
+    # For syndrome (1,), MAP error picks mechanism 0 (highest individual p),
+    # but MAP obs_flip picks obs_flip=1 because P(F=1|S) = 0.09+0.06 = 0.15 > P(F=0|S) = 0.10.
+    pcm = np.array([[1, 1, 1]], dtype=int)
+    obs_matrix = np.array([[0, 1, 1]], dtype=int)
+    error_channel = [0.10, 0.09, 0.06]
+    syndrome = np.array([1], dtype=int)
+
+    # MAP error decoder (no observable_flip_matrix): returns mechanism-0 error → obs_flip 0
+    map_error_decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_channel)
+    map_error_result = map_error_decoder.decode(syndrome)
+    assert int((obs_matrix @ map_error_result % 2)[0]) == 0
+
+    # MAP obs_flip decoder: returns an error whose obs_flip is 1
+    map_obs_decoder = decoders.LookupDecoder(
+        pcm, max_weight=1, error_channel=error_channel, observable_flip_matrix=obs_matrix
+    )
+    map_obs_result = map_obs_decoder.decode(syndrome)
+    assert int((obs_matrix @ map_obs_result % 2)[0]) == 1
+
+    # Auto-extraction from DEM: when simplify=True, mechanisms with identical detector+observable
+    # patterns are merged, so the resulting DEM has fewer mechanisms.  Check obs_flip via the
+    # DEM's own observable_flip_matrix rather than the original (3-column) obs_matrix.
+    error_channel_arr = np.array(error_channel)
+    dem = decoders.DetectorErrorModelArrays.from_arrays(pcm, obs_matrix, error_channel_arr).to_dem()
+    dem_decoder = decoders.LookupDecoder(dem, max_weight=1)
+    dem_result = dem_decoder.decode(syndrome)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    obs_flip_via_dem = int(
+        np.asarray(dem_arrays.observable_flip_matrix @ dem_result, dtype=int).ravel()[0] % 2
+    )
+    assert obs_flip_via_dem == 1
+
+    # DEM with no observables: observable_flip_matrix is not auto-extracted; decoder is backward
+    # compatible.  All three mechanisms share the same detector pattern so they get merged into one.
+    dem_no_obs = decoders.DetectorErrorModelArrays.from_arrays(pcm, None, error_channel_arr).to_dem()
+    no_obs_decoder = decoders.LookupDecoder(dem_no_obs, max_weight=1)
+    assert decoders.DetectorErrorModelArrays(dem_no_obs).num_observables == 0
+    assert np.any(no_obs_decoder.decode(syndrome) != 0)
+
+    # No penalty_func: observable_flip_matrix is a no-op (can't determine "most likely" without probs)
+    decoder_no_prob = decoders.LookupDecoder(pcm, max_weight=1)
+    decoder_with_obs_no_prob = decoders.LookupDecoder(
+        pcm, max_weight=1, observable_flip_matrix=obs_matrix
+    )
+    assert np.array_equal(decoder_no_prob.decode(syndrome), decoder_with_obs_no_prob.decode(syndrome))
+
+
 def test_ilp_decoder() -> None:
     """Decode using an integer linear program."""
     matrix, error, syndrome = get_toy_problem()
