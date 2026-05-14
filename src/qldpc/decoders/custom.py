@@ -278,7 +278,6 @@ class LookupDecoder(Decoder):
                 )
             dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=simplify)
             pcm = dem_arrays.detector_flip_matrix
-            error_channel = dem_arrays.error_probs
             if dem_arrays.num_observables > 0:
                 observable_flip_matrix = dem_arrays.observable_flip_matrix
 
@@ -329,13 +328,15 @@ class LookupDecoder(Decoder):
 
         # If we got here, we are building a lookup table that maps each syndrome to an error that
         # induces the most likely observable flips.
+        assert penalty_func is not None
 
         def _get_obs_flip(error: npt.NDArray[np.int_]) -> tuple[int, ...]:
             """Map an error to its induced observable flips."""
             if isinstance(observable_flip_matrix, galois.FieldArray):
-                obs_flip = observable_flip_matrix @ error.view(type(observable_flip_matrix))
+                error = error.view(type(observable_flip_matrix))
+                obs_flip = (observable_flip_matrix @ error).view(np.ndarray)
             else:
-                obs_flip = observable_flip_matrix @ error % 2
+                obs_flip = (observable_flip_matrix @ error).view(np.ndarray) % 2
             return tuple(obs_flip.tolist())
 
         # For each "key" = (syndrome, observable_flip) combination, identify:
@@ -357,7 +358,7 @@ class LookupDecoder(Decoder):
         # Identify the most likely observable_flip for each syndrome, and map the syndrome to the
         # most likely error with that (syndrome, observable_flip) combination.
         for syndrome, obs_flip_to_net_prob in net_probs.items():
-            most_likely_obs_flip = max(obs_flip_to_net_prob, key=obs_flip_to_net_prob.get)
+            most_likely_obs_flip = max(obs_flip_to_net_prob, key=obs_flip_to_net_prob.__getitem__)
             error = most_likely_errors[syndrome, most_likely_obs_flip]
             self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
 
