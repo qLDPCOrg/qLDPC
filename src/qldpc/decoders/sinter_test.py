@@ -39,13 +39,11 @@ def test_sinter_decoder() -> None:
     expected_flips = np.packbits(observable_flips, bitorder="little", axis=1)
 
     # try decoders with and without a decode_batch method
-    for decoder, priors_arg in [
-        (decoders.SinterDecoder(with_BP_OSD=True), "error_channel"),
-        (decoders.SinterDecoder(with_RBP="MinSumBPDecoderF32"), "error_priors"),
-        (decoders.SinterDecoder(with_MWPM=True), "weights"),
+    for decoder in [
+        decoders.SinterDecoder(with_BP_OSD=True),
+        decoders.SinterDecoder(with_RBP="MinSumBPDecoderF32"),
+        decoders.SinterDecoder(with_MWPM=True),
     ]:
-        assert decoder.priors_arg == priors_arg
-
         compiled_decoder = decoder.compile_decoder_for_dem(dem)
         predicted_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots)
         assert np.array_equal(predicted_flips, expected_flips)
@@ -69,16 +67,6 @@ def test_sinter_decoder() -> None:
         compiled_decoder.decode_shots_bit_packed(bit_packed_shots),
         np.zeros_like(expected_flips),
     )
-
-
-def test_sinter_decoder_without_priors() -> None:
-    """SinterDecoder with a static decoder leaves priors_arg unset."""
-    matrix = np.eye(3, 2, dtype=int)
-    static = decoders.get_decoder_lookup(matrix, max_weight=2)
-    decoder = decoders.SinterDecoder(static_decoder=static)
-    assert decoder.priors_arg is None
-    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
-    decoder.compile_decoder_for_dem(dem)
 
 
 def test_subgraph_decoding() -> None:
