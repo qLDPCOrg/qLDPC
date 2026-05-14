@@ -26,6 +26,7 @@ import galois
 import numpy as np
 import pytest
 import scipy.sparse
+import stim
 
 from qldpc import codes, decoders, math
 
@@ -97,56 +98,60 @@ def test_lookup() -> None:
 
 
 def test_lookup_observable() -> None:
-    """Observable-flip-aware lookup decoding (MAP obs_flip vs MAP error)."""
-    # Toy problem: 1 detector, 3 error mechanisms.
-    # Mechanism 0: flips detector only (obs_flip 0), p=0.10
-    # Mechanism 1: flips detector and observable (obs_flip 1), p=0.09
-    # Mechanism 2: flips detector and observable (obs_flip 1), p=0.06
-    # For syndrome (1,), MAP error picks mechanism 0 (highest individual p),
-    # but MAP obs_flip picks obs_flip=1 because P(F=1|S) = 0.09+0.06 = 0.15 > P(F=0|S) = 0.10.
+    """Lookup decoding that targets the most likely observable flip for each syndrome.
+
+    The decoder groups errors by their observable flip value, sums probabilities within each group,
+    and returns an error from the group with the highest total probability.  This gives a different
+    answer than simply picking the single most likely error when degenerate errors (sharing the same
+    observable flip) collectively outweigh a more probable individual error with a different flip.
+    """
+    # Primary case: DEM with observables.  The observable flip matrix is auto-extracted.
+    # Two mechanisms both trigger detector D0:
+    #   error(0.08) D0     — no observable flip (obs_flip=0)
+    #   error(0.12) D0 L0  — flips observable L0 (obs_flip=1)
+    # The second mechanism is more likely, so the decoder should predict obs_flip=1 for syndrome (1,).
+    # Note: with a DEM, simplification merges mechanisms with identical patterns, so this example
+    # has exactly one mechanism per observable-flip class.  The explicit-matrix test below shows the
+    # case where summing over multiple mechanisms per class changes the answer.
+    dem = stim.DetectorErrorModel("""
+        error(0.08) D0
+        error(0.12) D0 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    decoder = decoders.LookupDecoder(dem, max_weight=1)
+    syndrome = np.array([1], dtype=int)
+    obs_flip = int(
+        np.asarray(dem_arrays.observable_flip_matrix @ decoder.decode(syndrome), dtype=int).ravel()[0]
+        % 2
+    )
+    assert obs_flip == 1
+
+    # When a DEM has no observables, no observable flip matrix is set and the decoder works normally.
+    dem_no_obs = stim.DetectorErrorModel("error(0.1) D0")
+    assert np.any(decoders.LookupDecoder(dem_no_obs, max_weight=1).decode(syndrome) != 0)
+
+    # Explicit matrix path: shows the case where summing probabilities changes the answer.
+    # Three mechanisms all give syndrome (1,):
+    #   mechanism 0: obs_flip=0, p=0.10  ← highest individual probability
+    #   mechanism 1: obs_flip=1, p=0.09
+    #   mechanism 2: obs_flip=1, p=0.06
+    # Picking the single most likely error gives obs_flip=0.
+    # Summing by observable-flip class: obs_flip=0 total=0.10, obs_flip=1 total=0.15 → obs_flip=1 wins.
     pcm = np.array([[1, 1, 1]], dtype=int)
     obs_matrix = np.array([[0, 1, 1]], dtype=int)
-    error_channel = [0.10, 0.09, 0.06]
-    syndrome = np.array([1], dtype=int)
+    error_channel = np.array([0.10, 0.09, 0.06])
 
-    # MAP error decoder (no observable_flip_matrix): returns mechanism-0 error → obs_flip 0
-    map_error_decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_channel)
-    map_error_result = map_error_decoder.decode(syndrome)
-    assert int((obs_matrix @ map_error_result % 2)[0]) == 0
+    standard_decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_channel)
+    assert int((obs_matrix @ standard_decoder.decode(syndrome) % 2)[0]) == 0
 
-    # MAP obs_flip decoder: returns an error whose obs_flip is 1
-    map_obs_decoder = decoders.LookupDecoder(
+    obs_decoder = decoders.LookupDecoder(
         pcm, max_weight=1, error_channel=error_channel, observable_flip_matrix=obs_matrix
     )
-    map_obs_result = map_obs_decoder.decode(syndrome)
-    assert int((obs_matrix @ map_obs_result % 2)[0]) == 1
+    assert int((obs_matrix @ obs_decoder.decode(syndrome) % 2)[0]) == 1
 
-    # Auto-extraction from DEM: when simplify=True, mechanisms with identical detector+observable
-    # patterns are merged, so the resulting DEM has fewer mechanisms.  Check obs_flip via the
-    # DEM's own observable_flip_matrix rather than the original (3-column) obs_matrix.
-    error_channel_arr = np.array(error_channel)
-    dem = decoders.DetectorErrorModelArrays.from_arrays(pcm, obs_matrix, error_channel_arr).to_dem()
-    dem_decoder = decoders.LookupDecoder(dem, max_weight=1)
-    dem_result = dem_decoder.decode(syndrome)
-    dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    obs_flip_via_dem = int(
-        np.asarray(dem_arrays.observable_flip_matrix @ dem_result, dtype=int).ravel()[0] % 2
-    )
-    assert obs_flip_via_dem == 1
-
-    # DEM with no observables: observable_flip_matrix is not auto-extracted; decoder is backward
-    # compatible.  All three mechanisms share the same detector pattern so they get merged into one.
-    dem_no_obs = decoders.DetectorErrorModelArrays.from_arrays(pcm, None, error_channel_arr).to_dem()
-    no_obs_decoder = decoders.LookupDecoder(dem_no_obs, max_weight=1)
-    assert decoders.DetectorErrorModelArrays(dem_no_obs).num_observables == 0
-    assert np.any(no_obs_decoder.decode(syndrome) != 0)
-
-    # No penalty_func: observable_flip_matrix is a no-op (can't determine "most likely" without probs)
-    decoder_no_prob = decoders.LookupDecoder(pcm, max_weight=1)
-    decoder_with_obs_no_prob = decoders.LookupDecoder(
-        pcm, max_weight=1, observable_flip_matrix=obs_matrix
-    )
-    assert np.array_equal(decoder_no_prob.decode(syndrome), decoder_with_obs_no_prob.decode(syndrome))
+    # Providing an observable_flip_matrix without error probabilities raises an error.
+    with pytest.raises(AssertionError, match="error_channel or penalty_func"):
+        decoders.LookupDecoder(pcm, max_weight=1, observable_flip_matrix=obs_matrix)
 
 
 def test_ilp_decoder() -> None:

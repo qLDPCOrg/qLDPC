@@ -238,11 +238,12 @@ class LookupDecoder(Decoder):
     penalty of ee is <= the penalty of the correction currently assigned to ss.
 
     If provided an observable_flip_matrix (shape num_observables x num_errors) together with an
-    error_channel or penalty_func, the decoder uses MAP observable-flip decoding: for each syndrome
-    it finds the observable-flip class F with the highest total log-probability
-        log sum_{E in class(F,S)} P(E),
-    and returns the highest-probability individual error from that class.  Without error
-    probabilities the parameter has no effect.
+    error_channel or penalty_func, the decoder picks the most likely observable flip for each
+    syndrome rather than the single most likely error.  Concretely: errors consistent with a given
+    syndrome are grouped by their observable flip value; the total probability of each group is the
+    sum of the probabilities of its member errors; the decoder returns the highest-probability
+    individual error from the group with the highest total probability.  Without error probabilities
+    the parameter has no effect.
 
     When initialized from a DetectorErrorModel that contains observables, the observable_flip_matrix
     is extracted automatically.
@@ -282,6 +283,10 @@ class LookupDecoder(Decoder):
 
         penalty_func = penalty_func or (
             self.build_penalty_func(error_channel) if error_channel is not None else None
+        )
+        assert observable_flip_matrix is None or penalty_func is not None, (
+            "observable_flip_matrix has no effect without error probabilities; "
+            "provide an error_channel or penalty_func"
         )
 
         self.shape: tuple[int, ...] = pcm.shape
