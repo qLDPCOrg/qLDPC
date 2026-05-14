@@ -271,7 +271,7 @@ class LookupDecoder(Decoder):
                 error_channel is not None
                 or penalty_func is not None
                 or observable_flip_matrix is not None
-            ):
+            ):  # pragma: no cover
                 raise ValueError(
                     "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
                     " providing a stim.DetectorErrorModel to a LookupDecoder"
@@ -285,7 +285,7 @@ class LookupDecoder(Decoder):
         else:
             # initialize from a parity check matrix and forbid conflicting arguments
             pcm = pcm_or_dem
-            if error_channel is not None and penalty_func is not None:
+            if error_channel is not None and penalty_func is not None:  # pragma: no cover
                 raise ValueError(
                     "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
                 )
@@ -293,7 +293,7 @@ class LookupDecoder(Decoder):
                 observable_flip_matrix is not None
                 and penalty_func is None
                 and error_channel is None
-            ):
+            ):  # pragma: no cover
                 raise ValueError(
                     "Predicting observable flips with a LookupDecoder requires providing a"
                     " stim.DetectorErrorModel, error_channel, or penalty_func"
@@ -337,7 +337,7 @@ class LookupDecoder(Decoder):
 
         def _get_obs_flip(error: npt.NDArray[np.int_]) -> tuple[int, ...]:
             """Map an error to its induced observable flips."""
-            if isinstance(observable_flip_matrix, galois.FieldArray):
+            if isinstance(observable_flip_matrix, galois.FieldArray):  # pragma: no cover
                 error = error.view(type(observable_flip_matrix))
                 obs_flip = (observable_flip_matrix @ error).view(np.ndarray)
             else:

@@ -95,6 +95,7 @@ def test_lookup() -> None:
 
 def test_observable_lookup_decoding() -> None:
     """Lookup decoding can identify the most likely observable flip for each syndrome."""
+    obs_matrix: math.IntegerArray
 
     # toy detector error model and error syndrome
     dem = stim.DetectorErrorModel("""
