@@ -229,11 +229,12 @@ def test_classical_capacity() -> None:
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
     assert logical_error_rate_func([1])[0] == 1  # guaranteed logical error
 
-    # compute discard rates
+    # with an erasure-enabled decoder, unrecognised syndromes are discarded
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=4, max_error_rate=0.5, with_lookup=True, max_weight=0
+        num_samples=4, max_error_rate=0.5, with_lookup=True, max_weight=0, add_erasure_bit=True
     )
-    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
 
     # test cap on physical error rate
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.5)
@@ -536,11 +537,12 @@ def test_quantum_capacity() -> None:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
 
-    # compute discard rates (trivial deterministic example)
+    # with an erasure-enabled decoder, unrecognised syndromes are discarded
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=1
+        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
     )
-    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(1, discard_rate=True)[0] > 0  # all syndromes → erasure
 
 
 def test_qudit_to_css() -> None:
@@ -743,8 +745,9 @@ def test_css_capacity() -> None:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
 
-    # compute discard rates (trivial deterministic example)
+    # with an erasure-enabled decoder, unrecognised syndromes are discarded
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=1
+        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
     )
-    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(1, discard_rate=True)[0] > 0  # all syndromes → erasure

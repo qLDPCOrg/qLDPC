@@ -786,7 +786,7 @@ class ClassicalCode(AbstractCode):
             # decode the error
             syndrome = self.matrix @ error
             decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
-            if erasure:  # pragma: no cover
+            if erasure:
                 num_discards += 1
             elif np.any(decoded_error - error):
                 num_failures += 1
@@ -2015,7 +2015,7 @@ class QuditCode(AbstractCode):
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
             decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
-            if erasure:  # pragma: no cover
+            if erasure:
                 num_discards += 1
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
                 num_failures += 1
@@ -3100,12 +3100,12 @@ class CSSCode(QuditCode):
                 range(1, self.field.order), size=len(error_locs_z)
             )
             syndrome_z = self.matrix_x @ error_z
-            decoded_error_z, erasure_z = _get_error_and_erasure(decoder_z, syndrome_z)
-            if erasure_z:  # pragma: no cover
+            decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
+            if erasure:
                 num_discards += 1
                 continue
 
-            failure_z = np.any(logicals_x @ (decoded_error_z.view(self.field) - error_z))
+            failure_z = np.any(logicals_x @ (decoded_error_z - error_z))
             if not getattr(decoder_x, "has_erasure_bit", False) and failure_z:
                 # If we are _not_ post-selecting and there _was_ a decoding failure, then there is
                 # no need to consider X-type errors, because we will record one failure either way.
@@ -3119,8 +3119,8 @@ class CSSCode(QuditCode):
                 range(1, self.field.order), size=len(error_locs_x)
             )
             syndrome_x = self.matrix_z @ error_x
-            decoded_error_x, erasure_x = _get_error_and_erasure(decoder_x, syndrome_x)
-            if erasure_x | erasure_z:  # pragma: no cover
+            decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
+            if erasure:
                 num_discards += 1
                 continue
             if failure_z or np.any(logicals_z @ (decoded_error_x - error_x)):
@@ -3283,9 +3283,15 @@ def _get_error_and_erasure(
     decoder: decoders.Decoder,
     syndrome: galois.FieldArray,
 ) -> tuple[galois.FieldArray, bool]:
-    """Decode a syndrome and extract an erasure bit, if applicable."""
+    """Decode a syndrome and return the inferred error together with an erasure flag.
+
+    If the decoder has a has_erasure_bit attribute set to True (e.g., a LookupDecoder constructed
+    with add_erasure_bit=True), the last element of the decoded vector is treated as the erasure
+    bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
+    correction was found normally.  The erasure bit is stripped before returning the error.
+    """
     error = decoder.decode(syndrome.view(np.ndarray))
-    if getattr(decoder, "has_erasure_bit", False):  # pragma: no cover
+    if getattr(decoder, "has_erasure_bit", False):
         return error[:-1].view(type(syndrome)), bool(error[-1])
     return error.view(type(syndrome)), False
 
