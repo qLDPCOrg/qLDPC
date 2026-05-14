@@ -745,8 +745,8 @@ def test_css_capacity() -> None:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
 
-    # with pure-X errors, Z syndromes are always zero (no Z erasure) and X syndromes are always
-    # nonzero (X erasure fires), so every sample hits the X-erasure path and is discarded
+    # with pure-X errors, Z syndromes are always zero (no Z erasure) so samples reach the X
+    # decoder; at p=0.9 the dominant weight-6 errors have nonzero X syndromes, triggering erasure
     logical_error_rate_func = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
@@ -756,4 +756,4 @@ def test_css_capacity() -> None:
         add_erasure_bit=True,
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
-    assert logical_error_rate_func(1, discard_rate=True)[0] > 0  # X syndromes → erasure
+    assert logical_error_rate_func(0.9, discard_rate=True)[0] > 0  # X syndromes → erasure
