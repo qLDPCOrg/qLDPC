@@ -86,8 +86,7 @@ def get_state_prep_diagnostic_circuit(
             code, state_prep_circuit, skip_validation=skip_validation
         )
     elif not skip_validation:  # pragma: no cover
-        stabilizers = _get_code_stabilizers(code, state_prep_circuit)
-        _assert_valid_code_state(code, stabilizers)
+        _assert_valid_code_state(code, state_prep_circuit)
 
     # if applicable, convert Pauli strings into symplectic vectors
     if len(observables) > 0 and any(isinstance(obs, stim.PauliString) for obs in observables):
@@ -418,20 +417,23 @@ def _get_code_stabilizers(
 
 
 def _assert_valid_code_state(
-    code: codes.QuditCode, stabilizers: Collection[stim.PauliString]
+    code: codes.QuditCode, circuit_or_stabilizers: stim.Circuit | Collection[stim.PauliString]
 ) -> None:
-    """Assert that the provided stabilizers specify a unique logical state of the provided code.
+    """Assert that the provided stabilizers specify a unique logical state of the provided code."""
+    stabilizers = (
+        _get_code_stabilizers(code, circuit_or_stabilizers)
+        if isinstance(circuit_or_stabilizers, stim.Circuit)
+        else circuit_or_stabilizers
+    )
+    stab_mat = np.array([math.string_to_op(string) for string in stabilizers], dtype=np.uint8)
+    sign_bits = np.array([(1 - stab.sign.real) // 2 for stab in stabilizers], dtype=np.uint8)
 
-    This assertion passes iff
-    1. there are as many stabilizers as there are data qubits, and
-    2. all stabilizers of the state commute with stabilizers of the code.
-    """
-    if len(stabilizers) != len(code) or np.any(
-        code.matrix
-        @ math.symplectic_conjugate(
-            code.field([math.string_to_op(string) for string in stabilizers])
-        ).T
-    ):
+    # Stack the actual stabilizers of the code with the provided stabilizers, including sign bits.
+    # This matrix should have exactly len(code) linearly independent rows.
+    matrix = math.block_matrix([[code.matrix, 0], [stab_mat, sign_bits.reshape(-1, 1)]])
+    matrix_rref = matrix.view(code.field).row_reduce()
+    pivots = math.first_nonzero_cols(matrix_rref)
+    if len(stabilizers) != len(code) or sum(pivots < matrix_rref.shape[1]) != len(code):
         raise ValueError(
             "The provided circuit does not deterministically prepare a logical code state that is"
             " unentangled from ancillas"
