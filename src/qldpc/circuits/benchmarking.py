@@ -27,11 +27,7 @@ import stim
 from qldpc import codes, decoders, math
 
 from .bookkeeping import DetectorRecord
-from .common import (
-    get_encoder_and_decoder,
-    get_pauli_product_measurements,
-    restrict_to_qubits,
-)
+from .common import get_encoder_and_decoder, get_pauli_product_measurements, restrict_to_qubits
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
 
