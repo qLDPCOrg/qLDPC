@@ -30,7 +30,6 @@ from .bookkeeping import DetectorRecord
 from .common import (
     get_encoder_and_decoder,
     get_pauli_product_measurements,
-    restrict_tableau,
     restrict_to_qubits,
 )
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
@@ -85,8 +84,22 @@ def get_state_prep_diagnostic_circuit(
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
-    if not skip_validation:
+    # if no observables were provided, identify the logical Pauli stabilizers of the prepared state
+    if observables is None:
+        observables = get_nontrivial_logical_stabilizers(
+            code, state_prep_circuit, skip_validation=skip_validation
+        )
+    elif not skip_validation:  # pragma: no cover
         _assert_logical_state_preparation(code, state_prep_circuit)
+
+    # if applicable, convert Pauli strings into symplectic vectors
+    if len(observables) > 0 and any(isinstance(obs, stim.PauliString) for obs in observables):
+        observables = np.array(
+            [
+                math.string_to_op(obs) if isinstance(obs, stim.PauliString) else obs
+                for obs in observables
+            ],
+        ).astype(int)
 
     # initialize a record of the detectors in the circuit
     detector_record = DetectorRecord()
@@ -103,16 +116,6 @@ def get_state_prep_diagnostic_circuit(
     for meas_index in range(-stabilizer_measurements.num_measurements, 0):
         stabilizer_detectors.append("DETECTOR", [stim.target_rec(meas_index)])
     detector_record.append({ss: ss for ss in range(len(code.get_stabilizer_ops()))})
-
-    # if none were provided, automatically find the logical Pauli stabilizers of the prepared state
-    if observables is None:
-        observables = get_nontrivial_logical_stabilizers(
-            code, state_prep_circuit, skip_validation=skip_validation
-        )
-
-    # if applicable, convert Pauli strings into symplectic vectors
-    if len(observables) > 0 and isinstance(observables[0], stim.PauliString):
-        observables = np.array([math.string_to_op(string) for string in observables], dtype=int)
 
     # observable measurements and annotations
     logical_op_measurements = get_pauli_product_measurements(observables)
@@ -358,25 +361,27 @@ def get_nontrivial_logical_stabilizers(
     Returns:
         A list of logical Pauli operators supported on the data qubits of the provided code.
     """
-    if not skip_validation:  # pragma: no cover
-        _assert_logical_state_preparation(code, state_prep_circuit)
+    # identify stabilizers supported on the data qubits of the code
+    simulator = stim.TableauSimulator()
+    simulator.do_circuit(state_prep_circuit.without_noise())
 
-    # convert the circuit into a tableau
-    full_tableau = state_prep_circuit.to_tableau(
-        ignore_noise=True, ignore_measurement=True, ignore_reset=True
-    )
+    code_stabilizers = [
+        stab[: len(code)]
+        for stab in simulator.canonical_stabilizers()
+        if not np.any(stab[len(code) :])
+    ]
 
     if not skip_validation:
-        # TODO: assert that the tableau does not prepare a logical state that is entangled with ancillas
-        ...
-
-    # remove ancilla qubits from the tableau
-    tableau = restrict_tableau(full_tableau, range(len(code)))
+        _assert_logical_state_preparation(code, state_prep_circuit, simulator=simulator)
+        if len(code_stabilizers) != len(code):
+            raise ValueError(
+                "The provided circuit prepares a code state that is entangled with the ancillas."
+            )
 
     # identify logical stabilizers of the code, in the logical Pauli basis
     logical_stabilizers = []
     encoder, decoder = get_encoder_and_decoder(code)
-    for stabilizer in tableau.to_stabilizers():
+    for stabilizer in code_stabilizers:
         stabilizer_in_logical_basis = stabilizer.after(decoder, targets=range(len(code)))
         logical_stabilizer = math.string_to_op(stabilizer_in_logical_basis[: code.dimension])
         logical_stabilizers.append(logical_stabilizer)
@@ -405,14 +410,18 @@ def _get_post_selection_indices(
 
 
 def _assert_logical_state_preparation(
-    code: codes.QuditCode, state_prep_circuit: stim.Circuit
+    code: codes.QuditCode,
+    state_prep_circuit: stim.Circuit,
+    *,
+    simulator: stim.TableauSimulator | None = None,
 ) -> None:
     """Assert that the the provided circuit prepare a logical state of the provided code.
 
     The first len(code) qubits addressed by the circuit must be the data qubits of the code.
     """
-    simulator = stim.TableauSimulator()
-    simulator.do(state_prep_circuit.without_noise())
+    if simulator is None:
+        simulator = stim.TableauSimulator()
+        simulator.do(state_prep_circuit.without_noise())
     if not all(
         simulator.peek_observable_expectation(math.op_to_string(row)) == 1
         for row in code.get_stabilizer_ops()
