@@ -542,7 +542,7 @@ def test_quantum_capacity() -> None:
         num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
-    assert logical_error_rate_func(1, discard_rate=True)[0] > 0  # all syndromes → erasure
+    assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
 
 
 def test_qudit_to_css() -> None:
