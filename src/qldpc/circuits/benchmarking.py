@@ -376,7 +376,7 @@ def get_nontrivial_logical_stabilizers(
         _assert_logical_state_preparation(code, state_prep_circuit, simulator=simulator)
         if len(code_stabilizers) != len(code):
             raise ValueError(
-                "The provided circuit prepares a code state that is entangled with the ancillas."
+                "The provided circuit prepares a code state that is entangled with ancillas"
             )
 
     # identify logical stabilizers of the code, in the logical Pauli basis
@@ -428,5 +428,5 @@ def _assert_logical_state_preparation(
         for row in code.get_stabilizer_ops()
     ):
         raise ValueError(
-            "The provided circuit does not prepare a logical state of the provided code."
+            "The provided circuit does not prepare a logical state of the provided code"
         )

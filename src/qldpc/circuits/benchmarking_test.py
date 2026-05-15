@@ -30,7 +30,7 @@ def test_state_prep() -> None:
 
     # construct a state prep circuit for the Steane code
     code = codes.SteaneCode()
-    state_prep_circuit = stim.Circuit("""
+    circuit = stim.Circuit("""
         # state prep
         H 0 2 4
         CX 0 3 2 1 4 5
@@ -43,10 +43,14 @@ def test_state_prep() -> None:
     """)
 
     # invalid logical state preparation
+    invalid_circuit = circuit + stim.Circuit("X 0")
     with pytest.raises(ValueError, match="does not prepare a logical state"):
-        circuits.benchmarking._assert_logical_state_preparation(
-            code, state_prep_circuit + stim.Circuit("X 0")
-        )
+        circuits.get_state_prep_diagnostic_circuit(code, invalid_circuit)
+
+    # invalid: circuit leaves the code entangled with an ancilla
+    invalid_circuit = stim.Circuit("H 0\nCX 0 7") + circuits.get_encoding_circuit(code)
+    with pytest.raises(ValueError, match="entangled with ancillas"):
+        circuits.get_state_prep_diagnostic_circuit(code, invalid_circuit)
 
     noise_model_family = circuits.DepolarizingNoiseModel
     error_rates = np.logspace(-3, -1, 5)
@@ -59,7 +63,7 @@ def test_state_prep() -> None:
     with pytest.raises(ValueError, match="can only post-select on measurements indexed from"):
         circuits.get_state_prep_diagnostic_tasks(
             code,
-            state_prep_circuit,
+            circuit,
             error_rates,
             noise_model_family,
             observables=string_observables,
@@ -70,7 +74,7 @@ def test_state_prep() -> None:
     with pytest.raises(ValueError, match="bug in sinter"):
         circuits.get_state_prep_diagnostic_tasks(
             code,
-            state_prep_circuit,
+            circuit,
             error_rates,
             noise_model_family,
             observables=string_observables,
@@ -80,7 +84,7 @@ def test_state_prep() -> None:
     # build sinter tasks
     tasks = circuits.get_state_prep_diagnostic_tasks(
         code,
-        state_prep_circuit,
+        circuit,
         error_rates,
         noise_model_family,
         observables=string_observables,
@@ -91,7 +95,7 @@ def test_state_prep() -> None:
     # find observables automatically
     task = circuits.get_state_prep_diagnostic_tasks(
         code,
-        state_prep_circuit,
+        circuit,
         error_rates[:1],
         noise_model_family,
         observables=None,
@@ -103,7 +107,7 @@ def test_state_prep() -> None:
         task.circuit,
         sinter_decoder=decoders.SinterDecoder(),
         num_samples=1,
-        post_select=range(state_prep_circuit.num_measurements),
+        post_select=range(circuit.num_measurements),
     )
     assert logical_error_rate == 0
     assert discard_rate == 0
