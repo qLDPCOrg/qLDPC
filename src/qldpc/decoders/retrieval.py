@@ -194,7 +194,7 @@ def _to_ldpc_inputs(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_rate: float,
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
-) -> tuple[IntegerArray, npt.NDArray[np.floating] | Sequence[float]]:
+) -> tuple[IntegerArray, list[float]]:
     """Post-process the arguments to ldpc decoders."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
@@ -203,7 +203,7 @@ def _to_ldpc_inputs(
     else:
         pcm = pcm_or_dem
         error_channel = [error_rate] * pcm.shape[1] if error_channel is None else error_channel
-    return pcm, error_channel
+    return pcm, list(error_channel)
 
 
 def get_decoder_MWPM(
