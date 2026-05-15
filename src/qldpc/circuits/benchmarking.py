@@ -432,8 +432,8 @@ def _assert_valid_code_state(
     # This matrix should have exactly len(code) linearly independent rows.
     matrix = math.block_matrix([[code.matrix, 0], [stab_mat, sign_bits.reshape(-1, 1)]])
     matrix_rref = matrix.view(code.field).row_reduce()
-    pivots = math.first_nonzero_cols(matrix_rref)
-    if len(stabilizers) != len(code) or sum(pivots < matrix_rref.shape[1]) != len(code):
+    num_nonzero_rows = np.count_nonzero(np.any(matrix_rref, axis=1))
+    if not len(stabilizers) == num_nonzero_rows == len(code):
         raise ValueError(
             "The provided circuit does not deterministically prepare a logical code state that is"
             " unentangled from ancillas"
