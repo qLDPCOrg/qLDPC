@@ -349,6 +349,7 @@ def get_nontrivial_logical_stabilizers(
     """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
 
     The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+    Assumes that the provided circuit prepares a deterministic stabilizer state.
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
@@ -364,7 +365,6 @@ def get_nontrivial_logical_stabilizers(
     # identify stabilizers supported on the data qubits of the code
     simulator = stim.TableauSimulator()
     simulator.do_circuit(state_prep_circuit.without_noise())
-
     code_stabilizers = [
         stab[: len(code)]
         for stab in simulator.canonical_stabilizers()
@@ -372,6 +372,7 @@ def get_nontrivial_logical_stabilizers(
     ]
 
     if not skip_validation:
+        # verify that we prepare a logical state that is unentangled with ancillas
         _assert_logical_state_preparation(code, state_prep_circuit, simulator=simulator)
         if len(code_stabilizers) != len(code):
             raise ValueError(
