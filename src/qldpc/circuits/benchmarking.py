@@ -17,7 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -90,7 +90,8 @@ def get_state_prep_diagnostic_circuit(
             code, state_prep_circuit, skip_validation=skip_validation
         )
     elif not skip_validation:  # pragma: no cover
-        _assert_logical_state_preparation(code, state_prep_circuit)
+        stabilizers = _get_code_stabilizers(code, state_prep_circuit)
+        _assert_valid_code_state(code, stabilizers)
 
     # if applicable, convert Pauli strings into symplectic vectors
     if len(observables) > 0 and any(isinstance(obs, stim.PauliString) for obs in observables):
@@ -349,7 +350,6 @@ def get_nontrivial_logical_stabilizers(
     """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
 
     The first len(code) qubits addressed by the circuit must be the data qubits of the code.
-    Assumes that the provided circuit prepares a deterministic stabilizer state.
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
@@ -362,22 +362,9 @@ def get_nontrivial_logical_stabilizers(
     Returns:
         A list of logical Pauli operators supported on the data qubits of the provided code.
     """
-    # identify stabilizers supported on the data qubits of the code
-    simulator = stim.TableauSimulator()
-    simulator.do_circuit(state_prep_circuit.without_noise())
-    code_stabilizers = [
-        stab[: len(code)]
-        for stab in simulator.canonical_stabilizers()
-        if not np.any(stab[len(code) :])
-    ]
-
+    code_stabilizers = _get_code_stabilizers(code, state_prep_circuit)
     if not skip_validation:
-        # verify that we prepare a logical state that is unentangled with ancillas
-        _assert_logical_state_preparation(code, state_prep_circuit, simulator=simulator)
-        if len(code_stabilizers) != len(code):
-            raise ValueError(
-                "The provided circuit prepares a code state that is entangled with ancillas"
-            )
+        _assert_valid_code_state(code, code_stabilizers)
 
     # identify logical stabilizers of the code, in the logical Pauli basis
     logical_stabilizers = []
@@ -410,23 +397,46 @@ def _get_post_selection_indices(
     return post_select
 
 
-def _assert_logical_state_preparation(
-    code: codes.QuditCode,
-    state_prep_circuit: stim.Circuit,
-    *,
-    simulator: stim.TableauSimulator | None = None,
-) -> None:
-    """Assert that the the provided circuit prepare a logical state of the provided code.
+def _get_code_stabilizers(
+    code: codes.QuditCode, state_prep_circuit: stim.Circuit
+) -> list[stim.PauliString]:
+    """Identify stabilizers of the prepared state that are supported on the data qubits of the code.
 
-    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+    If we prepend reset operations to make an initial |0...0⟩ initial state explicit, then all
+    stabilizers should be outputs of stabilizer flows of the form "1 -> P".
     """
-    if simulator is None:
-        simulator = stim.TableauSimulator()
-        simulator.do(state_prep_circuit.without_noise())
-    if not all(
-        simulator.peek_observable_expectation(math.op_to_string(row)) == 1
-        for row in code.get_stabilizer_ops()
+    resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
+    full_stabs = [
+        flow.output_copy()
+        for flow in (resets + state_prep_circuit.without_noise()).flow_generators()
+        if not np.any(flow.input_copy())  # filter for stabilizer flows of the form "1 -> ..."
+        and not flow.measurements_copy()  # ignore flows that flip measurement outcomes
+        and not np.any(flow.output_copy()[len(code) :])  # filter for flows supported on data qubits
+    ]
+    code_stabs = []
+    for stab in full_stabs:
+        xs, zs = stab.to_numpy()
+        string = stim.PauliString.from_numpy(xs=xs[: len(code)], zs=zs[: len(code)], sign=stab.sign)
+        code_stabs.append(string)
+    return code_stabs
+
+
+def _assert_valid_code_state(
+    code: codes.QuditCode, stabilizers: Collection[stim.PauliString]
+) -> None:
+    """Assert that the provided stabilizers specify a unique logical state of the provided code.
+
+    This assertion passes iff
+    1. there are as many stabilizers as there are data qubits, and
+    2. all stabilizers of the state commute with stabilizers of the code.
+    """
+    if len(stabilizers) != len(code) or np.any(
+        code.matrix
+        @ math.symplectic_conjugate(
+            code.field([math.string_to_op(string) for string in stabilizers])
+        ).T
     ):
         raise ValueError(
-            "The provided circuit does not prepare a logical state of the provided code"
+            "The provided circuit does not deterministically prepare a logical code state that is"
+            " unentangled from ancillas"
         )

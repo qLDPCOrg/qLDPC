@@ -44,12 +44,10 @@ def test_state_prep() -> None:
 
     # invalid logical state preparation
     invalid_circuit = circuit + stim.Circuit("X 0")
-    with pytest.raises(ValueError, match="does not prepare a logical state"):
+    with pytest.raises(ValueError, match="does not deterministically prepare a logical code"):
         circuits.get_state_prep_diagnostic_circuit(code, invalid_circuit)
-
-    # invalid: circuit leaves the code entangled with an ancilla
     invalid_circuit = stim.Circuit("H 0\nCX 0 7") + circuits.get_encoding_circuit(code)
-    with pytest.raises(ValueError, match="entangled with ancillas"):
+    with pytest.raises(ValueError, match="unentangled from ancillas"):
         circuits.get_state_prep_diagnostic_circuit(code, invalid_circuit)
 
     noise_model_family = circuits.DepolarizingNoiseModel
