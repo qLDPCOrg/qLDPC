@@ -1812,32 +1812,24 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     shape = (num_block_rows * size, num_block_cols * size)
     matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_reduce()
 
-    # remove rows of all-zero blocks
-    shape = (num_block_rows, size, num_block_cols, size)
+    if size > 1:
+        # insert zero rows to shift pivots down so that they always lie on the diagonal of a block
+        pivot_row, pivot_col = 0, 0
+        num_cols = matrix.shape[1]
+        while pivot_row < matrix.shape[0]:
+            pivot_col = qldpc.math.first_nonzero_cols(matrix[pivot_row])[0]
+            if pivot_col < num_cols and (pad := (pivot_col - pivot_row) % size):
+                zero_rows = np.zeros((pad, num_cols), dtype=int)
+                matrix = np.vstack([matrix[:pivot_row], zero_rows, matrix[pivot_row:]]).view(field)
+                pivot_row += pad
+            pivot_row += 1
+
+        # pad with zero rows on the bottom to ensure that all blocks have the correct size
+        if tail := matrix.shape[0] % size:
+            zero_rows = np.zeros((size - tail, num_cols), dtype=int)
+            matrix = np.vstack([matrix, zero_rows]).view(field)
+
+    # re-collect into a 4-D array and remove rows of all-zero blocks
+    shape = (matrix.shape[0] // size, size, num_block_cols, size)
     matrix = matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
-    matrix = matrix[qldpc.math.first_nonzero_cols(matrix) < num_block_cols]
-    num_block_rows = matrix.shape[0]
-
-    if size == 1:
-        return matrix.view(field)
-
-    # expand the matrix and shift pivots down so that they always lie on the diagonal of each block
-    shape = (num_block_rows * size, num_block_cols * size)
-    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field)
-
-    # insert zero rows to shift pivots down so that they always lie on the diagonal of a block
-    pivot_row, pivot_col = -1, 0
-    num_cols = matrix.shape[1]
-    while pivot_row < matrix.shape[0] - 1:
-        pivot_row += 1
-        pivot_col = qldpc.math.first_nonzero_cols(matrix[pivot_row])[0]
-        if pivot_col < num_cols and (pad := (pivot_col - pivot_row) % size):
-            zero_rows = np.zeros((pad, num_cols), dtype=int)
-            matrix = np.concatenate([matrix[:pivot_row], zero_rows, matrix[pivot_row:]]).view(field)
-            pivot_row += pad
-
-    # strip off extra rows and re-collect into a 4-D array
-    num_block_rows = matrix.shape[0] // size
-    matrix = matrix[: num_block_rows * size]
-    shape = (num_block_rows, size, num_block_cols, size)
-    return matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
+    return matrix[qldpc.math.first_nonzero_cols(matrix) < num_block_cols].view(field)
