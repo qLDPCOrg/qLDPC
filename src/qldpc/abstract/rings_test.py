@@ -243,7 +243,7 @@ def test_ring_row_reduction(
 
     # matrix components of non-commutative rings get "standardized" to place pivots on the diagonal
     ring = ring_alternating4_gf5
-    transformer = ring.get_transformer()
+    transformer = ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
     component_transformer = transformer.transformers[-1]
     e3_13 = component_transformer.embed(
         component_transformer.extended_field([[0, 0, 1], [0, 0, 0], [0, 0, 0]])
@@ -322,14 +322,20 @@ def test_deprecations() -> None:
         assert np.array_equal(ring_array.to_field_array(), matrix)
 
 
+@pytest.mark.parametrize(
+    "ring",
+    [
+        abstract.GroupRing(abstract.CyclicGroup(3), field=4),
+        abstract.GroupRing(abstract.AlternatingGroup(4), field=5),
+    ],
+)
 def test_wedderburn_artin_transformations(
-    wedderburn_ring: abstract.GroupRing, pytestconfig: pytest.Config
+    ring: abstract.GroupRing, pytestconfig: pytest.Config
 ) -> None:
     """Decompose semisimple rings into simple components."""
-    ring = wedderburn_ring
     seed = pytestconfig.getoption("randomly_seed")
 
-    transformer = ring.get_transformer()
+    transformer = ring.get_transformer(seed=seed)
 
     # the embedding of ring.field = GF(q) scalars is an isomorphism
     for component_transformer in transformer.transformers:
@@ -388,12 +394,14 @@ def test_wedderburn_artin_transformations(
     )
 
 
-def test_wedderburn_artin_errors(ring_cyclic3_gf2: abstract.GroupRing) -> None:
+def test_wedderburn_artin_errors(
+    ring_cyclic3_gf2: abstract.GroupRing, pytestconfig: pytest.Config
+) -> None:
     """The Wedderburn-Artin decomposition has limitations."""
     ring = ring_cyclic3_gf2
-    transformer = ring.get_transformer()
+    transformer = ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
 
-    different_ring = abstract.GroupRing(ring.group, 4)
+    different_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=4)
     with pytest.raises(ValueError, match="different ring"):
         transformer.decompose(different_ring.one)
     with pytest.raises(ValueError, match="different ring"):

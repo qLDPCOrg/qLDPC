@@ -57,12 +57,13 @@ class GroupRing:
 
     _group: Group
     _field: type[galois.FieldArray]
-    _transformer: WedderburnArtinTransformer | None = None
+    _transformers: dict[int | None, WedderburnArtinTransformer]
     _idempotents: tuple[RingMember, ...] | None = None
 
     def __init__(self, group: Group, field: int | None = None) -> None:
         self._group = group
         self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        self._transformers = {}
 
     @property
     def group(self) -> Group:
@@ -74,13 +75,13 @@ class GroupRing:
         """Base field of this ring."""
         return self._field
 
-    def get_transformer(
-        self, seed: np.random.Generator | int | None = None
-    ) -> WedderburnArtinTransformer:
+    def get_transformer(self, seed: int | None = None) -> WedderburnArtinTransformer:
         """Instrument for the Wedderburn-Artin decomposition of this ring."""
-        if self._transformer is None or seed is not None:
-            self._transformer = WedderburnArtinTransformer(self, seed=seed)
-        return self._transformer
+        if seed not in self._transformers:
+            if seed is None and self._transformers:
+                return next(iter(self._transformers.values()))
+            self._transformers[seed] = WedderburnArtinTransformer(self, seed=seed)
+        return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
         return (
