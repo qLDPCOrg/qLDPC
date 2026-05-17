@@ -58,6 +58,7 @@ class GroupRing:
     _group: Group
     _field: type[galois.FieldArray]
     _transformer: WedderburnArtinTransformer | None = None
+    _idempotents: tuple[RingMember, ...] | None = None
 
     def __init__(self, group: Group, field: int | None = None) -> None:
         self._group = group
@@ -164,23 +165,25 @@ class GroupRing:
         """
         if not self.is_semisimple:
             raise ValueError("Only semisimple rings have primitive central idempotents")
-        idempotents_as_tuples = external.groups.get_primitive_central_idempotents(
-            self.group.to_gap_group(), self.field.order
-        )
-        idempotents = []
-        for idempotent in idempotents_as_tuples:
-            # collect terms, coercing cycles into elements of self.group
-            terms = [
-                (
-                    self.field(coefficient),
-                    GroupMember(cycles) * self.group.identity
-                    if cycles != ((),)  # the empty cycle needs special treatment
-                    else self.group.identity,
-                )
-                for coefficient, cycles in idempotent
-            ]
-            idempotents.append(RingMember(self, *terms))
-        return tuple(idempotents)
+        if self._idempotents is None:
+            idempotents_as_tuples = external.groups.get_primitive_central_idempotents(
+                self.group.to_gap_group(), self.field.order
+            )
+            idempotents = []
+            for idempotent in idempotents_as_tuples:
+                # collect terms, coercing cycles into elements of self.group
+                terms = [
+                    (
+                        self.field(coefficient),
+                        GroupMember(cycles) * self.group.identity
+                        if cycles != ((),)  # the empty cycle needs special treatment
+                        else self.group.identity,
+                    )
+                    for coefficient, cycles in idempotent
+                ]
+                idempotents.append(RingMember(self, *terms))
+            self._idempotents = tuple(idempotents)
+        return self._idempotents
 
     def eval(
         self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]

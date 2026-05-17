@@ -106,6 +106,8 @@ def test_lifts() -> None:
 
 def assert_valid_lifts(group: abstract.Group) -> None:
     """Assert the faithfulness of various representations of group members."""
+    members = list(group.generate())
+
     # permutation and regular representations
     lifts: list[Callable[[abstract.GroupMember], npt.NDArray[np.int_]]] = [
         abstract.GroupMember.to_matrix,
@@ -114,11 +116,11 @@ def assert_valid_lifts(group: abstract.Group) -> None:
     for lift in lifts:
         assert all(
             aa == bb or not np.array_equal(lift(aa), lift(bb))
-            for aa, bb in itertools.product(group.generate(), repeat=2)
+            for aa, bb in itertools.product(members, repeat=2)
         )
         assert all(
             np.array_equal(lift(aa) @ lift(bb), lift(aa * bb))
-            for aa, bb in itertools.product(group.generate(), repeat=2)
+            for aa, bb in itertools.product(members, repeat=2)
         )
 
     # invert elements: g -> g**(-1)
@@ -127,7 +129,7 @@ def assert_valid_lifts(group: abstract.Group) -> None:
             np.where(group.inversion_matrix[:, group.index(gg)]),
             [[group.index(~gg)]],
         )
-        for gg in group.generate()
+        for gg in members
     )
 
     # the inversion matrix converts between left- and right-regular representations
@@ -136,14 +138,14 @@ def assert_valid_lifts(group: abstract.Group) -> None:
             group.regular_lift(gg, right=True),
             group.inversion_matrix @ group.regular_lift(gg) @ group.inversion_matrix,
         )
-        for gg in group.generate()
+        for gg in members
     )
 
     # adjoint representation
     if group.is_abelian:
         assert all(
             np.array_equal(group.adjoint_lift(aa), np.identity(group.order, dtype=int))
-            for aa in group.generate()
+            for aa in members
         )
     else:
         assert all(
@@ -151,7 +153,7 @@ def assert_valid_lifts(group: abstract.Group) -> None:
                 np.where(group.adjoint_lift(aa)[:, group.index(bb)]),
                 [[group.index(aa * bb * ~aa)]],
             )
-            for aa, bb in itertools.product(group.generate(), repeat=2)
+            for aa, bb in itertools.product(members, repeat=2)
         )
 
 

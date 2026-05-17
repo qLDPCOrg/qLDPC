@@ -223,8 +223,11 @@ class Group:
 
     def generate(self) -> Iterator[GroupMember]:
         """Iterate over all group members."""
-        generate = self._generate_func or self._group.generate
-        yield from map(GroupMember.from_sympy, generate())
+        if "_members" in self.__dict__:
+            yield from self._members
+        else:
+            generate = self._generate_func or self._group.generate
+            yield from map(GroupMember.from_sympy, generate())
 
     @property
     def identity(self) -> GroupMember:
