@@ -7,8 +7,8 @@ In a nutshell, `qLDPC` provides methods to build a variety of built-in and custo
 - constructing a canonical basis of logical Pauli operators,
 - computing (or upper-bounding) code distance,
 - computing logical error rates in a code-capacity model,
+- computing the logical error rates and post-selection rates of state preparation circuits,
 - constructing circuits of interest, such as memory experiments and logical encoding circuits,
-- benchmarking state-preparation circuits to determine logical error and post-selection rates,
 - defining custom Pauli noise models,
 - using a decoder of your choice for any of the above (or other, unlisted) tasks.
 
@@ -49,7 +49,7 @@ conda install -c conda-forge cvxpy
 
 Notable features include:
 - `ClassicalCode`: class for representing classical linear error-correcting codes over finite fields.
-  - Pre-defined classical code families including `RepetitionCode`, `HammingCode`, `SimplexCode`, `ReedMullerCode`, `ReedSolomonCode`, `TannerCode`, and more.
+  - Various pre-defined classical code families, including `RepetitionCode`, `HammingCode`, `SimplexCode`, `ReedMullerCode`, `ReedSolomonCode`, `TannerCode`, and more.
   - Communication with the [GAP](https://www.gap-system.org)/[`GUAVA`](https://www.gap-system.org/Packages/guava.html) package for [even more codes](https://docs.gap-system.org/pkg/guava/doc/chap5.html).
 - `QuditCode`: class for constructing [Galois-qudit codes](https://errorcorrectionzoo.org/c/galois_into_galois), including both [stabilizer](https://errorcorrectionzoo.org/c/galois_stabilizer) and [subsystem](https://errorcorrectionzoo.org/c/oecc) codes.
   - `QuditCode.get_logical_ops`: method to construct a complete basis of nontrivial logical Pauli operators for a `QuditCode`.
@@ -73,10 +73,10 @@ Notable features include:
   - `SinterDecoder`: class to construct circuit-level decoders that are usable by [`sinter`](https://pypi.org/project/sinter).
   - `SlidingWindowDecoder`: the overlapping-recovery sliding-window decoder of [arXiv:quant-ph/0110143](https://arxiv.org/abs/quant-ph/0110143) and [arXiv:2209.08552](https://arxiv.org/pdf/2209.08552).
   - `SequentialWindowDecoder`: a generalization of the `SlidingWindowDecoder` for arbitrary decoding and commit regions.
-  - `DetectorErrorModelArrays`: representation of a `stim.DetectorErrorModel` with NumPy arrays (`detector_flip_matrix`, `observable_flip_matrix`, `error_probs`).
+  - `DetectorErrorModelArrays`: representation of a `stim.DetectorErrorModel` with `scipy.sparse` and `numpy` arrays (`detector_flip_matrix`, `observable_flip_matrix`, `error_probs`).
 - `qldpc.circuits`: module for [`stim`](https://github.com/quantumlib/Stim) circuits and circuit utilities, including:
   - `get_memory_experiment`: circuit to test the performance of a code as a quantum memory (using various pre-built syndrome measurement strategies), appropriately annotated with detectors and observables.
-  - `get_state_prep_diagnostic_circuit` / `get_state_prep_diagnostic_tasks`: helper methods to annotate an arbitrary state-preparation circuit of a given code with flag detectors and logical observables for benchmarking logical error and post-selection rates (using `sinter.collect` or `get_logical_error_and_discard_rate`).
+  - `get_state_prep_diagnostic_circuit`, `get_state_prep_diagnostic_tasks`, `get_logical_error_and_discard_rate`: helper methods for computing the logical error rates and post-selection rates of state preparation circuits.
   - `NoiseModel`: class for constructing expressive Pauli noise models, which map noiseless circuits to noisy circuits.  Built-in subclasses include a single-parameter `DepolarizingNoiseModel` and a superconducting-inspired `SI1000NoiseModel`.
   - `get_encoding_circuit`: circuit to encode physical states of qubits into logical states of a code, for example to prepare a logical all-|0> state.  (Warning: current encoding circuits are not fault-tolerant.  The construction of fault-tolerant encoding circuits is an [open issue](https://github.com/qLDPCOrg/qLDPC/issues/327).)
   - `get_transversal_ops`: logical tableaus and physical circuits for the SWAP-transversal logical Clifford gates of a code, constructed via the code automorphism method of [arXiv:2409.18175](https://arxiv.org/abs/2409.18175).  (Warning: exponential complexity.)
