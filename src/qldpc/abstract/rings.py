@@ -1812,7 +1812,7 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     field = type(matrix)
     num_block_rows, num_block_cols, size, _ = matrix.shape
 
-    # row-reduce as an expanded 2-D matrix
+    # row-reduce as an expanded 2-D matrix and remove all-zero rows
     shape = (num_block_rows * size, num_block_cols * size)
     matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_reduce()
     matrix = matrix[qldpc.math.first_nonzero_cols(matrix) < matrix.shape[1]].view(field)
@@ -1821,7 +1821,7 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
         # insert zero rows to shift pivots down so that they always lie on the diagonal of a block
         pivot_row, pivot_col = 0, 0
         num_cols = matrix.shape[1]
-        while pivot_row < matrix.shape[0] and pivot_col < matrix.shape[1]:
+        while pivot_row < matrix.shape[0]:
             pivot_col = qldpc.math.first_nonzero_cols(matrix[pivot_row])[0]
             if pivot_row % size == 0:
                 pivot_block_col = pivot_col // size
@@ -1832,11 +1832,10 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
             pivot_row += 1
 
         # pad with zero rows on the bottom to ensure that all blocks have the correct size
-        if tail := matrix.shape[0] % size:
+        if tail := matrix.shape[0] % size:  # pragma: no cover
             zero_rows = np.zeros((size - tail, num_cols), dtype=int)
             matrix = np.vstack([matrix, zero_rows]).view(field)
 
-    # re-collect into a 4-D array and remove rows of all-zero blocks
+    # re-collect into a 4-D array
     shape = (matrix.shape[0] // size, size, num_block_cols, size)
-    matrix = matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
-    return matrix[qldpc.math.first_nonzero_cols(matrix) < num_block_cols].view(field)
+    return matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
