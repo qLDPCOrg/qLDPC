@@ -193,6 +193,13 @@ def test_quaternion_group() -> None:
     group = abstract.QuaternionGroup()
     assert np.array_equal(group.table, group._table)
 
+    one = group.identity
+    ii, jj = group.generators
+    kk = ii * jj
+    minus_one = ii * ii
+    members = [one, ii, jj, kk, minus_one, minus_one * ii, minus_one * jj, minus_one * kk]
+    assert all(gg == hh for gg, hh in zip(group.generate(), members))
+
 
 @pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False)])
 def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
