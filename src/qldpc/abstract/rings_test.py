@@ -331,7 +331,7 @@ def test_wedderburn_artin_transformations(
     """
     seed = pytestconfig.getoption("randomly_seed")
 
-    transformer = ring.get_transformer(seed=seed)
+    transformer = ring.get_transformer()
 
     # the embedding of ring.field = GF(q) scalars is an isomorphism
     for component_transformer in transformer.transformers:
