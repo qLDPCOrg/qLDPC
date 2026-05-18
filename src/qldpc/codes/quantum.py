@@ -1465,7 +1465,7 @@ def _get_howell_dual(
     then
         1. D is diagonal,
         2. D @ matrix_hnf = matrix_hnf, and
-        2. D.T @ dual_matrix = dual_matrix.
+        3. D.T @ dual_matrix = dual_matrix.
 
     This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
     """
