@@ -213,6 +213,11 @@ class Group:
         return self.is_commutative
 
     @property
+    def identity(self) -> GroupMember:
+        """The identity element of this group."""
+        return GroupMember.from_sympy(self._group.identity)
+
+    @property
     def generators(self) -> list[GroupMember]:
         """Generators of this group."""
         return list(map(GroupMember.from_sympy, self._group.generators))
@@ -226,18 +231,13 @@ class Group:
         generate = self._generate_func or self._group.generate
         yield from map(GroupMember.from_sympy, generate())
 
-    def generate(self) -> Iterator[GroupMember]:
-        """Iterate over all group members."""
-        yield from self._members
-
-    @property
-    def identity(self) -> GroupMember:
-        """The identity element of this group."""
-        return GroupMember.from_sympy(self._group.identity)
-
     @functools.cached_property
     def _members(self) -> dict[GroupMember, int]:
         return {member: idx for idx, member in enumerate(self._iter_members())}
+
+    def generate(self) -> Iterator[GroupMember]:
+        """Iterate over all group members."""
+        yield from self._members
 
     def index(self, member: GroupMember) -> int:
         """The index of a GroupMember in this group."""
