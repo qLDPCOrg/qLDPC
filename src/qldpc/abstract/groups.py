@@ -628,18 +628,15 @@ class QuaternionGroup(Group):
             assert 0 <= member < 8
             sign = 1 if member < 4 else -1
             base = member % 4  # +/- 1, i, j, k
-            zero = np.zeros((2, 2), dtype=int)
-            unit = np.eye(2, dtype=int)
-            imag = np.array([[0, -1], [1, 0]], dtype=int)
             if base == 0:  # +/- 1
-                blocks = [[unit, zero], [zero, unit]]
+                mat = [[1, 0], [0, 1]]
             elif base == 1:  # +/- i
-                blocks = [[imag, zero], [zero, -imag]]
+                mat = [[1, 1], [1, -1]]
             elif base == 2:  # +/- j
-                blocks = [[zero, -unit], [unit, zero]]
+                mat = [[-1, 1], [1, 1]]
             else:  # if base == 3; +/- k
-                blocks = [[zero, -imag], [-imag, zero]]
-            return sign * (np.block(blocks).T % 3).view(galois.GF(3))
+                mat = [[0, -1], [1, 0]]
+            return sign * (np.array(mat, dtype=int) % 3).view(galois.GF(3))
 
         group = Group.from_table(self._table, integer_lift=integer_lift)
         super()._init_from_group(group, name=QuaternionGroup.__name__)
