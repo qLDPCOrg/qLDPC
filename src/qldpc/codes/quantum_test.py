@@ -469,7 +469,11 @@ def test_subsystem_lifted_product_codes() -> None:
 
 
 def test_lifted_product_line_logicals(
-    pytestconfig: pytest.Config, rows: int = 3, cols: int = 2
+    pytestconfig: pytest.Config,
+    ring_cyclic3_gf2: abstract.GroupRing,
+    ring_alternating4_gf5: abstract.GroupRing,
+    rows: int = 3,
+    cols: int = 2,
 ) -> None:
     """Canonical line operators of lifted product codes."""
     code: codes.CSSCode
@@ -477,9 +481,8 @@ def test_lifted_product_line_logicals(
     seed = pytestconfig.getoption("randomly_seed")
     sympy.core.random.seed(seed)
 
-    group = abstract.CyclicGroup(3)
-    ring = abstract.GroupRing(group, field=2)
-    values = [[group.random() for _ in range(cols)] for _ in range(rows)]
+    ring = ring_cyclic3_gf2
+    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
     code = codes.LPCode(matrix, set_logicals=True)
     assert np.array_equal(
@@ -494,10 +497,9 @@ def test_lifted_product_line_logicals(
     )
 
     # not all lifted product codes support canonical line operators
-    group = abstract.CyclicGroup(2)
-    ring = abstract.GroupRing(group, field=2)
-    values = [[group.random() for _ in range(cols)] for _ in range(rows)]
-    matrix = abstract.RingArray.build(values, ring)
+    cyclic2_ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    values = [[cyclic2_ring.group.random() for _ in range(cols)] for _ in range(rows)]
+    matrix = abstract.RingArray.build(values, cyclic2_ring)
 
     with pytest.raises(ValueError, match="not yet supported"):
         codes.LPCode(matrix, set_logicals=True)
@@ -507,13 +509,13 @@ def test_lifted_product_line_logicals(
 
     # we don't yet support the construction of ring-logical line ops with non-commutative rings,
     # but we are working towards it, and support some necessary features
-    ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
+    ring = ring_alternating4_gf5
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
     generator = matrix.null_space().howell_normal_form()
     assert not np.any(matrix @ generator.T)
 
-    weak_dual = codes.quantum._get_weak_dual(generator)
+    weak_dual = codes.quantum._get_howell_dual(generator)
     test_matrix = generator @ weak_dual.T
     test_matrix_bool = test_matrix.astype(bool)
     np.fill_diagonal(test_matrix_bool, False)

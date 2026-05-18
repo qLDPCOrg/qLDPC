@@ -322,17 +322,13 @@ def test_deprecations() -> None:
         assert np.array_equal(ring_array.to_field_array(), matrix)
 
 
-@pytest.mark.parametrize(
-    "ring",
-    [
-        abstract.GroupRing(abstract.CyclicGroup(3), field=4),
-        abstract.GroupRing(abstract.AlternatingGroup(4), field=5),
-    ],
-)
 def test_wedderburn_artin_transformations(
     ring: abstract.GroupRing, pytestconfig: pytest.Config
 ) -> None:
-    """Decompose semisimple rings into simple components."""
+    """Decompose semisimple rings into simple components.
+
+    Runs for GroupRing(CyclicGroup(3), field=4) and GroupRing(AlternatingGroup(4), field=5).
+    """
     seed = pytestconfig.getoption("randomly_seed")
 
     transformer = ring.get_transformer(seed=seed)
