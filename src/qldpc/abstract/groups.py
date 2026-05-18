@@ -221,13 +221,14 @@ class Group:
         """Generators of this group in a hashable form."""
         return tuple(tuple(generator) for generator in self.generators)
 
+    def _iter_members(self) -> Iterator[GroupMember]:
+        """Iterate over all group members from the underlying source (no caching)."""
+        generate = self._generate_func or self._group.generate
+        yield from map(GroupMember.from_sympy, generate())
+
     def generate(self) -> Iterator[GroupMember]:
         """Iterate over all group members."""
-        if "_members" in self.__dict__:
-            yield from self._members
-        else:
-            generate = self._generate_func or self._group.generate
-            yield from map(GroupMember.from_sympy, generate())
+        yield from self._members
 
     @property
     def identity(self) -> GroupMember:
@@ -236,7 +237,7 @@ class Group:
 
     @functools.cached_property
     def _members(self) -> dict[GroupMember, int]:
-        return {member: idx for idx, member in enumerate(self.generate())}
+        return {member: idx for idx, member in enumerate(self._iter_members())}
 
     def index(self, member: GroupMember) -> int:
         """The index of a GroupMember in this group."""
@@ -646,8 +647,7 @@ class QuaternionGroup(Group):
         """Generators of the quaternion group: [i, j]."""
         return [GroupMember(self._table[1]), GroupMember(self._table[2])]
 
-    def generate(self) -> Iterator[GroupMember]:
-        """Iterate over all group members."""
+    def _iter_members(self) -> Iterator[GroupMember]:
         ii, jj = self.generators
         kk = ii * jj
         one = self.identity
