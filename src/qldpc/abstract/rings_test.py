@@ -243,7 +243,7 @@ def test_ring_row_reduction(
 
     # matrix components of non-commutative rings get "standardized" to place pivots on the diagonal
     ring = ring_alternating4_gf5
-    transformer = ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    transformer = ring.get_transformer()
     component_transformer = transformer.transformers[-1]
     e3_13 = component_transformer.embed(
         component_transformer.extended_field([[0, 0, 1], [0, 0, 0], [0, 0, 0]])
@@ -405,7 +405,7 @@ def test_wedderburn_artin_errors(
 ) -> None:
     """The Wedderburn-Artin decomposition has limitations."""
     ring = ring_cyclic3_gf2
-    transformer = ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    transformer = ring.get_transformer()
 
     different_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=4)
     with pytest.raises(ValueError, match="different ring"):
