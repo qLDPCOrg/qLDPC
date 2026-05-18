@@ -1410,10 +1410,10 @@ class LPCode(CSSCode):
         generator_a_T = matrix_a.T.null_space().howell_normal_form()
         generator_b_T = matrix_b.T.null_space().howell_normal_form()
 
-        dual_a = _get_weak_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
-        dual_b = _get_weak_dual(generator_b)
-        dual_a_T = _get_weak_dual(generator_a_T)
-        dual_b_T = _get_weak_dual(generator_b_T)
+        dual_a = _get_howell_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
+        dual_b = _get_howell_dual(generator_b)
+        dual_a_T = _get_howell_dual(generator_a_T)
+        dual_b_T = _get_howell_dual(generator_b_T)
 
         logical_ops_x_l = np.kron(dual_a, generator_b)
         logical_ops_z_l = np.kron(generator_a, dual_b)
@@ -1455,22 +1455,23 @@ class LPCode(CSSCode):
         return lifted_ops_x, lifted_ops_z
 
 
-def _get_weak_dual(
+def _get_howell_dual(
     matrix_hnf: abstract.RingArray, transformer: abstract.WedderburnArtinTransformer | None = None
 ) -> abstract.RingArray:
-    """Build a "weak dual" of a matrix in Howell normal form.
+    """Build the "dual" of a matrix in Howell normal form.
 
-    The weak dual 'matrix_dual' of 'matrix_hnf' satisfies:
-        1. 'matrix_hnf @ matrix_dual.T' is a diagonal matrix.
-        2. The rank of 'matrix_hnf' is equal to the rank of 'matrix_hnf @ matrix_dual.T'.
-    This construction thereby generalizes that of a dual basis for a vector space over a
-    finite field, for which 'matrix_hnf @ matrix_dual.T' would be an identity matrix.
+    The dual matrix provides a pseudoinverse of matrix_hnf in the following sense: if
+        D = matrix_hnf @ dual_matrix.T,
+    then
+        1. D is diagonal,
+        2. D @ matrix_hnf = matrix_hnf, and
+        2. D.T @ dual_matrix = dual_matrix.
 
-    This method assumes that matrix_hnf is in Howell normal form.
+    This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
     """
     ring = matrix_hnf.ring
     transformer = transformer = transformer or ring.get_transformer()
-    matrix_dual = np.zeros(matrix_hnf.shape, dtype=object)
+    dual_matrix = np.zeros(matrix_hnf.shape, dtype=object)
     for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix_hnf)):
         pivot = matrix_hnf[row, col].copy()
         if ring.is_commutative:
@@ -1482,8 +1483,8 @@ def _get_weak_dual(
                     field = component_transformer.extended_field
                     diags = np.diag(np.diag(component)).view(field)
                     new_matrix_entry += component_transformer.embed(diags).T
-        matrix_dual[row, col] = new_matrix_entry
-    return abstract.RingArray.build(matrix_dual, ring)
+        dual_matrix[row, col] = new_matrix_entry
+    return abstract.RingArray.build(dual_matrix, ring)
 
 
 class SLPCode(CSSCode):
@@ -1570,8 +1571,8 @@ class SLPCode(CSSCode):
         generator_a = matrix_a.null_space().howell_normal_form()
         generator_b = matrix_b.null_space().howell_normal_form()
 
-        dual_a = _get_weak_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
-        dual_b = _get_weak_dual(generator_b)
+        dual_a = _get_howell_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
+        dual_b = _get_howell_dual(generator_b)
 
         logical_ops_x = np.kron(dual_a, generator_b)
         logical_ops_z = np.kron(generator_a, dual_b)
