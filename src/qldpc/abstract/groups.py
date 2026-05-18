@@ -138,7 +138,7 @@ class Group:
 
     _group: comb.PermutationGroup
     _name: str | None
-    _iterator: GenerateFunc | None
+    _generate_func: GenerateFunc | None
     _lift: Lift | None
 
     def __init__(
@@ -226,14 +226,11 @@ class Group:
         """Generators of this group in a hashable form."""
         return tuple(tuple(generator) for generator in self.generators)
 
-    def _iter_members(self) -> Iterator[GroupMember]:
-        """Iterate over all group members from the underlying source (no caching)."""
-        generate = self._generate_func or self._group.generate
-        yield from map(GroupMember.from_sympy, generate())
-
     @functools.cached_property
     def _members(self) -> dict[GroupMember, int]:
-        return {member: idx for idx, member in enumerate(self._iter_members())}
+        generate = self._generate_func or self._group.generate
+        members = map(GroupMember.from_sympy, generate())
+        return {member: idx for idx, member in enumerate(members)}
 
     def generate(self) -> Iterator[GroupMember]:
         """Iterate over all group members."""
@@ -639,20 +636,21 @@ class QuaternionGroup(Group):
                 blocks = [[zero, -imag], [-imag, zero]]
             return sign * (np.block(blocks).T % 3).view(galois.GF(3))
 
+        # override the default order in which SymPy iterates over group members
+        def generate_func() -> Iterator[comb.Permutation]:
+            ii, jj = self.generators
+            kk = ii * jj
+            one = self.identity
+            minus_one = ii * ii
+            yield from [one, ii, jj, kk, minus_one, minus_one * ii, minus_one * jj, minus_one * kk]
+
         group = Group.from_table(self._table, integer_lift=integer_lift)
-        super()._init_from_group(group, name=QuaternionGroup.__name__)
+        super()._init_from_group(group, name=QuaternionGroup.__name__, generate_func=generate_func)
 
     @property
     def generators(self) -> list[GroupMember]:
         """Generators of the quaternion group: [i, j]."""
         return [GroupMember(self._table[1]), GroupMember(self._table[2])]
-
-    def _iter_members(self) -> Iterator[GroupMember]:
-        ii, jj = self.generators
-        kk = ii * jj
-        one = self.identity
-        minus_one = ii * ii
-        yield from [one, ii, jj, kk, minus_one, minus_one * ii, minus_one * jj, minus_one * kk]
 
 
 class SmallGroup(Group):
