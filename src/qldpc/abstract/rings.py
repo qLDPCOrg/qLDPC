@@ -1815,14 +1815,17 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     # row-reduce as an expanded 2-D matrix
     shape = (num_block_rows * size, num_block_cols * size)
     matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_reduce()
+    matrix = matrix[qldpc.math.first_nonzero_cols(matrix) < matrix.shape[1]].view(field)
 
     if size > 1:
         # insert zero rows to shift pivots down so that they always lie on the diagonal of a block
         pivot_row, pivot_col = 0, 0
         num_cols = matrix.shape[1]
-        while pivot_row < matrix.shape[0]:
+        while pivot_row < matrix.shape[0] and pivot_col < matrix.shape[1]:
             pivot_col = qldpc.math.first_nonzero_cols(matrix[pivot_row])[0]
-            if pivot_col < num_cols and (pad := (pivot_col - pivot_row) % size):
+            if pivot_row % size == 0:
+                pivot_block_col = pivot_col // size
+            if pad := pivot_col - pivot_block_col * size - pivot_row % size:
                 zero_rows = np.zeros((pad, num_cols), dtype=int)
                 matrix = np.vstack([matrix[:pivot_row], zero_rows, matrix[pivot_row:]]).view(field)
                 pivot_row += pad
