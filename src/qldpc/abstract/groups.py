@@ -158,16 +158,17 @@ class Group:
         lift: Lift | None = None,
     ) -> None:
         """Initialize from an existing group."""
-        self._name = name
         if isinstance(group, comb.PermutationGroup):
             self._group = group
+            self._name = name
+            self._generate_func = generate_func
             self._lift = lift
         else:
             assert isinstance(group, Group)
             self._group = group._group
-            self._name = self._name or group._name  # explicitly provided name overrides group name
+            self._name = name or group._name
+            self._generate_func = generate_func or group._generate_func
             self._lift = lift or group._lift
-        self._generate_func = generate_func
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Group) and self._group == other._group
@@ -335,7 +336,7 @@ class Group:
         integer_lift: IntegerLift | None = None,
     ) -> Group:
         """Construct a group from a multiplication (Cayley) table."""
-        members = {GroupMember(row): idx for idx, row in enumerate(table)}
+        members = {GroupMember(col): idx for idx, col in enumerate(np.asarray(table).T)}
 
         def generate_func() -> Iterator[comb.Permutation]:
             yield from members
@@ -608,6 +609,7 @@ class QuaternionGroup(Group):
     """Quaternion group: 1, i, j, k, -1, -i, -j, -k."""
 
     # multiplication table for this group
+
     _table = [
         [0, 1, 2, 3, 4, 5, 6, 7],
         [1, 4, 3, 6, 5, 0, 7, 2],
@@ -639,21 +641,17 @@ class QuaternionGroup(Group):
                 blocks = [[zero, -imag], [-imag, zero]]
             return sign * (np.block(blocks).T % 3).view(galois.GF(3))
 
-        # override the default order in which SymPy iterates over group members
-        def generate_func() -> Iterator[comb.Permutation]:
-            ii, jj = self.generators
-            kk = ii * jj
-            one = self.identity
-            minus_one = ii * ii
-            yield from [one, ii, jj, kk, minus_one, minus_one * ii, minus_one * jj, minus_one * kk]
-
         group = Group.from_table(self._table, integer_lift=integer_lift)
-        super()._init_from_group(group, name=QuaternionGroup.__name__, generate_func=generate_func)
+        super()._init_from_group(group, name=QuaternionGroup.__name__)
 
     @property
     def generators(self) -> list[GroupMember]:
         """Generators of the quaternion group: [i, j]."""
-        return [GroupMember(self._table[1]), GroupMember(self._table[2])]
+        generator = self.generate()
+        next(generator)
+        ii = next(generator)
+        jj = next(generator)
+        return [ii, jj]
 
 
 class SmallGroup(Group):
