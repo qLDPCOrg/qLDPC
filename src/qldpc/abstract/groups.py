@@ -337,13 +337,16 @@ class Group:
         """Construct a group from a multiplication (Cayley) table."""
         members = {GroupMember(row): idx for idx, row in enumerate(table)}
 
+        def generate_func() -> Iterator[comb.Permutation]:
+            yield from members
+
         if integer_lift is None:
-            return Group(*members)
+            return Group(*members, generate_func=generate_func)
 
         def lift(member: GroupMember) -> npt.NDArray[np.int_]:
             return integer_lift(members[member])
 
-        return Group(*members, lift=lift)
+        return Group(*members, generate_func=generate_func, lift=lift)
 
     @staticmethod
     def from_generating_mats(*matrices: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> Group:
