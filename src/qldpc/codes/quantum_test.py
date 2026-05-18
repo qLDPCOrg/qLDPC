@@ -514,6 +514,7 @@ def test_lifted_product_line_logicals(
     dual = codes.quantum._get_howell_dual(generator)
     diag = generator @ dual.T
     assert not np.any(matrix @ generator.T)
+    assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
     assert np.array_equal(diag @ generator, generator)
     assert np.array_equal(diag.T @ dual, dual)
 
