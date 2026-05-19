@@ -389,7 +389,7 @@ def test_wedderburn_artin_transformations(
     assert transformer.recompose(separate) == member_ab
 
     # we can also decompose RingArrays
-    ring_array = abstract.RingArray([member_a, member_b])
+    ring_array = abstract.RingArray([[member_a, member_b]])
     assert np.array_equal(
         ring_array,
         transformer.recompose_array(transformer.decompose_array(ring_array)),
@@ -402,12 +402,12 @@ def test_wedderburn_artin_transformations(
     assert transformer.transpose(member_b_T) == member_b
     assert transformer.transpose(member_a * member_b) == member_b_T * member_a_T
     assert np.array_equal(
-        transformer.transpose_array(ring_array.reshape(2, 1)),
-        abstract.RingArray([member_a_T, member_b_T]).reshape(1, 2),
+        transformer.transpose_array(ring_array),
+        abstract.RingArray([[member_a_T], [member_b_T]]),
     )
 
 
-def get_random_ring_member(ring: abstract.GroupRing, seed: int) -> abstract.GroupMember:
+def get_random_ring_member(ring: abstract.GroupRing, seed: int) -> abstract.RingMember:
     """Construct a random ring member: a sum of random group generators with random coefficients."""
     coeffs = ring.field.Random(ring.group.order, seed=seed)
     terms = [(coeff, gen) for coeff, gen in zip(coeffs, ring.group.generate())]
