@@ -711,6 +711,20 @@ class RingArray(npt.NDArray[np.object_]):
         entries_as_vecs = vector.reshape(vector.size // group.order, group.order)
         return RingArray.from_field_array(entries_as_vecs, ring)
 
+    @staticmethod
+    def kron(matrix_a: RingArray, matrix_b: RingArray) -> RingArray:
+        """Take the ring-Kronecker (tensor) product of two RingArray matrices.
+
+        If the base ring is commutative, this is the ordinary Kronecker product.  Otherwise, the
+        matrix entries of the Kronecker product live in the bimodule of the ring, r ⨂ s -> (r, s),
+        which adds a new axis (whose indices take two values) to the output matrix.  When lifting
+        a RingArray matrix over a bimodule, the "left" entries in matrix[:, :, 0] get lifted with
+        the regular representation, while the "right" entries in matrix[:, :, 1] get lifted to their
+        representation in the opposite ring (see RingMember.regular_lift).
+        """
+        assert matrix_a.ring is matrix_b.ring
+        return NotImplemented
+
     def null_space(self) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
 
