@@ -416,25 +416,19 @@ class RingMember:
         )
 
     def regular_lift(self, *, right: bool = False) -> galois.FieldArray:
-        """Construct a matrix that encodes multiplication in the ring by matrix multiplication.
+        """Lift a ring member to its regular representation.
 
-        By default, the matrix constructed by this method represents multiplication from the left,
-        meaning that if r and s are ring members, then
+        By default, this method lifts a ring member to the regular representation induced by
+        multiplication from the left.  Specifically, if r and s are ring members, then
             r.regular_lift() @ s.to_vector() = (r * s).to_vector().
-        If right is True, then matrix multiplication corresponds to ring multiplication from the
-        right, meaning
-            r.regular_lift(right=True) @ s.to_vector() = (s * r).to_vector().
 
-        A potential point of confusion: right-multiplication in the ring should not be confused with
-        the right-regular representation of group members, which also requires taking the inverse of
-        group members.
+        If right is True, this method lifts a ring member to its regular representation in the
+        opposite ring, such that matrix multiplication corresponds to ring multiplication from the
+        right:
+            r.regular_lift(right=True) @ s.to_vector() = (s * r).to_vector().
+        See https://en.wikipedia.org/wiki/Opposite_ring.
         """
-        if not right:
-            terms = (val * self.ring.regular_lift(member) for val, member in self if val)
-        else:
-            terms = (
-                val * self.ring.regular_lift(~member, right=True) for val, member in self if val
-            )
+        terms = (val * self.ring.regular_lift(member, right=right) for val, member in self if val)
         return (
             functools.reduce(operator.add, terms)
             if bool(self)

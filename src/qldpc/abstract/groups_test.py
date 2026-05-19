@@ -135,7 +135,7 @@ def assert_valid_lifts(group: abstract.Group) -> None:
     # the inversion matrix converts between left- and right-regular representations
     assert all(
         np.array_equal(
-            group.regular_lift(gg, right=True),
+            group.regular_lift(gg, right=True).T,
             group.inversion_matrix @ group.regular_lift(gg) @ group.inversion_matrix,
         )
         for gg in group_members
