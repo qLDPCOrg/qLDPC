@@ -1415,17 +1415,14 @@ class LPCode(CSSCode):
         dual_a_T = _get_howell_dual(generator_a_T)
         dual_b_T = _get_howell_dual(generator_b_T)
 
-        logical_ops_x_l = np.kron(dual_a, generator_b)
-        logical_ops_z_l = np.kron(generator_a, dual_b)
-        logical_ops_x_r = np.kron(generator_a_T, dual_b_T)
-        logical_ops_z_r = np.kron(dual_a_T, generator_b_T)
+        logical_ops_x_l = abstract.RingArray.kron(dual_a, generator_b)
+        logical_ops_z_l = abstract.RingArray.kron(generator_a, dual_b)
+        logical_ops_x_r = abstract.RingArray.kron(generator_a_T, dual_b_T)
+        logical_ops_z_r = abstract.RingArray.kron(dual_a_T, generator_b_T)
 
-        logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
-        logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
-        return (
-            abstract.RingArray.build(logical_ops_x, matrix_a.ring),
-            abstract.RingArray.build(logical_ops_z, matrix_a.ring),
-        )
+        logical_ops_x = _block_diag(logical_ops_x_l, logical_ops_x_r)
+        logical_ops_z = _block_diag(logical_ops_z_l, logical_ops_z_r)
+        return logical_ops_x, logical_ops_z
 
     @staticmethod
     def to_lifted_logical_ops(
@@ -1495,6 +1492,29 @@ def _get_howell_dual(
                     new_matrix_entry += component_transformer.embed(diags).T
         dual_matrix[row, col] = new_matrix_entry
     return abstract.RingArray.build(dual_matrix, ring)
+
+
+def _block_diag(matrix_a: abstract.RingArray, matrix_b: abstract.RingArray) -> abstract.RingArray:
+    """Stack the two matrices into a block-diagonal matrix.
+
+    If the two matrices have more than two dimensions, stack along the first two axes.
+    """
+    assert (
+        matrix_a.ndim == matrix_b.ndim
+        and matrix_a.ndim >= 2
+        and matrix_a.shape[2:] == matrix_b.shape[2:]
+    )
+    if matrix_a.ndim == 2:
+        matrix_ab = scipy.linalg.block_diag(matrix_a, matrix_b)
+        return abstract.RingArray.build(matrix_ab, matrix_a.ring)
+    rows = matrix_a.shape[0] + matrix_b.shape[0]
+    cols = matrix_a.shape[1] + matrix_b.shape[1]
+    matrix_ab = abstract.RingArray.build(
+        np.zeros((rows, cols, *matrix_a.shape[2:]), dtype=int), matrix_a.ring
+    )
+    matrix_ab[: matrix_a.shape[0], : matrix_a.shape[1]] = matrix_a
+    matrix_ab[-matrix_b.shape[0] :, -matrix_b.shape[1] :] = matrix_b
+    return matrix_ab
 
 
 class SLPCode(CSSCode):
@@ -1584,9 +1604,9 @@ class SLPCode(CSSCode):
         dual_a = _get_howell_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
         dual_b = _get_howell_dual(generator_b)
 
-        logical_ops_x = np.kron(dual_a, generator_b)
-        logical_ops_z = np.kron(generator_a, dual_b)
-        return logical_ops_x.view(abstract.RingArray), logical_ops_z.view(abstract.RingArray)
+        logical_ops_x = abstract.RingArray.kron(dual_a, generator_b)
+        logical_ops_z = abstract.RingArray.kron(generator_a, dual_b)
+        return logical_ops_x, logical_ops_z
 
     @staticmethod
     def to_lifted_logical_ops(
