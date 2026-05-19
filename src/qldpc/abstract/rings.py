@@ -1094,6 +1094,24 @@ class WedderburnArtinTransformer:
         ]
         return functools.reduce(operator.add, terms)
 
+    def transpose(self, element: RingMember) -> RingMember:
+        """Transpose the matrices representing the element within each simple component.
+
+        Warning: this transpose should not be confused with RingMember.T, which maps every group
+        member to its inverse, transposing the regular representation of a RingMember.
+        """
+        if self.ring.is_commutative:
+            return element
+        components = [np.swapaxes(component, -1, -2) for component in self.decompose(element)]
+        return self.recompose(components)
+
+    def transpose_array(self, array: RingArray) -> RingArray:
+        """Transpose the array its entries within each simple component."""
+        if self.ring.is_commutative:
+            return array.transpose().view(RingArray)
+        components = [np.swapaxes(component, -1, -2) for component in self.decompose_array(array)]
+        return self.recompose_array(components).transpose().view(RingArray)
+
 
 @dataclasses.dataclass
 class WedderburnArtinComponentTransformer:

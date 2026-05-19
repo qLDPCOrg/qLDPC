@@ -508,6 +508,7 @@ def test_lifted_product_line_logicals(
     # we don't yet support the construction of ring-logical line ops with non-commutative rings,
     # but we are working towards it, and support some necessary features
     ring = ring_alternating4_gf5
+    transformer = ring.get_transformer()
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
     generator = matrix.null_space().howell_normal_form()
@@ -517,6 +518,7 @@ def test_lifted_product_line_logicals(
     assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
     assert np.array_equal(diag @ generator, generator)
     assert np.array_equal(diag.T @ dual, dual)
+    assert np.array_equal(diag, transformer.transpose_array(diag))
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:

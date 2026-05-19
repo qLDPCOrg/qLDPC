@@ -1463,9 +1463,19 @@ def _get_howell_dual(
     The dual matrix provides a pseudoinverse of matrix_hnf in the following sense: if
         D = matrix_hnf @ dual_matrix.T,
     then
-        1. D is diagonal,
-        2. D @ matrix_hnf = matrix_hnf, and
-        3. D.T @ dual_matrix = dual_matrix.
+    1. D is diagonal,
+    2. D @ matrix_hnf = matrix_hnf,
+    3. D.T @ dual_matrix = dual_matrix, and
+    4. D = transformer.transpose_array(D).
+
+    Note that we have two different notions of a transpose at play:
+    1. D.T...
+        (a) swaps the matrix indices of D, and
+        (b) takes group members g -> ~g = g**-1, which transposes their regular representation.
+    2. transformer.transpose_array(D)...
+        (a) swaps the matrix indices of D (identically to D.T), and
+        (b) for each entry of D, transposes its matrix representation within each Wedderburn-Artin
+            component of the ring.
 
     This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
     """
