@@ -596,6 +596,11 @@ class RingArray(npt.NDArray[np.object_]):
     def regular_lift(self, *, right: bool = False) -> galois.FieldArray:
         """Block matrix obtained by a regular lift of each entry of this RingArray."""
         assert self.ndim == 1 or self.ndim == 2
+        rows = 1 if self.ndim == 1 else self.shape[0]
+        cols = self.shape[-1]
+        block_size = self.group.order
+        if 0 in (rows, cols):
+            return self.field.Zeros((rows * block_size, cols * block_size))
         blocks = [
             [val.regular_lift(right=right) for val in row]
             for row in self.reshape(-1, self.shape[-1])
@@ -605,6 +610,11 @@ class RingArray(npt.NDArray[np.object_]):
     def lift(self) -> galois.FieldArray:
         """Block matrix obtained by lifting each entry of this RingArray."""
         assert self.ndim == 1 or self.ndim == 2
+        rows = 1 if self.ndim == 1 else self.shape[0]
+        cols = self.shape[-1]
+        block_size = self.group.lift_dim
+        if 0 in (rows, cols):
+            return self.field.Zeros((rows * block_size, cols * block_size))
         blocks = [[val.lift() for val in row] for row in self.reshape(-1, self.shape[-1])]
         return np.block(blocks).view(self.field)
 
