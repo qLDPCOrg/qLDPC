@@ -1507,11 +1507,12 @@ def _block_diag(matrix_a: abstract.RingArray, matrix_b: abstract.RingArray) -> a
     if matrix_a.ndim == 2:
         matrix_ab = scipy.linalg.block_diag(matrix_a, matrix_b)
         return abstract.RingArray.build(matrix_ab, matrix_a.ring)
-    rows = matrix_a.shape[0] + matrix_b.shape[0]
-    cols = matrix_a.shape[1] + matrix_b.shape[1]
-    matrix_ab = abstract.RingArray.build(
-        np.zeros((rows, cols, *matrix_a.shape[2:]), dtype=int), matrix_a.ring
+    shape = (
+        matrix_a.shape[0] + matrix_b.shape[0],
+        matrix_a.shape[1] + matrix_b.shape[1],
+        *matrix_a.shape[2:],
     )
+    matrix_ab = abstract.RingArray.build(np.zeros(shape, dtype=int), matrix_a.ring)
     matrix_ab[: matrix_a.shape[0], : matrix_a.shape[1]] = matrix_a
     matrix_ab[-matrix_b.shape[0] :, -matrix_b.shape[1] :] = matrix_b
     return matrix_ab

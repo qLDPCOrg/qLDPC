@@ -723,7 +723,16 @@ class RingArray(npt.NDArray[np.object_]):
         representation in the opposite ring (see RingMember.regular_lift).
         """
         assert matrix_a.ring is matrix_b.ring
-        return NotImplemented
+        if matrix_a.ring.is_commutative:
+            return np.kron(matrix_a, matrix_b).view(RingArray)
+        rows_a, cols_a = matrix_a.shape
+        rows_b, cols_b = matrix_b.shape
+        tensor = np.empty((rows_a, rows_b, cols_a, cols_b, 2), dtype=object)
+        tensor[:, :, :, :, 0] = np.asarray(matrix_a)[:, np.newaxis, :, np.newaxis]
+        tensor[:, :, :, :, 1] = np.asarray(matrix_b)[np.newaxis, :, np.newaxis, :]
+        matrix = tensor.reshape(rows_a * rows_b, cols_a * cols_b, 2).view(RingArray)
+        matrix._ring = matrix_a._ring
+        return matrix
 
     def null_space(self) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
