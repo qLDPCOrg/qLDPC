@@ -609,9 +609,11 @@ class RingArray(npt.NDArray[np.object_]):
         return np.block(blocks).view(self.field)
 
     def __invert__(self) -> RingArray:
-        """Transpose the entries of this RingArray."""
+        """Invert (transpose) the entries of this RingArray."""
         vals = [val.T for val in self.ravel()]
-        return RingArray(np.array(vals, dtype=object).reshape(self.shape), self.ring)
+        array = np.array(vals, dtype=object).reshape(self.shape).view(RingArray)
+        array._ring = self._ring
+        return array
 
     @property
     def T(self) -> RingArray:
@@ -656,7 +658,9 @@ class RingArray(npt.NDArray[np.object_]):
             return RingMember(ring, (value, group.identity))
 
         vals = [as_ring_member(value) for value in array.ravel()]
-        return RingArray(np.array(vals).reshape(array.shape), ring)
+        result = np.array(vals, dtype=object).reshape(array.shape).view(RingArray)
+        result._ring = ring
+        return result
 
     def to_field_array(self) -> galois.FieldArray:
         """Convert a RingArray into an array of coefficients (in a finite field) for each entry.
@@ -686,7 +690,9 @@ class RingArray(npt.NDArray[np.object_]):
         group = ring.group if isinstance(ring, GroupRing) else ring
         vectors = array.reshape(array.size // group.order, group.order)
         vals = [RingMember.from_vector(vector, ring) for vector in vectors]
-        return RingArray(np.array(vals, dtype=object).reshape(array.shape[:-1]), ring=ring)
+        result = np.array(vals, dtype=object).reshape(array.shape[:-1]).view(RingArray)
+        result._ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
+        return result
 
     def to_field_vector(self) -> galois.FieldArray:
         """Convert RingArray into a flattened 1-D vector of coefficients for each RingMember."""
