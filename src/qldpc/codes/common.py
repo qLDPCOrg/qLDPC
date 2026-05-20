@@ -3213,8 +3213,8 @@ class ErrorRateFunc:
             values = 1 - self.infidelities
             variances = self.infidelity_variances
         value = weight_probs @ values
-        variance = np.sqrt(weight_probs**2 @ variances)
-        return 1 - float(value), float(variance)
+        error = np.sqrt(weight_probs**2 @ variances)
+        return 1 - float(value), float(error)
 
 
 def _get_sample_allocation(
