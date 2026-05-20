@@ -1575,7 +1575,7 @@ class SLPCode(CSSCode):
             except (ValueError, NotImplementedError):
                 raise ValueError(
                     "Cannot set canonical logical operators for this code, likely due to a"
-                    " choice of group algebra for which some features are not yet supported",
+                    " choice of group algebra for which some features are not yet supported"
                 )
 
     @staticmethod
