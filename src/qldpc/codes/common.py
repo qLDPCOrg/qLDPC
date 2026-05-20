@@ -3216,6 +3216,16 @@ class ErrorRateFunc:
         error = np.sqrt(weight_probs**2 @ variances)
         return 1 - float(value), float(error)
 
+    def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
+        """Upper bound on the truncation error in the infidelity or discard rate estimate."""
+        if isinstance(error_rate, Iterable):
+            values = [self.truncation_error_bound(rate) for rate in error_rate]
+            return np.array(values)  # type:ignore[return-value]
+        weight_probs = _get_error_probs_by_weight(
+            self.num_error_locations, error_rate, self.max_error_weight
+        )
+        return float(1.0 - weight_probs.sum())
+
 
 def _get_sample_allocation(
     num_samples: int, block_length: int, max_error_rate: float
