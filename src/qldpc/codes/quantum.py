@@ -936,7 +936,6 @@ class HGPCode(CSSCode):
             field,
             is_subsystem_code=False,
         )
-
         if set_logicals:
             logical_ops_xz = HGPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
@@ -1378,6 +1377,11 @@ class LPCode(CSSCode):
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
 
         if set_logicals:
+            if matrix_x.ring.group._lift is not None:
+                raise ValueError(
+                    f"Cannot set canonical logical operators for a {type(self)} built with a group"
+                    " that has a custom lift.\nTry setting group._lift = None"
+                )
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
                 self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
@@ -1568,7 +1572,14 @@ class SLPCode(CSSCode):
         matrix_x, matrix_z = SHPCode.get_matrix_product(self.matrix_a, self.matrix_b)
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=True)
 
+        # TODO: set self._stabilizer_ops
+
         if set_logicals:
+            if matrix_x.ring.group._lift is not None:
+                raise ValueError(
+                    f"Cannot set canonical logical operators for a {type(self)} built with a group"
+                    " that has a custom lift.\nTry setting group._lift = None"
+                )
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
                 self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
