@@ -1363,7 +1363,16 @@ class LPCode(CSSCode):
             matrix_b = matrix_a
         self.matrix_a = abstract.RingArray(matrix_a)
         self.matrix_b = abstract.RingArray(matrix_b)
-        field = self.matrix_a.field.order
+
+        ring = self.matrix_a.ring
+        field = ring.field.order
+        if ring.group._lift is not None and (not ring.is_commutative or set_logicals):
+            raise ValueError(
+                f"{type(self)} does not support custom lifts if"
+                "\n  (a) the group is not commutative, or"
+                "\n  (b) the code is asked to construct canonical line operators."
+                "\nTry setting group._lift = None"
+            )
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
@@ -1380,11 +1389,6 @@ class LPCode(CSSCode):
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
 
         if set_logicals:
-            if matrix_x.ring.group._lift is not None:  # pragma: no cover
-                raise ValueError(
-                    f"Cannot set canonical logical operators for a {type(self)} built with a group"
-                    " that has a custom lift.\nTry setting group._lift = None"
-                )
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
                 self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
@@ -1563,12 +1567,21 @@ class SLPCode(CSSCode):
         *,
         set_logicals: bool = False,
     ) -> None:
-        """Subsystem lifted product of two RingArrays."""
+        """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302."""
         if matrix_b is None:
             matrix_b = matrix_a
         self.matrix_a = abstract.RingArray(matrix_a)
         self.matrix_b = abstract.RingArray(matrix_b)
-        field = self.matrix_a.field.order
+
+        ring = self.matrix_a.ring
+        field = ring.field.order
+        if ring.group._lift is not None and (not ring.is_commutative or set_logicals):
+            raise ValueError(
+                f"{type(self)} does not support custom lifts if"
+                "\n  (a) the group is not commutative, or"
+                "\n  (b) the code is asked to construct canonical line operators."
+                "\nTry setting group._lift = None."
+            )
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = SHPCode.get_matrix_product(self.matrix_a, self.matrix_b)
@@ -1577,11 +1590,6 @@ class SLPCode(CSSCode):
         # TODO: set self._stabilizer_ops
 
         if set_logicals:
-            if matrix_x.ring.group._lift is not None:  # pragma: no cover
-                raise ValueError(
-                    f"Cannot set canonical logical operators for a {type(self)} built with a group"
-                    " that has a custom lift.\nTry setting group._lift = None"
-                )
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
                 self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
