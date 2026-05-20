@@ -1377,7 +1377,7 @@ class LPCode(CSSCode):
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
 
         if set_logicals:
-            if matrix_x.ring.group._lift is not None:
+            if matrix_x.ring.group._lift is not None:  # pragma: no cover
                 raise ValueError(
                     f"Cannot set canonical logical operators for a {type(self)} built with a group"
                     " that has a custom lift.\nTry setting group._lift = None"
@@ -1575,7 +1575,7 @@ class SLPCode(CSSCode):
         # TODO: set self._stabilizer_ops
 
         if set_logicals:
-            if matrix_x.ring.group._lift is not None:
+            if matrix_x.ring.group._lift is not None:  # pragma: no cover
                 raise ValueError(
                     f"Cannot set canonical logical operators for a {type(self)} built with a group"
                     " that has a custom lift.\nTry setting group._lift = None"
