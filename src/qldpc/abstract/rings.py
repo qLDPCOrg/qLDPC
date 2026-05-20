@@ -659,7 +659,7 @@ class RingArray(npt.NDArray[np.object_]):
 
         vals = [as_ring_member(value) for value in array.ravel()]
         result = np.array(vals, dtype=object).reshape(array.shape).view(RingArray)
-        result._ring = ring
+        result._ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
         return result
 
     def to_field_array(self) -> galois.FieldArray:

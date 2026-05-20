@@ -1365,8 +1365,6 @@ class LPCode(CSSCode):
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
-        assert isinstance(matrix_x, abstract.RingArray)
-        assert isinstance(matrix_z, abstract.RingArray)
 
         # identify the number of qudits in each sector
         self.sector_size = self.matrix_a.group.lift_dim * np.outer(
@@ -1568,9 +1566,6 @@ class SLPCode(CSSCode):
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = SHPCode.get_matrix_product(self.matrix_a, self.matrix_b)
-        assert isinstance(matrix_x, abstract.RingArray)
-        assert isinstance(matrix_z, abstract.RingArray)
-
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=True)
 
         if set_logicals:
