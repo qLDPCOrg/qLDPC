@@ -605,8 +605,8 @@ class RingArray(npt.NDArray[np.object_]):
             rows, cols, block_size = self.shape[0], self.shape[1], self.group.order
             tensor_shape = (rows, block_size, cols, block_size)
             matrix_shape = (rows * block_size, cols * block_size)
-            lift_0 = self[:, :, 0].regular_lift(right=right)
-            lift_1 = self[:, :, 1].regular_lift(right=not right)
+            lift_0 = self[:, :, 0].view(RingArray).regular_lift(right=right)
+            lift_1 = self[:, :, 1].view(RingArray).regular_lift(right=not right)
             blocks_0 = lift_0.reshape(tensor_shape).transpose(0, 2, 1, 3)
             blocks_1 = lift_1.reshape(tensor_shape).transpose(0, 2, 1, 3)
             product_blocks = blocks_0 @ blocks_1
@@ -742,29 +742,6 @@ class RingArray(npt.NDArray[np.object_]):
         group = ring.group if isinstance(ring, GroupRing) else ring
         entries_as_vecs = vector.reshape(vector.size // group.order, group.order)
         return RingArray.from_field_array(entries_as_vecs, ring)
-
-    @staticmethod
-    def kron(matrix_a: RingArray, matrix_b: RingArray) -> RingArray:
-        """Take the ring-Kronecker (tensor) product of two RingArray matrices.
-
-        If the base ring is commutative, this is the ordinary Kronecker product.  Otherwise, the
-        matrix entries of the Kronecker product live in the bimodule of the ring, r ⨂ s -> (r, s),
-        which adds a new axis (whose indices take two values) to the output matrix.  When lifting
-        a RingArray matrix over a bimodule, the "left" entries in matrix[:, :, 0] get lifted with
-        the regular representation, while the "right" entries in matrix[:, :, 1] get lifted to their
-        representation in the opposite ring (see RingMember.regular_lift).
-        """
-        assert matrix_a.ring is matrix_b.ring
-        if matrix_a.ring.is_commutative:
-            return np.kron(matrix_a, matrix_b).view(RingArray)
-        rows_a, cols_a = matrix_a.shape
-        rows_b, cols_b = matrix_b.shape
-        tensor = np.empty((rows_a, rows_b, cols_a, cols_b, 2), dtype=object)
-        tensor[:, :, :, :, 0] = np.asarray(matrix_a)[:, np.newaxis, :, np.newaxis]
-        tensor[:, :, :, :, 1] = np.asarray(matrix_b)[np.newaxis, :, np.newaxis, :]
-        matrix = tensor.reshape(rows_a * rows_b, cols_a * cols_b, 2).view(RingArray)
-        matrix._ring = matrix_a._ring
-        return matrix
 
     def null_space(self) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
@@ -1047,6 +1024,41 @@ class RingArray(npt.NDArray[np.object_]):
         raise NotImplementedError(
             "Computing a reduced Groebner basis is very mathematically involved.  Here be dragons."
         )
+
+
+def kron(
+    matrix_a: RingArray | npt.NDArray[np.int_], matrix_b: RingArray | npt.NDArray[np.int_]
+) -> RingArray:
+    """Take the ring-Kronecker (tensor) product of two RingArray matrices.
+
+    If the base ring is commutative, this is the ordinary Kronecker product.  Otherwise, the
+    matrix entries of the Kronecker product live in the bimodule of the ring, r ⨂ s -> (r, s),
+    which adds a new axis (whose indices take two values) to the output matrix.  When lifting
+    a RingArray matrix over a bimodule, the "left" entries in matrix[:, :, 0] get lifted with
+    the regular representation, while the "right" entries in matrix[:, :, 1] get lifted to their
+    representation in the opposite ring (see RingMember.regular_lift).
+    """
+    if isinstance(matrix_a, RingArray):
+        ring = matrix_a.ring
+        assert not isinstance(matrix_b, RingArray) or matrix_b.ring is ring
+    elif isinstance(matrix_b, RingArray):
+        ring = matrix_b.ring
+        assert not isinstance(matrix_a, RingArray) or matrix_a.ring is ring
+    else:
+        raise ValueError("abstract.kron requires at least one of its inputs to be a RingArray")
+
+    if ring.is_commutative:
+        matrix = np.kron(matrix_a, matrix_b).view(RingArray)
+    else:
+        rows_a, cols_a = matrix_a.shape
+        rows_b, cols_b = matrix_b.shape
+        tensor = np.empty((rows_a, rows_b, cols_a, cols_b, 2), dtype=object)
+        tensor[:, :, :, :, 0] = np.asarray(matrix_a)[:, np.newaxis, :, np.newaxis]
+        tensor[:, :, :, :, 1] = np.asarray(matrix_b)[np.newaxis, :, np.newaxis, :]
+        matrix = tensor.reshape(rows_a * rows_b, cols_a * cols_b, 2).view(RingArray)
+
+    matrix._ring = ring
+    return matrix
 
 
 class Protograph(RingArray):  # pragma: no cover

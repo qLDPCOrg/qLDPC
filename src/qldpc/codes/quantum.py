@@ -1001,15 +1001,17 @@ class HGPCode(CSSCode):
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Hypergraph product of two parity check matrices."""
+        _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
+
         # construct the nontrivial blocks of the final parity check matrices
-        mat_H1_In2 = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
-        mat_In1_H2 = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
-        mat_H1_T_Im2 = np.kron(matrix_a.T, np.eye(matrix_b.shape[0], dtype=int))
-        mat_Im1_H2_T = np.kron(np.eye(matrix_a.shape[0], dtype=int), matrix_b.T)
+        mat_H1_In2 = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
+        mat_In1_H2 = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
+        mat_H1_T_Im2 = _kron(matrix_a.T, np.eye(matrix_b.shape[0], dtype=int))
+        mat_Im1_H2_T = _kron(np.eye(matrix_a.shape[0], dtype=int), matrix_b.T)
 
         # construct the X-sector and Z-sector parity check matrices
-        matrix_x = np.block([mat_H1_In2, mat_Im1_H2_T])
-        matrix_z = np.block([-mat_In1_H2, mat_H1_T_Im2])  # type:ignore[misc]
+        matrix_x = np.hstack([mat_H1_In2, mat_Im1_H2_T])
+        matrix_z = np.hstack([-mat_In1_H2, mat_H1_T_Im2])
         return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
@@ -1255,8 +1257,9 @@ class SHPCode(CSSCode):
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Subsystem hypergraph product of two parity check matrices."""
-        matrix_x = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int)).view(type(matrix_a))
-        matrix_z = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b).view(type(matrix_a))
+        _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
+        matrix_x = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
+        matrix_z = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
         return matrix_x, matrix_z
 
     @staticmethod
@@ -1417,10 +1420,10 @@ class LPCode(CSSCode):
         dual_a_T = _get_howell_dual(generator_a_T)
         dual_b_T = _get_howell_dual(generator_b_T)
 
-        logical_ops_x_l = abstract.RingArray.kron(dual_a, generator_b)
-        logical_ops_z_l = abstract.RingArray.kron(generator_a, dual_b)
-        logical_ops_x_r = abstract.RingArray.kron(generator_a_T, dual_b_T)
-        logical_ops_z_r = abstract.RingArray.kron(dual_a_T, generator_b_T)
+        logical_ops_x_l = abstract.kron(dual_a, generator_b)
+        logical_ops_z_l = abstract.kron(generator_a, dual_b)
+        logical_ops_x_r = abstract.kron(generator_a_T, dual_b_T)
+        logical_ops_z_r = abstract.kron(dual_a_T, generator_b_T)
 
         logical_ops_x = _block_diag(logical_ops_x_l, logical_ops_x_r)
         logical_ops_z = _block_diag(logical_ops_z_l, logical_ops_z_r)
@@ -1610,8 +1613,8 @@ class SLPCode(CSSCode):
         dual_a = _get_howell_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
         dual_b = _get_howell_dual(generator_b)
 
-        logical_ops_x = abstract.RingArray.kron(dual_a, generator_b)
-        logical_ops_z = abstract.RingArray.kron(generator_a, dual_b)
+        logical_ops_x = abstract.kron(dual_a, generator_b)
+        logical_ops_z = abstract.kron(generator_a, dual_b)
         return logical_ops_x, logical_ops_z
 
     @staticmethod

@@ -24,6 +24,7 @@ from .rings import (
     RingMember,
     WedderburnArtinComponentTransformer,
     WedderburnArtinTransformer,
+    kron,
 )
 
 __all__ = [
@@ -50,4 +51,5 @@ __all__ = [
     "RingMember",
     "WedderburnArtinComponentTransformer",
     "WedderburnArtinTransformer",
+    "kron",
 ]
