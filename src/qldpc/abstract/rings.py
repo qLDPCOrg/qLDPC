@@ -1032,11 +1032,11 @@ def kron(
     """Take the ring-Kronecker (tensor) product of two RingArray matrices.
 
     If the base ring is commutative, this is the ordinary Kronecker product.  Otherwise, the
-    matrix entries of the Kronecker product live in the bimodule of the ring, r ⨂ s -> (r, s),
-    which adds a new axis (whose indices take two values) to the output matrix.  When lifting
-    a RingArray matrix over a bimodule, the "left" entries in matrix[:, :, 0] get lifted with
-    the regular representation, while the "right" entries in matrix[:, :, 1] get lifted to their
-    representation in the opposite ring (see RingMember.regular_lift).
+    matrix entries of the Kronecker product live in the bimodule of the ring, and have the form
+    r ⨂ s ~ (r, s).  In this case, the output matrix has a new axis whose index takes two values.
+    When lifting a RingArray matrix over a bimodule, the "left" entries in matrix[:, :, 0] get
+    lifted with the regular representation, while the "right" entries in matrix[:, :, 1] get lifted
+    to their representation in the opposite ring (see RingMember.regular_lift).
     """
     if isinstance(matrix_a, RingArray):
         ring = matrix_a.ring
