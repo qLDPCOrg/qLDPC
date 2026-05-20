@@ -1435,19 +1435,18 @@ class LPCode(CSSCode):
         num_columns = logical_ops_x.shape[1]
         block_length = num_columns * ring.group.order
 
+        identity = np.eye(ring.group.order, dtype=int)
         lifted_ops_x = ring.field.Zeros((0, block_length))
         lifted_ops_z = ring.field.Zeros((0, block_length))
         for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
-            inner_product = op_x @ op_z.T
-            if inner_product == ring.one:
-                ops_x = op_x.regular_lift()
-                ops_z = op_z.regular_lift()
-            else:
-                inner_product_lift = inner_product.regular_lift()
-                sector_rank = np.linalg.matrix_rank(inner_product_lift)
-                basis_change = np.linalg.inv(inner_product_lift[:sector_rank, :sector_rank]).T
-                ops_x = op_x.regular_lift()[:sector_rank]
-                ops_z = basis_change @ op_z.regular_lift()[:sector_rank]
+            ops_x = op_x.regular_lift()
+            ops_z = op_z.regular_lift()
+            inner_product = ops_x @ ops_z.T
+            if not np.array_equal(inner_product, identity):
+                sector_rank = np.linalg.matrix_rank(inner_product)
+                basis_change = np.linalg.inv(inner_product[:sector_rank, :sector_rank]).T
+                ops_x = op_x[:sector_rank]
+                ops_z = basis_change @ op_z[:sector_rank]
             lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
             lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
 
