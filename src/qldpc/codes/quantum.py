@@ -1011,7 +1011,7 @@ class HGPCode(CSSCode):
 
         # construct the X-sector and Z-sector parity check matrices
         matrix_x = np.hstack([mat_H1_In2, mat_Im1_H2_T])
-        matrix_z = np.hstack([-mat_In1_H2, mat_H1_T_Im2])
+        matrix_z = np.hstack([-mat_In1_H2, mat_H1_T_Im2])  # type: ignore[misc]
         return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
@@ -1260,7 +1260,7 @@ class SHPCode(CSSCode):
         _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
         matrix_x = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
         matrix_z = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
-        return matrix_x, matrix_z
+        return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
     def get_canonical_logical_line_ops(
