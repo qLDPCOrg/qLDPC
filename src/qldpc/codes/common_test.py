@@ -236,7 +236,7 @@ def test_classical_capacity() -> None:
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
     assert logical_error_rate_func.truncation_error_bound(0.5) < 1
-    assert np.array_equal(logical_error_rate_func.truncation_error_bound([1]), [0])
+    assert logical_error_rate_func.truncation_error_bound([1]) == 0
 
     # test cap on physical error rate
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.5)
