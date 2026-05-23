@@ -298,6 +298,46 @@ def test_ring_row_addition(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     )
 
 
+def test_kron() -> None:
+    """Kronecker product of RingArrays."""
+
+    # commutative ring -> normal Kronecker product
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    matrix = abstract.RingArray.build(np.eye(2, dtype=int), ring)
+    result = abstract.kron(matrix, matrix)
+    assert result.shape == (matrix.shape[0] ** 2, matrix.shape[1] ** 2)
+
+    # we can still use abstract.kron if only one of the arguments is a RingArray
+    integer_matrix = np.eye(2, dtype=int)
+    result = abstract.kron(matrix, integer_matrix)
+    assert result.shape == (
+        matrix.shape[0] * integer_matrix.shape[0],
+        matrix.shape[1] * integer_matrix.shape[1],
+    )
+
+    # the Kronecker product with non-commutative rings returns an array over a bimodule
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=2)
+    matrix = abstract.RingArray.build(np.eye(2, dtype=int), ring)
+    result = abstract.kron(matrix, matrix)
+    assert result.shape == (matrix.shape[0] ** 2, matrix.shape[1] ** 2, 2)
+    assert result.regular_lift().shape == (
+        result.shape[0] * ring.group.order,
+        result.shape[1] * ring.group.order,
+    )
+
+    # kron requires at least one RingArray input
+    with pytest.raises(ValueError, match="requires at least one"):
+        abstract.kron(integer_matrix, integer_matrix)
+
+
+def test_ring_array_empty_lift() -> None:
+    """Lifting 0-sized RingArrays still yields arrays of the correct shape."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
+    assert empty.regular_lift().shape == (0, 2 * ring.group.order)
+    assert empty.lift().shape == (0, 2 * ring.group.lift_dim)
+
+
 def test_deprecations() -> None:
     """Deprecated call signatures emit DeprecationWarning."""
     ring = abstract.GroupRing(abstract.TrivialGroup())

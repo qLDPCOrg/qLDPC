@@ -103,6 +103,12 @@ def test_lifts() -> None:
     assert_valid_lifts(abstract.SymmetricGroup(3))
     assert_valid_lifts(abstract.QuaternionGroup())
 
+    # anti-representations for a non-commutative groups with a custom lift are not supported
+    group = abstract.QuaternionGroup()
+    member = next(iter(group.generate()))
+    with pytest.raises(ValueError, match="Anti-representations.*not supported"):
+        group.lift(member, right=True)
+
 
 def assert_valid_lifts(group: abstract.Group) -> None:
     """Assert the faithfulness of various representations of group members."""
