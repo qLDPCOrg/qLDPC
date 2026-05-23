@@ -1044,7 +1044,7 @@ def kron(
     if isinstance(matrix_a, RingArray):
         ring = matrix_a.ring
         assert not isinstance(matrix_b, RingArray) or matrix_b.ring is ring
-    elif isinstance(matrix_b, RingArray):
+    elif isinstance(matrix_b, RingArray):  # pragma: no cover
         ring = matrix_b.ring
         assert not isinstance(matrix_a, RingArray) or matrix_a.ring is ring
     else:

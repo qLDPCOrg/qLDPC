@@ -111,6 +111,19 @@ def test_wedderburn_artin_transformations(
         abstract.RingArray([[member_a_T], [member_b_T]]),
     )
 
+    # project_array(merge_blocks=True) and embed_array(from_blocks=True) round-trip correctly
+    for component_transformer in transformer.transformers:
+        projected_merged = component_transformer.project_array(ring_array, merge_blocks=True)
+        assert projected_merged.shape == (
+            ring_array.shape[0] * component_transformer.size,
+            ring_array.shape[1] * component_transformer.size,
+        )
+        projected_unmerged = component_transformer.project_array(ring_array, merge_blocks=False)
+        assert np.array_equal(
+            component_transformer.embed_array(projected_merged, from_blocks=True),
+            component_transformer.embed_array(projected_unmerged, from_blocks=False),
+        )
+
 
 def get_random_ring_member(ring: abstract.GroupRing, seed: int) -> abstract.RingMember:
     """Construct a random ring member: a sum of random group generators with random coefficients."""

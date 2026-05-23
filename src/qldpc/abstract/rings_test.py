@@ -326,7 +326,7 @@ def test_kron() -> None:
     )
 
     # kron requires at least one RingArray input
-    with pytest.raises(ValueError, match="requires at least one"):
+    with pytest.raises(ValueError, match="requires at least one .* RingArray"):
         abstract.kron(integer_matrix, integer_matrix)
 
 
