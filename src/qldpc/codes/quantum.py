@@ -1366,13 +1366,6 @@ class LPCode(CSSCode):
 
         ring = self.matrix_a.ring
         field = ring.field.order
-        if ring.group._lift is not None and (not ring.is_commutative or set_logicals):
-            raise ValueError(
-                f"{type(self)} does not support custom lifts if"
-                "\n  (a) the group is not commutative, or"
-                "\n  (b) the code is asked to construct canonical line operators."
-                "\nTry setting group._lift = None"
-            )
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
@@ -1446,14 +1439,14 @@ class LPCode(CSSCode):
         lifted_ops_x = ring.field.Zeros((0, block_length))
         lifted_ops_z = ring.field.Zeros((0, block_length))
         for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
-            ops_x = op_x.regular_lift()
-            ops_z = op_z.regular_lift()
+            ops_x = op_x.lift()
+            ops_z = op_z.lift()
             inner_product = ops_x @ ops_z.T
             if not np.array_equal(inner_product, identity):
                 sector_rank = np.linalg.matrix_rank(inner_product)
                 basis_change = np.linalg.inv(inner_product[:sector_rank, :sector_rank]).T
-                ops_x = op_x[:sector_rank]
-                ops_z = basis_change @ op_z[:sector_rank]
+                ops_x = ops_x[:sector_rank]
+                ops_z = basis_change @ ops_z[:sector_rank]
             lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
             lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
 
@@ -1575,13 +1568,6 @@ class SLPCode(CSSCode):
 
         ring = self.matrix_a.ring
         field = ring.field.order
-        if ring.group._lift is not None and (not ring.is_commutative or set_logicals):
-            raise ValueError(
-                f"{type(self)} does not support custom lifts if"
-                "\n  (a) the group is not commutative, or"
-                "\n  (b) the code is asked to construct canonical line operators."
-                "\nTry setting group._lift = None."
-            )
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = SHPCode.get_matrix_product(self.matrix_a, self.matrix_b)
