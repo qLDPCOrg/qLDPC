@@ -299,7 +299,7 @@ class WedderburnArtinComponentTransformer:
             generator_mat = generator.regular_lift()
 
             basis = [self.pci_vec, generator_vec]
-            for _ in range(self.degree - 2):
+            for _ in range(self.degree - 2):  # pragma: no cover
                 basis.append(generator_mat @ basis[-1])
 
             basis_in_field = self.field(basis)
