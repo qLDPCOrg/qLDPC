@@ -505,8 +505,15 @@ def test_lifted_product_line_logicals(
     with pytest.raises(ValueError, match="not yet supported"):
         codes.SLPCode(matrix, set_logicals=True)
 
-    # we don't yet support the construction of ring-logical line ops with non-commutative rings,
-    # but we are working towards it, and support some necessary features
+
+def test_pending_ring_line_logical_features(
+    ring_alternating4_gf5: abstract.GroupRing, rows: int = 2, cols: int = 3
+) -> None:
+    """We do not yet support the construction of ring-logical line ops with non-commutative rings...
+
+    ... but we are working towards it, and support some necessary capabilities.
+    """
+    # _get_howell_dual works for non-commutative rings as well
     ring = ring_alternating4_gf5
     transformer = ring.get_transformer()
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
@@ -519,6 +526,16 @@ def test_lifted_product_line_logicals(
     assert np.array_equal(diag @ generator, generator)
     assert np.array_equal(diag.T @ dual, dual)
     assert np.array_equal(diag, transformer.transpose_array(diag))
+
+    # _block_diag handles matrices over bimodules
+    matrix = abstract.RingArray.build(np.eye(2, dtype=int), ring)
+    kron_mat = abstract.kron(matrix, matrix)
+    result = codes.quantum._block_diag(kron_mat, kron_mat)
+    assert result.shape == (kron_mat.shape[0] * 2, kron_mat.shape[1] * 2, 2)
+    assert np.array_equal(result[: kron_mat.shape[0], : kron_mat.shape[1]], kron_mat)
+    assert np.array_equal(result[kron_mat.shape[0] :, kron_mat.shape[1] :], kron_mat)
+    assert not np.any(result[: kron_mat.shape[0], kron_mat.shape[1] :])
+    assert not np.any(result[kron_mat.shape[0] :, : kron_mat.shape[1]])
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
