@@ -133,7 +133,7 @@ def test_chain_complex(field: int = 3) -> None:
     # tensor product of one-complexes over a group algebra
     ring = abstract.GroupRing(abstract.TrivialGroup(), field)
     ring_matrix = abstract.RingArray.build(matrix, ring)
-    two_chain = objects.ChainComplex.tensor_product(ring_matrix, ring_matrix, field)
+    two_chain = objects.ChainComplex.tensor_product(ring_matrix, ring_matrix)
     assert not np.any(two_chain.op(0))
     assert not np.any(two_chain.op(two_chain.num_links + 1))
 
@@ -146,3 +146,9 @@ def test_chain_complex(field: int = 3) -> None:
         objects.ChainComplex([matrix] * 2, field=field)
     with pytest.raises(ValueError, match="different base fields"):
         objects.ChainComplex.tensor_product(galois.GF(field)(matrix), galois.GF(field**2)(matrix))
+
+    # tensor products of chain complexes over non-commutative rings are not supported
+    with pytest.raises(ValueError, match="non-commutative rings are not supported"):
+        ring = abstract.GroupRing(abstract.DihedralGroup(3), field=2)
+        ring_matrix = abstract.RingArray.build([[1]], ring)
+        objects.ChainComplex.tensor_product(ring_matrix, ring_matrix)
