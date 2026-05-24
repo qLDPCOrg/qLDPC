@@ -139,9 +139,15 @@ class GroupRing:
         """
         return self.group.regular_lift(member, right=right).view(self.field)
 
-    def lift(self, member: GroupMember) -> galois.FieldArray:
-        """Lift a group member to a representation by an orthogonal matrix."""
-        return self.group.lift(member).view(self.field)
+    def lift(self, member: GroupMember, *, right: bool = False) -> galois.FieldArray:
+        """Lift a group member to a representation by an orthogonal matrix.
+
+        A representation satisfies
+            self.lift(g·h) = self.lift(g) @ self.lift(h).
+        If right=True, lift to an anti-representation, for which
+            self.lift(g·h) = self.lift(h) @ self.lift(g).
+        """
+        return self.group.lift(member, right=right).view(self.field)
 
     @property
     def zero(self) -> RingMember:
@@ -411,10 +417,16 @@ class RingMember:
         """Base field of this algebra."""
         return self.ring.field
 
-    def lift(self) -> galois.FieldArray:
-        """Lift this ring member to a representation by an orthogonal matrix."""
+    def lift(self, *, right: bool = False) -> galois.FieldArray:
+        """Lift this ring member to a representation by an orthogonal matrix.
+
+        A representation satisfies
+            self.lift(g·h) = self.lift(g) @ self.lift(h).
+        If right=True, lift to an anti-representation, for which
+            self.lift(g·h) = self.lift(h) @ self.lift(g).
+        """
         return sum(
-            (val * self.ring.lift(member) for val, member in self if val),
+            (val * self.ring.lift(member, right=right) for val, member in self if val),
             start=self.field.Zeros([self.group.lift_dim] * 2),
         )
 
@@ -596,7 +608,7 @@ class RingArray(npt.NDArray[np.object_]):
         """Base field of this RingArray."""
         return self.ring.field
 
-    def regular_lift(self, *, right: bool = False) -> galois.FieldArray:
+    def regular_lift(self, *, right: bool | None = None) -> galois.FieldArray:
         """Block matrix obtained by a regular lift of each entry of this RingArray.
 
         If this RingArray has shape (rows, cols, 2), it is treated as a bimodule: the [:, :, 0]
@@ -605,11 +617,12 @@ class RingArray(npt.NDArray[np.object_]):
         """
         assert self.ndim == 1 or self.ndim == 2 or (self.ndim == 3 and self.shape[2] == 2)
         if self.ndim == 3:
+            assert right is None
             rows, cols, block_size = self.shape[0], self.shape[1], self.group.order
             tensor_shape = (rows, block_size, cols, block_size)
             matrix_shape = (rows * block_size, cols * block_size)
-            lift_0 = self[:, :, 0].view(RingArray).regular_lift(right=right)
-            lift_1 = self[:, :, 1].view(RingArray).regular_lift(right=not right)
+            lift_0 = self[:, :, 0].view(RingArray).regular_lift(right=False)
+            lift_1 = self[:, :, 1].view(RingArray).regular_lift(right=True)
             blocks_0 = lift_0.reshape(tensor_shape).transpose(0, 2, 1, 3)
             blocks_1 = lift_1.reshape(tensor_shape).transpose(0, 2, 1, 3)
             product_blocks = blocks_0 @ blocks_1
@@ -621,20 +634,40 @@ class RingArray(npt.NDArray[np.object_]):
         if 0 in (rows, cols):
             return self.field.Zeros((rows * block_size, cols * block_size))
         blocks = [
-            [val.regular_lift(right=right) for val in row]
+            [val.lift(right=right or False) for val in row]
             for row in self.reshape(-1, self.shape[-1])
         ]
         return np.block(blocks).view(self.field)
 
-    def lift(self) -> galois.FieldArray:
-        """Block matrix obtained by lifting each entry of this RingArray."""
-        assert self.ndim == 1 or self.ndim == 2
+    def lift(self, *, right: bool | None = None) -> galois.FieldArray:
+        """Block matrix obtained by lifting each entry of this RingArray.
+
+        If this RingArray has shape (rows, cols, 2), it is treated as a bimodule: the [:, :, 0]
+        slice is lifted with the left regular representation and [:, :, 1] with the right, and the
+        two block matrices are combined by block-wise matrix multiplication.
+        """
+        assert self.ndim == 1 or self.ndim == 2 or (self.ndim == 3 and self.shape[2] == 2)
+        if self.ndim == 3:
+            assert right is None
+            rows, cols, block_size = self.shape[0], self.shape[1], self.group.order
+            tensor_shape = (rows, block_size, cols, block_size)
+            matrix_shape = (rows * block_size, cols * block_size)
+            lift_0 = self[:, :, 0].view(RingArray).lift(right=False)
+            lift_1 = self[:, :, 1].view(RingArray).lift(right=True)
+            blocks_0 = lift_0.reshape(tensor_shape).transpose(0, 2, 1, 3)
+            blocks_1 = lift_1.reshape(tensor_shape).transpose(0, 2, 1, 3)
+            product_blocks = blocks_0 @ blocks_1
+            return product_blocks.transpose(0, 2, 1, 3).reshape(matrix_shape)
+
         rows = 1 if self.ndim == 1 else self.shape[0]
         cols = self.shape[-1]
         block_size = self.group.lift_dim
         if 0 in (rows, cols):
             return self.field.Zeros((rows * block_size, cols * block_size))
-        blocks = [[val.lift() for val in row] for row in self.reshape(-1, self.shape[-1])]
+        blocks = [
+            [val.lift(right=right or False) for val in row]
+            for row in self.reshape(-1, self.shape[-1])
+        ]
         return np.block(blocks).view(self.field)
 
     def __invert__(self) -> RingArray:

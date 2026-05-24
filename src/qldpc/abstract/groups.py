@@ -323,7 +323,10 @@ class Group:
     def lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
         """Lift a group member to a representation by an orthogonal matrix.
 
-        If right=True, lift to an anti-representation.
+        A representation satisfies
+            self.lift(g·h) = self.lift(g) @ self.lift(h).
+        If right=True, lift to an anti-representation, for which
+            self.lift(g·h) = self.lift(h) @ self.lift(g).
         """
         if self._lift is None:
             return self.regular_lift(member, right=right)

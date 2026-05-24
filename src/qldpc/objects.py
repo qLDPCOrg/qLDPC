@@ -504,7 +504,7 @@ class ChainComplex:
             chain_a = ChainComplex([chain_a], field=field)
         if not isinstance(chain_b, ChainComplex):
             chain_b = ChainComplex([chain_b], field=field)
-        if chain_a.field is not chain_b.field or chain_a.ring is not chain_b.ring:
+        if chain_a.field is not chain_b.field or chain_a.ring != chain_b.ring:
             raise ValueError("Incompatible chain complexes: different base fields or rings")
         if chain_a.ring is not None and not chain_a.ring.is_commutative:
             raise ValueError(

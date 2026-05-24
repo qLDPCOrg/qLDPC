@@ -319,11 +319,13 @@ def test_kron() -> None:
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=2)
     matrix = abstract.RingArray.build(np.eye(2, dtype=int), ring)
     result = abstract.kron(matrix, matrix)
+    lifted_result = result.lift()
     assert result.shape == (matrix.shape[0] ** 2, matrix.shape[1] ** 2, 2)
-    assert result.regular_lift().shape == (
+    assert lifted_result.shape == (
         result.shape[0] * ring.group.order,
         result.shape[1] * ring.group.order,
     )
+    assert np.array_equal(result.regular_lift(), lifted_result)
 
     # kron requires at least one RingArray input
     with pytest.raises(ValueError, match="requires at least one .* RingArray"):
