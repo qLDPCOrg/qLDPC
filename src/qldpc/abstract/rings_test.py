@@ -171,6 +171,14 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
         np.kron(matrix, new_matrix)
 
 
+def test_empty_lift() -> None:
+    """Lifting 0-sized RingArrays still yields arrays of the correct shape."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
+    assert empty.regular_lift().shape == (0, 2 * ring.group.order)
+    assert empty.lift().shape == (0, 2 * ring.group.lift_dim)
+
+
 def test_transpose() -> None:
     """Transpose various objects."""
     group = abstract.CyclicGroup(4)
@@ -244,11 +252,18 @@ def test_ring_row_reduction(
     e3_13 = component_transformer.embed(
         component_transformer.extended_field([[0, 0, 1], [0, 0, 0], [0, 0, 0]])
     )
+    e3_31 = component_transformer.embed(
+        component_transformer.extended_field([[0, 0, 0], [0, 0, 0], [1, 0, 0]])
+    )
     e3_33 = component_transformer.embed(
         component_transformer.extended_field([[0, 0, 0], [0, 0, 0], [0, 0, 1]])
     )
     assert np.array_equal(
-        abstract.RingArray.build([[e3_13]]).howell_normal_form(),
+        abstract.RingArray.build([[e3_13]]).howell_normal_form_semisimple(),
+        abstract.RingArray.build([[e3_33]]),
+    )
+    assert np.array_equal(
+        abstract.RingArray.build([[e3_31]]).howell_normal_form_semisimple(right=True),
         abstract.RingArray.build([[e3_33]]),
     )
 
@@ -272,72 +287,21 @@ def test_ring_row_reduction(
         abstract.RingArray.build([[1, 0], [1, 1]], ring).reduced_groebner_basis()
 
 
-def test_minimal_howell_form(ring_cyclic3_gf2: abstract.GroupRing) -> None:
-    """Howell normal form merges compatible pivots to reduce the number of rows."""
+def test_howell_form(ring_cyclic3_gf2: abstract.GroupRing) -> None:
+    """The Howell normal form can add rows to a RingArray, and merges compatible pivots."""
     ring = ring_cyclic3_gf2
     a, b = ring.get_primitive_central_idempotents()
+    matrix = abstract.RingArray.build([[a, b]])
+    assert np.array_equal(
+        matrix.howell_normal_form(),
+        abstract.RingArray.build([[a, 0], [0, b]]),
+    )
+
     matrix = abstract.RingArray.build([[a, b], [0, a]])
     assert np.array_equal(
         matrix.howell_normal_form(),
         abstract.RingArray.build([[a, 0], [0, 1]]),
     )
-
-
-def test_ring_row_addition(ring_cyclic3_gf2: abstract.GroupRing) -> None:
-    """The Howell normal form can add rows to a RingArray."""
-    ring = ring_cyclic3_gf2
-    x = ring.generators[0]
-    matrix = abstract.RingArray.build([[x + 1, 1]])
-    assert np.array_equal(
-        matrix.howell_normal_form(),
-        abstract.RingArray.build([[x**2 + x, x**2 + 1], [0, x**2 + x + 1]]),
-    )
-    assert np.array_equal(
-        matrix.howell_normal_form(poly=True),
-        abstract.RingArray.build([[x + 1, 1], [0, x**2 + x + 1]]),
-    )
-
-
-def test_kron() -> None:
-    """Kronecker product of RingArrays."""
-
-    # commutative ring -> normal Kronecker product
-    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    matrix = abstract.RingArray.build(np.eye(2, dtype=int), ring)
-    result = abstract.kron(matrix, matrix)
-    assert result.shape == (matrix.shape[0] ** 2, matrix.shape[1] ** 2)
-
-    # we can still use abstract.kron if only one of the arguments is a RingArray
-    integer_matrix = np.eye(2, dtype=int)
-    result = abstract.kron(matrix, integer_matrix)
-    assert result.shape == (
-        matrix.shape[0] * integer_matrix.shape[0],
-        matrix.shape[1] * integer_matrix.shape[1],
-    )
-
-    # the Kronecker product with non-commutative rings returns an array over a bimodule
-    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=2)
-    matrix = abstract.RingArray.build(np.eye(2, dtype=int), ring)
-    result = abstract.kron(matrix, matrix)
-    lifted_result = result.lift()
-    assert result.shape == (matrix.shape[0] ** 2, matrix.shape[1] ** 2, 2)
-    assert lifted_result.shape == (
-        result.shape[0] * ring.group.order,
-        result.shape[1] * ring.group.order,
-    )
-    assert np.array_equal(result.regular_lift(), lifted_result)
-
-    # kron requires at least one RingArray input
-    with pytest.raises(ValueError, match="requires at least one .* RingArray"):
-        abstract.kron(integer_matrix, integer_matrix)
-
-
-def test_ring_array_empty_lift() -> None:
-    """Lifting 0-sized RingArrays still yields arrays of the correct shape."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
-    assert empty.regular_lift().shape == (0, 2 * ring.group.order)
-    assert empty.lift().shape == (0, 2 * ring.group.lift_dim)
 
 
 def test_deprecations() -> None:

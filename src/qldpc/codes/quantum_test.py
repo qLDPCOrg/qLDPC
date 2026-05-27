@@ -339,11 +339,11 @@ def test_trivial_lift(
     assert np.array_equal(matrix_z.lift(), code_HGP.matrix_z)
 
 
-def test_lift() -> None:
+def test_lift(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """Verify lifting in Eqs. (8) and (10) of arXiv:2202.01702v3."""
-    group = abstract.CyclicGroup(3)
-    zero = abstract.RingMember(group)
-    x0, x1, x2 = [abstract.RingMember(group, member) for member in group.generate()]
+    ring = ring_cyclic3_gf2
+    zero = abstract.RingMember(ring.group)
+    x0, x1, x2 = [abstract.RingMember(ring, member) for member in ring.group.generate()]
     base_matrix = [[x1 + x2, x0, zero], [zero, x0 + x1, x1]]
 
     ring_matrix = abstract.RingArray(base_matrix)
@@ -441,7 +441,7 @@ def test_lifted_product_codes() -> None:
         assert subsystem_rate > rate
 
 
-def test_subsystem_lifted_product_codes() -> None:
+def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """Subsystem lifted product codes in arXiv:2404.18302v1."""
 
     # example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1
@@ -453,8 +453,7 @@ def test_subsystem_lifted_product_codes() -> None:
     assert code.get_code_params() == (18, 4, 2)
 
     # example 2 on page 6 of https://arxiv.org/pdf/2404.18302v1
-    group = abstract.CyclicGroup(3)
-    ring = abstract.GroupRing(group)
+    ring = ring_cyclic3_gf2
     xx = ring.generators[0]
     matrix = abstract.RingArray.build([[xx**2 + xx + 1, xx + 1, xx]])  # Eq. 23
     code = codes.SLPCode(matrix, set_logicals=True)
@@ -469,11 +468,7 @@ def test_subsystem_lifted_product_codes() -> None:
 
 
 def test_lifted_product_line_logicals(
-    pytestconfig: pytest.Config,
-    ring_cyclic3_gf2: abstract.GroupRing,
-    ring_alternating4_gf5: abstract.GroupRing,
-    rows: int = 2,
-    cols: int = 3,
+    pytestconfig: pytest.Config, ring: abstract.GroupRing, rows: int = 2, cols: int = 3
 ) -> None:
     """Canonical line operators of lifted product codes."""
     code: codes.CSSCode
@@ -481,7 +476,6 @@ def test_lifted_product_line_logicals(
     seed = pytestconfig.getoption("randomly_seed")
     sympy.core.random.seed(seed)
 
-    ring = ring_cyclic3_gf2
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
     code = codes.LPCode(matrix, set_logicals=True)
@@ -496,7 +490,9 @@ def test_lifted_product_line_logicals(
         np.eye(code.dimension),
     )
 
-    # not all lifted product codes support canonical line operators
+
+def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
+    """We do not support line operators in lifted product codes with non-semisimple rings."""
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
@@ -504,38 +500,6 @@ def test_lifted_product_line_logicals(
         codes.LPCode(matrix, set_logicals=True)
     with pytest.raises(ValueError, match="not yet supported"):
         codes.SLPCode(matrix, set_logicals=True)
-
-
-def test_pending_ring_line_logical_features(
-    ring_alternating4_gf5: abstract.GroupRing, rows: int = 2, cols: int = 3
-) -> None:
-    """We do not yet support the construction of ring-logical line ops with non-commutative rings...
-
-    ... but we are working towards it, and support some necessary capabilities.
-    """
-    # _get_howell_dual works for non-commutative rings as well
-    ring = ring_alternating4_gf5
-    transformer = ring.get_transformer()
-    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    matrix = abstract.RingArray.build(values, ring)
-    generator = matrix.null_space().howell_normal_form()
-    dual = codes.quantum._get_howell_dual(generator)
-    diag = generator @ dual.T
-    assert not np.any(matrix @ generator.T)
-    assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
-    assert np.array_equal(diag @ generator, generator)
-    assert np.array_equal(diag.T @ dual, dual)
-    assert np.array_equal(diag, transformer.transpose_array(diag))
-
-    # _block_diag handles matrices over bimodules
-    matrix = abstract.RingArray.build(np.eye(2, dtype=int), ring)
-    kron_mat = abstract.kron(matrix, matrix)
-    result = codes.quantum._block_diag(kron_mat, kron_mat)
-    assert result.shape == (kron_mat.shape[0] * 2, kron_mat.shape[1] * 2, 2)
-    assert np.array_equal(result[: kron_mat.shape[0], : kron_mat.shape[1]], kron_mat)
-    assert np.array_equal(result[kron_mat.shape[0] :, kron_mat.shape[1] :], kron_mat)
-    assert not np.any(result[: kron_mat.shape[0], kron_mat.shape[1] :])
-    assert not np.any(result[kron_mat.shape[0] :, : kron_mat.shape[1]])
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:

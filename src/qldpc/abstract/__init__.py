@@ -16,13 +16,18 @@ from .groups import (
     TrivialGroup,
     get_coefficient_and_exponents,
 )
+from .linalg import (
+    block_diag,
+    get_howell_dual,
+    kron,
+    matmul,
+)
 from .rings import (
     Element,
     GroupRing,
     Protograph,
     RingArray,
     RingMember,
-    kron,
 )
 from .wedderburn_artin import (
     WedderburnArtinComponentTransformer,
@@ -46,6 +51,10 @@ __all__ = [
     "SymmetricGroup",
     "TrivialGroup",
     "get_coefficient_and_exponents",
+    "block_diag",
+    "get_howell_dual",
+    "kron",
+    "matmul",
     "Element",
     "GroupRing",
     "Protograph",
@@ -53,5 +62,4 @@ __all__ = [
     "RingMember",
     "WedderburnArtinComponentTransformer",
     "WedderburnArtinTransformer",
-    "kron",
 ]

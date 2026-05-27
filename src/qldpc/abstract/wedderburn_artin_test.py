@@ -27,16 +27,6 @@ import pytest
 from qldpc import abstract
 
 
-@pytest.fixture(name="ring", scope="module", params=["cyclic3_gf4", "alternating4_gf5"])
-def rings_to_test(
-    request: pytest.FixtureRequest,
-    ring_cyclic3_gf4: abstract.GroupRing,
-    ring_alternating4_gf5: abstract.GroupRing,
-) -> abstract.GroupRing:
-    """Retrieve a ring for which we have pre-built a Wedderburn-Artin transformer."""
-    return ring_cyclic3_gf4 if request.param == "cyclic3_gf4" else ring_alternating4_gf5
-
-
 def test_wedderburn_artin_transformations(
     ring: abstract.GroupRing, pytestconfig: pytest.Config
 ) -> None:

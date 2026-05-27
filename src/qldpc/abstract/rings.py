@@ -2,8 +2,8 @@
 
 !!! WARNINGS !!!
 
-First and foremost, this module does not promise to be performant.  If you need to do heavy
-numerical abstract algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
+This module does not promise to be performant.  If you need to do heavy numerical abstract algebra,
+you're probably better served by GAP or MAGMA (or maybe SageMath).
 
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
@@ -608,65 +608,30 @@ class RingArray(npt.NDArray[np.object_]):
         """Base field of this RingArray."""
         return self.ring.field
 
-    def regular_lift(self, *, right: bool | None = None) -> galois.FieldArray:
-        """Block matrix obtained by a regular lift of each entry of this RingArray.
-
-        If this RingArray has shape (rows, cols, 2), it is treated as a bimodule: the [:, :, 0]
-        slice is lifted with the left regular representation and [:, :, 1] with the right, and the
-        two block matrices are combined by block-wise matrix multiplication.
-        """
-        assert self.ndim == 1 or self.ndim == 2 or (self.ndim == 3 and self.shape[2] == 2)
-        if self.ndim == 3:
-            assert right is None
-            rows, cols, block_size = self.shape[0], self.shape[1], self.group.order
-            tensor_shape = (rows, block_size, cols, block_size)
-            matrix_shape = (rows * block_size, cols * block_size)
-            lift_0 = self[:, :, 0].view(RingArray).regular_lift(right=False)
-            lift_1 = self[:, :, 1].view(RingArray).regular_lift(right=True)
-            blocks_0 = lift_0.reshape(tensor_shape).transpose(0, 2, 1, 3)
-            blocks_1 = lift_1.reshape(tensor_shape).transpose(0, 2, 1, 3)
-            product_blocks = blocks_0 @ blocks_1
-            return product_blocks.transpose(0, 2, 1, 3).reshape(matrix_shape)
-
+    def regular_lift(self, *, right: bool = False) -> galois.FieldArray:
+        """Block matrix obtained by a regular lift of each entry of this RingArray."""
+        assert self.ndim == 1 or self.ndim == 2
         rows = 1 if self.ndim == 1 else self.shape[0]
         cols = self.shape[-1]
         block_size = self.group.order
         if 0 in (rows, cols):
             return self.field.Zeros((rows * block_size, cols * block_size))
         blocks = [
-            [val.lift(right=right or False) for val in row]
+            [val.regular_lift(right=right) for val in row]
             for row in self.reshape(-1, self.shape[-1])
         ]
         return np.block(blocks).view(self.field)
 
-    def lift(self, *, right: bool | None = None) -> galois.FieldArray:
-        """Block matrix obtained by lifting each entry of this RingArray.
-
-        If this RingArray has shape (rows, cols, 2), it is treated as a bimodule: the [:, :, 0]
-        slice is lifted with the left regular representation and [:, :, 1] with the right, and the
-        two block matrices are combined by block-wise matrix multiplication.
-        """
-        assert self.ndim == 1 or self.ndim == 2 or (self.ndim == 3 and self.shape[2] == 2)
-        if self.ndim == 3:
-            assert right is None
-            rows, cols, block_size = self.shape[0], self.shape[1], self.group.order
-            tensor_shape = (rows, block_size, cols, block_size)
-            matrix_shape = (rows * block_size, cols * block_size)
-            lift_0 = self[:, :, 0].view(RingArray).lift(right=False)
-            lift_1 = self[:, :, 1].view(RingArray).lift(right=True)
-            blocks_0 = lift_0.reshape(tensor_shape).transpose(0, 2, 1, 3)
-            blocks_1 = lift_1.reshape(tensor_shape).transpose(0, 2, 1, 3)
-            product_blocks = blocks_0 @ blocks_1
-            return product_blocks.transpose(0, 2, 1, 3).reshape(matrix_shape)
-
+    def lift(self, *, right: bool = False) -> galois.FieldArray:
+        """Block matrix obtained by lifting each entry of this RingArray."""
+        assert self.ndim == 1 or self.ndim == 2
         rows = 1 if self.ndim == 1 else self.shape[0]
         cols = self.shape[-1]
         block_size = self.group.lift_dim
         if 0 in (rows, cols):
             return self.field.Zeros((rows * block_size, cols * block_size))
         blocks = [
-            [val.lift(right=right or False) for val in row]
-            for row in self.reshape(-1, self.shape[-1])
+            [val.lift(right=right) for val in row] for row in self.reshape(-1, self.shape[-1])
         ]
         return np.block(blocks).view(self.field)
 
@@ -679,8 +644,12 @@ class RingArray(npt.NDArray[np.object_]):
 
     @property
     def T(self) -> RingArray:
-        """Transpose of this RingArray, which also transposes every array entry."""
-        return (~self).transpose()
+        """Conjugate-transpose of a matrix over a ring.
+
+        In addition to transposing the first two indices of the array, this method "conjugates" or
+        "transposes" each array element, which takes group members g -> ~g = g**-1.
+        """
+        return (~self).transpose(1, 0, *np.arange(2, self.ndim))
 
     @staticmethod
     def build(
@@ -690,38 +659,41 @@ class RingArray(npt.NDArray[np.object_]):
         """Construct a RingArray.
 
         The constructed array is built from:
-        - an array populated by
+        1. An array populated by
             (a) ring members,
             (b) group members, or
-            (c) integers, and
-        - a ring (or group, inducing a group algebra over GF(2)).
-        Integers and group members are cast as members of the ring.
+            (c) integers.
+        2. A ring (or group, inducing a group algebra over GF(2)).
+        Integers and group members are cast into members of the ring.
         """
         array = np.asanyarray(data)
 
         # identify the base ring and group
         if ring is None:
-            rings = [value.ring for value in array.ravel() if isinstance(value, RingMember)]
+            rings = {value.ring for value in array.ravel() if isinstance(value, RingMember)}
             if not len(set(rings)) <= 1:
                 raise ValueError("Inconsistent rings provided to RingArray.build")
             if rings:
-                ring = rings[0]
+                ring = next(iter(rings))
             else:
                 field = type(array).order if isinstance(array, galois.FieldArray) else None
                 ring = GroupRing(TrivialGroup(), field)
-        group = ring.group if isinstance(ring, GroupRing) else ring
+        ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
+        one = ring.group.identity
 
         def as_ring_member(value: RingMember | GroupMember | int) -> RingMember:
             """Elevate a value to an element of the ring."""
             if isinstance(value, RingMember):
-                return value
+                _value = value.copy() * one
+                _value._ring = ring
+                return _value
             if isinstance(value, GroupMember):
-                return RingMember(ring, value)
-            return RingMember(ring, (value, group.identity))
+                return RingMember(ring, value * one)
+            return RingMember(ring, (value, one))
 
         vals = [as_ring_member(value) for value in array.ravel()]
         result = np.array(vals, dtype=object).reshape(array.shape).view(RingArray)
-        result._ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
+        result._ring = ring
         return result
 
     def to_field_array(self) -> galois.FieldArray:
@@ -779,11 +751,14 @@ class RingArray(npt.NDArray[np.object_]):
         entries_as_vecs = vector.reshape(vector.size // group.order, group.order)
         return RingArray.from_field_array(entries_as_vecs, ring)
 
-    def null_space(self) -> RingArray:
+    def null_space(self, *, right: bool = False) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
 
         The transpose of the null-space matrix is annihilated by this RingArray, such that
         np.any(self @ self.null_space().T) is np.False_.
+
+        If right is True, this method constructs a null space over the opposite ring, in which the
+        order of multiplication is reversed.
 
         Due to the subtleties of defining row reduction for a matrix over a ring, this method does
         not row-reduce the matrix of null-space row vectors.  The rows of the matrix returned by
@@ -794,7 +769,7 @@ class RingArray(npt.NDArray[np.object_]):
 
         # field-valued null vectors of self.regular_lift() provide an overcomplete basis for
         # the space of ring-valued null vectors
-        null_field_vectors = self.regular_lift().null_space()
+        null_field_vectors = self.regular_lift(right=right).null_space()
 
         # collect ring-valued null row vectors (that is, transposed null column vectors)
         field_array_shape = (len(null_field_vectors), self.shape[1], self.group.order)
@@ -834,14 +809,30 @@ class RingArray(npt.NDArray[np.object_]):
         return self.howell_normal_form_semisimple()
 
     def howell_normal_form_semisimple(
-        self, transformer: WedderburnArtinTransformer | None = None
+        self, transformer: WedderburnArtinTransformer | None = None, *, right: bool = False
     ) -> RingArray:
         """Compute a Howell normal form (HNF) of a RingArray over a semisimple ring.
 
         This method first puts a RingArray into a generalized reduced row echelon form (see
-        RingArray.row_reduce), then further post-processes the rows to satisfy the Howell property.
-        Specifically, if a row r has a pivot p with a nontrivial annihilator α (meaning α != 0 and
-        α·p = 0), then the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
+        RingArray.row_reduce), then further post-processes the rows to satisfy the Howell property,
+        whereby an element v that is...
+            - in the row span of the matrix, and
+            - has j leading zeros, meaning = (0_1, 0_2, ..., 0_j, v_{j+1}, ...),
+        can be written as a linear combinations of rows whose pivots are at position k >= j.
+
+        The Howell property is enforecd as follows: if a row r has a pivot p with a nontrivial left
+        annihilator α, meaning
+              α != 0,
+            α·p  = 0,
+            α·r != 0,
+        then the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
+
+        If right is True, the Howell property is instead enforced for nontrivial right annihilators:
+              α != 0,
+            p·α  = 0,
+            r·α != 0,
+        for which the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
+        The ordinary HNF and right-HNF are equal for a RingArray over a commutative ring.
 
         The HNF of a RingArray over a commutative ring is unique.  For non-commutative rings, the
         HNF is only unique up to a choice of matrix basis for simple components of the ring.
@@ -860,7 +851,7 @@ class RingArray(npt.NDArray[np.object_]):
 
         # identify and row-reduce the components of this RingArray
         matrices = [
-            _get_block_howell_form(component_transformer.project_array(self))
+            _get_block_howell_form(component_transformer.project_array(self), right=right)
             for component_transformer in transformer.transformers
         ]
 
@@ -891,7 +882,7 @@ class RingArray(npt.NDArray[np.object_]):
             """
             Let π be a projector onto the components in which the pivot is nonzero.  If π != 1, then
             (1-π) is a nontrivial annihilator of the pivot.  If, moreover, (1-π)·r is nonzero, then
-            (1-π)·r contains a "hidden" pivot in a later column.  In this caes, we in principle need
+            (1-π)·r contains a "hidden" pivot in a later column.  In this case, we in principle need
             to replace r -> π·r and add (1-π)·r as a new row to the matrix.  In practice, this
             procedure messes up the reduced row echelon form of the matrix, so we instead...
             1. In the (1-π) sector, insert a zero row at the pivot_row and shift down rows below.
@@ -1062,41 +1053,6 @@ class RingArray(npt.NDArray[np.object_]):
         )
 
 
-def kron(
-    matrix_a: RingArray | npt.NDArray[np.int_], matrix_b: RingArray | npt.NDArray[np.int_]
-) -> RingArray:
-    """Take the ring-Kronecker (tensor) product of two RingArray matrices.
-
-    If the base ring is commutative, this is the ordinary Kronecker product.  Otherwise, the
-    matrix entries of the Kronecker product live in the bimodule of the ring, and have the form
-    r ⨂ s ~ (r, s).  In this case, the output matrix has a new axis whose index takes two values.
-    When lifting a RingArray matrix over a bimodule, the "left" entries in matrix[:, :, 0] get
-    lifted with the regular representation, while the "right" entries in matrix[:, :, 1] get lifted
-    to their representation in the opposite ring (see RingMember.regular_lift).
-    """
-    if isinstance(matrix_a, RingArray):
-        ring = matrix_a.ring
-        assert not isinstance(matrix_b, RingArray) or matrix_b.ring is ring
-    elif isinstance(matrix_b, RingArray):  # pragma: no cover
-        ring = matrix_b.ring
-        assert not isinstance(matrix_a, RingArray) or matrix_a.ring is ring
-    else:
-        raise ValueError("abstract.kron requires at least one of its inputs to be a RingArray")
-
-    if ring.is_commutative:
-        matrix = np.kron(matrix_a, matrix_b).view(RingArray)
-    else:
-        rows_a, cols_a = matrix_a.shape
-        rows_b, cols_b = matrix_b.shape
-        tensor = np.empty((rows_a, rows_b, cols_a, cols_b, 2), dtype=object)
-        tensor[:, :, :, :, 0] = np.asarray(matrix_a)[:, np.newaxis, :, np.newaxis]
-        tensor[:, :, :, :, 1] = np.asarray(matrix_b)[np.newaxis, :, np.newaxis, :]
-        matrix = tensor.reshape(rows_a * rows_b, cols_a * cols_b, 2).view(RingArray)
-
-    matrix._ring = ring
-    return matrix
-
-
 class Protograph(RingArray):  # pragma: no cover
     """Deprecated alias for RingArray."""
 
@@ -1109,7 +1065,7 @@ class Protograph(RingArray):  # pragma: no cover
         return super().__getattribute__(name)
 
 
-def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
+def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) -> galois.FieldArray:
     """Compute a block-Howell normal form of the provided block matrix.
 
     The provided matrix should be 4-dimensional, with matrix[i, j] storing a square block at (i, j).
@@ -1122,6 +1078,9 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     assert matrix.ndim == 4 and matrix.shape[-1] == matrix.shape[-2]
     field = type(matrix)
     num_block_rows, num_block_cols, size, _ = matrix.shape
+
+    if right and size > 1:
+        matrix = matrix.transpose(0, 1, 3, 2)
 
     # row-reduce as an expanded 2-D matrix and remove all-zero rows
     shape = (num_block_rows * size, num_block_cols * size)
@@ -1149,4 +1108,9 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
 
     # re-collect into a 4-D array
     shape = (matrix.shape[0] // size, size, num_block_cols, size)
-    return matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
+    matrix = matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
+
+    if right and size > 1:
+        matrix = matrix.transpose(0, 1, 3, 2)
+
+    return matrix

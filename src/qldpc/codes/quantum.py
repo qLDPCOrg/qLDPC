@@ -1407,23 +1407,23 @@ class LPCode(CSSCode):
 
         Generalizes HGPCode.get_canonical_logical_line_ops.
         """
-        generator_a = matrix_a.null_space().howell_normal_form()
-        generator_b = matrix_b.null_space().howell_normal_form()
-        generator_a_T = matrix_a.T.null_space().howell_normal_form()
-        generator_b_T = matrix_b.T.null_space().howell_normal_form()
+        generator_a = matrix_a.null_space().howell_normal_form_semisimple()
+        generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
+        generator_a_T = matrix_a.T.null_space().howell_normal_form_semisimple()
+        generator_b_T = matrix_b.T.null_space(right=True).howell_normal_form_semisimple(right=True)
 
-        dual_a = _get_howell_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
-        dual_b = _get_howell_dual(generator_b)
-        dual_a_T = _get_howell_dual(generator_a_T)
-        dual_b_T = _get_howell_dual(generator_b_T)
+        dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
+        dual_b = abstract.get_howell_dual(generator_b, right=True)
+        dual_a_T = abstract.get_howell_dual(generator_a_T)
+        dual_b_T = abstract.get_howell_dual(generator_b_T, right=True)
 
         logical_ops_x_l = abstract.kron(dual_a, generator_b)
         logical_ops_z_l = abstract.kron(generator_a, dual_b)
         logical_ops_x_r = abstract.kron(generator_a_T, dual_b_T)
         logical_ops_z_r = abstract.kron(dual_a_T, generator_b_T)
 
-        logical_ops_x = _block_diag(logical_ops_x_l, logical_ops_x_r)
-        logical_ops_z = _block_diag(logical_ops_z_l, logical_ops_z_r)
+        logical_ops_x = abstract.block_diag(logical_ops_x_l, logical_ops_x_r)
+        logical_ops_z = abstract.block_diag(logical_ops_z_l, logical_ops_z_r)
         return logical_ops_x, logical_ops_z
 
     @staticmethod
@@ -1433,90 +1433,32 @@ class LPCode(CSSCode):
         """Lift logical operators over a ring to logical operators over the base field."""
         ring = logical_ops_x.ring
         num_columns = logical_ops_x.shape[1]
-        block_length = num_columns * ring.group.order
-
-        identity = np.eye(ring.group.order, dtype=int)
-        lifted_ops_x = ring.field.Zeros((0, block_length))
-        lifted_ops_z = ring.field.Zeros((0, block_length))
+        block_size = ring.group.lift_dim
+        num_lifted_columns = num_columns * block_size
+        identity = np.eye(block_size, dtype=int)
+        lifted_ops_x = ring.field.Zeros((0, num_lifted_columns))
+        lifted_ops_z = ring.field.Zeros((0, num_lifted_columns))
         for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
-            ops_x = op_x.lift()
-            ops_z = op_z.lift()
+            ops_x = op_x.reshape(1, *op_x.shape).lift()
+            ops_z = op_z.reshape(1, *op_z.shape).lift()
             inner_product = ops_x @ ops_z.T
             if not np.array_equal(inner_product, identity):
                 sector_rank = np.linalg.matrix_rank(inner_product)
-                basis_change = np.linalg.inv(inner_product[:sector_rank, :sector_rank]).T
-                ops_x = ops_x[:sector_rank]
-                ops_z = basis_change @ ops_z[:sector_rank]
+                if ring.is_commutative:
+                    basis_change = np.linalg.inv(inner_product[:sector_rank, :sector_rank]).T
+                    ops_x = ops_x[:sector_rank]
+                    ops_z = basis_change @ ops_z[:sector_rank]
+                else:
+                    pivot_rows = qldpc.math.first_nonzero_cols(inner_product.T.row_reduce())
+                    rows = pivot_rows[pivot_rows < block_size]
+                    cols = qldpc.math.first_nonzero_cols(inner_product[rows].row_reduce())
+                    basis_change = np.linalg.inv(inner_product[np.ix_(rows, cols)]).T
+                    ops_x = ops_x[rows]
+                    ops_z = basis_change @ ops_z[cols]
             lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
             lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
 
         return lifted_ops_x, lifted_ops_z
-
-
-def _get_howell_dual(
-    matrix_hnf: abstract.RingArray, transformer: abstract.WedderburnArtinTransformer | None = None
-) -> abstract.RingArray:
-    """Build the "dual" of a matrix in Howell normal form.
-
-    The dual matrix provides a pseudoinverse of matrix_hnf in the following sense: if
-        D = matrix_hnf @ dual_matrix.T,
-    then
-    1. D is diagonal,
-    2. D @ matrix_hnf = matrix_hnf,
-    3. D.T @ dual_matrix = dual_matrix, and
-    4. D = transformer.transpose_array(D).
-
-    Note that we have two different notions of a transpose at play:
-    1. D.T...
-        (a) swaps the matrix indices of D, and
-        (b) takes group members g -> ~g = g**-1, which transposes their regular representation.
-    2. transformer.transpose_array(D)...
-        (a) swaps the matrix indices of D (identically to D.T), and
-        (b) for each entry of D, transposes its matrix representation within each Wedderburn-Artin
-            component of the ring.
-
-    This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
-    """
-    ring = matrix_hnf.ring
-    transformer = transformer = transformer or ring.get_transformer()
-    dual_matrix = np.zeros(matrix_hnf.shape, dtype=object)
-    for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix_hnf)):
-        pivot = matrix_hnf[row, col].copy()
-        if ring.is_commutative:
-            new_matrix_entry = pivot
-        else:
-            new_matrix_entry = ring.zero
-            for component_transformer in transformer.transformers:
-                if np.any(component := component_transformer.project(pivot)):
-                    field = component_transformer.extended_field
-                    diags = np.diag(np.diag(component)).view(field)
-                    new_matrix_entry += component_transformer.embed(diags).T
-        dual_matrix[row, col] = new_matrix_entry
-    return abstract.RingArray.build(dual_matrix, ring)
-
-
-def _block_diag(matrix_a: abstract.RingArray, matrix_b: abstract.RingArray) -> abstract.RingArray:
-    """Stack the two matrices into a block-diagonal matrix.
-
-    If the two matrices have more than two dimensions, stack along the first two axes.
-    """
-    assert (
-        matrix_a.ndim == matrix_b.ndim
-        and matrix_a.ndim >= 2
-        and matrix_a.shape[2:] == matrix_b.shape[2:]
-    )
-    if matrix_a.ndim == 2:
-        matrix_ab = scipy.linalg.block_diag(matrix_a, matrix_b)
-        return abstract.RingArray.build(matrix_ab, matrix_a.ring)
-    shape = (
-        matrix_a.shape[0] + matrix_b.shape[0],
-        matrix_a.shape[1] + matrix_b.shape[1],
-        *matrix_a.shape[2:],
-    )
-    matrix_ab = abstract.RingArray.build(np.zeros(shape, dtype=int), matrix_a.ring)
-    matrix_ab[: matrix_a.shape[0], : matrix_a.shape[1]] = matrix_a
-    matrix_ab[-matrix_b.shape[0] :, -matrix_b.shape[1] :] = matrix_b
-    return matrix_ab
 
 
 class SLPCode(CSSCode):
@@ -1601,11 +1543,11 @@ class SLPCode(CSSCode):
 
         Generalizes SHPCode.get_canonical_logical_line_ops.
         """
-        generator_a = matrix_a.null_space().howell_normal_form()
-        generator_b = matrix_b.null_space().howell_normal_form()
+        generator_a = matrix_a.null_space().howell_normal_form_semisimple()
+        generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
 
-        dual_a = _get_howell_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
-        dual_b = _get_howell_dual(generator_b)
+        dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
+        dual_b = abstract.get_howell_dual(generator_b, right=True)
 
         logical_ops_x = abstract.kron(dual_a, generator_b)
         logical_ops_z = abstract.kron(generator_a, dual_b)
