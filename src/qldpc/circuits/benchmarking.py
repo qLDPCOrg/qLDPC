@@ -225,10 +225,6 @@ def get_state_prep_diagnostic_tasks(
         postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
         postselection_mask[post_selection_indices] = 1
         postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
-        raise ValueError(
-            "Post selecting on flags is unsupported due to a bug in sinter:\n"
-            "https://github.com/quantumlib/Stim/pull/844"
-        )
     else:
         postselection_mask_bit_packed = None
     return [
@@ -254,17 +250,15 @@ def get_logical_error_and_discard_rate(
     Each logical error rate is a fraction of the (possibly post-selected) shots in which observable
     flips are predicted incorrectly by the provided decoder.
 
-    This method is provided as an alternative to sinter, which currently cannot support post
-    selection due to an outstanding bug: https://github.com/quantumlib/Stim/pull/844
-    Once the bug is fixed, it is recommended to instead build a sinter.Task and call sinter.collect.
-
-    The sinter.Task would use the post-selection flags as follows:
-        postselection_mask_bits = np.zeros(circuit_or_dem.num_detectors, dtype=int)
-        postselection_mask_bits[post_select] = 1
-        postselection_mask = np.packbits(postselection_mask, bitorder="little")
+    This method is provided for convenience, but if you are doing heavy numerics you should probably
+    build a sinter.Task and call sinter.collect.  In this case, circuit_or_dem should just be a
+    circuit, and the sinter.Task would be built as follows:
+        postselection_mask = np.zeros(circuit.num_detectors, dtype=int)
+        postselection_mask[post_select] = 1
         task = sinter.Task(
             circuit=circuit,
-            postselection_mask=postselection_mask_bit_packed,
+            detector_error_model=dem_to_decode,
+            postselection_mask=np.packbits(postselection_mask, bitorder="little"),
         )
     Sampling data would then be collected with:
         stats = sinter.collect(
@@ -276,7 +270,7 @@ def get_logical_error_and_discard_rate(
         )
 
     Args:
-        circuit_or_dem: The circuit or detector error model we wish to sample.
+        circuit_or_dem: The circuit or detector error model we wish to sample from.
         sinter_decoder: The circuit-level decoder used to predict observable flips.
 
     Keyword args:

@@ -68,17 +68,6 @@ def test_state_prep() -> None:
             post_select=[-1],
         )
 
-    # post selection is broken in sinter
-    with pytest.raises(ValueError, match="bug in sinter"):
-        circuits.get_state_prep_diagnostic_tasks(
-            code,
-            circuit,
-            error_rates,
-            noise_model_family,
-            observables=string_observables,
-            post_select=[0],
-        )
-
     # build sinter tasks
     tasks = circuits.get_state_prep_diagnostic_tasks(
         code,
