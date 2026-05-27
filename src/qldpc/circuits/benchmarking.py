@@ -17,7 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Hashable, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -146,6 +146,7 @@ def get_state_prep_diagnostic_tasks(
     | None = None,
     post_select: bool | Sequence[int] = False,
     skip_validation: bool = False,
+    metadata: dict[str, Hashable] | None = None,
 ) -> list[sinter.Task]:
     r"""Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
 
@@ -222,16 +223,16 @@ def get_state_prep_diagnostic_tasks(
         post_select, state_prep_circuit.num_measurements
     )
     if post_selection_indices:
-        postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-        postselection_mask[post_selection_indices] = 1
-        postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
+        postselection_array = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
+        postselection_array[post_selection_indices] = 1
+        postselection_mask = np.packbits(postselection_array, bitorder="little")
     else:
-        postselection_mask_bit_packed = None
+        postselection_mask = None
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
-            postselection_mask=postselection_mask_bit_packed,
-            json_metadata={"p": error_rate},
+            postselection_mask=postselection_mask,
+            json_metadata={"p": error_rate} | (metadata or {}),
         )
         for error_rate in error_rates
     ]
