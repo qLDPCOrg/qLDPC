@@ -270,7 +270,7 @@ def get_logical_error_and_discard_rate(
         )
 
     Args:
-        circuit_or_dem: The circuit or detector error model we wish to sample from.
+        circuit_or_dem: The circuit or detector error model we wish to sample.
         sinter_decoder: The circuit-level decoder used to predict observable flips.
 
     Keyword args:
