@@ -301,7 +301,7 @@ def get_logical_error_and_discard_rate(
 
     # sample detector and observable flips in the circuit
     sampler = dem.compile_sampler()
-    det_data, obs_data, err_data = sampler.sample(shots=num_samples)
+    det_data, obs_data, _ = sampler.sample(shots=num_samples)
 
     # if applicable, post-select on flag detectors
     if post_select:
