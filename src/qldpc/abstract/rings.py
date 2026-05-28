@@ -967,7 +967,7 @@ class RingArray(npt.NDArray[np.object_]):
                 continue
 
             # use invertible row operations to zero out all rows below at the pivot column
-            for other_row in range(pivot_row + 1, self.shape[0]):
+            for other_row in range(pivot_row + 1, field_array.shape[0]):
                 aa_vec = field_array[pivot_row]
                 bb_vec = field_array[other_row]
                 if not np.any(bb_vec):
