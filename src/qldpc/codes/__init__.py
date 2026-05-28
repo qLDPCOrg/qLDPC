@@ -14,6 +14,7 @@ from .common import (
     AbstractCode,
     ClassicalCode,
     CSSCode,
+    ErrorRateFunc,
     QuditCode,
 )
 from .distance import (
@@ -62,6 +63,7 @@ __all__ = [
     "AbstractCode",
     "ClassicalCode",
     "CSSCode",
+    "ErrorRateFunc",
     "QuditCode",
     "BaconShorCode",
     "BBCode",

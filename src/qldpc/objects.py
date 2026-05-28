@@ -383,8 +383,9 @@ class ChainComplex:
     _field: type[galois.FieldArray]
     _ops: tuple[npt.NDArray[np.int_] | abstract.RingArray, ...]
 
-    # if boundary operators are defined over a group algebra, keep track of their base group
+    # if boundary operators are defined over a group algebra, keep track of the base group and ring
     _group: abstract.Group | None
+    _ring: abstract.GroupRing | None
 
     def __init__(
         self,
@@ -400,22 +401,22 @@ class ChainComplex:
         ):
             raise ValueError("Invalid or inconsistent operator types provided for a ChainComplex")
 
-        # identify the base field and group for the boundary operators of this chain complex
+        # identify the base field and/or ring for the boundary operators of this chain complex
         fields = set([galois.GF(field)]) if field is not None else set()
-        groups = set()
+        rings = set()
         for op in ops:
             if isinstance(op, abstract.RingArray):
                 fields.add(op.field)
-                groups.add(op.group)
+                rings.add(op.ring)
             elif isinstance(op, galois.FieldArray):
                 fields.add(type(op))
-        if len(fields) > 1 or len(groups) > 1:
-            raise ValueError("Inconsistent base fields (or groups) provided for chain complex")
+        if len(fields) > 1 or len(rings) > 1:
+            raise ValueError("Inconsistent base fields or rings provided to a chain complex")
         self._field = fields.pop() if fields else galois.GF(DEFAULT_FIELD_ORDER)
-        self._group = groups.pop() if groups else None
+        self._ring = rings.pop() if rings else None
 
         # identify the boundary operators of this chain complex
-        self._ops = tuple(op.view(self.field) for op in ops) if self._group is None else tuple(ops)
+        self._ops = tuple(op.view(self.field) for op in ops) if self._ring is None else tuple(ops)
 
         if not skip_validation:
             self._validate_ops()
@@ -435,9 +436,9 @@ class ChainComplex:
         return self._field
 
     @property
-    def group(self) -> abstract.Group | None:
-        """The base group of this chain complex."""
-        return self._group
+    def ring(self) -> abstract.GroupRing | None:
+        """The base ring of this chain complex."""
+        return self._ring
 
     @property
     def num_links(self) -> int:
@@ -463,9 +464,11 @@ class ChainComplex:
         """The boundary operator of this chain complex that acts on the module of a given degree."""
         assert 0 <= degree <= self.num_links + 1
         if degree == 0:
-            return self.field.Zeros((0, self.ops[0].shape[0]))
+            matrix = self.field.Zeros((0, self.ops[0].shape[0]))
+            return matrix if self.ring is None else abstract.RingArray.build(matrix, self.ring)
         if degree == len(self._ops) + 1:
-            return self.field.Zeros((self.ops[-1].shape[1], 0))
+            matrix = self.field.Zeros((self.ops[-1].shape[1], 0))
+            return matrix if self.ring is None else abstract.RingArray.build(matrix, self.ring)
         return self.ops[degree - 1]
 
     @staticmethod
@@ -501,8 +504,13 @@ class ChainComplex:
             chain_a = ChainComplex([chain_a], field=field)
         if not isinstance(chain_b, ChainComplex):
             chain_b = ChainComplex([chain_b], field=field)
-        if chain_a.field is not chain_b.field or chain_a.group != chain_b.group:
-            raise ValueError("Incompatible chain complexes: different base fields or groups")
+        if chain_a.field is not chain_b.field or chain_a.ring != chain_b.ring:
+            raise ValueError("Incompatible chain complexes: different base fields or rings")
+        if chain_a.ring is not None and not chain_a.ring.is_commutative:
+            raise ValueError(
+                "Tensor products of chain complexes over non-commutative rings are not supported"
+            )
+
         chain_field = chain_a.field
 
         def get_degree_pairs(degree: int) -> Iterator[tuple[int, int]]:
@@ -527,7 +535,7 @@ class ChainComplex:
             cols = chain_a.dim(col_deg_a) * chain_b.dim(col_deg_b)
             return chain_field.Zeros((rows, cols))
 
-        ops = []
+        matrices = []
         for degree in range(1, chain_a.num_links + chain_b.num_links + 1):
             # fill in zero blocks of the total boundary operator
             blocks = [
@@ -541,19 +549,20 @@ class ChainComplex:
                 op_b = chain_b.op(deg_b)
                 if deg_a:
                     row = get_block_index(deg_a - 1, deg_b)
-                    iden_b = np.identity(op_b.shape[1], dtype=op_b.dtype)
-                    blocks[row][col] = np.kron(op_a, iden_b)  # type:ignore[assignment,arg-type]
+                    iden_b = np.identity(op_b.shape[1], dtype=np.uint8)
+                    blocks[row][col] = np.kron(op_a, iden_b)  # type:ignore[assignment]
                 if deg_b:
                     row = get_block_index(deg_a, deg_b - 1)
-                    iden_a = np.identity(op_a.shape[1], dtype=op_a.dtype)
-                    blocks[row][col] = (
-                        np.kron(iden_a, op_b) * (-1) ** deg_a  # type:ignore[arg-type]
-                    )
+                    iden_a = np.identity(op_a.shape[1], dtype=np.uint8)
+                    blocks[row][col] = np.kron(iden_a, op_b) * (-1) ** deg_a
 
-            ops.append(np.block(blocks))
+            matrices.append(np.block(blocks))
 
-        if chain_a.group is None:
-            ops = [op.view(chain_field) for op in ops]
-        else:
-            ops = [op.view(abstract.RingArray) for op in ops]
+        if chain_a.ring is None:
+            return ChainComplex([op.view(chain_field) for op in matrices], skip_validation=True)
+        ops = []
+        for matrix in matrices:
+            op = matrix.view(abstract.RingArray)
+            op._ring = chain_a.ring
+            ops.append(op)
         return ChainComplex(ops, skip_validation=True)

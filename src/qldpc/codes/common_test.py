@@ -225,13 +225,23 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
 def test_classical_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.RepetitionCode(2)
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=1, max_error_rate=1)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-    assert logical_error_rate(1)[0] == 1  # guaranteed logical error
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=1)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func([1])[0] == 1  # guaranteed logical error
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10, max_error_rate=0.5)
+    # with an erasure-enabled decoder, unrecognised syndromes are discarded
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
+    )
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
+    assert logical_error_rate_func.truncation_error_bound(0.5) < 1
+    assert logical_error_rate_func.truncation_error_bound([1]) == 0
+
+    # test cap on physical error rate
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.5)
     with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+        logical_error_rate_func(1)
 
 
 ####################################################################################################
@@ -281,7 +291,7 @@ def test_qudit_codes() -> None:
     assert code.is_equiv_to(codes.QuditCode(code))
     assert_valid_subgraphs(code)
 
-    # equivlence to code with redundant stabilizers
+    # equivalence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
     assert code.is_equiv_to(redundant_code)
 
@@ -521,16 +531,20 @@ def test_quantum_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.FiveQubitCode()
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-
-    with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
     # guaranteed logical X and Z errors
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
-        logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
-        assert logical_error_rate(1)[0] == 1
+        logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
+        assert logical_error_rate_func(1)[0] == 1
+
+    # with an erasure-enabled decoder, unrecognised syndromes are discarded
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
+    )
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
 
 
 def test_qudit_to_css() -> None:
@@ -559,10 +573,10 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert code.num_checks == code.num_checks_x + code.num_checks_z
     assert code == codes.CSSCode(code.code_x, code.code_z)
 
-    # equivlence to QuditCode with the same parity check matrix
+    # equivalence to QuditCode with the same parity check matrix
     assert code.is_equiv_to(codes.QuditCode(code.matrix))
 
-    # equivlence to code with redundant stabilizers
+    # equivalence to code with redundant stabilizers
     redundant_code = codes.CSSCode(np.vstack([code.matrix_x, code.matrix_x]), code.matrix_z)
     assert codes.CSSCode.equiv(code, redundant_code)
 
@@ -725,13 +739,35 @@ def test_css_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.SteaneCode()
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-
-    with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
     # guaranteed logical X and Z errors
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
-        logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
-        assert logical_error_rate(1)[0] == 1
+        logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
+        assert logical_error_rate_func(1)[0] == 1
+
+    # pauli_bias convention is (X, Y, Z); (0, 0, 1) = pure Z
+    # if the max_weight for lookup is 0, any Z syndrome triggers erasure
+    logical_error_rate_func_z = code.get_logical_error_rate_func(
+        num_samples=1,
+        max_error_rate=1,
+        pauli_bias=(0, 0, 1),
+        with_lookup=True,
+        max_weight=0,
+        add_erasure_bit=True,
+    )
+    assert logical_error_rate_func_z(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func_z(0.5, discard_rate=True)[0] > 0  # Z syndromes → erasure
+
+    # (1 ,0, 0) = pure X: Z syndromes are always zero so samples reach the X decoder
+    logical_error_rate_func_x = code.get_logical_error_rate_func(
+        num_samples=1,
+        max_error_rate=1,
+        pauli_bias=(1, 0, 0),
+        with_lookup=True,
+        max_weight=0,
+        add_erasure_bit=True,
+    )
+    assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure

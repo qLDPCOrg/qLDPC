@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 from collections.abc import Collection, Sequence
+from typing import NamedTuple
 
 import numpy as np
 import stim
@@ -23,7 +24,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
-from .bookkeeping import DetectorRecord, MeasurementRecord, MemoryExperimentParts, QubitIDs
+from .bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
 from .common import (
     get_encoding_circuit,
     get_pauli_product_measurements,
@@ -32,6 +33,15 @@ from .common import (
 )
 from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
+
+
+class MemoryExperimentParts(NamedTuple):
+    initialization: stim.Circuit
+    qec_cycle: stim.Circuit
+    readout: stim.Circuit
+    measurement_record: MeasurementRecord
+    detector_record: DetectorRecord
+    qubit_ids: QubitIDs
 
 
 def get_memory_experiment(
@@ -121,7 +131,7 @@ def get_memory_experiment(
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
-            labeling data and check qubits according to their correspnding column/row of the parity
+            labeling data and check qubits according to their corresponding column/row of the parity
             check matrix, with data qubits numbered from 0 and check qubits numbered from len(code).
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
@@ -263,7 +273,7 @@ def _get_basis_memory_experiment_parts(
     # measure out the data qubits
     readout = stim.Circuit()
     readout.append(f"M{basis}", data_ids)
-    measurement_record.append({data_id: [mm] for mm, data_id in enumerate(data_ids)})
+    measurement_record.append({data_id: mm for mm, data_id in enumerate(data_ids)})
 
     # detectors for stabilizers that can be inferred from data qubit measurements
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
@@ -276,7 +286,7 @@ def _get_basis_memory_experiment_parts(
             + [measurement_record.get_target_rec(check_id)],
             (0, 0, kk),
         )
-    detector_record.append({check_id: [dd] for dd, check_id in enumerate(basis_check_ids)})
+    detector_record.append({check_id: dd for dd, check_id in enumerate(basis_check_ids)})
 
     # annotate all basis-type observables
     targets = [measurement_record.get_target_rec(data_id) for data_id in data_ids]
@@ -327,14 +337,14 @@ def _get_combined_memory_simulation_parts(
 
     # update the measurement record, add detectors, and update the detector record
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
-    measurement_record.append({check_id: [mm] for mm, check_id in enumerate(check_ids)})
+    measurement_record.append({check_id: mm for mm, check_id in enumerate(check_ids)})
     for kk, check_id in enumerate(check_ids):
         targets = [
             measurement_record.get_target_rec(check_id, -1),
             measurement_record.get_target_rec(check_id, -2),
         ]
         readout.append("DETECTOR", targets, (0, 0, kk))
-    detector_record.append({check_id: [dd] for dd, check_id in enumerate(check_ids)})
+    detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
 
     # annotate all observables
     observables = get_observables(code, data_ids)
@@ -399,7 +409,7 @@ def get_observables(
     Returns:
         A Stim circuit of OBSERVABLE_INCLUDE instructions.
     """
-    if basis not in (None, Pauli.X, Pauli.Z):  # pragma: no cover
+    if basis not in (None, Pauli.X, Pauli.Z):
         raise ValueError(
             f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"
         )
@@ -508,7 +518,7 @@ def _get_qec_cycle(
     measurement_record.append(round_measurement_record)
     for kk, check_id in enumerate(check_ids):
         circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
-    detector_record.append({check_id: [dd] for dd, check_id in enumerate(check_ids)})
+    detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
@@ -526,7 +536,7 @@ def _get_qec_cycle(
         # update the measurement and detector records to account for repetitions
         measurement_record.append(round_measurement_record, repeat=num_rounds - 2)
         detector_record.append(
-            {check_id: [dd] for dd, check_id in enumerate(check_ids)}, repeat=num_rounds - 1
+            {check_id: dd for dd, check_id in enumerate(check_ids)}, repeat=num_rounds - 1
         )
 
     return circuit, measurement_record, detector_record

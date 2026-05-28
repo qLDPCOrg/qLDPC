@@ -7,7 +7,8 @@ In a nutshell, `qLDPC` provides methods to build a variety of built-in and custo
 - constructing a canonical basis of logical Pauli operators,
 - computing (or upper-bounding) code distance,
 - computing logical error rates in a code-capacity model,
-- constructing various circuits of interest, such as a quantum memory experiment for obtaining circuit-level logical error rates,
+- computing the logical error rates and post-selection rates of state preparation circuits,
+- constructing circuits of interest, such as memory experiments and logical encoding circuits,
 - defining custom Pauli noise models,
 - using a decoder of your choice for any of the above (or other, unlisted) tasks.
 
@@ -48,7 +49,7 @@ conda install -c conda-forge cvxpy
 
 Notable features include:
 - `ClassicalCode`: class for representing classical linear error-correcting codes over finite fields.
-  - Various pre-defined classical code families.
+  - Various pre-defined classical code families, including `RepetitionCode`, `HammingCode`, `SimplexCode`, `ReedMullerCode`, `ReedSolomonCode`, `TannerCode`, and more.
   - Communication with the [GAP](https://www.gap-system.org)/[`GUAVA`](https://www.gap-system.org/Packages/guava.html) package for [even more codes](https://docs.gap-system.org/pkg/guava/doc/chap5.html).
 - `QuditCode`: class for constructing [Galois-qudit codes](https://errorcorrectionzoo.org/c/galois_into_galois), including both [stabilizer](https://errorcorrectionzoo.org/c/galois_stabilizer) and [subsystem](https://errorcorrectionzoo.org/c/oecc) codes.
   - `QuditCode.get_logical_ops`: method to construct a complete basis of nontrivial logical Pauli operators for a `QuditCode`.
@@ -58,8 +59,10 @@ Notable features include:
   - Common codes such as the `SteaneCode` and `TetrahedralCode`.
   - Common code families such as the `SurfaceCode`, `ToricCode`, `BaconShorCode`, and `QuantumHammingCode`.
   - `TBCode`: [two-block quantum codes](https://errorcorrectionzoo.org/c/two_block_quantum).
+  - `QCCode`: quasi-cyclic two-block codes (also known as [multivariate bicycle codes](https://arxiv.org/abs/2406.19151), generalizing the `BBCode` below).
   - `BBCode`: [bivariate bicycle codes](https://errorcorrectionzoo.org/c/quantum_quasi_cyclic), as in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) and [arXiv:2311.16980](https://arxiv.org/abs/2311.16980).  See also [`examples/bivariate_bicycle_codes.ipynb`](https://github.com/qLDPCOrg/qLDPC/blob/main/examples/bivariate_bicycle_codes.ipynb).
   - `HGPCode`: [hypergraph product codes](https://errorcorrectionzoo.org/c/hypergraph_product), first introduced in [arXiv:0903.0566](https://arxiv.org/abs/0903.0566).
+  - `CHGPCode` / `CRCode`: cyclic hypergraph product and repeated cyclic hypergraph product codes, as in [arXiv:2511.09683](https://arxiv.org/abs/2511.09683).
   - `SHPCode`: [subsystem hypergraph product codes](https://errorcorrectionzoo.org/c/subsystem_quantum_parity), as in [arXiv:2002.06257](https://arxiv.org/abs/2002.06257).
   - `SHYPSCode`: [subsystem hypergraph product simplex codes](https://errorcorrectionzoo.org/c/shyps), as in [arXiv:2502.07150](https://arxiv.org/abs/2502.07150).
   - `LPCode`: [lifted product codes](https://errorcorrectionzoo.org/c/lifted_product), as in [arXiv:2012.04068](https://arxiv.org/abs/2012.04068) and [arXiv:2202.01702](https://arxiv.org/abs/2202.01702).
@@ -68,8 +71,12 @@ Notable features include:
 - `qldpc.decoders`: module for decoding code and circuit errors.
   - BP-OSD, BP-LSD, and belief-find (via [`ldpc`](https://github.com/quantumgizmos/ldpc)), Relay-BP (via [`relay-bp`](https://pypi.org/project/relay-bp)), minimum-weight perfect matching (via [`pymatching`](https://github.com/oscarhiggott/PyMatching)), lookup-table decoding, and others.  Includes an interface for using custom decoders.
   - `SinterDecoder`: class to construct circuit-level decoders that are usable by [`sinter`](https://pypi.org/project/sinter).
+  - `SlidingWindowDecoder`: the overlapping-recovery sliding-window decoder of [arXiv:quant-ph/0110143](https://arxiv.org/abs/quant-ph/0110143) and [arXiv:2209.08552](https://arxiv.org/pdf/2209.08552).
+  - `SequentialWindowDecoder`: a generalization of the `SlidingWindowDecoder` for arbitrary decoding and commit regions.
+  - `DetectorErrorModelArrays`: representation of a `stim.DetectorErrorModel` with `scipy.sparse` and `numpy` arrays (`detector_flip_matrix`, `observable_flip_matrix`, `error_probs`).
 - `qldpc.circuits`: module for [`stim`](https://github.com/quantumlib/Stim) circuits and circuit utilities, including:
   - `get_memory_experiment`: circuit to test the performance of a code as a quantum memory (using various pre-built syndrome measurement strategies), appropriately annotated with detectors and observables.
+  - `get_state_prep_diagnostic_circuit`, `get_state_prep_diagnostic_tasks`, `get_logical_error_and_discard_rate`: helper methods for computing the logical error rates and post-selection rates of state preparation circuits.
   - `NoiseModel`: class for constructing expressive Pauli noise models, which map noiseless circuits to noisy circuits.  Built-in subclasses include a single-parameter `DepolarizingNoiseModel` and a superconducting-inspired `SI1000NoiseModel`.
   - `get_encoding_circuit`: circuit to encode physical states of qubits into logical states of a code, for example to prepare a logical all-|0> state.  (Warning: current encoding circuits are not fault-tolerant.  The construction of fault-tolerant encoding circuits is an [open issue](https://github.com/qLDPCOrg/qLDPC/issues/327).)
   - `get_transversal_ops`: logical tableaus and physical circuits for the SWAP-transversal logical Clifford gates of a code, constructed via the code automorphism method of [arXiv:2409.18175](https://arxiv.org/abs/2409.18175).  (Warning: exponential complexity.)

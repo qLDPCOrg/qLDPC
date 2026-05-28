@@ -29,19 +29,21 @@ def test_sinter_decoder() -> None:
         error(0.0002) D0 D1
         error(0.0003) D2 L1
     """)
+
+    # mock some circuit errors associated and observable flips
+    # each row of circuit_errors indicates which error mechanisms fired in a shot
     circuit_errors = [[1, 0, 0], [1, 1, 0], [1, 0, 1]]
     observable_flips = [[0, 0], [0, 0], [0, 1]]
+
     bit_packed_shots = np.packbits(circuit_errors, bitorder="little", axis=1)
     expected_flips = np.packbits(observable_flips, bitorder="little", axis=1)
 
     # try decoders with and without a decode_batch method
-    for decoder, priors_arg in [
-        (decoders.SinterDecoder(with_BP_OSD=True), "error_channel"),
-        (decoders.SinterDecoder(with_RBP="MinSumBPDecoderF32"), "error_priors"),
-        (decoders.SinterDecoder(with_MWPM=True), "weights"),
+    for decoder in [
+        decoders.SinterDecoder(with_BP_OSD=True),
+        decoders.SinterDecoder(with_RBP="MinSumBPDecoderF32"),
+        decoders.SinterDecoder(with_MWPM=True),
     ]:
-        assert decoder.priors_arg == priors_arg
-
         compiled_decoder = decoder.compile_decoder_for_dem(dem)
         predicted_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots)
         assert np.array_equal(predicted_flips, expected_flips)
@@ -53,6 +55,18 @@ def test_sinter_decoder() -> None:
             [compiled_decoder.decode(np.asarray(error)) for error in circuit_errors],
             observable_flips,
         )
+
+    # the trivial decoder always returns a trivial result
+    decoder = decoders.TrivialDecoder()
+    compiled_decoder = decoder.compile_decoder_for_dem(dem)
+    assert np.array_equal(
+        compiled_decoder.decode_shots(np.array(circuit_errors)),
+        np.zeros_like(observable_flips),
+    )
+    assert np.array_equal(
+        compiled_decoder.decode_shots_bit_packed(bit_packed_shots),
+        np.zeros_like(expected_flips),
+    )
 
 
 def test_subgraph_decoding() -> None:
@@ -66,12 +80,13 @@ def test_subgraph_decoding() -> None:
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
 
-    # build a monolithic decoder, compile, and predict observable flips
+    # build a monolithic lookup-table decoder, compile, and predict observable flips
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
     )
+    assert np.array_equal(predicted_flips_1, compiled_decoder_1.packbits(obs_data))
 
     # build a subgraph decoder, compile, and predict observable flips
     decoder_2 = decoders.SubgraphDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
@@ -100,12 +115,13 @@ def test_sequential_decoding() -> None:
     sampler = dem.compile_sampler()
     det_data, obs_data, err_data = sampler.sample(100)
 
-    # build a monolithic decoder, compile, and predict observable flips
+    # build a monolithic lookup-table decoder, compile, and predict observable flips
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
     )
+    assert np.array_equal(predicted_flips_1, compiled_decoder_1.packbits(obs_data))
 
     # build a sequential decoder, compile, and predict observable flips
     decoder_2 = decoders.SequentialWindowDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
@@ -122,3 +138,68 @@ def test_sequential_decoding() -> None:
         compiled_decoder_2.packbits(det_data)
     )
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
+
+
+def test_sinter_decoder_with_erasure() -> None:
+    """compile_decoder_for_dem expands the DEM with an erasure observable when has_erasure_bit."""
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0
+        error(0.1) D1 L0
+    """)
+    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=1, add_erasure_bit=True)
+    compiled = decoder.compile_decoder_for_dem(dem)
+
+    # one extra observable for the erasure bit
+    assert compiled.dem_arrays.num_observables == dem.num_observables + 1
+
+    # known syndromes: correct observables, erasure bit = 0
+    shots = np.array([[1, 0], [0, 1]], dtype=np.uint8)
+    result = compiled.decode_shots(shots)
+    assert result.shape == (2, dem.num_observables + 1)
+    assert np.array_equal(result[:, :-1], [[0], [1]])  # L0: not flipped by D0, flipped by D1
+    assert np.all(result[:, -1] == 0)
+
+    # unknown syndrome (no weight-1 error explains both D0 and D1): erasure bit = 1
+    assert compiled.decode_shots(np.array([[1, 1]], dtype=np.uint8))[0, -1] == 1
+
+
+def test_subgraph_decoder_with_erasure() -> None:
+    """SubgraphDecoder appends one erasure observable per subgraph that has_erasure_bit."""
+    # error 0 flips both D0 and D1 (so D0-alone is an unknown syndrome for subgraph 0)
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 D1 L0
+        error(0.1) D2 L1
+    """)
+    decoder = decoders.SubgraphDecoder(
+        [[0, 1], [2]], with_lookup=True, max_weight=1, add_erasure_bit=True
+    )
+    compiled = decoder.compile_decoder_for_dem(dem)
+
+    # two original observables plus one erasure observable per subgraph
+    assert compiled.num_observables == dem.num_observables + 2
+
+    # known syndromes: correct logical observables, both erasure bits = 0
+    shots = np.array([[1, 1, 0], [0, 0, 1], [0, 0, 0]], dtype=np.uint8)
+    result = compiled.decode_shots(shots)
+    assert result.shape == (3, dem.num_observables + 2)
+    assert np.array_equal(result[:, :2], [[1, 0], [0, 1], [0, 0]])  # L0, L1
+    assert np.all(result[:, 2:] == 0)
+
+    # D0 alone is not explained by any weight-1 error in subgraph 0
+    # erasure_0 fires, erasure_1 does not
+    unknown_result = compiled.decode_shots(np.array([[1, 0, 0]], dtype=np.uint8))
+    assert unknown_result[0, 2] == 1  # erasure for subgraph 0
+    assert unknown_result[0, 3] == 0  # no erasure for subgraph 1
+
+
+def test_sequential_window_decoder_erasure_not_implemented() -> None:
+    """SequentialWindowDecoder raises NotImplementedError when has_erasure_bit is set."""
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 L0
+        error(0.1) D1 L1
+    """)
+    decoder = decoders.SequentialWindowDecoder(
+        [[0], [1]], with_lookup=True, max_weight=1, add_erasure_bit=True
+    )
+    with pytest.raises(NotImplementedError, match="erasure"):
+        decoder.compile_decoder_for_dem(dem)

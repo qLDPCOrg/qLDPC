@@ -28,7 +28,9 @@ import pyperclip
 import qldpc.cache
 import qldpc.external.gap
 
-GENERATORS_LIST = list[list[tuple[int, ...]]]
+GeneratorsList = list[list[tuple[int, ...]]]
+IdempotentsList = list[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...]]
+
 GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 
 
@@ -38,7 +40,7 @@ GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 )
 def get_generators(
     group: str, *, warning_to_raise_if_calling_gap: str | None = None
-) -> GENERATORS_LIST:
+) -> GeneratorsList:
     """Retrieve GAP group generators."""
     # try retrieving a known group
     if generators := KNOWN_GROUPS.get(group):
@@ -64,7 +66,7 @@ def get_generators(
     raise ValueError("\n".join(message))
 
 
-def get_generators_from_magma(group: str) -> GENERATORS_LIST:
+def get_generators_from_magma(group: str) -> GeneratorsList:
     """Retrieve group generators from MAGMA."""
     print("Run the following command in MAGMA:")
     print()
@@ -174,7 +176,7 @@ def get_small_group_structure(order: int, index: int) -> str:
 
 def maybe_get_generators_from_gap(
     group: str, *, warning: str | None = None
-) -> GENERATORS_LIST | None:
+) -> GeneratorsList | None:
     """Retrieve GAP group generators from GAP directly."""
     try:
         qldpc.external.gap.require_package("GUAVA")
@@ -189,18 +191,18 @@ def maybe_get_generators_from_gap(
 
     # run GAP commands
     commands = [
-        'LoadPackage("guava", false);',
-        f"group := {group};",
-        "iso := IsomorphismPermGroup(group);",
-        "perm_group := Image(iso, group);",
-        "gens := GeneratorsOfGroup(perm_group);",
-        r'for gen in gens do Print(gen, "\n"); od;',
+        'LoadPackage("guava", false);;',
+        f"group := {group};;",
+        "iso := IsomorphismPermGroup(group);;",
+        "perm_group := Image(iso, group);;",
+        "gens := GeneratorsOfGroup(perm_group);;",
+        r'for gen in gens do Print(gen, "\n");; od;',
     ]
     permutations = qldpc.external.gap.get_output(*commands)
     return parse_gap_permutations(permutations)
 
 
-def maybe_get_generators_from_groupnames(group: str) -> GENERATORS_LIST | None:
+def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
     """Retrieve GAP group generators from GroupNames.org."""
     # extract order and index of a SmallGroup
     match = re.match(r"SmallGroup\(([0-9]+),([0-9]+)\)", group)
@@ -232,7 +234,7 @@ def maybe_get_generators_from_groupnames(group: str) -> GENERATORS_LIST | None:
     return parse_gap_permutations(permutations, cycle_sep=" ")
 
 
-def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GENERATORS_LIST:
+def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GeneratorsList:
     """Parse newline-separated GAP permutations.
 
     As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)].
@@ -295,9 +297,7 @@ def maybe_get_webpage(order: int) -> str | None:
     "idempotents",
     key_func=lambda group, field: ("".join(group.split()), field),  # strip whitespace
 )
-def get_primitive_central_idempotents(
-    group: str, field: int
-) -> tuple[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...], ...] | None:
+def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList | None:
     """Get the primitive central idempotents of a group algebra over a finite field.
 
     Primitive central idempotents of a ring are nonzero elements that:
@@ -316,18 +316,21 @@ def get_primitive_central_idempotents(
     element of galois.GF(field) cast to an integer, and the permutation is expressed in cyclic form,
     namely as a tuple of tuples of integers.
     """
+    if pcis := KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get((group, field)):
+        return pcis
+
     qldpc.external.gap.require_package("Wedderga")
 
-    idempotents_str = qldpc.external.gap.get_output(
-        'LoadPackage("wedderga", false);',
-        f"group := {group};",
-        f"ring := GroupRing(GF({field}), group);",
-        "idempotents := PrimitiveCentralIdempotentsByCharacterTable(ring);",
-        "Print(idempotents);",
+    gap_ouptut = qldpc.external.gap.get_output(
+        'LoadPackage("wedderga", false);;',
+        f"group := {group};;",
+        f"ring := GroupRing(GF({field}), group);;",
+        "idempotents := PrimitiveCentralIdempotentsByCharacterTable(ring);;",
+        "Print(idempotents);;",
     )
 
     coefficient_pattern = r"\(Z\(\d+(?:\^\d+)?\)(?:\^\d+)?\)"
-    cycle_pattern = r"\(\d+(?:,\d+)*\)|\(\)"
+    cycle_pattern = r"\(\s*\d+(?:,\s*\d+)*\)|\(\)"
     cycles_pattern = f"(?:{cycle_pattern})+"
     ring_term_pattern = rf"{coefficient_pattern}\*{cycles_pattern}"
     ring_member_pattern = rf"(?:{ring_term_pattern})(?:\+{ring_term_pattern})*"
@@ -339,7 +342,7 @@ def get_primitive_central_idempotents(
     re_coefficient_components = re.compile(r"\(Z\((\d+)(?:\^(\d+))?\)(?:\^(\d+))?\)")
 
     idempotents = []
-    for ring_member_match in re_ring_member.finditer(idempotents_str):
+    for ring_member_match in re_ring_member.finditer(gap_ouptut):
         idempotent = []
         for ring_term_match in re_ring_term.finditer(ring_member_match.group()):
             coefficient_string, cycles_string = ring_term_match.group().split("*")
@@ -361,12 +364,13 @@ def get_primitive_central_idempotents(
 
         idempotents.append(tuple(idempotent))
 
-    return tuple(idempotents)
+    return idempotents
 
 
-KNOWN_GROUPS: dict[str, GENERATORS_LIST] = {
+KNOWN_GROUPS: dict[str, GeneratorsList] = {
     "SmallGroup(1,1)": [[]],
     "Group(())": [[]],
+    "SmallGroup(21,1)": [[(1, 2, 4), (3, 6, 5)], [(0, 1, 2, 3, 4, 5, 6)]],
     "AutomorphismGroup(CheckMatCode([[1,0,0,0,1,1,1,0,1,1],[0,1,0,0,1,0,0,1,1,0],[0,0,1,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,1,1,1]],GF(2)))": [
         [(3, 7), (4, 5), (8, 9)],
         [(1, 5), (2, 7), (3, 9), (6, 8)],
@@ -416,4 +420,210 @@ KNOWN_GROUPS: dict[str, GENERATORS_LIST] = {
         [(2, 3), (4, 7), (8, 11)],
         [(0, 10, 2, 11, 1, 9), (3, 8), (4, 7)],
     ],  # ToricCode(2) automorphism group (SWAP + Cliffords)
+}
+
+KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], IdempotentsList] = {
+    ("Group((1,2,3))", 2): [  # F2[C3]
+        ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+        ((1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+    ],
+    ("Group((1,2,3,4,5))", 2): [  # F2[C5]
+        (
+            (1, ((),)),
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+        ),
+        (
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+        ),
+    ],
+    ("Group((1,2,3,4,5,6,7))", 2): [  # F2[C7]
+        (
+            (1, ((),)),
+            (1, ((0, 1, 2, 3, 4, 5, 6),)),
+            (1, ((0, 2, 4, 6, 1, 3, 5),)),
+            (1, ((0, 3, 6, 2, 5, 1, 4),)),
+            (1, ((0, 4, 1, 5, 2, 6, 3),)),
+            (1, ((0, 5, 3, 1, 6, 4, 2),)),
+            (1, ((0, 6, 5, 4, 3, 2, 1),)),
+        ),
+        (
+            (1, ((),)),
+            (1, ((0, 3, 6, 2, 5, 1, 4),)),
+            (1, ((0, 5, 3, 1, 6, 4, 2),)),
+            (1, ((0, 6, 5, 4, 3, 2, 1),)),
+        ),
+        (
+            (1, ((),)),
+            (1, ((0, 1, 2, 3, 4, 5, 6),)),
+            (1, ((0, 2, 4, 6, 1, 3, 5),)),
+            (1, ((0, 4, 1, 5, 2, 6, 3),)),
+        ),
+    ],
+    ("Group((1,2,3,4,5,6,7,8,9))", 2): [  # F2[C9]
+        (
+            (1, ((),)),
+            (1, ((0, 1, 2, 3, 4, 5, 6, 7, 8),)),
+            (1, ((0, 2, 4, 6, 8, 1, 3, 5, 7),)),
+            (1, ((0, 3, 6), (1, 4, 7), (2, 5, 8))),
+            (1, ((0, 4, 8, 3, 7, 2, 6, 1, 5),)),
+            (1, ((0, 5, 1, 6, 2, 7, 3, 8, 4),)),
+            (1, ((0, 6, 3), (1, 7, 4), (2, 8, 5))),
+            (1, ((0, 7, 5, 3, 1, 8, 6, 4, 2),)),
+            (1, ((0, 8, 7, 6, 5, 4, 3, 2, 1),)),
+        ),
+        (
+            (1, ((0, 1, 2, 3, 4, 5, 6, 7, 8),)),
+            (1, ((0, 2, 4, 6, 8, 1, 3, 5, 7),)),
+            (1, ((0, 4, 8, 3, 7, 2, 6, 1, 5),)),
+            (1, ((0, 5, 1, 6, 2, 7, 3, 8, 4),)),
+            (1, ((0, 7, 5, 3, 1, 8, 6, 4, 2),)),
+            (1, ((0, 8, 7, 6, 5, 4, 3, 2, 1),)),
+        ),
+        ((1, ((0, 3, 6), (1, 4, 7), (2, 5, 8))), (1, ((0, 6, 3), (1, 7, 4), (2, 8, 5)))),
+    ],
+    ("Group((1,2))", 3): [  # F3[C2]
+        ((2, ((),)), (2, ((0, 1),))),
+        ((2, ((),)), (1, ((0, 1),))),
+    ],
+    ("Group((1,2,3,4))", 3): [  # F3[C4]
+        ((1, ((),)), (1, ((0, 1, 2, 3),)), (1, ((0, 2), (1, 3))), (1, ((0, 3, 2, 1),))),
+        ((1, ((),)), (2, ((0, 1, 2, 3),)), (1, ((0, 2), (1, 3))), (2, ((0, 3, 2, 1),))),
+        ((2, ((),)), (1, ((0, 2), (1, 3)))),
+    ],
+    ("Group((1,2,3,4,5))", 3): [  # F3[C5]
+        (
+            (2, ((),)),
+            (2, ((0, 1, 2, 3, 4),)),
+            (2, ((0, 2, 4, 1, 3),)),
+            (2, ((0, 3, 1, 4, 2),)),
+            (2, ((0, 4, 3, 2, 1),)),
+        ),
+        (
+            (2, ((),)),
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+        ),
+    ],
+    ("Group((1,2,3))", 4): [  # F4[C3]
+        ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+        ((1, ((),)), (2, ((0, 1, 2),)), (3, ((0, 2, 1),))),
+        ((1, ((),)), (3, ((0, 1, 2),)), (2, ((0, 2, 1),))),
+    ],
+    ("Group((1,2,3,4))", 5): [  # F5[C4]
+        ((4, ((),)), (4, ((0, 1, 2, 3),)), (4, ((0, 2), (1, 3))), (4, ((0, 3, 2, 1),))),
+        ((4, ((),)), (1, ((0, 1, 2, 3),)), (4, ((0, 2), (1, 3))), (1, ((0, 3, 2, 1),))),
+        ((4, ((),)), (3, ((0, 1, 2, 3),)), (1, ((0, 2), (1, 3))), (2, ((0, 3, 2, 1),))),
+        ((4, ((),)), (2, ((0, 1, 2, 3),)), (1, ((0, 2), (1, 3))), (3, ((0, 3, 2, 1),))),
+    ],
+    ("Group((1,2,3),(1,3))", 5): [  # F5[DihedralGroup(3)]
+        (
+            (1, ((),)),
+            (1, ((1, 2),)),
+            (1, ((0, 1),)),
+            (1, ((0, 1, 2),)),
+            (1, ((0, 2, 1),)),
+            (1, ((0, 2),)),
+        ),
+        (
+            (1, ((),)),
+            (4, ((1, 2),)),
+            (4, ((0, 1),)),
+            (1, ((0, 1, 2),)),
+            (1, ((0, 2, 1),)),
+            (4, ((0, 2),)),
+        ),
+        ((4, ((),)), (3, ((0, 1, 2),)), (3, ((0, 2, 1),))),
+    ],
+    ("Group((1,2,3),(2,3,4))", 5): [  # F5[AlternatingGroup(3)]
+        (
+            (3, ((),)),
+            (3, ((1, 2, 3),)),
+            (3, ((1, 3, 2),)),
+            (3, ((0, 1), (2, 3))),
+            (3, ((0, 1, 2),)),
+            (3, ((0, 1, 3),)),
+            (3, ((0, 2, 1),)),
+            (3, ((0, 2, 3),)),
+            (3, ((0, 2), (1, 3))),
+            (3, ((0, 3, 1),)),
+            (3, ((0, 3, 2),)),
+            (3, ((0, 3), (1, 2))),
+        ),
+        (
+            (1, ((),)),
+            (2, ((1, 2, 3),)),
+            (2, ((1, 3, 2),)),
+            (1, ((0, 1), (2, 3))),
+            (2, ((0, 1, 2),)),
+            (2, ((0, 1, 3),)),
+            (2, ((0, 2, 1),)),
+            (2, ((0, 2, 3),)),
+            (1, ((0, 2), (1, 3))),
+            (2, ((0, 3, 1),)),
+            (2, ((0, 3, 2),)),
+            (1, ((0, 3), (1, 2))),
+        ),
+        ((2, ((),)), (1, ((0, 1), (2, 3))), (1, ((0, 2), (1, 3))), (1, ((0, 3), (1, 2)))),
+    ],
+    ("Group((2,3,5)(4,7,6),(1,2,3,4,5,6,7))", 2): [  # F2[SmallGroup(21,1)]
+        (
+            (1, ((),)),
+            (1, ((1, 2, 4), (3, 6, 5))),
+            (1, ((1, 4, 2), (3, 5, 6))),
+            (1, ((0, 1, 2, 3, 4, 5, 6),)),
+            (1, ((0, 1, 3), (2, 5, 4))),
+            (1, ((0, 1, 5), (3, 6, 4))),
+            (1, ((0, 2, 4, 6, 1, 3, 5),)),
+            (1, ((0, 2, 6), (1, 4, 3))),
+            (1, ((0, 2, 3), (1, 6, 5))),
+            (1, ((0, 3, 1), (2, 4, 5))),
+            (1, ((0, 3, 6, 2, 5, 1, 4),)),
+            (1, ((0, 3, 2), (1, 5, 6))),
+            (1, ((0, 4, 6), (2, 5, 3))),
+            (1, ((0, 4, 1, 5, 2, 6, 3),)),
+            (1, ((0, 4, 5), (1, 6, 2))),
+            (1, ((0, 5, 1), (3, 4, 6))),
+            (1, ((0, 5, 4), (1, 2, 6))),
+            (1, ((0, 5, 3, 1, 6, 4, 2),)),
+            (1, ((0, 6, 5, 4, 3, 2, 1),)),
+            (1, ((0, 6, 4), (2, 3, 5))),
+            (1, ((0, 6, 2), (1, 3, 4))),
+        ),
+        (
+            (1, ((1, 2, 4), (3, 6, 5))),
+            (1, ((1, 4, 2), (3, 5, 6))),
+            (1, ((0, 1, 3), (2, 5, 4))),
+            (1, ((0, 1, 5), (3, 6, 4))),
+            (1, ((0, 2, 6), (1, 4, 3))),
+            (1, ((0, 2, 3), (1, 6, 5))),
+            (1, ((0, 3, 1), (2, 4, 5))),
+            (1, ((0, 3, 2), (1, 5, 6))),
+            (1, ((0, 4, 6), (2, 5, 3))),
+            (1, ((0, 4, 5), (1, 6, 2))),
+            (1, ((0, 5, 1), (3, 4, 6))),
+            (1, ((0, 5, 4), (1, 2, 6))),
+            (1, ((0, 6, 4), (2, 3, 5))),
+            (1, ((0, 6, 2), (1, 3, 4))),
+        ),
+        (
+            (1, ((),)),
+            (1, ((0, 1, 2, 3, 4, 5, 6),)),
+            (1, ((0, 2, 4, 6, 1, 3, 5),)),
+            (1, ((0, 4, 1, 5, 2, 6, 3),)),
+        ),
+        (
+            (1, ((),)),
+            (1, ((0, 3, 6, 2, 5, 1, 4),)),
+            (1, ((0, 5, 3, 1, 6, 4, 2),)),
+            (1, ((0, 6, 5, 4, 3, 2, 1),)),
+        ),
+    ],
 }

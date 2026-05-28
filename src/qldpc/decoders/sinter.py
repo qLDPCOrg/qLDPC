@@ -38,13 +38,7 @@ class DecoderNotCompiledError(Exception):
 class SinterDecoder(Decoder, sinter.Decoder):
     """Decoder usable by Sinter for decoding circuit errors."""
 
-    def __init__(
-        self,
-        *,
-        priors_arg: str | None = None,
-        log_likelihood_priors: bool = False,
-        **decoder_kwargs: object,
-    ) -> None:
+    def __init__(self, **decoder_kwargs: object) -> None:
         """Initialize a SinterDecoder.
 
         A SinterDecoder is used by Sinter to decode detection events from a detector error model to
@@ -53,32 +47,18 @@ class SinterDecoder(Decoder, sinter.Decoder):
         See help(sinter.Decoder) for additional information.
 
         Args:
-            priors_arg: The name of the keyword argument to which to pass the probabilities of
-                circuit error likelihoods.  This argument is only necessary for custom decoders.
-            log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
-                np.log((1 - p) / p) to the priors_arg.  This argument is only necessary for custom
-                decoders.  Default: False (unless additionalled passed the argument with_MWPM=True).
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
-        self.priors_arg = priors_arg
-        self.log_likelihood_priors = log_likelihood_priors
         self.decoder_kwargs = decoder_kwargs
-
-        if self.priors_arg is None:
-            # address some known cases
-            if (
-                decoder_kwargs.get("with_lookup")
-                or decoder_kwargs.get("with_BP_OSD")
-                or decoder_kwargs.get("with_BP_LSD")
-                or decoder_kwargs.get("with_BF")
-            ):
-                self.priors_arg = "error_channel"
-            if decoder_kwargs.get("with_RBP"):
-                self.priors_arg = "error_priors"
-            if decoder_kwargs.get("with_MWPM"):
-                self.priors_arg = "weights"
-                self.log_likelihood_priors = True
+        if (
+            "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs
+        ):  # pragma: no cover
+            raise ValueError(
+                "The 'priors_arg' and 'log_likelihood_priors' arguments to a SinterDecoder are"
+                " DEFUNCT and should no longer be necessary.\nIf you need these arguments restored,"
+                " please open an issue at https://github.com/qLDPCOrg/qLDPC/issues"
+            )
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
@@ -88,22 +68,10 @@ class SinterDecoder(Decoder, sinter.Decoder):
         See help(sinter.Decoder) for additional information.
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
-        decoder = self.get_configured_decoder(dem_arrays)
+        decoder = get_decoder(dem_arrays.to_dem(), **self.decoder_kwargs)
+        if getattr(decoder, "has_erasure_bit", False):
+            dem_arrays = dem_arrays.with_erasure()
         return CompiledSinterDecoder(dem_arrays, decoder)
-
-    def get_configured_decoder(self, dem_arrays: DetectorErrorModelArrays) -> Decoder:
-        """Configure a Decoder from the given DetectorErrorModelArrays."""
-        if self.priors_arg:
-            priors = dem_arrays.error_probs
-            if self.log_likelihood_priors:
-                priors = np.log((1 - priors) / priors)
-            priors_kwarg = {self.priors_arg: list(priors)}
-        else:  # pragma: no cover
-            priors_kwarg = {}
-        decoder = get_decoder(
-            dem_arrays.detector_flip_matrix, **self.decoder_kwargs, **priors_kwarg
-        )
-        return decoder
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
@@ -120,10 +88,12 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
     .compile_decoder_for_dem method returns a CompiledSinterDecoder.
     """
 
+    num_detectors: int
+
     def __init__(self, dem_arrays: DetectorErrorModelArrays, decoder: Decoder) -> None:
         self.dem_arrays = dem_arrays
         self.decoder = decoder
-        self.num_detectors = self.dem_arrays.num_detectors
+        self.num_detectors = dem_arrays.num_detectors
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -148,10 +118,13 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
         if hasattr(self.decoder, "decode_batch"):
             predicted_errors = self.decoder.decode_batch(detection_event_data)
             return predicted_errors @ self.dem_arrays.observable_flip_matrix.T % 2
-        observable_flips = []
-        for syndrome in detection_event_data:
+
+        num_shots = len(detection_event_data)
+        num_observables = self.dem_arrays.observable_flip_matrix.shape[0]
+        observable_flips = np.zeros((num_shots, num_observables), dtype=np.uint8)
+        for row, syndrome in enumerate(detection_event_data):
             predicted_errors = self.decoder.decode(syndrome)
-            observable_flips.append(self.dem_arrays.observable_flip_matrix @ predicted_errors)
+            observable_flips[row] = self.dem_arrays.observable_flip_matrix @ predicted_errors
         return np.asarray(observable_flips, dtype=np.uint8) % 2
 
     def packbits(self, data: npt.NDArray[np.uint8], axis: int = -1) -> npt.NDArray[np.uint8]:
@@ -185,6 +158,52 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
         return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
 
+class TrivialDecoder(SinterDecoder):
+    """A trivial decoder that unconditionally predicts null errors/logical flips."""
+
+    def __init__(self) -> None: ...
+
+    def compile_decoder_for_dem(
+        self, dem: stim.DetectorErrorModel, *, simplify: bool = True
+    ) -> CompiledSinterDecoder:
+        """Creates a decoder preconfigured for the given detector error model.
+
+        See help(sinter.Decoder) for additional information.
+        """
+        return CompiledTrivialDecoder(dem.num_detectors, dem.num_observables)
+
+
+class CompiledTrivialDecoder(CompiledSinterDecoder):
+    """A compiled trivial decoder that unconditionally predicts null errors/logical flips."""
+
+    def __init__(self, num_detectors: int, num_observables: int) -> None:
+        self.num_detectors = num_detectors  # for compatibility with the parent class
+        self.num_observables = num_observables
+        self.packed_observable_size = (num_observables + 7) // 8
+
+    def decode_shots_bit_packed(
+        self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
+    ) -> npt.NDArray[np.uint8]:
+        """Unconditionally predicts no observable flips.
+
+        This method accepts and returns bit-packed data.
+
+        See help(sinter.CompiledDecoder) for additional information.
+        """
+        shape = (len(bit_packed_detection_event_data), self.packed_observable_size)
+        return np.zeros(shape, dtype=np.uint8)
+
+    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        """Unconditionally predicts no observable flips.
+
+        This method accepts and returns boolean data.
+
+        See help(sinter.CompiledDecoder) for additional information.
+        """
+        shape = (len(detection_event_data), self.num_observables)
+        return np.zeros(shape, dtype=np.uint8)
+
+
 class SubgraphDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
@@ -206,9 +225,6 @@ class SubgraphDecoder(SinterDecoder):
         self,
         subgraph_detectors: Sequence[Collection[int]],
         subgraph_observables: Sequence[Collection[int]] | None = None,
-        *,
-        priors_arg: str | None = None,
-        log_likelihood_priors: bool = False,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize a SinterDecoder that splits a detector error model into disjoint subgraphs.
@@ -222,14 +238,11 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_detectors: A sequence containing one set of detectors per subgraph.
             subgraph_observables: A sequence containing one set of observables per subgraph; or None
                 to indicate that every subgraph should decode every observable.  Default: None.
-            priors_arg: The keyword argument to which to pass the probabilities of circuit error
-                likelihoods.  This argument is only necessary for custom decoders.
-            log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
-                np.log((1 - p) / p) to the priors_arg.  This argument is only necessary for custom
-                decoders.  Default: False (unless decoding with MWPM).
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
+        SinterDecoder.__init__(self, **decoder_kwargs)
+
         # consistency checks
         self.num_subgraphs = len(subgraph_detectors)
         num_observable_sets = None if subgraph_observables is None else len(subgraph_observables)
@@ -239,16 +252,9 @@ class SubgraphDecoder(SinterDecoder):
                 f" number of observable sets ({num_observable_sets})"
             )
 
-        self.subgraph_detectors = list(map(list, subgraph_detectors))
+        self.subgraph_detectors = [sorted(dets) for dets in subgraph_detectors]
         self.subgraph_observables = (
-            None if subgraph_observables is None else list(map(list, subgraph_observables))
-        )
-
-        SinterDecoder.__init__(
-            self,
-            priors_arg=priors_arg,
-            log_likelihood_priors=log_likelihood_priors,
-            **decoder_kwargs,
+            None if subgraph_observables is None else [sorted(obs) for obs in subgraph_observables]
         )
 
     def compile_decoder_for_dem(
@@ -260,14 +266,17 @@ class SubgraphDecoder(SinterDecoder):
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         subgraph_observables = (
-            [slice(None)] * self.num_subgraphs
+            [list(range(dem.num_observables)) for _ in range(self.num_subgraphs)]
             if self.subgraph_observables is None
-            else self.subgraph_observables
+            else [list(obs) for obs in self.subgraph_observables]
         )
+        num_observables = dem.num_observables
 
         # build a decoder for each subgraph
         subgraph_decoders = []
-        for detectors, observables in zip(self.subgraph_detectors, subgraph_observables):
+        for ss, (detectors, observables) in enumerate(
+            zip(self.subgraph_detectors, subgraph_observables)
+        ):
             # identify the error mechanisms that flip these detectors
             errors = dem_arrays.detector_flip_matrix[detectors].getnnz(axis=0) != 0
 
@@ -282,12 +291,16 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_decoder = SinterDecoder.compile_decoder_for_dem(self, subgraph_dem)
             subgraph_decoders.append(subgraph_decoder)
 
+            if getattr(subgraph_decoder.decoder, "has_erasure_bit", False):
+                subgraph_observables[ss].append(num_observables)
+                num_observables += 1
+
         return CompiledSubgraphDecoder(
             self.subgraph_detectors,
             subgraph_observables,
             subgraph_decoders,
             dem.num_detectors,
-            dem.num_observables,
+            num_observables,
         )
 
 
@@ -380,9 +393,6 @@ class SequentialWindowDecoder(SinterDecoder):
         self,
         detection_regions: Sequence[Collection[int]],
         commit_regions: Sequence[Collection[int]] | None = None,
-        *,
-        priors_arg: str | None = None,
-        log_likelihood_priors: bool = False,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize a SinterDecoder that splits a detector error model into windows.
@@ -397,14 +407,11 @@ class SequentialWindowDecoder(SinterDecoder):
             commit_regions: A sequence containing a set of detectors for each window, or None, in
                 which case the commit region of each window is equal to its detection regions.
                 Default: None.
-            priors_arg: The keyword argument to which to pass the probabilities of circuit error
-                likelihoods.  This argument is only necessary for custom decoders.
-            log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
-                np.log((1 - p) / p) to the priors_arg.  This argument is only necessary for custom
-                decoders.  Default: False (unless decoding with MWPM).
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
+        SinterDecoder.__init__(self, **decoder_kwargs)
+
         assert commit_regions is None or len(detection_regions) == len(commit_regions)
         self.windows = [
             (list(d_detectors), list(c_detectors))
@@ -413,12 +420,6 @@ class SequentialWindowDecoder(SinterDecoder):
             )
             if d_detectors
         ]
-        SinterDecoder.__init__(
-            self,
-            priors_arg=priors_arg,
-            log_likelihood_priors=log_likelihood_priors,
-            **decoder_kwargs,
-        )
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True
@@ -445,7 +446,12 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.observable_flip_matrix[:, d_errors],
                 dem_arrays.error_probs[d_errors],
             )
-            window_decoder = self.get_configured_decoder(window_dem_arrays)
+            window_decoder = get_decoder(window_dem_arrays.to_dem(), **self.decoder_kwargs)
+            if getattr(window_decoder, "has_erasure_bit", False):
+                raise NotImplementedError(
+                    f"{type(self)} does not yet support erasure decoding.\nIf you would like to see "
+                    "this feature, please file an issue at https://github.com/qLDPCOrg/qLDPC/issues"
+                )
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -539,11 +545,12 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
             ) % 2
 
             # decode this syndrome and update the net error appropriately
-            net_error[:, errors] = (
+            decoded_error = (
                 decoder.decode_batch(syndromes)
                 if hasattr(decoder, "decode_batch")
                 else np.array([decoder.decode(syndrome) for syndrome in syndromes])
-            )[:, error_locs]
+            )
+            net_error[:, errors] = decoded_error[:, error_locs]
 
         return net_error
 
@@ -589,9 +596,6 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         stride: int,
         detector_subsets: Collection[Collection[int]] | None = None,
         detector_to_time: Callable[[int], int] | None = None,
-        *,
-        priors_arg: str | None = None,
-        log_likelihood_priors: bool = False,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize a SinterDecoder that splits a detector error model into temporal windows.
@@ -615,14 +619,11 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 WARNING: if a detector_to_time mapping is not None, it will be assumed to be
                 both valid compatible with any detector error model that this decoder is later
                 compiled to with SlidingWindowDecoder.compile_decoder_for_dem.
-            priors_arg: The keyword argument to which to pass the probabilities of circuit error
-                likelihoods.  This argument is only necessary for custom decoders.
-            log_likelihood_priors: If True, instead of error probabilities p, pass log-likelihoods
-                np.log((1 - p) / p) to the priors_arg.  This argument is only necessary for custom
-                decoders.  Default: False (unless decoding with MWPM).
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
         """
+        SinterDecoder.__init__(self, **decoder_kwargs)
+
         if not window_size >= stride > 0:  # pragma: no cover
             raise ValueError(
                 f"{type(self).__name__} must have window_size >= stride > 0"
@@ -633,12 +634,6 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         self.stride = stride
         self.detector_subsets = detector_subsets
         self.detector_to_time = detector_to_time
-        SinterDecoder.__init__(
-            self,
-            priors_arg=priors_arg,
-            log_likelihood_priors=log_likelihood_priors,
-            **decoder_kwargs,
-        )
 
     def compile_decoder_for_dem(
         self, dem: stim.DetectorErrorModel, *, simplify: bool = True

@@ -22,10 +22,10 @@ from collections.abc import Callable
 import numpy as np
 import numpy.typing as npt
 
-_MASK55 = np.uint(0x5555555555555555)
-_MASK33 = np.uint(0x3333333333333333)
-_MASK0F = np.uint(0x0F0F0F0F0F0F0F0F)
-_MASK01 = np.uint(0x0101010101010101)
+_MASK55 = np.uint64(0x5555555555555555)
+_MASK33 = np.uint64(0x3333333333333333)
+_MASK0F = np.uint64(0x0F0F0F0F0F0F0F0F)
+_MASK01 = np.uint64(0x0101010101010101)
 
 
 def get_distance_classical(
@@ -105,8 +105,8 @@ def get_distance_quantum(
         logical_ops = _riffle(logical_ops)
         stabilizers = _riffle(stabilizers)
 
-    int_logical_ops = _rows_to_ints(logical_ops, dtype=np.uint)
-    int_stabilizers = _rows_to_ints(stabilizers, dtype=np.uint)
+    int_logical_ops = _rows_to_ints(logical_ops, dtype=np.uint64)
+    int_stabilizers = _rows_to_ints(stabilizers, dtype=np.uint64)
     num_stabilizers = len(int_stabilizers)
 
     # Number of generators to include in the operational array. Most calculations will then be
@@ -117,7 +117,7 @@ def get_distance_quantum(
     )
 
     # Vectorize all combinations of first `num_vectorized_ops` stabilizers
-    array = np.zeros((1, int_logical_ops.shape[-1]), dtype=np.uint)
+    array = np.zeros((1, int_logical_ops.shape[-1]), dtype=np.uint64)
     for op in int_stabilizers[:num_vectorized_ops]:
         array = np.vstack([array, array ^ op])
 
@@ -131,7 +131,7 @@ def get_distance_quantum(
     int_stabilizers = int_stabilizers[num_vectorized_ops:]
 
     # Everything below will run much faster if we use Fortran-style ordering
-    arrayf = np.asarray(array, order="F")
+    arrayf = np.asarray(array, order="F", dtype=np.uint64)
 
     out = np.empty_like(arrayf)
     bufs = [np.empty_like(arrayf) for _ in range(nbuf)]
@@ -160,10 +160,10 @@ def get_distance_quantum(
 
 
 def _hamming_weight(
-    arr: npt.NDArray[np.uint],
-    buf: npt.NDArray[np.uint] | None = None,
-    out: npt.NDArray[np.uint] | None = None,
-) -> npt.NDArray[np.uint]:
+    arr: npt.NDArray[np.uint64],
+    buf: npt.NDArray[np.uint64] | None = None,
+    out: npt.NDArray[np.uint64] | None = None,
+) -> npt.NDArray[np.uint64]:
     """Somewhat efficient (vectorized) Hamming weight calculation. Assumes 64-bit uints.
 
     For `numpy >= 2.0.0`, it's generally better to use `np.bitwise_count` (which uses processors'
@@ -184,15 +184,15 @@ def _hamming_weight(
 
     # out *= _mask01
     out = np.multiply(out, _MASK01, out=out)
-    out >>= np.uint(56)
+    out >>= np.uint64(56)
     return out
 
 
 def _symplectic_weight(
-    arr: npt.NDArray[np.uint],
-    buf: npt.NDArray[np.uint] | None = None,
-    out: npt.NDArray[np.uint] | None = None,
-) -> npt.NDArray[np.uint]:
+    arr: npt.NDArray[np.uint64],
+    buf: npt.NDArray[np.uint64] | None = None,
+    out: npt.NDArray[np.uint64] | None = None,
+) -> npt.NDArray[np.uint64]:
     """Somewhat efficient (vectorized) symplectic weight calculation. Assumes 64-bit uints.
 
     This function is equivalent to (but slightly more efficient than) the expression
@@ -212,57 +212,57 @@ def _symplectic_weight(
     out &= _MASK0F
 
     out *= _MASK01
-    out >>= np.uint(56)
+    out >>= np.uint64(56)
     return out
 
 
-def _hamming_weight_single(val: np.uint) -> np.uint:
+def _hamming_weight_single(val: np.uint64) -> np.uint64:
     """Unbuffered version of `_hamming_weight`, useful for vectorization."""
-    out = val >> np.uint(1)
+    out = val >> np.uint64(1)
     out &= _MASK55
     out = val - out
 
-    buf = out >> np.uint(2)
+    buf = out >> np.uint64(2)
     buf &= _MASK33
     out &= _MASK33
     out += buf
 
-    buf = out >> np.uint(4)
+    buf = out >> np.uint64(4)
     out += buf
     out &= _MASK0F
 
     out = np.multiply(out, _MASK01)
-    out >>= np.uint(56)
+    out >>= np.uint64(56)
     return out
 
 
-def _symplectic_weight_single(val: np.uint) -> np.uint:
+def _symplectic_weight_single(val: np.uint64) -> np.uint64:
     """Unbuffered version of `_symplectic_weight`, useful for vectorization."""
-    out = val >> np.uint(1)
+    out = val >> np.uint64(1)
     out |= val
     out &= _MASK55
 
-    buf = out >> np.uint(2)
+    buf = out >> np.uint64(2)
     buf &= _MASK33
     out &= _MASK33
     out += buf
 
-    buf = out >> np.uint(4)
+    buf = out >> np.uint64(4)
     out += buf
     out &= _MASK0F
 
     out = np.multiply(out, _MASK01)
-    out >>= np.uint(56)
+    out >>= np.uint64(56)
     return out
 
 
 def _get_hamming_weight_fn(
     use_numba: bool = False,
-) -> tuple[Callable[..., npt.NDArray[np.uint]], int]:
+) -> tuple[Callable[..., npt.NDArray[np.uint64]], int]:
     if use_numba:
         import numba
 
-        weight_fn = numba.vectorize([numba.uint(numba.uint)])(_hamming_weight_single)
+        weight_fn = numba.vectorize([numba.uint64(numba.uint64)])(_hamming_weight_single)
         return weight_fn, 0
 
     if getattr(np, "bitwise_count", None) is not None:
@@ -274,21 +274,21 @@ def _get_hamming_weight_fn(
 
 def _get_symplectic_weight_fn(
     use_numba: bool = False,
-) -> tuple[Callable[..., npt.NDArray[np.uint]], int]:
+) -> tuple[Callable[..., npt.NDArray[np.uint64]], int]:
     if use_numba:
         import numba
 
-        weight_fn = numba.vectorize([numba.uint(numba.uint)])(_symplectic_weight_single)
+        weight_fn = numba.vectorize([numba.uint64(numba.uint64)])(_symplectic_weight_single)
         return weight_fn, 0
 
     if getattr(np, "bitwise_count", None) is not None:
         np_bitwise_count = getattr(np, "bitwise_count")
 
         def weight_fn(
-            arr: npt.NDArray[np.uint],
-            buf: npt.NDArray[np.uint] | None = None,
-            out: npt.NDArray[np.uint] | None = None,
-        ) -> npt.NDArray[np.uint]:
+            arr: npt.NDArray[np.uint64],
+            buf: npt.NDArray[np.uint64] | None = None,
+            out: npt.NDArray[np.uint64] | None = None,
+        ) -> npt.NDArray[np.uint64]:
             """Symplectic weight of an integer."""
             buf = np.right_shift(arr, 1, out=buf)
             buf |= arr
@@ -305,7 +305,7 @@ def _count_trailing_zeros(val: int) -> int:
     return (val & -val).bit_length() - 1
 
 
-def _inplace_rowsum(arr: npt.NDArray[np.uint]) -> npt.NDArray[np.uint]:
+def _inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     """Destructively compute ``arr.sum(-1)``, placing the result in the first column or `arr`.
 
     When complete, the returned sum will be stored in ``arr[..., 0]``, while other entries in
@@ -321,8 +321,8 @@ def _inplace_rowsum(arr: npt.NDArray[np.uint]) -> npt.NDArray[np.uint]:
 
 
 def _rows_to_ints(
-    array: npt.ArrayLike, dtype: npt.DTypeLike = np.uint, axis: int = -1
-) -> npt.NDArray[np.uint]:
+    array: npt.ArrayLike, dtype: npt.DTypeLike = np.uint64, axis: int = -1
+) -> npt.NDArray[np.uint64]:
     """Pack rows of a binary array into rows of the given integral type."""
     array = np.asarray(array, dtype=dtype)
     tsize = array.itemsize * 8
@@ -331,11 +331,11 @@ def _rows_to_ints(
         num_words = int(np.ceil(array.shape[-1] / tsize))
         return np.empty((*array.shape[:-1], num_words), dtype=dtype)
 
-    def _to_int(bits: npt.NDArray[np.uint]) -> npt.NDArray[np.uint]:
+    def _to_int(bits: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
         """Pack `bits` into a single integer (of type `dtype`)."""
         return (bits << np.arange(len(bits) - 1, -1, -1, dtype=dtype)).sum(dtype=dtype)
 
-    def _to_ints(bits: npt.NDArray[np.uint]) -> list[npt.NDArray[np.uint]]:
+    def _to_ints(bits: npt.NDArray[np.uint64]) -> list[npt.NDArray[np.uint64]]:
         """Pack a single row of bits into a row of integers."""
         return [_to_int(bits[i : i + tsize]) for i in range(0, np.shape(bits)[-1], tsize)]
 

@@ -30,7 +30,7 @@ def test_state_prep() -> None:
 
     # construct a state prep circuit for the Steane code
     code = codes.SteaneCode()
-    state_prep_circuit = stim.Circuit("""
+    circuit = stim.Circuit("""
         # state prep
         H 0 2 4
         CX 0 3 2 1 4 5
@@ -43,10 +43,12 @@ def test_state_prep() -> None:
     """)
 
     # invalid logical state preparation
-    with pytest.raises(ValueError, match="does not prepare a logical state"):
-        circuits.benchmarking._assert_logical_state_preparation(
-            code, state_prep_circuit + stim.Circuit("X 0")
-        )
+    invalid_circuit = circuit + stim.Circuit("X 0")
+    with pytest.raises(ValueError, match="does not deterministically prepare a logical code"):
+        circuits.get_state_prep_diagnostic_circuit(code, invalid_circuit)
+    invalid_circuit = stim.Circuit("H 0\nCX 0 7") + circuits.get_encoding_circuit(code)
+    with pytest.raises(ValueError, match="unentangled from ancillas"):
+        circuits.get_state_prep_diagnostic_circuit(code, invalid_circuit)
 
     noise_model_family = circuits.DepolarizingNoiseModel
     error_rates = np.logspace(-3, -1, 5)
@@ -55,38 +57,64 @@ def test_state_prep() -> None:
     observables = code.get_logical_ops(Pauli.Z, symplectic=True)
     string_observables = [math.op_to_string(obs) for obs in observables]
 
+    # can only post-select on measurements in the circuit
+    with pytest.raises(ValueError, match="can only post-select on measurements indexed from"):
+        circuits.get_state_prep_diagnostic_tasks(
+            code,
+            circuit,
+            error_rates,
+            noise_model_family,
+            observables=string_observables,
+            post_select=[-1],
+        )
+
     # post selection is broken in sinter
     with pytest.raises(ValueError, match="bug in sinter"):
         circuits.get_state_prep_diagnostic_tasks(
             code,
-            state_prep_circuit,
+            circuit,
             error_rates,
             noise_model_family,
             observables=string_observables,
-            post_select_on_flags=True,
+            post_select=[0],
         )
 
     # build sinter tasks
     tasks = circuits.get_state_prep_diagnostic_tasks(
         code,
-        state_prep_circuit,
+        circuit,
         error_rates,
         noise_model_family,
         observables=string_observables,
-        post_select_on_flags=False,
     )
     for error_rate, task in zip(error_rates, tasks):
         assert task.json_metadata["p"] == error_rate
 
-    # cover alternative method for computing logical error rates
-    logical_error_rates, discard_rates = circuits.get_logical_error_and_discard_rates(
+    # find observables automatically
+    task = circuits.get_state_prep_diagnostic_tasks(
         code,
-        state_prep_circuit,
-        error_rates=[0],
+        circuit,
+        error_rates[:1],
+        noise_model_family,
+        observables=None,
+    )[0]
+    assert task == tasks[0]
+
+    # bypass sinter to compute logical error rates
+    logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
+        task.circuit,
         sinter_decoder=decoders.SinterDecoder(),
         num_samples=1,
-        observables=None,  # construct automatically
-        post_select_on_flags=True,
+        post_select=range(circuit.num_measurements),
     )
-    assert np.array_equal(logical_error_rates, [0])
-    assert np.array_equal(discard_rates, [0])
+    assert logical_error_rate == 0
+    assert discard_rate == 0
+
+    # incompatible DEMs for sampling and decoding
+    with pytest.raises(ValueError, match="Incompatible detector error models"):
+        circuits.get_logical_error_and_discard_rate(
+            task.circuit,
+            sinter_decoder=decoders.SinterDecoder(),
+            num_samples=1,
+            dem_to_decode=stim.DetectorErrorModel(),
+        )

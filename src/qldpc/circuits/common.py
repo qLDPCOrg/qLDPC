@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Mapping, Sequence
-from typing import ParamSpec, TypeVar, Union
+from typing import ParamSpec, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -28,7 +28,7 @@ import stim
 from qldpc import codes, math
 from qldpc.objects import Node, Pauli
 
-CircuitOrTableau = TypeVar("CircuitOrTableau", bound=Union[stim.Circuit, stim.Tableau])
+CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
 
 
@@ -169,21 +169,14 @@ def _get_logical_tableau_from_code_data(
 
     # compute the "upper left" block of the decoded tableau that acts on all logical qubits
     decoded_tableau = encoder.then(physical_tableau).then(decoder)
-    x2x, x2z, z2x, z2z, x_signs, z_signs = decoded_tableau.to_numpy()
-    logical_tableau = stim.Tableau.from_numpy(
-        x2x=x2x[:dimension, :dimension],
-        x2z=x2z[:dimension, :dimension],
-        z2x=z2x[:dimension, :dimension],
-        z2z=z2z[:dimension, :dimension],
-        x_signs=x_signs[:dimension],
-        z_signs=z_signs[:dimension],
-    )
+    logical_tableau = restrict_tableau(decoded_tableau, range(dimension))
 
     if not skip_validation:
         # identify sectors that address logical, gauge, and stabilizer qubits
         sector_l = slice(dimension)
         sector_g = slice(dimension, dimension + gauge_dimension)
         sector_s = slice(dimension + gauge_dimension, len(encoder))
+        x2x, x2z, z2x, z2z, *_ = decoded_tableau.to_numpy()
 
         # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
         assert not np.any(z2x[:, sector_s])
@@ -199,8 +192,22 @@ def _get_logical_tableau_from_code_data(
     return logical_tableau
 
 
+def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Tableau:
+    """Restrict the given stabilizer tableau to the sub-tableau at the specified qubits."""
+    x2x, x2z, z2x, z2z, x_signs, z_signs = tableau.to_numpy()
+    return stim.Tableau.from_numpy(
+        x2x=x2x[np.ix_(qubits, qubits)],
+        x2z=x2z[np.ix_(qubits, qubits)],
+        z2x=z2x[np.ix_(qubits, qubits)],
+        z2z=z2z[np.ix_(qubits, qubits)],
+        x_signs=x_signs[qubits],
+        z_signs=z_signs[qubits],
+    )
+
+
 def get_pauli_product_measurements(
     op_vecs: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+    qubits: Sequence[int] | None = None,
 ) -> stim.Circuit:
     """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
 
@@ -209,14 +216,20 @@ def get_pauli_product_measurements(
     measure the stabilizers of "code".
     """
     op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
-    if op_graph.field.order != 2:  # pragma: no cover
+    if op_graph.field.order != 2:
         raise ValueError("Circuit methods are only supported for qubit codes")
 
+    # identify qubit indices
+    num_qubits = sum(node.is_data for node in op_graph.nodes)
+    assert qubits is None or len(qubits) == num_qubits, "Incorrect number of qubits provided"
+    qubits = qubits or list(range(num_qubits))
+
+    # build circuit of MPP instructions
     circuit = stim.Circuit()
     for node_index in range(len(op_vecs)):
         op_node = Node(node_index, is_data=False)
         targets = [
-            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+            stim.target_pauli(qubits[data_node.index], str(edge_data[Pauli]))
             for _, data_node, edge_data in op_graph.edges(op_node, data=True)
         ]
         circuit.append("MPP", stim.target_combined_paulis(targets))
