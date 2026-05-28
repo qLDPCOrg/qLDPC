@@ -369,7 +369,7 @@ def get_nontrivial_logical_stabilizers(
 
 def _get_postselection_mask(
     post_select: bool | Sequence[int], num_measurements: int, num_detectors: int
-) -> npt.NDArray[np.int_] | None:
+) -> npt.NDArray[np.uint8] | None:
     """Build a post-selection mask for sinter."""
     if not post_select:
         return None
