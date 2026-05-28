@@ -219,15 +219,9 @@ def get_state_prep_diagnostic_tasks(
     diagnostic_circuit, _ = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables, skip_validation=skip_validation
     )
-    post_selection_indices = _get_post_selection_indices(
-        post_select, state_prep_circuit.num_measurements
+    postselection_mask = _get_postselection_mask(
+        post_select, state_prep_circuit.num_measurements, diagnostic_circuit.num_detectors
     )
-    if post_selection_indices:
-        postselection_array = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-        postselection_array[post_selection_indices] = 1
-        postselection_mask = np.packbits(postselection_array, bitorder="little")
-    else:
-        postselection_mask = None
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
@@ -373,18 +367,22 @@ def get_nontrivial_logical_stabilizers(
     return logical_stabilizers_rref @ code.get_logical_ops()
 
 
-def _get_post_selection_indices(
-    post_select: bool | Sequence[int], num_measurements: int
-) -> Sequence[int]:
-    """Parse a post selection argument."""
+def _get_postselection_mask(
+    post_select: bool | Sequence[int], num_measurements: int, num_detectors: int
+) -> npt.NDArray[np.int_] | None:
+    """Build a post-selection mask for sinter."""
+    if not post_select:
+        return None
     if isinstance(post_select, bool):
-        return tuple(range(num_measurements)) if post_select else ()
-    if not all(0 <= mm < num_measurements for mm in post_select):
+        post_select = tuple(range(num_measurements)) if post_select else ()
+    if not all(-num_measurements <= mm < num_measurements for mm in post_select):
         raise ValueError(
             f"A circuit with {num_measurements} can only post-select on measurements indexed from"
             f" 0 to {num_measurements - 1}; requested: {post_select}"
         )
-    return post_select
+    postselection_array = np.zeros(num_detectors, dtype=int)
+    postselection_array[post_select] = 1
+    return np.packbits(postselection_array, bitorder="little")
 
 
 def _get_code_stabilizers(
