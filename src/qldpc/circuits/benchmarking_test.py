@@ -65,18 +65,7 @@ def test_state_prep() -> None:
             error_rates,
             noise_model_family,
             observables=string_observables,
-            post_select=[-1],
-        )
-
-    # post selection is broken in sinter
-    with pytest.raises(ValueError, match="bug in sinter"):
-        circuits.get_state_prep_diagnostic_tasks(
-            code,
-            circuit,
-            error_rates,
-            noise_model_family,
-            observables=string_observables,
-            post_select=[0],
+            post_select=[circuit.num_measurements],  # measurements indexed are indexed from 0
         )
 
     # build sinter tasks
@@ -90,14 +79,21 @@ def test_state_prep() -> None:
     for error_rate, task in zip(error_rates, tasks):
         assert task.json_metadata["p"] == error_rate
 
-    # find observables automatically
+    # find observables automatically and post-select on all measurements
     task = circuits.get_state_prep_diagnostic_tasks(
         code,
         circuit,
         error_rates[:1],
         noise_model_family,
         observables=None,
+        post_select=True,
     )[0]
+    postselection_array = np.zeros(task.circuit.num_detectors, dtype=int)
+    postselection_array[: circuit.num_measurements] = 1
+    assert np.array_equal(
+        task.postselection_mask, np.packbits(postselection_array, bitorder="little")
+    )
+    task.postselection_mask = None
     assert task == tasks[0]
 
     # bypass sinter to compute logical error rates
