@@ -6,17 +6,17 @@ readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "Michael A. Perlin", email = "mika.perlin@gmail.com" }]
 keywords = [
-    "quantum computing",
-    "quantum error correction",
-    "low density parity check codes",
-    "LDPC",
+  "quantum computing",
+  "quantum error correction",
+  "low density parity check codes",
+  "LDPC",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Science/Research",
-    "Natural Language :: English",
-    "Topic :: Scientific/Engineering :: Mathematics",
-    "Topic :: Scientific/Engineering :: Physics",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Natural Language :: English",
+  "Topic :: Scientific/Engineering :: Mathematics",
+  "Topic :: Scientific/Engineering :: Physics",
 ]
 requires-python = ">=3.10"
 
@@ -38,10 +38,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "checks-superstaq>=0.5.62",
-    "jupyter>=1.1.1",
-    "python-lsp-server[all]>=1.14.0",
-    "relay-bp[stim]==0.2.1",
+  "checks-superstaq>=0.5.62",
+  "jupyter>=1.1.1",
+  "python-lsp-server[all]>=1.14.0",
+  "relay-bp[stim]==0.2.1",
 ]
 relay-bp = ["relay-bp[stim]==0.2.1"]
 
@@ -73,7 +73,7 @@ no_implicit_optional = true
 [tool.pytest.ini_options]
 addopts = "--disable-socket" # forbid tests from making network calls
 filterwarnings = [
-    'ignore:(?s).*The problem is either infeasible or unbounded.*:UserWarning', # from cvxpy
+  'ignore:(?s).*The problem is either infeasible or unbounded.*:UserWarning', # from cvxpy
 ]
 
 [tool.coverage.report]
