@@ -148,7 +148,7 @@ def get_state_prep_diagnostic_tasks(
     skip_validation: bool = False,
     metadata: dict[str, Hashable] | None = None,
 ) -> list[sinter.Task]:
-    """Helper method to build sinter Tasks for benchmarking a logical state preparation circuit.
+    r"""Helper method to build sinter Tasks for benchmarking a logical state preparation circuit.
 
     This method is essentially a wrapper for get_state_prep_diagnostic_circuit.
     See help(get_state_prep_diagnostic_circuit) for additional information.
