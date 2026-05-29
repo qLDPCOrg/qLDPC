@@ -423,7 +423,9 @@ def _assert_valid_code_state(
 
     # Stack the actual stabilizers of the code with the provided stabilizers, including sign bits.
     # This matrix should have exactly len(code) linearly independent rows.
-    matrix = math.block_matrix([[code.matrix, 0], [stab_mat, sign_bits.reshape(-1, 1)]])
+    matrix = math.block_matrix(
+        [[code.matrix.astype(np.uint8), 0], [stab_mat, sign_bits.reshape(-1, 1)]]
+    )
     matrix_rref = matrix.view(code.field).row_reduce()
     num_nonzero_rows = np.count_nonzero(np.any(matrix_rref, axis=1))
     if not len(stabilizers) == num_nonzero_rows == len(code):
