@@ -430,7 +430,7 @@ class WeightedLookupDecoder(LookupDecoder):
         add_erasure_bit: bool = False,
     ) -> None:
         pcm = (
-            DetectorErrorModelArrays(pcm_or_dem).detector_flip_matrix
+            DetectorErrorModelArrays(pcm_or_dem, simplify=False).detector_flip_matrix
             if isinstance(pcm_or_dem, stim.DetectorErrorModel)
             else pcm_or_dem
         )
