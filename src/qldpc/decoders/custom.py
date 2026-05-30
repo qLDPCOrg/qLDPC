@@ -73,8 +73,8 @@ class RelayBPDecoder(BatchDecoder):
     -------------------------
     1. relay_bp.ObservableDecoderRunner expects to be passed an observable_error_matrix when
         initialized.  If a RelayBPDecoder is initialized without an observable_error_matrix, this
-        matrix is set to np.empty((0, 0), dtype=int).  All observable-related methods of the decoder
-        will subsequently fail.
+        matrix is set to np.empty((0, 0), dtype=np.uint8).  All observable-related methods of the
+        decoder will subsequently fail.
     2. RelayBPDecoder "wants" to be a subclass of relay_bp.ObservableDecoderRunner.  However, the
         latter does not allow subclassing because it is implemented in rust and exposed to Python
         via bindings.  As a hack, if a decoder: RelayBPDecoder is asked for a method or attribute it
@@ -163,7 +163,7 @@ class RelayBPDecoder(BatchDecoder):
             pcm = pcm.tocsc()
             pcm.sort_indices()
         if observable_error_matrix is None:
-            observable_error_matrix = np.empty((0, 0), dtype=int)
+            observable_error_matrix = np.empty((0, 0), dtype=np.uint8)
 
         # build the decoder
         self.decoder = relay_bp.ObservableDecoderRunner(
@@ -303,12 +303,16 @@ class LookupDecoder(Decoder):
         # set some useful/necessary attributes
         self.shape: tuple[int, ...] = pcm.shape
         self.has_erasure_bit = add_erasure_bit
-        self.default_error_to_return = np.zeros(self.shape[1], dtype=int)
+        self.default_error_to_return = np.zeros(self.shape[1], dtype=pcm.dtype)
         if self.has_erasure_bit:
-            self.default_error_to_return = np.hstack([self.default_error_to_return, [1]])
+            self.default_error_to_return = np.hstack(
+                [self.default_error_to_return, np.ones(1, dtype=pcm.dtype)]
+            )
 
         def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            return np.hstack([error, [0]]) if self.has_erasure_bit else error
+            return (
+                np.hstack([error, np.zeros(1, dtype=pcm.dtype)]) if self.has_erasure_bit else error
+            )
 
         # start working on the decoding map from syndrome -> error
         self.syndrome_to_error: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
@@ -370,6 +374,7 @@ class LookupDecoder(Decoder):
 
         Errors are sorted in decreasing weight (number of bits/qudits addressed nontrivially).
         """
+        dtype = matrix.dtype
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
 
@@ -383,10 +388,10 @@ class LookupDecoder(Decoder):
                 error_site_indices = list(error_sites)
                 for local_errors in itertools.product(error_ops, repeat=weight):
                     error = code.field.Zeros((repeat, block_length))
-                    error[:, error_site_indices] = np.asarray(local_errors, dtype=int).T
+                    error[:, error_site_indices] = np.asarray(local_errors, dtype=dtype).T
                     error = error.ravel()
                     syndrome = matrix @ error
-                    yield error.view(np.ndarray), tuple(syndrome.view(np.ndarray))
+                    yield (error.view(np.ndarray).astype(dtype), tuple(syndrome.view(np.ndarray)))
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
@@ -436,7 +441,7 @@ class WeightedLookupDecoder(LookupDecoder):
         )
 
         def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            return np.hstack([error, [0]]) if add_erasure_bit else error
+            return np.hstack([error, np.zeros(1, dtype=pcm.dtype)]) if add_erasure_bit else error
 
         self.shape: tuple[int, ...] = pcm.shape
         self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
@@ -446,9 +451,11 @@ class WeightedLookupDecoder(LookupDecoder):
             self.syndrome_to_candidates[syndrome].append(_maybe_add_erasure_bit(error))
 
         self.has_erasure_bit = add_erasure_bit
-        self.default_correction = np.zeros(self.shape[1], dtype=int)
+        self.default_correction = np.zeros(self.shape[1], dtype=pcm.dtype)
         if add_erasure_bit:
-            self.default_correction = np.hstack([self.default_correction, [1]])
+            self.default_correction = np.hstack(
+                [self.default_correction, np.ones(1, dtype=pcm.dtype)]
+            )
 
     def decode(
         self,
@@ -501,6 +508,7 @@ class ILPDecoder(Decoder):
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
+
         # identify all constraints
         constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
 
@@ -514,7 +522,7 @@ class ILPDecoder(Decoder):
             raise ValueError(message + f"\nSolver output: {result}")
 
         # return solution to the problem variables
-        return self.variables.value.astype(int)
+        return self.variables.value.astype(syndrome.dtype)
 
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]
@@ -599,7 +607,7 @@ class GUFDecoder(Decoder):
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         max_weight = max_weight if max_weight is not None else self.default_max_weight
-        syndrome = np.asarray(syndrome, dtype=int).view(self.code.field)
+        syndrome = syndrome.view(self.code.field)
         syndrome_bits = np.where(syndrome)[0]
 
         # construct an "error set", within which we look for solutions to the decoding problem
@@ -614,7 +622,10 @@ class GUFDecoder(Decoder):
 
             # if the error set has not grown, there is no valid solution, so exit now
             if len(error_set) == last_error_set_size:
-                return np.zeros(len(self.code) * (2 if self.symplectic else 1), dtype=int)
+                return np.zeros(
+                    len(self.code) * (2 if self.symplectic else 1),
+                    dtype=syndrome.dtype,
+                )
             last_error_set_size = len(error_set)
 
             # check whether the syndrome can be induced by errors in the interior of the error_set
@@ -663,7 +674,7 @@ class GUFDecoder(Decoder):
         # construct the full error
         error = self.code.field.Zeros(len(self.code) * (2 if self.symplectic else 1))
         error[bits] = min_weight_solution
-        return error.view(np.ndarray)
+        return error.view(np.ndarray).astype(syndrome.dtype)
 
     def get_sub_problem_indices(
         self, syndrome: npt.NDArray[np.int_], error_set: set[Node]

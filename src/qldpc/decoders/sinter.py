@@ -533,7 +533,7 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
         assert num_detectors == self.dem_arrays.num_detectors
 
         # identify the net circuit error predicted by decoding one window at a time
-        net_error = np.zeros((num_samples, self.dem_arrays.num_errors), dtype=int)
+        net_error = np.zeros((num_samples, self.dem_arrays.num_errors), dtype=np.uint8)
         detector_flip_matrix_T = self.dem_arrays.detector_flip_matrix.T
         for detectors, (errors, error_locs), decoder in zip(
             self.window_detectors, self.window_errors, self.window_decoders

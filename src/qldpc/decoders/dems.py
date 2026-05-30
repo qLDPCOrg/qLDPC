@@ -81,14 +81,18 @@ class DetectorErrorModelArrays:
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly."""
         dem_arrays = object.__new__(DetectorErrorModelArrays)
-        dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(detector_flip_matrix)
+        dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(
+            detector_flip_matrix, dtype=np.uint8
+        )
 
         num_error_mechanisms = dem_arrays.detector_flip_matrix.shape[1]
         if observable_flip_matrix is None:
             shape = (0, num_error_mechanisms)
-            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(shape, dtype=int)
+            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(shape, dtype=np.uint8)
         else:
-            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(observable_flip_matrix)
+            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(
+                observable_flip_matrix, dtype=np.uint8
+            )
 
         if isinstance(error_probs, float):
             dem_arrays.error_probs = np.array([error_probs] * num_error_mechanisms)
@@ -230,13 +234,13 @@ class DetectorErrorModelArrays:
         """
         detector_flip_stack = [
             self.detector_flip_matrix,
-            scipy.sparse.csc_matrix((self.num_detectors, bits)),
+            scipy.sparse.csc_matrix((self.num_detectors, bits), dtype=np.uint8),
         ]
         detector_flip_matrix = scipy.sparse.hstack(detector_flip_stack, format="csc")
 
         observable_flip_blocks = [
             [self.observable_flip_matrix, None],
-            [None, scipy.sparse.eye(bits, dtype=int, format="csc")],
+            [None, scipy.sparse.eye(bits, dtype=np.uint8, format="csc")],
         ]
         observable_flip_matrix = scipy.sparse.bmat(observable_flip_blocks, format="csc")
 
