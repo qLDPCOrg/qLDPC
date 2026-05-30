@@ -180,6 +180,10 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
     )
     assert np.array_equal(compiled_sinter_decoder.decode_shots(shots), [[0], [1], [1]])
 
+    # decode the first detector: 0 syndrome -> no errors, 1 syndrome -> E1
+    assert np.array_equal(compiled_sinter_decoder.window_decoders[0].decode(np.array([0])), [0, 0])
+    assert np.array_equal(compiled_sinter_decoder.window_decoders[0].decode(np.array([1])), [0, 1])
+
 
 def test_sinter_decoder_with_erasure() -> None:
     """compile_decoder_for_dem expands the DEM with an erasure observable when has_erasure_bit."""
