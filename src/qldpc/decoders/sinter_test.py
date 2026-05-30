@@ -140,6 +140,47 @@ def test_sequential_decoding() -> None:
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
 
 
+def test_sequential_decoding_with_merged_window_errors() -> None:
+    """SequentialWindowDecoder wraps with _ExpandedWindowDecoder when window errors merge.
+
+    Consider two globally distinct errors:
+        E0: flips D0, D1, L0,
+        E1: flips D0, D2, L0.
+    If a window decoder is restricted to detector D0, both errors look identical:
+        E0: flips D0, L0,
+        E1: flips D0, L0.
+    A window decoder may therefore merge these errors into one:
+        E0': flips D0, L0.
+     In this case, after decoding the window decoder has to map the error E0' back to E0 or E1 after
+     decoding.  Note that E0 and E1 flip the same observable (L0), so the choice of E0 or E1 does not
+     affect observable predictions.
+    """
+
+    dem = stim.DetectorErrorModel("""
+        error(0.3) D0 D1 L0
+        error(0.2) D0 D2 L0
+    """)
+
+    sinter_decoder = decoders.SequentialWindowDecoder([[0], [1, 2]], with_lookup=True, max_weight=2)
+    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
+    assert isinstance(
+        compiled_sinter_decoder.window_decoders[0],
+        decoders.sinter._ExpandedWindowDecoder,
+    )
+
+    # Check correctness on explicit shots: no error, E0, and E1 individually.
+    # Both E0 and E1 flip L0, so either firing → L0 = 1.
+    shots = np.array(
+        [
+            [0, 0, 0],  # no error      → L0 = 0
+            [1, 1, 0],  # E0 fires      → L0 = 1
+            [1, 0, 1],  # E1 fires      → L0 = 1
+        ],
+        dtype=np.uint8,
+    )
+    assert np.array_equal(compiled_sinter_decoder.decode_shots(shots), [[0], [1], [1]])
+
+
 def test_sinter_decoder_with_erasure() -> None:
     """compile_decoder_for_dem expands the DEM with an erasure observable when has_erasure_bit."""
     dem = stim.DetectorErrorModel("""

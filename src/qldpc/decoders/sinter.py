@@ -516,9 +516,7 @@ class _ExpandedWindowDecoder(Decoder):
         }
 
         if signature_to_simplified_error_index.keys() != signature_to_original_error_index.keys():
-            raise ValueError(
-                f"Incompatible error sets provided to {type(self)}"
-            )  # pragma: no cover
+            raise ValueError("Incompatible error sets")  # pragma: no cover
 
         self._simplified_to_original_index = np.full(len(simplified_errors), -1, dtype=np.intp)
         for signature, original_error_index in signature_to_original_error_index.items():
