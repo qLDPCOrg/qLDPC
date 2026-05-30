@@ -161,7 +161,7 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
         error(0.2) D0 D2 L0
     """)
 
-    sinter_decoder = decoders.SequentialWindowDecoder([[0], [1, 2]], with_lookup=True, max_weight=2)
+    sinter_decoder = decoders.SequentialWindowDecoder([[0], [1, 2]], with_BP_OSD=True)
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
     assert isinstance(
         compiled_sinter_decoder.window_decoders[0],

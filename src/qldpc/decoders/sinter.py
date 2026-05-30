@@ -459,12 +459,9 @@ class SequentialWindowDecoder(SinterDecoder):
             # equivalent, which the window_decoder will merge into one error mechanism.  In this
             # case, wrap the decoder into an _ExpandingDecoder that maps decoded errors in the
             # simflified DEM to errors in the full DEM.
-            unmerged_errors = DetectorErrorModelArrays.get_circuit_errors(window_dem)
-            merged_errors = DetectorErrorModelArrays.get_merged_circuit_errors(unmerged_errors)
-            if len(merged_errors) < len(unmerged_errors):
-                window_decoder = _ExpandedWindowDecoder(
-                    window_decoder, unmerged_errors, merged_errors
-                )
+            test_error = window_decoder.decode(np.zeros(window_dem.num_detectors, dtype=int))
+            if len(test_error) < window_dem.num_errors:
+                window_decoder = _ExpandedWindowDecoder(window_decoder, window_dem)
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -494,13 +491,11 @@ class _ExpandedWindowDecoder(Decoder):
     errors in the original DEM.
     """
 
-    def __init__(
-        self,
-        decoder: Decoder,
-        original_errors: list[tuple[frozenset[int], frozenset[int], float]],
-        simplified_errors: list[tuple[frozenset[int], frozenset[int], float]],
-    ) -> None:
+    def __init__(self, decoder: Decoder, window_dem: stim.DetectorErrorModel) -> None:
         self._decoder = decoder
+
+        original_errors = DetectorErrorModelArrays.get_circuit_errors(window_dem)
+        simplified_errors = DetectorErrorModelArrays.get_merged_circuit_errors(original_errors)
         self._num_original_errors = len(original_errors)
 
         # map each detector/observable signature to an original error index
