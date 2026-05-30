@@ -501,18 +501,18 @@ class _ExpandedWindowDecoder(Decoder):
         simplified_errors: list[tuple[frozenset[int], frozenset[int], float]],
     ) -> None:
         self._decoder = decoder
-        self._num_old_errors = len(original_errors)
+        self._num_original_errors = len(original_errors)
 
         # map each detector/observable signature to an original error index
         signature_to_original_error_index = {
-            (detectors, observables): old_error_index
-            for old_error_index, (detectors, observables, _) in enumerate(original_errors)
+            (detectors, observables): original_error_index
+            for original_error_index, (detectors, observables, _) in enumerate(original_errors)
         }
 
         # map each detector/observable signature to a simplified error index
         signature_to_simplified_error_index = {
-            (detectors, observables): new_error_index
-            for new_error_index, (detectors, observables, _) in enumerate(simplified_errors)
+            (detectors, observables): simplified_error_index
+            for simplified_error_index, (detectors, observables, _) in enumerate(simplified_errors)
         }
 
         if signature_to_simplified_error_index.keys() != signature_to_original_error_index.keys():
@@ -527,19 +527,19 @@ class _ExpandedWindowDecoder(Decoder):
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         simplified_error = np.asarray(self._decoder.decode(syndrome))
-        original_error = np.zeros(self._num_old_errors, dtype=simplified_error.dtype)
+        original_error = np.zeros(self._num_original_errors, dtype=simplified_error.dtype)
         original_error[self._simplified_to_original_index] = simplified_error
         return np.asarray(original_error, dtype=np.int_)
 
     def decode_batch(self, syndromes: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        simplified_error = (
+        simplified_errors = (
             self._decoder.decode_batch(syndromes)
             if hasattr(self._decoder, "decode_batch")
             else np.array([self._decoder.decode(syndrome) for syndrome in syndromes])
         )
-        original_error = np.zeros((len(syndromes), self._num_old_errors), dtype=np.uint8)
-        original_error[:, self._simplified_to_original_index] = simplified_error
-        return original_error
+        original_errors = np.zeros((len(syndromes), self._num_original_errors), dtype=np.uint8)
+        original_errors[:, self._simplified_to_original_index] = simplified_errors
+        return original_errors
 
 
 class SequentialSinterDecoder(SequentialWindowDecoder):  # pragma: no cover
