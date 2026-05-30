@@ -519,18 +519,20 @@ class _ExpandedWindowDecoder(Decoder):
             self._simplified_to_original_index[simplified_error_index] = original_error_index
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        simplified_error = np.asarray(self._decoder.decode(syndrome))
-        original_error = np.zeros(self._num_original_errors, dtype=simplified_error.dtype)
+        simplified_error = self._decoder.decode(syndrome)
+        original_error = np.zeros(self._num_original_errors, dtype=syndrome.dtype)
         original_error[self._simplified_to_original_index] = simplified_error
-        return np.asarray(original_error, dtype=np.int_)
+        return np.asarray(original_error, dtype=syndrome.dtype)
 
-    def decode_batch(self, syndromes: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         simplified_errors = (
             self._decoder.decode_batch(syndromes)
             if hasattr(self._decoder, "decode_batch")
             else np.array([self._decoder.decode(syndrome) for syndrome in syndromes])
         )
-        original_errors = np.zeros((len(syndromes), self._num_original_errors), dtype=np.uint8)
+        original_errors = np.zeros(
+            (len(syndromes), self._num_original_errors), dtype=syndromes.dtype
+        )
         original_errors[:, self._simplified_to_original_index] = simplified_errors
         return original_errors
 
