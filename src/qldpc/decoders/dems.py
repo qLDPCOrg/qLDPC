@@ -119,39 +119,48 @@ class DetectorErrorModelArrays:
     @staticmethod
     def get_circuit_errors(
         dem: stim.DetectorErrorModel,
-    ) -> list[tuple[frozenset[int], frozenset[int], float]]:
-        """Collect all circuit errors in a stim.DetectorErrorModel.
+    ) -> list[tuple[float, list[tuple[frozenset[int], frozenset[int]]]]]:
+        """Collect all circuit errors in a stim.DetectorErrorModel into a list.
 
-        Each circuit error is identified by:
-        - a set of detectors that are flipped,
-        - a set of observables that are flipped, and
-        - a probability of occurrence.
+        Each circuit error is nominally identified by:
+            - a probability of occurrence,
+            - a set of detectors that are flipped,
+            - a set of observables that are flipped.
+        In addition, a stim.DetectorErrorModel can come equipped with suggested decompositions of
+        errors, which splits the detector/observable targets of an error into groups.  To accomodate
+        decomposition suggestions, a circuit error is identified by
+            - a probability of occurrence,
+            - a list of (detector, observable) sets, one per suggested decomposition component.
+        Errors with no suggested decompositions have a single-element component list.
 
-        If a detector or observable appears multiple times in an error, its occurrences are reduced
-        to the original value mod 2.
+        If a detector or observable appears multiple times within one component, its occurrences
+        are reduced to the original value mod 2.
         """
-        errors = []
+        errors: list[tuple[float, list[tuple[frozenset[int], frozenset[int]]]]] = []
         for instruction in dem.flattened():
             if instruction.type != "error":
                 continue
             probability = instruction.args_copy()[0]
 
-            # Split the target list on ``^`` separators; an un-decomposed error yields one component.
-            components: list[list[stim.DemTarget]] = [[]]
+            # identify components that are split by target separators
+            target_components: list[list[stim.DemTarget]] = [[]]
             for target in instruction.targets_copy():
                 if target.is_separator():
-                    components.append([])
+                    target_components.append([])
                 else:
-                    components[-1].append(target)
+                    target_components[-1].append(target)
 
-            for component in components:
+            components: list[tuple[frozenset[int], frozenset[int]]] = []
+            for targets in target_components:
                 detectors = _values_that_occur_an_odd_number_of_times(
-                    [t.val for t in component if t.is_relative_detector_id()]
+                    [target.val for target in targets if target.is_relative_detector_id()]
                 )
                 observables = _values_that_occur_an_odd_number_of_times(
-                    [t.val for t in component if t.is_logical_observable_id()]
+                    [target.val for target in targets if target.is_logical_observable_id()]
                 )
-                errors.append((detectors, observables, probability))
+                components.append((detectors, observables))
+
+            errors.append((probability, sorted(components)))
         return errors
 
     @staticmethod

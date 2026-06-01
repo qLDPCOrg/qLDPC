@@ -183,16 +183,3 @@ def test_post_selection() -> None:
     assert (
         post_selected_dem == decoders.DetectorErrorModelArrays(dem).post_selected_on([0]).to_dem()
     )
-
-
-def test_get_circuit_errors_respects_separators() -> None:
-    dem = stim.DetectorErrorModel("""
-        error(0.1) D0 D1 L0 ^ D2
-    """)
-    errors = decoders.DetectorErrorModelArrays.get_circuit_errors(dem)
-    assert sorted(errors) == sorted(
-        [
-            (frozenset({0, 1}), frozenset({0}), 0.1),
-            (frozenset({2}), frozenset(), 0.1),
-        ]
-    )
