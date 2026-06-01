@@ -33,18 +33,23 @@ class DetectorErrorModelArrays:
     """Representation of a stim.DetectorErrorModel by a collection of arrays.
 
     A DetectorErrorModelArrays object organizes the data in a stim.DetectorErrorModel into:
-    1. detector_flip_matrix: a binary matrix that maps circuit errors to detector flips,
-    2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
-    3. error_probs: an array of probabilities of occurrence for each circuit error.
+        1. detector_flip_matrix: a binary matrix that maps circuit errors to detector flips,
+        2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
+        3. error_probs: an array of probabilities of occurrence for each circuit error.
 
-    A DetectorErrorModelArrays is almost one-to-one with a stim.DetectorErrorModel instance.  The
-    only differences are that a DetectorErrorModelArrays (a) "merges" circuit errors that flip the
-    same set of detectors and observables, and (b) does not preserve detector coordinate data.
+    In addition, DetectorErrorModelArrays keeps track of suggestions that a stim.DetectorErrorModel
+    provides for how to decompose errors.
+
+    A DetectorErrorModelArrays is _almost_ one-to-one with a stim.DetectorErrorModel instance.  The
+    primary differences are that a DetectorErrorModelArrays object
+        (a) merges equivalent circuit errors (which can be disabled with simplify=False), and
+        (b) does not preserve detector coordinate data.
     """
 
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
     error_probs: npt.NDArray[np.floating]  # probability of occurrence for each error
+    suggested_decompositions: dict[int, frozenset[tuple[frozenset[int], frozenset[int]]]]
 
     def __init__(
         self, circuit_or_dem: stim.Circuit | stim.DetectorErrorModel, *, simplify: bool = True
@@ -63,6 +68,11 @@ class DetectorErrorModelArrays:
                 errors, dem.num_detectors, dem.num_observables
             )
         )
+        self.suggested_decompositions = {
+            error_index: components
+            for error_index, (_, components) in enumerate(errors)
+            if len(components) > 1
+        }
 
     def get_arrays(
         self,
@@ -102,6 +112,7 @@ class DetectorErrorModelArrays:
         else:
             dem_arrays.error_probs = np.asarray(error_probs)
 
+        dem_arrays.suggested_decompositions = {}
         return dem_arrays
 
     @property
