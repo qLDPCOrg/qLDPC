@@ -230,17 +230,31 @@ class DetectorErrorModelArrays:
 
         # add detectors and observables
         for dd in range(self.num_detectors):
-            dem += stim.DetectorErrorModel(f"detector D{dd}")
-        for dd in range(self.num_observables):
-            dem += stim.DetectorErrorModel(f"logical_observable L{dd}")
+            dem.append("detector", [], [stim.DemTarget.relative_detector_id(dd)])
+        for oo in range(self.num_observables):
+            dem.append("logical_observable", [], [stim.DemTarget.logical_observable_id(oo)])
 
         # add errors
-        for detector_vec, observable_vec, prob in zip(
-            self.detector_flip_matrix.T, self.observable_flip_matrix.T, self.error_probs
-        ):
-            detectors = " ".join([f"D{dd}" for dd in sorted(detector_vec.nonzero()[1])])
-            observables = " ".join([f"L{dd}" for dd in sorted(observable_vec.nonzero()[1])])
-            dem += stim.DetectorErrorModel(f"error({prob}) {detectors} {observables}")
+        for error_index, prob in enumerate(self.error_probs):
+            if error_index in self.suggested_decompositions:
+                targets = []
+                target_groups = self.suggested_decompositions[error_index]
+                for gg, (detectors, observables) in enumerate(target_groups):
+                    if gg > 0:
+                        targets.append(stim.DemTarget.separator())
+                    det_targets = [stim.DemTarget.relative_detector_id(dd) for dd in detectors]
+                    obs_targets = [stim.DemTarget.logical_observable_id(oo) for oo in observables]
+                    targets.extend(det_targets)
+                    targets.extend(obs_targets)
+            else:
+                detectors = self.detector_flip_matrix[:, error_index].nonzero()[0]
+                observables = self.observable_flip_matrix[:, error_index].nonzero()[0]
+                det_targets = [stim.DemTarget.relative_detector_id(dd) for dd in detectors]
+                obs_targets = [stim.DemTarget.logical_observable_id(oo) for oo in observables]
+                targets = det_targets + obs_targets
+
+            dem.append("error", prob, targets)
+
 
         return dem
 

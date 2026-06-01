@@ -31,7 +31,7 @@ def test_initialization() -> None:
         logical_observable L0
         logical_observable L1
         error(0.001) D0
-        error(0.002) D0 ^ D1
+        error(0.002) D1 ^ D0
         error(0.003) D2 L1
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
