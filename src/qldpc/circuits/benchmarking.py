@@ -288,7 +288,7 @@ def get_logical_error_and_discard_rate(
             raise ValueError(
                 f"Incompatible detector error models."
                 "\n(num_detectors, num_observables) in the DEM to sample (after post-selection):"
-                f" {(dem.num_detectors - len(post_select), dem.num_observables)}\n"
+                f" {(dem.num_detectors - len(post_select), dem.num_observables)}"
                 "\n(num_detectors, num_observables) in the DEM to decode:"
                 f" {(dem_to_decode.num_detectors, dem_to_decode.num_observables)}"
             )
@@ -346,14 +346,14 @@ def get_nontrivial_logical_stabilizers(
     Returns:
         A list of logical Pauli operators supported on the data qubits of the provided code.
     """
-    code_stabilizers = _get_code_stabilizers(code, state_prep_circuit)
+    state_stabilizers = _get_state_stabilizers(code, state_prep_circuit)
     if not skip_validation:
-        _assert_valid_code_state(code, code_stabilizers)
+        _assert_valid_code_state(code, state_stabilizers)
 
     # identify logical stabilizers of the code, in the logical Pauli basis
     logical_stabilizers = []
     encoder, decoder = get_encoder_and_decoder(code)
-    for stabilizer in code_stabilizers:
+    for stabilizer in state_stabilizers:
         stabilizer_in_logical_basis = stabilizer.after(decoder, targets=range(len(code)))
         logical_stabilizer = math.string_to_op(stabilizer_in_logical_basis[: code.dimension])
         logical_stabilizers.append(logical_stabilizer)
@@ -385,7 +385,7 @@ def _get_postselection_mask(
     return np.packbits(postselection_array, bitorder="little")
 
 
-def _get_code_stabilizers(
+def _get_state_stabilizers(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit
 ) -> list[stim.PauliString]:
     """Identify stabilizers of the prepared state that are supported on the data qubits of the code.
@@ -394,19 +394,79 @@ def _get_code_stabilizers(
     stabilizers should be outputs of stabilizer flows of the form "1 -> P".
     """
     resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
-    full_stabs = [
-        flow.output_copy()
-        for flow in (resets + state_prep_circuit.without_noise()).flow_generators()
-        if not np.any(flow.input_copy())  # filter for stabilizer flows of the form "1 -> ..."
-        and not flow.measurements_copy()  # ignore flows that flip measurement outcomes
-        and not np.any(flow.output_copy()[len(code) :])  # filter for flows supported on data qubits
-    ]
-    code_stabs = []
-    for stab in full_stabs:
-        xs, zs = stab.to_numpy()
-        string = stim.PauliString.from_numpy(xs=xs[: len(code)], zs=zs[: len(code)], sign=stab.sign)
-        code_stabs.append(string)
-    return code_stabs
+    circuit = resets + state_prep_circuit.without_noise()
+
+    # identify some useful numbers
+    num_qubits = state_prep_circuit.num_qubits
+    num_measurements = state_prep_circuit.num_measurements
+    num_observables = state_prep_circuit.num_observables
+    num_columns = 2 * num_qubits + 1 + num_measurements + num_observables
+
+    # identify the columns of the stabilizer matrix at which to place Pauli string support
+    num_meas_obs = num_measurements + num_observables
+    cols_other_x = slice(num_meas_obs, num_meas_obs + num_qubits - len(code))
+    cols_other_z = slice(cols_other_x.stop, cols_other_x.stop + num_qubits - len(code))
+    cols_x = slice(cols_other_z.stop, cols_other_z.stop + len(code))
+    cols_z = slice(cols_x.stop, cols_x.stop + len(code))
+
+    # build a matrix of stabilizers for the entire circuit output
+    flow_generators = circuit.flow_generators()
+    matrix = code.field.Zeros((len(flow_generators), num_columns))
+    for gg, flow in enumerate(flow_generators):
+        for measurement in flow.measurements_copy():
+            matrix[gg, measurement] = 1
+        for observable in flow.included_observables_copy():
+            matrix[gg, num_measurements + observable] = 1
+        pauli_string = flow.output_copy()
+        if pauli_string:
+            xs, zs = pauli_string.to_numpy()
+            matrix[gg, cols_x] = xs[: len(code)].astype(np.uint8)
+            matrix[gg, cols_z] = zs[: len(code)].astype(np.uint8)
+            matrix[gg, cols_other_x] = xs[len(code) :].astype(np.uint8)
+            matrix[gg, cols_other_z] = zs[len(code) :].astype(np.uint8)
+            matrix[gg, -1] = 0 if pauli_string.sign == 1 else 1
+
+    print(matrix.row_reduce()[:, -2 * len(code) - 1 :])
+    exit()
+
+    # identify stabilizers that are supported entirely on the data qubits of the code
+    state_stabs = []
+    for row in matrix.row_reduce():
+        if not np.any(row[: -2 * len(code) - 1]):
+            string = stim.PauliString.from_numpy(
+                xs=row[cols_x] != 0,
+                zs=row[cols_z] != 0,
+                sign=-1 if row[-1] else 1,
+            )
+            state_stabs.append(string)
+        else:
+            xs = row[cols_x] != 0
+            zs = row[cols_z] != 0
+            if np.any(xs) or np.any(zs):
+                print()
+                print()
+                print(row)
+                print(row[: -2 * len(code) - 1])
+                string = stim.PauliString.from_numpy(
+                    xs=row[cols_x] != 0,
+                    zs=row[cols_z] != 0,
+                    sign=-1 if row[-1] else 1,
+                )
+                print(string)
+                string_other = stim.PauliString.from_numpy(
+                    xs=row[cols_other_x] != 0,
+                    zs=row[cols_other_z] != 0,
+                    sign=-1 if row[-1] else 1,
+                )
+                print(string_other)
+
+    print()
+    print("AAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    for stab in state_stabs:
+        print(stab)
+    exit()
+
+    return state_stabs
 
 
 def _assert_valid_code_state(
@@ -414,7 +474,7 @@ def _assert_valid_code_state(
 ) -> None:
     """Assert that the provided stabilizers specify a unique logical state of the provided code."""
     stabilizers = (
-        _get_code_stabilizers(code, circuit_or_stabilizers)
+        _get_state_stabilizers(code, circuit_or_stabilizers)
         if isinstance(circuit_or_stabilizers, stim.Circuit)
         else circuit_or_stabilizers
     )
