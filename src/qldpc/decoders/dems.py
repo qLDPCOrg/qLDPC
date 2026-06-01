@@ -91,6 +91,8 @@ class DetectorErrorModelArrays:
         detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_],
         observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_] | None,
         error_probs: npt.NDArray[np.floating] | float,
+        suggested_decompositions: dict[int, frozenset[tuple[frozenset[int], frozenset[int]]]]
+        | None = None,
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly."""
         dem_arrays = object.__new__(DetectorErrorModelArrays)
@@ -112,7 +114,7 @@ class DetectorErrorModelArrays:
         else:
             dem_arrays.error_probs = np.asarray(error_probs)
 
-        dem_arrays.suggested_decompositions = {}
+        dem_arrays.suggested_decompositions = suggested_decompositions or {}
         return dem_arrays
 
     @property
@@ -254,7 +256,6 @@ class DetectorErrorModelArrays:
                 targets = det_targets + obs_targets
 
             dem.append("error", prob, targets)
-
 
         return dem
 
