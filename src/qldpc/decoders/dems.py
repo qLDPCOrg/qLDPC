@@ -135,6 +135,8 @@ class DetectorErrorModelArrays:
     @staticmethod
     def get_circuit_errors(
         dem: stim.DetectorErrorModel,
+        *,
+        apply_suggested_decompositions: bool = False,
     ) -> list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]]:
         """Collect all circuit errors in a stim.DetectorErrorModel into a list.
 
@@ -148,6 +150,9 @@ class DetectorErrorModelArrays:
             - a probability of occurrence,
             - a set of (detector_set, observable_set) tuples, one per suggested component.
         Errors with no suggested decompositions have a single component.
+
+        If apply_suggested_decompositions is True, all errors are decomposed into single-component
+        errors.
 
         If a detector or observable appears multiple times within one component, its occurrences
         are reduced to the original value mod 2.
@@ -174,9 +179,14 @@ class DetectorErrorModelArrays:
                 observables = _values_that_occur_an_odd_number_of_times(
                     [target.val for target in targets if target.is_logical_observable_id()]
                 )
-                components.append((detectors, observables))
+                if apply_suggested_decompositions:
+                    errors.append((probability, frozenset([(detectors, observables)])))
+                else:
+                    components.append((detectors, observables))
 
-            errors.append((probability, _values_that_occur_an_odd_number_of_times(components)))
+            if not apply_suggested_decompositions:
+                errors.append((probability, _values_that_occur_an_odd_number_of_times(components)))
+
         return errors
 
     @staticmethod
@@ -326,6 +336,21 @@ class DetectorErrorModelArrays:
             observable_flip_matrix,
             np.hstack([self.error_probs, [0] * bits]),
             self.suggested_decompositions,
+        )
+
+    def with_suggested_decompositions(self) -> DetectorErrorModelArrays:
+        """Split error mechanisms according to their suggested decompositions.
+
+        Each error with a suggested decomposition is replaced by its individual components, each
+        inheriting the same probability.  Errors without a decomposition are kept as-is.
+        """
+        errors = DetectorErrorModelArrays.get_circuit_errors(
+            self.to_detector_error_model(), apply_suggested_decompositions=True
+        )
+        return DetectorErrorModelArrays.from_arrays(
+            *DetectorErrorModelArrays.get_arrays_from_errors(
+                errors, self.num_detectors, self.num_observables
+            )
         )
 
 

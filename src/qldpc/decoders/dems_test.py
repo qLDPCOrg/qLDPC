@@ -65,8 +65,6 @@ def test_initialization() -> None:
 def test_simplify() -> None:
     """Simplify and merge errors."""
 
-    # TODO: test simplification with vs. without decomposing errors
-
     # simplification rules exercised below:
     # - D0 D0 D0 → D0 (odd number of like targets collapses to one)
     # - error(0) and error(p) with even-count targets (D2 D2) are dropped
