@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import collections
 from collections.abc import Collection
+from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 import stim
+
+HashableType = TypeVar("HashableType")
 
 
 class DetectorErrorModelArrays:
@@ -119,7 +122,7 @@ class DetectorErrorModelArrays:
     @staticmethod
     def get_circuit_errors(
         dem: stim.DetectorErrorModel,
-    ) -> list[tuple[float, list[tuple[frozenset[int], frozenset[int]]]]]:
+    ) -> list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]]:
         """Collect all circuit errors in a stim.DetectorErrorModel into a list.
 
         Each circuit error is nominally identified by:
@@ -130,13 +133,13 @@ class DetectorErrorModelArrays:
         errors, which splits the detector/observable targets of an error into groups.  To accomodate
         decomposition suggestions, a circuit error is identified by
             - a probability of occurrence,
-            - a list of (detector, observable) sets, one per suggested decomposition component.
-        Errors with no suggested decompositions have a single-element component list.
+            - a set of (detector_set, observable_set) tuples, one per suggested component.
+        Errors with no suggested decompositions have a single component.
 
         If a detector or observable appears multiple times within one component, its occurrences
         are reduced to the original value mod 2.
         """
-        errors: list[tuple[float, list[tuple[frozenset[int], frozenset[int]]]]] = []
+        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]] = []
         for instruction in dem.flattened():
             if instruction.type != "error":
                 continue
@@ -160,23 +163,22 @@ class DetectorErrorModelArrays:
                 )
                 components.append((detectors, observables))
 
-            errors.append((probability, sorted(components)))
+            errors.append((probability, _values_that_occur_an_odd_number_of_times(components)))
         return errors
 
     @staticmethod
     def get_merged_circuit_errors(
-        errors: list[tuple[frozenset[int], frozenset[int], float]],
-    ) -> list[tuple[frozenset[int], frozenset[int], float]]:
-        """Merge circuit errors that flip the same detectors and observables."""
-        merged_errors: dict[tuple[frozenset[int], frozenset[int]], float] = {}
-        for detector_ids, observable_ids, prob in errors:
-            key = (detector_ids, observable_ids)
-            previous_prob = merged_errors.get(key, 0.0)
-            merged_errors[key] = previous_prob + prob - 2 * previous_prob * prob
+        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]],
+    ) -> list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]]:
+        """Merge circuit errors that have the same targets."""
+        merged: dict[frozenset[tuple[frozenset[int], frozenset[int]]], float] = {}
+        for prob, targets in errors:
+            previous_prob = merged.get(targets, 0.0)
+            merged[targets] = previous_prob + prob - 2 * previous_prob * prob
         return [
-            (detectors, observables, prob)
-            for (detectors, observables), prob in merged_errors.items()
-            if (detectors or observables) and prob  # drop inconsequential error mechanisms
+            (prob, targets)
+            for targets, prob in merged.items()
+            if any(det or obs for det, obs in targets) and prob  # drop inconsequential errors
         ]
 
     @staticmethod
@@ -270,6 +272,8 @@ class DetectorErrorModelArrays:
         )
 
 
-def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
+def _values_that_occur_an_odd_number_of_times(
+    items: Collection[HashableType],
+) -> frozenset[HashableType]:
     """Subset of items that occur an odd number of times."""
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
