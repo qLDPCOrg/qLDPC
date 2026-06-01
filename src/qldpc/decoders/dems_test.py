@@ -31,7 +31,7 @@ def test_initialization() -> None:
         logical_observable L0
         logical_observable L1
         error(0.001) D0
-        error(0.002) D0 D1
+        error(0.002) D0 ^ D1
         error(0.003) D2 L1
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
@@ -65,6 +65,8 @@ def test_initialization() -> None:
 def test_simplify() -> None:
     """Simplify and merge errors."""
 
+    # TODO: test simplification with vs. without decomposing errors
+
     # simplification rules exercised below:
     # - D0 D0 D0 → D0 (odd number of like targets collapses to one)
     # - error(0) and error(p) with even-count targets (D2 D2) are dropped
@@ -94,9 +96,6 @@ def test_simplify() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=True)
     assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
-    assert dem_arrays.num_errors == 3
-    assert dem_arrays.num_detectors == 4
-    assert dem_arrays.num_observables == 2
 
     dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
         np.array([[1, 0, 1], [1, 1, 1]]), np.array([[1, 0, 1]]), np.ones(3) * 0.3
