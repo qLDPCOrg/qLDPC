@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import abc
 import collections
+import dataclasses
 import functools
 import itertools
 import random
 import warnings
-from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import Any, Iterator, cast
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from typing import Any, Iterator, TypeVar, cast
 
 import galois
 import networkx as nx
@@ -725,9 +726,7 @@ class ClassicalCode(AbstractCode):
 
     def get_logical_error_rate_func(
         self, num_samples: int, max_error_rate: float = 0.3, **decoder_kwargs: Any
-    ) -> Callable[
-        [float | Sequence[float]], tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]
-    ]:
+    ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
@@ -740,67 +739,59 @@ class ClassicalCode(AbstractCode):
         The logical error rate returned by the constructed function the probability with which a
         code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
 
-        The basic idea in this method is to first think of the decoding fidelity F(p) = 1 -
-        logical_error_rate(p) as a function of the physical error rate p, and decompose
+        The basic idea in this method is to think of the fidelity
+            F(p) = 1 - logical_error_rate(p)
+        as a function of the physical error rate p, and decompose
             F(p) = sum_k q_k(p) F_k,
-        where q_k(p) = (n choose k) p**k (1-p)**(n-k) is the probability of a weight-k error (here n
-        is total number of bits in the code), and F_k is the probability with which a weight-k error
-        is corrected by the decoder.  Importantly, F_k is independent of p.  We therefore use our
-        sample budget to compute estimates of F_k (according to some allocation of samples to each
-        weight k, which depends on the max_error_rate), and then recycle the values of F_k to
-        compute each F(p).
+        where
+            q_k(p) = (n choose k) p**k (1-p)**(n-k)
+        is the probability of a weight-k error (here n is total number of bits in the code), and F_k
+        is the probability with which a weight-k error is corrected by the decoder.  Importantly,
+        F_k is independent of p.  We therefore use our sample budget to compute estimates of F_k
+        (according to some allocation of samples to each weight k, which depends on the
+        max_error_rate), and then recycle the values of F_k to compute each F(p).
 
         There is one more minor trick, which is that we can use the fact that F_0 = 1 to simplify
             F(p) = q_0(p) + sum_(k>0) q_k(p) F_k.
         We thereby only need to sample errors of weight k > 0.
         """
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
-        if not isinstance(decoder, decoders.DirectDecoder):
-            decoder = decoders.DirectDecoder.from_indirect(decoder, self.matrix)
 
-        # compute decoding fidelities for each error weight
+        # sample errors of fixed weight and record failure/discard counts
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        max_error_weight = len(sample_allocation) - 1
-        fidelities = np.ones(max_error_weight + 1, dtype=float)
-        variances = np.zeros(max_error_weight + 1, dtype=float)
-        for weight in range(1, max_error_weight + 1):
-            fidelities[weight], variances[weight] = self._estimate_decoding_fidelity_and_variance(
-                weight, sample_allocation[weight], decoder
-            )
-
-        @np.vectorize
-        def get_logical_error_rate(error_rate: float) -> tuple[float, float]:
-            """Compute a logical error rate in a code-capacity model."""
-            if error_rate > max_error_rate:
-                raise ValueError(
-                    "Cannot determine logical error rates for physical error rates greater than"
-                    f" {max_error_rate}.  Try running get_logical_error_rate_func with a larger"
-                    " max_error_rate."
+        num_failures = np.zeros(sample_allocation.size, dtype=int)
+        num_discards = np.zeros(sample_allocation.size, dtype=int)
+        for weight in range(1, len(sample_allocation)):
+            num_failures[weight], num_discards[weight] = (
+                self._estimate_decoding_infidelity_and_variance(
+                    weight, sample_allocation[weight], decoder
                 )
-            probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
+            )
+        return ErrorRateFunc(
+            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+        )
 
-        return get_logical_error_rate
-
-    def _estimate_decoding_fidelity_and_variance(
+    def _estimate_decoding_infidelity_and_variance(
         self, error_weight: int, num_samples: int, decoder: decoders.Decoder
-    ) -> tuple[float, float]:
-        """Estimate a fidelity and its variance when decoding a fixed number of errors."""
+    ) -> tuple[int, int]:
+        """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
+        num_discards = 0
         for _ in range(num_samples):
             # construct an error
             error_locations = random.sample(range(len(self)), error_weight)
-            error = np.zeros(len(self), dtype=int)
+            error = self.field.Zeros(len(self))
             error[error_locations] = np.random.choice(range(1, self.field.order), size=error_weight)
 
-            # decode a corrupted all-zero code word
-            decoded_word = decoder.decode(error.view(np.ndarray))
-            if np.any(decoded_word):
+            # decode the error
+            syndrome = self.matrix @ error
+            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            if erasure:
+                num_discards += 1
+            elif np.any(decoded_error - error):
                 num_failures += 1
 
-        infidelity = num_failures / num_samples
-        variance = infidelity * (1 - infidelity) / num_samples
-        return 1 - infidelity, variance
+        return num_failures, num_discards
 
 
 ################################################################################
@@ -1942,9 +1933,7 @@ class QuditCode(AbstractCode):
         max_error_rate: float = 0.3,
         pauli_bias: Sequence[float] | None = None,
         **decoder_kwargs: Any,
-    ) -> Callable[
-        [float | Sequence[float]], tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]
-    ]:
+    ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
@@ -1976,41 +1965,23 @@ class QuditCode(AbstractCode):
         decoder = decoders.get_decoder(
             math.symplectic_conjugate(self.matrix).view(np.ndarray), **decoder_kwargs
         )
-        if not isinstance(decoder, decoders.DirectDecoder):
-            decoder = decoders.DirectDecoder.from_indirect(
-                decoder, math.symplectic_conjugate(self.matrix).view(np.ndarray)
-            )
 
         # identify logical operators
         logical_ops = self.get_logical_ops()
 
-        # compute decoding fidelities for each error weight
+        # sample errors of fixed weight and record failure/discard counts
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        max_error_weight = len(sample_allocation) - 1
-        fidelities = np.ones(max_error_weight + 1, dtype=float)
-        variances = np.zeros(max_error_weight + 1, dtype=float)
-        for weight in range(1, max_error_weight + 1):
-            fidelities[weight], variances[weight] = self._estimate_decoding_fidelity_and_variance(
-                weight,
-                sample_allocation[weight],
-                decoder,
-                logical_ops,
-                pauli_bias_zxy,
-            )
-
-        @np.vectorize
-        def get_logical_error_rate(error_rate: float) -> tuple[float, float]:
-            """Compute a logical error rate in a code-capacity model."""
-            if error_rate > max_error_rate:
-                raise ValueError(
-                    "Cannot determine logical error rates for physical error rates greater than"
-                    f" {max_error_rate}.  Try running get_logical_error_rate_func with a larger"
-                    " max_error_rate."
+        num_failures = np.zeros(sample_allocation.size, dtype=int)
+        num_discards = np.zeros(sample_allocation.size, dtype=int)
+        for weight in range(1, len(sample_allocation)):
+            num_failures[weight], num_discards[weight] = (
+                self._estimate_decoding_fidelity_and_variance(
+                    weight, sample_allocation[weight], decoder, logical_ops, pauli_bias_zxy
                 )
-            probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
-
-        return get_logical_error_rate
+            )
+        return ErrorRateFunc(
+            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+        )
 
     def _estimate_decoding_fidelity_and_variance(
         self,
@@ -2019,9 +1990,11 @@ class QuditCode(AbstractCode):
         decoder: decoders.Decoder,
         logical_ops: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
-    ) -> tuple[float, float]:
-        """Estimate a fidelity and its standard error when decoding a fixed number of errors."""
+    ) -> tuple[int, int]:
+        """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
+        num_discards = 0
+        syndrome_matrix = -math.symplectic_conjugate(self.matrix)
         for _ in range(num_samples):
             # construct an error
             error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
@@ -2039,14 +2012,15 @@ class QuditCode(AbstractCode):
                 range(1, self.field.order), size=len(error_locs_z)
             )
 
-            error = np.concatenate([error_x, error_z])
-            residual = decoder.decode(error).view(self.field)
-            if np.any(logical_ops @ math.symplectic_conjugate(residual)):
+            error = np.concatenate([error_x, error_z]).view(self.field)
+            syndrome = syndrome_matrix @ error
+            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            if erasure:
+                num_discards += 1
+            elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
                 num_failures += 1
 
-        infidelity = num_failures / num_samples
-        variance = infidelity * (1 - infidelity) / num_samples
-        return 1 - infidelity, variance
+        return num_failures, num_discards
 
 
 class CSSCode(QuditCode):
@@ -3032,9 +3006,7 @@ class CSSCode(QuditCode):
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
-    ) -> Callable[
-        [float | Sequence[float]], tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]
-    ]:
+    ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
@@ -3064,28 +3036,31 @@ class CSSCode(QuditCode):
 
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
+        same_x_and_z = (
+            np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
+            and decoder_x_kwargs == decoder_z_kwargs
+        )
 
         # construct decoders
         decoder_x_kwargs = (decoder_x_kwargs or {}) | decoder_kwargs
         decoder_z_kwargs = (decoder_z_kwargs or {}) | decoder_kwargs
-        decoder_x = decoders.get_decoder(stabilizer_ops_z, **decoder_kwargs)
-        decoder_z = decoders.get_decoder(stabilizer_ops_x, **decoder_kwargs)
-        if not isinstance(decoder_x, decoders.DirectDecoder):
-            decoder_x = decoders.DirectDecoder.from_indirect(decoder_x, stabilizer_ops_z)
-        if not isinstance(decoder_z, decoders.DirectDecoder):
-            decoder_z = decoders.DirectDecoder.from_indirect(decoder_z, stabilizer_ops_x)
+        decoder_x = decoders.get_decoder(stabilizer_ops_z, **decoder_x_kwargs)
+        decoder_z = (
+            decoder_x
+            if same_x_and_z
+            else decoders.get_decoder(stabilizer_ops_x, **decoder_z_kwargs)
+        )
 
         # identify logical operators
         logicals_x = self.get_logical_ops(Pauli.X)
         logicals_z = self.get_logical_ops(Pauli.Z)
 
-        # compute decoding fidelities for each error weight
+        # sample errors of fixed weight and record failure/discard counts
         sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
-        max_error_weight = len(sample_allocation) - 1
-        fidelities = np.ones(max_error_weight + 1, dtype=float)
-        variances = np.zeros(max_error_weight + 1, dtype=float)
-        for weight in range(1, max_error_weight + 1):
-            fidelities[weight], variances[weight] = (
+        num_failures = np.zeros(sample_allocation.size, dtype=int)
+        num_discards = np.zeros(sample_allocation.size, dtype=int)
+        for weight in range(1, len(sample_allocation)):
+            num_failures[weight], num_discards[weight] = (
                 self._estimate_css_decoding_fidelity_and_variance(
                     weight,
                     sample_allocation[weight],
@@ -3096,20 +3071,9 @@ class CSSCode(QuditCode):
                     pauli_bias_zxy,
                 )
             )
-
-        @np.vectorize
-        def get_logical_error_rate(error_rate: float) -> tuple[float, float]:
-            """Compute a logical error rate in a code-capacity model."""
-            if error_rate > max_error_rate:
-                raise ValueError(
-                    "Cannot determine logical error rates for physical error rates greater than"
-                    f" {max_error_rate}.  Try running get_logical_error_rate_func with a larger"
-                    " max_error_rate."
-                )
-            probs = _get_error_probs_by_weight(len(self), error_rate, max_error_weight)
-            return 1 - float(probs @ fidelities), float(np.sqrt(probs**2 @ variances))
-
-        return get_logical_error_rate
+        return ErrorRateFunc(
+            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+        )
 
     def _estimate_css_decoding_fidelity_and_variance(
         self,
@@ -3120,9 +3084,10 @@ class CSSCode(QuditCode):
         logicals_x: npt.NDArray[np.int_],
         logicals_z: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
-    ) -> tuple[float, float]:
-        """Estimate a fidelity and its standard error when decoding a fixed number of errors."""
+    ) -> tuple[int, int]:
+        """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
+        num_discards = 0
         for _ in range(num_samples):
             # construct an error
             error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
@@ -3130,48 +3095,136 @@ class CSSCode(QuditCode):
 
             # decode Z-type errors
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
-            error_z = np.zeros(len(self), dtype=int)
+            error_z = self.field.Zeros(len(self))
             error_z[error_locs_z] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_z)
             )
-            residual_z = decoder_z.decode(error_z).view(self.field)
-            if np.any(logicals_x @ residual_z):
+            syndrome_z = self.matrix_x @ error_z
+            decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
+            if erasure:
+                num_discards += 1
+                continue
+
+            failure_z = np.any(logicals_x @ (decoded_error_z - error_z))
+            if not getattr(decoder_x, "has_erasure_bit", False) and failure_z:
+                # If we are _not_ post-selecting and there _was_ a decoding failure, then there is
+                # no need to consider X-type errors, because we will record one failure either way.
                 num_failures += 1
                 continue
 
             # decode X-type errors
             error_locs_x = error_locations[error_paulis > 1]
-            error_x = np.zeros(len(self), dtype=int)
+            error_x = self.field.Zeros(len(self))
             error_x[error_locs_x] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_x)
             )
-            residual_x = decoder_x.decode(error_x).view(self.field)
-            if np.any(logicals_z @ residual_x):
+            syndrome_x = self.matrix_z @ error_x
+            decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
+            if erasure:
+                num_discards += 1
+                continue
+            if failure_z or np.any(logicals_z @ (decoded_error_x - error_x)):
                 num_failures += 1
 
-        infidelity = num_failures / num_samples
-        variance = infidelity * (1 - infidelity) / num_samples
-        return 1 - infidelity, variance
+        return num_failures, num_discards
 
 
-def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
-    """Join index slices together into one slice."""
-    return np.concatenate(
-        [
-            np.arange(sector.start or 0, sector.stop, sector.step or 1, dtype=int)
-            if isinstance(sector, slice)
-            else sector
-            for sector in sectors
-        ]
-    ).astype(int)
+OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 
 
-def _is_canonicalized(matrix: npt.NDArray[np.int_]) -> bool:
-    """Is the given matrix in canonical (row-reduced) form?"""
-    return all(
-        matrix[row, pivot] and not np.any(matrix[:row, pivot])
-        for row, pivot in enumerate(math.first_nonzero_cols(matrix))
-    )
+@dataclasses.dataclass
+class ErrorRateFunc:
+    """Container for raw simulation data used to compute logical error and discard rates.
+
+    An instance of this class is built and returned by the .get_logical_error_rate_func method of
+    ClassicalCode, QuditCode, and CSSCode.  If
+        func = code.get_logical_error_rate_func(...),
+    then "func" takes a physical error rate "p" as an argument, and returns two numbers:
+    (1) A logical error rate.
+    (2) An uncertainty (standard error) in the logical error rate.
+    If called with an array of physical error rates, this function returns two arrays.
+
+    If called with the keyword argument discard_rate=True, compute a discard rate rather than an
+    error rate.
+    """
+
+    # number of times we sampled each error weight
+    num_samples: npt.NDArray[np.int_]
+
+    # number of failures and discards by error weight
+    num_failures: npt.NDArray[np.int_]
+    num_discards: npt.NDArray[np.int_]
+
+    num_error_locations: int  # total number of error locations
+    max_error_rate: float  # largest physical error rate we can consider
+
+    @property
+    def max_error_weight(self) -> int:
+        """Max error weight considered."""
+        return self.num_samples.size - 1
+
+    @functools.cached_property
+    def infidelities(self) -> npt.NDArray[np.floating]:
+        """Mean infidelity at each error weight."""
+        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
+        num_samples_kept[num_samples_kept == 0] = np.inf
+        return self.num_failures / num_samples_kept
+
+    @functools.cached_property
+    def infidelity_variances(self) -> npt.NDArray[np.floating]:
+        """Variance of the infidelity at each error weight."""
+        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
+        num_samples_kept[num_samples_kept == 0] = np.inf
+        return self.infidelities * (1 - self.infidelities) / num_samples_kept
+
+    @functools.cached_property
+    def discard_rates(self) -> npt.NDArray[np.floating]:
+        """Discard rate at each error weight."""
+        return self.num_discards / self.num_samples
+
+    @functools.cached_property
+    def discard_rate_variances(self) -> npt.NDArray[np.floating]:
+        """Variance of the discard rate at each error weight."""
+        return self.discard_rates * (1 - self.discard_rates) / self.num_samples
+
+    def __call__(
+        self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
+    ) -> tuple[OneOrManyFloats, OneOrManyFloats]:
+        """Compute the logical error rate (or discard rate) at a given physical error rate."""
+        if isinstance(error_rate, Iterable):
+            results = [self(rate, discard_rate=discard_rate) for rate in error_rate]
+            return (  # type:ignore[return-value]
+                np.array([result[0] for result in results]),
+                np.array([result[1] for result in results]),
+            )
+        if error_rate > self.max_error_rate:
+            raise ValueError(
+                "This ErrorRateFunc does not cover physical error rates greater than"
+                f" {self.max_error_rate}.  Try calling <YOUR_CODE>.get_logical_error_rate_func with"
+                " a larger max_error_rate."
+            )
+        weight_probs = _get_error_probs_by_weight(
+            self.num_error_locations, error_rate, self.max_error_weight
+        )
+        if discard_rate:
+            values = 1 - self.discard_rates
+            variances = self.discard_rate_variances
+        else:
+            values = 1 - self.infidelities
+            variances = self.infidelity_variances
+        value = weight_probs @ values
+        error = np.sqrt(weight_probs**2 @ variances)
+        return 1 - float(value), float(error)
+
+    def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
+        """Upper bound on the truncation error in the infidelity or discard rate estimate."""
+        if isinstance(error_rate, Iterable):
+            values = [self.truncation_error_bound(rate) for rate in error_rate]
+            return np.array(values)  # type:ignore[return-value]
+        weight_probs = _get_error_probs_by_weight(
+            self.num_error_locations, error_rate, self.max_error_weight
+        )
+        return float(1.0 - weight_probs.sum())
 
 
 def _get_sample_allocation(
@@ -3193,6 +3246,9 @@ def _get_sample_allocation(
     # increasing num_samples if necessary to deal with weird edge cases from round-off errors
     while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
         num_samples += 1  # pragma: no cover
+
+    # allocate one sample to k=0 to fix an edge case in ErrorRateFunc
+    sample_allocation[0] = 1
 
     # truncate trailing zeros and return
     nonzero = np.nonzero(sample_allocation)[0]
@@ -3231,3 +3287,40 @@ def _get_error_probs_by_weight(
         for kk in range(max_weight + 1)
     ]
     return np.exp(log_probs)
+
+
+def _get_error_and_erasure(
+    decoder: decoders.Decoder,
+    syndrome: galois.FieldArray,
+) -> tuple[galois.FieldArray, bool]:
+    """Decode a syndrome and return the inferred error together with an erasure flag.
+
+    If the decoder has a has_erasure_bit attribute set to True (e.g., a LookupDecoder constructed
+    with add_erasure_bit=True), the last element of the decoded vector is treated as the erasure
+    bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
+    correction was found normally.  The erasure bit is stripped before returning the error.
+    """
+    error = decoder.decode(syndrome.view(np.ndarray))
+    if getattr(decoder, "has_erasure_bit", False):
+        return error[:-1].view(type(syndrome)), bool(error[-1])
+    return error.view(type(syndrome)), False
+
+
+def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
+    """Join index slices together into one slice."""
+    return np.concatenate(
+        [
+            np.arange(sector.start or 0, sector.stop, sector.step or 1, dtype=int)
+            if isinstance(sector, slice)
+            else sector
+            for sector in sectors
+        ]
+    ).astype(int)
+
+
+def _is_canonicalized(matrix: npt.NDArray[np.int_]) -> bool:
+    """Is the given matrix in canonical (row-reduced) form?"""
+    return all(
+        matrix[row, pivot] and not np.any(matrix[:row, pivot])
+        for row, pivot in enumerate(math.first_nonzero_cols(matrix))
+    )

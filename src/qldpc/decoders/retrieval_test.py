@@ -1,4 +1,4 @@
-"""Unit tests for decoder.py
+"""Unit tests for retrieval.py
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

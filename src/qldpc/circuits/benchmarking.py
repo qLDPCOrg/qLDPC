@@ -17,7 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Hashable, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -27,12 +27,7 @@ import stim
 from qldpc import codes, decoders, math
 
 from .bookkeeping import DetectorRecord
-from .common import (
-    get_encoder_and_decoder,
-    get_pauli_product_measurements,
-    restrict_tableau,
-    restrict_to_qubits,
-)
+from .common import get_encoder_and_decoder, get_pauli_product_measurements, restrict_to_qubits
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
 
@@ -76,7 +71,7 @@ def get_state_prep_diagnostic_circuit(
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state fo the provided code.
+            logical state of the provided code.
 
     Returns:
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
@@ -85,8 +80,22 @@ def get_state_prep_diagnostic_circuit(
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
-    if not skip_validation:
-        _assert_logical_state_preparation(code, state_prep_circuit)
+    # if no observables were provided, identify the logical Pauli stabilizers of the prepared state
+    if observables is None:
+        observables = get_nontrivial_logical_stabilizers(
+            code, state_prep_circuit, skip_validation=skip_validation
+        )
+    elif not skip_validation:  # pragma: no cover
+        _assert_valid_code_state(code, state_prep_circuit)
+
+    # if applicable, convert Pauli strings into symplectic vectors
+    if len(observables) > 0 and any(isinstance(obs, stim.PauliString) for obs in observables):
+        observables = np.array(
+            [
+                math.string_to_op(obs) if isinstance(obs, stim.PauliString) else obs
+                for obs in observables
+            ],
+        ).astype(int)
 
     # initialize a record of the detectors in the circuit
     detector_record = DetectorRecord()
@@ -103,16 +112,6 @@ def get_state_prep_diagnostic_circuit(
     for meas_index in range(-stabilizer_measurements.num_measurements, 0):
         stabilizer_detectors.append("DETECTOR", [stim.target_rec(meas_index)])
     detector_record.append({ss: ss for ss in range(len(code.get_stabilizer_ops()))})
-
-    # if none were provided, automatically find the logical Pauli stabilizers of the prepared state
-    if observables is None:
-        observables = get_nontrivial_logical_stabilizers(
-            code, state_prep_circuit, skip_validation=skip_validation
-        )
-
-    # if applicable, convert Pauli strings into symplectic vectors
-    if len(observables) > 0 and isinstance(observables[0], stim.PauliString):
-        observables = np.array([math.string_to_op(string) for string in observables], dtype=int)
 
     # observable measurements and annotations
     logical_op_measurements = get_pauli_product_measurements(observables)
@@ -147,10 +146,11 @@ def get_state_prep_diagnostic_tasks(
     | None = None,
     post_select: bool | Sequence[int] = False,
     skip_validation: bool = False,
+    metadata: dict[str, Hashable] | None = None,
 ) -> list[sinter.Task]:
-    r"""Build sinter Tasks that compute logical error rates of a logical state preparation circuit.
+    r"""Helper method to build sinter Tasks for benchmarking a logical state preparation circuit.
 
-    This method is essentially a helper function that wraps get_state_prep_diagnostic_circuit.
+    This method is essentially a wrapper for get_state_prep_diagnostic_circuit.
     See help(get_state_prep_diagnostic_circuit) for additional information.
 
     As an example, if
@@ -210,7 +210,7 @@ def get_state_prep_diagnostic_tasks(
             state_prep_circuit.  If provided a sequence of integers, post-select on the correponding
             measurements (by index) in the state_prep_circuit.
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state fo the provided code.
+            logical state of the provided code.
 
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
@@ -219,24 +219,14 @@ def get_state_prep_diagnostic_tasks(
     diagnostic_circuit, _ = get_state_prep_diagnostic_circuit(
         code, state_prep_circuit, observables=observables, skip_validation=skip_validation
     )
-    post_selection_indices = _get_post_selection_indices(
-        post_select, state_prep_circuit.num_measurements
+    postselection_mask = _get_postselection_mask(
+        post_select, state_prep_circuit.num_measurements, diagnostic_circuit.num_detectors
     )
-    if post_selection_indices:
-        postselection_mask = np.zeros(diagnostic_circuit.num_detectors, dtype=int)
-        postselection_mask[post_selection_indices] = 1
-        postselection_mask_bit_packed = np.packbits(postselection_mask, bitorder="little")
-        raise ValueError(
-            "Post selecting on flags is unsupported due to a bug in sinter:\n"
-            "https://github.com/quantumlib/Stim/pull/844"
-        )
-    else:
-        postselection_mask_bit_packed = None
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
-            postselection_mask=postselection_mask_bit_packed,
-            json_metadata={"p": error_rate},
+            postselection_mask=postselection_mask,
+            json_metadata={"p": error_rate} | (metadata or {}),
         )
         for error_rate in error_rates
     ]
@@ -250,22 +240,20 @@ def get_logical_error_and_discard_rate(
     dem_to_decode: stim.DetectorErrorModel | None = None,
     post_select: Sequence[int] = (),
 ) -> tuple[float, float]:
-    """Compute a logical error rate and discard rate from samples of the provided cirucit.
+    """Compute a logical error rate and discard rate from samples of the provided circuit.
 
     Each logical error rate is a fraction of the (possibly post-selected) shots in which observable
     flips are predicted incorrectly by the provided decoder.
 
-    This method is provided as an alternative to sinter, which currently cannot support post
-    selection due to an outstanding bug: https://github.com/quantumlib/Stim/pull/844
-    Once the bug is fixed, it is recommended to instead build a sinter.Task and call sinter.collect.
-
-    The sinter.Task would use the post-selection flags as follows:
-        postselection_mask_bits = np.zeros(circuit_or_dem.num_detectors, dtype=int)
-        postselection_mask_bits[post_select] = 1
-        postselection_mask = np.packbits(postselection_mask, bitorder="little")
+    This method is provided for convenience, but if you are doing heavy numerics you should probably
+    build a sinter.Task and call sinter.collect.  In this case, circuit_or_dem should just be a
+    circuit, and the sinter.Task would be built as follows:
+        postselection_mask = np.zeros(circuit.num_detectors, dtype=int)
+        postselection_mask[post_select] = 1
         task = sinter.Task(
             circuit=circuit,
-            postselection_mask=postselection_mask_bit_packed,
+            detector_error_model=dem_to_decode,
+            postselection_mask=np.packbits(postselection_mask, bitorder="little"),
         )
     Sampling data would then be collected with:
         stats = sinter.collect(
@@ -307,7 +295,7 @@ def get_logical_error_and_discard_rate(
 
     # sample detector and observable flips in the circuit
     sampler = dem.compile_sampler()
-    det_data, obs_data, err_data = sampler.sample(shots=num_samples)
+    det_data, obs_data, _ = sampler.sample(shots=num_samples)
 
     # if applicable, post-select on flag detectors
     if post_select:
@@ -353,30 +341,19 @@ def get_nontrivial_logical_stabilizers(
 
     Keyword args:
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state fo the provided code.
+            logical state of the provided code.
 
     Returns:
         A list of logical Pauli operators supported on the data qubits of the provided code.
     """
-    if not skip_validation:  # pragma: no cover
-        _assert_logical_state_preparation(code, state_prep_circuit)
-
-    # convert the circuit into a tableau
-    full_tableau = state_prep_circuit.to_tableau(
-        ignore_noise=True, ignore_measurement=True, ignore_reset=True
-    )
-
+    code_stabilizers = _get_code_stabilizers(code, state_prep_circuit)
     if not skip_validation:
-        # TODO: assert that the tableau does not prepare a logical state that is entangled with ancillas
-        ...
-
-    # remove ancilla qubits from the tableau
-    tableau = restrict_tableau(full_tableau, range(len(code)))
+        _assert_valid_code_state(code, code_stabilizers)
 
     # identify logical stabilizers of the code, in the logical Pauli basis
     logical_stabilizers = []
     encoder, decoder = get_encoder_and_decoder(code)
-    for stabilizer in tableau.to_stabilizers():
+    for stabilizer in code_stabilizers:
         stabilizer_in_logical_basis = stabilizer.after(decoder, targets=range(len(code)))
         logical_stabilizer = math.string_to_op(stabilizer_in_logical_basis[: code.dimension])
         logical_stabilizers.append(logical_stabilizer)
@@ -390,33 +367,69 @@ def get_nontrivial_logical_stabilizers(
     return logical_stabilizers_rref @ code.get_logical_ops()
 
 
-def _get_post_selection_indices(
-    post_select: bool | Sequence[int], num_measurements: int
-) -> Sequence[int]:
-    """Parse a post selection argument."""
+def _get_postselection_mask(
+    post_select: bool | Sequence[int], num_measurements: int, num_detectors: int
+) -> npt.NDArray[np.uint8] | None:
+    """Build a post-selection mask for sinter."""
+    if not post_select:
+        return None
     if isinstance(post_select, bool):
-        return tuple(range(num_measurements)) if post_select else ()
-    if not all(0 <= mm < num_measurements for mm in post_select):
+        post_select = tuple(range(num_measurements)) if post_select else ()
+    if not all(-num_measurements <= mm < num_measurements for mm in post_select):
         raise ValueError(
-            f"A cirucit with {num_measurements} can only post-select on measurements indexed from"
+            f"A circuit with {num_measurements} can only post-select on measurements indexed from"
             f" 0 to {num_measurements - 1}; requested: {post_select}"
         )
-    return post_select
+    postselection_array = np.zeros(num_detectors, dtype=int)
+    postselection_array[post_select] = 1
+    return np.packbits(postselection_array, bitorder="little")
 
 
-def _assert_logical_state_preparation(
+def _get_code_stabilizers(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit
-) -> None:
-    """Assert that the the provided circuit prepare a logical state of the provided code.
+) -> list[stim.PauliString]:
+    """Identify stabilizers of the prepared state that are supported on the data qubits of the code.
 
-    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+    If we prepend reset operations to make an initial |0...0⟩ initial state explicit, then all
+    stabilizers should be outputs of stabilizer flows of the form "1 -> P".
     """
-    simulator = stim.TableauSimulator()
-    simulator.do(state_prep_circuit.without_noise())
-    if not all(
-        simulator.peek_observable_expectation(math.op_to_string(row)) == 1
-        for row in code.get_stabilizer_ops()
-    ):
+    resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
+    full_stabs = [
+        flow.output_copy()
+        for flow in (resets + state_prep_circuit.without_noise()).flow_generators()
+        if not np.any(flow.input_copy())  # filter for stabilizer flows of the form "1 -> ..."
+        and not flow.measurements_copy()  # ignore flows that flip measurement outcomes
+        and not np.any(flow.output_copy()[len(code) :])  # filter for flows supported on data qubits
+    ]
+    code_stabs = []
+    for stab in full_stabs:
+        xs, zs = stab.to_numpy()
+        string = stim.PauliString.from_numpy(xs=xs[: len(code)], zs=zs[: len(code)], sign=stab.sign)
+        code_stabs.append(string)
+    return code_stabs
+
+
+def _assert_valid_code_state(
+    code: codes.QuditCode, circuit_or_stabilizers: stim.Circuit | Collection[stim.PauliString]
+) -> None:
+    """Assert that the provided stabilizers specify a unique logical state of the provided code."""
+    stabilizers = (
+        _get_code_stabilizers(code, circuit_or_stabilizers)
+        if isinstance(circuit_or_stabilizers, stim.Circuit)
+        else circuit_or_stabilizers
+    )
+    stab_mat = np.array([math.string_to_op(string) for string in stabilizers], dtype=np.uint8)
+    sign_bits = np.array([(1 - stab.sign.real) // 2 for stab in stabilizers], dtype=np.uint8)
+
+    # Stack the actual stabilizers of the code with the provided stabilizers, including sign bits.
+    # This matrix should have exactly len(code) linearly independent rows.
+    matrix = math.block_matrix(
+        [[code.matrix.astype(np.uint8), 0], [stab_mat, sign_bits.reshape(-1, 1)]]
+    )
+    matrix_rref = matrix.view(code.field).row_reduce()
+    num_nonzero_rows = np.count_nonzero(np.any(matrix_rref, axis=1))
+    if not len(stabilizers) == num_nonzero_rows == len(code):
         raise ValueError(
-            "The provided circuit does not prepare a logical state of the provided code."
+            "The provided circuit does not deterministically prepare a logical code state that is"
+            " unentangled from ancillas"
         )

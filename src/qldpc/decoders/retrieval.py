@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import inspect
 import sys
-import warnings
 from collections.abc import Sequence
 
 import galois
@@ -108,7 +107,7 @@ def get_decoder_BP_OSD(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
@@ -139,7 +138,7 @@ def get_decoder_BP_LSD(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
@@ -170,7 +169,7 @@ def get_decoder_BF(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
@@ -195,7 +194,7 @@ def _to_ldpc_inputs(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_rate: float,
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
-) -> tuple[IntegerArray, npt.NDArray[np.floating] | Sequence[float]]:
+) -> tuple[IntegerArray, list[float]]:
     """Post-process the arguments to ldpc decoders."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
@@ -204,7 +203,7 @@ def _to_ldpc_inputs(
     else:
         pcm = pcm_or_dem
         error_channel = [error_rate] * pcm.shape[1] if error_channel is None else error_channel
-    return pcm, error_channel
+    return pcm, list(error_channel)
 
 
 def get_decoder_MWPM(
@@ -239,14 +238,9 @@ def get_decoder_MWPM(
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix
-        if decoder_args.get("error_probabilities") is not None:  # pragma: no cover
-            warnings.warn(
-                "Explicitly provided error_probabilities will override the error probabilities of"
-                " the provided detector error model",
-                stacklevel=2,
-            )
-        else:
-            decoder_args["error_probabilities"] = dem_arrays.error_probs
+        if decoder_args.get("weights") is not None:  # pragma: no cover
+            raise ValueError("Cannot set error weights when initializing a MWPM decoder from a DEM")
+        decoder_args["weights"] = np.log((1 - dem_arrays.error_probs) / dem_arrays.error_probs)
     else:
         pcm = pcm_or_dem
 

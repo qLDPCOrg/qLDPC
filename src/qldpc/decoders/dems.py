@@ -18,7 +18,6 @@ limitations under the License.
 from __future__ import annotations
 
 import collections
-import itertools
 from collections.abc import Collection
 
 import numpy as np
@@ -82,14 +81,18 @@ class DetectorErrorModelArrays:
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly."""
         dem_arrays = object.__new__(DetectorErrorModelArrays)
-        dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(detector_flip_matrix)
+        dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(
+            detector_flip_matrix, dtype=np.uint8
+        )
 
         num_error_mechanisms = dem_arrays.detector_flip_matrix.shape[1]
         if observable_flip_matrix is None:
             shape = (0, num_error_mechanisms)
-            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(shape, dtype=int)
+            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(shape, dtype=np.uint8)
         else:
-            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(observable_flip_matrix)
+            dem_arrays.observable_flip_matrix = scipy.sparse.csc_matrix(
+                observable_flip_matrix, dtype=np.uint8
+            )
 
         if isinstance(error_probs, float):
             dem_arrays.error_probs = np.array([error_probs] * num_error_mechanisms)
@@ -156,16 +159,15 @@ class DetectorErrorModelArrays:
         errors: list[tuple[frozenset[int], frozenset[int], float]],
     ) -> list[tuple[frozenset[int], frozenset[int], float]]:
         """Merge circuit errors that flip the same detectors and observables."""
-        # organize errors by the detectors and observables that they flip
-        merged_errors = collections.defaultdict(list)
-        for detector_ids, observable_ids, probability in errors:
-            if (detector_ids or observable_ids) and probability:
-                merged_errors[detector_ids, observable_ids].append(probability)
-
-        # combine the probabilities of occurrence for equivalent error mechanisms
+        merged_errors: dict[tuple[frozenset[int], frozenset[int]], float] = {}
+        for detector_ids, observable_ids, prob in errors:
+            key = (detector_ids, observable_ids)
+            previous_prob = merged_errors.get(key, 0.0)
+            merged_errors[key] = previous_prob + prob - 2 * previous_prob * prob
         return [
-            (detectors, observables, _probability_of_an_odd_number_of_events(probabilities))
-            for (detectors, observables), probabilities in merged_errors.items()
+            (detectors, observables, prob)
+            for (detectors, observables), prob in merged_errors.items()
+            if (detectors or observables) and prob  # drop inconsequential error mechanisms
         ]
 
     @staticmethod
@@ -233,23 +235,32 @@ class DetectorErrorModelArrays:
             self.error_probs[errors_to_keep],
         )
 
+    def with_erasure(self, bits: int = 1) -> DetectorErrorModelArrays:
+        """Construct the DetectorErrorModelArrays obtained by adding erasure bits to the DEM.
+
+        Each erasure bit is essentially a zero-probability error mechanism that flips no detectors,
+        but flips one newly added observable.  The erasure bit thereby allows decoders to indicate
+        erasure by flipping the erasure bit.
+        """
+        detector_flip_stack = [
+            self.detector_flip_matrix,
+            scipy.sparse.csc_matrix((self.num_detectors, bits), dtype=np.uint8),
+        ]
+        detector_flip_matrix = scipy.sparse.hstack(detector_flip_stack, format="csc")
+
+        observable_flip_blocks = [
+            [self.observable_flip_matrix, None],
+            [None, scipy.sparse.eye(bits, dtype=np.uint8, format="csc")],
+        ]
+        observable_flip_matrix = scipy.sparse.bmat(observable_flip_blocks, format="csc")
+
+        return DetectorErrorModelArrays.from_arrays(
+            detector_flip_matrix,
+            observable_flip_matrix,
+            np.hstack([self.error_probs, [0] * bits]),
+        )
+
 
 def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
     """Subset of items that occur an odd number of times."""
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
-
-
-def _probability_of_an_odd_number_of_events(event_probabilities: Collection[float]) -> float:
-    """Identify the probability that an odd number of (otherwise independent) events occurs."""
-    net_probability = 0.0
-    num_events = len(event_probabilities)
-    for num_events_that_occur in range(1, num_events + 1, 2):
-        for events_that_occur in itertools.combinations(range(num_events), num_events_that_occur):
-            probability_that_these_events_occur = np.prod(
-                [
-                    prob if event in events_that_occur else 1 - prob
-                    for event, prob in enumerate(event_probabilities)
-                ]
-            )
-            net_probability += float(probability_that_these_events_occur)
-    return net_probability

@@ -216,7 +216,7 @@ def get_pauli_product_measurements(
     measure the stabilizers of "code".
     """
     op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
-    if op_graph.field.order != 2:  # pragma: no cover
+    if op_graph.field.order != 2:
         raise ValueError("Circuit methods are only supported for qubit codes")
 
     # identify qubit indices

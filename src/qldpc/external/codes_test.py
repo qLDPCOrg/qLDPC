@@ -41,7 +41,7 @@ def test_get_classical_code() -> None:
         unittest.mock.patch("qldpc.external.gap.get_output", return_value=r"\nGF(3^3)"),
         pytest.raises(ValueError, match="Code has no parity checks"),
     ):
-        assert external.codes.get_classical_code("")
+        external.codes.get_classical_code("")
 
 
 def get_mock_page(text: str) -> unittest.mock.MagicMock:

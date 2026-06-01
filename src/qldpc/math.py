@@ -80,12 +80,36 @@ def symplectic_weight(vectors: npt.NDArray[np.int_]) -> int:
     return np.count_nonzero(vectors_x | vectors_z, axis=-1).reshape(vectors.shape[:-1])
 
 
-def first_nonzero_cols(matrix: npt.NDArray[np.generic]) -> npt.NDArray[np.int_]:
-    """Get the first nonzero column for every row in a matrix."""
-    if matrix.size == 0:
+def first_nonzero_cols(
+    matrix: npt.NDArray[np.generic] | Sequence[npt.NDArray[np.generic]],
+) -> npt.NDArray[np.int_]:
+    """Get the first nonzero column for every row in a matrix.
+
+    If all columns are zero in a particular row, the column value is set to the number of columns.
+    If the array has more than two dimensions, return for each "row" r, the first "column" c for
+    which array[r, c] is not all zero.
+    """
+    _matrix = np.atleast_2d(np.asarray(matrix))
+    if _matrix.size == 0:
         return np.array([], dtype=int)
-    assert matrix.ndim == 2
-    return np.argmax(matrix.view(np.ndarray).astype(bool), axis=1)
+    nonzero_mask = np.any(_matrix.view(np.ndarray).astype(bool), axis=tuple(range(2, _matrix.ndim)))
+    has_any_nonzero_in_row = np.any(nonzero_mask, axis=1)
+    first_nonzero_col_index = np.argmax(nonzero_mask, axis=1)
+    first_nonzero_col_index[~has_any_nonzero_in_row] = nonzero_mask.shape[1]
+    return first_nonzero_col_index.astype(np.int_, copy=False)
+
+
+def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois.FieldArray:
+    """Construct a dual basis, for which dual_basis @ basis.T = identity_matrix."""
+    if validate and (
+        basis.shape[0] > basis.shape[1] or np.linalg.matrix_rank(basis) != basis.shape[0]
+    ):
+        raise ValueError("A dual basis can only be found for wide matrices of full rank")
+    pivot_cols = first_nonzero_cols(basis.row_reduce())
+    linearly_independent_cols = basis[:, pivot_cols].view(type(basis))
+    dual_basis = np.zeros(basis.shape, dtype=int).view(type(basis))
+    dual_basis[:, pivot_cols] = np.linalg.inv(linearly_independent_cols).T
+    return dual_basis.view(type(basis))
 
 
 def block_matrix(

@@ -31,8 +31,8 @@ dependencies = [
   "pymatching>=2.1.0",
   "pyperclip>=1.11.0",
   "scipy>=1.14.1",
-  "sinter>=1.15.0",
-  "stim>=1.16.dev1768963940,<1.16.dev1776477515", # 1.16.dev1776477515 doesn't have pre-built wheels for Python 3.12
+  "sinter>=1.16.0",
+  "stim>=1.16.0",
   "sympy>=1.12",
 ]
 

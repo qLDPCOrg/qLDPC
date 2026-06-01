@@ -65,6 +65,13 @@ def test_initialization() -> None:
 def test_simplify() -> None:
     """Simplify and merge errors."""
 
+    # simplification rules exercised below:
+    # - D0 D0 D0 → D0 (odd number of like targets collapses to one)
+    # - error(0) and error(p) with even-count targets (D2 D2) are dropped
+    # - two errors with identical syndromes merge via the XOR formula:
+    #   p_combined = p1 + p2 - 2*p1*p2  (probability of an odd number of occurrences)
+    #   e.g. 0.001 D0 and 0.003 D0  →  0.001 + 0.003 - 2*0.001*0.003 ≈ 0.004
+    #        0.002 D0D3 and 0.004 D0D3  →  0.002 + 0.004 - 2*0.002*0.004 ≈ 0.006
     dem = stim.DetectorErrorModel("""
         error(0.001) D0 D0 D0
         error(0.002) D0 D3
@@ -111,6 +118,51 @@ def test_simplify() -> None:
     """)
     assert dem == dem_arrays.to_detector_error_model()
     assert simplified_dem == dem_arrays.simplified().to_detector_error_model()
+
+
+def test_with_erasure() -> None:
+    """Add erasure bits to a DetectorErrorModelArrays."""
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0
+        error(0.2) D1 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    erasure_arrays = dem_arrays.with_erasure()
+
+    # one new error mechanism and one new observable; detectors unchanged
+    assert erasure_arrays.num_errors == dem_arrays.num_errors + 1
+    assert erasure_arrays.num_observables == dem_arrays.num_observables + 1
+    assert erasure_arrays.num_detectors == dem_arrays.num_detectors
+
+    # erasure mechanism flips no detectors and has zero probability
+    assert erasure_arrays.detector_flip_matrix[:, -1].nnz == 0
+    assert erasure_arrays.error_probs[-1] == 0
+
+    # erasure mechanism flips only the new erasure observable, not the original ones
+    assert erasure_arrays.observable_flip_matrix[:-1, -1].nnz == 0
+    assert erasure_arrays.observable_flip_matrix[-1, -1] == 1
+
+    # original errors do not flip the new erasure observable
+    assert erasure_arrays.observable_flip_matrix[-1, :-1].nnz == 0
+
+    # original detector/observable matrices and error probs are preserved
+    assert np.array_equal(
+        erasure_arrays.detector_flip_matrix[:, :-1].todense(),
+        dem_arrays.detector_flip_matrix.todense(),
+    )
+    assert np.array_equal(
+        erasure_arrays.observable_flip_matrix[:-1, :-1].todense(),
+        dem_arrays.observable_flip_matrix.todense(),
+    )
+    assert np.array_equal(erasure_arrays.error_probs[:-1], dem_arrays.error_probs)
+
+    # with bits=2, the bottom-right block of observable_flip_matrix is a 2×2 identity
+    erasure_arrays_2 = dem_arrays.with_erasure(bits=2)
+    assert erasure_arrays_2.num_errors == dem_arrays.num_errors + 2
+    assert erasure_arrays_2.num_observables == dem_arrays.num_observables + 2
+    assert np.array_equal(
+        erasure_arrays_2.observable_flip_matrix[-2:, -2:].todense(), np.eye(2, dtype=int)
+    )
 
 
 def test_post_selection() -> None:

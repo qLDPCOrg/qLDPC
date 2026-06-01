@@ -33,7 +33,7 @@ GAP_ROOT = os.path.join(os.path.dirname(os.path.dirname(qldpc.__file__)), "gap")
 @functools.cache
 def is_callable() -> bool:
     """Can we call GAP 4 from the command line?"""
-    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n"); QUIT;']
+    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
     try:
         result = subprocess.run(commands, capture_output=True, text=True)
         version = result.stdout.strip()
@@ -58,15 +58,15 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
     """Sanitize GAP commands: don't format Print statements, and quit at the end."""
     stream = "__stream__"
     prefix = [
-        f"{stream} := OutputTextUser();",
-        f"SetPrintFormattingStatus({stream},false);",
+        f"{stream} := OutputTextUser();;",
+        f"SetPrintFormattingStatus({stream},false);;",
     ]
-    suffix = ["QUIT;"]
+    suffix = ["QUIT;;"]
     commands = [cmd.replace("Print(", f"PrintTo({stream}, ") for cmd in commands]
     return tuple(prefix + commands + suffix)
 
 
-def get_output(*commands: str) -> str:
+def get_output(*commands: str, use_pipe: bool = False) -> str:
     """Get the output from the given GAP commands."""
     if not is_installed():
         raise FileNotFoundError("GAP 4 is required to proceed, but is not installed")
@@ -79,10 +79,19 @@ def get_output(*commands: str) -> str:
             f";{GAP_ROOT}",
             "-q",
             "--quitonbreak",
-            "-c",
-            " ".join(commands),
         ]
-        result = subprocess.run(shell_commands, capture_output=True, text=True)
+        script_input = " ".join(commands)
+        if not use_pipe:
+            shell_commands.extend(["-c", script_input])
+            pipe_input = None
+        else:
+            pipe_input = script_input
+        result = subprocess.run(
+            shell_commands,
+            input=pipe_input,
+            capture_output=True,
+            text=True,
+        )
         if result.stderr:
             raise ValueError(
                 f"Error encountered when running GAP:\n{result.stderr}\n\n"
@@ -154,14 +163,14 @@ def require_package(name: str, repo: str | None = None) -> bool:
     Returns:
         True if the requirement is satisfied (raises an error otherwise).
     """
-    availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));')
+    availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
 
     if availability.strip() == "fail":
         repo = repo or f"https://github.com/gap-packages/{name}"
         if not is_callable():
             raise ModuleNotFoundError(
                 f"GAP package '{name}' is required but not installed.\n"
-                f"You may be able to find this pacakge at {repo}"
+                f"You may be able to find this package at {repo}"
             )
 
         response = (
