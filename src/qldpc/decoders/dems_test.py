@@ -31,7 +31,7 @@ def test_initialization() -> None:
         logical_observable L0
         logical_observable L1
         error(0.001) D0
-        error(0.002) D1 ^ D0
+        error(0.002) D0 ^ D1
         error(0.003) D2 L1
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
@@ -180,6 +180,22 @@ def test_post_selection() -> None:
         logical_observable L1
         error(0.3) D0 L1
     """)
-    assert (
-        post_selected_dem == decoders.DetectorErrorModelArrays(dem).post_selected_on([0]).to_dem()
-    )
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
+
+    # post-selecting on D0 should drop errors that trigger D0, keep the rest, and remap
+    # detector IDs in the surviving suggested decompositions
+    dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        detector D2
+        error(0.1) D1 ^ D2
+        error(0.2) D0 D1
+    """)
+    post_selected_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        error(0.1) D0 ^ D1
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem

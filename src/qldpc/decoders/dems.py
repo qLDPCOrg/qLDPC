@@ -240,7 +240,12 @@ class DetectorErrorModelArrays:
         for error_index, prob in enumerate(self.error_probs):
             if error_index in self.suggested_decompositions:
                 targets = []
-                target_groups = self.suggested_decompositions[error_index]
+                target_groups = sorted(
+                    [
+                        (sorted(detectors), sorted(observables))
+                        for detectors, observables in self.suggested_decompositions[error_index]
+                    ],
+                )
                 for gg, (detectors, observables) in enumerate(target_groups):
                     if gg > 0:
                         targets.append(stim.DemTarget.separator())
@@ -272,10 +277,29 @@ class DetectorErrorModelArrays:
         detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
         detectors_to_keep[detectors] = False
         errors_to_keep = self.detector_flip_matrix[detectors].getnnz(axis=0) == 0
+
+        new_suggested_decompositions = {}
+        if self.suggested_decompositions:
+            old_to_new_det = np.cumsum(detectors_to_keep) - 1
+            old_to_new_err = np.cumsum(errors_to_keep) - 1
+            for old_err_idx, components in self.suggested_decompositions.items():
+                if errors_to_keep[old_err_idx]:
+                    new_err_idx = int(old_to_new_err[old_err_idx])
+                    new_components = set()
+                    for detectors, observbles in components:
+                        new_dets = frozenset(
+                            int(old_to_new_det[detector])
+                            for detector in detectors
+                            if detectors_to_keep[detector]
+                        )
+                        new_components.add((new_dets, observbles))
+                    new_suggested_decompositions[new_err_idx] = frozenset(new_components)
+
         return DetectorErrorModelArrays.from_arrays(
             self.detector_flip_matrix[detectors_to_keep][:, errors_to_keep],
             self.observable_flip_matrix[:, errors_to_keep],
             self.error_probs[errors_to_keep],
+            new_suggested_decompositions,
         )
 
     def with_erasure(self, bits: int = 1) -> DetectorErrorModelArrays:
