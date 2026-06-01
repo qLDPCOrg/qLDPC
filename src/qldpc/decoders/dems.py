@@ -52,7 +52,11 @@ class DetectorErrorModelArrays:
     suggested_decompositions: dict[int, frozenset[tuple[frozenset[int], frozenset[int]]]]
 
     def __init__(
-        self, circuit_or_dem: stim.Circuit | stim.DetectorErrorModel, *, simplify: bool = True
+        self,
+        circuit_or_dem: stim.Circuit | stim.DetectorErrorModel,
+        *,
+        simplify: bool = True,
+        apply_suggested_decompositions: bool = False,
     ) -> None:
         """Initialize from a stim.DetectorErrorModel."""
         dem = (
@@ -60,7 +64,9 @@ class DetectorErrorModelArrays:
             if isinstance(circuit_or_dem, stim.Circuit)
             else circuit_or_dem
         )
-        errors = DetectorErrorModelArrays.get_circuit_errors(dem)
+        errors = DetectorErrorModelArrays.get_circuit_errors(
+            dem, apply_suggested_decompositions=apply_suggested_decompositions
+        )
         if simplify:
             errors = DetectorErrorModelArrays.get_merged_circuit_errors(errors)
         self.detector_flip_matrix, self.observable_flip_matrix, self.error_probs = (
@@ -278,6 +284,16 @@ class DetectorErrorModelArrays:
         """Simplify this DetectorErrorModelArrays object by merging errors."""
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
+    def with_suggested_decompositions(self, *, simplify: bool = True) -> DetectorErrorModelArrays:
+        """Split error mechanisms according to their suggested decompositions.
+
+        Each error with a suggested decomposition is replaced by its individual components, each
+        inheriting the same probability.  Errors without a decomposition are kept as-is.
+        """
+        return DetectorErrorModelArrays(
+            self.to_detector_error_model(), simplify=simplify, apply_suggested_decompositions=True
+        )
+
     def post_selected_on(self, detectors: Collection[int]) -> DetectorErrorModelArrays:
         """Condition this detector error model on the given detectors being in 0 (untriggered).
 
@@ -336,21 +352,6 @@ class DetectorErrorModelArrays:
             observable_flip_matrix,
             np.hstack([self.error_probs, [0] * bits]),
             self.suggested_decompositions,
-        )
-
-    def with_suggested_decompositions(self) -> DetectorErrorModelArrays:
-        """Split error mechanisms according to their suggested decompositions.
-
-        Each error with a suggested decomposition is replaced by its individual components, each
-        inheriting the same probability.  Errors without a decomposition are kept as-is.
-        """
-        errors = DetectorErrorModelArrays.get_circuit_errors(
-            self.to_detector_error_model(), apply_suggested_decompositions=True
-        )
-        return DetectorErrorModelArrays.from_arrays(
-            *DetectorErrorModelArrays.get_arrays_from_errors(
-                errors, self.num_detectors, self.num_observables
-            )
         )
 
 

@@ -96,7 +96,7 @@ def test_simplify() -> None:
     assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
 
     dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
-        np.array([[1, 0, 1], [1, 1, 1]]), np.array([[1, 0, 1]]), np.ones(3) * 0.3
+        np.array([[1, 0, 1], [1, 1, 1]]), np.array([[1, 0, 1]]), 0.3
     )
     dem = stim.DetectorErrorModel("""
         detector D0
@@ -197,3 +197,25 @@ def test_post_selection() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
+
+
+def test_with_suggested_decompositions() -> None:
+    """Apply suggested decompositions to split errors into their components."""
+    dem = stim.DetectorErrorModel("""
+        error(0.001) D0
+        error(0.002) D0 ^ D1
+        error(0.003) D2 L1
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    split_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        detector D2
+        logical_observable L0
+        logical_observable L1
+        error(0.001) D0
+        error(0.002) D0
+        error(0.002) D1
+        error(0.003) D2 L1
+    """)
+    assert dem_arrays.with_suggested_decompositions(simplify=False).to_dem() == split_dem
