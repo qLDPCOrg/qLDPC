@@ -37,8 +37,8 @@ class DetectorErrorModelArrays:
         2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
         3. error_probs: an array of probabilities of occurrence for each circuit error.
 
-    In addition, DetectorErrorModelArrays keeps track of suggestions that a stim.DetectorErrorModel
-    provides for how to decompose errors.
+    In addition, DetectorErrorModelArrays keeps track of any suggestions that a
+    stim.DetectorErrorModel provides for how to decompose errors.
 
     A DetectorErrorModelArrays is _almost_ one-to-one with a stim.DetectorErrorModel instance.  The
     primary differences are that a DetectorErrorModelArrays object
@@ -100,7 +100,17 @@ class DetectorErrorModelArrays:
         suggested_decompositions: dict[int, frozenset[tuple[frozenset[int], frozenset[int]]]]
         | None = None,
     ) -> DetectorErrorModelArrays:
-        """Initialize from arrays directly."""
+        """Initialize from arrays directly.
+
+        Args:
+            detector_flip_matrix: binary matrix mapping errors (columns) to detector flips (rows).
+            observable_flip_matrix: binary matrix mapping errors to observable flips, or None for
+                zero observables.
+            error_probs: per-error probabilities, or a single float broadcast to all errors.
+            suggested_decompositions (optional): dictionary that maps an error (by index) into
+                suggested decomposition components, reperesented by a frozenset of
+                (detector_frozenset, observable_frozenset) tuples.
+        """
         dem_arrays = object.__new__(DetectorErrorModelArrays)
         dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(
             detector_flip_matrix, dtype=np.uint8
