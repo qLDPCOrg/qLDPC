@@ -183,7 +183,7 @@ class DetectorErrorModelArrays:
 
     @staticmethod
     def get_arrays_from_errors(
-        errors: list[tuple[frozenset[int], frozenset[int], float]],
+        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]],
         num_detectors: int,
         num_observables: int,
     ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.floating]]:
@@ -196,7 +196,13 @@ class DetectorErrorModelArrays:
         error_probs = np.zeros(len(errors), dtype=float)
 
         # iterate over and account for all circuit errors
-        for error_index, (detector_ids, observable_ids, probability) in enumerate(errors):
+        for error_index, (probability, components) in enumerate(errors):
+            detector_ids = _values_that_occur_an_odd_number_of_times(
+                [det for det_set, _ in components for det in det_set]
+            )
+            observable_ids = _values_that_occur_an_odd_number_of_times(
+                [obs for _, obs_set in components for obs in obs_set]
+            )
             detector_flip_matrix[list(detector_ids), error_index] = 1
             observable_flip_matrix[list(observable_ids), error_index] = 1
             error_probs[error_index] = probability
