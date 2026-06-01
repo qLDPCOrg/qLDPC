@@ -18,7 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import collections
-from collections.abc import Collection
+from collections.abc import Collection, Hashable
 from typing import TypeVar
 
 import numpy as np
@@ -26,7 +26,7 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-HashableType = TypeVar("HashableType")
+HashableType = TypeVar("HashableType", bound=Hashable)
 
 
 class DetectorErrorModelArrays:
@@ -312,13 +312,11 @@ class DetectorErrorModelArrays:
                 if errors_to_keep[old_err_idx]:
                     new_err_idx = int(old_to_new_err[old_err_idx])
                     new_components = set()
-                    for detectors, observbles in components:
+                    for dets, obs in components:
                         new_dets = frozenset(
-                            int(old_to_new_det[detector])
-                            for detector in detectors
-                            if detectors_to_keep[detector]
+                            int(old_to_new_det[dd]) for dd in dets if detectors_to_keep[dd]
                         )
-                        new_components.add((new_dets, observbles))
+                        new_components.add((new_dets, obs))
                     new_suggested_decompositions[new_err_idx] = frozenset(new_components)
 
         return DetectorErrorModelArrays.from_arrays(

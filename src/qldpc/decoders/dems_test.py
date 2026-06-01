@@ -203,19 +203,20 @@ def test_with_suggested_decompositions() -> None:
     """Apply suggested decompositions to split errors into their components."""
     dem = stim.DetectorErrorModel("""
         error(0.001) D0
-        error(0.002) D0 ^ D1
-        error(0.003) D2 L1
+        error(0.002) D1 ^ D2
+        error(0.001) D2
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
+
+    # error(0.002) D1 ^ D2 splits into two; all four resulting components are distinct so
+    # simplify=True (the default) does not merge any of them
     split_dem = stim.DetectorErrorModel("""
         detector D0
         detector D1
         detector D2
-        logical_observable L0
-        logical_observable L1
         error(0.001) D0
-        error(0.002) D0
         error(0.002) D1
-        error(0.003) D2 L1
+        error(0.002) D2
+        error(0.001) D2
     """)
     assert dem_arrays.with_suggested_decompositions(simplify=False).to_dem() == split_dem
