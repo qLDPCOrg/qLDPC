@@ -36,6 +36,7 @@ def get_state_prep_diagnostic_circuit(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
     *,
+    with_flags: bool = True,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -48,7 +49,8 @@ def get_state_prep_diagnostic_circuit(
 
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
-    - A detector for each measurement in the provided circuit.  These are called "flag detectors".
+    - If 'with_flags is True', a detector for each measurement that is not addressed by an existing
+        detector in the provided circuit.  The added detectors are called "flag detectors".
     - Noiseless measurements of all stabilizers of the code.
     - A detector for each of the noiseless stabilizer measurements.
     - Noisless measurements of observables that stabilize the state prepared by state_prep_circuit.
@@ -64,6 +66,7 @@ def get_state_prep_diagnostic_circuit(
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
 
     Keyword args:
+        with_flags: Whether to add flag detectors for unused measurements.
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -76,6 +79,8 @@ def get_state_prep_diagnostic_circuit(
     Returns:
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
         circuits.DetectorRecord: A record of the detectors in the circuit, for which
+            - DetectorRecord.get_events("prep") is a list of indices for detectors that were already
+                present in the submitted provided state_prep_circuit.
             - DetectorRecord.get_events("flag") is a list of indices for the flag detectors.
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
@@ -98,13 +103,27 @@ def get_state_prep_diagnostic_circuit(
         ).astype(int)
 
     # initialize a record of the detectors in the circuit
-    detector_record = DetectorRecord()
+    detector_record = DetectorRecord({"prep": range(state_prep_circuit.num_detectors)})
 
-    # flag detectors
+    # add flag detectors
     flag_detectors = stim.Circuit()
-    for meas_index in range(-state_prep_circuit.num_measurements, 0):
-        flag_detectors.append("DETECTOR", [stim.target_rec(meas_index)])
-    detector_record.append({"flag": range(state_prep_circuit.num_measurements)})
+    if with_flags:
+        measurements = []
+        addressed_measurements = set()
+        for instruction in state_prep_circuit:
+            new_measurements = range(
+                len(measurements),
+                len(measurements) + instruction.num_measurements,
+            )
+            measurements.extend(list(new_measurements))
+            if instruction.name == "DETECTOR":
+                addressed_measurements |= {
+                    measurements[target.value] for target in instruction.targets_copy()
+                }
+        for measurement in frozenset(measurements) - addressed_measurements:
+            target = stim.target_rec(measurement - state_prep_circuit.num_measurements)
+            flag_detectors.append("DETECTOR", [target])
+    detector_record.append({"flag": range(len(flag_detectors))})
 
     # stabilizer measurements and detectors
     stabilizer_measurements = get_pauli_product_measurements(code.get_stabilizer_ops())
@@ -410,7 +429,7 @@ def _get_state_stabilizers(
             xs, zs = pauli_string.to_numpy()
             matrix[gg, :num_qubits] = xs.astype(np.uint8)
             matrix[gg, num_qubits : 2 * num_qubits] = zs.astype(np.uint8)
-            matrix[gg, 2 * num_qubits + 1] = 0 if pauli_string.sign == 1 else 1
+            matrix[gg, 2 * num_qubits] = 0 if pauli_string.sign == 1 else 1
         for measurement in flow.measurements_copy():
             matrix[gg, -num_measurements - num_observables + measurement] = 1
         for observable in flow.included_observables_copy():
@@ -418,35 +437,13 @@ def _get_state_stabilizers(
 
     # extract stabilizers that are supported entirely on the data qubits of the code
     state_stabs = []
-    print(resets + state_prep_circuit)
-    print()
-    print(num_measurements)
-    print()
     for row in matrix.row_reduce():
         xs = row[: len(code)]
         zs = row[num_qubits : num_qubits + len(code)]
-        other_xs = row[len(code) : num_qubits]
-        other_zs = row[num_qubits + len(code) : 2 * num_qubits]
-        meas_and_obs = row[-num_measurements - num_observables :]
-
         if np.any(xs) or np.any(zs):
-            xs = row[:num_qubits]
-            zs = row[num_qubits : 2 * num_qubits]
-            sign = -1 if row[2 * num_qubits + 1] else 1
+            sign = -1 if row[2 * num_qubits] else 1
             string = stim.PauliString.from_numpy(xs=xs != 0, zs=zs != 0, sign=sign)
-            print(string, row[2 * num_qubits + 1 :])
-
-        if np.any(other_xs) or np.any(other_zs) or any(meas_and_obs):
-            continue
-        sign = -1 if row[2 * num_qubits + 1] else 1
-        string = stim.PauliString.from_numpy(xs=xs != 0, zs=zs != 0, sign=sign)
-        state_stabs.append(string)
-
-    print()
-    print("AAAAAAAAAAAAAAAAAAAAAAAAAAA")
-    for stab in state_stabs:
-        print(stab)
-    exit()
+            state_stabs.append(string)
 
     return state_stabs
 
