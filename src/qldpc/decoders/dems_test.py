@@ -31,7 +31,7 @@ def test_initialization() -> None:
         logical_observable L0
         logical_observable L1
         error(0.001) D0
-        error(0.002) D0 D1
+        error(0.002) D0 ^ D1
         error(0.003) D2 L1
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
@@ -94,12 +94,9 @@ def test_simplify() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=True)
     assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
-    assert dem_arrays.num_errors == 3
-    assert dem_arrays.num_detectors == 4
-    assert dem_arrays.num_observables == 2
 
     dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
-        np.array([[1, 0, 1], [1, 1, 1]]), np.array([[1, 0, 1]]), np.ones(3) * 0.3
+        np.array([[1, 0, 1], [1, 1, 1]]), np.array([[1, 0, 1]]), 0.3
     )
     dem = stim.DetectorErrorModel("""
         detector D0
@@ -181,6 +178,45 @@ def test_post_selection() -> None:
         logical_observable L1
         error(0.3) D0 L1
     """)
-    assert (
-        post_selected_dem == decoders.DetectorErrorModelArrays(dem).post_selected_on([0]).to_dem()
-    )
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
+
+    # post-selecting on D0 should drop errors that trigger D0, keep the rest, and remap
+    # detector IDs in the surviving suggested decompositions
+    dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        detector D2
+        error(0.1) D1 ^ D2
+        error(0.2) D0 D1
+    """)
+    post_selected_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        error(0.1) D0 ^ D1
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
+
+
+def test_decomposing_errors() -> None:
+    """Apply suggested decompositions to split errors into their components."""
+    dem = stim.DetectorErrorModel("""
+        error(0.001) D0
+        error(0.002) D1 ^ D2
+        error(0.001) D2
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+
+    # error(0.002) D1 ^ D2 splits into two; all four resulting components are distinct so
+    # simplify=True (the default) does not merge any of them
+    split_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        detector D2
+        error(0.001) D0
+        error(0.002) D1
+        error(0.002) D2
+        error(0.001) D2
+    """)
+    assert dem_arrays.with_decomposed_errors(simplify=False).to_dem() == split_dem

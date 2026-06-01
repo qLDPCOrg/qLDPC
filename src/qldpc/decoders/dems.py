@@ -18,33 +18,45 @@ limitations under the License.
 from __future__ import annotations
 
 import collections
-from collections.abc import Collection
+from collections.abc import Collection, Hashable
+from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 import stim
 
+HashableType = TypeVar("HashableType", bound=Hashable)
+
 
 class DetectorErrorModelArrays:
     """Representation of a stim.DetectorErrorModel by a collection of arrays.
 
     A DetectorErrorModelArrays object organizes the data in a stim.DetectorErrorModel into:
-    1. detector_flip_matrix: a binary matrix that maps circuit errors to detector flips,
-    2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
-    3. error_probs: an array of probabilities of occurrence for each circuit error.
+        1. detector_flip_matrix: a binary matrix that maps circuit errors to detector flips,
+        2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
+        3. error_probs: an array of probabilities of occurrence for each circuit error.
 
-    A DetectorErrorModelArrays is almost one-to-one with a stim.DetectorErrorModel instance.  The
-    only differences are that a DetectorErrorModelArrays (a) "merges" circuit errors that flip the
-    same set of detectors and observables, and (b) does not preserve detector coordinate data.
+    In addition, DetectorErrorModelArrays keeps track of any suggestions that a
+    stim.DetectorErrorModel provides for how to decompose errors.
+
+    A DetectorErrorModelArrays is _almost_ one-to-one with a stim.DetectorErrorModel instance.  The
+    primary differences are that a DetectorErrorModelArrays object
+        (a) merges equivalent circuit errors (which can be disabled with simplify=False), and
+        (b) does not preserve detector coordinate data.
     """
 
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
     error_probs: npt.NDArray[np.floating]  # probability of occurrence for each error
+    suggested_decompositions: dict[int, frozenset[tuple[frozenset[int], frozenset[int]]]]
 
     def __init__(
-        self, circuit_or_dem: stim.Circuit | stim.DetectorErrorModel, *, simplify: bool = True
+        self,
+        circuit_or_dem: stim.Circuit | stim.DetectorErrorModel,
+        *,
+        simplify: bool = True,
+        decompose_errors: bool = False,
     ) -> None:
         """Initialize from a stim.DetectorErrorModel."""
         dem = (
@@ -52,7 +64,7 @@ class DetectorErrorModelArrays:
             if isinstance(circuit_or_dem, stim.Circuit)
             else circuit_or_dem
         )
-        errors = DetectorErrorModelArrays.get_circuit_errors(dem)
+        errors = DetectorErrorModelArrays.get_circuit_errors(dem, decompose_errors=decompose_errors)
         if simplify:
             errors = DetectorErrorModelArrays.get_merged_circuit_errors(errors)
         self.detector_flip_matrix, self.observable_flip_matrix, self.error_probs = (
@@ -60,6 +72,11 @@ class DetectorErrorModelArrays:
                 errors, dem.num_detectors, dem.num_observables
             )
         )
+        self.suggested_decompositions = {
+            error_index: components
+            for error_index, (_, components) in enumerate(errors)
+            if len(components) > 1
+        }
 
     def get_arrays(
         self,
@@ -78,8 +95,20 @@ class DetectorErrorModelArrays:
         detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_],
         observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_] | None,
         error_probs: npt.NDArray[np.floating] | float,
+        suggested_decompositions: dict[int, frozenset[tuple[frozenset[int], frozenset[int]]]]
+        | None = None,
     ) -> DetectorErrorModelArrays:
-        """Initialize from arrays directly."""
+        """Initialize from arrays directly.
+
+        Args:
+            detector_flip_matrix: binary matrix mapping errors (columns) to detector flips (rows).
+            observable_flip_matrix: binary matrix mapping errors to observable flips, or None for
+                zero observables.
+            error_probs: per-error probabilities, or a single float broadcast to all errors.
+            suggested_decompositions (optional): dictionary that maps an error (by index) into
+                suggested decomposition components, reperesented by a frozenset of
+                (detector_frozenset, observable_frozenset) tuples.
+        """
         dem_arrays = object.__new__(DetectorErrorModelArrays)
         dem_arrays.detector_flip_matrix = scipy.sparse.csc_matrix(
             detector_flip_matrix, dtype=np.uint8
@@ -99,6 +128,7 @@ class DetectorErrorModelArrays:
         else:
             dem_arrays.error_probs = np.asarray(error_probs)
 
+        dem_arrays.suggested_decompositions = suggested_decompositions or {}
         return dem_arrays
 
     @property
@@ -119,50 +149,77 @@ class DetectorErrorModelArrays:
     @staticmethod
     def get_circuit_errors(
         dem: stim.DetectorErrorModel,
-    ) -> list[tuple[frozenset[int], frozenset[int], float]]:
-        """Collect all circuit errors in a stim.DetectorErrorModel.
+        *,
+        decompose_errors: bool = False,
+    ) -> list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]]:
+        """Collect all circuit errors in a stim.DetectorErrorModel into a list.
 
-        Each circuit error is identified by:
-        - a set of detectors that are flipped,
-        - a set of observables that are flipped, and
-        - a probability of occurrence.
+        Each circuit error is nominally identified by:
+            - a probability of occurrence,
+            - a set of detectors that are flipped,
+            - a set of observables that are flipped.
+        In addition, a stim.DetectorErrorModel can come equipped with suggested decompositions of
+        errors, which splits the detector/observable targets of an error into groups.  To accomodate
+        decomposition suggestions, a circuit error is identified by
+            - a probability of occurrence,
+            - a set of (detector_set, observable_set) tuples, one per suggested component.
+        Errors with no suggested decompositions have a single component.
 
-        If a detector or observable appears multiple times in an error, its occurrences are reduced
-        to the original value mod 2.
+        If decompose_errors is True, all errors are decomposed into single-component errors.
+
+        If a detector or observable appears multiple times within one component, its occurrences
+        are reduced to the original value mod 2.
         """
-        errors = []
+        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]] = []
         for instruction in dem.flattened():
-            if instruction.type == "error":
-                probability = instruction.args_copy()[0]
-                targets = instruction.targets_copy()
+            if instruction.type != "error":
+                continue
+            probability = instruction.args_copy()[0]
+
+            # identify components that are split by target separators
+            target_components: list[list[stim.DemTarget]] = [[]]
+            for target in instruction.targets_copy():
+                if target.is_separator():
+                    target_components.append([])
+                else:
+                    target_components[-1].append(target)
+
+            components: list[tuple[frozenset[int], frozenset[int]]] = []
+            for targets in target_components:
                 detectors = _values_that_occur_an_odd_number_of_times(
                     [target.val for target in targets if target.is_relative_detector_id()]
                 )
                 observables = _values_that_occur_an_odd_number_of_times(
                     [target.val for target in targets if target.is_logical_observable_id()]
                 )
-                errors.append((detectors, observables, probability))
+                if decompose_errors:
+                    errors.append((probability, frozenset([(detectors, observables)])))
+                else:
+                    components.append((detectors, observables))
+
+            if not decompose_errors:
+                errors.append((probability, _values_that_occur_an_odd_number_of_times(components)))
+
         return errors
 
     @staticmethod
     def get_merged_circuit_errors(
-        errors: list[tuple[frozenset[int], frozenset[int], float]],
-    ) -> list[tuple[frozenset[int], frozenset[int], float]]:
-        """Merge circuit errors that flip the same detectors and observables."""
-        merged_errors: dict[tuple[frozenset[int], frozenset[int]], float] = {}
-        for detector_ids, observable_ids, prob in errors:
-            key = (detector_ids, observable_ids)
-            previous_prob = merged_errors.get(key, 0.0)
-            merged_errors[key] = previous_prob + prob - 2 * previous_prob * prob
+        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]],
+    ) -> list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]]:
+        """Merge circuit errors that have the same targets."""
+        merged: dict[frozenset[tuple[frozenset[int], frozenset[int]]], float] = {}
+        for prob, targets in errors:
+            previous_prob = merged.get(targets, 0.0)
+            merged[targets] = previous_prob + prob - 2 * previous_prob * prob
         return [
-            (detectors, observables, prob)
-            for (detectors, observables), prob in merged_errors.items()
-            if (detectors or observables) and prob  # drop inconsequential error mechanisms
+            (prob, targets)
+            for targets, prob in merged.items()
+            if any(det or obs for det, obs in targets) and prob  # drop inconsequential errors
         ]
 
     @staticmethod
     def get_arrays_from_errors(
-        errors: list[tuple[frozenset[int], frozenset[int], float]],
+        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]],
         num_detectors: int,
         num_observables: int,
     ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.floating]]:
@@ -175,7 +232,13 @@ class DetectorErrorModelArrays:
         error_probs = np.zeros(len(errors), dtype=float)
 
         # iterate over and account for all circuit errors
-        for error_index, (detector_ids, observable_ids, probability) in enumerate(errors):
+        for error_index, (probability, components) in enumerate(errors):
+            detector_ids = _values_that_occur_an_odd_number_of_times(
+                [det for det_set, _ in components for det in det_set]
+            )
+            observable_ids = _values_that_occur_an_odd_number_of_times(
+                [obs for _, obs_set in components for obs in obs_set]
+            )
             detector_flip_matrix[list(detector_ids), error_index] = 1
             observable_flip_matrix[list(observable_ids), error_index] = 1
             error_probs[error_index] = probability
@@ -192,23 +255,51 @@ class DetectorErrorModelArrays:
 
         # add detectors and observables
         for dd in range(self.num_detectors):
-            dem += stim.DetectorErrorModel(f"detector D{dd}")
-        for dd in range(self.num_observables):
-            dem += stim.DetectorErrorModel(f"logical_observable L{dd}")
+            dem.append("detector", [], [stim.DemTarget.relative_detector_id(dd)])
+        for oo in range(self.num_observables):
+            dem.append("logical_observable", [], [stim.DemTarget.logical_observable_id(oo)])
 
         # add errors
-        for detector_vec, observable_vec, prob in zip(
-            self.detector_flip_matrix.T, self.observable_flip_matrix.T, self.error_probs
-        ):
-            detectors = " ".join([f"D{dd}" for dd in sorted(detector_vec.nonzero()[1])])
-            observables = " ".join([f"L{dd}" for dd in sorted(observable_vec.nonzero()[1])])
-            dem += stim.DetectorErrorModel(f"error({prob}) {detectors} {observables}")
+        for error_index, prob in enumerate(self.error_probs):
+            if error_index in self.suggested_decompositions:
+                targets = []
+                target_groups = sorted(
+                    [
+                        (sorted(detectors), sorted(observables))
+                        for detectors, observables in self.suggested_decompositions[error_index]
+                    ],
+                )
+                for gg, (detectors, observables) in enumerate(target_groups):
+                    if gg > 0:
+                        targets.append(stim.DemTarget.separator())
+                    det_targets = [stim.DemTarget.relative_detector_id(dd) for dd in detectors]
+                    obs_targets = [stim.DemTarget.logical_observable_id(oo) for oo in observables]
+                    targets.extend(det_targets)
+                    targets.extend(obs_targets)
+            else:
+                detectors = self.detector_flip_matrix[:, error_index].nonzero()[0]
+                observables = self.observable_flip_matrix[:, error_index].nonzero()[0]
+                det_targets = [stim.DemTarget.relative_detector_id(dd) for dd in detectors]
+                obs_targets = [stim.DemTarget.logical_observable_id(oo) for oo in observables]
+                targets = det_targets + obs_targets
+
+            dem.append("error", prob, targets)
 
         return dem
 
     def simplified(self) -> DetectorErrorModelArrays:
         """Simplify this DetectorErrorModelArrays object by merging errors."""
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
+
+    def with_decomposed_errors(self, *, simplify: bool = True) -> DetectorErrorModelArrays:
+        """Split error mechanisms according to their suggested decompositions.
+
+        Each error with a suggested decomposition is replaced by its individual components, each
+        inheriting the same probability.  Errors without a decomposition are kept as-is.
+        """
+        return DetectorErrorModelArrays(
+            self.to_detector_error_model(), simplify=simplify, decompose_errors=True
+        )
 
     def post_selected_on(self, detectors: Collection[int]) -> DetectorErrorModelArrays:
         """Condition this detector error model on the given detectors being in 0 (untriggered).
@@ -219,10 +310,27 @@ class DetectorErrorModelArrays:
         detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
         detectors_to_keep[detectors] = False
         errors_to_keep = self.detector_flip_matrix[detectors].getnnz(axis=0) == 0
+
+        new_suggested_decompositions = {}
+        if self.suggested_decompositions:
+            old_to_new_det = np.cumsum(detectors_to_keep) - 1
+            old_to_new_err = np.cumsum(errors_to_keep) - 1
+            for old_err_idx, components in self.suggested_decompositions.items():
+                if errors_to_keep[old_err_idx]:
+                    new_err_idx = int(old_to_new_err[old_err_idx])
+                    new_components = set()
+                    for dets, obs in components:
+                        new_dets = frozenset(
+                            int(old_to_new_det[dd]) for dd in dets if detectors_to_keep[dd]
+                        )
+                        new_components.add((new_dets, obs))
+                    new_suggested_decompositions[new_err_idx] = frozenset(new_components)
+
         return DetectorErrorModelArrays.from_arrays(
             self.detector_flip_matrix[detectors_to_keep][:, errors_to_keep],
             self.observable_flip_matrix[:, errors_to_keep],
             self.error_probs[errors_to_keep],
+            new_suggested_decompositions,
         )
 
     def with_erasure(self, bits: int = 1) -> DetectorErrorModelArrays:
@@ -248,9 +356,12 @@ class DetectorErrorModelArrays:
             detector_flip_matrix,
             observable_flip_matrix,
             np.hstack([self.error_probs, [0] * bits]),
+            self.suggested_decompositions,
         )
 
 
-def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
+def _values_that_occur_an_odd_number_of_times(
+    items: Collection[HashableType],
+) -> frozenset[HashableType]:
     """Subset of items that occur an odd number of times."""
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])

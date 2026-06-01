@@ -209,6 +209,7 @@ def _to_ldpc_inputs(
 def get_decoder_MWPM(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
+    decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
     **decoder_args: object,
 ) -> BatchDecoder:
@@ -216,16 +217,13 @@ def get_decoder_MWPM(
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
-        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors.
+        decompose_errors: Whether apply suggested decompositions of error mechanisms.
+        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors (after
+            decomposition, if applicable).
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
 
     Returns:
         A decoder constructed by pymatching.Matching.from_check_matrix.
-
-    If called with the keyword argument ignore_non_graphlike_errors=True, columns of the parity
-    check matrix with more than two ones (which correspond to error mechanisms that trigger more
-    than two detectors in a detector error model) are ignored.  Otherwise, such columns cause
-    pymatching to throw an error.
 
     All other keyword arguments are passed to pymatching.Matching.from_check_matrix.
 
@@ -236,7 +234,7 @@ def get_decoder_MWPM(
     """
     # identify parity check matrix and error probabilities
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
+        dem_arrays = DetectorErrorModelArrays(pcm_or_dem, decompose_errors=decompose_errors)
         pcm = dem_arrays.detector_flip_matrix
         if decoder_args.get("weights") is not None:  # pragma: no cover
             raise ValueError("Cannot set error weights when initializing a MWPM decoder from a DEM")
@@ -245,13 +243,22 @@ def get_decoder_MWPM(
         pcm = pcm_or_dem
 
     # possibly ignore non-graphlike errors
+    detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
+    error_is_not_graphlike = detectors_per_error > 2
     if ignore_non_graphlike_errors:
-        detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
-        error_is_not_graphlike = detectors_per_error > 2
         if np.any(error_is_not_graphlike):
             mask = np.ones(pcm.shape[1])
             mask[error_is_not_graphlike] = 0
             pcm = pcm @ scipy.sparse.diags(mask)
+    elif np.any(error_is_not_graphlike):
+        raise ValueError(
+            "The provided parity check matrix or detector error model contains a non-graphlike"
+            " error, meaning some column of the parity check matrix contains more than two ones,"
+            " which may occur (for example) due to the presence of a Pauli-Y error that flips both"
+            " X and Z detectors.  Try decomposing non-graphlike errors by passing"
+            " 'decompose_errors=True' to the decoder.  If that does not work either, you can try"
+            " 'ignore_non_graphlike_errors=True'"
+        )
 
     # retrieve a matching decoder from pymatching
     return pymatching.Matching.from_check_matrix(pcm, **decoder_args)
