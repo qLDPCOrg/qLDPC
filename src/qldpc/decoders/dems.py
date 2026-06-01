@@ -325,6 +325,7 @@ class DetectorErrorModelArrays:
             detector_flip_matrix,
             observable_flip_matrix,
             np.hstack([self.error_probs, [0] * bits]),
+            self.suggested_decompositions,
         )
 
 
