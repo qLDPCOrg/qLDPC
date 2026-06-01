@@ -209,7 +209,7 @@ def _to_ldpc_inputs(
 def get_decoder_MWPM(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
-    decompose_errors: bool = True,
+    decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
     **decoder_args: object,
 ) -> BatchDecoder:
@@ -243,13 +243,22 @@ def get_decoder_MWPM(
         pcm = pcm_or_dem
 
     # possibly ignore non-graphlike errors
+    detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
+    error_is_not_graphlike = detectors_per_error > 2
     if ignore_non_graphlike_errors:
-        detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
-        error_is_not_graphlike = detectors_per_error > 2
         if np.any(error_is_not_graphlike):
             mask = np.ones(pcm.shape[1])
             mask[error_is_not_graphlike] = 0
             pcm = pcm @ scipy.sparse.diags(mask)
+    elif np.any(error_is_not_graphlike):
+        raise ValueError(
+            "The provided parity check matrix or detector error model contains a non-graphlike"
+            " error, meaning some column of the parity check matrix contains more than two ones,"
+            " which may occur (for example) due to the presence of a Pauli-Y error that flips both"
+            " X and Z detectors.  Try decomposing non-graphlike errors by passing"
+            " 'decompose_errors=True' to the decoder.  If that does not work either, you can try"
+            " 'ignore_non_graphlike_errors=True'"
+        )
 
     # retrieve a matching decoder from pymatching
     return pymatching.Matching.from_check_matrix(pcm, **decoder_args)

@@ -75,7 +75,7 @@ def test_decoding() -> None:
     matrix = np.hstack([matrix, np.ones((3, 1))])
     error = np.concatenate([error, [0]])
     dem.append("error", 0.125, [stim.DemTarget.relative_detector_id(ii) for ii in range(3)])
-    with pytest.raises(ValueError, match="`check_matrix` must contain at most two ones per column"):
+    with pytest.raises(ValueError, match="non-graphlike error"):
         np.array_equal(error, decoders.decode(dem, syndrome, with_MWPM=True))
     assert np.array_equal(
         error, decoders.decode(dem, syndrome, with_MWPM=True, ignore_non_graphlike_errors=True)
