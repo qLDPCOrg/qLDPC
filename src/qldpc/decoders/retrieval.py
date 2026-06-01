@@ -218,7 +218,8 @@ def get_decoder_MWPM(
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         decompose_errors: Whether apply suggested decompositions of error mechanisms.
-        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors.
+        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors (after
+            decomposition, if applicable).
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
 
     Returns:
@@ -233,9 +234,7 @@ def get_decoder_MWPM(
     """
     # identify parity check matrix and error probabilities
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        dem_arrays = DetectorErrorModelArrays(
-            pcm_or_dem, apply_suggested_decompositions=decompose_errors
-        )
+        dem_arrays = DetectorErrorModelArrays(pcm_or_dem, decompose_errors=decompose_errors)
         pcm = dem_arrays.detector_flip_matrix
         if decoder_args.get("weights") is not None:  # pragma: no cover
             raise ValueError("Cannot set error weights when initializing a MWPM decoder from a DEM")

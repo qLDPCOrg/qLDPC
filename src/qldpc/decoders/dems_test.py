@@ -199,7 +199,7 @@ def test_post_selection() -> None:
     assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
 
 
-def test_with_suggested_decompositions() -> None:
+def test_decomposing_errors() -> None:
     """Apply suggested decompositions to split errors into their components."""
     dem = stim.DetectorErrorModel("""
         error(0.001) D0
@@ -219,4 +219,4 @@ def test_with_suggested_decompositions() -> None:
         error(0.002) D2
         error(0.001) D2
     """)
-    assert dem_arrays.with_suggested_decompositions(simplify=False).to_dem() == split_dem
+    assert dem_arrays.with_decomposed_errors(simplify=False).to_dem() == split_dem

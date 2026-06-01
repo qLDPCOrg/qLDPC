@@ -56,7 +56,7 @@ class DetectorErrorModelArrays:
         circuit_or_dem: stim.Circuit | stim.DetectorErrorModel,
         *,
         simplify: bool = True,
-        apply_suggested_decompositions: bool = False,
+        decompose_errors: bool = False,
     ) -> None:
         """Initialize from a stim.DetectorErrorModel."""
         dem = (
@@ -64,9 +64,7 @@ class DetectorErrorModelArrays:
             if isinstance(circuit_or_dem, stim.Circuit)
             else circuit_or_dem
         )
-        errors = DetectorErrorModelArrays.get_circuit_errors(
-            dem, apply_suggested_decompositions=apply_suggested_decompositions
-        )
+        errors = DetectorErrorModelArrays.get_circuit_errors(dem, decompose_errors=decompose_errors)
         if simplify:
             errors = DetectorErrorModelArrays.get_merged_circuit_errors(errors)
         self.detector_flip_matrix, self.observable_flip_matrix, self.error_probs = (
@@ -152,7 +150,7 @@ class DetectorErrorModelArrays:
     def get_circuit_errors(
         dem: stim.DetectorErrorModel,
         *,
-        apply_suggested_decompositions: bool = False,
+        decompose_errors: bool = False,
     ) -> list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]]:
         """Collect all circuit errors in a stim.DetectorErrorModel into a list.
 
@@ -167,8 +165,7 @@ class DetectorErrorModelArrays:
             - a set of (detector_set, observable_set) tuples, one per suggested component.
         Errors with no suggested decompositions have a single component.
 
-        If apply_suggested_decompositions is True, all errors are decomposed into single-component
-        errors.
+        If decompose_errors is True, all errors are decomposed into single-component errors.
 
         If a detector or observable appears multiple times within one component, its occurrences
         are reduced to the original value mod 2.
@@ -195,12 +192,12 @@ class DetectorErrorModelArrays:
                 observables = _values_that_occur_an_odd_number_of_times(
                     [target.val for target in targets if target.is_logical_observable_id()]
                 )
-                if apply_suggested_decompositions:
+                if decompose_errors:
                     errors.append((probability, frozenset([(detectors, observables)])))
                 else:
                     components.append((detectors, observables))
 
-            if not apply_suggested_decompositions:
+            if not decompose_errors:
                 errors.append((probability, _values_that_occur_an_odd_number_of_times(components)))
 
         return errors
@@ -294,14 +291,14 @@ class DetectorErrorModelArrays:
         """Simplify this DetectorErrorModelArrays object by merging errors."""
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
-    def with_suggested_decompositions(self, *, simplify: bool = True) -> DetectorErrorModelArrays:
+    def with_decomposed_errors(self, *, simplify: bool = True) -> DetectorErrorModelArrays:
         """Split error mechanisms according to their suggested decompositions.
 
         Each error with a suggested decomposition is replaced by its individual components, each
         inheriting the same probability.  Errors without a decomposition are kept as-is.
         """
         return DetectorErrorModelArrays(
-            self.to_detector_error_model(), simplify=simplify, apply_suggested_decompositions=True
+            self.to_detector_error_model(), simplify=simplify, decompose_errors=True
         )
 
     def post_selected_on(self, detectors: Collection[int]) -> DetectorErrorModelArrays:
