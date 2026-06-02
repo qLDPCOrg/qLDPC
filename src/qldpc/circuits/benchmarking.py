@@ -281,46 +281,50 @@ def get_logical_error_and_discard_rate(
     Keyword args:
         num_samples: The number of times to the circuit_or_dem.
         post_select: The detectors in circuit_or_dem to post-select on.
-        dem_to_decode: The detector error model to decode.  If None, use the DEM of circuit_or_dem.
+        dem_to_decode: The detector error model to decode, with the same number of detectors and
+            observables as in circuit_or_dem (including any post-selected detectors).  If None, use
+            the DEM of circuit_or_dem.
 
     Returns:
         A fraction of samples in which at least one observable was decoded incorrectly.
         A fraction of samples that were discarded due to post-selection.
     """
-    # build and simplify a detector error model
-    dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)
-    dem = dem_arrays.to_dem()
+    dem = (
+        circuit_or_dem.detector_error_model()
+        if isinstance(circuit_or_dem, stim.Circuit)
+        else circuit_or_dem
+    )
 
     if dem_to_decode is not None:
         same_num_observables = dem_to_decode.num_observables == dem.num_observables
-        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors - len(post_select)
+        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors
         if not same_num_observables or not same_num_detectors:
             raise ValueError(
                 f"Incompatible detector error models."
-                "\n(num_detectors, num_observables) in the DEM to sample (after post-selection):"
-                f" {(dem.num_detectors - len(post_select), dem.num_observables)}"
+                "\n(num_detectors, num_observables) in the DEM to sample:"
+                f" {(dem.num_detectors, dem.num_observables)}"
                 "\n(num_detectors, num_observables) in the DEM to decode:"
                 f" {(dem_to_decode.num_detectors, dem_to_decode.num_observables)}"
             )
 
     # sample detector and observable flips in the circuit
     sampler = dem.compile_sampler()
-    det_data, obs_data, _ = sampler.sample(shots=num_samples)
+    det_data, obs_data, _ = sampler.sample(shots=num_samples, bit_packed=True)
 
     # if applicable, post-select on flag detectors
     if post_select:
         post_select = list(post_select)
+        detector_record = DetectorRecord({"prep": range(circuit_or_dem.num_detectors)})
+        postselection_mask = _get_postselection_mask(post_select, detector_record)
+        assert postselection_mask is not None  # to help mypy
 
-        # identify shots and detectors to remove
-        shot_mask = ~np.any(det_data[:, post_select], axis=1)
-        detector_mask = np.ones(dem.num_detectors, dtype=bool)
-        detector_mask[post_select] = False
-
-        # post-select simulated data
-        det_data = det_data[shot_mask][:, detector_mask]
+        # post-select rows; flag detector columns stay in det_data but are guaranteed zero
+        shot_mask = ~np.any(det_data & postselection_mask, axis=1)
+        det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
-        if dem_to_decode is None:
-            dem = dem_arrays.post_selected_on(post_select).to_dem()
+
+        dem_arrays = decoders.DetectorErrorModelArrays(dem_to_decode or dem)
+        dem_to_decode = dem_arrays.post_selected_on(post_select, keep_detectors=True).to_dem()
 
         # record the fraction of shots that were discarded
         discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
@@ -331,7 +335,7 @@ def get_logical_error_and_discard_rate(
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
 
     # decode and compute the logical error rate
-    predicted_flips = compiled_sinter_decoder.decode_shots(det_data)
+    predicted_flips = compiled_sinter_decoder.decode_shots_bit_packed(det_data)
     obs_flips = obs_data ^ predicted_flips
     failures = np.any(obs_flips, axis=1)
     logical_error_rate = np.sum(failures) / len(failures)
@@ -377,6 +381,23 @@ def get_nontrivial_logical_stabilizers(
 
     # convert back into the basis of physical Pauli operators
     return logical_stabilizers_rref @ code.get_logical_ops()
+
+
+def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
+    """Identify measurements, by index, that are not addressed by any detectors in the circuit."""
+    measurements: list[int] = []
+    addressed_measurements = set()
+    for instruction in circuit:
+        new_measurements = range(
+            len(measurements),
+            len(measurements) + instruction.num_measurements,
+        )
+        measurements.extend(list(new_measurements))
+        if instruction.name == "DETECTOR":
+            addressed_measurements |= {
+                measurements[target.value] for target in instruction.targets_copy()
+            }
+    return sorted(set(measurements) - addressed_measurements)
 
 
 def _get_postselection_mask(
@@ -462,23 +483,6 @@ def _get_state_stabilizers(
             state_stabs.append(string)
 
     return state_stabs
-
-
-def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
-    """Identify measurements, by index, that are not addressed by any detectors in the circuit."""
-    measurements: list[int] = []
-    addressed_measurements = set()
-    for instruction in circuit:
-        new_measurements = range(
-            len(measurements),
-            len(measurements) + instruction.num_measurements,
-        )
-        measurements.extend(list(new_measurements))
-        if instruction.name == "DETECTOR":
-            addressed_measurements |= {
-                measurements[target.value] for target in instruction.targets_copy()
-            }
-    return sorted(set(measurements) - addressed_measurements)
 
 
 def _assert_valid_code_state(

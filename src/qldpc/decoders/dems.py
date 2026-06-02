@@ -301,14 +301,18 @@ class DetectorErrorModelArrays:
             self.to_detector_error_model(), simplify=simplify, decompose_errors=True
         )
 
-    def post_selected_on(self, detectors: Collection[int]) -> DetectorErrorModelArrays:
+    def post_selected_on(
+        self, detectors: Collection[int], *, keep_detectors: bool = False
+    ) -> DetectorErrorModelArrays:
         """Condition this detector error model on the given detectors being in 0 (untriggered).
 
         In effect, remove the given detectors and the error mechanisms that trigger them.
+        If keep_detectors is True, only remove error mechanisms.
         """
         detectors = list(detectors)
         detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
-        detectors_to_keep[detectors] = False
+        if not keep_detectors:
+            detectors_to_keep[detectors] = False
         errors_to_keep = self.detector_flip_matrix[detectors].getnnz(axis=0) == 0
 
         new_suggested_decompositions = {}
