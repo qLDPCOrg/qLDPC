@@ -282,8 +282,11 @@ def get_logical_error_and_discard_rate(
         num_samples: The number of times to the circuit_or_dem.
         post_select: The detectors in circuit_or_dem to post-select on.
         dem_to_decode: The detector error model to decode.  If post-selecting, this DEM should _not_
-            include any of the the detectors that are post-selected on.  If None, use the DEM of
-            circuit_or_dem (with the post-selection detectors removed).
+            include any of the the detectors that are post-selected on.  If have a DEM that includes
+            _all_ detectors in the circuit_or_dem, you can remove the post-selected detectors with
+                old_dem_arrays = decoders.DetectorErrorModelArrays(old_dem)
+                new_dem = old_dem_arrays.post_selected_on(post_select).simplified().to_dem()
+            If dem_to_decode is None, this method decodes with the same DEM that it samples from.
 
     Returns:
         A fraction of samples in which at least one observable was decoded incorrectly.
