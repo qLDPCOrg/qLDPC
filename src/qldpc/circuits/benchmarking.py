@@ -66,7 +66,7 @@ def get_state_prep_diagnostic_circuit(
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
 
     Keyword args:
-        add_flags: Whether to add flag detectors for unused measurements.
+        add_flags: Whether to add a flag detector for each unaddressed measurement in the circuit.
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -147,12 +147,11 @@ def get_state_prep_diagnostic_tasks(
     error_rates: Sequence[float] | npt.NDArray[np.floating],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
-    add_flags: bool = True,
+    post_select: bool | Collection[int] = True,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
     | None = None,
-    post_select: bool | Sequence[int] = False,
     skip_validation: bool = False,
     metadata: dict[str, Hashable] | None = None,
 ) -> list[sinter.Task]:
@@ -208,16 +207,15 @@ def get_state_prep_diagnostic_tasks(
         noise_model_family: A single-parameter family of noise models for adding noise to circuits.
 
     Keyword args:
-        add_flags: Whether to add flag detectors for unused measurements.
+        post_select: If True, add a flag detector for each unused measurement in the provided
+            circuit and post-select on those detectors.  If provided a collection of integers,
+            post-select on corresponding detectors that are already present in the provided circuit.
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
             data qubits of the code.  If None, observables are determined automatically by finding
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
-        post_select: If True, post-select on 0 measurement outcomes for all measurements in the
-            state_prep_circuit.  If provided a sequence of integers, post-select on the correponding
-            measurements (by index) in the state_prep_circuit.
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
             logical state of the provided code.
 
@@ -225,6 +223,7 @@ def get_state_prep_diagnostic_tasks(
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
             individual task is task.json_metadata["p"].
     """
+    add_flags = post_select is True
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code,
         state_prep_circuit,
@@ -232,9 +231,9 @@ def get_state_prep_diagnostic_tasks(
         observables=observables,
         skip_validation=skip_validation,
     )
-    postselection_mask = _get_postselection_mask(
-        post_select, detector_record, diagnostic_circuit.num_detectors
-    )
+    if isinstance(post_select, bool):
+        post_select = range(detector_record.get("flags")) if post_select else ()
+    postselection_mask = _get_postselection_mask(post_select, diagnostic_circuit.num_detectors)
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
@@ -250,8 +249,8 @@ def get_logical_error_and_discard_rate(
     sinter_decoder: sinter.Decoder,
     *,
     num_samples: int,
+    post_select: Collection[int] = (),
     dem_to_decode: stim.DetectorErrorModel | None = None,
-    post_select: Sequence[int] = (),
 ) -> tuple[float, float]:
     """Compute a logical error rate and discard rate from samples of the provided circuit.
 
@@ -283,8 +282,8 @@ def get_logical_error_and_discard_rate(
 
     Keyword args:
         num_samples: The number of times to the circuit_or_dem.
-        dem_to_decode: The detector error model to decode.  If None, use the DEM of circuit_or_dem.
         post_select: The detectors in circuit_or_dem to post-select on.
+        dem_to_decode: The detector error model to decode.  If None, use the DEM of circuit_or_dem.
 
     Returns:
         A fraction of samples in which at least one observable was decoded incorrectly.
@@ -381,23 +380,13 @@ def get_nontrivial_logical_stabilizers(
 
 
 def _get_postselection_mask(
-    post_select: bool | Sequence[int], detector_record: DetectorRecord, num_detectors: int
+    post_select: Collection[int], num_detectors: int
 ) -> npt.NDArray[np.uint8] | None:
     """Build a post-selection mask for sinter."""
     if not post_select:
         return None
-    num_flags = len(detector_record.get("flags"))
-    if isinstance(post_select, bool):
-        post_select = tuple(range(num_flags)) if post_select else ()
-    if not all(-num_flags <= mm < num_flags for mm in post_select):
-        raise ValueError(
-            f"The provided circuit contains {num_flags} flag measurements, so we can only"
-            f" post-select on flags indexed from -{num_flags} to {num_flags - 1};"
-            f" requested: {post_select}"
-        )
-    detectors = [detector_record.get("flags")[mm] for mm in post_select]
     postselection_array = np.zeros(num_detectors, dtype=int)
-    postselection_array[detectors] = 1
+    postselection_array[post_select] = 1
     return np.packbits(postselection_array, bitorder="little")
 
 
