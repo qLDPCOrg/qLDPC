@@ -394,8 +394,8 @@ def _get_postselection_mask(
     if not all(-num_detectors <= dd < num_detectors for dd in post_select):
         raise ValueError(
             f"The provided circuit contains {num_detectors} detectors, so we can only post-select"
-            f" on detectors indexed from -{num_detectors} to {num_detectors - 1}; requested:"
-            f" {post_select}"
+            f" on detectors with an index the range [-{num_detectors}, {num_detectors});"
+            f" requested: {post_select}"
         )
 
     postselection_array = np.zeros(num_detectors, dtype=int)

@@ -53,20 +53,9 @@ def test_state_prep() -> None:
     noise_model_family = circuits.DepolarizingNoiseModel
     error_rates = np.logspace(-3, -1, 5)
 
-    # obsrevables can be specified by either a symplectic matrix or list of Pauli strings
+    # observables can be specified by either a symplectic matrix or list of Pauli strings
     observables = code.get_logical_ops(Pauli.Z, symplectic=True)
     string_observables = [math.op_to_string(obs) for obs in observables]
-
-    # can only post-select on measurements in the circuit
-    with pytest.raises(ValueError, match="can only post-select on detectors indexed from"):
-        circuits.get_state_prep_diagnostic_tasks(
-            code,
-            circuit,
-            error_rates,
-            noise_model_family,
-            observables=string_observables,
-            post_select=[circuit.num_measurements],  # measurements indexed are indexed from 0
-        )
 
     # build sinter tasks
     tasks = circuits.get_state_prep_diagnostic_tasks(
@@ -90,13 +79,36 @@ def test_state_prep() -> None:
     diagnostic_circuit, _ = circuits.get_state_prep_diagnostic_circuit(
         code, circuit, add_flags=True
     )
-    noisy_diagnostic_circuit = noise_model_family(error_rates[0]).noisy_circuit(diagnostic_circuit)
     postselection_array = np.zeros(task.circuit.num_detectors, dtype=int)
     postselection_array[: circuit.num_measurements] = 1
-    assert np.array_equal(
-        task.postselection_mask, np.packbits(postselection_array, bitorder="little")
-    )
-    assert task.circuit == noisy_diagnostic_circuit
+    postselection_mask = np.packbits(postselection_array, bitorder="little")
+    assert task.circuit == noise_model_family(error_rates[0]).noisy_circuit(diagnostic_circuit)
+    assert np.array_equal(task.postselection_mask, postselection_mask)
+
+    # we can also post-select manually
+    circuit.append("DETECTOR", stim.target_rec(-1))
+    diagnostic_circuit, _ = circuits.get_state_prep_diagnostic_circuit(code, circuit)
+    task = circuits.get_state_prep_diagnostic_tasks(
+        code,
+        circuit,
+        error_rates[:1],
+        noise_model_family,
+        observables=string_observables,
+        post_select=range(circuit.num_measurements),
+    )[0]
+    assert task.circuit == noise_model_family(error_rates[0]).noisy_circuit(diagnostic_circuit)
+    assert np.array_equal(task.postselection_mask, postselection_mask)
+
+    # we can only manually post-select on detectors that are present in the circuit
+    with pytest.raises(ValueError, match="can only post-select on detectors with an index"):
+        circuits.get_state_prep_diagnostic_tasks(
+            code,
+            circuit,
+            error_rates[:1],
+            noise_model_family,
+            observables=string_observables,
+            post_select=[circuit.num_measurements],
+        )
 
     # bypass sinter to compute logical error rates
     logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
