@@ -413,16 +413,17 @@ def _get_state_stabilizers(
     stabilizers should be outputs of stabilizer flows of the form "1 -> P".
     """
     resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
+    flow_generators = (resets + state_prep_circuit.without_noise()).flow_generators()
 
     # identify some useful numbers
     num_qubits = state_prep_circuit.num_qubits
-    num_measurements = state_prep_circuit.num_measurements
     num_observables = state_prep_circuit.num_observables
-    num_columns = 2 * num_qubits + 1 + num_measurements + num_observables
+    num_measurements = state_prep_circuit.num_measurements
+    num_columns = 2 * num_qubits + 1 + num_observables + num_measurements
+    num_rows = len(flow_generators) + state_prep_circuit.num_detectors
 
-    # build a matrix of stabilizers for the entire circuit output
-    flow_generators = (resets + state_prep_circuit.without_noise()).flow_generators()
-    matrix = code.field.Zeros((len(flow_generators), num_columns))
+    # build a matrix of stabilizers for the entire circuit output, determined by the flows
+    matrix = code.field.Zeros((num_rows, num_columns))
     for gg, flow in enumerate(flow_generators):
         pauli_string = flow.output_copy()
         if pauli_string:
@@ -430,17 +431,33 @@ def _get_state_stabilizers(
             matrix[gg, :num_qubits] = xs.astype(np.uint8)
             matrix[gg, num_qubits : 2 * num_qubits] = zs.astype(np.uint8)
             matrix[gg, 2 * num_qubits] = 0 if pauli_string.sign == 1 else 1
-        for measurement in flow.measurements_copy():
-            matrix[gg, -num_measurements - num_observables + measurement] = 1
         for observable in flow.included_observables_copy():
-            matrix[gg, -num_observables + observable] = 1
+            matrix[gg, -num_measurements - num_observables + observable] = 1
+        for measurement in flow.measurements_copy():
+            matrix[gg, -num_measurements + measurement] = 1
+
+    # add stabilizers supported on measurements, as identified by detectors in the provided circuit
+    detector_counter = 0
+    measurement_counter = 0
+    for instruction in state_prep_circuit:
+        measurement_counter += instruction.num_measurements
+        if instruction.name == "DETECTOR":
+            row = len(flow_generators) + detector_counter
+            for target in instruction.targets_copy():
+                col = -num_measurements + measurement_counter + target.value
+                matrix[row, col] = 1
+            detector_counter += 1
 
     # extract stabilizers that are supported entirely on the data qubits of the code
     state_stabs = []
     for row in matrix.row_reduce():
         xs = row[: len(code)]
         zs = row[num_qubits : num_qubits + len(code)]
-        if np.any(xs) or np.any(zs):
+        other_xs = row[len(code) : num_qubits]
+        other_zs = row[num_qubits + len(code) : 2 * num_qubits]
+        obs_meas = row[2 * num_qubits + 1 :]
+        any_on_others = np.any(other_xs) or np.any(other_zs) or np.any(obs_meas)
+        if np.any(xs) or np.any(zs) and not any_on_others:
             sign = -1 if row[2 * num_qubits] else 1
             string = stim.PauliString.from_numpy(xs=xs != 0, zs=zs != 0, sign=sign)
             state_stabs.append(string)
