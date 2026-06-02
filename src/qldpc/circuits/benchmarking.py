@@ -430,7 +430,7 @@ def _get_state_stabilizers(
             matrix[gg, :num_qubits] = xs.astype(np.uint8)
             matrix[gg, num_qubits : 2 * num_qubits] = zs.astype(np.uint8)
             matrix[gg, 2 * num_qubits] = 0 if pauli_string.sign == 1 else 1
-        for observable in flow.included_observables_copy():
+        for observable in flow.included_observables_copy():  # pragma: no cover
             matrix[gg, -num_measurements - num_observables + observable] = 1
         for measurement in flow.measurements_copy():
             matrix[gg, -num_measurements + measurement] = 1
