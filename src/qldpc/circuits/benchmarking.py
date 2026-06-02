@@ -311,6 +311,8 @@ def get_logical_error_and_discard_rate(
 
     # if applicable, post-select on flag detectors
     if post_select:
+        post_select = list(post_select)
+
         # identify shots and detectors to remove
         shot_mask = ~np.any(det_data[:, post_select], axis=1)
         detector_mask = np.ones(dem.num_detectors, dtype=bool)
@@ -386,7 +388,7 @@ def _get_postselection_mask(
     if not post_select:
         return None
     postselection_array = np.zeros(num_detectors, dtype=int)
-    postselection_array[post_select] = 1
+    postselection_array[list(post_select)] = 1
     return np.packbits(postselection_array, bitorder="little")
 
 
