@@ -289,11 +289,8 @@ def get_logical_error_and_discard_rate(
         A fraction of samples in which at least one observable was decoded incorrectly.
         A fraction of samples that were discarded due to post-selection.
     """
-    dem = (
-        circuit_or_dem.detector_error_model()
-        if isinstance(circuit_or_dem, stim.Circuit)
-        else circuit_or_dem
-    )
+    dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)
+    dem = dem_arrays.to_dem()
 
     if dem_to_decode is not None:
         same_num_observables = dem_to_decode.num_observables == dem.num_observables
@@ -327,9 +324,8 @@ def get_logical_error_and_discard_rate(
         discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
 
         if dem_to_decode is None:
-            # remove post-selected detectors from the DEM
-            dem_arrays = decoders.DetectorErrorModelArrays(dem)
-            dem = dem_arrays.post_selected_on(post_select).to_dem()
+            # remove irreleant error mechanisms from the DEM
+            dem = dem_arrays.post_selected_on(post_select, keep_detectors=True).to_dem()
 
     else:  # pragma: no cover
         discard_rate = 0
