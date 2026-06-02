@@ -58,7 +58,7 @@ def test_state_prep() -> None:
     string_observables = [math.op_to_string(obs) for obs in observables]
 
     # can only post-select on measurements in the circuit
-    with pytest.raises(ValueError, match="can only post-select on flags indexed from"):
+    with pytest.raises(ValueError, match="can only post-select on detectors indexed from"):
         circuits.get_state_prep_diagnostic_tasks(
             code,
             circuit,
@@ -80,12 +80,15 @@ def test_state_prep() -> None:
         assert task.json_metadata["p"] == error_rate
 
     # find observables automatically and post-select on all measurements
+    diagnostic_circuit, _ = circuits.get_state_prep_diagnostic_circuit(
+        code, circuit, add_flags=True
+    )
+    noisy_diagnostic_circuit = noise_model_family(error_rates[0]).noisy_circuit(diagnostic_circuit)
     task = circuits.get_state_prep_diagnostic_tasks(
         code,
         circuit,
         error_rates[:1],
         noise_model_family,
-        observables=None,
         post_select=True,
     )[0]
     postselection_array = np.zeros(task.circuit.num_detectors, dtype=int)
@@ -93,8 +96,7 @@ def test_state_prep() -> None:
     assert np.array_equal(
         task.postselection_mask, np.packbits(postselection_array, bitorder="little")
     )
-    task.postselection_mask = None
-    assert task == tasks[0]
+    assert task.circuit == noisy_diagnostic_circuit
 
     # bypass sinter to compute logical error rates
     logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(

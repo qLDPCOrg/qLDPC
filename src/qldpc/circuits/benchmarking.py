@@ -36,7 +36,7 @@ def get_state_prep_diagnostic_circuit(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
     *,
-    add_flags: bool = True,
+    add_flags: bool = False,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -147,7 +147,7 @@ def get_state_prep_diagnostic_tasks(
     error_rates: Sequence[float] | npt.NDArray[np.floating],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
-    post_select: bool | Collection[int] = True,
+    post_select: bool | Collection[int] = False,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -231,9 +231,7 @@ def get_state_prep_diagnostic_tasks(
         observables=observables,
         skip_validation=skip_validation,
     )
-    if isinstance(post_select, bool):
-        post_select = range(detector_record.get("flags")) if post_select else ()
-    postselection_mask = _get_postselection_mask(post_select, diagnostic_circuit.num_detectors)
+    postselection_mask = _get_postselection_mask(post_select, detector_record)
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
@@ -382,11 +380,24 @@ def get_nontrivial_logical_stabilizers(
 
 
 def _get_postselection_mask(
-    post_select: Collection[int], num_detectors: int
+    post_select: bool | Collection[int], detector_record: DetectorRecord
 ) -> npt.NDArray[np.uint8] | None:
     """Build a post-selection mask for sinter."""
     if not post_select:
         return None
+
+    num_prep = len(detector_record.get_events("prep"))
+    num_flags = len(detector_record.get_events("flags"))
+    num_detectors = num_prep + num_flags
+    if isinstance(post_select, bool):
+        post_select = range(num_flags) if post_select else ()
+    if not all(-num_detectors <= dd < num_detectors for dd in post_select):
+        raise ValueError(
+            f"The provided circuit contains {num_detectors} detectors, so we can only post-select"
+            f" on detectors indexed from -{num_detectors} to {num_detectors - 1}; requested:"
+            f" {post_select}"
+        )
+
     postselection_array = np.zeros(num_detectors, dtype=int)
     postselection_array[list(post_select)] = 1
     return np.packbits(postselection_array, bitorder="little")
