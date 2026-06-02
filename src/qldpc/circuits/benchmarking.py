@@ -108,7 +108,7 @@ def get_state_prep_diagnostic_circuit(
     # add flag detectors for unused measurements, if applicable
     flag_detectors = stim.Circuit()
     if add_flags:
-        measurements = []
+        measurements: list[int] = []
         addressed_measurements = set()
         for instruction in state_prep_circuit:
             new_measurements = range(
