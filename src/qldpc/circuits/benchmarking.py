@@ -108,7 +108,7 @@ def get_state_prep_diagnostic_circuit(
     # add flag detectors for unused measurements, if applicable
     flag_detectors = stim.Circuit()
     if add_flags:
-        for measurement in get_flag_measurements(state_prep_circuit):
+        for measurement in get_unaddressed_measurements(state_prep_circuit):
             target = stim.target_rec(measurement - state_prep_circuit.num_measurements)
             flag_detectors.append("DETECTOR", [target])
     detector_record.append({"flags": range(len(flag_detectors))})
@@ -464,7 +464,7 @@ def _get_state_stabilizers(
     return state_stabs
 
 
-def get_flag_measurements(circuit: stim.Circuit) -> list[int]:
+def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
     """Identify measurements, by index, that are not addressed by any detectors in the circuit."""
     measurements: list[int] = []
     addressed_measurements = set()
