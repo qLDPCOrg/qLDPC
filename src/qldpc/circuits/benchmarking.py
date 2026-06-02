@@ -398,7 +398,7 @@ def _get_postselection_mask(
             f" requested: {post_select}"
         )
 
-    postselection_array = np.zeros(num_detectors, dtype=int)
+    postselection_array = np.zeros(detector_record.num_events, dtype=int)
     postselection_array[list(post_select)] = 1
     return np.packbits(postselection_array, bitorder="little")
 
