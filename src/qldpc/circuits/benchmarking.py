@@ -80,7 +80,7 @@ def get_state_prep_diagnostic_circuit(
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
         circuits.DetectorRecord: A record of the detectors in the circuit, for which
             - DetectorRecord.get_events("prep") is a list of indices for detectors that were already
-                present in the submitted provided state_prep_circuit.
+                present in the provided state_prep_circuit.
             - DetectorRecord.get_events("flags") is a list of indices for the flag detectors.
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
