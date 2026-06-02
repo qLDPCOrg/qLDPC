@@ -389,12 +389,12 @@ def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
     """Identify measurements, by index, that are not addressed by any detectors in the circuit."""
     measurements: list[int] = []
     addressed_measurements = set()
-    for instruction in circuit:
+    for instruction in circuit.flattened():
         new_measurements = range(
             len(measurements),
             len(measurements) + instruction.num_measurements,
         )
-        measurements.extend(list(new_measurements))
+        measurements.extend(new_measurements)
         if instruction.name == "DETECTOR":
             addressed_measurements |= {
                 measurements[target.value] for target in instruction.targets_copy()
@@ -461,7 +461,7 @@ def _get_state_stabilizers(
     # add stabilizers supported on measurements, as identified by detectors in the provided circuit
     detector_counter = 0
     measurement_counter = 0
-    for instruction in state_prep_circuit:
+    for instruction in state_prep_circuit.flattened():
         measurement_counter += instruction.num_measurements
         if instruction.name == "DETECTOR":
             row = len(flow_generators) + detector_counter
@@ -479,7 +479,7 @@ def _get_state_stabilizers(
         other_zs = row[num_qubits + len(code) : 2 * num_qubits]
         meas_obs = row[2 * num_qubits + 1 :]
         any_on_others = np.any(other_xs) or np.any(other_zs) or np.any(meas_obs)
-        if np.any(xs) or np.any(zs) and not any_on_others:
+        if (np.any(xs) or np.any(zs)) and not any_on_others:
             sign = -1 if row[2 * num_qubits] else 1
             string = stim.PauliString.from_numpy(xs=xs != 0, zs=zs != 0, sign=sign)
             state_stabs.append(string)
