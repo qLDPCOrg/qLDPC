@@ -329,6 +329,7 @@ def get_logical_error_and_discard_rate(
 
         # record the fraction of shots that were discarded
         discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
+
     else:  # pragma: no cover
         discard_rate = 0
 
