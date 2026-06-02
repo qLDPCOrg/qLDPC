@@ -80,10 +80,6 @@ def test_state_prep() -> None:
         assert task.json_metadata["p"] == error_rate
 
     # find observables automatically and post-select on all measurements
-    diagnostic_circuit, _ = circuits.get_state_prep_diagnostic_circuit(
-        code, circuit, add_flags=True
-    )
-    noisy_diagnostic_circuit = noise_model_family(error_rates[0]).noisy_circuit(diagnostic_circuit)
     task = circuits.get_state_prep_diagnostic_tasks(
         code,
         circuit,
@@ -91,6 +87,10 @@ def test_state_prep() -> None:
         noise_model_family,
         post_select=True,
     )[0]
+    diagnostic_circuit, _ = circuits.get_state_prep_diagnostic_circuit(
+        code, circuit, add_flags=True
+    )
+    noisy_diagnostic_circuit = noise_model_family(error_rates[0]).noisy_circuit(diagnostic_circuit)
     postselection_array = np.zeros(task.circuit.num_detectors, dtype=int)
     postselection_array[: circuit.num_measurements] = 1
     assert np.array_equal(
