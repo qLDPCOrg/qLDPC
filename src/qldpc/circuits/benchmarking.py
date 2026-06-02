@@ -323,7 +323,7 @@ def get_logical_error_and_discard_rate(
         det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
 
-        # remove irrelevant error mechanisms fro the DEM to decode
+        # remove irrelevant error mechanisms from the DEM to decode
         dem_arrays = decoders.DetectorErrorModelArrays(dem_to_decode or dem)
         dem_to_decode = dem_arrays.post_selected_on(post_select, keep_detectors=True).to_dem()
 
