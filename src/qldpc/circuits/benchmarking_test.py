@@ -58,7 +58,7 @@ def test_state_prep() -> None:
     string_observables = [math.op_to_string(obs) for obs in observables]
 
     # can only post-select on measurements in the circuit
-    with pytest.raises(ValueError, match="can only post-select on measurements indexed from"):
+    with pytest.raises(ValueError, match="can only post-select on flags indexed from"):
         circuits.get_state_prep_diagnostic_tasks(
             code,
             circuit,

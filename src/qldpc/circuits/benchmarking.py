@@ -108,19 +108,7 @@ def get_state_prep_diagnostic_circuit(
     # add flag detectors for unused measurements, if applicable
     flag_detectors = stim.Circuit()
     if add_flags:
-        measurements: list[int] = []
-        addressed_measurements = set()
-        for instruction in state_prep_circuit:
-            new_measurements = range(
-                len(measurements),
-                len(measurements) + instruction.num_measurements,
-            )
-            measurements.extend(list(new_measurements))
-            if instruction.name == "DETECTOR":
-                addressed_measurements |= {
-                    measurements[target.value] for target in instruction.targets_copy()
-                }
-        for measurement in frozenset(measurements) - addressed_measurements:
+        for measurement in get_flag_measurements(state_prep_circuit):
             target = stim.target_rec(measurement - state_prep_circuit.num_measurements)
             flag_detectors.append("DETECTOR", [target])
     detector_record.append({"flags": range(len(flag_detectors))})
@@ -159,6 +147,7 @@ def get_state_prep_diagnostic_tasks(
     error_rates: Sequence[float] | npt.NDArray[np.floating],
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
+    add_flags: bool = True,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -219,6 +208,7 @@ def get_state_prep_diagnostic_tasks(
         noise_model_family: A single-parameter family of noise models for adding noise to circuits.
 
     Keyword args:
+        add_flags: Whether to add flag detectors for unused measurements.
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -235,11 +225,15 @@ def get_state_prep_diagnostic_tasks(
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
             individual task is task.json_metadata["p"].
     """
-    diagnostic_circuit, _ = get_state_prep_diagnostic_circuit(
-        code, state_prep_circuit, observables=observables, skip_validation=skip_validation
+    diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
+        code,
+        state_prep_circuit,
+        add_flags=add_flags,
+        observables=observables,
+        skip_validation=skip_validation,
     )
     postselection_mask = _get_postselection_mask(
-        post_select, state_prep_circuit.num_measurements, diagnostic_circuit.num_detectors
+        post_select, detector_record, diagnostic_circuit.num_detectors
     )
     return [
         sinter.Task(
@@ -387,20 +381,23 @@ def get_nontrivial_logical_stabilizers(
 
 
 def _get_postselection_mask(
-    post_select: bool | Sequence[int], num_measurements: int, num_detectors: int
+    post_select: bool | Sequence[int], detector_record: DetectorRecord, num_detectors: int
 ) -> npt.NDArray[np.uint8] | None:
     """Build a post-selection mask for sinter."""
     if not post_select:
         return None
+    num_flags = len(detector_record.get("flags"))
     if isinstance(post_select, bool):
-        post_select = tuple(range(num_measurements)) if post_select else ()
-    if not all(-num_measurements <= mm < num_measurements for mm in post_select):
+        post_select = tuple(range(num_flags)) if post_select else ()
+    if not all(-num_flags <= mm < num_flags for mm in post_select):
         raise ValueError(
-            f"A circuit with {num_measurements} can only post-select on measurements indexed from"
-            f" 0 to {num_measurements - 1}; requested: {post_select}"
+            f"The provided circuit contains {num_flags} flag measurements, so we can only"
+            f" post-select on flags indexed from -{num_flags} to {num_flags - 1};"
+            f" requested: {post_select}"
         )
+    detectors = [detector_record.get("flags")[mm] for mm in post_select]
     postselection_array = np.zeros(num_detectors, dtype=int)
-    postselection_array[post_select] = 1
+    postselection_array[detectors] = 1
     return np.packbits(postselection_array, bitorder="little")
 
 
@@ -463,6 +460,23 @@ def _get_state_stabilizers(
             state_stabs.append(string)
 
     return state_stabs
+
+
+def get_flag_measurements(circuit: stim.Circuit) -> list[int]:
+    """Identify measurements, by index, that are not addressed by any detectors in the circuit."""
+    measurements: list[int] = []
+    addressed_measurements = set()
+    for instruction in circuit:
+        new_measurements = range(
+            len(measurements),
+            len(measurements) + instruction.num_measurements,
+        )
+        measurements.extend(list(new_measurements))
+        if instruction.name == "DETECTOR":
+            addressed_measurements |= {
+                measurements[target.value] for target in instruction.targets_copy()
+            }
+    return sorted(set(measurements) - addressed_measurements)
 
 
 def _assert_valid_code_state(
