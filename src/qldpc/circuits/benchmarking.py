@@ -105,7 +105,7 @@ def get_state_prep_diagnostic_circuit(
     # initialize a record of the detectors in the circuit
     detector_record = DetectorRecord({"prep": range(state_prep_circuit.num_detectors)})
 
-    # add flag detectors
+    # add flag detectors for unused measurements, if applicable
     flag_detectors = stim.Circuit()
     if add_flags:
         measurements = []
