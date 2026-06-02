@@ -416,9 +416,9 @@ def _get_state_stabilizers(
 
     # identify some useful numbers
     num_qubits = state_prep_circuit.num_qubits
-    num_observables = state_prep_circuit.num_observables
     num_measurements = state_prep_circuit.num_measurements
-    num_columns = 2 * num_qubits + 1 + num_observables + num_measurements
+    num_observables = state_prep_circuit.num_observables
+    num_columns = 2 * num_qubits + 1 + num_measurements + num_observables
     num_rows = len(flow_generators) + state_prep_circuit.num_detectors
 
     # build a matrix of stabilizers for the entire circuit output, determined by the flows
@@ -430,10 +430,10 @@ def _get_state_stabilizers(
             matrix[gg, :num_qubits] = xs.astype(np.uint8)
             matrix[gg, num_qubits : 2 * num_qubits] = zs.astype(np.uint8)
             matrix[gg, 2 * num_qubits] = 0 if pauli_string.sign == 1 else 1
-        for observable in flow.included_observables_copy():  # pragma: no cover technical edge case
-            matrix[gg, -num_measurements - num_observables + observable] = 1
         for measurement in flow.measurements_copy():
-            matrix[gg, -num_measurements + measurement] = 1
+            matrix[gg, -num_observables - num_measurements + measurement] = 1
+        for observable in flow.included_observables_copy():  # pragma: no cover technical edge case
+            matrix[gg, -num_observables + observable] = 1
 
     # add stabilizers supported on measurements, as identified by detectors in the provided circuit
     detector_counter = 0
@@ -443,7 +443,7 @@ def _get_state_stabilizers(
         if instruction.name == "DETECTOR":
             row = len(flow_generators) + detector_counter
             for target in instruction.targets_copy():
-                col = -num_measurements + measurement_counter + target.value
+                col = -num_observables - num_measurements + measurement_counter + target.value
                 matrix[row, col] = 1
             detector_counter += 1
 
@@ -454,8 +454,8 @@ def _get_state_stabilizers(
         zs = row[num_qubits : num_qubits + len(code)]
         other_xs = row[len(code) : num_qubits]
         other_zs = row[num_qubits + len(code) : 2 * num_qubits]
-        obs_meas = row[2 * num_qubits + 1 :]
-        any_on_others = np.any(other_xs) or np.any(other_zs) or np.any(obs_meas)
+        meas_obs = row[2 * num_qubits + 1 :]
+        any_on_others = np.any(other_xs) or np.any(other_zs) or np.any(meas_obs)
         if np.any(xs) or np.any(zs) and not any_on_others:
             sign = -1 if row[2 * num_qubits] else 1
             string = stim.PauliString.from_numpy(xs=xs != 0, zs=zs != 0, sign=sign)
