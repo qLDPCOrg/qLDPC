@@ -92,6 +92,6 @@ def test_records() -> None:
 
 def test_post_selection() -> None:
     """Update a DetectorRecord after post-selecting on some detectors."""
-    record = circuits.DetectorRecord({"flag": [0, 2, 4], "a": [1, 5], "b": [3]})
+    record = circuits.DetectorRecord({"flags": [0, 2, 4], "a": [1, 5], "b": [3]})
     expected_record = circuits.DetectorRecord({"a": [0, 2], "b": [1]})
-    assert record.after_post_selection("flag") == expected_record
+    assert record.after_post_selection("flags") == expected_record

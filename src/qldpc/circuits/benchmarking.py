@@ -81,7 +81,7 @@ def get_state_prep_diagnostic_circuit(
         circuits.DetectorRecord: A record of the detectors in the circuit, for which
             - DetectorRecord.get_events("prep") is a list of indices for detectors that were already
                 present in the submitted provided state_prep_circuit.
-            - DetectorRecord.get_events("flag") is a list of indices for the flag detectors.
+            - DetectorRecord.get_events("flags") is a list of indices for the flag detectors.
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
@@ -123,7 +123,7 @@ def get_state_prep_diagnostic_circuit(
         for measurement in frozenset(measurements) - addressed_measurements:
             target = stim.target_rec(measurement - state_prep_circuit.num_measurements)
             flag_detectors.append("DETECTOR", [target])
-    detector_record.append({"flag": range(len(flag_detectors))})
+    detector_record.append({"flags": range(len(flag_detectors))})
 
     # stabilizer measurements and detectors
     stabilizer_measurements = get_pauli_product_measurements(code.get_stabilizer_ops())
