@@ -281,9 +281,9 @@ def get_logical_error_and_discard_rate(
     Keyword args:
         num_samples: The number of times to the circuit_or_dem.
         post_select: The detectors in circuit_or_dem to post-select on.
-        dem_to_decode: The detector error model to decode, with the same number of detectors and
-            observables as in circuit_or_dem (including any post-selected detectors).  If None, use
-            the DEM of circuit_or_dem.
+        dem_to_decode: The detector error model to decode.  If post-selecting, this DEM should _not_
+            include any of the the detectors that are post-selected on.  If None, use the DEM of
+            circuit_or_dem (with the post-selection detectors removed).
 
     Returns:
         A fraction of samples in which at least one observable was decoded incorrectly.
@@ -315,7 +315,7 @@ def get_logical_error_and_discard_rate(
         postselection_mask = _get_postselection_mask(post_select, detector_record)
         assert postselection_mask is not None  # to help mypy
 
-        # post-select rows; flag detector columns stay in det_data but are guaranteed zero
+        # remove rows corresponding to shots in which post-selection detectors fired
         shot_mask = ~np.any(det_data & postselection_mask, axis=1)
         det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
@@ -324,8 +324,8 @@ def get_logical_error_and_discard_rate(
         discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
 
         if dem_to_decode is None:
-            # remove irreleant error mechanisms from the DEM
-            dem = dem_arrays.post_selected_on(post_select, keep_detectors=True).to_dem()
+            # remove irreleant decoders and error mechanisms from the DEM
+            dem = dem_arrays.post_selected_on(post_select).simplified().to_dem()
 
     else:  # pragma: no cover
         discard_rate = 0
