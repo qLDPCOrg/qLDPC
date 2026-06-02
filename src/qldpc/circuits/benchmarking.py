@@ -297,12 +297,12 @@ def get_logical_error_and_discard_rate(
 
     if dem_to_decode is not None:
         same_num_observables = dem_to_decode.num_observables == dem.num_observables
-        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors
+        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors - len(post_select)
         if not same_num_observables or not same_num_detectors:
             raise ValueError(
                 f"Incompatible detector error models."
                 "\n(num_detectors, num_observables) in the DEM to sample:"
-                f" {(dem.num_detectors, dem.num_observables)}"
+                f" {(dem.num_detectors - len(post_select), dem.num_observables)}"
                 "\n(num_detectors, num_observables) in the DEM to decode:"
                 f" {(dem_to_decode.num_detectors, dem_to_decode.num_observables)}"
             )
@@ -323,12 +323,13 @@ def get_logical_error_and_discard_rate(
         det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
 
-        # remove irrelevant error mechanisms from the DEM to decode
-        dem_arrays = decoders.DetectorErrorModelArrays(dem_to_decode or dem)
-        dem_to_decode = dem_arrays.post_selected_on(post_select, keep_detectors=True).to_dem()
-
         # record the fraction of shots that were discarded
         discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
+
+        if dem_to_decode is None:
+            # remove post-selected detectors from the DEM
+            dem_arrays = decoders.DetectorErrorModelArrays(dem)
+            dem = dem_arrays.post_selected_on(post_select).to_dem()
 
     else:  # pragma: no cover
         discard_rate = 0
