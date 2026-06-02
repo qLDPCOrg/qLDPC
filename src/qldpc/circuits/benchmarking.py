@@ -36,7 +36,7 @@ def get_state_prep_diagnostic_circuit(
     code: codes.QuditCode,
     state_prep_circuit: stim.Circuit,
     *,
-    with_flags: bool = True,
+    add_flags: bool = True,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -49,7 +49,7 @@ def get_state_prep_diagnostic_circuit(
 
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
-    - If 'with_flags is True', a detector for each measurement that is not addressed by an existing
+    - If 'add_flags is True', a detector for each measurement that is not addressed by an existing
         detector in the provided circuit.  The added detectors are called "flag detectors".
     - Noiseless measurements of all stabilizers of the code.
     - A detector for each of the noiseless stabilizer measurements.
@@ -66,7 +66,7 @@ def get_state_prep_diagnostic_circuit(
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
 
     Keyword args:
-        with_flags: Whether to add flag detectors for unused measurements.
+        add_flags: Whether to add flag detectors for unused measurements.
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -107,7 +107,7 @@ def get_state_prep_diagnostic_circuit(
 
     # add flag detectors
     flag_detectors = stim.Circuit()
-    if with_flags:
+    if add_flags:
         measurements = []
         addressed_measurements = set()
         for instruction in state_prep_circuit:
