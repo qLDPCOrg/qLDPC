@@ -1,10 +1,10 @@
 from .alpha_syndrome import AlphaSyndrome
 from .benchmarking import (
-    get_flag_measurements,
     get_logical_error_and_discard_rate,
     get_nontrivial_logical_stabilizers,
     get_state_prep_diagnostic_circuit,
     get_state_prep_diagnostic_tasks,
+    get_unaddressed_measurements,
 )
 from .bookkeeping import (
     DetectorRecord,
@@ -51,11 +51,11 @@ from .transversal import (
 
 __all__ = [
     "AlphaSyndrome",
-    "get_flag_measurements",
     "get_logical_error_and_discard_rate",
     "get_nontrivial_logical_stabilizers",
     "get_state_prep_diagnostic_circuit",
     "get_state_prep_diagnostic_tasks",
+    "get_unaddressed_measurements",
     "DetectorRecord",
     "MeasurementRecord",
     "QubitIDs",
