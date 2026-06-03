@@ -67,25 +67,27 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int | None]:
 
 
 @qldpc.cache.use_disk_cache("qecdb")
-def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
+def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     """Retrieve a quantum code from qecdb.org.
 
     Return the stabilizers of the code, its distance, and whether it's CSS.
     """
     url = f"https://qecdb.org/codes/{code_id}"
     try:
-        lines = urllib.request.urlopen(url).read().decode("utf-8").splitlines()
-    except (urllib.error.URLError, urllib.error.HTTPError):
-        print(f"ERROR: cannot access the webpage {url}")
-        raise
+        lines = urllib.request.urlopen(url, timeout=10).read().decode("utf-8").splitlines()
+    except urllib.error.URLError as exception:
+        raise RuntimeError(f"Cannot access {url}") from exception
 
-    stab_line = next(line for line in lines if "<td>H</td>" in line)
-    dist_line = next(line for line in lines if "<td>d</td>" in line)
-    css_line = next(line for line in lines if "<td>css</td>" in line)
+    stab_line = next((line for line in lines if "<td>H</td>" in line), None)
+    dist_line = next((line for line in lines if "<td>d</td>" in line), None)
+    css_line = next((line for line in lines if "<td>css</td>" in line), None)
+
+    if stab_line is None:
+        raise ValueError(f"Could not find stabilizer data for code '{code_id}'")
 
     stabilizers = re.findall("[IXYZ]+", stab_line)
-    distance = int(re.findall(r"\d+", dist_line)[0])
-    is_css = "True" in css_line
+    distance = int(dist.group()) if (dist := re.search(r"\d+", dist_line or "")) else None
+    is_css = bool(re.search(r"\btrue\b", css_line, re.IGNORECASE)) if css_line else False
     return stabilizers, distance, is_css
 
 
