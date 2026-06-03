@@ -51,17 +51,22 @@ def get_mock_page(text: str) -> unittest.mock.MagicMock:
     return mock_page
 
 
-def test_get_quantum_code(capsys: pytest.CaptureFixture[str]) -> None:
+def test_get_quantum_code() -> None:
     """Retrieve quantum code data from qecdb.org."""
     # cannot connect to qecdb.org
     with (
         unittest.mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("message")),
-        pytest.raises(urllib.error.URLError, match="message"),
+        pytest.raises(RuntimeError, match="Cannot access"),
     ):
         external.codes.get_quantum_code("")
-    terminal_output, error_message = capsys.readouterr()
-    assert not error_message
-    assert "cannot access" in terminal_output
+
+    # page missing stabilizer data
+    mock_page = get_mock_page("<tr> <td>d</td> <td>5</td> </tr>")
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="stabilizer data"),
+    ):
+        external.codes.get_quantum_code("")
 
     # retrieve code data!
     dist_line = "<tr> <td>d</td> <td>5</td> </tr>"
