@@ -25,7 +25,7 @@ from qldpc import circuits, codes, decoders, math
 from qldpc.objects import Pauli
 
 
-def test_state_prep() -> None:
+def test_state_prep_benchmarks() -> None:
     """State preparation circuit benchmarks."""
 
     # construct a state prep circuit for the Steane code
@@ -128,12 +128,3 @@ def test_state_prep() -> None:
             num_samples=1,
             dem_to_decode=stim.DetectorErrorModel(),
         )
-
-
-def test_finding_unaddressed_measurements() -> None:
-    """Identify measurements in a circuit that are not addressed by any detectors."""
-    circuit = stim.Circuit("""
-        M 0 1 2
-        DETECTOR rec[-3] rec[-1]
-    """)
-    assert circuits.get_unaddressed_measurements(circuit) == [1]

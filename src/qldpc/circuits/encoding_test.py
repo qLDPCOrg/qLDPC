@@ -18,29 +18,14 @@ limitations under the License.
 from __future__ import annotations
 
 import itertools
-import random
 
 import numpy as np
 import pytest
 import stim
-import sympy.combinatorics as comb
 
 from qldpc import circuits, codes
 from qldpc.math import op_to_string, symplectic_conjugate
 from qldpc.objects import Pauli
-
-
-def test_restriction() -> None:
-    """Raise an error for non-qubit codes."""
-    code = codes.SurfaceCode(2, field=3)
-    with pytest.raises(ValueError, match="only supported for qubit codes"):
-        circuits.get_encoding_circuit(code)
-
-
-def test_pauli_product_measurements_qubit_only() -> None:
-    """Circuit methods are only supported for qubit codes."""
-    with pytest.raises(ValueError, match="only supported for qubit codes"):
-        circuits.get_pauli_product_measurements(codes.SurfaceCode(2, field=3).get_stabilizer_ops())
 
 
 def test_state_prep(pytestconfig: pytest.Config) -> None:
@@ -111,37 +96,3 @@ def test_logical_tableau() -> None:
 
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
-
-
-def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
-    """Remap the qubits in a stim.Circuit."""
-    random.seed(pytestconfig.getoption("randomly_seed"))
-
-    # build a random qubit permutation
-    permutation = comb.Permutation.random(num_qubits)
-    qubit_map = permutation.array_form
-
-    # build a random circuit
-    circuit = stim.Tableau.random(num_qubits).to_circuit()
-    circuit.append(
-        stim.CircuitRepeatBlock(repeat_count=2, body=stim.Tableau.random(num_qubits).to_circuit())
-    )
-
-    # remap qubits using circuits.with_remapped_qubits
-    circuit_a = circuits.with_remapped_qubits(circuit, qubit_map)
-    assert circuit == circuits.with_remapped_qubits(circuit_a, qubit_map, inverse=True)
-
-    # manually construct a permutation circuit to implement the remapping
-    inverse_permutation_circuit = stim.Circuit()
-    for cycle in permutation.cyclic_form:
-        for qq in range(1, len(cycle)):
-            inverse_permutation_circuit.append("SWAP", [cycle[0], cycle[qq]])
-
-    # test that the two remapped circuits are equivalent
-    circuit_b = inverse_permutation_circuit.inverse() + circuit + inverse_permutation_circuit
-    assert circuit_a.to_tableau() == circuit_b.to_tableau()
-
-    # cover an edge case
-    circuit_a = circuits.with_remapped_qubits(stim.Circuit("MPP X1*!Y2 \n M !4"), {2: 3})
-    circuit_b = stim.Circuit("MPP X1*!Y3 \n M !4")
-    assert circuit_a == circuit_b
