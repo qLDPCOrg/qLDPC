@@ -114,9 +114,8 @@ class AbstractCode(abc.ABC):
 
         else:
             self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
-            self._matrix = np.asarray(
+            self._matrix = np.asanyarray(
                 matrix.todense() if scipy.sparse.issparse(matrix) else matrix,  # type:ignore[union-attr]
-                dtype=int,
             ).view(self.field)
 
     @property
@@ -260,7 +259,7 @@ class ClassicalCode(AbstractCode):
         self, words: npt.NDArray[np.int_] | Sequence[int] | Sequence[Sequence[int]]
     ) -> bool:
         """Does this code contain the given word(s)?"""
-        return not np.any(self.matrix @ np.asarray(words, dtype=int).view(self.field).T)
+        return not np.any(self.matrix @ np.asanyarray(words).view(self.field).T)
 
     @functools.cached_property
     def canonicalized(self) -> ClassicalCode:
@@ -345,7 +344,7 @@ class ClassicalCode(AbstractCode):
 
     def set_generator(self, generator: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> None:
         """Set the generator matrix of this code."""
-        generator = np.asarray(generator, dtype=int).view(self.field)
+        generator = np.asanyarray(generator).view(self.field)
         if np.any(self.matrix @ generator.T):
             raise ValueError("Provided generator matrix has nontrivial syndromes")
 
@@ -482,7 +481,7 @@ class ClassicalCode(AbstractCode):
                 self._distance = int(distance)
 
         else:
-            vector = np.asarray(vector).view(self.field)
+            vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
             distance = int(np.count_nonzero(vector))
@@ -546,7 +545,7 @@ class ClassicalCode(AbstractCode):
         # initialize a (possibly "effective") check matrix and syndrome
         if vector is not None:
             check_matrix = self.matrix
-            syndrome = self.matrix @ np.asarray(vector, dtype=int).view(self.field)
+            syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
         else:
             check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
             syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
@@ -1377,7 +1376,7 @@ class QuditCode(AbstractCode):
         skip_validation: bool = False,
     ) -> None:
         """Set the logical operators of this code to the provided logical operators."""
-        logical_ops = np.asarray(logical_ops, dtype=int).view(self.field)
+        logical_ops = np.asanyarray(logical_ops).view(self.field)
         if not skip_validation:
             dimension = len(logical_ops) // 2
             logical_ops_x = logical_ops[:dimension]
@@ -1413,7 +1412,7 @@ class QuditCode(AbstractCode):
         Plugging (1) into (2), we find M = (Kz @ Ω.T @ Lx.T)**-1, and in turn plug M into (1) to get
         Lz = (Kz @ Ω.T @ Lx.T)**-1 @ Kz.
         """
-        logicals_ops_x = np.asarray(logicals_ops_x).view(self.field)
+        logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
         if logicals_ops_x.shape[1] == len(self):  # pragma: no cover
             # assume the logicals have only X support
             logicals_ops_x = np.hstack(
@@ -1447,7 +1446,7 @@ class QuditCode(AbstractCode):
         Plugging (1) into (2), we find M = (Kx @ Ω @ Lz.T)**-1, and in turn plug M into (1) to get
         Lx = (Kx @ Ω @ Lz.T)**-1 @ Kx.
         """
-        logicals_ops_z = np.asarray(logicals_ops_z).view(self.field)
+        logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
         if logicals_ops_z.shape[1] == len(self):  # pragma: no cover
             # assume the logicals have only Z support
             logicals_ops_z = np.hstack(
@@ -2485,7 +2484,7 @@ class CSSCode(QuditCode):
         Plugging (1) into (2), we find M = (Kz @ Lx.T)**-1, and in turn plug M into (1) to get
         Lz = (Kz @ Lx.T)**-1 @ Kz.
         """
-        logicals_ops_x = np.asarray(logicals_ops_x).view(self.field)
+        logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
         old_logicals_z = self.get_logical_ops(Pauli.Z)
         new_logicals_z = np.linalg.inv(old_logicals_z @ logicals_ops_x.T) @ old_logicals_z
         self.set_logical_ops_xz(logicals_ops_x, new_logicals_z, skip_validation=skip_validation)
@@ -2511,7 +2510,7 @@ class CSSCode(QuditCode):
         Plugging (1) into (2), we find M = (Kx @ Lz.T)**-1, and in turn plug M into (1) to get
         Lx = (Kx @ Lz.T)**-1 @ Kx.
         """
-        logicals_ops_z = np.asarray(logicals_ops_z).view(self.field)
+        logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
         old_logicals_x = self.get_logical_ops(Pauli.X)
         new_logicals_x = np.linalg.inv(old_logicals_x @ logicals_ops_z.T) @ old_logicals_x
         self.set_logical_ops_xz(new_logicals_x, logicals_ops_z, skip_validation=skip_validation)
