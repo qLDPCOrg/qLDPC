@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import random
 
+import numpy as np
 import pytest
 import stim
 import sympy.combinatorics as comb
 
 from qldpc import circuits, codes
+from qldpc.math import symplectic_conjugate
+from qldpc.objects import Pauli
 
 
 def test_restriction() -> None:
@@ -43,6 +46,26 @@ def test_pauli_product_measurements_qubit_only() -> None:
     """Circuit methods are only supported for qubit codes."""
     with pytest.raises(ValueError, match="only supported for qubit codes"):
         circuits.get_pauli_product_measurements(codes.SurfaceCode(2, field=3).get_stabilizer_ops())
+
+
+def test_pauli_product_measurements(pytestconfig: pytest.Config) -> None:
+    """get_pauli_product_measurements correctly measures the syndrome of Pauli errors."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
+
+    code = codes.FiveQubitCode()
+    encoder = circuits.get_encoding_circuit(code)
+    stabilizers = code.get_stabilizer_ops()
+
+    error_vec = code.field.Random(len(code) * 2)
+    error_ops = stim.Circuit()
+    for qubit in range(len(code)):
+        xx_zz = (error_vec[qubit], error_vec[qubit + len(code)])
+        error_ops.append(str(Pauli(xx_zz)), qubit)
+
+    measurements = circuits.get_pauli_product_measurements(stabilizers)
+    outcomes = (encoder + error_ops + measurements).reference_sample()
+    syndrome = stabilizers @ symplectic_conjugate(error_vec)
+    assert np.array_equal(outcomes.astype(int), syndrome)
 
 
 def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
