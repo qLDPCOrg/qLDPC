@@ -901,7 +901,7 @@ class QuditCode(AbstractCode):
     @staticmethod
     def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
         """Convert a parity check matrix into a Tanner graph."""
-        matrix = np.asarray(matrix)
+        matrix = np.asanyarray(matrix)
         matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
 
         # initialize graph with nodes
