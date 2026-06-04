@@ -43,8 +43,8 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
         simulator.do(encoder)
 
         # stabilizers have expectation value +1
-        for row in code.get_stabilizer_ops():
-            string = math.op_to_string(row)
+        for op in code.get_stabilizer_ops():
+            string = math.op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 1
 
         # logical Z operators have expectation value +1
@@ -104,3 +104,29 @@ def test_state_stabilizers() -> None:
     simulator.do(prep_z)
     for stab in state_stabs:
         assert simulator.peek_observable_expectation(stab) == 1
+
+
+def test_nontrivial_logical_stabilizers(pytestconfig: pytest.Config) -> None:
+    """Identify logical stabilizers of a logical state."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
+
+    code = codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31)))
+
+    # prepare a random logical stabilizer state
+    circuit = stim.Tableau.random(num_qubits=code.dimension).to_circuit()
+    circuit += circuits.get_encoding_circuit(code)
+
+    logical_stabs = circuits.get_nontrivial_logical_stabilizers(code, circuit)
+    assert len(logical_stabs) == code.dimension
+
+    # All logical stabilizers should have a nonzero expectation value.
+    # They might be -1 because we do not keep track of their sign.
+    simulator = stim.TableauSimulator()
+    simulator.do(circuit)
+    for stab in logical_stabs:
+        string = math.op_to_string(stab)
+        assert simulator.peek_observable_expectation(string) != 0
+
+    invalid_circuit = stim.Circuit(f"X {len(code) - 1}") + circuit
+    with pytest.raises(ValueError, match="does not .* prepare a logical code state"):
+        circuits.get_nontrivial_logical_stabilizers(code, invalid_circuit)

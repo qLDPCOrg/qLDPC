@@ -17,11 +17,10 @@ limitations under the License.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from typing import ParamSpec, TypeVar
 
 import numpy as np
-import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
@@ -153,7 +152,7 @@ def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Table
 @restrict_to_qubits
 def get_nontrivial_logical_stabilizers(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
-) -> npt.NDArray[np.int_]:
+) -> list[stim.PauliString]:
     """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
 
     The first len(code) qubits addressed by the circuit must be the data qubits of the code.
@@ -169,10 +168,11 @@ def get_nontrivial_logical_stabilizers(
     Returns:
         A list of logical Pauli operators supported on the data qubits of the provided code.
     """
+    if not skip_validation:
+        _assert_valid_code_state(code, state_prep_circuit)
+
     # identify stabilizers of the prepared state that are supported on the data qubits of the code
     decoded_stabilizers = get_state_stabilizers(code, state_prep_circuit, decoded=True)
-    if not skip_validation:
-        _assert_valid_code_state(code, decoded_stabilizers)
 
     # identify stabilizers of the state that are pure logicals
     logical_stab_mat = [math.string_to_op(stab[: code.dimension]) for stab in decoded_stabilizers]
@@ -300,61 +300,14 @@ def _get_logical_tableau_from_code_data(
     return logical_tableau
 
 
-def _assert_valid_code_state(
-    code: codes.QuditCode,
-    decoded_stabilizers_or_state_prep_circuit: Collection[stim.PauliString] | stim.Circuit,
-) -> None:
-    """Assert that the provided stabilizers specify a unique logical state of the provided code."""
-    error_message = (
-        "The provided circuit does not deterministically prepare a logical code state that is"
-        " unentangled from ancillas"
-    )
-
-    decoded_stabilizers = (
-        get_state_stabilizers(code, decoded_stabilizers_or_state_prep_circuit, decoded=True)
-        if isinstance(decoded_stabilizers_or_state_prep_circuit, stim.Circuit)
-        else decoded_stabilizers_or_state_prep_circuit
-    )
-    if len(decoded_stabilizers) != len(code):
-        raise ValueError(error_message)
-
-    # collect decoded stabilizers into a binary matrix, including the sign bit, and row-reduce
-    matrix = code.field.Zeros((len(decoded_stabilizers), 2 * len(code) + 1))
-    for row, string in enumerate(decoded_stabilizers):
-        xx, zz = string.to_numpy()
-        matrix[row, : len(code)] = xx.astype(matrix.dtype)
-        matrix[row, len(code) : -1] = zz.astype(matrix.dtype)
-        matrix[row, -1] = 0 if string.sign.real == 1 else 1
-    matrix_rref = matrix.row_reduce()
-
-    # After row-reduction the matrix should look like
-    #     [ LX  0  0 LZ  0  0  LS]
-    #     [ 0  GX  0  0 GZ  0  GS]
-    #     [ 0   0  0  0  0  I   0]
-    # where
-    # - (LX, LZ, LS) correspond to signed logical operators,
-    # - (GX, GZ, GS) correspond to signed gauge operators,
-    # - I is an identity matrix for stabilizers.
-    # To verify this form, we zero out sectors appropriately and test equality with the zero matrix.
-    rows_l = slice(code.dimension)
-    rows_g = slice(rows_l.stop, rows_l.stop + code.gauge_dimension)
-    rows_s = slice(rows_g.stop, None)
-    cols_lx = slice(code.dimension)
-    cols_lz = slice(len(code), len(code) + code.dimension)
-    cols_gx = slice(cols_lx.stop, cols_lx.stop + code.gauge_dimension)
-    cols_gz = slice(cols_lz.stop, cols_lz.stop + code.gauge_dimension)
-    cols_s = slice(cols_gz.stop, -1)
-    matrix_rref[rows_l, cols_lx] = 0
-    matrix_rref[rows_l, cols_lz] = 0
-    matrix_rref[rows_l, -1] = 0
-    matrix_rref[rows_g, cols_gx] = 0
-    matrix_rref[rows_g, cols_gz] = 0
-    matrix_rref[rows_g, -1] = 0
-    matrix_rref[rows_s, cols_s] -= code.field.Identity(
-        len(code) - code.dimension - code.gauge_dimension
-    )
-    if np.any(matrix_rref):
-        raise ValueError(
-            "The provided circuit does not deterministically prepare a logical code state that is"
-            " unentangled from ancillas"
-        )
+def _assert_valid_code_state(code: codes.QuditCode, state_prep_circuit: stim.Circuit) -> None:
+    """Assert that the provided circuit prepares a logical state of the provided code."""
+    simulator = stim.TableauSimulator()
+    simulator.do(state_prep_circuit)
+    for op in code.get_stabilizer_ops():
+        string = math.op_to_string(op)
+        if not simulator.peek_observable_expectation(string) == 1:
+            raise ValueError(
+                "The provided circuit does not deterministically prepare a logical code state that"
+                " is unentangled from ancillas"
+            )

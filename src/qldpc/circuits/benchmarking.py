@@ -90,13 +90,12 @@ def get_state_prep_diagnostic_circuit(
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
-    # if no observables were provided, identify the logical Pauli stabilizers of the prepared state
+    if not skip_validation:
+        _assert_valid_code_state(code, state_prep_circuit)
     if observables is None:
         observables = get_nontrivial_logical_stabilizers(
-            code, state_prep_circuit, skip_validation=skip_validation
+            code, state_prep_circuit, skip_validation=True
         )
-    elif not skip_validation:  # pragma: no cover
-        _assert_valid_code_state(code, state_prep_circuit)
 
     # if applicable, convert Pauli strings into symplectic vectors
     if len(observables) > 0 and any(isinstance(obs, stim.PauliString) for obs in observables):
