@@ -101,7 +101,7 @@ def get_pauli_product_measurements(
     passing "pauli_strings=code.get_stabilizer_ops()" will measure the stabilizers of "code".
     """
     if isinstance(pauli_strings, np.ndarray):
-        pauli_strings = [math.op_to_string(op) for op in pauli_strings]
+        pauli_strings = [math.op_to_string(op) for op in np.atleast_2d(pauli_strings)]
     circuit = stim.Circuit()
     for string in pauli_strings:
         circuit.append("MPP", stim.target_combined_paulis(string))
