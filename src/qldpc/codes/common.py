@@ -1921,8 +1921,8 @@ class QuditCode(AbstractCode):
         # permute logical operators of the outer code
         outer._logical_ops = (
             outer.get_logical_ops()
-            .reshape(2, outer.dimension, len(outer))[:, inner_physical_to_outer_logical, :]
-            .reshape(2 * outer.dimension, len(outer))
+            .reshape(2, outer.dimension, -1)[:, inner_physical_to_outer_logical, :]
+            .reshape(2 * outer.dimension, -1)
         ).view(outer.field)
 
         return outer, inner
