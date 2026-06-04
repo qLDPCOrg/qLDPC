@@ -94,7 +94,12 @@ def get_pauli_product_measurements(
     pauli_strings: Sequence[stim.PauliString] | npt.NDArray[np.int_],
     qubits: Sequence[int] | None = None,
 ) -> stim.Circuit:
-    """Construct a circuit to measure the given Pauli strings."""
+    """Construct a circuit of MPP instructions that measure the given Pauli strings.
+
+    In addition to a list of Pauli strings, this method accepts a symplectic matrix in which each
+    row indicates the [X|Z] support of a Pauli string.  If "code" is a QuditCode, for example, then
+    passing "pauli_strings=code.get_stabilizer_ops()" will measure the stabilizers of "code".
+    """
     if isinstance(pauli_strings, np.ndarray):
         pauli_strings = [math.op_to_string(op) for op in pauli_strings]
     circuit = stim.Circuit()
