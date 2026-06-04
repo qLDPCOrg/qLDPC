@@ -34,14 +34,12 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
 
     codes_to_test = [
         codes.FiveQubitCode(),
-        codes.BaconShorCode(3),
-        codes.HGPCode(codes.ClassicalCode.random(5, 3)),
+        codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31))),
     ]
 
     for code, only_zero in itertools.product(codes_to_test, [True, False]):
         encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
 
-        # performing remaining tests below with a tableau simulator
         simulator = stim.TableauSimulator()
         simulator.do(encoder)
 

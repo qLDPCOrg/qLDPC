@@ -21,6 +21,7 @@ from .encoding import (
     get_encoding_tableau,
     get_logical_tableau,
     get_nontrivial_logical_stabilizers,
+    get_state_stabilizers,
     restrict_tableau,
 )
 from .memory import (
@@ -66,6 +67,7 @@ __all__ = [
     "get_encoding_tableau",
     "get_logical_tableau",
     "get_nontrivial_logical_stabilizers",
+    "get_state_stabilizers",
     "restrict_tableau",
     "AlphaSyndrome",
     "EdgeColoring",

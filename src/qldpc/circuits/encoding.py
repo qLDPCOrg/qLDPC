@@ -72,13 +72,11 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     destab_ops -= destab_ops @ math.symplectic_conjugate(dual_logical_ops).T @ logical_ops
     destab_ops -= destab_ops @ math.symplectic_conjugate(dual_gauge_ops).T @ gauge_ops
 
-    """
-    Remove stabilizer factors to enforce that destabilizers commute with each other.  This process
-    requires updating one destabilizer at a time, since each time we modify a destabilizer by
-    stabilizer factors, that changes its commutation relations with other destabilizers.
-    """
-    for row, destab_op in enumerate(destab_ops[1:], start=1):
-        destab_op -= destab_op @ math.symplectic_conjugate(destab_ops[:row]).T @ stab_ops[:row]
+    # enforce that destabilizers commute with each other by removing stabilizer factors
+    for dd in range(len(destab_ops)):
+        for ss in range(dd, len(destab_ops)):
+            if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):
+                destab_ops[dd] -= stab_ops[ss]
 
     # construct Pauli strings to hand over to Stim
     matrices_x = [logical_ops[: code.dimension], gauge_ops[: code.gauge_dimension], destab_ops]
@@ -322,6 +320,14 @@ def _assert_valid_code_state(
     if len(decoded_stabilizers) != len(code):
         raise ValueError(error_message)
 
+    np.set_printoptions(linewidth=200)
+    print()
+    print()
+    for stab in decoded_stabilizers:
+        print(stab)
+    print()
+    print()
+
     # collect decoded stabilizers into a binary matrix, including the sign bit, and row-reduce
     matrix = code.field.Zeros((len(decoded_stabilizers), 2 * len(code) + 1))
     for row, string in enumerate(decoded_stabilizers):
@@ -354,8 +360,14 @@ def _assert_valid_code_state(
     matrix_rref[rows_g, cols_gx] = 0
     matrix_rref[rows_g, cols_gz] = 0
     matrix_rref[rows_g, -1] = 0
-    matrix_rref[rows_s, cols_s] -= code.field.Identity(code.num_checks)
+    matrix_rref[rows_s, cols_s] -= code.field.Identity(
+        len(code) - code.dimension - code.gauge_dimension
+    )
     if np.any(matrix_rref):
+        print()
+        print()
+        print(matrix_rref)
+        print()
         raise ValueError(
             "The provided circuit does not deterministically prepare a logical code state that is"
             " unentangled from ancillas"
