@@ -26,7 +26,6 @@ import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
-from qldpc.objects import Node, Pauli
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
