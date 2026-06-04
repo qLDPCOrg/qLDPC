@@ -1,4 +1,4 @@
-"""Methods for constructing miscellaneous useful circuits
+"""Miscellaneous circuit utilities
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -18,14 +18,14 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable, Mapping, Sequence
-from typing import ParamSpec, TypeVar
+from collections.abc import Mapping, Sequence
+from typing import Callable, ParamSpec, TypeVar
 
 import numpy as np
 import numpy.typing as npt
 import stim
 
-from qldpc import codes, math
+from qldpc import codes
 from qldpc.objects import Node, Pauli
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
@@ -44,159 +44,6 @@ def restrict_to_qubits(
         return func(*args, **kwargs)
 
     return qubit_func
-
-
-@restrict_to_qubits
-def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Tableau:
-    """Tableau to encode physical states at its input into logical states of the given code.
-
-    If only_zero is True, this tableau maps an all-0 physical state at its input to an all-0 logical
-    state at its output.  Otherwise, for all j in {0, 1, ..., code.dimension - 1}, this tableau maps
-    weight-one X_j and Z_j operators at its input to the logical X and Z operators of the j-th
-    logical qubit of the code.  Weight-one Z_j operators for j >= code.dimension get mapped to
-    "Z-type" gauge operators and stabilizers, and their conjugate X_j get mapped to "X-type" gauge
-    operators and destabilizers.
-    """
-    if only_zero:
-        return stim.Tableau.from_stabilizers(
-            [math.op_to_string(op) for op in code.get_stabilizer_ops(symplectic=True)]
-            + [math.op_to_string(op) for op in code.get_logical_ops(Pauli.Z, symplectic=True)],
-            allow_redundant=True,
-            allow_underconstrained=True,
-        )
-
-    # identify stabilizers, logical operators, and gauge operators
-    stab_ops = code.get_stabilizer_ops(canonicalized=True)
-    logical_ops = code.get_logical_ops()
-    gauge_ops = code.get_gauge_ops()
-
-    """
-    Construct "candidate" destabilizers that have correct pair-wise (anti-)commutation relations
-    with the stabilizers, but may contain extra stabilizer, logical, or gauge operator components.
-    """
-    stab_pivots = np.argmax(stab_ops.view(np.ndarray).astype(bool), axis=1)
-    destab_ops = code.field.Zeros((len(stab_ops), 2 * len(code)), dtype=int)
-    for destab_op, pivot in zip(destab_ops, stab_pivots):
-        destab_op[(pivot + len(code)) % (2 * len(code))] = 1
-
-    # remove logical and gauge operator components
-    dual_logical_ops = logical_ops.reshape(2, -1)[::-1, :].reshape(logical_ops.shape)
-    dual_gauge_ops = gauge_ops.reshape(2, -1)[::-1, :].reshape(gauge_ops.shape)
-    destab_ops -= destab_ops @ math.symplectic_conjugate(dual_logical_ops).T @ logical_ops
-    destab_ops -= destab_ops @ math.symplectic_conjugate(dual_gauge_ops).T @ gauge_ops
-
-    """
-    Remove stabilizer factors to enforce that destabilizers commute with each other.  This process
-    requires updating one destabilizer at a time, since each time we modify a destabilizer by
-    stabilizer factors, that changes its commutation relations with other destabilizers.
-    """
-    for row, destab_op in enumerate(destab_ops[1:], start=1):
-        destab_op -= destab_op @ math.symplectic_conjugate(destab_ops[:row]).T @ stab_ops[:row]
-
-    # construct Pauli strings to hand over to Stim
-    matrices_x = [logical_ops[: code.dimension], gauge_ops[: code.gauge_dimension], destab_ops]
-    matrices_z = [logical_ops[code.dimension :], gauge_ops[code.gauge_dimension :], stab_ops]
-    strings_x = [math.op_to_string(op) for matrix in matrices_x for op in matrix]
-    strings_z = [math.op_to_string(op) for matrix in matrices_z for op in matrix]
-    return stim.Tableau.from_conjugated_generators(xs=strings_x, zs=strings_z)
-
-
-@restrict_to_qubits
-def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Circuit:
-    """Circuit to encode physical states at its input into logical states of the given code.
-
-    If only_zero is True, this circuit maps an all-0 physical state at its input to an all-0 logical
-    state at its output.  Otherwise, for all j in {0, 1, ..., code.dimension - 1}, this circuit maps
-    weight-one X_j and Z_j operators at its input to the logical X and Z operators of the j-th
-    logical qubit of the code.  Weight-one Z_j operators for j >= code.dimension get mapped to
-    "Z-type" gauge operators and stabilizers, and their conjugate X_j get mapped to "X-type" gauge
-    operators and destabilizers.
-    """
-    return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
-
-
-@restrict_to_qubits
-def get_encoder_and_decoder(
-    code: codes.QuditCode, deformation: stim.Circuit | stim.Tableau | None = None
-) -> tuple[stim.Tableau, stim.Tableau]:
-    """Encoder for a code, and decoder either the same code or a deformed code."""
-    encoder = get_encoding_tableau(code)
-    if deformation is None:
-        return encoder, encoder.inverse()
-    deformation = deformation if isinstance(deformation, stim.Circuit) else deformation.to_circuit()
-    deformed_code = code.deformed(deformation, preserve_logicals=True)
-    decoder = get_encoding_tableau(deformed_code).inverse()
-    return encoder, decoder
-
-
-@restrict_to_qubits
-def get_logical_tableau(
-    code: codes.QuditCode,
-    physical_circuit_or_tableau: stim.Circuit | stim.Tableau,
-    *,
-    deform_code: bool = False,
-) -> stim.Tableau:
-    """Identify the logical tableau implemented by the physical circuit or tableau.
-
-    If deform_code is True, then the physical circuit is required to have two effects, namely
-    (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
-    (b) changing the code that encodes the logical state to
-        code.deformed(physical_circuit, preserve_logicals=True)
-    """
-    physical_circuit = (
-        physical_circuit_or_tableau
-        if isinstance(physical_circuit_or_tableau, stim.Circuit)
-        else physical_circuit_or_tableau.to_circuit()
-    )
-    encoder, decoder = get_encoder_and_decoder(code, physical_circuit if deform_code else None)
-    return _get_logical_tableau_from_code_data(
-        code.dimension, code.gauge_dimension, encoder, decoder, physical_circuit
-    )
-
-
-def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Tableau:
-    """Restrict the given stabilizer tableau to the sub-tableau at the specified qubits."""
-    x2x, x2z, z2x, z2z, x_signs, z_signs = tableau.to_numpy()
-    return stim.Tableau.from_numpy(
-        x2x=x2x[np.ix_(qubits, qubits)],
-        x2z=x2z[np.ix_(qubits, qubits)],
-        z2x=z2x[np.ix_(qubits, qubits)],
-        z2z=z2z[np.ix_(qubits, qubits)],
-        x_signs=x_signs[qubits],
-        z_signs=z_signs[qubits],
-    )
-
-
-def get_pauli_product_measurements(
-    op_vecs: npt.NDArray[np.int_] | Sequence[Sequence[int]],
-    qubits: Sequence[int] | None = None,
-) -> stim.Circuit:
-    """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
-
-    Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
-    If "code" is a QuditCode, for example, then passing "op_vecs=code.get_stabilizer_ops()" will
-    measure the stabilizers of "code".
-    """
-    op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
-    if op_graph.field.order != 2:
-        raise ValueError("Circuit methods are only supported for qubit codes")
-
-    # identify qubit indices
-    num_qubits = sum(node.is_data for node in op_graph.nodes)
-    assert qubits is None or len(qubits) == num_qubits, "Incorrect number of qubits provided"
-    qubits = qubits or list(range(num_qubits))
-
-    # build circuit of MPP instructions
-    circuit = stim.Circuit()
-    for node_index in range(len(op_vecs)):
-        op_node = Node(node_index, is_data=False)
-        targets = [
-            stim.target_pauli(qubits[data_node.index], str(edge_data[Pauli]))
-            for _, data_node, edge_data in op_graph.edges(op_node, data=True)
-        ]
-        circuit.append("MPP", stim.target_combined_paulis(targets))
-
-    return circuit
 
 
 def with_remapped_qubits(
@@ -243,6 +90,55 @@ def with_remapped_qubits(
     return new_circuit
 
 
+def get_pauli_product_measurements(
+    op_vecs: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+    qubits: Sequence[int] | None = None,
+) -> stim.Circuit:
+    """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
+
+    Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
+    If "code" is a QuditCode, for example, then passing "op_vecs=code.get_stabilizer_ops()" will
+    measure the stabilizers of "code".
+    """
+    op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
+    if op_graph.field.order != 2:
+        raise ValueError("Circuit methods are only supported for qubit codes")
+
+    # identify qubit indices
+    num_qubits = sum(node.is_data for node in op_graph.nodes)
+    assert qubits is None or len(qubits) == num_qubits, "Incorrect number of qubits provided"
+    qubits = qubits or list(range(num_qubits))
+
+    # build circuit of MPP instructions
+    circuit = stim.Circuit()
+    for node_index in range(len(op_vecs)):
+        op_node = Node(node_index, is_data=False)
+        targets = [
+            stim.target_pauli(qubits[data_node.index], str(edge_data[Pauli]))
+            for _, data_node, edge_data in op_graph.edges(op_node, data=True)
+        ]
+        circuit.append("MPP", stim.target_combined_paulis(targets))
+
+    return circuit
+
+
+def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
+    """Identify measurements, by index, that are not addressed by any detectors in the circuit."""
+    measurements: list[int] = []
+    addressed_measurements = set()
+    for instruction in circuit.flattened():
+        new_measurements = range(
+            len(measurements),
+            len(measurements) + instruction.num_measurements,
+        )
+        measurements.extend(new_measurements)
+        if instruction.name == "DETECTOR":
+            addressed_measurements |= {
+                measurements[target.value] for target in instruction.targets_copy()
+            }
+    return sorted(set(measurements) - addressed_measurements)
+
+
 def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
     """Remap the qubit addressed by a stim.GateTarget, if any."""
     if target.qubit_value is None:
@@ -260,41 +156,3 @@ def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim
         return stim.target_inv(new_qubit_value)
 
     return stim.GateTarget(new_qubit_value)
-
-
-def _get_logical_tableau_from_code_data(
-    dimension: int,  # number of logical qubits of a QuditCode
-    gauge_dimension: int,  # number of gauge qubits of a QuditCode
-    encoder: stim.Tableau,
-    decoder: stim.Tableau,
-    physical_circuit: stim.Circuit,
-    skip_validation: bool = False,
-) -> stim.Tableau:
-    """Identify the logical tableau implemented by the physical circuit."""
-    assert len(encoder) == len(decoder) >= dimension + gauge_dimension
-    identity_phys = stim.Circuit(f"I {len(encoder) - 1}")
-    physical_tableau = (physical_circuit + identity_phys).to_tableau()
-
-    # compute the "upper left" block of the decoded tableau that acts on all logical qubits
-    decoded_tableau = encoder.then(physical_tableau).then(decoder)
-    logical_tableau = restrict_tableau(decoded_tableau, range(dimension))
-
-    if not skip_validation:
-        # identify sectors that address logical, gauge, and stabilizer qubits
-        sector_l = slice(dimension)
-        sector_g = slice(dimension, dimension + gauge_dimension)
-        sector_s = slice(dimension + gauge_dimension, len(encoder))
-        x2x, x2z, z2x, z2z, *_ = decoded_tableau.to_numpy()
-
-        # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
-        assert not np.any(z2x[:, sector_s])
-        assert not np.any(x2x[sector_l, sector_s])
-        assert not np.any(x2x[sector_g, sector_s])
-
-        # sanity check: gauge operators should not pick up logical factors
-        assert not np.any(x2x[sector_g, sector_l])
-        assert not np.any(x2z[sector_g, sector_l])
-        assert not np.any(z2x[sector_g, sector_l])
-        assert not np.any(z2z[sector_g, sector_l])
-
-    return logical_tableau

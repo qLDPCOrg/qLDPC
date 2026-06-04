@@ -31,8 +31,8 @@ import tqdm
 from qldpc import codes, decoders
 from qldpc.objects import Pauli, PauliXZ
 
-from .bookkeeping import MeasurementRecord, QubitIDs
-from .common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
+from ..bookkeeping import MeasurementRecord, QubitIDs
+from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
 from .noise_model import NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import SyndromeMeasurementStrategy
 
