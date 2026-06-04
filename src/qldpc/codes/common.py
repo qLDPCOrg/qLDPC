@@ -901,6 +901,7 @@ class QuditCode(AbstractCode):
     @staticmethod
     def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
         """Convert a parity check matrix into a Tanner graph."""
+        matrix = np.asarray(matrix)
         matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
 
         # initialize graph with nodes
@@ -3321,7 +3322,7 @@ def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
 def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
     """Is the provided matrix in a row-reduced form?"""
     pivots = math.first_nonzero_cols(matrix)
-    return np.all(pivots < matrix.shape[1]) and all(
+    return all(pivots < matrix.shape[1]) and all(
         not np.any(matrix[row, :pivot]) and not np.any(matrix[row, pivot + 1 :])
         for row, pivot in enumerate(pivots)
     )
