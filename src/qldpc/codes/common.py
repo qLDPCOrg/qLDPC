@@ -1494,7 +1494,7 @@ class QuditCode(AbstractCode):
             assert isinstance(stabs_and_gauges_and_logs, galois.FieldArray)
             self._stabilizer_ops = math.symplectic_conjugate(stabs_and_gauges_and_logs).null_space()
 
-        if canonicalized and not _is_canonicalized(self._stabilizer_ops):
+        if canonicalized and not _is_row_reduced(self._stabilizer_ops):
             self._stabilizer_ops = self.get_stabilizer_ops(recompute=True)
 
         return self._stabilizer_ops
@@ -3318,9 +3318,10 @@ def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
     ).astype(int)
 
 
-def _is_canonicalized(matrix: npt.NDArray[np.int_]) -> bool:
-    """Is the given matrix in canonical (row-reduced) form?"""
-    return all(
-        matrix[row, pivot] and not np.any(matrix[:row, pivot])
-        for row, pivot in enumerate(math.first_nonzero_cols(matrix))
+def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
+    """Is the provided matrix in a row-reduced form?"""
+    pivots = math.first_nonzero_cols(matrix)
+    return np.all(pivots < matrix.shape[1]) and all(
+        not np.any(matrix[row, :pivot]) and not np.any(matrix[row, pivot + 1 :])
+        for row, pivot in enumerate(pivots)
     )

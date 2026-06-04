@@ -57,11 +57,9 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     logical_ops = code.get_logical_ops()
     gauge_ops = code.get_gauge_ops()
 
-    """
-    Construct "candidate" destabilizers that have correct pair-wise (anti-)commutation relations
-    with the stabilizers, but may contain extra stabilizer, logical, or gauge operator components.
-    """
-    stab_pivots = np.argmax(stab_ops.view(np.ndarray).astype(bool), axis=1)
+    # Construct "candidate" destabilizers that have correct pair-wise (anti-)commutation relations
+    # with the stabilizers, but may contain extra stabilizer, logical, or gauge operator components.
+    stab_pivots = math.first_nonzero_cols(stab_ops)
     destab_ops = code.field.Zeros((len(stab_ops), 2 * len(code)), dtype=int)
     for destab_op, pivot in zip(destab_ops, stab_pivots):
         destab_op[(pivot + len(code)) % (2 * len(code))] = 1
@@ -320,14 +318,6 @@ def _assert_valid_code_state(
     if len(decoded_stabilizers) != len(code):
         raise ValueError(error_message)
 
-    np.set_printoptions(linewidth=200)
-    print()
-    print()
-    for stab in decoded_stabilizers:
-        print(stab)
-    print()
-    print()
-
     # collect decoded stabilizers into a binary matrix, including the sign bit, and row-reduce
     matrix = code.field.Zeros((len(decoded_stabilizers), 2 * len(code) + 1))
     for row, string in enumerate(decoded_stabilizers):
@@ -364,10 +354,6 @@ def _assert_valid_code_state(
         len(code) - code.dimension - code.gauge_dimension
     )
     if np.any(matrix_rref):
-        print()
-        print()
-        print(matrix_rref)
-        print()
         raise ValueError(
             "The provided circuit does not deterministically prepare a logical code state that is"
             " unentangled from ancillas"
