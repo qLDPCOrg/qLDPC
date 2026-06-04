@@ -27,10 +27,16 @@ from qldpc import circuits, codes
 
 
 def test_restriction() -> None:
-    """Raise an error for non-qubit codes."""
-    code = codes.SurfaceCode(2, field=3)
+    """restrict_to_qubits passes through for qubit codes and raises for qudit codes."""
+
+    @circuits.restrict_to_qubits
+    def get_empty_circuit(code: codes.QuditCode) -> stim.Circuit:
+        return stim.Circuit()
+
+    get_empty_circuit(codes.SurfaceCode(2, field=2))  # this does not raise an error
+
     with pytest.raises(ValueError, match="only supported for qubit codes"):
-        circuits.get_encoding_circuit(code)
+        get_empty_circuit(codes.SurfaceCode(2, field=3))
 
 
 def test_pauli_product_measurements_qubit_only() -> None:
