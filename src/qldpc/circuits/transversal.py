@@ -1,4 +1,4 @@
-"""Tools for identifying the transversal logical Clifford gates of a code
+"""Tools for identifying the transversal logical Clifford gates
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
