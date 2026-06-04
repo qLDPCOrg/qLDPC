@@ -25,7 +25,7 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from qldpc import codes
+from qldpc import codes, math
 from qldpc.objects import Node, Pauli
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
@@ -91,35 +91,16 @@ def with_remapped_qubits(
 
 
 def get_pauli_product_measurements(
-    op_vecs: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+    pauli_strings: Sequence[stim.PauliString] | npt.NDArray[np.int_],
     qubits: Sequence[int] | None = None,
 ) -> stim.Circuit:
-    """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
-
-    Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
-    If "code" is a QuditCode, for example, then passing "op_vecs=code.get_stabilizer_ops()" will
-    measure the stabilizers of "code".
-    """
-    op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
-    if op_graph.field.order != 2:
-        raise ValueError("Circuit methods are only supported for qubit codes")
-
-    # identify qubit indices
-    num_qubits = sum(node.is_data for node in op_graph.nodes)
-    assert qubits is None or len(qubits) == num_qubits, "Incorrect number of qubits provided"
-    qubits = qubits or list(range(num_qubits))
-
-    # build circuit of MPP instructions
+    """Construct a circuit to measure the given Pauli strings."""
+    if isinstance(pauli_strings, np.ndarray):
+        pauli_strings = [math.op_to_string(op) for op in pauli_strings]
     circuit = stim.Circuit()
-    for node_index in range(len(op_vecs)):
-        op_node = Node(node_index, is_data=False)
-        targets = [
-            stim.target_pauli(qubits[data_node.index], str(edge_data[Pauli]))
-            for _, data_node, edge_data in op_graph.edges(op_node, data=True)
-        ]
-        circuit.append("MPP", stim.target_combined_paulis(targets))
-
-    return circuit
+    for string in pauli_strings:
+        circuit.append("MPP", stim.target_combined_paulis(string))
+    return circuit if qubits is None else with_remapped_qubits(circuit, qubits)
 
 
 def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:

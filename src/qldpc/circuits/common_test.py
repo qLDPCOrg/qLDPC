@@ -42,12 +42,6 @@ def test_restriction() -> None:
         get_empty_circuit(codes.SurfaceCode(2, field=3))
 
 
-def test_pauli_product_measurements_qubit_only() -> None:
-    """Circuit methods are only supported for qubit codes."""
-    with pytest.raises(ValueError, match="only supported for qubit codes"):
-        circuits.get_pauli_product_measurements(codes.SurfaceCode(2, field=3).get_stabilizer_ops())
-
-
 def test_pauli_product_measurements(pytestconfig: pytest.Config) -> None:
     """get_pauli_product_measurements correctly measures the syndrome of Pauli errors."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
