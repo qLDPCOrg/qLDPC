@@ -23,8 +23,7 @@ import numpy as np
 import pytest
 import stim
 
-from qldpc import circuits, codes
-from qldpc.math import op_to_string
+from qldpc import circuits, codes, math
 from qldpc.objects import Pauli
 
 
@@ -45,28 +44,28 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
 
         # stabilizers have expectation value +1
         for row in code.get_stabilizer_ops():
-            string = op_to_string(row)
+            string = math.op_to_string(row)
             assert simulator.peek_observable_expectation(string) == 1
 
         # logical Z operators have expectation value +1
         for op in code.get_logical_ops(Pauli.Z, symplectic=True):
-            string = op_to_string(op)
+            string = math.op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 1
 
         # logical X operators have expectation value 0
         for op in code.get_logical_ops(Pauli.X, symplectic=True):
-            string = op_to_string(op)
+            string = math.op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 0
 
         if only_zero is False:
             # gauge Z operators have expectation value +1
             for op in code.get_gauge_ops(Pauli.Z, symplectic=True):
-                string = op_to_string(op)
+                string = math.op_to_string(op)
                 assert simulator.peek_observable_expectation(string) == 1
 
             # gauge X operators have expectation value 0
             for op in code.get_gauge_ops(Pauli.X, symplectic=True):
-                string = op_to_string(op)
+                string = math.op_to_string(op)
                 assert simulator.peek_observable_expectation(string) == 0
 
 
@@ -82,3 +81,26 @@ def test_logical_tableau() -> None:
 
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
+
+
+def test_state_stabilizers() -> None:
+    """Identify the stabilizers of state prepared by a circuit."""
+    code = codes.SteaneCode()
+    prep_z = circuits.get_encoding_circuit(code)
+    prep_z += circuits.get_pauli_product_measurements(
+        code.get_logical_ops(Pauli.Z, symplectic=True)
+    )
+    prep_z.append("DETECTOR", [stim.target_rec(-1)])
+
+    # stabilizers in "decoded" (logical/gauge/stabilizer/destabilizer) basis
+    decoded_state_stabs = circuits.get_state_stabilizers(code, prep_z, decoded=True)
+
+    # stabilizers in physical-qubit bases
+    state_stabs = [stab.after(prep_z) for stab in decoded_state_stabs]
+    assert len(state_stabs) == len(code)
+
+    # all stabilizers should have expectation value +1
+    simulator = stim.TableauSimulator()
+    simulator.do(prep_z)
+    for stab in state_stabs:
+        assert simulator.peek_observable_expectation(stab) == 1
