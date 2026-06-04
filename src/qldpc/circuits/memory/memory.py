@@ -25,12 +25,8 @@ from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from ..bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
-from ..common import (
-    get_encoding_circuit,
-    get_pauli_product_measurements,
-    restrict_to_qubits,
-    with_remapped_qubits,
-)
+from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
+from ..encoding import get_encoding_circuit
 from ..noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 

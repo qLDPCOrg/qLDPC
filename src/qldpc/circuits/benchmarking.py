@@ -28,12 +28,11 @@ from qldpc import codes, decoders, math
 
 from .bookkeeping import DetectorRecord
 from .common import (
-    _assert_valid_code_state,
-    get_nontrivial_logical_stabilizers,
     get_pauli_product_measurements,
     get_unaddressed_measurements,
     restrict_to_qubits,
 )
+from .encoding import _assert_valid_code_state, get_nontrivial_logical_stabilizers
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
 
