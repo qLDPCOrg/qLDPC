@@ -51,8 +51,7 @@ def test_pauli_product_measurements_qubit_only() -> None:
 def test_pauli_product_measurements(pytestconfig: pytest.Config) -> None:
     """get_pauli_product_measurements correctly measures the syndrome of Pauli errors."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
-
-    code = codes.FiveQubitCode()
+    code = codes.HGPCode(codes.ClassicalCode.random(5, 3))
     encoder = circuits.get_encoding_circuit(code)
     stabilizers = code.get_stabilizer_ops()
 

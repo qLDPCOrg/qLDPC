@@ -35,7 +35,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
     codes_to_test = [
         codes.FiveQubitCode(),
         codes.BaconShorCode(3),
-        codes.HGPCode(codes.ClassicalCode.random(5, 3, seed=np.random.randint(2**31))),
+        codes.HGPCode(codes.ClassicalCode.random(5, 3)),
     ]
 
     for code, only_zero in itertools.product(codes_to_test, [True, False]):

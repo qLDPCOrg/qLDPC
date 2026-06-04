@@ -901,7 +901,7 @@ class QuditCode(AbstractCode):
     @staticmethod
     def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
         """Convert a parity check matrix into a Tanner graph."""
-        matrix = np.reshape(matrix, (len(matrix), 2, -1))
+        matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
 
         # initialize graph with nodes
         graph = nx.DiGraph()
@@ -1921,8 +1921,8 @@ class QuditCode(AbstractCode):
         # permute logical operators of the outer code
         outer._logical_ops = (
             outer.get_logical_ops()
-            .reshape(2, outer.dimension, -1)[:, inner_physical_to_outer_logical, :]
-            .reshape(2 * outer.dimension, -1)
+            .reshape(2, outer.dimension, len(outer))[:, inner_physical_to_outer_logical, :]
+            .reshape(2 * outer.dimension, len(outer))
         ).view(outer.field)
 
         return outer, inner
