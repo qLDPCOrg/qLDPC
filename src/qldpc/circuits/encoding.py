@@ -154,44 +154,6 @@ def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Table
     )
 
 
-def _get_logical_tableau_from_code_data(
-    dimension: int,  # number of logical qubits of a QuditCode
-    gauge_dimension: int,  # number of gauge qubits of a QuditCode
-    encoder: stim.Tableau,
-    decoder: stim.Tableau,
-    physical_circuit: stim.Circuit,
-    skip_validation: bool = False,
-) -> stim.Tableau:
-    """Identify the logical tableau implemented by the physical circuit."""
-    assert len(encoder) == len(decoder) >= dimension + gauge_dimension
-    identity_phys = stim.Circuit(f"I {len(encoder) - 1}")
-    physical_tableau = (physical_circuit + identity_phys).to_tableau()
-
-    # compute the "upper left" block of the decoded tableau that acts on all logical qubits
-    decoded_tableau = encoder.then(physical_tableau).then(decoder)
-    logical_tableau = restrict_tableau(decoded_tableau, range(dimension))
-
-    if not skip_validation:
-        # identify sectors that address logical, gauge, and stabilizer qubits
-        sector_l = slice(dimension)
-        sector_g = slice(dimension, dimension + gauge_dimension)
-        sector_s = slice(dimension + gauge_dimension, len(encoder))
-        x2x, x2z, z2x, z2z, *_ = decoded_tableau.to_numpy()
-
-        # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
-        assert not np.any(z2x[:, sector_s])
-        assert not np.any(x2x[sector_l, sector_s])
-        assert not np.any(x2x[sector_g, sector_s])
-
-        # sanity check: gauge operators should not pick up logical factors
-        assert not np.any(x2x[sector_g, sector_l])
-        assert not np.any(x2z[sector_g, sector_l])
-        assert not np.any(z2x[sector_g, sector_l])
-        assert not np.any(z2z[sector_g, sector_l])
-
-    return logical_tableau
-
-
 @restrict_to_qubits
 def get_nontrivial_logical_stabilizers(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
@@ -302,6 +264,44 @@ def get_state_stabilizers(
         encoder = get_encoding_tableau(code)
         stabilizers = [stab.before(encoder, targets=range(len(code))) for stab in stabilizers]
     return stabilizers
+
+
+def _get_logical_tableau_from_code_data(
+    dimension: int,  # number of logical qubits of a QuditCode
+    gauge_dimension: int,  # number of gauge qubits of a QuditCode
+    encoder: stim.Tableau,
+    decoder: stim.Tableau,
+    physical_circuit: stim.Circuit,
+    skip_validation: bool = False,
+) -> stim.Tableau:
+    """Identify the logical tableau implemented by the physical circuit."""
+    assert len(encoder) == len(decoder) >= dimension + gauge_dimension
+    identity_phys = stim.Circuit(f"I {len(encoder) - 1}")
+    physical_tableau = (physical_circuit + identity_phys).to_tableau()
+
+    # compute the "upper left" block of the decoded tableau that acts on all logical qubits
+    decoded_tableau = encoder.then(physical_tableau).then(decoder)
+    logical_tableau = restrict_tableau(decoded_tableau, range(dimension))
+
+    if not skip_validation:
+        # identify sectors that address logical, gauge, and stabilizer qubits
+        sector_l = slice(dimension)
+        sector_g = slice(dimension, dimension + gauge_dimension)
+        sector_s = slice(dimension + gauge_dimension, len(encoder))
+        x2x, x2z, z2x, z2z, *_ = decoded_tableau.to_numpy()
+
+        # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
+        assert not np.any(z2x[:, sector_s])
+        assert not np.any(x2x[sector_l, sector_s])
+        assert not np.any(x2x[sector_g, sector_s])
+
+        # sanity check: gauge operators should not pick up logical factors
+        assert not np.any(x2x[sector_g, sector_l])
+        assert not np.any(x2z[sector_g, sector_l])
+        assert not np.any(z2x[sector_g, sector_l])
+        assert not np.any(z2z[sector_g, sector_l])
+
+    return logical_tableau
 
 
 def _assert_valid_code_state(
