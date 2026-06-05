@@ -84,11 +84,11 @@ def get_state_prep_diagnostic_circuit(
     Returns:
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
         circuits.DetectorRecord: A record of the detectors in the circuit, for which
-            - DetectorRecord.get("prep") is a list of indices for detectors that were already
+            - DetectorRecord.get_events("prep") is a list of indices for detectors that were already
                 present in the provided state_prep_circuit.
-            - DetectorRecord.get("flags") is a list of indices for the flag detectors.
-            - DetectorRecord.get(stab_index)[0] is the index of the detector for the stabilizer
-                represented by code.get_stabilizer_ops()[stab_index].
+            - DetectorRecord.get_events("flags") is a list of indices for the flag detectors.
+            - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
+                stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
     if not skip_validation:
         _assert_valid_code_state(code, state_prep_circuit)
@@ -364,11 +364,11 @@ def _get_postselection_mask(
     if not post_select:
         return None
 
-    num_prep = len(detector_record.get("prep"))
-    num_flags = len(detector_record.get("flags"))
+    num_prep = len(detector_record.get_events("prep"))
+    num_flags = len(detector_record.get_events("flags"))
     num_detectors = num_prep + num_flags
     if isinstance(post_select, bool):
-        post_select = detector_record.get("flags") if post_select else ()
+        post_select = detector_record.get_events("flags") if post_select else ()
     if not all(-num_detectors <= dd < num_detectors for dd in post_select):
         raise ValueError(
             f"The provided circuit contains {num_detectors} detectors, so we can only post-select"
