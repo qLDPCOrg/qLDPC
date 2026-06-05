@@ -2010,10 +2010,14 @@ class QuditCode(AbstractCode):
             # decode errors
             error_locs_x = error_locations[error_paulis > 1]
             error_x = np.zeros(len(self), dtype=int)
-            error_x[error_locs_x] = np.random.choice(self.field.values[1:], size=len(error_locs_x))
+            error_x[error_locs_x] = np.random.choice(
+                range(1, self.field.order), size=len(error_locs_x)
+            )
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
             error_z = np.zeros(len(self), dtype=int)
-            error_z[error_locs_z] = np.random.choice(self.field.values[1:], size=len(error_locs_z))
+            error_z[error_locs_z] = np.random.choice(
+                range(1, self.field.order), size=len(error_locs_z)
+            )
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
@@ -3099,7 +3103,9 @@ class CSSCode(QuditCode):
             # decode Z-type errors
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
             error_z = self.field.Zeros(len(self))
-            error_z[error_locs_z] = np.random.choice(self.field.values[1:], size=len(error_locs_z))
+            error_z[error_locs_z] = np.random.choice(
+                range(1, self.field.order), size=len(error_locs_z)
+            )
             syndrome_z = self.matrix_x @ error_z
             decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
             if erasure:
@@ -3116,7 +3122,9 @@ class CSSCode(QuditCode):
             # decode X-type errors
             error_locs_x = error_locations[error_paulis > 1]
             error_x = self.field.Zeros(len(self))
-            error_x[error_locs_x] = np.random.choice(self.field.values[1:], size=len(error_locs_x))
+            error_x[error_locs_x] = np.random.choice(
+                range(1, self.field.order), size=len(error_locs_x)
+            )
             syndrome_x = self.matrix_z @ error_x
             decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
             if erasure:
