@@ -223,7 +223,7 @@ class BCHCode(ClassicalCode):
     ) -> None:
         field = resolve_field(field)
         length_in_base = np.base_repr(length, base=field.order)
-        if not length_in_base == str(field.order - 1) * len(length_in_base):
+        if length_in_base != str(field.order - 1) * len(length_in_base):
             raise ValueError(
                 f"BCH codes over GF({field.order}) are only defined for block lengths"
                 f" {field.order}**m - 1 with integer m."
