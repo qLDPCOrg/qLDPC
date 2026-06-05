@@ -51,7 +51,10 @@ from qldpc import external
 GF2: type[galois.FieldArray] = galois.GF(2)
 
 
-def resolve_field(field: int | type[galois.FieldArray] | None) -> type[galois.FieldArray]:
+def resolve_field(
+    field: int | type[galois.FieldArray] | None,
+) -> type[galois.FieldArray]:  # pragma: no cover
+    """Parse a finite field argument to obtain an actual finite field."""
     if field is None:
         return GF2
     if isinstance(field, int):
