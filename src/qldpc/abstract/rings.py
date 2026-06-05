@@ -41,7 +41,7 @@ import sympy.core
 import qldpc
 from qldpc import external
 
-from .groups import DEFAULT_FIELD_ORDER, AbelianGroup, CyclicGroup, Group, GroupMember, TrivialGroup
+from .groups import AbelianGroup, CyclicGroup, Group, GroupMember, TrivialGroup, resolve_field
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
@@ -61,9 +61,9 @@ class GroupRing:
     _transformers: dict[int | None, WedderburnArtinTransformer]
     _idempotents: tuple[RingMember, ...] | None = None
 
-    def __init__(self, group: Group, field: int | None = None) -> None:
+    def __init__(self, group: Group, field: int | type[galois.FieldArray] | None = None) -> None:
         self._group = group
-        self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        self._field = resolve_field(field)
         self._transformers = {}
 
     @property

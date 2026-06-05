@@ -36,7 +36,7 @@ import scipy.sparse
 import stim
 
 from qldpc import abstract, decoders, external, math
-from qldpc.abstract import DEFAULT_FIELD_ORDER
+from qldpc.abstract import GF2, resolve_field
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
@@ -88,7 +88,7 @@ class AbstractCode(abc.ABC):
     def __init__(
         self,
         matrix: AbstractCode | IntegerArray | Sequence[Sequence[int]],
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a code from a parity check matrix over a finite field.
 
@@ -100,20 +100,20 @@ class AbstractCode(abc.ABC):
             self._dimension = matrix._dimension
             self._distance = matrix._distance
 
-            if field is not None and field != matrix._field.order:
+            if field is not None and resolve_field(field) is not matrix._field:
                 raise ValueError(
                     f"Field argument {field} is inconsistent with the given code, which is defined"
-                    f" over F_{self._field.order}"
+                    f" over GF({self._field.order})"
                 )
 
             self._is_canonicalized = matrix._is_canonicalized
 
         elif isinstance(matrix, galois.FieldArray):
-            self._field = galois.GF(field) if field else type(matrix)
+            self._field = resolve_field(field) if field is not None else type(matrix)
             self._matrix = matrix.view(self._field)
 
         else:
-            self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+            self._field = resolve_field(field)
             self._matrix = np.asanyarray(
                 matrix.todense() if scipy.sparse.issparse(matrix) else matrix,  # type:ignore[union-attr]
             ).view(self.field)
@@ -229,7 +229,7 @@ class ClassicalCode(AbstractCode):
     def __init__(
         self,
         matrix: AbstractCode | IntegerArray | Sequence[Sequence[int]],
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a classical code from a parity check matrix over a finite field."""
         super().__init__(matrix, field)
@@ -248,7 +248,7 @@ class ClassicalCode(AbstractCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = ""
-        if self.field.order == 2:
+        if self.field is GF2:
             text += f"{self.name} on {len(self)} bits"
         else:
             text += f"{self.name} on {len(self)} symbols over {self.field_name}"
@@ -268,7 +268,7 @@ class ClassicalCode(AbstractCode):
             return self
         matrix_rref = self.matrix.row_reduce()
         matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
-        code = ClassicalCode(matrix_rref, self.field.order)
+        code = ClassicalCode(matrix_rref, self.field)
         code._dimension = len(self) - len(matrix_rref)
         code._distance = self._distance
         code._is_canonicalized = True
@@ -310,7 +310,7 @@ class ClassicalCode(AbstractCode):
             node_c = Node(index=int(row), is_data=False)
             node_d = Node(index=int(col), is_data=True)
             graph.add_edge(node_c, node_d, val=matrix[row][col])
-        graph.field = galois.GF(getattr(type(matrix), "order", DEFAULT_FIELD_ORDER))
+        setattr(graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else GF2)
         return graph
 
     @staticmethod
@@ -318,7 +318,7 @@ class ClassicalCode(AbstractCode):
         """Convert a Tanner graph into a parity check matrix."""
         num_bits = sum(node.is_data for node in graph.nodes())
         num_checks = len(graph.nodes()) - num_bits
-        field = getattr(graph, "field", galois.GF(DEFAULT_FIELD_ORDER))
+        field = getattr(graph, "field", GF2)
         matrix = field.Zeros((num_checks, num_bits))
         for node_c, node_b, data in graph.edges(data=True):
             matrix[node_c.index, node_b.index] = data.get("val", 1)
@@ -466,7 +466,7 @@ class ClassicalCode(AbstractCode):
             return known_distance
 
         # we do not know the exact distance, so compute it
-        if self.field.order == 2 and vector is None:
+        if self.field is GF2 and vector is None:
             distance = get_distance_classical(self.generator, cutoff=cutoff)
             if cutoff <= 1:
                 self._distance = int(distance)
@@ -574,25 +574,30 @@ class ClassicalCode(AbstractCode):
 
     @staticmethod
     def random(
-        bits: int, checks: int, field: int | None = None, *, seed: int | None = None
+        bits: int,
+        checks: int,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        seed: int | None = None,
     ) -> ClassicalCode:
         """Construct a random linear code with the given number of bits and checks.
 
         Reject any code with trivial checks or unchecked bits, identified by an all-zero row or
         column in the code's parity check matrix.
         """
-        code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        field = resolve_field(field)
 
         def nontrivial(matrix: galois.FieldArray) -> bool:
             """Return True iff all rows and columns are nonzero."""
             return all(np.any(row) for row in matrix) and all(np.any(col) for col in matrix.T)
 
-        matrix = get_random_array(code_field, (checks, bits), satisfy=nontrivial, seed=seed)
+        matrix = get_random_array(field, (checks, bits), satisfy=nontrivial, seed=seed)
         return ClassicalCode(matrix)
 
     @staticmethod
     def from_generator(
-        generator: npt.NDArray[np.int_] | Sequence[Sequence[int]], field: int | None = None
+        generator: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        field: int | type[galois.FieldArray] | None = None,
     ) -> ClassicalCode:
         """Construct a ClassicalCode from a generator matrix."""
         return ~ClassicalCode(generator, field)
@@ -629,7 +634,7 @@ class ClassicalCode(AbstractCode):
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
 
         # try GAP/GAUAVA's AutomorphismGroup method
-        if self.field.order == 2:
+        if self.field is GF2:
             try:
                 return abstract.Group.from_name(
                     f"AutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
@@ -682,7 +687,7 @@ class ClassicalCode(AbstractCode):
             if nonzero_rows.size:
                 pivot_row, rows_to_reduce = nonzero_rows[0], nonzero_rows[1:]
                 if rows_to_reduce.size:
-                    if self.field.order == 2:
+                    if self.field is GF2:
                         new_matrix[rows_to_reduce] -= new_matrix[pivot_row]
                     else:
                         prefactors = new_matrix[rows_to_reduce, bit] / new_matrix[pivot_row, bit]
@@ -780,7 +785,7 @@ class ClassicalCode(AbstractCode):
             # construct an error
             error_locations = random.sample(range(len(self)), error_weight)
             error = self.field.Zeros(len(self))
-            error[error_locations] = np.random.choice(range(1, self.field.order), size=error_weight)
+            error[error_locations] = np.random.choice(self.field.elements[1:], size=error_weight)
 
             # decode the error
             syndrome = self.matrix @ error
@@ -836,7 +841,7 @@ class QuditCode(AbstractCode):
     def __init__(
         self,
         matrix: AbstractCode | IntegerArray | Sequence[Sequence[int]],
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         is_subsystem_code: bool | None = None,
     ) -> None:
@@ -864,7 +869,7 @@ class QuditCode(AbstractCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = f"{self.name} on {len(self)}"
-        if self.field.order == 2:
+        if self.field is GF2:
             text += " qubits"
         else:
             text += f" qudits over {self.field_name}"
@@ -887,7 +892,7 @@ class QuditCode(AbstractCode):
             return self
         matrix_rref = self.matrix.row_reduce()
         matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
-        code = QuditCode(matrix_rref, self.field.order, is_subsystem_code=self._is_subsystem_code)
+        code = QuditCode(matrix_rref, self.field, is_subsystem_code=self._is_subsystem_code)
         if not self._is_subsystem_code:
             code._dimension = len(code) - len(matrix_rref)
         code._distance = self._distance
@@ -905,12 +910,12 @@ class QuditCode(AbstractCode):
 
         # initialize graph with nodes
         graph = nx.DiGraph()
-        graph.field = galois.GF(getattr(type(matrix), "order", DEFAULT_FIELD_ORDER))
+        setattr(graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else GF2)
         for qudit in range(matrix.shape[-1]):
             graph.add_node(Node(index=qudit, is_data=True))
 
         # add edges
-        _Pauli = Pauli if graph.field.order == 2 else QuditPauli
+        _Pauli = Pauli if graph.field is GF2 else QuditPauli
         for row, xz, col in zip(*np.nonzero(matrix)):
             node_check = Node(index=int(row), is_data=False)
             node_qudit = Node(index=int(col), is_data=True)
@@ -931,7 +936,7 @@ class QuditCode(AbstractCode):
         matrix = np.zeros((num_checks, 2, num_qudits), dtype=int)
         for node_check, node_qudit, data in graph.edges(data=True):
             matrix[node_check.index, :, node_qudit.index] = data.get(Pauli).value
-        field = getattr(graph, "field", galois.GF(DEFAULT_FIELD_ORDER))
+        field = getattr(graph, "field", GF2)
         return field(matrix.reshape(num_checks, 2 * num_qudits))
 
     def maybe_to_css(self) -> QuditCode:
@@ -994,7 +999,7 @@ class QuditCode(AbstractCode):
 
     def get_strings(self) -> list[str]:
         """Parity checks checks of this code, represented by strings."""
-        _Pauli = Pauli if self.field.order == 2 else QuditPauli
+        _Pauli = Pauli if self.field is GF2 else QuditPauli
 
         matrix = self.matrix.reshape(self.num_checks, 2, self.num_qudits)
         checks = []
@@ -1009,7 +1014,9 @@ class QuditCode(AbstractCode):
         return checks
 
     @staticmethod
-    def from_strings(checks: Sequence[str], field: int | None = None) -> QuditCode:
+    def from_strings(
+        checks: Sequence[str], field: int | type[galois.FieldArray] | None = None
+    ) -> QuditCode:
         """Construct a QuditCode from the provided parity checks.
 
         Strings such as "Z_YX" and "Z I Y X" are both recognized, but a string like "ZI Y X" is not.
@@ -1018,8 +1025,8 @@ class QuditCode(AbstractCode):
         the Galois field GF(field), such as "Z(1) _ Y(3) X(2)".  In this case "Y(a)" is an alias
         for "X(a)*Z(a)", and strings such as "Z(1) _ X(1)*Z(3) X(2)" are also valid.
         """
-        field = field or DEFAULT_FIELD_ORDER
-        operator: type[Pauli] | type[QuditPauli] = Pauli if field == 2 else QuditPauli
+        field = resolve_field(field)
+        operator: type[Pauli] | type[QuditPauli] = Pauli if field is GF2 else QuditPauli
 
         def parse_check(check: str) -> list[str]:
             check = check.replace("_", "I")
@@ -1062,7 +1069,7 @@ class QuditCode(AbstractCode):
     @property
     def num_qubits(self) -> int:
         """Number of data qubits in this code."""
-        if not self.field.order == 2:
+        if self.field is not GF2:
             raise ValueError(
                 "You asked for the number of qubits in this code, but this code is built out of "
                 rf"{self.field.order}-dimensional qudits.\nTry calling {type(self)}.num_qudits."
@@ -1648,7 +1655,7 @@ class QuditCode(AbstractCode):
         if self.is_subsystem_code:
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops()]).view(self.field)
 
-        if self.field.order == 2:
+        if self.field is GF2:
             distance = get_distance_quantum(
                 logical_ops, stabilizers, cutoff=cutoff, homogeneous=False
             )
@@ -1754,7 +1761,7 @@ class QuditCode(AbstractCode):
                 the original code, throwing an error if the original logical operators are invalid
                 for the deformed code.  Default: False.
         """
-        if not self.field.order == 2:
+        if self.field is not GF2:
             raise ValueError("Code deformation is only supported for qubit codes")
 
         # convert the physical circuit into a tableau
@@ -2003,14 +2010,10 @@ class QuditCode(AbstractCode):
             # decode errors
             error_locs_x = error_locations[error_paulis > 1]
             error_x = np.zeros(len(self), dtype=int)
-            error_x[error_locs_x] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_x)
-            )
+            error_x[error_locs_x] = np.random.choice(self.field.values[1:], size=len(error_locs_x))
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
             error_z = np.zeros(len(self), dtype=int)
-            error_z[error_locs_z] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_z)
-            )
+            error_z[error_locs_z] = np.random.choice(self.field.values[1:], size=len(error_locs_z))
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
@@ -2054,7 +2057,7 @@ class CSSCode(QuditCode):
         self,
         code_x: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_z: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         is_subsystem_code: bool | None = None,
         promise_equal_distance_xz: bool = False,  # do X and Z logicals have equal minimum weight?
@@ -2081,7 +2084,7 @@ class CSSCode(QuditCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = ""
-        if self.field.order == 2:
+        if self.field is GF2:
             text += f"{self.name} on {len(self)} qubits"
         else:
             text += f"{self.name} on {len(self)} qudits over {self.field_name}"
@@ -2093,7 +2096,7 @@ class CSSCode(QuditCode):
     def classical(
         code: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         pauli: PauliXZ,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
     ) -> CSSCode:
         """Construct a CSSCode of only X-type or Z-type stabilizers."""
         assert pauli in PAULIS_XZ
@@ -2634,7 +2637,7 @@ class CSSCode(QuditCode):
         if self.is_subsystem_code:
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
 
-        if self.field.order == 2:
+        if self.field is GF2:
             distance = get_distance_quantum(
                 logical_ops, stabilizers, cutoff=cutoff, homogeneous=True
             )
@@ -3096,9 +3099,7 @@ class CSSCode(QuditCode):
             # decode Z-type errors
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
             error_z = self.field.Zeros(len(self))
-            error_z[error_locs_z] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_z)
-            )
+            error_z[error_locs_z] = np.random.choice(self.field.values[1:], size=len(error_locs_z))
             syndrome_z = self.matrix_x @ error_z
             decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
             if erasure:
@@ -3115,9 +3116,7 @@ class CSSCode(QuditCode):
             # decode X-type errors
             error_locs_x = error_locations[error_paulis > 1]
             error_x = self.field.Zeros(len(self))
-            error_x[error_locs_x] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_x)
-            )
+            error_x[error_locs_x] = np.random.choice(self.field.values[1:], size=len(error_locs_x))
             syndrome_x = self.matrix_z @ error_x
             decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
             if erasure:

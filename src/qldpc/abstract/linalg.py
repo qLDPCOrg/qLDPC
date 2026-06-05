@@ -113,7 +113,7 @@ def get_bimodule(ring: GroupRing) -> GroupRing:
         return ring.group.lift(part_l) @ ring.group.lift(~part_r, right=True)
 
     bimodule_group = Group(ring.group.to_sympy() * ring.group.to_sympy(), lift=lift)
-    return GroupRing(bimodule_group, ring.field.order)
+    return GroupRing(bimodule_group, ring.field)
 
 
 def block_diag(

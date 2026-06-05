@@ -1,5 +1,5 @@
 from .groups import (
-    DEFAULT_FIELD_ORDER,
+    GF2,
     PSL,
     SL,
     AbelianGroup,
@@ -15,6 +15,7 @@ from .groups import (
     SymmetricGroup,
     TrivialGroup,
     get_coefficient_and_exponents,
+    resolve_field,
 )
 from .linalg import (
     block_diag,
@@ -35,7 +36,7 @@ from .wedderburn_artin import (
 )
 
 __all__ = [
-    "DEFAULT_FIELD_ORDER",
+    "GF2",
     "PSL",
     "SL",
     "AbelianGroup",
@@ -51,6 +52,7 @@ __all__ = [
     "SymmetricGroup",
     "TrivialGroup",
     "get_coefficient_and_exponents",
+    "resolve_field",
     "block_diag",
     "get_howell_dual",
     "kron",

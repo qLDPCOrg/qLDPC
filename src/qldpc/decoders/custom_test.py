@@ -217,7 +217,7 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
     code = codes.SurfaceCode(4, field=3)
-    local_errors = tuple(itertools.product(range(code.field.order), repeat=2))[1:]
+    local_errors = tuple(itertools.product(code.field.elements, repeat=2))[1:]
     qubit_a, qubit_b = np.random.choice(range(len(code)), size=2, replace=False)
     pauli_a, pauli_b = random.choices(local_errors, k=2)
     error = code.field.Zeros(2 * len(code))

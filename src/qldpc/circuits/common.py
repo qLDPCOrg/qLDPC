@@ -26,6 +26,7 @@ import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
+from qldpc.abstract import GF2
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
@@ -38,7 +39,7 @@ def restrict_to_qubits(
 
     @functools.wraps(func)
     def qubit_func(*args: Params.args, **kwargs: Params.kwargs) -> stim.Circuit:
-        if any(isinstance(arg, codes.QuditCode) and arg.field.order != 2 for arg in args):
+        if any(isinstance(arg, codes.QuditCode) and arg.field is not GF2 for arg in args):
             raise ValueError("Circuit methods are only supported for qubit codes")
         return func(*args, **kwargs)
 

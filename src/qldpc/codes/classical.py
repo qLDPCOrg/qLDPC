@@ -27,7 +27,7 @@ import numpy.typing as npt
 import sympy
 
 from qldpc import abstract
-from qldpc.abstract import DEFAULT_FIELD_ORDER
+from qldpc.abstract import GF2, resolve_field
 
 from .common import ClassicalCode
 
@@ -35,8 +35,8 @@ from .common import ClassicalCode
 class RepetitionCode(ClassicalCode):
     """Classical repetition code."""
 
-    def __init__(self, bits: int, field: int | None = None) -> None:
-        self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+    def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
+        self._field = resolve_field(field)
         self._matrix = self.field.Zeros((bits - 1, bits))
         for row in range(bits - 1):
             self._matrix[row, row] = 1
@@ -49,8 +49,8 @@ class RepetitionCode(ClassicalCode):
 class RingCode(ClassicalCode):
     """Classical ring code: repetition code with periodic boundary conditions."""
 
-    def __init__(self, bits: int, field: int | None = None) -> None:
-        self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+    def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
+        self._field = resolve_field(field)
         self._matrix = self.field.Zeros((bits, bits))
         for row in range(bits):
             self._matrix[row, row] = 1
@@ -72,7 +72,9 @@ class CyclicCode(ClassicalCode):
     The CyclicCode with polynomial 1 - x is a RingCode.
     """
 
-    def __init__(self, bits: int, poly: sympy.Basic, field: int | None = None) -> None:
+    def __init__(
+        self, bits: int, poly: sympy.Basic, field: int | type[galois.FieldArray] | None = None
+    ) -> None:
         """Construct a cyclic code from a block length and a polynomial in one variable."""
         if not isinstance(poly, sympy.Basic) or not len(poly.free_symbols) == 1:
             raise ValueError(f"{poly} is not a univariate polynomial")
@@ -92,11 +94,11 @@ class HammingCode(ClassicalCode):
     field; equivalently, from all vectors whose first nonzero element is a 1.
     """
 
-    def __init__(self, size: int, field: int | None = None) -> None:
+    def __init__(self, size: int, field: int | type[galois.FieldArray] | None = None) -> None:
         """Construct a Hamming code of a given rank."""
         self._distance = 3
-        self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
-        if self.field.order == 2:
+        self._field = resolve_field(field)
+        if self.field is GF2:
             # collect all nonzero bitstrings
             bitstrings = list(itertools.product([0, 1], repeat=size))
             self._matrix = self.field(bitstrings[1:]).T
@@ -145,14 +147,16 @@ class ReedMullerCode(ClassicalCode):
     - https://feog.github.io/10-coding.pdf
     """
 
-    def __init__(self, order: int, size: int, field: int | None = None) -> None:
+    def __init__(
+        self, order: int, size: int, field: int | type[galois.FieldArray] | None = None
+    ) -> None:
         self._assert_valid_params(order, size)
         self._order = order
         self._size = size
 
         generator = ReedMullerCode.get_generator(order, size)
         self._matrix = ClassicalCode(generator, field).generator
-        self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        self._field = resolve_field(field)
 
         self._dimension = len(generator)
         self._distance = 2 ** (size - order)
@@ -214,15 +218,17 @@ class BCHCode(ClassicalCode):
     - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
     """
 
-    def __init__(self, length: int, dimension: int, field: int | None = None) -> None:
-        field = field or DEFAULT_FIELD_ORDER
-        length_in_base = np.base_repr(length, base=field)
-        if not length_in_base == str(field - 1) * len(length_in_base):
+    def __init__(
+        self, length: int, dimension: int, field: int | type[galois.FieldArray] | None = None
+    ) -> None:
+        field = resolve_field(field)
+        length_in_base = np.base_repr(length, base=field.order)
+        if not length_in_base == str(field.order - 1) * len(length_in_base):
             raise ValueError(
-                f"BCH codes over F_{field} are only defined for block lengths {field}^m - 1 with"
-                " integer m."
+                f"BCH codes over GF({field.order}) are only defined for block lengths"
+                f" {field.order}**m - 1 with integer m."
             )
-        super().__init__(galois.BCH(length, dimension, field=galois.GF(field)).H)
+        super().__init__(galois.BCH(length, dimension, field=field).H)
         self._dimension = dimension
 
 
@@ -237,18 +243,20 @@ class SimplexCode(ClassicalCode):
     - https://arxiv.org/abs/2502.07150
     """
 
-    def __init__(self, dim: int, field: int | None = None) -> None:
-        field = field or DEFAULT_FIELD_ORDER
+    def __init__(self, dim: int, field: int | type[galois.FieldArray] | None = None) -> None:
+        field = resolve_field(field)
         polynomial = SimplexCode.get_defining_polynomial(dim, field)
-        coefficients = polynomial.coefficients(size=field**dim - 1, order="asc")
+        coefficients = polynomial.coefficients(size=field.order**dim - 1, order="asc")
         matrix = np.array([np.roll(coefficients, jj) for jj in range(len(coefficients))])
         super().__init__(matrix, field=field)
 
         self._dimension = dim
-        self._distance = field ** (dim - 1) * (field - 1)
+        self._distance = field.order ** (dim - 1) * (field.order - 1)
 
     @staticmethod
-    def get_defining_polynomial(dim: int, field: int | None = None) -> galois.Poly:
+    def get_defining_polynomial(
+        dim: int, field: int | type[galois.FieldArray] | None = None
+    ) -> galois.Poly:
         """The polynomial that defines a SimplexCode of a given dimension and base field.
 
         Returns a three-term polynomial of the form h(x) = 1 + a * x**c + b * x**d, where
@@ -256,30 +264,30 @@ class SimplexCode(ClassicalCode):
         - the exponents c and d are integers, and
         - gcd(h(x), x ** (field**dim - 1) - 1) is a primitive polynomial of degree dim.
         """
-        field = field or DEFAULT_FIELD_ORDER
+        field = resolve_field(field)
 
         # first try finding a primitive three-term polynomial of degree dim
         try:
-            primitive_polys = galois.primitive_polys(order=field, degree=dim, terms=3)
+            primitive_polys = galois.primitive_polys(order=field.order, degree=dim, terms=3)
             return next(primitive_polys)
         except StopIteration:
             None
 
         # find a suitable polynomial by brute force
 
-        order = field**dim - 1
+        order = field.order**dim - 1
         mod_poly_coefficients = [0] * (order + 1)
         mod_poly_coefficients[0] = -1
         mod_poly_coefficients[-1] = 1
-        mod_poly = galois.Poly(mod_poly_coefficients, field=galois.GF(field))
+        mod_poly = galois.Poly(mod_poly_coefficients, field=field)
 
-        for aa, bb in itertools.product(range(1, field), repeat=2):
+        for aa, bb in itertools.product(range(1, field.order), repeat=2):
             for cc, dd in itertools.combinations(range(1, order + 1), 2):
                 coefficients = [0] * (order + 1)
                 coefficients[0] = 1
                 coefficients[cc] = aa
                 coefficients[dd] = bb
-                poly = galois.Poly(coefficients[::-1], field=galois.GF(field))
+                poly = galois.Poly(coefficients[::-1], field=field)
                 gcd_poly = galois.gcd(poly, mod_poly)
                 if gcd_poly.degree == dim and gcd_poly.is_primitive():
                     return poly
@@ -337,7 +345,7 @@ class TannerCode(ClassicalCode):
             checks = range(subcode.num_checks * idx, subcode.num_checks * (idx + 1))
             bits = [sink_indices[sink] for sink in self._get_sorted_neighbors(source)]
             matrix[np.ix_(checks, bits)] = subcode.matrix
-        super().__init__(matrix, subcode.field.order)
+        super().__init__(matrix, subcode.field)
 
     def _get_sorted_neighbors(self, node: object) -> Sequence[object]:
         """Sorted neighbors of the given node."""

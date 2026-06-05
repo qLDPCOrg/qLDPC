@@ -36,7 +36,7 @@ from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
 from qldpc import abstract
-from qldpc.abstract import DEFAULT_FIELD_ORDER
+from qldpc.abstract import GF2, resolve_field
 from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditPauli
 
 from .classical import (
@@ -60,8 +60,8 @@ class FiveQuditCode(QuditCode):
     - https://errorcorrectionzoo.org/c/galois_5_1_3
     """
 
-    def __init__(self, field: int | None = None) -> None:
-        code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
+    def __init__(self, field: int | type[galois.FieldArray] | None = None) -> None:
+        field = resolve_field(field)
         matrix = [
             [1, 0, 0, -1, 0, 0, 1, -1, 0, 0],
             [0, 1, 0, 0, -1, 0, 0, 1, -1, 0],
@@ -69,7 +69,7 @@ class FiveQuditCode(QuditCode):
             [0, -1, 0, 1, 0, -1, 0, 0, 0, 1],
         ]
         super().__init__(
-            code_field(1) * np.array(matrix, dtype=int),
+            field(1) * np.array(matrix, dtype=int),
             is_subsystem_code=False,
         )
         self._dimension = 1
@@ -94,12 +94,18 @@ class QuantumHammingCode(CSSCode):
     - https://errorcorrectionzoo.org/c/quantum_hamming_css
     """
 
-    def __init__(self, size: int, field: int | None = None, *, set_logicals: bool = True) -> None:
+    def __init__(
+        self,
+        size: int,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
         code = HammingCode(size, field)
         super().__init__(code, code, is_subsystem_code=False)
         self._distance_x = self._distance_z = 3
 
-        if size == 4 and set_logicals and self.field.order == 2:
+        if size == 4 and set_logicals and self.field is GF2:
             """
             Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
             Pinning all but the last logical qubit to |0> results in the TetrahedralCode.
@@ -312,7 +318,7 @@ class TBCode(CSSCode):
         self,
         matrix_a: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         matrix_b: npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         promise_equal_distance_xz: bool = False,
         skip_validation: bool = False,
@@ -380,7 +386,7 @@ class QCCode(TBCode):
         orders: Sequence[int] | dict[sympy.Symbol, int],
         poly_a: sympy.Basic,
         poly_b: sympy.Basic,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a generalized bicycle code."""
         self.poly_a = sympy.Poly(poly_a)
@@ -578,7 +584,7 @@ class BBCode(QCCode):
         orders: Sequence[int] | dict[sympy.Symbol, int],
         poly_a: sympy.Basic,
         poly_b: sympy.Basic,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a bivariate bicycle code."""
         symbols = sympy.Poly(poly_a).free_symbols | sympy.Poly(poly_b).free_symbols
@@ -592,7 +598,7 @@ class BBCode(QCCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = ""
-        if self.field.order == 2:
+        if self.field is GF2:
             text += f"{self.name} on {self.num_qubits} qubits"
         else:
             text += f"{self.name} on {self.num_qudits} qudits over {self.field_name}"
@@ -894,7 +900,7 @@ class HGPCode(CSSCode):
         self,
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
@@ -916,7 +922,7 @@ class HGPCode(CSSCode):
             code_b = code_a
         self.code_a = ClassicalCode(code_a, field)
         self.code_b = ClassicalCode(code_b, field)
-        field = self.code_a.field.order
+        field = self.code_a.field
 
         # use a matrix-based hypergraph product to identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
@@ -1018,8 +1024,8 @@ class HGPCode(CSSCode):
     def get_graph_product(graph_a: nx.DiGraph, graph_b: nx.DiGraph) -> nx.DiGraph:
         """Hypergraph product of two Tanner graphs."""
         graph = nx.DiGraph()
-        field = getattr(graph_a, "field", galois.GF(DEFAULT_FIELD_ORDER))
-        _Pauli = Pauli if field.order == 2 else QuditPauli
+        field = getattr(graph_a, "field", GF2)
+        _Pauli = Pauli if field is GF2 else QuditPauli
 
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
@@ -1166,7 +1172,7 @@ class CHGPCode(HGPCode):
         dims: tuple[int, int] | int,
         poly_a: sympy.Basic,
         poly_b: sympy.Basic | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a CHGPCode from two classical block lengths and two univariate polynomials.
 
@@ -1190,7 +1196,9 @@ class CRCode(HGPCode):
     - https://arxiv.org/pdf/2511.09683v2 (Definition 3)
     """
 
-    def __init__(self, bits: int, poly: sympy.Basic, field: int | None = None) -> None:
+    def __init__(
+        self, bits: int, poly: sympy.Basic, field: int | type[galois.FieldArray] | None = None
+    ) -> None:
         """Construct a CRCode from the block length and univariate polynomial of a CyclicCode.
 
         The block length of the RingCode used in the hypergraph product is set to the distance of
@@ -1223,7 +1231,7 @@ class SHPCode(CSSCode):
         self,
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
@@ -1232,19 +1240,19 @@ class SHPCode(CSSCode):
             code_b = code_a
         self.code_a = ClassicalCode(code_a, field)
         self.code_b = ClassicalCode(code_b, field)
-        code_field = self.code_a.field
+        field = self.code_a.field
 
         matrix_x, matrix_z = SHPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
         super().__init__(
             matrix_x.view(np.ndarray).astype(int),
             matrix_z.view(np.ndarray).astype(int),
-            code_field.order,
+            field,
             is_subsystem_code=True,
         )
 
         stab_ops_x = np.kron(self.code_a.matrix, self.code_b.generator)
         stab_ops_z = np.kron(-self.code_a.generator, self.code_b.matrix)
-        self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(code_field)
+        self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(field)
 
         if set_logicals:
             logical_ops_xz = SHPCode.get_canonical_logical_line_ops(
@@ -1365,7 +1373,7 @@ class LPCode(CSSCode):
         self.matrix_b = abstract.RingArray(matrix_b)
 
         ring = self.matrix_a.ring
-        field = ring.field.order
+        field = ring.field
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
@@ -1509,7 +1517,7 @@ class SLPCode(CSSCode):
         self.matrix_b = abstract.RingArray(matrix_b)
 
         ring = self.matrix_a.ring
-        field = ring.field.order
+        field = ring.field
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = SHPCode.get_matrix_product(self.matrix_a, self.matrix_b)
@@ -1608,7 +1616,7 @@ class QTCode(CSSCode):
         subset_b: Collection[abstract.GroupMember],
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
     ) -> None:
@@ -1716,7 +1724,7 @@ class QTCode(CSSCode):
         group: abstract.Group,
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
         one_subset: bool = False,
@@ -1815,7 +1823,7 @@ class SurfaceCode(CSSCode):
         self,
         rows: int,
         cols: int | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         rotated: bool = True,
     ) -> None:
@@ -1849,9 +1857,9 @@ class SurfaceCode(CSSCode):
             ]
 
             # invert Z-type Pauli on every other qubit
-            code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
-            if code_field.order > 2:
-                matrix_z = matrix_z.view(code_field)
+            field = resolve_field(field)
+            if field is not GF2:
+                matrix_z = matrix_z.view(field)
                 matrix_z[:, self.bias_tailoring_qubits] *= -1
 
         super().__init__(matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols)
@@ -2015,7 +2023,7 @@ class ToricCode(CSSCode):
         self,
         rows: int,
         cols: int | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         rotated: bool = True,
     ) -> None:
@@ -2055,9 +2063,9 @@ class ToricCode(CSSCode):
             ]
 
             # invert Z-type Pauli on every other qubit
-            code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
-            if code_field.order > 2:
-                matrix_z = matrix_z.view(code_field)
+            field = resolve_field(field)
+            if field is not GF2:
+                matrix_z = matrix_z.view(field)
                 matrix_z[:, self.bias_tailoring_qubits] *= -1
 
             if rows == cols == 2 and rotated:
@@ -2154,7 +2162,7 @@ class GeneralizedSurfaceCode(CSSCode):
         self,
         size: int,
         dim: int,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         periodic: bool = False,
     ) -> None:
@@ -2209,12 +2217,12 @@ class T4Code(CSSCode):
     def __init__(
         self,
         matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         skip_validation: bool = False,
     ) -> None:
         """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
-        self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        self._field = resolve_field(field)
 
         self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
         self.num_vertices = self.lattice_basis.det()
@@ -2345,7 +2353,7 @@ class BaconShorCode(SHPCode):
         self,
         rows: int,
         cols: int | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
@@ -2374,7 +2382,7 @@ class SHYPSCode(SHPCode):
         self,
         dim_x: int,
         dim_z: int | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:

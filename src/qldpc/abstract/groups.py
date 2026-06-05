@@ -48,7 +48,16 @@ import sympy.core
 
 from qldpc import external
 
-DEFAULT_FIELD_ORDER = 2
+GF2: type[galois.FieldArray] = galois.GF(2)
+
+
+def resolve_field(field: int | type[galois.FieldArray] | None) -> type[galois.FieldArray]:
+    if field is None:
+        return GF2
+    if isinstance(field, int):
+        return galois.GF(field)
+    return field
+
 
 NestedSequence = Sequence[Union[object, Sequence["NestedSequence"]]]
 
@@ -720,10 +729,15 @@ class SpecialLinearGroup(Group):
     _dimension: int
     _field: type[galois.FieldArray]
 
-    def __init__(self, dimension: int, field: int | None = None, linear_rep: bool = True) -> None:
+    def __init__(
+        self,
+        dimension: int,
+        field: int | type[galois.FieldArray] | None = None,
+        linear_rep: bool = True,
+    ) -> None:
         self._name = f"SL({dimension},{field})"
         self._dimension = dimension
-        self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        self._field = resolve_field(field)
 
         if linear_rep:
             # Construct a linear representation of this group, in which group elements permute
@@ -781,28 +795,30 @@ class SpecialLinearGroup(Group):
 
     @staticmethod
     def get_generating_mats(
-        dimension: int, field: int | None = None
+        dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Generating matrices for the Special Linear group, based on arXiv:2201.09155."""
-        base_field = galois.GF(field or DEFAULT_FIELD_ORDER)
-        minus_one = -base_field(1)
-        gen_w = minus_one * np.diag(np.ones(dimension - 1, dtype=int), k=-1).view(base_field)
+        field = resolve_field(field)
+        minus_one = -field(1)
+        gen_w = minus_one * np.diag(np.ones(dimension - 1, dtype=int), k=-1).view(field)
         gen_w[0, -1] = 1
-        gen_x = base_field.Identity(dimension)
-        if base_field.order <= 3:
+        gen_x = field.Identity(dimension)
+        if field is GF2:
             gen_x[0, 1] = 1
         else:
-            gen_x[0, 0] = base_field.primitive_element
-            gen_x[1, 1] = base_field.primitive_element**-1
+            gen_x[0, 0] = field.primitive_element
+            gen_x[1, 1] = field.primitive_element**-1
             gen_w[0, 0] = minus_one
         return gen_x, gen_w
 
     @staticmethod
-    def iter_mats(dimension: int, field: int | None = None) -> Iterator[galois.FieldArray]:
+    def iter_mats(
+        dimension: int, field: int | type[galois.FieldArray] | None = None
+    ) -> Iterator[galois.FieldArray]:
         """Iterate over all elements of SL(dimension, field)."""
-        base_field = galois.GF(field or DEFAULT_FIELD_ORDER)
-        for vec in itertools.product(base_field.elements, repeat=dimension**2):
-            mat = np.reshape(vec, (dimension, dimension)).view(base_field)
+        field = resolve_field(field)
+        for vec in itertools.product(field.elements, repeat=dimension**2):
+            mat = np.reshape(vec, (dimension, dimension)).view(field)
             if np.linalg.det(mat) == 1:
                 yield mat
 
@@ -821,10 +837,15 @@ class ProjectiveSpecialLinearGroup(Group):
     _dimension: int
     _field: type[galois.FieldArray]
 
-    def __init__(self, dimension: int, field: int | None = None, linear_rep: bool = True) -> None:
+    def __init__(
+        self,
+        dimension: int,
+        field: int | type[galois.FieldArray] | None = None,
+        linear_rep: bool = True,
+    ) -> None:
         self._name = f"PSL({dimension},{field})"
         self._dimension = dimension
-        self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        self._field = resolve_field(field)
 
         if linear_rep:
             # Construct a linear representation of this group, in which group elements permute
@@ -892,32 +913,33 @@ class ProjectiveSpecialLinearGroup(Group):
 
     @staticmethod
     def get_generating_mats(
-        dimension: int, field: int | None = None
+        dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Generating matrices of PSL, constructed out of the generating matrices of SL."""
-        base_field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        field = resolve_field(field)
         gen_x, gen_w = SpecialLinearGroup.get_generating_mats(dimension, field)
-        if base_field.order == 2:
+        if field is GF2:
             return gen_x, gen_w
         return (
-            np.kron(np.linalg.inv(gen_x), gen_x).view(base_field),
-            np.kron(np.linalg.inv(gen_w), gen_w).view(base_field),
+            np.kron(np.linalg.inv(gen_x), gen_x).view(field),
+            np.kron(np.linalg.inv(gen_w), gen_w).view(field),
         )
 
     @staticmethod
-    def iter_mats(dimension: int, field: int | None = None) -> Iterator[galois.FieldArray]:
+    def iter_mats(
+        dimension: int, field: int | type[galois.FieldArray] | None = None
+    ) -> Iterator[galois.FieldArray]:
         """Iterate over all elements of PSL(dimension, field)."""
-        field = field or DEFAULT_FIELD_ORDER
-        base_field = galois.GF(field)
-        num_roots = math.gcd(dimension, base_field.order - 1)
-        primitive_root = base_field.primitive_element ** ((base_field.order - 1) // num_roots)
+        field = resolve_field(field)
+        num_roots = math.gcd(dimension, field.order - 1)
+        primitive_root = field.primitive_element ** ((field.order - 1) // num_roots)
         roots = [primitive_root**k for k in range(dimension)]
         orbits = [
             frozenset([(root * mat).tobytes() for root in roots])
             for mat in SpecialLinearGroup.iter_mats(dimension, field)
         ]
         for orbit in set(orbits):
-            yield np.frombuffer(next(iter(orbit)), dtype=np.uint8).view(base_field)
+            yield np.frombuffer(next(iter(orbit)), dtype=np.uint8).view(field)
 
 
 SL = SpecialLinearGroup
