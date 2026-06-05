@@ -803,7 +803,7 @@ class SpecialLinearGroup(Group):
         gen_w = minus_one * np.diag(np.ones(dimension - 1, dtype=int), k=-1).view(field)
         gen_w[0, -1] = 1
         gen_x = field.Identity(dimension)
-        if field is GF2:
+        if field.order <= 3:
             gen_x[0, 1] = 1
         else:
             gen_x[0, 0] = field.primitive_element
