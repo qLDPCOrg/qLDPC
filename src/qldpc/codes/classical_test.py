@@ -73,7 +73,7 @@ def test_special_codes() -> None:
 
     bits, dimension, field = 7, 4, 2
     assert codes.BCHCode(bits, dimension, field).dimension == dimension
-    with pytest.raises(ValueError, match=rf"block lengths {field}\*\*m - 1"):
+    with pytest.raises(ValueError, match=rf"block lengths {field}\^m - 1"):
         codes.BCHCode(bits - 1, dimension, field)
 
     order, size, field = 1, 3, 2

@@ -103,7 +103,7 @@ class AbstractCode(abc.ABC):
             if field is not None and resolve_field(field) is not matrix._field:
                 raise ValueError(
                     f"Field argument {field} is inconsistent with the given code, which is defined"
-                    f" over GF({self._field.order})"
+                    f" over F_{self._field.order}"
                 )
 
             self._is_canonicalized = matrix._is_canonicalized

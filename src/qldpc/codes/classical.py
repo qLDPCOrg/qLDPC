@@ -225,8 +225,8 @@ class BCHCode(ClassicalCode):
         length_in_base = np.base_repr(length, base=field.order)
         if length_in_base != str(field.order - 1) * len(length_in_base):
             raise ValueError(
-                f"BCH codes over GF({field.order}) are only defined for block lengths"
-                f" {field.order}**m - 1 with integer m."
+                f"BCH codes over F_{field.order} are only defined for block lengths"
+                f" {field.order}^m - 1 with integer m."
             )
         super().__init__(galois.BCH(length, dimension, field=field).H)
         self._dimension = dimension
