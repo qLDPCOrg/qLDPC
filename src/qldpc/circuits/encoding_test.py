@@ -84,19 +84,6 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
                 assert simulator.peek_observable_expectation(string) == 1
 
 
-def test_impute_state() -> None:
-    """Identify states that are not in the logical subspace or are impure (externally entangled)."""
-    code = codes.SteaneCode()
-    circuit = circuits.get_encoding_circuit(code)
-    circuits.encoding._assert_pure_code_state(code, circuit)
-
-    with pytest.raises(ValueError, match="does not prepare"):
-        circuits.encoding._assert_pure_code_state(code, circuit + stim.Circuit("X 0"))
-
-    with pytest.raises(ValueError, match="does not prepare"):
-        circuits.encoding._assert_pure_code_state(code, stim.Circuit("H 0\nCX 0 7") + circuit)
-
-
 def test_logical_tableau() -> None:
     """Reconstruct a logical tableau."""
     code = codes.FiveQubitCode()
@@ -134,8 +121,8 @@ def test_state_stabilizers() -> None:
         assert simulator.peek_observable_expectation(stab) == 1
 
 
-def test_nontrivial_logical_stabilizers(pytestconfig: pytest.Config) -> None:
-    """Identify logical stabilizers of a logical state."""
+def test_logical_state_stabilizers(pytestconfig: pytest.Config) -> None:
+    """Identify logical stabilizers of a code state."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
     code = codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31)))
@@ -155,6 +142,15 @@ def test_nontrivial_logical_stabilizers(pytestconfig: pytest.Config) -> None:
         string = math.op_to_string(stab)
         assert simulator.peek_observable_expectation(string) != 0
 
-    invalid_circuit = stim.Circuit(f"X {len(code) - 1}") + circuit
-    with pytest.raises(ValueError, match="does not .* prepare a logical code state"):
-        circuits.get_logical_state_stabilizers(code, invalid_circuit)
+
+def test_impute_state() -> None:
+    """Identify states that are not in the logical subspace or are impure (externally entangled)."""
+    code = codes.SteaneCode()
+    circuit = circuits.get_encoding_circuit(code)
+    circuits.encoding._assert_pure_code_state(code, circuit)
+
+    with pytest.raises(ValueError, match="does not prepare"):
+        circuits.encoding._assert_pure_code_state(code, circuit + stim.Circuit("X 0"))
+
+    with pytest.raises(ValueError, match="does not prepare"):
+        circuits.encoding._assert_pure_code_state(code, stim.Circuit("H 0\nCX 0 7") + circuit)

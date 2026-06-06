@@ -339,6 +339,7 @@ def _assert_pure_code_state(code: codes.QuditCode, state_prep_circuit: stim.Circ
     matrix_rref[rows_g, cols_gx] = 0
     matrix_rref[rows_g, cols_gz] = 0
     matrix_rref[rows_g, -1] = 0
-    matrix_rref[rows_s, cols_s] -= code.field.Identity(code.num_checks)
+    num_stabs = len(code) - code.dimension - code.gauge_dimension
+    matrix_rref[rows_s, cols_s] -= code.field.Identity(num_stabs)
     if np.any(matrix_rref):
         raise ValueError(error_message)
