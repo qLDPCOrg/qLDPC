@@ -28,7 +28,7 @@ from qldpc.objects import Pauli
 
 
 def test_state_prep(pytestconfig: pytest.Config) -> None:
-    """Prepare all-0 logical states of qubit codes."""
+    """Prepare logical Pauli states of qubit codes."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
     codes_to_test = [
@@ -37,36 +37,51 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
     ]
 
     for code, only_zero in itertools.product(codes_to_test, [True, False]):
-        encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
-
         simulator = stim.TableauSimulator()
+
+        if not only_zero:
+            # choose random logical and gauge Paulis that should be +1 after encoding
+            bases = np.random.choice(
+                [Pauli.Z, Pauli.X, Pauli.Y],
+                size=code.dimension + code.gauge_dimension,
+            )
+            basis_prep = stim.Circuit()
+            basis_prep.append("H", np.where(bases != Pauli.Z)[0])
+            basis_prep.append("S", np.where(bases == Pauli.Y)[0])
+            simulator.do(basis_prep)
+
+        encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
         simulator.do(encoder)
 
-        # stabilizers have expectation value +1
+        # all stabilizers have expectation value +1
         for op in code.get_stabilizer_ops():
             string = math.op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 1
 
-        # logical Z operators have expectation value +1
-        for op in code.get_logical_ops(Pauli.Z, symplectic=True):
-            string = math.op_to_string(op)
-            assert simulator.peek_observable_expectation(string) == 1
-
-        # logical X operators have expectation value 0
-        for op in code.get_logical_ops(Pauli.X, symplectic=True):
-            string = math.op_to_string(op)
-            assert simulator.peek_observable_expectation(string) == 0
-
-        if only_zero is False:
-            # gauge Z operators have expectation value +1
-            for op in code.get_gauge_ops(Pauli.Z, symplectic=True):
+        if only_zero:
+            # logical Z operators have expectation value +1
+            for op in code.get_logical_ops(Pauli.Z, symplectic=True):
                 string = math.op_to_string(op)
                 assert simulator.peek_observable_expectation(string) == 1
 
-            # gauge X operators have expectation value 0
-            for op in code.get_gauge_ops(Pauli.X, symplectic=True):
+        else:
+            # examine logical operators that should have expectation value +1
+            for qq in range(code.dimension):
+                basis = bases[qq]
+                op_x = code.get_logical_ops(Pauli.X, symplectic=True)[qq]
+                op_z = code.get_logical_ops(Pauli.Z, symplectic=True)[qq]
+                op = basis.value[Pauli.X] * op_x + basis.value[Pauli.Z] * op_z
                 string = math.op_to_string(op)
-                assert simulator.peek_observable_expectation(string) == 0
+                assert simulator.peek_observable_expectation(string) == 1
+
+            # examine gauge operators that should have expectation value +1
+            for qq in range(code.gauge_dimension):
+                basis = bases[code.dimension + qq]
+                op_x = code.get_gauge_ops(Pauli.X, symplectic=True)[qq]
+                op_z = code.get_gauge_ops(Pauli.Z, symplectic=True)[qq]
+                op = basis.value[Pauli.X] * op_x + basis.value[Pauli.Z] * op_z
+                string = math.op_to_string(op)
+                assert simulator.peek_observable_expectation(string) == 1
 
 
 def test_logical_tableau() -> None:
