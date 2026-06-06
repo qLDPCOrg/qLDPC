@@ -131,16 +131,15 @@ def test_logical_state_stabilizers(pytestconfig: pytest.Config) -> None:
     circuit = stim.Tableau.random(num_qubits=code.dimension).to_circuit()
     circuit += circuits.get_encoding_circuit(code)
 
+    # identify the pure-logical stabilizers of the state prepared by the circuit
     logical_stabs = circuits.get_logical_state_stabilizers(code, circuit)
     assert len(logical_stabs) == code.dimension
 
-    # All logical stabilizers should have a nonzero expectation value.
-    # They might be -1 because we do not keep track of their sign.
+    # verify that the pure-logical stabilizers have expectation value 1
     simulator = stim.TableauSimulator()
     simulator.do(circuit)
     for stab in logical_stabs:
-        string = math.op_to_string(stab)
-        assert simulator.peek_observable_expectation(string) != 0
+        assert simulator.peek_observable_expectation(stab) == 1
 
 
 def test_impute_state() -> None:

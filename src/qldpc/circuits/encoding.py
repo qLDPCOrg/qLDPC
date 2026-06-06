@@ -256,10 +256,20 @@ def get_logical_state_stabilizers(
     decoded_stabilizers = get_state_stabilizers(code, state_prep_circuit, decoded=True)
 
     # identify stabilizers of the state that are pure logicals
-    logical_stab_mat = [math.string_to_op(stab[: code.dimension]) for stab in decoded_stabilizers]
+    stab_bits = [math.string_to_op(stab) for stab in decoded_stabilizers]
+    stab_signs = [0 if stab.sign.real == 1 else 1 for stab in decoded_stabilizers]
+    logical_stab_mat = np.hstack([stab_bits, np.reshape(stab_signs, (-1, 1))]).view(code.field)
     logical_stab_mat_rref = code.field(logical_stab_mat).row_reduce()
-    logical_stab_mat_rref = logical_stab_mat_rref[np.any(logical_stab_mat_rref, axis=1)]
-    return logical_stab_mat_rref @ code.get_logical_ops()
+
+    # convert pure-logical stabilizers into Pauli strings
+    strings = [
+        math.op_to_string(row[:-1]) * (-1 if row[-1] else 1)
+        for row in logical_stab_mat_rref[: code.dimension]
+    ]
+
+    # convert from the "decoded" basis to the "encoded" basis
+    encoder = get_encoding_tableau(code)
+    return [string.after(encoder, targets=range(len(code))) for string in strings]
 
 
 def _get_logical_tableau_from_code_data(
