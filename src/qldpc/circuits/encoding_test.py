@@ -98,48 +98,41 @@ def test_logical_tableau() -> None:
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
 
 
-def test_state_stabilizers() -> None:
+def test_state_stabilizers(pytestconfig: pytest.Config) -> None:
     """Identify the stabilizers of state prepared by a circuit."""
-    code = codes.SteaneCode()
-    prep_z = circuits.get_encoding_circuit(code)
-    prep_z += circuits.get_pauli_product_measurements(
-        code.get_logical_ops(Pauli.Z, symplectic=True)
-    )
-    prep_z.append("DETECTOR", [stim.target_rec(-1)])
-
-    # stabilizers in "decoded" (logical/gauge/stabilizer/destabilizer) basis
-    decoded_state_stabs = circuits.get_state_stabilizers(code, prep_z, decoded=True)
-
-    # stabilizers in physical-qubit bases
-    state_stabs = [stab.after(prep_z) for stab in decoded_state_stabs]
-    assert len(state_stabs) == len(code)
-
-    # all stabilizers should have expectation value +1
-    simulator = stim.TableauSimulator()
-    simulator.do(prep_z)
-    for stab in state_stabs:
-        assert simulator.peek_observable_expectation(stab) == 1
-
-
-def test_logical_state_stabilizers(pytestconfig: pytest.Config) -> None:
-    """Identify logical stabilizers of a code state."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
     code = codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31)))
+    encoder = circuits.get_encoding_circuit(code)
 
     # prepare a random logical stabilizer state
-    circuit = stim.Tableau.random(num_qubits=code.dimension).to_circuit()
-    circuit += circuits.get_encoding_circuit(code)
-
-    # identify the pure-logical stabilizers of the state prepared by the circuit
-    logical_stabs = circuits.get_logical_state_stabilizers(code, circuit)
-    assert len(logical_stabs) == code.dimension
-
-    # verify that the pure-logical stabilizers have expectation value 1
+    circuit = stim.Tableau.random(num_qubits=code.dimension).to_circuit() + encoder
     simulator = stim.TableauSimulator()
     simulator.do(circuit)
+
+    # all stabilizers of the code have expectation value +1
+    for op in code.get_stabilizer_ops():
+        string = math.op_to_string(op)
+        assert simulator.peek_observable_expectation(string) == 1
+
+    # all stabilizers of the state have expectation value +1
+    state_stabs = circuits.get_state_stabilizers(code, circuit)
+    assert len(state_stabs) == len(code)
+    for stab in state_stabs:
+        assert simulator.peek_observable_expectation(stab) == 1
+
+    # all logical stabilizers of the state have expectation value +1
+    logical_stabs = circuits.get_logical_state_stabilizers(code, circuit)
+    assert len(logical_stabs) == code.dimension
     for stab in logical_stabs:
         assert simulator.peek_observable_expectation(stab) == 1
+
+    # the logical stabilizers are "pure", and have no stabilizer content
+    for stab in logical_stabs:
+        decoded_stab = stab.before(encoder)
+        xs, zs = decoded_stab.to_numpy()
+        assert not np.any(xs[code.dimension :])
+        assert not np.any(zs[code.dimension :])
 
 
 def test_impute_state() -> None:
