@@ -247,8 +247,8 @@ def get_state_prep_diagnostic_tasks(
 def get_logical_error_and_discard_rate(
     circuit_or_dem: stim.Circuit | stim.DetectorErrorModel,
     sinter_decoder: sinter.Decoder,
-    *,
     num_samples: int,
+    *,
     post_select: Collection[int] = (),
     dem_to_decode: stim.DetectorErrorModel | None = None,
 ) -> tuple[float, float]:
