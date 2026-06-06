@@ -32,7 +32,7 @@ from .common import (
     get_unaddressed_measurements,
     restrict_to_qubits,
 )
-from .encoding import _assert_valid_code_state, get_logical_state_stabilizers
+from .encoding import _assert_pure_code_state, get_logical_state_stabilizers
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
 
@@ -91,7 +91,7 @@ def get_state_prep_diagnostic_circuit(
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
     if not skip_validation:
-        _assert_valid_code_state(code, state_prep_circuit)
+        _assert_pure_code_state(code, state_prep_circuit)
     if observables is None:
         observables = get_logical_state_stabilizers(code, state_prep_circuit, skip_validation=True)
 

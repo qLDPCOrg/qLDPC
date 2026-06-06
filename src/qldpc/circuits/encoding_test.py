@@ -84,6 +84,19 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
                 assert simulator.peek_observable_expectation(string) == 1
 
 
+def test_impute_state() -> None:
+    """Identify states that are not in the logical subspace or are impure (externally entangled)."""
+    code = codes.SteaneCode()
+    circuit = circuits.get_encoding_circuit(code)
+    circuits.encoding._assert_pure_code_state(code, circuit)
+
+    with pytest.raises(ValueError, match="does not prepare"):
+        circuits.encoding._assert_pure_code_state(code, circuit + stim.Circuit("X 0"))
+
+    with pytest.raises(ValueError, match="does not prepare"):
+        circuits.encoding._assert_pure_code_state(code, stim.Circuit("H 0\nCX 0 7") + circuit)
+
+
 def test_logical_tableau() -> None:
     """Reconstruct a logical tableau."""
     code = codes.FiveQubitCode()

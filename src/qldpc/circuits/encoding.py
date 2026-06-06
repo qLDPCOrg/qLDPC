@@ -250,7 +250,7 @@ def get_logical_state_stabilizers(
         A list of logical Pauli operators supported on the data qubits of the provided code.
     """
     if not skip_validation:
-        _assert_valid_code_state(code, state_prep_circuit)
+        _assert_pure_code_state(code, state_prep_circuit)
 
     # identify stabilizers of the prepared state that are supported on the data qubits of the code
     decoded_stabilizers = get_state_stabilizers(code, state_prep_circuit, decoded=True)
@@ -300,8 +300,8 @@ def _get_logical_tableau_from_code_data(
     return logical_tableau
 
 
-def _assert_valid_code_state(code: codes.QuditCode, state_prep_circuit: stim.Circuit) -> None:
-    """Assert that the provided circuit prepares a logical state of the provided code."""
+def _assert_pure_code_state(code: codes.QuditCode, state_prep_circuit: stim.Circuit) -> None:
+    """Assert that the provided circuit prepares a pure logical state of the provided code."""
     simulator = stim.TableauSimulator()
     simulator.do(state_prep_circuit)
     for op in code.get_stabilizer_ops():
