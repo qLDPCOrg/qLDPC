@@ -279,9 +279,9 @@ def get_logical_error_and_discard_rate(
     Args:
         circuit_or_dem: The circuit or detector error model we wish to sample.
         sinter_decoder: The circuit-level decoder used to predict observable flips.
+        num_samples: The number of times to the circuit_or_dem.
 
     Keyword args:
-        num_samples: The number of times to the circuit_or_dem.
         post_select: The detectors in circuit_or_dem to post-select on.
         dem_to_decode: The detector error model to decode.  If post-selecting, this DEM should _not_
             include any of the the detectors that are post-selected on.  If have a DEM that includes
