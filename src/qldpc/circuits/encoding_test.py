@@ -42,7 +42,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
         if not only_zero:
             # choose random logical and gauge Paulis that should be +1 after encoding
             bases = np.random.choice(
-                [Pauli.Z, Pauli.X, Pauli.Y],
+                [Pauli.Z, Pauli.X, Pauli.Y],  # type:ignore[arg-type]
                 size=code.dimension + code.gauge_dimension,
             )
             basis_prep = stim.Circuit()
@@ -107,6 +107,12 @@ def test_state_stabilizers(pytestconfig: pytest.Config) -> None:
 
     # prepare a random logical stabilizer state
     circuit = stim.Tableau.random(num_qubits=code.dimension).to_circuit() + encoder
+
+    # the circuit can include detectors and observables
+    circuit.append("X", [len(code)])
+    circuit.append("M", [len(code)])
+    circuit.append("DETECTOR", [stim.target_rec(-1)])
+    circuit.append("OBSERVABLE_INCLUDE", [stim.target_rec(-1)], [0])
     simulator = stim.TableauSimulator()
     simulator.do(circuit)
 
@@ -133,16 +139,3 @@ def test_state_stabilizers(pytestconfig: pytest.Config) -> None:
         xs, zs = decoded_stab.to_numpy()
         assert not np.any(xs[code.dimension :])
         assert not np.any(zs[code.dimension :])
-
-
-def test_impute_state() -> None:
-    """Identify states that are not in the logical subspace or are impure (externally entangled)."""
-    code = codes.SteaneCode()
-    circuit = circuits.get_encoding_circuit(code)
-    circuits.encoding._assert_pure_code_state(code, circuit)
-
-    with pytest.raises(ValueError, match="does not prepare"):
-        circuits.encoding._assert_pure_code_state(code, circuit + stim.Circuit("X 0"))
-
-    with pytest.raises(ValueError, match="does not prepare"):
-        circuits.encoding._assert_pure_code_state(code, stim.Circuit("H 0\nCX 0 7") + circuit)
