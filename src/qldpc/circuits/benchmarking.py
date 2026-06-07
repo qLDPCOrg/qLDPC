@@ -393,4 +393,17 @@ def _assert_pure_logical_state(
     state_prep_circuit: stim.Circuit, code: codes.QuditCode, qubit_ids: QubitIDs
 ) -> None:
     """Assert that the given circuit prepare a pure logical state of the given code."""
-    ...
+    error_message = "The provided circuit does not prepare a pure logical state of the code"
+
+    # test that the data qubits of the code are not entangled with other qubits
+    state_stabilizers = get_state_stabilizers(state_prep_circuit, qubit_ids.data)
+    if not len(state_stabilizers) == len(code):
+        raise ValueError(error_message)
+
+    # test that all stabilizers have expectation value +1
+    simulator = stim.TableauSimulator()
+    simulator.do(state_prep_circuit)
+    for op in code.get_stabilizer_ops():
+        string = math.op_to_string(op)
+        if not simulator.peek_observable_expectation(string) == 1:
+            raise ValueError(error_message)
