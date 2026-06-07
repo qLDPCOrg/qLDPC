@@ -27,7 +27,7 @@ from qldpc import circuits, codes, math
 from qldpc.objects import Pauli
 
 
-def test_state_prep(pytestconfig: pytest.Config) -> None:
+def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
     """Prepare logical Pauli states of qubit codes."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
@@ -71,7 +71,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
                 op_x = code.get_logical_ops(Pauli.X, symplectic=True)[qq]
                 op_z = code.get_logical_ops(Pauli.Z, symplectic=True)[qq]
                 op = basis.value[Pauli.X] * op_x + basis.value[Pauli.Z] * op_z
-                string = math.op_to_string(op) * (-1 if op_x @ op_z else 1)
+                string = math.op_to_string(op)
                 assert simulator.peek_observable_expectation(string) == 1
 
             # examine gauge operators that should have expectation value +1
@@ -80,7 +80,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
                 op_x = code.get_gauge_ops(Pauli.X, symplectic=True)[qq]
                 op_z = code.get_gauge_ops(Pauli.Z, symplectic=True)[qq]
                 op = basis.value[Pauli.X] * op_x + basis.value[Pauli.Z] * op_z
-                string = math.op_to_string(op) * (-1 if op_x @ op_z else 1)
+                string = math.op_to_string(op)
                 assert simulator.peek_observable_expectation(string) == 1
 
 
@@ -122,7 +122,7 @@ def test_state_stabilizers(pytestconfig: pytest.Config) -> None:
         assert simulator.peek_observable_expectation(string) == 1
 
     # all stabilizers of the state have expectation value +1
-    state_stabs = circuits.get_state_stabilizers(code, circuit)
+    state_stabs = circuits.get_state_stabilizers(circuit, len(code))
     assert len(state_stabs) == len(code)
     for stab in state_stabs:
         assert simulator.peek_observable_expectation(stab) == 1

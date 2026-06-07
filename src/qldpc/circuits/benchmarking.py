@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable, Collection, Hashable, Sequence
 
 import numpy as np
@@ -26,13 +27,13 @@ import stim
 
 from qldpc import codes, decoders, math
 
-from .bookkeeping import DetectorRecord
+from .bookkeeping import DetectorRecord, QubitIDs
 from .common import (
     get_pauli_product_measurements,
     get_unaddressed_measurements,
     restrict_to_qubits,
 )
-from .encoding import get_logical_state_stabilizers
+from .encoding import get_logical_state_stabilizers, get_state_stabilizers
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
 
@@ -42,6 +43,7 @@ def get_state_prep_diagnostic_circuit(
     state_prep_circuit: stim.Circuit,
     *,
     add_flags: bool = False,
+    qubit_ids: QubitIDs | None = None,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -49,8 +51,6 @@ def get_state_prep_diagnostic_circuit(
     skip_validation: bool = False,
 ) -> tuple[stim.Circuit, DetectorRecord]:
     """Annotate a logical state prep circuit with diagnostics for computing logical error rates.
-
-    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
 
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
@@ -72,6 +72,8 @@ def get_state_prep_diagnostic_circuit(
 
     Keyword args:
         add_flags: Whether to add a flag detector for each unaddressed measurement in the circuit.
+        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
+            If None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -90,8 +92,17 @@ def get_state_prep_diagnostic_circuit(
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
+    qubit_ids = qubit_ids or QubitIDs.from_code(code)
     if not skip_validation:
-        ...
+        state_stabilizers = get_state_stabilizers(state_prep_circuit, qubit_ids.data)
+        code_stabilizers = [math.op_to_string(op) for op in code.get_stabilizer_ops()]
+        if not len(state_stabilizers) == len(code) or not all(
+            aa.commutes(bb) for aa, bb in itertools.product(state_stabilizers, code_stabilizers)
+        ):
+            raise ValueError(
+                "The provided circuit does not prepare a pure logical state of the code"
+            )
+
     if observables is None:
         observables = get_logical_state_stabilizers(code, state_prep_circuit)
 
@@ -150,6 +161,7 @@ def get_state_prep_diagnostic_tasks(
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
     post_select: bool | Collection[int] = False,
+    qubit_ids: QubitIDs | None = None,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -212,6 +224,8 @@ def get_state_prep_diagnostic_tasks(
         post_select: If True, add a flag detector for each unused measurement in the provided
             circuit and post-select on those detectors.  If provided a collection of integers,
             post-select on corresponding detectors that are already present in the provided circuit.
+        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
+            If None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -230,6 +244,7 @@ def get_state_prep_diagnostic_tasks(
         code,
         state_prep_circuit,
         add_flags=add_flags,
+        qubit_ids=qubit_ids,
         observables=observables,
         skip_validation=skip_validation,
     )
