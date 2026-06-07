@@ -175,7 +175,7 @@ def get_state_stabilizers(
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
 
     Returns:
-        A list of logical Pauli operators supported on the data qubits of the provided code.
+        A list of Pauli strings supported on the data qubits of the provided code.
     """
     resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
     flow_generators = (resets + state_prep_circuit.without_noise()).flow_generators()
@@ -238,7 +238,7 @@ def get_state_stabilizers(
 def get_logical_state_stabilizers(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit
 ) -> list[stim.PauliString]:
-    """Identify logical operators that stabilize the state prepared by the provided circuit.
+    """Identify pure logical operators that stabilize the state prepared by the provided circuit.
 
     The first len(code) qubits addressed by the circuit must be the data qubits of the code.
 
@@ -247,7 +247,7 @@ def get_logical_state_stabilizers(
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
 
     Returns:
-        A list of logical Pauli operators supported on the data qubits of the provided code.
+        A list of Pauli strings supported on the data qubits of the provided code.
     """
     encoder = get_encoding_circuit(code)
     circuit = state_prep_circuit + encoder.inverse()
