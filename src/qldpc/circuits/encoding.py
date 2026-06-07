@@ -189,7 +189,7 @@ def get_state_stabilizers(
 
     # identify where all qubits live
     state_qubits = np.arange(qubits) if isinstance(qubits, int) else np.asarray(qubits)
-    other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits])
+    other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits], dtype=int)
     cols_state_x = state_qubits
     cols_other_x = other_qubits
     cols_state_z = state_qubits + num_qubits

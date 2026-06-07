@@ -120,3 +120,21 @@ def test_state_prep_benchmarks() -> None:
             num_samples=1,
             dem_to_decode=stim.DetectorErrorModel(),
         )
+
+
+def test_pure_logical_state(pytestconfig: pytest.Config) -> None:
+    """Identify invalid pure logical states."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
+
+    code = codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31)))
+    encoder = circuits.get_encoding_circuit(code)
+
+    with pytest.raises(ValueError, match="does not prepare"):
+        circuits.get_state_prep_diagnostic_circuit(
+            code, stim.Circuit(f"X {len(code) - 1}") + encoder
+        )
+
+    with pytest.raises(ValueError, match="pure"):
+        circuits.get_state_prep_diagnostic_circuit(
+            code, stim.Circuit(f"H 0\nCX 0 {len(code)}") + encoder
+        )
