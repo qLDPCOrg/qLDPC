@@ -263,7 +263,7 @@ def get_logical_state_stabilizers(
     Returns:
         A list of Pauli strings supported on the data qubits of the provided code.
     """
-    qubit_ids = qubit_ids or qubit_ids.from_code(code)
+    qubit_ids = qubit_ids or QubitIDs.from_code(code)
     encoder = get_encoding_circuit(code)
     circuit = state_prep_circuit + with_remapped_qubits(encoder.inverse(), qubit_ids.data)
     decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data)
