@@ -155,11 +155,7 @@ def get_state_stabilizers(
 ) -> list[stim.PauliString]:
     """Identify stabilizers of the prepared state that are supported on the data qubits of the code.
 
-    If 'decoded is True', return these stabilizers in the "decoded" basis of logical operators, gauge
-    operators, and stabilizers/destabilizers.  That is, for each string in the returned list of Pauli
-    strings, the first code.dimension qubits represent logical operators, the next
-    code.gauge_dimension qubits represent gauge operators, and the remaining qubits represent
-    stabilizer/destabilizer qubits.
+    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
 
     The strategy in this method is as follows.  If we prepend reset operations to make an initial
     |0...0⟩ initial state explicit, then all stabilizer flows of the circuit should have the form
@@ -173,6 +169,13 @@ def get_state_stabilizers(
 
     To identify a basis of output generators that are supported only on the data qubits of the code,
     we collect all output generators into a binary matrix, and row-reduce this matrix.
+
+    Args:
+        code: The code whose logical state is prepared by the provided state_prep_circuit.
+        state_prep_circuit: A circuit that prepares a logical state of the provided code.
+
+    Returns:
+        A list of logical Pauli operators supported on the data qubits of the provided code.
     """
     resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
     flow_generators = (resets + state_prep_circuit.without_noise()).flow_generators()
@@ -235,17 +238,13 @@ def get_state_stabilizers(
 def get_logical_state_stabilizers(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit
 ) -> list[stim.PauliString]:
-    """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
+    """Identify logical operators that stabilize the state prepared by the provided circuit.
 
     The first len(code) qubits addressed by the circuit must be the data qubits of the code.
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
-
-    Keyword args:
-        skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state of the provided code.
 
     Returns:
         A list of logical Pauli operators supported on the data qubits of the provided code.
