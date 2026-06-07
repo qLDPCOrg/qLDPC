@@ -71,7 +71,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
                 op_x = code.get_logical_ops(Pauli.X, symplectic=True)[qq]
                 op_z = code.get_logical_ops(Pauli.Z, symplectic=True)[qq]
                 op = basis.value[Pauli.X] * op_x + basis.value[Pauli.Z] * op_z
-                string = math.op_to_string(op)
+                string = math.op_to_string(op) * (-1 if op_x @ op_z else 1)
                 assert simulator.peek_observable_expectation(string) == 1
 
             # examine gauge operators that should have expectation value +1
@@ -80,7 +80,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
                 op_x = code.get_gauge_ops(Pauli.X, symplectic=True)[qq]
                 op_z = code.get_gauge_ops(Pauli.Z, symplectic=True)[qq]
                 op = basis.value[Pauli.X] * op_x + basis.value[Pauli.Z] * op_z
-                string = math.op_to_string(op)
+                string = math.op_to_string(op) * (-1 if op_x @ op_z else 1)
                 assert simulator.peek_observable_expectation(string) == 1
 
 
