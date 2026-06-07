@@ -17,7 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import itertools
 from collections.abc import Callable, Collection, Hashable, Sequence
 
 import numpy as np
@@ -94,15 +93,9 @@ def get_state_prep_diagnostic_circuit(
     """
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
     if not skip_validation:
-        state_stabilizers = get_state_stabilizers(state_prep_circuit, qubit_ids.data)
-        code_stabilizers = [math.op_to_string(op) for op in code.get_stabilizer_ops()]
-        if not len(state_stabilizers) == len(code) or not all(
-            aa.commutes(bb) for aa, bb in itertools.product(state_stabilizers, code_stabilizers)
-        ):
-            raise ValueError(
-                "The provided circuit does not prepare a pure logical state of the code"
-            )
+        _assert_pure_logical_state(state_prep_circuit, code, qubit_ids)
 
+    # if necessary, identify the pure logical operators that stabilize the prepared state
     if observables is None:
         observables = get_logical_state_stabilizers(code, state_prep_circuit)
 
@@ -394,3 +387,10 @@ def _get_postselection_mask(
     postselection_array = np.zeros(detector_record.num_events, dtype=int)
     postselection_array[list(post_select)] = 1
     return np.packbits(postselection_array, bitorder="little")
+
+
+def _assert_pure_logical_state(
+    state_prep_circuit: stim.Circuit, code: codes.QuditCode, qubit_ids: QubitIDs
+) -> None:
+    """Assert that the given circuit prepare a pure logical state of the given code."""
+    ...

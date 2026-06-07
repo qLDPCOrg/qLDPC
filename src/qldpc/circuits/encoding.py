@@ -210,7 +210,7 @@ def get_state_stabilizers(
         for observable in flow.included_observables_copy():
             matrix[gg, -num_observables + observable] = 1
 
-    # add stabilizers supported on measurements, as identified by detectors in the provided circuit
+    # add stabilizers defined by detectors in the circuit
     detector_counter = 0
     measurement_counter = 0
     for instruction in state_prep_circuit.flattened():
@@ -222,7 +222,7 @@ def get_state_stabilizers(
                 matrix[row, col] = 1
             detector_counter += 1
 
-    # extract stabilizers that are supported entirely on the data qubits of the code
+    # identify stabilizers that are supported entirely on the data qubits of the code
     stabilizers = []
     for row in matrix.row_reduce():
         state_xs = row[cols_state_x]
