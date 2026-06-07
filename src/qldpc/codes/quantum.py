@@ -51,6 +51,71 @@ from .classical import (
 from .common import ClassicalCode, CSSCode, QuditCode
 
 
+class TrivialCode(CSSCode):
+    """The trivial code with single-qubit logical operators."""
+
+    def __init__(
+        self,
+        size: int,
+        num_stabs: int = 0,
+        num_stabs_z: int | None = None,
+        *,
+        gauge_dimension: int = 0,
+        self_dual: bool = False,
+        field: int | type[galois.FieldArray] | None = None,
+    ):
+        """Initialize a trivial code with the given code parameters.
+
+        If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers.
+        If num_stabs_z is None and...
+            self_dual is False, then num_stabs is the number of Z-type stabilizers.
+            self_dual is True, then num_stabs is the total number of stabilizers.
+        """
+        field = resolve_field(field)
+        dimension = size - gauge_dimension - num_stabs - num_stabs - (num_stabs_z or 0)
+
+        if self_dual:
+            if num_stabs_z is None:
+                num_stabs_x = num_stabs_z = num_stabs // 2
+            else:
+                num_stabs_x = num_stabs
+            if num_stabs % 2 or num_stabs_x != num_stabs_z:
+                raise ValueError(
+                    "Self-dual trivial codes must have an equal number of X and Z stabilizers"
+                )
+        else:
+            if num_stabs_z is None:
+                num_stabs_x = 0
+                num_stabs_z = num_stabs
+            else:
+                num_stabs_x = num_stabs
+
+        num_checks_x = gauge_dimension + num_stabs_x
+        num_checks_z = gauge_dimension + num_stabs_z
+        matrix_x = field.Zeros((num_checks_x, size))
+        matrix_z = field.Zeros((num_checks_z, size))
+
+        gauge_qubits = np.arange(dimension, dimension + gauge_dimension)
+        matrix_x[range(gauge_dimension), gauge_qubits] = 1
+        matrix_z[range(gauge_dimension), gauge_qubits] = 1
+
+        stab_x_qubits = range(size - num_stabs_z - num_stabs_x, size - num_stabs_z)
+        stab_z_qubits = range(size - num_stabs_z, size)
+
+        matrix_x[range(gauge_dimension, num_checks_x), stab_x_qubits] = 1
+        matrix_z[range(gauge_dimension, num_checks_z), stab_z_qubits] = 1
+        if self_dual:
+            matrix_x[range(gauge_dimension, num_checks_x), stab_z_qubits] = 1
+            matrix_z[range(gauge_dimension, num_checks_z), stab_x_qubits] = 1
+
+        super().__init__(
+            matrix_x,
+            matrix_z,
+            is_subsystem_code=bool(gauge_dimension),
+            promise_equal_distance_xz=True,
+        )
+
+
 class FiveQuditCode(QuditCode):
     """Smallest quantum error-correcting code.
 
