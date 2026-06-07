@@ -26,13 +26,13 @@ import stim
 
 from qldpc import codes, decoders, math
 
-from .bookkeeping import DetectorRecord
+from .bookkeeping import DetectorRecord, QubitIDs
 from .common import (
     get_pauli_product_measurements,
     get_unaddressed_measurements,
     restrict_to_qubits,
 )
-from .encoding import _assert_valid_code_state, get_logical_state_stabilizers
+from .encoding import get_logical_state_stabilizers, get_state_stabilizers
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
 
@@ -42,6 +42,7 @@ def get_state_prep_diagnostic_circuit(
     state_prep_circuit: stim.Circuit,
     *,
     add_flags: bool = False,
+    qubit_ids: QubitIDs | None = None,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -49,8 +50,6 @@ def get_state_prep_diagnostic_circuit(
     skip_validation: bool = False,
 ) -> tuple[stim.Circuit, DetectorRecord]:
     """Annotate a logical state prep circuit with diagnostics for computing logical error rates.
-
-    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
 
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
@@ -72,6 +71,8 @@ def get_state_prep_diagnostic_circuit(
 
     Keyword args:
         add_flags: Whether to add a flag detector for each unaddressed measurement in the circuit.
+        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
+            If None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -90,10 +91,13 @@ def get_state_prep_diagnostic_circuit(
             - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
                 stabilizer represented by code.get_stabilizer_ops()[stab_index].
     """
+    qubit_ids = qubit_ids or QubitIDs.from_code(code)
     if not skip_validation:
-        _assert_valid_code_state(code, state_prep_circuit)
+        _assert_pure_logical_state(state_prep_circuit, code, qubit_ids)
+
+    # if necessary, identify the pure logical operators that stabilize the prepared state
     if observables is None:
-        observables = get_logical_state_stabilizers(code, state_prep_circuit, skip_validation=True)
+        observables = get_logical_state_stabilizers(state_prep_circuit, code)
 
     # if applicable, convert Pauli strings into symplectic vectors
     if len(observables) > 0 and any(isinstance(obs, stim.PauliString) for obs in observables):
@@ -150,6 +154,7 @@ def get_state_prep_diagnostic_tasks(
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
     post_select: bool | Collection[int] = False,
+    qubit_ids: QubitIDs | None = None,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
     | Sequence[stim.PauliString]
@@ -212,6 +217,8 @@ def get_state_prep_diagnostic_tasks(
         post_select: If True, add a flag detector for each unused measurement in the provided
             circuit and post-select on those detectors.  If provided a collection of integers,
             post-select on corresponding detectors that are already present in the provided circuit.
+        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
+            If None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -230,6 +237,7 @@ def get_state_prep_diagnostic_tasks(
         code,
         state_prep_circuit,
         add_flags=add_flags,
+        qubit_ids=qubit_ids,
         observables=observables,
         skip_validation=skip_validation,
     )
@@ -379,3 +387,26 @@ def _get_postselection_mask(
     postselection_array = np.zeros(detector_record.num_events, dtype=int)
     postselection_array[list(post_select)] = 1
     return np.packbits(postselection_array, bitorder="little")
+
+
+def _assert_pure_logical_state(
+    state_prep_circuit: stim.Circuit, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+) -> None:
+    """Assert that the given circuit prepare a pure logical state of the given code."""
+    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+
+    # test that all stabilizers have expectation value +1
+    simulator = stim.TableauSimulator()
+    simulator.do(state_prep_circuit)
+    for op in code.get_stabilizer_ops():
+        string = math.op_to_string(op)
+        if not simulator.peek_observable_expectation(string) == 1:
+            raise ValueError("The provided circuit does not prepare a logical state of the code")
+
+    # test that the data qubits of the code are not entangled with other qubits
+    state_stabilizers = get_state_stabilizers(state_prep_circuit, qubit_ids.data)
+    if not len(state_stabilizers) == len(code):
+        raise ValueError(
+            "The provided circuit does not _deterministically_ prepare a _pure_ logical state of"
+            " the code"
+        )

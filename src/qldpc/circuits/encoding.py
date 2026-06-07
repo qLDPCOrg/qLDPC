@@ -24,9 +24,11 @@ import numpy as np
 import stim
 
 from qldpc import codes, math
+from qldpc.abstract import GF2
 from qldpc.objects import Pauli
 
-from .common import restrict_to_qubits
+from .bookkeeping import QubitIDs
+from .common import restrict_to_qubits, with_remapped_qubits
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
@@ -72,7 +74,7 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     # enforce that destabilizers commute with each other by removing stabilizer factors
     for dd in range(len(destab_ops)):
         for ss in range(dd, len(destab_ops)):
-            if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):
+            if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):  # pragma: no cover
                 destab_ops[dd] -= stab_ops[ss]
 
     # construct Pauli strings to hand over to Stim
@@ -149,17 +151,10 @@ def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Table
     )
 
 
-@restrict_to_qubits
 def get_state_stabilizers(
-    code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, decoded: bool = False
+    state_prep_circuit: stim.Circuit, qubits: Sequence[int] | int
 ) -> list[stim.PauliString]:
-    """Identify stabilizers of the prepared state that are supported on the data qubits of the code.
-
-    If 'decoded is True', return these stabilizers in the "decoded" basis of logical operators, gauge
-    operators, and stabilizers/destabilizers.  That is, for each string in the returned list of Pauli
-    strings, the first code.dimension qubits represent logical operators, the next
-    code.gauge_dimension qubits represent gauge operators, and the remaining qubits represent
-    stabilizer/destabilizer qubits.
+    """Identify stabilizers of the prepared state that are supported on specified qubits.
 
     The strategy in this method is as follows.  If we prepend reset operations to make an initial
     |0...0⟩ initial state explicit, then all stabilizer flows of the circuit should have the form
@@ -171,8 +166,17 @@ def get_state_stabilizers(
     That is, the circuit prepares a state for which, after identifying {+1,-1} <-> {0,1} as
     necessary, the XOR of (a), (b), and (c) for each output_generator is 0.
 
-    To identify a basis of output generators that are supported only on the data qubits of the code,
-    we collect all output generators into a binary matrix, and row-reduce this matrix.
+    To identify a basis of output generators (in this case, Pauli strings) that are supported only
+    on the specified qubits, we collect all output generators into a binary matrix and row-reduce
+    this matrix.
+
+    Args:
+        state_prep_circuit: A circuit that prepares a logical state of the provided code.
+        qubits: The qubits on which we are looking for stabilizers.  If provided an integer, target
+            the qubits indexed by range(qubits).
+
+    Returns:
+        A list of Pauli strings supported on the specified qubits.
     """
     resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
     flow_generators = (resets + state_prep_circuit.without_noise()).flow_generators()
@@ -181,24 +185,33 @@ def get_state_stabilizers(
     num_qubits = state_prep_circuit.num_qubits
     num_measurements = state_prep_circuit.num_measurements
     num_observables = state_prep_circuit.num_observables
-    num_columns = 2 * num_qubits + 1 + num_measurements + num_observables
+    num_columns = 2 * num_qubits + num_measurements + num_observables
     num_rows = len(flow_generators) + state_prep_circuit.num_detectors
 
+    # identify where all qubits live
+    state_qubits = np.arange(qubits) if isinstance(qubits, int) else np.asarray(qubits)
+    other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits], dtype=int)
+    cols_state_x = state_qubits
+    cols_other_x = other_qubits
+    cols_state_z = state_qubits + num_qubits
+    cols_other_z = other_qubits + num_qubits
+
     # build a matrix of stabilizers for the entire circuit output, determined by the flows
-    matrix = code.field.Zeros((num_rows, num_columns))
+    matrix = GF2.Zeros((num_rows, num_columns))
     for gg, flow in enumerate(flow_generators):
         pauli_string = flow.output_copy()
         if pauli_string:
             xs, zs = pauli_string.to_numpy()
-            matrix[gg, :num_qubits] = xs.astype(np.uint8)
-            matrix[gg, num_qubits : 2 * num_qubits] = zs.astype(np.uint8)
-            matrix[gg, 2 * num_qubits] = 0 if pauli_string.sign == 1 else 1
+            matrix[gg, cols_state_x] = xs[state_qubits].astype(np.uint8)
+            matrix[gg, cols_state_z] = zs[state_qubits].astype(np.uint8)
+            matrix[gg, cols_other_x] = xs[other_qubits].astype(np.uint8)
+            matrix[gg, cols_other_z] = zs[other_qubits].astype(np.uint8)
         for measurement in flow.measurements_copy():
             matrix[gg, -num_observables - num_measurements + measurement] = 1
         for observable in flow.included_observables_copy():  # pragma: no cover technical edge case
             matrix[gg, -num_observables + observable] = 1
 
-    # add stabilizers supported on measurements, as identified by detectors in the provided circuit
+    # add stabilizers defined by detectors in the circuit
     detector_counter = 0
     measurement_counter = 0
     for instruction in state_prep_circuit.flattened():
@@ -210,56 +223,52 @@ def get_state_stabilizers(
                 matrix[row, col] = 1
             detector_counter += 1
 
-    # extract stabilizers that are supported entirely on the data qubits of the code
+    # identify stabilizers that are supported entirely on the data qubits of the code
     stabilizers = []
     for row in matrix.row_reduce():
-        xs = row[: len(code)]
-        zs = row[num_qubits : num_qubits + len(code)]
-        other_xs = row[len(code) : num_qubits]
-        other_zs = row[num_qubits + len(code) : 2 * num_qubits]
-        meas_obs = row[2 * num_qubits + 1 :]
+        state_xs = row[cols_state_x]
+        state_zs = row[cols_state_z]
+        other_xs = row[cols_other_x]
+        other_zs = row[cols_other_z]
+        meas_obs = row[2 * num_qubits :]
         any_on_others = np.any(other_xs) or np.any(other_zs) or np.any(meas_obs)
-        if (np.any(xs) or np.any(zs)) and not any_on_others:
-            sign = -1 if row[2 * num_qubits] else 1
-            string = stim.PauliString.from_numpy(xs=xs != 0, zs=zs != 0, sign=sign)
+        if (np.any(state_xs) or np.any(state_zs)) and not any_on_others:
+            string = stim.PauliString.from_numpy(xs=state_xs != 0, zs=state_zs != 0)
             stabilizers.append(string)
 
-    if decoded:
-        encoder = get_encoding_tableau(code)
-        stabilizers = [stab.before(encoder, targets=range(len(code))) for stab in stabilizers]
+    # fix signs
+    simulator = stim.TableauSimulator()
+    simulator.do(state_prep_circuit)
+    for ss, stabilizer in enumerate(stabilizers):
+        if simulator.peek_observable_expectation(stabilizers[ss]) == -1:  # pragma: no cover
+            stabilizers[ss] = -stabilizer
+
     return stabilizers
 
 
 @restrict_to_qubits
 def get_logical_state_stabilizers(
-    code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
+    state_prep_circuit: stim.Circuit, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
 ) -> list[stim.PauliString]:
-    """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
+    """Identify pure logical operators that stabilize the state prepared by the provided circuit.
 
     The first len(code) qubits addressed by the circuit must be the data qubits of the code.
 
     Args:
-        code: The code whose logical state is prepared by the provided state_prep_circuit.
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
-
-    Keyword args:
-        skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state of the provided code.
+        code: The code whose logical state is prepared by the provided state_prep_circuit.
+        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
+            If None, the data qubits of the code are assumed to be range(len(code)).
 
     Returns:
-        A list of logical Pauli operators supported on the data qubits of the provided code.
+        A list of Pauli strings supported on the data qubits of the provided code.
     """
-    if not skip_validation:
-        _assert_valid_code_state(code, state_prep_circuit)
-
-    # identify stabilizers of the prepared state that are supported on the data qubits of the code
-    decoded_stabilizers = get_state_stabilizers(code, state_prep_circuit, decoded=True)
-
-    # identify stabilizers of the state that are pure logicals
-    logical_stab_mat = [math.string_to_op(stab[: code.dimension]) for stab in decoded_stabilizers]
-    logical_stab_mat_rref = code.field(logical_stab_mat).row_reduce()
-    logical_stab_mat_rref = logical_stab_mat_rref[np.any(logical_stab_mat_rref, axis=1)]
-    return logical_stab_mat_rref @ code.get_logical_ops()
+    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    encoder = get_encoding_circuit(code)
+    circuit = state_prep_circuit + with_remapped_qubits(encoder.inverse(), qubit_ids.data)
+    decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data[: code.dimension])
+    identity = stim.PauliString(num_qubits=len(code))
+    return [(string * identity).after(encoder) for string in decoded_stabilizers]
 
 
 def _get_logical_tableau_from_code_data(
@@ -298,16 +307,3 @@ def _get_logical_tableau_from_code_data(
         assert not np.any(z2z[sector_g, sector_l])
 
     return logical_tableau
-
-
-def _assert_valid_code_state(code: codes.QuditCode, state_prep_circuit: stim.Circuit) -> None:
-    """Assert that the provided circuit prepares a logical state of the provided code."""
-    simulator = stim.TableauSimulator()
-    simulator.do(state_prep_circuit)
-    for op in code.get_stabilizer_ops():
-        string = math.op_to_string(op)
-        if not simulator.peek_observable_expectation(string) == 1:
-            raise ValueError(
-                "The provided circuit does not deterministically prepare a logical code state that"
-                " is unentangled from ancillas"
-            )

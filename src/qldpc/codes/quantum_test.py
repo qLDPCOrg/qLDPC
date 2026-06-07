@@ -33,6 +33,27 @@ from qldpc.objects import ChainComplex, Node, Pauli
 from .common_test import assert_valid_subgraphs
 
 
+def test_trivial_code() -> None:
+    """The trivial code is... trivial."""
+    code = codes.TrivialCode(3, 2)
+    assert code.num_checks_x == 0
+    assert code.num_checks_z == 2
+    assert code.get_distance() == 1
+
+    code = codes.TrivialCode(4, 2, 1)
+    assert code.num_checks_x == 2
+    assert code.num_checks_z == 1
+    assert code.get_distance() == 1
+
+    code = codes.TrivialCode(6, 2, gauge_dimension=1, self_dual=True)
+    assert np.array_equal(code.get_stabilizer_ops(Pauli.X), code.get_stabilizer_ops(Pauli.Z))
+    assert code.gauge_dimension == 1
+    assert code.get_distance() == 1
+
+    with pytest.raises(ValueError, match="equal number of X and Z stabilizers"):
+        code = codes.TrivialCode(4, 2, 1, self_dual=True)
+
+
 def test_small_codes() -> None:
     """Small named codes."""
     assert codes.FiveQubitCode().get_code_params() == (5, 1, 3)
