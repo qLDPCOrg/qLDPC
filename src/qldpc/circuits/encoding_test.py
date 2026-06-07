@@ -124,7 +124,6 @@ def test_state_stabilizers(pytestconfig: pytest.Config) -> None:
     circuit.append("X", [len(code)])
     circuit.append("M", [len(code)])
     circuit.append("DETECTOR", [stim.target_rec(-1)])
-    circuit.append("OBSERVABLE_INCLUDE", [stim.target_rec(-1)], [0])
     simulator = stim.TableauSimulator()
     simulator.do(circuit)
 

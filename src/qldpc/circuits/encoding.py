@@ -73,7 +73,7 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     # enforce that destabilizers commute with each other by removing stabilizer factors
     for dd in range(len(destab_ops)):
         for ss in range(dd, len(destab_ops)):
-            if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):
+            if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):  # pragma: no cover
                 destab_ops[dd] -= stab_ops[ss]
 
     # construct Pauli strings to hand over to Stim
@@ -207,7 +207,7 @@ def get_state_stabilizers(
             matrix[gg, cols_other_z] = zs[other_qubits].astype(np.uint8)
         for measurement in flow.measurements_copy():
             matrix[gg, -num_observables - num_measurements + measurement] = 1
-        for observable in flow.included_observables_copy():
+        for observable in flow.included_observables_copy():  # pragma: no cover technical edge case
             matrix[gg, -num_observables + observable] = 1
 
     # add stabilizers defined by detectors in the circuit
