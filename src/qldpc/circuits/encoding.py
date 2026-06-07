@@ -266,7 +266,7 @@ def get_logical_state_stabilizers(
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
     encoder = get_encoding_circuit(code)
     circuit = state_prep_circuit + with_remapped_qubits(encoder.inverse(), qubit_ids.data)
-    decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data)
+    decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data[: code.dimension])
     identity = stim.PauliString(num_qubits=len(code))
     return [(string * identity).after(encoder) for string in decoded_stabilizers]
 
