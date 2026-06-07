@@ -47,7 +47,6 @@ from .quantum import (
     TBCode,
     TetrahedralCode,
     ToricCode,
-    TrivialCode,
 )
 
 __all__ = [
@@ -66,8 +65,6 @@ __all__ = [
     "CSSCode",
     "ErrorRateFunc",
     "QuditCode",
-    "get_distance_classical",
-    "get_distance_quantum",
     "BaconShorCode",
     "BBCode",
     "C4Code",
@@ -93,5 +90,6 @@ __all__ = [
     "TBCode",
     "TetrahedralCode",
     "ToricCode",
-    "TrivialCode",
+    "get_distance_classical",
+    "get_distance_quantum",
 ]
