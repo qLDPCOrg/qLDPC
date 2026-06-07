@@ -20,6 +20,7 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 import stim
 
@@ -70,8 +71,7 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
                 basis = bases[qq]
                 op_x = code.get_logical_ops(Pauli.X, symplectic=True)[qq]
                 op_z = code.get_logical_ops(Pauli.Z, symplectic=True)[qq]
-                op = basis.value[Pauli.X] * op_x + basis.value[Pauli.Z] * op_z
-                string = math.op_to_string(op)
+                string = _get_logical_pauli_string(basis, op_x, op_z)
                 assert simulator.peek_observable_expectation(string) == 1
 
             # examine gauge operators that should have expectation value +1
@@ -79,9 +79,21 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
                 basis = bases[code.dimension + qq]
                 op_x = code.get_gauge_ops(Pauli.X, symplectic=True)[qq]
                 op_z = code.get_gauge_ops(Pauli.Z, symplectic=True)[qq]
-                op = basis.value[Pauli.X] * op_x + basis.value[Pauli.Z] * op_z
-                string = math.op_to_string(op)
+                string = _get_logical_pauli_string(basis, op_x, op_z)
                 assert simulator.peek_observable_expectation(string) == 1
+
+
+def _get_logical_pauli_string(
+    basis: Pauli, op_x: npt.NDArray[np.int_], op_z: npt.NDArray[np.int_]
+) -> stim.PauliString:
+    """Build a logical operator Pauli string from symplectic logical Pauli X and Z vectors."""
+    if basis is Pauli.X:
+        return math.op_to_string(op_x)
+    if basis is Pauli.Z:
+        return math.op_to_string(op_z)
+    string_x = math.op_to_string(op_x)
+    string_z = math.op_to_string(op_z)
+    return 1j * string_x * string_z
 
 
 def test_logical_tableau() -> None:
