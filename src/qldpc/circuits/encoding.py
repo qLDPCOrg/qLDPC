@@ -27,7 +27,8 @@ from qldpc import codes, math
 from qldpc.abstract import GF2
 from qldpc.objects import Pauli
 
-from .common import restrict_to_qubits
+from .bookkeeping import QubitIDs
+from .common import restrict_to_qubits, with_remapped_qubits
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
@@ -247,7 +248,7 @@ def get_state_stabilizers(
 
 @restrict_to_qubits
 def get_logical_state_stabilizers(
-    code: codes.QuditCode, state_prep_circuit: stim.Circuit
+    code: codes.QuditCode, state_prep_circuit: stim.Circuit, qubit_ids: QubitIDs | None = None
 ) -> list[stim.PauliString]:
     """Identify pure logical operators that stabilize the state prepared by the provided circuit.
 
@@ -256,13 +257,16 @@ def get_logical_state_stabilizers(
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
+        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
+            If None, the data qubits of the code are assumed to be range(len(code)).
 
     Returns:
         A list of Pauli strings supported on the data qubits of the provided code.
     """
-    encoder = get_encoding_circuit(code)
+    qubit_ids = qubit_ids or qubit_ids.from_code(code)
+    encoder = with_remapped_qubits(get_encoding_circuit(code), qubit_ids.data)
     circuit = state_prep_circuit + encoder.inverse()
-    decoded_stabilizers = get_state_stabilizers(circuit, code.dimension)
+    decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data)
     identity = stim.PauliString(num_qubits=len(code))
     return [(string * identity).after(encoder) for string in decoded_stabilizers]
 
