@@ -27,8 +27,6 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc import codes
-
 HashableType = TypeVar("HashableType", bound=Hashable)
 
 
