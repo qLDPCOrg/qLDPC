@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import collections
+import itertools
 from collections.abc import Collection, Hashable
 from typing import TypeVar
 
@@ -25,6 +26,8 @@ import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 import stim
+
+from qldpc import codes
 
 HashableType = TypeVar("HashableType", bound=Hashable)
 
@@ -302,7 +305,7 @@ class DetectorErrorModelArrays:
         )
 
     def post_selected_on(
-        self, detectors: Collection[int], *, keep_detectors: bool = False
+        self, detectors: Collection[int], *, order: int = 0, keep_detectors: bool = False
     ) -> DetectorErrorModelArrays:
         """Condition this detector error model on the given detectors being in 0 (untriggered).
 
@@ -315,7 +318,7 @@ class DetectorErrorModelArrays:
             detectors_to_keep[detectors] = False
         errors_to_keep = self.detector_flip_matrix[detectors].getnnz(axis=0) == 0
 
-        new_suggested_decompositions = {}
+        suggested_decompositions = {}
         if self.suggested_decompositions:
             old_to_new_det = np.cumsum(detectors_to_keep) - 1
             old_to_new_err = np.cumsum(errors_to_keep) - 1
@@ -328,13 +331,31 @@ class DetectorErrorModelArrays:
                             int(old_to_new_det[dd]) for dd in dets if detectors_to_keep[dd]
                         )
                         new_components.add((new_dets, obs))
-                    new_suggested_decompositions[new_err_idx] = frozenset(new_components)
+                    suggested_decompositions[new_err_idx] = frozenset(new_components)
+
+        # build the post-selected arrays
+        detector_flip_matrix = self.detector_flip_matrix[detectors_to_keep][:, errors_to_keep]
+        observable_flip_matrix = (self.observable_flip_matrix[:, errors_to_keep],)
+        error_probs = (self.error_probs[errors_to_keep],)
+
+        if order > 0:
+            # add back error combinations that don't trigger the post-selected detectors
+            matrix = self.detector_flip_matrix[np.ix_(detectors, ~errors_to_keep)]
+            combinations_to_add = []
+            for size in range(2, 2 * order + 1, 2):
+                for row in matrix:
+                    for comb in itertools.combinations(scipy.sparse.find(row)[1], r=size):
+                        if not np.any(matrix[:, comb].sum(axis=1) % 2):
+                            combinations_to_add.append(comb)
+
+            print(sum(~errors_to_keep), len(combinations_to_add))
+            exit()
 
         return DetectorErrorModelArrays.from_arrays(
-            self.detector_flip_matrix[detectors_to_keep][:, errors_to_keep],
-            self.observable_flip_matrix[:, errors_to_keep],
-            self.error_probs[errors_to_keep],
-            new_suggested_decompositions,
+            detector_flip_matrix,
+            observable_flip_matrix,
+            error_probs,
+            suggested_decompositions,
         )
 
     def with_erasure(self, bits: int = 1) -> DetectorErrorModelArrays:
