@@ -164,25 +164,7 @@ def test_with_erasure() -> None:
 
 def test_post_selection() -> None:
     """Post select on some detectors."""
-    dem = stim.DetectorErrorModel("""
-        detector D0
-        detector D1
-        logical_observable L0
-        logical_observable L1
-        error(0.3) D0 D1 L0
-        error(0.3) D1 L1
-    """)
-    post_selected_dem = stim.DetectorErrorModel("""
-        detector D0
-        logical_observable L0
-        logical_observable L1
-        error(0.3) D0 L1
-    """)
-    dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
-
-    # post-selecting on D0 should drop errors that trigger D0, keep the rest, and remap
-    # detector IDs in the surviving suggested decompositions
+    # post-selecting removes detectors, the errors that trigger them, and remaps detector IDs
     dem = stim.DetectorErrorModel("""
         detector D0
         detector D1
@@ -197,6 +179,26 @@ def test_post_selection() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
+
+    # if passed an integer order > 0, combinations of 2*order error mechanisms that do not flip the
+    # post-selected detectors are added back to the detector error model
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        logical_observable L0
+        error({prob}) D0 D2
+        error({prob}) D0 L0
+        error({prob}) D1 D2
+        error({prob}) D1 L0
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        detector D0
+        logical_observable L0
+        error({2 * prob**2 - 2 * prob**4}) D0 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0, 1], order=1).to_dem() == post_selected_dem
 
 
 def test_decomposing_errors() -> None:

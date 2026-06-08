@@ -364,14 +364,9 @@ class DetectorErrorModelArrays:
                 if det_flips.nnz == 0 and obs_flips.nnz == 0:
                     continue
 
-                # probability of occurrence for this joint error
-                component_probs = self.error_probs[list(comb)]
-                prob = component_probs[0]
-                for component_prob in component_probs[1:]:
-                    prob = prob + component_prob - 2 * prob * component_prob
-
                 # add the new error mechanism
                 flip_pattern = det_flips.toarray().tobytes() + obs_flips.toarray().tobytes()
+                prob = float(np.prod(self.error_probs[list(comb)]))
                 if flip_pattern in new_errors:
                     previous_prob = new_errors[flip_pattern][2]
                     prob = previous_prob + prob - 2 * previous_prob * prob
