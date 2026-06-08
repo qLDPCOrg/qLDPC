@@ -306,9 +306,6 @@ class DetectorErrorModelArrays:
         In effect, remove the given detectors and the error mechanisms that trigger them.
         If keep_detectors is True, only remove error mechanisms.
         """
-        if order < 0:  # pragma: no cover
-            raise ValueError(f"The 'order' parameter must be nonzero, not {order}")
-
         # identify detectors to discard and errors to keep
         detectors = list(detectors)
         detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
@@ -393,7 +390,7 @@ def _values_that_occur_an_odd_number_of_times(
 
 def _get_post_selection_additions(
     dem_arrays: DetectorErrorModelArrays,
-    detectors: list[int],
+    detectors_to_remove: list[int],
     detectors_to_keep: npt.NDArray[np.bool_],
     errors_to_keep: npt.NDArray[np.bool_],
     order: int,
@@ -406,23 +403,35 @@ def _get_post_selection_additions(
     Finds all combinations of up to 2*order removed errors whose net flip on the post-selected
     detectors cancels, then appends them as new error mechanisms.
     """
+    if not 0 <= order <= 2:
+        raise ValueError(f"The 'order' parameter must be 0, 1, or 2, not {order}")
+
     removed_error_indices = np.where(~errors_to_keep)[0]
     removed_det_flip_submatrix = dem_arrays.detector_flip_matrix[
-        np.ix_(detectors, removed_error_indices.tolist())
+        np.ix_(detectors_to_remove, removed_error_indices.tolist())
     ]
     removed_det_to_removed_errors = _get_removed_det_to_removed_errors(
         removed_det_flip_submatrix, order
     )
 
-    combinations_to_add = set()
-    for size in range(2, 2 * order + 1, 2):
-        for triggering_errors in removed_det_to_removed_errors:
-            for comb in itertools.combinations(triggering_errors, r=size):
-                if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
-                    combinations_to_add.add(tuple(removed_error_indices[list(comb)]))
+    # identify pairs of removed errors to add back to the DEM
+    combinations_to_add: set[frozenset[int]] = set()
+    for triggering_errors in removed_det_to_removed_errors:
+        for pair in itertools.combinations(triggering_errors, 2):
+            if not np.any(removed_det_flip_submatrix[:, pair].sum(axis=1) % 2):
+                combinations_to_add.add(frozenset(removed_error_indices[list(pair)]))
+
+    if order >= 2:
+        # identify quadruples of removed errors to add back to the DEM
+        for pairs in _get_pairs_grouped_by_pattern(removed_det_flip_submatrix).values():
+            for (e1, e2), (e3, e4) in itertools.combinations(pairs, 2):
+                indices = frozenset(removed_error_indices[[e1, e2, e3, e4]])
+                if len(indices) == 4:
+                    combinations_to_add.add(indices)
 
     new_errors: dict[bytes, tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, float]] = {}
-    for comb in combinations_to_add:
+    for comb_to_add in combinations_to_add:
+        comb = sorted(comb_to_add)
         # identify detectors and observables that are flipped by this combination of errors
         det_flips = scipy.sparse.csc_matrix(
             dem_arrays.detector_flip_matrix[detectors_to_keep][:, comb].sum(axis=1) % 2
@@ -435,7 +444,7 @@ def _get_post_selection_additions(
 
         # add this combination as a new error mechanism
         flip_pattern = det_flips.toarray().tobytes() + obs_flips.toarray().tobytes()
-        prob = float(np.prod(dem_arrays.error_probs[list(comb)]))
+        prob = float(np.prod(dem_arrays.error_probs[comb]))
         if flip_pattern in new_errors:
             previous_prob = new_errors[flip_pattern][2]
             prob = previous_prob + prob - 2 * previous_prob * prob
@@ -457,20 +466,27 @@ def _get_post_selection_additions(
 def _get_removed_det_to_removed_errors(
     removed_det_flip_submatrix: scipy.sparse.csc_matrix, order: int
 ) -> list[list[int]]:
-    """Map each post-selected detector to the removed errors that trigger it.
-
-    For order=1 (pairs only), each error is assigned to the first detector it triggers and omitted
-    from all later detectors, since any valid pair shares the same detector flip pattern and will
-    be found exactly once.  For order>1 this optimisation is unsound, so all triggering errors are
-    returned for every detector (duplicates are filtered later via the combinations_to_add set).
-    """
-    if order == 1:
+    """Map each post-selected detector to the removed errors that trigger it."""
+    if order <= 2:
         seen_errors: set[int] = set()
         removed_det_to_removed_errors = []
         for row in removed_det_flip_submatrix:
             triggering_errors = scipy.sparse.find(row)[1]
-            unseen_triggering_errors = [err for err in triggering_errors if err not in seen_errors]
-            removed_det_to_removed_errors.append(unseen_triggering_errors)
+            removed_det_to_removed_errors.append(
+                [err for err in triggering_errors if err not in seen_errors]
+            )
             seen_errors.update(triggering_errors.tolist())
         return removed_det_to_removed_errors
     return [scipy.sparse.find(row)[1].tolist() for row in removed_det_flip_submatrix]
+
+
+def _get_pairs_grouped_by_pattern(
+    removed_det_flip_submatrix: scipy.sparse.csc_matrix,
+) -> dict[bytes, list[tuple[int, int]]]:
+    """Group pairs of removed-error column indices by their combined post-selected detector flips."""
+    num_errors = removed_det_flip_submatrix.shape[1]
+    flips_to_pairs: dict[bytes, list[tuple[int, int]]] = collections.defaultdict(list)
+    for pair in itertools.combinations(range(num_errors), 2):
+        flips = removed_det_flip_submatrix[:, list(pair)].sum(axis=1).toarray().ravel() % 2
+        flips_to_pairs[flips.tobytes()].append(pair)
+    return flips_to_pairs

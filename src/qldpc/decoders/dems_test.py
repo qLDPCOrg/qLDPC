@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 import numpy as np
+import pytest
 import stim
 
 from qldpc import decoders
@@ -199,6 +200,10 @@ def test_post_selection() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0, 1], order=1).to_dem() == post_selected_dem
+
+    dem = stim.DetectorErrorModel("error(0.1) D0")
+    with pytest.raises(ValueError, match="order"):
+        decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=3)
 
 
 def test_decomposing_errors() -> None:
