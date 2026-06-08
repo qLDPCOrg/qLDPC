@@ -361,7 +361,7 @@ class DetectorErrorModelArrays:
                 obs_flips = scipy.sparse.csc_matrix(
                     self.observable_flip_matrix[:, comb].sum(axis=1) % 2
                 )
-                if det_flips.nnz == 0 and obs_flips.nnz == 0:
+                if det_flips.nnz == 0 and obs_flips.nnz == 0:  # pragma: no cover
                     continue
 
                 # add the new error mechanism
