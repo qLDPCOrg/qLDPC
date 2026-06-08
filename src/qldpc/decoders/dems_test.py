@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 import numpy as np
+import pytest
 import stim
 
 from qldpc import decoders
@@ -164,25 +165,7 @@ def test_with_erasure() -> None:
 
 def test_post_selection() -> None:
     """Post select on some detectors."""
-    dem = stim.DetectorErrorModel("""
-        detector D0
-        detector D1
-        logical_observable L0
-        logical_observable L1
-        error(0.3) D0 D1 L0
-        error(0.3) D1 L1
-    """)
-    post_selected_dem = stim.DetectorErrorModel("""
-        detector D0
-        logical_observable L0
-        logical_observable L1
-        error(0.3) D0 L1
-    """)
-    dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
-
-    # post-selecting on D0 should drop errors that trigger D0, keep the rest, and remap
-    # detector IDs in the surviving suggested decompositions
+    # post-selecting removes detectors, the errors that trigger them, and remaps detector IDs
     dem = stim.DetectorErrorModel("""
         detector D0
         detector D1
@@ -197,6 +180,65 @@ def test_post_selection() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
+
+    # if passed an integer order=1, pairs error mechanisms that whose post-selected detector flips
+    # cancel out are added back to the detector error model
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        logical_observable L0
+        error({prob}) D0 D2
+        error({prob}) D0 L0
+        error({prob}) D1 D2
+        error({prob}) D1 L0
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        detector D0
+        logical_observable L0
+        error({2 * prob**2 - 2 * prob**4}) D0 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0, 1], order=1).to_dem() == post_selected_dem
+
+    # setting order=2 will recover combinations of four error mechanisms
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        detector D2
+        logical_observable L0
+        error({prob}) D0 L0
+        error({prob}) D1 L0
+        error({prob}) D2 L0
+        error({prob}) D0 D1 D2
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        logical_observable L0
+        error({prob**4}) L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert (
+        dem_arrays.post_selected_on([0, 1, 2], order=2)
+        .to_dem()
+        .approx_equals(post_selected_dem, atol=1e-10)
+    )
+
+    with pytest.raises(ValueError, match="order"):
+        decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=3)
+
+
+def test_to_circuit() -> None:
+    """Round-trip a DEM through DetectorErrorModelArrays and to_circuit."""
+    dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        logical_observable L0
+        error(0.1) D0 D1
+        error(0.2) D1 L0
+    """)
+    circuit = decoders.DetectorErrorModelArrays(dem).to_circuit()
+    assert dem.approx_equals(decoders.DetectorErrorModelArrays(circuit).to_dem(), atol=1e-10)
 
 
 def test_decomposing_errors() -> None:
