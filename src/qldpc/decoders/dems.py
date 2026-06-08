@@ -286,6 +286,29 @@ class DetectorErrorModelArrays:
 
         return dem
 
+    def to_circuit(self) -> stim.Circuit:
+        """Convert this DEM to a synthetic stim.Circuit with the same detector error model.
+
+        Each error mechanism becomes a noisy measurement M(p) on a dedicated qubit.
+        DETECTOR and OBSERVABLE_INCLUDE instructions then reference those measurements.
+        """
+        circuit = stim.Circuit()
+
+        for error, prob in enumerate(self.error_probs):
+            circuit.append("M", [error], float(prob))
+
+        for det in range(self.num_detectors):
+            triggers = self.detector_flip_matrix[det].nonzero()[1].tolist()
+            targets = [stim.target_rec(trigger - self.num_errors) for trigger in triggers]
+            circuit.append("DETECTOR", targets)
+
+        for obs in range(self.num_observables):
+            triggers = self.observable_flip_matrix[obs].nonzero()[1].tolist()
+            targets = [stim.target_rec(trigger - self.num_errors) for trigger in triggers]
+            circuit.append("OBSERVABLE_INCLUDE", targets, obs)
+
+        return circuit
+
     def simplified(self) -> DetectorErrorModelArrays:
         """Simplify this DetectorErrorModelArrays object by merging errors."""
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)

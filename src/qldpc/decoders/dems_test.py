@@ -228,6 +228,19 @@ def test_post_selection() -> None:
         decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=3)
 
 
+def test_to_circuit() -> None:
+    """Round-trip a DEM through DetectorErrorModelArrays and to_circuit."""
+    dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        logical_observable L0
+        error(0.1) D0 D1
+        error(0.2) D1 L0
+    """)
+    circuit = decoders.DetectorErrorModelArrays(dem).to_circuit()
+    assert dem.approx_equals(decoders.DetectorErrorModelArrays(circuit).to_dem(), atol=1e-10)
+
+
 def test_decomposing_errors() -> None:
     """Apply suggested decompositions to split errors into their components."""
     dem = stim.DetectorErrorModel("""
