@@ -466,18 +466,21 @@ def _get_post_selection_additions(
 def _get_removed_det_to_removed_errors(
     removed_det_flip_submatrix: scipy.sparse.csc_matrix, order: int
 ) -> list[list[int]]:
-    """Map each post-selected detector to the removed errors that trigger it."""
-    if order <= 2:
-        seen_errors: set[int] = set()
-        removed_det_to_removed_errors = []
-        for row in removed_det_flip_submatrix:
-            triggering_errors = scipy.sparse.find(row)[1]
-            removed_det_to_removed_errors.append(
-                [err for err in triggering_errors if err not in seen_errors]
-            )
-            seen_errors.update(triggering_errors.tolist())
-        return removed_det_to_removed_errors
-    return [scipy.sparse.find(row)[1].tolist() for row in removed_det_flip_submatrix]
+    """Map each post-selected detector to removed errors that trigger it.
+
+    More specifically, for each detector, identify errors that:
+    (1) trigger that detector, and
+    (2) do not trigger any preceding detectors.
+    """
+    seen_errors: set[int] = set()
+    removed_det_to_removed_errors = []
+    for row in removed_det_flip_submatrix:
+        triggering_errors = scipy.sparse.find(row)[1]
+        removed_det_to_removed_errors.append(
+            [err for err in triggering_errors if err not in seen_errors]
+        )
+        seen_errors.update(triggering_errors.tolist())
+    return removed_det_to_removed_errors
 
 
 def _get_pairs_grouped_by_pattern(
