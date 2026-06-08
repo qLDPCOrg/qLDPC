@@ -181,8 +181,8 @@ def test_post_selection() -> None:
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
 
-    # if passed an integer order > 0, combinations of 2*order error mechanisms that do not flip the
-    # post-selected detectors are added back to the detector error model
+    # if passed an integer order=1, pairs error mechanisms that whose post-selected detector flips
+    # cancel out are added back to the detector error model
     prob = 0.1
     dem = stim.DetectorErrorModel(f"""
         detector D0
@@ -200,6 +200,29 @@ def test_post_selection() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0, 1], order=1).to_dem() == post_selected_dem
+
+    # setting order=2 will recover combinations of four error mechanisms
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        detector D2
+        logical_observable L0
+        error({prob}) D0 L0
+        error({prob}) D1 L0
+        error({prob}) D2 L0
+        error({prob}) D0 D1 D2
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        logical_observable L0
+        error({prob**4}) L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert (
+        dem_arrays.post_selected_on([0, 1, 2], order=2)
+        .to_dem()
+        .approx_equals(post_selected_dem, atol=1e-10)
+    )
 
     dem = stim.DetectorErrorModel("error(0.1) D0")
     with pytest.raises(ValueError, match="order"):

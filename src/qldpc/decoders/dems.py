@@ -487,6 +487,6 @@ def _get_pairs_grouped_by_pattern(
     num_errors = removed_det_flip_submatrix.shape[1]
     flips_to_pairs: dict[bytes, list[tuple[int, int]]] = collections.defaultdict(list)
     for pair in itertools.combinations(range(num_errors), 2):
-        flips = removed_det_flip_submatrix[:, list(pair)].sum(axis=1).toarray().ravel() % 2
+        flips = removed_det_flip_submatrix[:, list(pair)].sum(axis=1).A1 % 2
         flips_to_pairs[flips.tobytes()].append(pair)
     return flips_to_pairs
