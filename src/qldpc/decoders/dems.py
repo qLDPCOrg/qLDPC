@@ -301,12 +301,14 @@ class DetectorErrorModelArrays:
         )
 
     def post_selected_on(
-        self, detectors: Collection[int], *, order: int = 0, keep_detectors: bool = False
+        self, detectors: Collection[int], *, keep_detectors: bool = False, order: int = 0
     ) -> DetectorErrorModelArrays:
         """Condition this detector error model on the given detectors being in 0 (untriggered).
 
-        In effect, remove the given detectors and the error mechanisms that trigger them.
-        If keep_detectors is True, only remove error mechanisms.
+        The errors that trigger the post-selected detectors are removed from the DEM.
+        The post-selected detectors are similarly removed unless keep_detectors is True.
+        If order > 0, combinations of up to 2*order removed error mechanisms are added back to the
+        DEM as synthetic error mechanisms.
         """
         if not 0 <= order <= 2:
             raise ValueError(f"The 'order' parameter must be 0, 1, or 2, not {order}")
