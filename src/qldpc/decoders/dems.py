@@ -29,6 +29,9 @@ import stim
 
 HashableType = TypeVar("HashableType", bound=Hashable)
 
+ErrorTargets = tuple[frozenset[int], frozenset[int]]  # flipped detectors and observables
+CircuitError = tuple[float, frozenset[ErrorTargets]]
+
 
 class DetectorErrorModelArrays:
     """Representation of a stim.DetectorErrorModel by a collection of arrays.
@@ -50,7 +53,7 @@ class DetectorErrorModelArrays:
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
     error_probs: npt.NDArray[np.floating]  # probability of occurrence for each error
-    suggested_decompositions: dict[int, frozenset[tuple[frozenset[int], frozenset[int]]]]
+    suggested_decompositions: dict[int, frozenset[ErrorTargets]]
 
     def __init__(
         self,
@@ -96,8 +99,7 @@ class DetectorErrorModelArrays:
         detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_],
         observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_] | None,
         error_probs: npt.NDArray[np.floating] | float,
-        suggested_decompositions: dict[int, frozenset[tuple[frozenset[int], frozenset[int]]]]
-        | None = None,
+        suggested_decompositions: dict[int, frozenset[ErrorTargets]] | None = None,
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly.
 
@@ -149,10 +151,8 @@ class DetectorErrorModelArrays:
 
     @staticmethod
     def get_circuit_errors(
-        dem: stim.DetectorErrorModel,
-        *,
-        decompose_errors: bool = False,
-    ) -> list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]]:
+        dem: stim.DetectorErrorModel, *, decompose_errors: bool = False
+    ) -> list[CircuitError]:
         """Collect all circuit errors in a stim.DetectorErrorModel into a list.
 
         Each circuit error is nominally identified by:
@@ -171,7 +171,7 @@ class DetectorErrorModelArrays:
         If a detector or observable appears multiple times within one component, its occurrences
         are reduced to the original value mod 2.
         """
-        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]] = []
+        errors: list[CircuitError] = []
         for instruction in dem.flattened():
             if instruction.type != "error":
                 continue
@@ -185,7 +185,7 @@ class DetectorErrorModelArrays:
                 else:
                     target_components[-1].append(target)
 
-            components: list[tuple[frozenset[int], frozenset[int]]] = []
+            components: list[ErrorTargets] = []
             for targets in target_components:
                 detectors = _values_that_occur_an_odd_number_of_times(
                     [target.val for target in targets if target.is_relative_detector_id()]
@@ -204,11 +204,9 @@ class DetectorErrorModelArrays:
         return errors
 
     @staticmethod
-    def get_merged_circuit_errors(
-        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]],
-    ) -> list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]]:
+    def get_merged_circuit_errors(errors: list[CircuitError]) -> list[CircuitError]:
         """Merge circuit errors that have the same targets."""
-        merged: dict[frozenset[tuple[frozenset[int], frozenset[int]]], float] = {}
+        merged: dict[frozenset[ErrorTargets], float] = {}
         for prob, targets in errors:
             previous_prob = merged.get(targets, 0.0)
             merged[targets] = previous_prob + prob - 2 * previous_prob * prob
@@ -220,9 +218,7 @@ class DetectorErrorModelArrays:
 
     @staticmethod
     def get_arrays_from_errors(
-        errors: list[tuple[float, frozenset[tuple[frozenset[int], frozenset[int]]]]],
-        num_detectors: int,
-        num_observables: int,
+        errors: list[CircuitError], num_detectors: int, num_observables: int
     ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.floating]]:
         """Convert circuit errors into DetectorErrorModelArrays data."""
         # initialize empty arrays
@@ -354,7 +350,6 @@ class DetectorErrorModelArrays:
                         if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
                             combinations_to_add.add(tuple(removed_error_indices[list(comb)]))
 
-            # build new error mechanisms: detector_flips, observable_flips, probability
             new_errors: dict[
                 bytes, tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, float]
             ] = {}
@@ -377,25 +372,18 @@ class DetectorErrorModelArrays:
 
                 # add the new error mechanism
                 flip_pattern = det_flips.toarray().tobytes() + obs_flips.toarray().tobytes()
-                if flip_pattern not in new_errors:
-                    new_errors[flip_pattern] = (det_flips, obs_flips, prob)
-                else:
-                    existing_prob = new_errors[flip_pattern][2]
-                    new_errors[flip_pattern] = (
-                        det_flips,
-                        obs_flips,
-                        existing_prob + prob - 2 * existing_prob * prob,
-                    )
+                if flip_pattern in new_errors:
+                    previous_prob = new_errors[flip_pattern][2]
+                    prob = previous_prob + prob - 2 * previous_prob * prob
+                new_errors[flip_pattern] = (det_flips, obs_flips, prob)
 
             if new_errors:
-                new_det = [v[0] for v in new_errors.values()]
-                new_obs = [v[1] for v in new_errors.values()]
-                new_probs = [v[2] for v in new_errors.values()]
+                new_det_flips, new_obs_flips, new_probs = zip(*new_errors.values())
                 detector_flip_matrix = scipy.sparse.hstack(
-                    [detector_flip_matrix] + new_det, format="csc"
+                    [detector_flip_matrix, *new_det_flips], format="csc"
                 )
                 observable_flip_matrix = scipy.sparse.hstack(
-                    [observable_flip_matrix] + new_obs, format="csc"
+                    [observable_flip_matrix, *new_obs_flips], format="csc"
                 )
                 error_probs = np.hstack([error_probs, new_probs])
 
