@@ -306,6 +306,10 @@ class DetectorErrorModelArrays:
         In effect, remove the given detectors and the error mechanisms that trigger them.
         If keep_detectors is True, only remove error mechanisms.
         """
+        if order < 0:  # pragma: no cover
+            raise ValueError(f"The 'order' parameter must be nonzero, not {order}")
+
+        # identify detectors to discard and errors to keep
         detectors = list(detectors)
         detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
         if not keep_detectors:
