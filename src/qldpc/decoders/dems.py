@@ -100,6 +100,8 @@ class DetectorErrorModelArrays:
         observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_] | None,
         error_probs: npt.NDArray[np.floating] | float,
         suggested_decompositions: dict[int, frozenset[ErrorTargets]] | None = None,
+        *,
+        simplify: bool = False,
     ) -> DetectorErrorModelArrays:
         """Initialize from arrays directly.
 
@@ -132,7 +134,7 @@ class DetectorErrorModelArrays:
             dem_arrays.error_probs = np.asarray(error_probs)
 
         dem_arrays.suggested_decompositions = suggested_decompositions or {}
-        return dem_arrays
+        return dem_arrays.simplified() if simplify else dem_arrays
 
     @property
     def num_errors(self) -> int:
@@ -355,6 +357,7 @@ class DetectorErrorModelArrays:
             observable_flip_matrix,
             error_probs,
             suggested_decompositions,
+            simplify=order > 0,
         )
 
     def with_erasure(self, bits: int = 1) -> DetectorErrorModelArrays:
