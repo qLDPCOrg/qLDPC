@@ -335,21 +335,71 @@ class DetectorErrorModelArrays:
 
         # build the post-selected arrays
         detector_flip_matrix = self.detector_flip_matrix[detectors_to_keep][:, errors_to_keep]
-        observable_flip_matrix = (self.observable_flip_matrix[:, errors_to_keep],)
-        error_probs = (self.error_probs[errors_to_keep],)
+        observable_flip_matrix = self.observable_flip_matrix[:, errors_to_keep]
+        error_probs = self.error_probs[errors_to_keep]
 
         if order > 0:
-            # add back error combinations that don't trigger the post-selected detectors
-            matrix = self.detector_flip_matrix[np.ix_(detectors, ~errors_to_keep)]
-            combinations_to_add = []
-            for size in range(2, 2 * order + 1, 2):
-                for row in matrix:
-                    for comb in itertools.combinations(scipy.sparse.find(row)[1], r=size):
-                        if not np.any(matrix[:, comb].sum(axis=1) % 2):
-                            combinations_to_add.append(comb)
+            # identify the error that are removed
+            removed_error_indices = np.where(~errors_to_keep)[0]
+            removed_det_flip_submatrix = self.detector_flip_matrix[
+                np.ix_(list(detectors), removed_error_indices.tolist())
+            ]
+            removed_det_to_removed_errors = [
+                scipy.sparse.find(row)[1] for row in removed_det_flip_submatrix
+            ]
 
-            print(sum(~errors_to_keep), len(combinations_to_add))
-            exit()
+            # identify combinations of errors to add back as new error mechanisms
+            combinations_to_add = set()
+            for size in range(2, 2 * order + 1, 2):
+                for triggering_errors in removed_det_to_removed_errors:
+                    for comb in itertools.combinations(triggering_errors, r=size):
+                        if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
+                            combinations_to_add.add(tuple(removed_error_indices[list(comb)]))
+
+            # build new error mechanisms: detector_flips, observable_flips, probability
+            new_errors: dict[
+                bytes, tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, float]
+            ] = {}
+            for comb in combinations_to_add:
+                # detector and observable flips
+                det_flips = scipy.sparse.csc_matrix(
+                    self.detector_flip_matrix[detectors_to_keep][:, comb].sum(axis=1) % 2
+                )
+                obs_flips = scipy.sparse.csc_matrix(
+                    self.observable_flip_matrix[:, comb].sum(axis=1) % 2
+                )
+                if det_flips.nnz == 0 and obs_flips.nnz == 0:
+                    continue
+
+                # probability of occurrence for this joint error
+                component_probs = self.error_probs[list(comb)]
+                prob = component_probs[0]
+                for component_prob in component_probs[1:]:
+                    prob = prob + component_prob - 2 * prob * component_prob
+
+                # add the new error mechanism
+                flip_pattern = det_flips.toarray().tobytes() + obs_flips.toarray().tobytes()
+                if flip_pattern not in new_errors:
+                    new_errors[flip_pattern] = (det_flips, obs_flips, prob)
+                else:
+                    existing_prob = new_errors[flip_pattern][2]
+                    new_errors[flip_pattern] = (
+                        det_flips,
+                        obs_flips,
+                        existing_prob + prob - 2 * existing_prob * prob,
+                    )
+
+            if new_errors:
+                new_det = [v[0] for v in new_errors.values()]
+                new_obs = [v[1] for v in new_errors.values()]
+                new_probs = [v[2] for v in new_errors.values()]
+                detector_flip_matrix = scipy.sparse.hstack(
+                    [detector_flip_matrix] + new_det, format="csc"
+                )
+                observable_flip_matrix = scipy.sparse.hstack(
+                    [observable_flip_matrix] + new_obs, format="csc"
+                )
+                error_probs = np.hstack([error_probs, new_probs])
 
         return DetectorErrorModelArrays.from_arrays(
             detector_flip_matrix,
