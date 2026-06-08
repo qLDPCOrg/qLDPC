@@ -306,6 +306,9 @@ class DetectorErrorModelArrays:
         In effect, remove the given detectors and the error mechanisms that trigger them.
         If keep_detectors is True, only remove error mechanisms.
         """
+        if not 0 <= order <= 2:
+            raise ValueError(f"The 'order' parameter must be 0, 1, or 2, not {order}")
+
         # identify detectors to discard and errors to keep
         detectors = list(detectors)
         detectors_to_keep = np.ones(self.num_detectors, dtype=bool)
@@ -403,16 +406,13 @@ def _get_post_selection_additions(
     Finds all combinations of up to 2*order removed errors whose net flip on the post-selected
     detectors cancels, then appends them as new error mechanisms.
     """
-    if not 0 <= order <= 2:
-        raise ValueError(f"The 'order' parameter must be 0, 1, or 2, not {order}")
+    assert 0 <= order <= 2
 
     removed_error_indices = np.where(~errors_to_keep)[0]
     removed_det_flip_submatrix = dem_arrays.detector_flip_matrix[
         np.ix_(detectors_to_remove, removed_error_indices.tolist())
     ]
-    removed_det_to_removed_errors = _get_removed_det_to_removed_errors(
-        removed_det_flip_submatrix, order
-    )
+    removed_det_to_removed_errors = _get_removed_det_to_removed_errors(removed_det_flip_submatrix)
 
     # identify pairs of removed errors to add back to the DEM
     combinations_to_add: set[frozenset[int]] = set()
@@ -464,7 +464,7 @@ def _get_post_selection_additions(
 
 
 def _get_removed_det_to_removed_errors(
-    removed_det_flip_submatrix: scipy.sparse.csc_matrix, order: int
+    removed_det_flip_submatrix: scipy.sparse.csc_matrix,
 ) -> list[list[int]]:
     """Map each post-selected detector to removed errors that trigger it.
 

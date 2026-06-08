@@ -224,7 +224,6 @@ def test_post_selection() -> None:
         .approx_equals(post_selected_dem, atol=1e-10)
     )
 
-    dem = stim.DetectorErrorModel("error(0.1) D0")
     with pytest.raises(ValueError, match="order"):
         decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=3)
 
