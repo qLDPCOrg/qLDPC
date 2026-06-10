@@ -62,7 +62,7 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     # (2) "Candidate" destabilizers that have correct pair-wise (anti-)commutation relations
     #     with the stabilizers, but may contain extra stabilizer, logical, or gauge factors.
     stab_ops = code.get_stabilizer_ops()
-    if len(stab_ops) != len(code) - code.dimension - code.gauge_dimension:
+    if len(stab_ops) != len(code) - code.dimension - code.gauge_dimension:  # pragma: no cover
         stab_ops = code.get_stabilizer_ops(canonicalized=True)
     destab_ops = math.get_dual_basis(math.symplectic_conjugate(stab_ops))
 

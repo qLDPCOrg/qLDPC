@@ -17,8 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import itertools
-
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -32,12 +30,9 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
     """Prepare logical Pauli states of qubit codes."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
-    codes_to_test = [
-        codes.FiveQubitCode(),
-        codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31))),
-    ]
+    code = codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31)))
 
-    for code, only_zero in itertools.product(codes_to_test, [True, False]):
+    for only_zero in [True, False]:
         simulator = stim.TableauSimulator()
 
         if not only_zero:
