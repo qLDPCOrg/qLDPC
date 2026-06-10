@@ -53,17 +53,18 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
             allow_underconstrained=True,
         )
 
-    # identify stabilizers, logical operators, and gauge operators
-    stab_ops = code.get_stabilizer_ops(canonicalized=True)
+    # Identify:
+    # (1) A minimal generating set of stabilizers.
+    # (2) "Candidate" destabilizers that have correct pair-wise (anti-)commutation relations
+    #     with the stabilizers, but may contain extra stabilizer, logical, or gauge factors.
+    stab_ops = code.get_stabilizer_ops()
+    if len(code.get_stabilizer_ops()) != code.num_checks:
+        stab_ops = code.get_stabilizer_ops(canonicalized=True)
+    destab_ops = math.get_dual_basis(math.symplectic_conjugate(stab_ops))
+
+    # identify logical and gauge operators operators
     logical_ops = code.get_logical_ops()
     gauge_ops = code.get_gauge_ops()
-
-    # Construct "candidate" destabilizers that have correct pair-wise (anti-)commutation relations
-    # with the stabilizers, but may contain extra stabilizer, logical, or gauge operator components.
-    stab_pivots = math.first_nonzero_cols(stab_ops)
-    destab_ops = code.field.Zeros((len(stab_ops), 2 * len(code)), dtype=int)
-    for destab_op, pivot in zip(destab_ops, stab_pivots):
-        destab_op[(pivot + len(code)) % (2 * len(code))] = 1
 
     # remove logical and gauge operator components
     dual_logical_ops = logical_ops.reshape(2, -1)[::-1, :].reshape(logical_ops.shape)

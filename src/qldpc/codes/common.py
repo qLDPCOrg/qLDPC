@@ -1492,7 +1492,7 @@ class QuditCode(AbstractCode):
             return stabilizer_ops[pivots_x if pauli is Pauli.X else ~pivots_x]
 
         if not self.is_subsystem_code:
-            return self.matrix if not canonicalized else self.canonicalized.matrix
+            return self.canonicalized.matrix if canonicalized else self.matrix
 
         if self._stabilizer_ops is None or recompute:
             stabs_and_gauges = self.canonicalized.matrix
