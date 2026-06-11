@@ -332,10 +332,12 @@ def get_logical_error_and_discard_rate(
     sampler = dem.compile_sampler()
     det_data, obs_data, _ = sampler.sample(shots=num_samples, bit_packed=True)
 
+    # identify post-selection masks
     detector_record = DetectorRecord({"prep": range(circuit_or_dem.num_detectors)})
     postselection_mask, postselected_observables_mask = _get_postselection_masks(
         post_select, post_select_observables, detector_record, dem.num_observables
     )
+    discard_rate = 0
 
     # if applicable, post-select on flag detectors
     if postselection_mask is not None:
@@ -353,15 +355,12 @@ def get_logical_error_and_discard_rate(
         det_data = np.packbits(det_data_unpacked[:, detector_mask], bitorder="little", axis=1)
 
         # record the fraction of shots that were discarded
-        discard_rate = np.sum(~shot_mask) / num_samples
+        discard_rate += np.sum(~shot_mask) / num_samples
 
         if dem_to_decode is None:
             # remove the post-selected detectors from the DEM
             dem_arrays = dem_arrays.post_selected_on(post_select).simplified()
             dem = dem_arrays.to_dem()
-
-    else:  # pragma: no cover
-        discard_rate = 0
 
     # compile a decoder for this detector error model
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
