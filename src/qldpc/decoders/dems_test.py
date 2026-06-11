@@ -181,7 +181,7 @@ def test_post_selection() -> None:
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
 
-    # if passed an integer order=1, pairs error mechanisms that whose post-selected detector flips
+    # if passed an integer order=2, pairs error mechanisms that whose post-selected detector flips
     # cancel out are added back to the detector error model
     prob = 0.1
     dem = stim.DetectorErrorModel(f"""
@@ -199,9 +199,27 @@ def test_post_selection() -> None:
         error({2 * prob**2 - 2 * prob**4}) D0 L0
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    assert dem_arrays.post_selected_on([0, 1], order=1).to_dem() == post_selected_dem
+    assert dem_arrays.post_selected_on([0, 1], order=2).to_dem() == post_selected_dem
 
-    # setting order=2 will recover combinations of four error mechanisms
+    # setting order=3 will recover combinations of four error mechanisms
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        detector D2
+        logical_observable L0
+        error({prob}) D0 D1 L0
+        error({prob}) D1 D2 L0
+        error({prob}) D2 D0 L0
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        logical_observable L0
+        error({prob**3}) L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0, 1, 2], order=3).to_dem() == post_selected_dem
+
+    # setting order=4 will recover combinations of four error mechanisms
     prob = 0.1
     dem = stim.DetectorErrorModel(f"""
         detector D0
@@ -219,13 +237,13 @@ def test_post_selection() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert (
-        dem_arrays.post_selected_on([0, 1, 2], order=2)
+        dem_arrays.post_selected_on([0, 1, 2], order=4)
         .to_dem()
         .approx_equals(post_selected_dem, atol=1e-10)
     )
 
     with pytest.raises(ValueError, match="order"):
-        decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=3)
+        decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=0)
 
 
 def test_to_circuit() -> None:
