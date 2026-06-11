@@ -367,15 +367,15 @@ class DetectorErrorModelArrays:
 
         if order > 1:
             detector_flip_matrix, observable_flip_matrix, error_probs = (
-                _get_post_selection_additions(
+                _with_higher_order_corrections(
                     self,
+                    detector_flip_matrix,
+                    observable_flip_matrix,
+                    error_probs,
                     detectors,
                     detectors_to_keep,
                     errors_to_keep,
                     order,
-                    detector_flip_matrix,
-                    observable_flip_matrix,
-                    error_probs,
                 )
             )
 
@@ -421,19 +421,19 @@ def _values_that_occur_an_odd_number_of_times(
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
 
 
-def _get_post_selection_additions(
+def _with_higher_order_corrections(
     dem_arrays: DetectorErrorModelArrays,
+    detector_flip_matrix: scipy.sparse.csc_matrix,
+    observable_flip_matrix: scipy.sparse.csc_matrix,
+    error_probs: npt.NDArray[np.floating],
     detectors_to_remove: list[int],
     detectors_to_keep: npt.NDArray[np.bool_],
     errors_to_keep: npt.NDArray[np.bool_],
     order: int,
-    detector_flip_matrix: scipy.sparse.csc_matrix,
-    observable_flip_matrix: scipy.sparse.csc_matrix,
-    error_probs: npt.NDArray[np.floating],
 ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.floating]]:
     """Extend post-selected arrays by recovering combinations of individually removed errors.
 
-    Finds all combinations of up to 2*order removed errors whose net flip on the post-selected
+    Finds all combinations of up to order removed errors whose net flip on the post-selected
     detectors cancels, then appends them as new error mechanisms.
     """
     assert order > 1
