@@ -337,7 +337,7 @@ def get_logical_error_and_discard_rate(
     postselection_mask, postselected_observables_mask = _get_postselection_masks(
         post_select, post_select_observables, detector_record, dem.num_observables
     )
-    discard_rate = 0
+    discard_rate = 0.0
 
     # if applicable, post-select on flag detectors
     if postselection_mask is not None:
