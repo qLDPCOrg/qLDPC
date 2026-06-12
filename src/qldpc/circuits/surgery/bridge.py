@@ -24,18 +24,19 @@ class Bridge:
 
     Attributes match docs/superpowers/specs/2026-06-09-joint-ppm-bridge-design.md §1.
     """
-    width: int                                  # w = |𝒜| (adapter qubits)
-    basis: PauliXZ                              # X or Z (symmetric dual)
-    port_l: tuple[int, ...]                     # 𝒫_l* ⊆ V_0^(l), length w
-    port_r: tuple[int, ...]                     # 𝒫_r* ⊆ V_0^(r), length w
-    label_l: tuple[int, ...]                    # label_l[i] = SkipTree label of V_0^(l)[i]; -1 if i ∉ 𝒫_l*
+
+    width: int  # w = |𝒜| (adapter qubits)
+    basis: PauliXZ  # X or Z (symmetric dual)
+    port_l: tuple[int, ...]  # 𝒫_l* ⊆ V_0^(l), length w
+    port_r: tuple[int, ...]  # 𝒫_r* ⊆ V_0^(r), length w
+    label_l: tuple[int, ...]  # label_l[i] = SkipTree label of V_0^(l)[i]; -1 if i ∉ 𝒫_l*
     label_r: tuple[int, ...]
-    extra_ancilla_l: np.ndarray                 # (e_l, |support^(l)|) F_2; weight-2 rows added
+    extra_ancilla_l: np.ndarray  # (e_l, |support^(l)|) F_2; weight-2 rows added
     extra_ancilla_r: np.ndarray
-    T_l: np.ndarray                             # (w-1, |C_0^(l)| + e_l) F_2 (3,2)-sparse
+    T_l: np.ndarray  # (w-1, |C_0^(l)| + e_l) F_2 (3,2)-sparse
     T_r: np.ndarray
-    H_R: np.ndarray                             # (w-1, w) canonical rep code parity
-    g_l_aug: GadgetLayout                       # gadget rebuilt over F_aug^(l)
+    H_R: np.ndarray  # (w-1, w) canonical rep code parity
+    g_l_aug: GadgetLayout  # gadget rebuilt over F_aug^(l)
     g_r_aug: GadgetLayout
 
 
@@ -124,12 +125,12 @@ def _skip_tree_fullrank(
     n = S.number_of_nodes()
     span = nx.minimum_spanning_tree(S)
     _, P = _skip_tree(span, root=root, edge_index_verts=None)
-    # P is a permutation matrix from _skip_tree; recover label[l] = v such that P[v, l] = 1.
+    # P is a permutation matrix from _skip_tree; recover label[ell] = v such that P[v, ell] = 1.
     label = [-1] * n
     for v in range(n):
-        for l in range(n):
-            if P[v, l] == 1:
-                label[l] = v
+        for ell in range(n):
+            if P[v, ell] == 1:
+                label[ell] = v
                 break
 
     if edge_index_verts is None:
@@ -140,7 +141,7 @@ def _skip_tree_fullrank(
         path = nx.shortest_path(S, source=label[l_idx], target=label[l_idx + 1])
         for u, v in zip(path[:-1], path[1:]):
             e = tuple(sorted((u, v)))
-            T[l_idx, edge_index_verts[e]] ^= 1   # XOR cancels back-and-forth
+            T[l_idx, edge_index_verts[e]] ^= 1  # XOR cancels back-and-forth
     return T.astype(np.int_), P.astype(np.int_)
 
 
@@ -306,7 +307,9 @@ def _run_skiptree_on_port_subgraph(
     root_orig = port[root_port_idx]
     root_relab = new_of_orig[root_orig]
     T_relab, P_relab = _skip_tree_fullrank(
-        sub_tree, root=root_relab, edge_index_verts=edge_idx_tree,
+        sub_tree,
+        root=root_relab,
+        edge_index_verts=edge_idx_tree,
     )
     labels = [-1] * incidence_aug.shape[1]
     for new_v in range(len(port)):
@@ -354,8 +357,7 @@ def build_bridge(
     """
     if g_l.basis is not g_r.basis:
         raise ValueError(
-            f"build_bridge requires g_l.basis == g_r.basis, "
-            f"got {g_l.basis!r} vs {g_r.basis!r}"
+            f"build_bridge requires g_l.basis == g_r.basis, got {g_l.basis!r} vs {g_r.basis!r}"
         )
     basis = g_l.basis
 
@@ -364,21 +366,21 @@ def build_bridge(
     G_r_aux, _ = _build_aux_graph_strict(g_r.incidence)
 
     # Step 2: port subsets + width
-    port_l_all = tuple(port_subset_l) if port_subset_l is not None else tuple(range(len(g_l.support)))
-    port_r_all = tuple(port_subset_r) if port_subset_r is not None else tuple(range(len(g_r.support)))
+    port_l_all = (
+        tuple(port_subset_l) if port_subset_l is not None else tuple(range(len(g_l.support)))
+    )
+    port_r_all = (
+        tuple(port_subset_r) if port_subset_r is not None else tuple(range(len(g_r.support)))
+    )
     width = min(len(port_l_all), len(port_r_all))
     if width < 2:
         raise ValueError(f"bridge width must be >= 2, got {width}")
     port_l = port_l_all[:width]
     port_r = port_r_all[:width]
     if not (0 <= spanning_tree_root_l < width):
-        raise ValueError(
-            f"spanning_tree_root_l={spanning_tree_root_l} out of [0, {width})"
-        )
+        raise ValueError(f"spanning_tree_root_l={spanning_tree_root_l} out of [0, {width})")
     if not (0 <= spanning_tree_root_r < width):
-        raise ValueError(
-            f"spanning_tree_root_r={spanning_tree_root_r} out of [0, {width})"
-        )
+        raise ValueError(f"spanning_tree_root_r={spanning_tree_root_r} out of [0, {width})")
 
     # Step 3: induced-subgraph connectivity augmentation
     extras_l_conn = _connect_induced_subgraph(G_l_aux, port_l)
@@ -397,15 +399,22 @@ def build_bridge(
     # us thread g_l_aug.incidence as the column space for SkipTree (step 5). Reordering
     # is safe: F_aug.shape[0] is determined by extra_ancilla_*, not by SkipTree.
     from .gadget import build_gadget_augmented
+
     g_l_aug = build_gadget_augmented(g_l.code, g_l.x, extra_ancilla_l, basis=basis)
     g_r_aug = build_gadget_augmented(g_r.code, g_r.x, extra_ancilla_r, basis=basis)
 
     # Step 5: SkipTree on induced port subgraph; embed back into full F_aug rows
     T_l, label_l = _run_skiptree_on_port_subgraph(
-        G_l_aux, port_l, spanning_tree_root_l, g_l_aug.incidence,
+        G_l_aux,
+        port_l,
+        spanning_tree_root_l,
+        g_l_aug.incidence,
     )
     T_r, label_r = _run_skiptree_on_port_subgraph(
-        G_r_aux, port_r, spanning_tree_root_r, g_r_aug.incidence,
+        G_r_aux,
+        port_r,
+        spanning_tree_root_r,
+        g_r_aug.incidence,
     )
 
     return Bridge(

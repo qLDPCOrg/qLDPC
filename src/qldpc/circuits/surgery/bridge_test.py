@@ -9,16 +9,17 @@ from qldpc import codes
 from qldpc.objects import Pauli
 
 from ._webster_fixture import (
-    load_webster_seed_set,
-    build_generalised_bicycle_code,
     _webster_z_bar_operator,
+    build_generalised_bicycle_code,
+    load_webster_seed_set,
 )
 
 
-def test_skip_tree_fullrank_on_K4_matches_H_R():
+def test_skip_tree_fullrank_on_K4_matches_H_R() -> None:
     """SkipTree full-rank: T_ind · G · P_ind = H_R for the complete graph K_4."""
     import networkx as nx
-    from qldpc.circuits.surgery.bridge import _skip_tree_fullrank, _canonical_H_R
+
+    from qldpc.circuits.surgery.bridge import _canonical_H_R, _skip_tree_fullrank
 
     G_nx = nx.complete_graph(4)
     n = 4
@@ -42,9 +43,10 @@ def test_skip_tree_fullrank_on_K4_matches_H_R():
     assert T_ind.sum(axis=0).max() <= 2
 
 
-def test_build_aux_graph_weight2_rows_become_edges():
+def test_build_aux_graph_weight2_rows_become_edges() -> None:
     """F rows of weight 2 → graph edges; vertex set = {0, ..., |V_0|-1}."""
     from qldpc.circuits.surgery.bridge import _build_aux_graph_strict
+
     incidence = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=np.uint8)
     G_nx, edge_idx = _build_aux_graph_strict(incidence)
     assert set(G_nx.nodes) == {0, 1, 2, 3}
@@ -54,15 +56,19 @@ def test_build_aux_graph_weight2_rows_become_edges():
     assert edge_idx[(2, 3)] == 2
 
 
-def test_build_aux_graph_filters_hyperedges():
+def test_build_aux_graph_filters_hyperedges() -> None:
     """F rows of weight >= 3 (hyperedges) are silently skipped; weight-2 rows survive."""
     from qldpc.circuits.surgery.bridge import _build_aux_graph_strict
-    incidence = np.array([
-        [1, 1, 0, 0, 0],  # weight-2 → edge (0,1)
-        [1, 1, 1, 1, 0],  # weight-4 hyperedge → skipped
-        [0, 0, 1, 1, 0],  # weight-2 → edge (2,3)
-        [0, 0, 0, 1, 1],  # weight-2 → edge (3,4)
-    ], dtype=np.uint8)
+
+    incidence = np.array(
+        [
+            [1, 1, 0, 0, 0],  # weight-2 → edge (0,1)
+            [1, 1, 1, 1, 0],  # weight-4 hyperedge → skipped
+            [0, 0, 1, 1, 0],  # weight-2 → edge (2,3)
+            [0, 0, 0, 1, 1],  # weight-2 → edge (3,4)
+        ],
+        dtype=np.uint8,
+    )
     G_nx, edge_idx = _build_aux_graph_strict(incidence)
     assert set(G_nx.nodes) == {0, 1, 2, 3, 4}
     # Three weight-2 rows → three edges; hyperedge row contributes nothing
@@ -77,28 +83,33 @@ def test_build_aux_graph_filters_hyperedges():
     assert (1, 3) not in edge_idx
 
 
-def test_build_aux_graph_rejects_weight1_row():
+def test_build_aux_graph_rejects_weight1_row() -> None:
     """F rows of weight 1 raise ValueError (dangling edge / no-op stabilizer)."""
     from qldpc.circuits.surgery.bridge import _build_aux_graph_strict
+
     incidence = np.array([[1, 1, 0, 0], [0, 0, 1, 0]], dtype=np.uint8)
     with pytest.raises(ValueError, match=r"weight 1"):
         _build_aux_graph_strict(incidence)
 
 
-def test_connect_induced_subgraph_no_op_when_connected():
+def test_connect_induced_subgraph_no_op_when_connected() -> None:
     """If induced subgraph is already connected, no edges are added."""
     import networkx as nx
+
     from qldpc.circuits.surgery.bridge import _connect_induced_subgraph
+
     G_aux = nx.path_graph(4)  # 0-1-2-3
     extra = _connect_induced_subgraph(G_aux, ports=(0, 1, 2, 3))
     assert extra == []
     assert set(tuple(sorted(e)) for e in G_aux.edges) == {(0, 1), (1, 2), (2, 3)}
 
 
-def test_connect_induced_subgraph_adds_edges_to_disconnected_components():
+def test_connect_induced_subgraph_adds_edges_to_disconnected_components() -> None:
     """Disconnected induced subgraph gets one bridging edge per missing connection."""
     import networkx as nx
+
     from qldpc.circuits.surgery.bridge import _connect_induced_subgraph
+
     # G_aux: 0-1   2-3 (two separate components)
     G_aux = nx.Graph()
     G_aux.add_edges_from([(0, 1), (2, 3)])
@@ -111,10 +122,12 @@ def test_connect_induced_subgraph_adds_edges_to_disconnected_components():
     assert nx.is_connected(G_aux.subgraph((0, 1, 2, 3)))
 
 
-def test_cellulate_caps_cycle_length():
+def test_cellulate_caps_cycle_length() -> None:
     """After cellulation, every basis cycle has length <= cap."""
     import networkx as nx
+
     from qldpc.circuits.surgery.bridge import _cellulate_port_subgraph
+
     # 10-cycle: 0-1-2-...-9-0 has one length-10 basis cycle
     G_aux = nx.cycle_graph(10)
     added = _cellulate_port_subgraph(G_aux, ports=tuple(range(10)), max_len=6)
@@ -124,20 +137,24 @@ def test_cellulate_caps_cycle_length():
     assert max((len(c) for c in nx.cycle_basis(sub)), default=0) <= 6
 
 
-def test_cellulate_no_op_when_already_short():
+def test_cellulate_no_op_when_already_short() -> None:
     """If all basis cycles are short, no edges are added."""
     import networkx as nx
+
     from qldpc.circuits.surgery.bridge import _cellulate_port_subgraph
+
     G_aux = nx.cycle_graph(4)  # one 4-cycle
     added = _cellulate_port_subgraph(G_aux, ports=(0, 1, 2, 3), max_len=6)
     assert added == []
 
 
-def test_cellulate_raises_when_port_cycle_has_no_available_chord():
+def test_cellulate_raises_when_port_cycle_has_no_available_chord() -> None:
     """RuntimeError when a port-subgraph cycle exists but every (i, j) pair
     is already an edge — i.e. the port subgraph is complete on those vertices."""
     import networkx as nx
+
     from qldpc.circuits.surgery.bridge import _cellulate_port_subgraph
+
     # 7-cycle 0-1-2-3-4-5-6-0 plus ALL chords among {0..6} → complete graph K_7.
     # cycle_basis still surfaces cycles of length > max_len in K_7 (basis cycles
     # are length-3 triangles), so no long cycle exists in this case.
@@ -158,12 +175,14 @@ def test_cellulate_raises_when_port_cycle_has_no_available_chord():
         _cellulate_port_subgraph(G, ports, max_len=2)
 
 
-def test_cellulate_port_subgraph_breaks_long_port_cycle():
+def test_cellulate_port_subgraph_breaks_long_port_cycle() -> None:
     """Ports are a strict subset of vertices, with a long cycle on the port
     subgraph. Cellulation breaks the port cycle without inspecting non-port
     edges elsewhere in G_aux."""
     import networkx as nx
+
     from qldpc.circuits.surgery.bridge import _cellulate_port_subgraph
+
     G = nx.Graph()
     # 8-cycle on port vertices 0..7
     G.add_edges_from([(i, (i + 1) % 8) for i in range(8)])
@@ -183,14 +202,17 @@ def test_cellulate_port_subgraph_breaks_long_port_cycle():
         assert len(c) <= 6
 
 
-def test_cellulate_port_subgraph_skips_non_port_cycle():
+def test_cellulate_port_subgraph_skips_non_port_cycle() -> None:
     """Long cycle entirely on non-port vertices is ignored; no edges added."""
     import networkx as nx
+
     from qldpc.circuits.surgery.bridge import _cellulate_port_subgraph
+
     G = nx.Graph()
     # Long non-port cycle: 10-11-12-...-17-10 (length 8)
-    G.add_edges_from([(10, 11), (11, 12), (12, 13), (13, 14),
-                      (14, 15), (15, 16), (16, 17), (17, 10)])
+    G.add_edges_from(
+        [(10, 11), (11, 12), (12, 13), (13, 14), (14, 15), (15, 16), (16, 17), (17, 10)]
+    )
     # Short port cycle: triangle on 0,1,2
     G.add_edges_from([(0, 1), (1, 2), (2, 0)])
     ports = (0, 1, 2)
@@ -200,25 +222,35 @@ def test_cellulate_port_subgraph_skips_non_port_cycle():
     assert G.number_of_edges() == n_edges_before
 
 
-def test_bridge_dataclass_fields_universal_adapter():
+def test_bridge_dataclass_fields_universal_adapter() -> None:
     """Bridge dataclass exposes the universal-adapter fields (Swaroop et al. arXiv:2410.03628 §IV)."""
     import dataclasses
+
     from qldpc.circuits.surgery.bridge import Bridge
+
     fields = {f.name for f in dataclasses.fields(Bridge)}
     assert fields == {
-        "width", "basis",
-        "port_l", "port_r",
-        "label_l", "label_r",
-        "extra_ancilla_l", "extra_ancilla_r",
-        "T_l", "T_r", "H_R",
-        "g_l_aug", "g_r_aug",
+        "width",
+        "basis",
+        "port_l",
+        "port_r",
+        "label_l",
+        "label_r",
+        "extra_ancilla_l",
+        "extra_ancilla_r",
+        "T_l",
+        "T_r",
+        "H_R",
+        "g_l_aug",
+        "g_r_aug",
     }
 
 
-def test_build_bridge_smoke_steane_intracode():
+def test_build_bridge_smoke_steane_intracode() -> None:
     """Steane × Steane intra-code joint X̄ X̄: build_bridge returns valid Bridge."""
-    from qldpc.circuits.surgery.gadget import build_gadget
     from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.gadget import build_gadget
+
     code = codes.SteaneCode()
     x1 = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     x2 = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)  # same logical
@@ -234,10 +266,11 @@ def test_build_bridge_smoke_steane_intracode():
     assert bridge.H_R.shape == (bridge.width - 1, bridge.width)
 
 
-def test_build_bridge_skiptree_invariant_holds():
+def test_build_bridge_skiptree_invariant_holds() -> None:
     """T_s · G_s_aug · P_s = H_R for both sides on Steane × Steane."""
-    from qldpc.circuits.surgery.gadget import build_gadget
     from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.gadget import build_gadget
+
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g_l = build_gadget(code, x, basis=Pauli.X)
@@ -259,10 +292,11 @@ def test_build_bridge_skiptree_invariant_holds():
         assert np.array_equal(lhs, bridge.H_R), f"side {side}:\n{lhs}\nvs\n{bridge.H_R}"
 
 
-def test_build_bridge_rejects_basis_mismatch():
+def test_build_bridge_rejects_basis_mismatch() -> None:
     """Bridge requires g_l.basis == g_r.basis."""
-    from qldpc.circuits.surgery.gadget import build_gadget
     from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.gadget import build_gadget
+
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
@@ -272,7 +306,7 @@ def test_build_bridge_rejects_basis_mismatch():
         build_bridge(g_l, g_r)
 
 
-def test_build_bridge_bb18_hyperedge_and_long_cycle():
+def test_build_bridge_bb18_hyperedge_and_long_cycle() -> None:
     """End-to-end: Cain bb_18 BBCode triggers both Bug 1 (hyperedge) and
     Bug 2 (long port-subgraph cycle). build_bridge must succeed and produce
     a merged code with k_merged = k_orig - 1 (intra-code joint Z̄_1 ⊗ Z̄_2).
@@ -281,7 +315,8 @@ def test_build_bridge_bb18_hyperedge_and_long_cycle():
     by exactly 1.  Z-logical 0 has a weight-4 F row (triggers Bug 1); the pair
     together exercises the full _cellulate_port_subgraph path (Bug 2)."""
     import sympy
-    from qldpc.circuits.surgery import build_gadget, build_bridge
+
+    from qldpc.circuits.surgery import build_bridge, build_gadget
     from qldpc.circuits.surgery.circuit import _stitch_to_joint_csscode
 
     x, y = sympy.symbols("x y")
@@ -310,7 +345,7 @@ def test_build_bridge_bb18_hyperedge_and_long_cycle():
     assert not ((HX @ HZ.T) % 2).any(), "CSS commutation broken on merged code"
 
 
-def test_adapter_cycle_check_weight_bounded():
+def test_adapter_cycle_check_weight_bounded() -> None:
     """Each new cycle-X row has weight <= 8 (SkipTree (3,2) + H_R weight 2). Basis=Z.
 
     For basis=Z, the new adapter cycle checks are placed in HX (the last w-1 rows).
@@ -320,11 +355,12 @@ def test_adapter_cycle_check_weight_bounded():
       - T_r row: at most 3 entries on cr_ancilla (SkipTree (3,2)-sparsity)
     Total: weight <= 3 + 2 + 3 = 8.
     """
+    from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.circuit import _stitch_to_joint_csscode
     from qldpc.circuits.surgery.gadget import (
         build_gadget,
     )
-    from qldpc.circuits.surgery.bridge import build_bridge
-    from qldpc.circuits.surgery.circuit import _stitch_to_joint_csscode
+
     data = load_webster_seed_set(0)
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
     # Use Z̄_1 for both sides (intra-code, same logical) — bridge.width =
@@ -336,18 +372,20 @@ def test_adapter_cycle_check_weight_bounded():
     merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
     HX = np.asarray(merged.matrix_x).astype(np.int_)
     # basis=Z: new cycle-X-checks are the last (w-1) rows of HX
-    new_x_rows = HX[-(bridge.width - 1):, :]
+    new_x_rows = HX[-(bridge.width - 1) :, :]
     max_w = int(new_x_rows.sum(axis=1).max())
     assert max_w <= 8, f"max new cycle-X weight {max_w} > 8"
 
 
-def test_cellulation_caps_aug_aux_cycle_length_on_webster():
+def test_cellulation_caps_aug_aux_cycle_length_on_webster() -> None:
     """After cellulation, every basis cycle in the augmented aux graph has length <= 6."""
     import networkx as nx
+
+    from qldpc.circuits.surgery.bridge import _build_aux_graph_strict, build_bridge
     from qldpc.circuits.surgery.gadget import (
         build_gadget,
     )
-    from qldpc.circuits.surgery.bridge import build_bridge, _build_aux_graph_strict
+
     data = load_webster_seed_set(0)
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
     x = _webster_z_bar_operator(data, "Z_bar_1")
@@ -363,3 +401,65 @@ def test_cellulation_caps_aug_aux_cycle_length_on_webster():
         assert max(len(c) for c in cycles) <= 6, (
             f"max port-subgraph cycle length {max(len(c) for c in cycles)} > 6"
         )
+
+
+def test_canonical_H_R_rejects_w_below_2() -> None:
+    """_canonical_H_R(w=1) raises (rep-code needs w >= 2)."""
+    from qldpc.circuits.surgery.bridge import _canonical_H_R
+
+    with pytest.raises(ValueError, match="w >= 2"):
+        _canonical_H_R(1)
+
+
+def test_skip_tree_fullrank_defaults_edge_index_when_omitted() -> None:
+    """_skip_tree_fullrank with edge_index_verts=None builds the default index dict
+    from S.edges() order — matches the explicit-dict path."""
+    import networkx as nx
+
+    from qldpc.circuits.surgery.bridge import _skip_tree_fullrank
+
+    G_nx = nx.complete_graph(4)
+    T_explicit, P_explicit = _skip_tree_fullrank(
+        G_nx,
+        root=0,
+        edge_index_verts={tuple(sorted(e)): i for i, e in enumerate(G_nx.edges())},
+    )
+    T_default, P_default = _skip_tree_fullrank(G_nx, root=0)
+    assert np.array_equal(T_default, T_explicit)
+    assert np.array_equal(P_default, P_explicit)
+
+
+def test_build_bridge_rejects_width_below_2() -> None:
+    """build_bridge rejects port subsets that intersect to width < 2."""
+    from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=Pauli.X)
+    with pytest.raises(ValueError, match="width must be >= 2"):
+        build_bridge(g, g, port_subset_l=(0,), port_subset_r=(0,))
+
+
+def test_build_bridge_rejects_spanning_tree_root_out_of_range_left() -> None:
+    """build_bridge rejects spanning_tree_root_l outside [0, width)."""
+    from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=Pauli.X)
+    with pytest.raises(ValueError, match="spanning_tree_root_l=99"):
+        build_bridge(g, g, spanning_tree_root_l=99)
+
+
+def test_build_bridge_rejects_spanning_tree_root_out_of_range_right() -> None:
+    """build_bridge rejects spanning_tree_root_r outside [0, width)."""
+    from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=Pauli.X)
+    with pytest.raises(ValueError, match="spanning_tree_root_r=99"):
+        build_bridge(g, g, spanning_tree_root_r=99)

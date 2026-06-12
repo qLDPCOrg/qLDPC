@@ -34,7 +34,10 @@ class GadgetLayout:
 
 
 def _step1_restriction(
-    code: CSSCode, x: np.ndarray, *, basis: PauliXZ = Pauli.X,
+    code: CSSCode,
+    x: np.ndarray,
+    *,
+    basis: PauliXZ = Pauli.X,
 ) -> tuple[tuple[int, ...], tuple[int, ...], np.ndarray]:
     """Webster §II.A step 1 — V_0 = supp(x); C_0 = checks touching V_0; F = H_complement[C_0, V_0].
 
@@ -129,7 +132,7 @@ def _step3_assemble(
     HZ = np.asarray(code.matrix_z).astype(np.uint8)
     n = code.num_qudits
     mX, mZ = HX.shape[0], HZ.shape[0]
-    nV, nC = len(support), len(data_checks)
+    nC = len(data_checks)
     r = gauge.shape[0]
 
     # incidence_tilde : (mZ_or_mX × nC) selection matrix — incidence_tilde[j, k] = 1 iff j == C_0[k]
@@ -139,7 +142,7 @@ def _step3_assemble(
         incidence_tilde = np.zeros((mX, nC), dtype=np.uint8)
     for k, j in enumerate(data_checks):
         if j < 0:
-            continue        # sentinel for extra-κ rows from build_gadget_augmented
+            continue  # sentinel for extra-κ rows from build_gadget_augmented
         incidence_tilde[j, k] = 1
 
     support_arr = np.asarray(support, dtype=np.int_)
@@ -147,23 +150,30 @@ def _step3_assemble(
     if basis is Pauli.X:
         # χ rows extend HX_merged; G rows extend HZ_merged
         HX_merged = _assemble_HX_L1(HX, support_arr, incidence)
-        HZ_merged = np.block([
-            [HZ, incidence_tilde],
-            [np.zeros((r, n), dtype=np.uint8), gauge.astype(np.uint8)],
-        ]).astype(np.uint8)
+        HZ_merged = np.block(
+            [
+                [HZ, incidence_tilde],
+                [np.zeros((r, n), dtype=np.uint8), gauge.astype(np.uint8)],
+            ]
+        ).astype(np.uint8)
     else:
         # basis=Z (symmetric dual): χ rows extend HZ_merged; G rows extend HX_merged
         HZ_merged = _assemble_HX_L1(HZ, support_arr, incidence)
-        HX_merged = np.block([
-            [HX, incidence_tilde],
-            [np.zeros((r, n), dtype=np.uint8), gauge.astype(np.uint8)],
-        ]).astype(np.uint8)
+        HX_merged = np.block(
+            [
+                [HX, incidence_tilde],
+                [np.zeros((r, n), dtype=np.uint8), gauge.astype(np.uint8)],
+            ]
+        ).astype(np.uint8)
 
     return HX_merged, HZ_merged
 
 
 def build_gadget(
-    code: CSSCode, x: np.ndarray, *, basis: PauliXZ,
+    code: CSSCode,
+    x: np.ndarray,
+    *,
+    basis: PauliXZ,
 ) -> GadgetLayout:
     """Webster L=1 gadget = steps 1+2+3 composed. Deterministic in (code, x, basis).
 
@@ -189,8 +199,15 @@ def build_gadget(
     HX_m, HZ_m = _step3_assemble(code, support, data_checks, incidence, gauge, basis=basis)
     ancilla_qubits = tuple(range(code.num_qudits, code.num_qudits + len(data_checks)))
     return GadgetLayout(
-        code=code, x=x, support=support, data_checks=data_checks, incidence=incidence, gauge=gauge,
-        HX_merged=HX_m, HZ_merged=HZ_m, ancilla_qubits=ancilla_qubits,
+        code=code,
+        x=x,
+        support=support,
+        data_checks=data_checks,
+        incidence=incidence,
+        gauge=gauge,
+        HX_merged=HX_m,
+        HZ_merged=HZ_m,
+        ancilla_qubits=ancilla_qubits,
         basis=basis,
     )
 
@@ -239,13 +256,23 @@ def build_gadget_augmented(
     n_extra = incidence_extra.shape[0]
     data_checks_aug = tuple(data_checks) + tuple([-1] * n_extra)
     HX_aug, HZ_aug = _step3_assemble(
-        code, support, data_checks_aug, incidence_aug, gauge_aug, basis=basis,
+        code,
+        support,
+        data_checks_aug,
+        incidence_aug,
+        gauge_aug,
+        basis=basis,
     )
     ancilla_qubits_aug = tuple(range(code.num_qudits, code.num_qudits + len(data_checks_aug)))
     return GadgetLayout(
-        code=code, x=x, support=support, data_checks=data_checks_aug, incidence=incidence_aug, gauge=gauge_aug,
-        HX_merged=HX_aug, HZ_merged=HZ_aug, ancilla_qubits=ancilla_qubits_aug,
+        code=code,
+        x=x,
+        support=support,
+        data_checks=data_checks_aug,
+        incidence=incidence_aug,
+        gauge=gauge_aug,
+        HX_merged=HX_aug,
+        HZ_merged=HZ_aug,
+        ancilla_qubits=ancilla_qubits_aug,
         basis=basis,
     )
-
-
