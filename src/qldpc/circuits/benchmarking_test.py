@@ -105,18 +105,30 @@ def test_state_prep_benchmarks() -> None:
     # bypass sinter to compute logical error rates
     logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
         circuit,
-        sinter_decoder=decoders.SinterDecoder(),
+        sinter_decoder=decoders.TrivialDecoder(),
         num_samples=1,
         post_select=range(circuit.num_measurements),
     )
     assert logical_error_rate == 0
     assert discard_rate == 0
 
+    # post-select on observables
+    dem = circuit.detector_error_model()
+    dem.append("error", [1], [stim.DemTarget.logical_observable_id(circuit.num_observables)])
+    logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
+        dem,
+        sinter_decoder=decoders.TrivialDecoder(),
+        num_samples=1,
+        post_select_observables=[circuit.num_observables],
+    )
+    assert np.isnan(logical_error_rate)
+    assert discard_rate == 1
+
     # incompatible DEMs for sampling and decoding
     with pytest.raises(ValueError, match="Incompatible detector error models"):
         circuits.get_logical_error_and_discard_rate(
             task.circuit,
-            sinter_decoder=decoders.SinterDecoder(),
+            sinter_decoder=decoders.TrivialDecoder(),
             num_samples=1,
             dem_to_decode=stim.DetectorErrorModel(),
         )

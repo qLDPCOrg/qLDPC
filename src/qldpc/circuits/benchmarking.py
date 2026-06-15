@@ -154,6 +154,7 @@ def get_state_prep_diagnostic_tasks(
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
     post_select: bool | Collection[int] = False,
+    post_select_observables: Collection[int] = (),
     qubit_ids: QubitIDs | None = None,
     observables: npt.NDArray[np.int_]
     | Sequence[Sequence[int]]
@@ -217,6 +218,9 @@ def get_state_prep_diagnostic_tasks(
         post_select: If True, add a flag detector for each unused measurement in the provided
             circuit and post-select on those detectors.  If provided a collection of integers,
             post-select on corresponding detectors that are already present in the provided circuit.
+        post_select_observables: The observables to post-select on.  Any time the decoder's
+            prediction for these observable flips do not agree with the actual observable flips, the
+            shot is discarded rather than counting as an error.
         qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
             If None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
@@ -241,11 +245,14 @@ def get_state_prep_diagnostic_tasks(
         observables=observables,
         skip_validation=skip_validation,
     )
-    postselection_mask = _get_postselection_mask(post_select, detector_record)
+    postselection_mask, postselected_observables_mask = _get_postselection_masks(
+        post_select, post_select_observables, detector_record, diagnostic_circuit.num_observables
+    )
     return [
         sinter.Task(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
             postselection_mask=postselection_mask,
+            postselected_observables_mask=postselected_observables_mask,
             json_metadata={"p": error_rate} | (metadata or {}),
         )
         for error_rate in error_rates
@@ -258,6 +265,7 @@ def get_logical_error_and_discard_rate(
     num_samples: int,
     *,
     post_select: Collection[int] = (),
+    post_select_observables: Collection[int] = (),
     dem_to_decode: stim.DetectorErrorModel | None = None,
 ) -> tuple[float, float]:
     """Compute a logical error rate and discard rate from samples of the provided circuit.
@@ -291,6 +299,9 @@ def get_logical_error_and_discard_rate(
 
     Keyword args:
         post_select: The detectors in circuit_or_dem to post-select on.
+        post_select_observables: The observables to post-select on.  Any time the decoder's
+            prediction for these observable flips do not agree with the actual observable flips, the
+            shot is discarded rather than counting as an error.
         dem_to_decode: The detector error model to decode.  If post-selecting, this DEM should _not_
             include any of the the detectors that are post-selected on.  If dem_to_decode is None,
             this method builds
@@ -321,71 +332,88 @@ def get_logical_error_and_discard_rate(
     sampler = dem.compile_sampler()
     det_data, obs_data, _ = sampler.sample(shots=num_samples, bit_packed=True)
 
-    # if applicable, post-select on flag detectors
-    if post_select:
-        post_select = list(post_select)
-        detector_record = DetectorRecord({"prep": range(circuit_or_dem.num_detectors)})
-        postselection_mask = _get_postselection_mask(post_select, detector_record)
-        assert postselection_mask is not None  # to help mypy
+    # identify post-selection masks
+    detector_record = DetectorRecord({"prep": range(circuit_or_dem.num_detectors)})
+    postselection_mask, postselected_observables_mask = _get_postselection_masks(
+        post_select, post_select_observables, detector_record, dem.num_observables
+    )
+    discard_rate = 0.0
 
-        # remove rows corresponding to shots in which post-selection detectors fired
+    # if applicable, post-select on flag detectors
+    if postselection_mask is not None:
+        # remove shots in which post-selection detectors fired
         shot_mask = ~np.any(det_data & postselection_mask, axis=1)
         det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
 
         # remove post-selected detectors from the detector sample data
         detector_mask = np.ones(dem.num_detectors, dtype=bool)
-        detector_mask[post_select] = False
+        detector_mask[list(post_select)] = False
         det_data_unpacked = np.unpackbits(
             det_data, count=dem.num_detectors, bitorder="little", axis=1
         )
         det_data = np.packbits(det_data_unpacked[:, detector_mask], bitorder="little", axis=1)
 
         # record the fraction of shots that were discarded
-        discard_rate = 1 - np.sum(shot_mask) / len(shot_mask)
+        discard_rate += np.sum(~shot_mask) / num_samples
 
         if dem_to_decode is None:
             # remove the post-selected detectors from the DEM
             dem_arrays = dem_arrays.post_selected_on(post_select).simplified()
             dem = dem_arrays.to_dem()
 
-    else:  # pragma: no cover
-        discard_rate = 0
-
     # compile a decoder for this detector error model
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
 
-    # decode and compute the logical error rate
+    # decode and identify incorrectly predicted observable flips
     predicted_flips = compiled_sinter_decoder.decode_shots_bit_packed(det_data)
-    obs_flips = obs_data ^ predicted_flips
-    failures = np.any(obs_flips, axis=1)
-    logical_error_rate = np.sum(failures) / len(failures) if len(failures) else np.nan
+    incorrectly_predicted_flips = obs_data ^ predicted_flips
 
+    # if applicable, post-select on observables
+    if postselected_observables_mask is not None:
+        shot_mask = ~np.any(incorrectly_predicted_flips & postselected_observables_mask, axis=1)
+        incorrectly_predicted_flips = incorrectly_predicted_flips[shot_mask]
+        discard_rate += np.sum(~shot_mask) / num_samples
+
+    # compute logical error rate: fraction of shots with incorrectly predicted observable flips
+    failures = np.any(incorrectly_predicted_flips, axis=1)
+    logical_error_rate = np.sum(failures) / len(failures) if len(failures) else np.nan
     return logical_error_rate, discard_rate
 
 
-def _get_postselection_mask(
-    post_select: bool | Collection[int], detector_record: DetectorRecord
-) -> npt.NDArray[np.uint8] | None:
+def _get_postselection_masks(
+    post_select: bool | Collection[int],
+    post_select_observables: Collection[int],
+    detector_record: DetectorRecord,
+    num_observables: int,
+) -> tuple[npt.NDArray[np.uint8] | None, npt.NDArray[np.uint8] | None]:
     """Build a post-selection mask for sinter."""
     if not post_select:
-        return None
+        postselection_mask = None
+    else:
+        num_prep = len(detector_record.get_events("prep"))
+        num_flags = len(detector_record.get_events("flags"))
+        num_detectors = num_prep + num_flags
+        if isinstance(post_select, bool):
+            post_select = detector_record.get_events("flags") if post_select else ()
+        if not all(-num_detectors <= dd < num_detectors for dd in post_select):
+            raise ValueError(
+                f"The provided circuit contains {num_detectors} detectors, so we can only post-select"
+                f" on detectors with an index the range [-{num_detectors}, {num_detectors});"
+                f" requested: {post_select}"
+            )
+        postselection_array = np.zeros(detector_record.num_events, dtype=int)
+        postselection_array[list(post_select)] = 1
+        postselection_mask = np.packbits(postselection_array, bitorder="little")
 
-    num_prep = len(detector_record.get_events("prep"))
-    num_flags = len(detector_record.get_events("flags"))
-    num_detectors = num_prep + num_flags
-    if isinstance(post_select, bool):
-        post_select = detector_record.get_events("flags") if post_select else ()
-    if not all(-num_detectors <= dd < num_detectors for dd in post_select):
-        raise ValueError(
-            f"The provided circuit contains {num_detectors} detectors, so we can only post-select"
-            f" on detectors with an index the range [-{num_detectors}, {num_detectors});"
-            f" requested: {post_select}"
-        )
+    if not post_select_observables:
+        postselected_observables_mask = None
+    else:
+        postselection_array = np.zeros(num_observables, dtype=int)
+        postselection_array[list(post_select_observables)] = 1
+        postselected_observables_mask = np.packbits(postselection_array, bitorder="little")
 
-    postselection_array = np.zeros(detector_record.num_events, dtype=int)
-    postselection_array[list(post_select)] = 1
-    return np.packbits(postselection_array, bitorder="little")
+    return postselection_mask, postselected_observables_mask
 
 
 def _assert_pure_logical_state(
