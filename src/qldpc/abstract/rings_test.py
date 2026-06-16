@@ -249,15 +249,9 @@ def test_ring_row_reduction(
     ring = ring_dihedral3_gf5
     transformer = ring.get_transformer()
     component_transformer = transformer.transformers[-1]
-    e2_12 = component_transformer.embed(
-        component_transformer.extended_field([[0, 1], [0, 0]])
-    )
-    e2_21 = component_transformer.embed(
-        component_transformer.extended_field([[0, 0], [1, 0]])
-    )
-    e2_22 = component_transformer.embed(
-        component_transformer.extended_field([[0, 0], [0, 1]])
-    )
+    e2_12 = component_transformer.embed(component_transformer.extended_field([[0, 1], [0, 0]]))
+    e2_21 = component_transformer.embed(component_transformer.extended_field([[0, 0], [1, 0]]))
+    e2_22 = component_transformer.embed(component_transformer.extended_field([[0, 0], [0, 1]]))
     assert np.array_equal(
         abstract.RingArray.build([[e2_12]]).howell_normal_form_semisimple(),
         abstract.RingArray.build([[e2_22]]),
