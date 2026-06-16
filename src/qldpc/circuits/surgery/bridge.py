@@ -318,6 +318,15 @@ def _run_skiptree_on_port_subgraph(
         assert len(nz) == 1, f"vertex {orig_v} (relab {new_v}) has {len(nz)} labels"
         labels[orig_v] = int(nz[0])
     T_full = np.zeros((T_relab.shape[0], incidence_aug.shape[0]), dtype=np.int_)
+    # Duplicate-edge guard: when two κ rows of F_aug share the same (u, v)
+    # support (parallel edges in the *strict* aux graph), _build_aux_graph_strict
+    # dedups them to one G_aux edge. Without this guard, both duplicate rows
+    # would receive the same T_relab column → their contributions to T·F_aug
+    # cancel mod 2 → SkipTree identity fails on codes like BB [[36, 8]] whose
+    # restricted incidence has duplicate weight-2 rows. Assigning T only to the
+    # FIRST matching row preserves T·F_aug = H_R (duplicate κ qubits remain in
+    # the gauge group, untouched by the cycle).
+    assigned_edges: set[tuple[int, int]] = set()
     for r in range(incidence_aug.shape[0]):
         cols = np.flatnonzero(incidence_aug[r])
         # Load-bearing skip: T_s gets zero columns on hyperedge rows (weight ≥ 3)
@@ -332,8 +341,9 @@ def _run_skiptree_on_port_subgraph(
         if u_orig not in new_of_orig or v_orig not in new_of_orig:
             continue
         e_relab = tuple(sorted((new_of_orig[u_orig], new_of_orig[v_orig])))
-        if e_relab in edge_idx_tree:
+        if e_relab in edge_idx_tree and e_relab not in assigned_edges:
             T_full[:, r] = T_relab[:, edge_idx_tree[e_relab]]
+            assigned_edges.add(e_relab)
     return T_full.astype(np.int_), labels
 
 
@@ -398,10 +408,23 @@ def build_bridge(
     # Spec §2 lists step 7 last, but rebuilding the augmented gadgets here lets
     # us thread g_l_aug.incidence as the column space for SkipTree (step 5). Reordering
     # is safe: F_aug.shape[0] is determined by extra_ancilla_*, not by SkipTree.
-    from .gadget import build_gadget_augmented
+    from .gadget import _step1_restriction, build_gadget_augmented
 
-    g_l_aug = build_gadget_augmented(g_l.code, g_l.x, extra_ancilla_l, basis=basis)
-    g_r_aug = build_gadget_augmented(g_r.code, g_r.x, extra_ancilla_r, basis=basis)
+    # boost_gadget appends weight-2 κ' rows to g_l.incidence beyond the original
+    # _step1_restriction output. These rows must be preserved when assembling
+    # g_l_aug — SkipTree runs against G_aux (built from boosted g_l.incidence)
+    # but T_full is embedded into g_l_aug.incidence; dropping boost rows leaves
+    # tree edges through boost-κ' silently zeroed and breaks the invariant
+    # T_s · F_aug · P_s = H_R.
+    _, _, _orig_inc_l = _step1_restriction(g_l.code, g_l.x, basis=basis)
+    _, _, _orig_inc_r = _step1_restriction(g_r.code, g_r.x, basis=basis)
+    boost_extras_l = g_l.incidence[_orig_inc_l.shape[0] :].astype(np.uint8)
+    boost_extras_r = g_r.incidence[_orig_inc_r.shape[0] :].astype(np.uint8)
+    combined_extras_l = np.vstack([boost_extras_l, extra_ancilla_l.astype(np.uint8)])
+    combined_extras_r = np.vstack([boost_extras_r, extra_ancilla_r.astype(np.uint8)])
+
+    g_l_aug = build_gadget_augmented(g_l.code, g_l.x, combined_extras_l, basis=basis)
+    g_r_aug = build_gadget_augmented(g_r.code, g_r.x, combined_extras_r, basis=basis)
 
     # Step 5: SkipTree on induced port subgraph; embed back into full F_aug rows
     T_l, label_l = _run_skiptree_on_port_subgraph(
