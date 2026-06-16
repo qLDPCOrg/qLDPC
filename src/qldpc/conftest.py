@@ -50,7 +50,6 @@ def ring_alternating4_gf5(pytestconfig: pytest.Config) -> abstract.GroupRing:
 @pytest.fixture(name="ring", scope="session", params=["cyclic3_gf4", "dihedral3_gf5"])
 def rings_to_test(
     request: pytest.FixtureRequest,
-    ring_cyclic3_gf2: abstract.GroupRing,
     ring_cyclic3_gf4: abstract.GroupRing,
     ring_dihedral3_gf5: abstract.GroupRing,
 ) -> abstract.GroupRing:

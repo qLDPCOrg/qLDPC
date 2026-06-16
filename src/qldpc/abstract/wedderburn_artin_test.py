@@ -136,7 +136,10 @@ def test_matrix_basis_size_three(ring_alternating4_gf5: abstract.GroupRing) -> N
     """
     transformer = ring_alternating4_gf5.get_transformer()
     size_three_ct = next(ct for ct in transformer.transformers if ct.size == 3)
-    assert size_three_ct.matrix_basis.shape == (9, ring_alternating4_gf5.group.order)
+    assert size_three_ct.matrix_basis.shape == (
+        size_three_ct.size**2,
+        ring_alternating4_gf5.group.order,
+    )
 
 
 def test_wedderburn_artin_errors(
