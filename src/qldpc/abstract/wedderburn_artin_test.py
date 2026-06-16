@@ -123,11 +123,16 @@ def get_random_ring_member(ring: abstract.GroupRing, seed: int) -> abstract.Ring
 
 
 def test_matrix_basis_size_three(ring_alternating4_gf5: abstract.GroupRing) -> None:
-    """The matrix basis construction uses cross-terms for components of size >= 3.
+    """The matrix basis construction handles size-3 components correctly.
+
+    _get_matrix_basis builds the standard basis {|i><j|} for a component S ≅ GF(q^d)^{n×n} in two
+    phases: first it constructs all elements in the first row/column (|0><i| and |i><0|) directly
+    from projections, then it derives the remaining off-diagonal elements |i><j| (i,j >= 1) as
+    compositions |i><0|·|0><j|.  The second phase only runs when size >= 3 (for size=2 there are no
+    pairs (i,j) with i,j >= 1).
 
     AlternatingGroup(4) is the smallest group with a 3-dimensional irreducible representation,
-    giving a Wedderburn-Artin component of size=3 that exercises the off-diagonal construction
-    loop in _get_matrix_basis (which only runs when size >= 3).
+    giving a size=3 Wedderburn-Artin component that exercises this second phase.
     """
     transformer = ring_alternating4_gf5.get_transformer()
     size_three_ct = next(ct for ct in transformer.transformers if ct.size == 3)
