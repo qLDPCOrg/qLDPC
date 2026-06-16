@@ -248,7 +248,7 @@ def test_ring_row_reduction(
     # matrix components of non-commutative rings get "standardized" to place pivots on the diagonal
     ring = ring_dihedral3_gf5
     transformer = ring.get_transformer()
-    component_transformer = transformer.transformers[-1]
+    component_transformer = next(ct for ct in transformer.transformers if ct.size == 2)
     e2_12 = component_transformer.embed(component_transformer.extended_field([[0, 1], [0, 0]]))
     e2_21 = component_transformer.embed(component_transformer.extended_field([[0, 0], [1, 0]]))
     e2_22 = component_transformer.embed(component_transformer.extended_field([[0, 0], [0, 1]]))
