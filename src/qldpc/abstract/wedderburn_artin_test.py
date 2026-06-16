@@ -30,12 +30,29 @@ from qldpc import abstract
 def test_wedderburn_artin_transformations(
     ring: abstract.GroupRing, pytestconfig: pytest.Config
 ) -> None:
-    """Decompose semisimple rings into simple components.
+    """Randomized tests for the Wedderburn-Artin transformation of a group ring.
 
-    Runs for GroupRing(CyclicGroup(3), field=4) and GroupRing(DihedralGroup(3), field=5).
+    Runs for the default rings to test in this library (defined in an appropriate conftest.py).
     """
-    seed = pytestconfig.getoption("randomly_seed")
+    _test_wedderburn_artin_transformations(ring, pytestconfig.getoption("randomly_seed"))
 
+
+def test_wedderburn_artin_transformations_size_three(
+    ring_alternating4_gf5: abstract.GroupRing, pytestconfig: pytest.Config
+) -> None:
+    """Randomized tests for the Wedderburn-Artin transformation of a group ring.
+
+    AlternatingGroup(4) is the smallest group with a 3-dimensional irreducible representation,
+    giving a Wedderburn-Artin component of size=3.  This test covers the cross-term construction
+    in WedderburnArtinComponentTransformer._get_matrix_basis, which only runs when size >= 3.
+    """
+    _test_wedderburn_artin_transformations(
+        ring_alternating4_gf5, pytestconfig.getoption("randomly_seed")
+    )
+
+
+def _test_wedderburn_artin_transformations(ring: abstract.GroupRing, seed: int) -> None:
+    """Randomized tests for the Wedderburn-Artin transformation of a group ring."""
     transformer = ring.get_transformer()
 
     # the embedding of ring.field = GF(q) scalars is an isomorphism
@@ -120,26 +137,6 @@ def get_random_ring_member(ring: abstract.GroupRing, seed: int) -> abstract.Ring
     coeffs = ring.field.Random(ring.group.order, seed=seed)
     terms = [(coeff, gen) for coeff, gen in zip(coeffs, ring.group.generate())]
     return abstract.RingMember(ring, *terms)
-
-
-def test_matrix_basis_size_three(ring_alternating4_gf5: abstract.GroupRing) -> None:
-    """The matrix basis construction handles size-3 components correctly.
-
-    _get_matrix_basis builds the standard basis {|i><j|} for a component S ≅ GF(q^d)^{n×n} in two
-    phases: first it constructs all elements in the first row/column (|0><i| and |i><0|) directly
-    from projections, then it derives the remaining off-diagonal elements |i><j| (i,j >= 1) as
-    compositions |i><0|·|0><j|.  The second phase only runs when size >= 3 (for size=2 there are no
-    pairs (i,j) with i,j >= 1).
-
-    AlternatingGroup(4) is the smallest group with a 3-dimensional irreducible representation,
-    giving a size=3 Wedderburn-Artin component that exercises this second phase.
-    """
-    transformer = ring_alternating4_gf5.get_transformer()
-    size_three_ct = next(ct for ct in transformer.transformers if ct.size == 3)
-    assert size_three_ct.matrix_basis.shape == (
-        size_three_ct.size**2,
-        ring_alternating4_gf5.group.order,
-    )
 
 
 def test_wedderburn_artin_errors(

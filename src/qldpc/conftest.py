@@ -25,11 +25,7 @@ def ring_cyclic3_gf4(pytestconfig: pytest.Config) -> abstract.GroupRing:
 
 @pytest.fixture(scope="session")
 def ring_dihedral3_gf5(pytestconfig: pytest.Config) -> abstract.GroupRing:
-    """Construct a non-commutative ring with a pre-built Wedderburn-Artin transformer.
-
-    Uses DihedralGroup(3) over GF(5), whose primitive central idempotents are pre-cached in
-    KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS (avoiding a GAP computation).
-    """
+    """Construct a non-commutative ring with a pre-built Wedderburn-Artin transformer."""
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
     ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
     return ring
@@ -37,11 +33,7 @@ def ring_dihedral3_gf5(pytestconfig: pytest.Config) -> abstract.GroupRing:
 
 @pytest.fixture(scope="session")
 def ring_alternating4_gf5(pytestconfig: pytest.Config) -> abstract.GroupRing:
-    """Construct a non-commutative ring with a size-3 matrix component.
-
-    Used specifically to test WedderburnArtinComponentTransformer code paths that only
-    arise for matrix components of size >= 3 (A4 is the smallest group with a 3-dim irrep).
-    """
+    """Construct a non-commutative ring with a size-3 matrix component."""
     ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
     ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
     return ring
