@@ -32,7 +32,7 @@ def test_wedderburn_artin_transformations(
 ) -> None:
     """Decompose semisimple rings into simple components.
 
-    Runs for GroupRing(CyclicGroup(3), field=4) and GroupRing(AlternatingGroup(4), field=5).
+    Runs for GroupRing(CyclicGroup(3), field=4) and GroupRing(DihedralGroup(3), field=5).
     """
     seed = pytestconfig.getoption("randomly_seed")
 
@@ -120,6 +120,18 @@ def get_random_ring_member(ring: abstract.GroupRing, seed: int) -> abstract.Ring
     coeffs = ring.field.Random(ring.group.order, seed=seed)
     terms = [(coeff, gen) for coeff, gen in zip(coeffs, ring.group.generate())]
     return abstract.RingMember(ring, *terms)
+
+
+def test_matrix_basis_size_three(ring_alternating4_gf5: abstract.GroupRing) -> None:
+    """The matrix basis construction uses cross-terms for components of size >= 3.
+
+    AlternatingGroup(4) is the smallest group with a 3-dimensional irreducible representation,
+    giving a Wedderburn-Artin component of size=3 that exercises the off-diagonal construction
+    loop in _get_matrix_basis (which only runs when size >= 3).
+    """
+    transformer = ring_alternating4_gf5.get_transformer()
+    size_three_ct = next(ct for ct in transformer.transformers if ct.size == 3)
+    assert size_three_ct.matrix_basis.shape == (9, ring_alternating4_gf5.group.order)
 
 
 def test_wedderburn_artin_errors(
