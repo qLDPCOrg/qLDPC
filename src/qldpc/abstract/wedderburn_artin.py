@@ -23,6 +23,7 @@ import itertools
 import math
 import operator
 from collections.abc import Sequence
+from typing import Literal
 
 import galois
 import numpy as np
@@ -197,7 +198,8 @@ class WedderburnArtinComponentTransformer:
         pci: RingMember,
         *,
         seed: np.random.Generator | None = None,
-        galois_compile: str | None = "python-calculate",
+        galois_compile: Literal["auto", "jit-lookup", "jit-calculate", "python-calculate"]
+        | None = "python-calculate",
     ) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring.
 
