@@ -204,7 +204,7 @@ class WedderburnArtinComponentTransformer:
         WARNING: This class assumes--and does not verify--that the provided RingMember is a PCI.
 
         Args:
-            pci: A primitive central idempotent that projects onto the simple component of a ring.
+            pci: A primitive central idempotent of a ring.
             seed: Random number generator seed.
             galois_compile: The ufunc calculation mode for the galois field extension GF(q^d).
                 Default: 'python-calculate', which is empirically faster for small field arrays.
