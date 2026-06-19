@@ -96,6 +96,9 @@ def get_transversal_automorphism_group(
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
+    if not local_gates:
+        return abstract.TrivialGroup()
+
     local_gates = _validate_local_gates(local_gates)
     allow_swaps = "SWAP" in local_gates
     local_gates.discard("SWAP")

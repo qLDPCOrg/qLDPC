@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 import stim
 
-from qldpc import circuits, codes, external
+from qldpc import abstract, circuits, codes, external
 
 
 def test_transversal_ops() -> None:
@@ -39,6 +39,8 @@ def test_transversal_ops() -> None:
     ]:
         transversal_ops = circuits.get_transversal_ops(code, local_gates)
         assert len(transversal_ops) == len(local_gates) + 1
+
+    assert circuits.get_transversal_automorphism_group(code, []) == abstract.TrivialGroup()
 
     with pytest.raises(ValueError, match="Local Clifford gates"):
         circuits.get_transversal_automorphism_group(code, ["SQRT_Y"])
