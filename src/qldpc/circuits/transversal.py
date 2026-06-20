@@ -148,12 +148,8 @@ def get_transversal_automorphism_group(
                 group_z = get_transversal_automorphism_group(
                     fake_code_z, ["SWAP"], deform_code=False, with_magma=with_magma
                 )
-                return abstract.Group(
-                    *map(
-                        abstract.GroupMember,
-                        _sympy_group_intersection_generators(group_x, group_z),
-                    )
-                )
+                generators = _sympy_group_intersection_generators(group_x, group_z)
+                return abstract.Group(*map(abstract.GroupMember, generators))
 
     else:
         # we are looking for transversal gates involving two-qubit SWAPs and single-qubit Cliffords
