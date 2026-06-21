@@ -463,3 +463,177 @@ def test_build_bridge_rejects_spanning_tree_root_out_of_range_right() -> None:
     g = build_gadget(code, x, basis=Pauli.X)
     with pytest.raises(ValueError, match="spanning_tree_root_r=99"):
         build_bridge(g, g, spanning_tree_root_r=99)
+
+
+def _bb_72_12():
+    """Cain et al. arXiv:2603.28627 Table I `[[72, 12]]` BB code (cheeger h<1)."""
+    import sympy
+
+    xs, ys = sympy.symbols("x y")
+    return codes.BBCode({xs: 6, ys: 6}, xs**3 + ys + ys**2, ys**3 + xs + xs**2)
+
+
+def test_build_bridge_skiptree_invariant_holds_after_boost() -> None:
+    """T_s · F_aug · P_s = H_R must hold even when g_l/g_r are boosted.
+
+    Regression: build_bridge rebuilds g_l_aug via _step1_restriction on the
+    ORIGINAL (un-boosted) code+x+basis, dropping boost-added κ' rows from
+    g_l.incidence. SkipTree T_l is computed against the boosted G_aux but
+    embedded into unboosted g_l_aug.incidence → tree edges through boost-κ'
+    are silently zeroed in T_full → invariant fails → joint_code cycle
+    stabilizers are bogus → non-deterministic detector in joint PPM DEM.
+    """
+    from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.cheeger import boost_gadget
+    from qldpc.circuits.surgery.gadget import build_gadget
+
+    z = np.asarray(_bb_72_12().get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
+    g_l_raw = build_gadget(_bb_72_12(), z, basis=Pauli.Z)
+    g_r_raw = build_gadget(_bb_72_12(), z, basis=Pauli.Z)
+    g_l = boost_gadget(
+        g_l_raw, method="combinatorial", target=1.0, max_extra_qubits=20, seed=3
+    )
+    g_r = boost_gadget(
+        g_r_raw, method="combinatorial", target=1.0, max_extra_qubits=20, seed=3
+    )
+    assert g_l.incidence.shape[0] > g_l_raw.incidence.shape[0], "boost should add κ' rows"
+    bridge = build_bridge(g_l, g_r)
+
+    for side in ("l", "r"):
+        T = getattr(bridge, f"T_{side}")
+        g_aug = getattr(bridge, f"g_{side}_aug")
+        label = getattr(bridge, f"label_{side}")
+        adj = g_aug.incidence.astype(np.int_)
+        P = np.zeros((adj.shape[1], bridge.width), dtype=np.int_)
+        for v_idx, lab in enumerate(label):
+            if lab >= 0:
+                P[v_idx, lab] = 1
+        lhs = (T @ adj @ P) % 2
+        assert np.array_equal(lhs, bridge.H_R), (
+            f"side {side}: T·F_aug·P ≠ H_R after boost — bridge dropped boost κ' rows"
+        )
+
+
+def _bb_36_8():
+    """BBCode (l=3, m=6) [[36, 8]] — has *duplicate* weight-2 incidence rows
+    when restricted to Z̄_0, exercising _run_skiptree_on_port_subgraph's
+    duplicate-edge guard."""
+    import sympy
+
+    xs, ys = sympy.symbols("x y")
+    return codes.BBCode({xs: 3, ys: 6}, xs**3 + ys + ys**2, ys**3 + xs + xs**2)
+
+
+def test_build_bridge_skiptree_invariant_holds_with_duplicate_incidence_rows() -> None:
+    """T_s · F_aug · P_s = H_R must hold when F_aug has duplicate weight-2 rows.
+
+    Regression: BBCode [[36, 8]] restricted to Z̄_0 has h(F)=1 (no boost
+    needed) but the restricted incidence has two κ rows sharing the same
+    (u, v) support — _build_aux_graph_strict dedups them to one G_aux edge.
+    Pre-fix, _run_skiptree_on_port_subgraph assigned the *same* T_relab
+    column to both duplicate κ rows, so their contributions to T · F_aug
+    cancel mod 2 → invariant fails → joint_code cycle stabilizer non-trivially
+    anti-commutes with the gauge → non-deterministic detector.
+    """
+    from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.gadget import build_gadget
+
+    code_l = _bb_36_8()
+    code_r = _bb_36_8()
+    z = np.asarray(code_l.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
+    g_l = build_gadget(code_l, z, basis=Pauli.Z)
+    g_r = build_gadget(code_r, z, basis=Pauli.Z)
+    # Test premise: restricted incidence has duplicate rows
+    inc = g_l.incidence.astype(np.int_)
+    assert inc.shape[0] > np.unique(inc, axis=0).shape[0], (
+        "test premise broken: BB [[36, 8]] restricted incidence should have duplicates"
+    )
+    bridge = build_bridge(g_l, g_r)
+
+    for side in ("l", "r"):
+        T = getattr(bridge, f"T_{side}")
+        g_aug = getattr(bridge, f"g_{side}_aug")
+        label = getattr(bridge, f"label_{side}")
+        adj = g_aug.incidence.astype(np.int_)
+        P = np.zeros((adj.shape[1], bridge.width), dtype=np.int_)
+        for v_idx, lab in enumerate(label):
+            if lab >= 0:
+                P[v_idx, lab] = 1
+        lhs = (T @ adj @ P) % 2
+        assert np.array_equal(lhs, bridge.H_R), (
+            f"side {side}: T·F_aug·P ≠ H_R with duplicate κ rows — bridge "
+            f"duplicate-edge guard missing"
+        )
+
+
+def test_build_joint_ppm_circuit_dem_deterministic_bb_36_8() -> None:
+    """Joint PPM DEM constructs without non-deterministic detectors on BB [[36, 8]].
+
+    End-to-end regression for the duplicate-edge bug: BB [[36, 8]] Z̄⊗Z̄ joint
+    PPM (h=1, no boost) previously crashed stim DEM with non-deterministic
+    detectors because the SkipTree invariant failed on duplicate incidence
+    rows.
+    """
+    from qldpc.circuits.noise_model import DepolarizingNoiseModel
+    from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.circuit import (
+        build_joint_ppm_circuit,
+        keep_only_observable,
+    )
+    from qldpc.circuits.surgery.gadget import build_gadget
+
+    code_l, code_r = _bb_36_8(), _bb_36_8()
+    z = np.asarray(code_l.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
+    g_l = build_gadget(code_l, z, basis=Pauli.Z)
+    g_r = build_gadget(code_r, z, basis=Pauli.Z)
+    bridge = build_bridge(g_l, g_r)
+
+    noise = DepolarizingNoiseModel(1e-3, include_idling_error=False)
+    circuit, _ = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=3, noise_model=noise)
+    stripped = keep_only_observable(circuit, keep_idx=0)
+    dem = stripped.detector_error_model(approximate_disjoint_errors=True)
+    assert dem.num_detectors > 0
+
+
+def test_build_joint_ppm_circuit_dem_deterministic_after_boost_bb() -> None:
+    """Joint PPM DEM must construct without non-deterministic detectors after boost.
+
+    End-to-end regression: BB Z̄⊗Z̄ joint PPM with boost (required to reach
+    Webster threshold h(F)≥1). Before fix, stim raised
+    ``ValueError: The circuit contains non-deterministic detectors``
+    because cycle stabilizers in joint_code didn't actually commute with
+    the round-1 initial state.
+    """
+    from qldpc.circuits.noise_model import DepolarizingNoiseModel
+    from qldpc.circuits.surgery.bridge import build_bridge
+    from qldpc.circuits.surgery.cheeger import boost_gadget
+    from qldpc.circuits.surgery.circuit import (
+        build_joint_ppm_circuit,
+        keep_only_observable,
+    )
+    from qldpc.circuits.surgery.gadget import build_gadget
+
+    bb_l, bb_r = _bb_72_12(), _bb_72_12()
+    z = np.asarray(bb_l.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
+    g_l = boost_gadget(
+        build_gadget(bb_l, z, basis=Pauli.Z),
+        method="combinatorial",
+        target=1.0,
+        max_extra_qubits=20,
+        seed=3,
+    )
+    g_r = boost_gadget(
+        build_gadget(bb_r, z, basis=Pauli.Z),
+        method="combinatorial",
+        target=1.0,
+        max_extra_qubits=20,
+        seed=3,
+    )
+    bridge = build_bridge(g_l, g_r)
+
+    noise = DepolarizingNoiseModel(1e-3, include_idling_error=False)
+    circuit, _ = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=3, noise_model=noise)
+    stripped = keep_only_observable(circuit, keep_idx=0)
+    # raises ValueError("non-deterministic detectors") if the bug regressed
+    dem = stripped.detector_error_model(approximate_disjoint_errors=True)
+    assert dem.num_detectors > 0
