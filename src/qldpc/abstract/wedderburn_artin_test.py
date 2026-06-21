@@ -30,12 +30,29 @@ from qldpc import abstract
 def test_wedderburn_artin_transformations(
     ring: abstract.GroupRing, pytestconfig: pytest.Config
 ) -> None:
-    """Decompose semisimple rings into simple components.
+    """Randomized tests for the Wedderburn-Artin transformation of a group ring.
 
-    Runs for GroupRing(CyclicGroup(3), field=4) and GroupRing(AlternatingGroup(4), field=5).
+    Runs for the default rings to test in this library (defined in an appropriate conftest.py).
     """
-    seed = pytestconfig.getoption("randomly_seed")
+    _test_wedderburn_artin_transformations(ring, pytestconfig.getoption("randomly_seed"))
 
+
+def test_wedderburn_artin_transformations_size_three(
+    ring_alternating4_gf5: abstract.GroupRing, pytestconfig: pytest.Config
+) -> None:
+    """Randomized tests for the Wedderburn-Artin transformation of a group ring.
+
+    AlternatingGroup(4) is the smallest group with a 3-dimensional irreducible representation,
+    giving a Wedderburn-Artin component of size=3.  This test covers the cross-term construction
+    in WedderburnArtinComponentTransformer._get_matrix_basis, which only runs when size >= 3.
+    """
+    _test_wedderburn_artin_transformations(
+        ring_alternating4_gf5, pytestconfig.getoption("randomly_seed")
+    )
+
+
+def _test_wedderburn_artin_transformations(ring: abstract.GroupRing, seed: int) -> None:
+    """Randomized tests for the Wedderburn-Artin transformation of a group ring."""
     transformer = ring.get_transformer()
 
     # the embedding of ring.field = GF(q) scalars is an isomorphism

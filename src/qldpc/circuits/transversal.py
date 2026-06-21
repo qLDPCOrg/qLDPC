@@ -96,6 +96,9 @@ def get_transversal_automorphism_group(
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
+    if not local_gates:
+        return abstract.Group(abstract.GroupMember(range(len(code))))
+
     local_gates = _validate_local_gates(local_gates)
     allow_swaps = "SWAP" in local_gates
     local_gates.discard("SWAP")
@@ -121,11 +124,32 @@ def get_transversal_automorphism_group(
     if not local_gates:
         # we are looking for transversal gates involving only two-qubit SWAPs
         matrix: npt.NDArray[np.int_] = parity_checks
-        if isinstance(
-            canonicalized_code := codes.QuditCode(matrix).canonicalized.maybe_to_css(),
-            codes.CSSCode,
-        ) and np.array_equal(canonicalized_code.matrix_x, canonicalized_code.matrix_z):
-            matrix = canonicalized_code.matrix_x
+        _code = codes.QuditCode(matrix).maybe_to_css()
+        if isinstance(_code, codes.CSSCode):
+            canonicalized_code = _code.canonicalized
+            if np.array_equal(canonicalized_code.matrix_x, canonicalized_code.matrix_z):
+                # Self-dual CSS: column permutations preserving H_x automatically preserve H_z
+                matrix = canonicalized_code.matrix_x
+            else:
+                # Non-self-dual CSS: the joint parity-check matrix has block-diagonal support, so
+                # its column-permutation automorphism group factors as Aut(H_x) x Aut(H_z) on
+                # disjoint column sets.  SWAPs act diagonally on X- and Z-columns, so the SWAP
+                # transversal group is Aut(H_x) ∩ Aut(H_z). Recurse on fake self-dual codes built
+                # from H_x and H_z so the self-dual branch above handles each half, then intersect.
+                fake_code_x = codes.CSSCode(
+                    canonicalized_code.matrix_x, canonicalized_code.matrix_x
+                )
+                fake_code_z = codes.CSSCode(
+                    canonicalized_code.matrix_z, canonicalized_code.matrix_z
+                )
+                group_x = get_transversal_automorphism_group(
+                    fake_code_x, ["SWAP"], deform_code=False, with_magma=with_magma
+                )
+                group_z = get_transversal_automorphism_group(
+                    fake_code_z, ["SWAP"], deform_code=False, with_magma=with_magma
+                )
+                generators = _sympy_group_intersection_generators(group_x, group_z)
+                return abstract.Group(*map(abstract.GroupMember, generators))
 
     else:
         # we are looking for transversal gates involving two-qubit SWAPs and single-qubit Cliffords

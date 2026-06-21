@@ -23,6 +23,7 @@ import itertools
 import math
 import operator
 from collections.abc import Sequence
+from typing import Literal
 
 import galois
 import numpy as np
@@ -192,10 +193,24 @@ class WedderburnArtinComponentTransformer:
     decomposition_coefficient_extractor: galois.FieldArray
     decomposition_coefficient_recombiner: galois.FieldArray
 
-    def __init__(self, pci: RingMember, *, seed: np.random.Generator | None = None) -> None:
+    def __init__(
+        self,
+        pci: RingMember,
+        *,
+        seed: np.random.Generator | None = None,
+        galois_compile: Literal["auto", "jit-lookup", "jit-calculate", "python-calculate"]
+        | None = "python-calculate",
+    ) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring.
 
         WARNING: This class assumes--and does not verify--that the provided RingMember is a PCI.
+
+        Args:
+            pci: A primitive central idempotent of a ring.
+            seed: Random number generator seed.
+            galois_compile: The ufunc calculation mode for the galois field extension GF(q^d).
+                Default: 'python-calculate', which is empirically faster for small field arrays.
+                See help(galois.GF), and the 'compile' argument in particular.
         """
         if not pci.ring.is_semisimple:
             raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
@@ -215,7 +230,7 @@ class WedderburnArtinComponentTransformer:
         self.power_basis = self._get_power_basis(seed)
         self.power_basis_dual = qldpc.math.get_dual_basis(self.power_basis, validate=False)
 
-        self.extended_field = galois.GF(self.field.order**self.degree)
+        self.extended_field = galois.GF(self.field.order**self.degree, compile=galois_compile)
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
         self.embedded_power_basis_dual = self._get_embedded_power_basis_dual()
 

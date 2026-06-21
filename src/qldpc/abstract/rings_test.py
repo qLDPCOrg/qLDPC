@@ -219,7 +219,7 @@ def test_regular_rep(ring: abstract.GroupRing, pytestconfig: pytest.Config) -> N
 
 
 def test_ring_row_reduction(
-    ring_alternating4_gf5: abstract.GroupRing, pytestconfig: pytest.Config
+    ring_dihedral3_gf5: abstract.GroupRing, pytestconfig: pytest.Config
 ) -> None:
     """RingArrays can be row reduced in various ways."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
@@ -246,25 +246,19 @@ def test_ring_row_reduction(
     assert np.array_equal(matrix.howell_normal_form(poly=True), matrix_hnf)
 
     # matrix components of non-commutative rings get "standardized" to place pivots on the diagonal
-    ring = ring_alternating4_gf5
+    ring = ring_dihedral3_gf5
     transformer = ring.get_transformer()
-    component_transformer = transformer.transformers[-1]
-    e3_13 = component_transformer.embed(
-        component_transformer.extended_field([[0, 0, 1], [0, 0, 0], [0, 0, 0]])
-    )
-    e3_31 = component_transformer.embed(
-        component_transformer.extended_field([[0, 0, 0], [0, 0, 0], [1, 0, 0]])
-    )
-    e3_33 = component_transformer.embed(
-        component_transformer.extended_field([[0, 0, 0], [0, 0, 0], [0, 0, 1]])
+    component_transformer = next(ct for ct in transformer.transformers if ct.size == 2)
+    e2_12 = component_transformer.embed(component_transformer.extended_field([[0, 1], [0, 0]]))
+    e2_21 = component_transformer.embed(component_transformer.extended_field([[0, 0], [1, 0]]))
+    e2_22 = component_transformer.embed(component_transformer.extended_field([[0, 0], [0, 1]]))
+    assert np.array_equal(
+        abstract.RingArray.build([[e2_12]]).howell_normal_form_semisimple(),
+        abstract.RingArray.build([[e2_22]]),
     )
     assert np.array_equal(
-        abstract.RingArray.build([[e3_13]]).howell_normal_form_semisimple(),
-        abstract.RingArray.build([[e3_33]]),
-    )
-    assert np.array_equal(
-        abstract.RingArray.build([[e3_31]]).howell_normal_form_semisimple(right=True),
-        abstract.RingArray.build([[e3_33]]),
+        abstract.RingArray.build([[e2_21]]).howell_normal_form_semisimple(right=True),
+        abstract.RingArray.build([[e2_22]]),
     )
 
     # RingArray.row_reduce requires semisimple rings

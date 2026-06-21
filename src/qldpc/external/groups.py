@@ -371,13 +371,15 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
     "SmallGroup(1,1)": [[]],
     "Group(())": [[]],
     "SmallGroup(21,1)": [[(1, 2, 4), (3, 6, 5)], [(0, 1, 2, 3, 4, 5, 6)]],
+    # FiveQubitCode automorphism group (SWAP only)
     "AutomorphismGroup(CheckMatCode([[1,0,0,0,1,1,1,0,1,1],[0,1,0,0,1,0,0,1,1,0],[0,0,1,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,1,1,1]],GF(2)))": [
         [(3, 7), (4, 5), (8, 9)],
         [(1, 5), (2, 7), (3, 9), (6, 8)],
         [(2, 6), (3, 8), (4, 5), (7, 9)],
         [(0, 9, 2, 8), (1, 6), (3, 5, 4, 7)],
         [(0, 7, 3), (1, 9, 8), (2, 4, 5)],
-    ],  # FiveQubitCode automorphism group (SWAP only)
+    ],
+    # FiveQubitCode automorphism group (SWAP + Cliffords)
     "AutomorphismGroup(CheckMatCode([[1,0,0,0,1,1,1,0,1,1,0,1,0,1,0],[0,1,0,0,1,0,0,1,1,0,0,1,1,1,1],[0,0,1,0,1,1,1,0,0,0,1,1,1,0,1],[0,0,0,1,1,1,0,1,1,1,1,0,1,0,0]],GF(2)))": [
         [(0, 1), (5, 12), (6, 14), (7, 9)],
         [(2, 3), (6, 9), (7, 14), (8, 11)],
@@ -388,12 +390,14 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(2, 11), (3, 8), (6, 14), (7, 9)],
         [(3, 8), (4, 10), (5, 12), (7, 9)],
         [(3, 9), (4, 12), (5, 10), (7, 8)],
-    ],  # FiveQubitCode automorphism group (SWAP + Cliffords)
+    ],
+    # ToricCode(2) automorphism group (SWAP only)
     "AutomorphismGroup(CheckMatCode([[1,1,1,1]],GF(2)))": [
         [(0, 1)],
         [(1, 2)],
         [(2, 3)],
-    ],  # ToricCode(2) automorphism group (SWAP only)
+    ],
+    # ToricCode(2) automorphism group (SWAP + H/S/SQRT_X)
     "AutomorphismGroup(CheckMatCode([[1,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,1]],GF(2)))": [
         [(2, 3), (4, 7), (5, 6)],
         [(4, 7, 6, 5)],
@@ -403,7 +407,8 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(1, 3), (4, 6), (5, 7)],
         [(0, 6, 3, 7), (1, 5), (2, 4)],
         [(0, 7), (1, 4), (2, 5, 3, 6)],
-    ],  # ToricCode(2) automorphism group (SWAP + H/S/SQRT_X)
+    ],
+    # ToricCode(2) automorphism group (SWAP + Cliffords)
     "AutomorphismGroup(CheckMatCode([[1,1,1,1,0,0,0,0,1,1,1,1],[0,0,0,0,1,1,1,1,1,1,1,1]],GF(2)))": [
         [(4, 9), (5, 8, 6, 11), (7, 10)],
         [(4, 7, 6, 5), (9, 11, 10)],
@@ -419,7 +424,28 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(0, 4, 10, 1, 5, 9, 2, 7, 8), (3, 6, 11)],
         [(2, 3), (4, 7), (8, 11)],
         [(0, 10, 2, 11, 1, 9), (3, 8), (4, 7)],
-    ],  # ToricCode(2) automorphism group (SWAP + Cliffords)
+    ],
+    # [[8, 3, 2]] X check automorphism group
+    "AutomorphismGroup(CheckMatCode([[1,1,0,0,0,0,1,1],[0,0,1,1,0,0,1,1],[0,0,0,0,1,1,1,1]],GF(2)))": [
+        [(6, 7)],
+        [(4, 5), (6, 7)],
+        [(4, 7, 5, 6)],
+        [(2, 3), (6, 7)],
+        [(2, 6, 4), (3, 7, 5)],
+        [(0, 3, 5, 1, 2, 4)],
+        [(0, 7), (1, 6), (2, 3), (4, 5)],
+    ],
+    # [[8, 3, 2]] Z check automorphism group
+    "AutomorphismGroup(CheckMatCode([[1,0,1,0,1,0,1,0],[0,1,0,1,0,1,0,1]],GF(2)))": [
+        [(1, 7), (3, 5), (4, 6)],
+        [(1, 7, 5, 3)],
+        [(5, 7)],
+        [(3, 5, 7)],
+        [(1, 3, 5), (2, 4, 6)],
+        [(1, 5), (2, 6), (3, 7)],
+        [(0, 5, 6, 7), (1, 4), (2, 3)],
+        [(0, 7), (1, 2), (3, 6, 5, 4)],
+    ],
 }
 
 KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], IdempotentsList] = {
