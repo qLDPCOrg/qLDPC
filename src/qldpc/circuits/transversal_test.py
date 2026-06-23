@@ -28,17 +28,22 @@ from qldpc import circuits, codes, external
 
 def test_transversal_ops() -> None:
     """Construct SWAP-transversal logical Cliffords of a code."""
-    code = codes.ToricCode(2)
+    code: codes.CSSCode
 
-    for local_gates in [
-        ["SWAP"],
-        ["SWAP", "H"],
-        ["SWAP", "S"],
-        ["SWAP", "SQRT_X"],
-        ["SWAP", "H", "S"],
-    ]:
-        transversal_ops = circuits.get_transversal_ops(code, local_gates)
-        assert len(transversal_ops) == len(local_gates) + 1
+    code = codes.ToricCode(2)
+    assert len(circuits.get_transversal_ops(code, [])) == 0
+    assert len(circuits.get_transversal_ops(code, ["SWAP"])) == 2
+    assert len(circuits.get_transversal_ops(code, ["SWAP", "H"])) == 3
+    assert len(circuits.get_transversal_ops(code, ["SWAP", "S"])) == 3
+    assert len(circuits.get_transversal_ops(code, ["SWAP", "SQRT_X"])) == 3
+    assert len(circuits.get_transversal_ops(code, ["SWAP", "H", "S"])) == 4
+
+    # non-self-dual [[8, 3, 2]] CSS code with nontrivial permutation automorphisms
+    code = codes.CSSCode(
+        [[1, 1, 1, 1, 0, 0, 0, 0], [1, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 1, 0, 0, 1, 1]],
+        [[1, 0, 1, 0, 1, 0, 1, 0], [0, 1, 0, 1, 0, 1, 0, 1]],
+    )
+    assert len(circuits.get_transversal_ops(code, ["SWAP"])) == 3
 
     with pytest.raises(ValueError, match="Local Clifford gates"):
         circuits.get_transversal_automorphism_group(code, ["SQRT_Y"])
