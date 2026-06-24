@@ -225,13 +225,23 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
 def test_classical_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.RepetitionCode(2)
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=1, max_error_rate=1)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-    assert logical_error_rate(1)[0] == 1  # guaranteed logical error
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=1)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func([1])[0] == 1  # guaranteed logical error
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10, max_error_rate=0.5)
+    # with an erasure-enabled decoder, unrecognised syndromes are discarded
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
+    )
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
+    assert logical_error_rate_func.truncation_error_bound(0.5) < 1
+    assert logical_error_rate_func.truncation_error_bound([1]) == 0
+
+    # test cap on physical error rate
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.5)
     with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+        logical_error_rate_func(1)
 
 
 ####################################################################################################
@@ -281,18 +291,12 @@ def test_qudit_codes() -> None:
     assert code.is_equiv_to(codes.QuditCode(code))
     assert_valid_subgraphs(code)
 
-    # equivlence to code with redundant stabilizers
+    # equivalence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
     assert code.is_equiv_to(redundant_code)
 
     # the logical ops of the redundant code are valid ops of the original code
     code.set_logical_ops(redundant_code.get_logical_ops())  # also validates the logical ops
-
-    # setting only X or Z-type logicals is not yet implemented for non-CSS codes
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        code.set_logical_ops_x([])
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        code.set_logical_ops_z([])
 
     # stacking two codes
     two_codes = codes.QuditCode.stack([code] * 2)
@@ -303,18 +307,18 @@ def test_qudit_codes() -> None:
     logical_ops = two_codes.get_logical_ops().copy()
     logical_ops[0], logical_ops[1] = logical_ops[1], logical_ops[0]
     with pytest.raises(ValueError, match="incorrect commutation relations"):
-        two_codes.set_logical_ops(logical_ops, validate=True)
+        two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
     # invalid modifications of logical operators break commutation relations
     logical_ops = two_codes.get_logical_ops().copy()
     logical_ops[0, -1] += two_codes.field(1)
     with pytest.raises(ValueError, match="violate parity checks"):
-        two_codes.set_logical_ops(logical_ops, validate=True)
+        two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
     # providing an incorrect number of logical operators throws an error
     logical_ops = two_codes.get_logical_ops().copy()[[0, two_codes.dimension], :]
     with pytest.raises(ValueError, match="incorrect number"):
-        two_codes.set_logical_ops(logical_ops, validate=True)
+        two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
     # stacking codes over different fields is not supported
     with pytest.raises(ValueError, match="different fields"):
@@ -448,8 +452,9 @@ def get_symplectic_form(half_dimension: int, field: type[galois.FieldArray]) -> 
     return math.block_matrix([[0, identity], [-identity, 0]]).view(field)
 
 
-def test_qudit_ops() -> None:
+def test_qudit_ops(pytestconfig: pytest.Config) -> None:
     """Logical and gauge operator construction for Galois qudit codes."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
     code: codes.QuditCode
 
     code = codes.FiveQubitCode()
@@ -467,15 +472,28 @@ def test_qudit_ops() -> None:
         stabilizer_ops = code.get_stabilizer_ops()
         logical_ops = code.get_logical_ops()
         gauge_ops = code.get_gauge_ops()
-        assert not np.any(math.symplectic_conjugate(stabilizer_ops) @ stabilizer_ops.T)
+        assert not np.any(stabilizer_ops @ math.symplectic_conjugate(stabilizer_ops).T)
         assert np.array_equal(
-            math.symplectic_conjugate(gauge_ops) @ gauge_ops.T,
+            gauge_ops @ math.symplectic_conjugate(gauge_ops).T,
             get_symplectic_form(code.gauge_dimension, code.field),
         )
         assert np.array_equal(
-            math.symplectic_conjugate(logical_ops) @ logical_ops.T,
+            logical_ops @ math.symplectic_conjugate(logical_ops).T,
             get_symplectic_form(code.dimension, code.field),
         )
+
+        logical_ops_x = logical_ops[: code.dimension]
+        logical_ops_z = logical_ops[code.dimension :]
+
+        # set logical X operators, determine suitable logical Z operators automatically
+        order = np.random.permutation(code.dimension)  # random permutation of logicals
+        code.set_logical_ops_x(logical_ops_x[order])
+        assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z[order])
+
+        # set logical Z operators, determine suitable logical X operators automatically
+        order = np.random.permutation(code.dimension)  # random permutation of logicals
+        code.set_logical_ops_z(logical_ops_z[order])
+        assert np.array_equal(code.get_logical_ops(Pauli.X), logical_ops_x[order])
 
     # test the guarantee of stabilizer canonicalization
     code = codes.FiveQubitCode()
@@ -513,16 +531,20 @@ def test_quantum_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.FiveQubitCode()
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-
-    with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
     # guaranteed logical X and Z errors
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
-        logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
-        assert logical_error_rate(1)[0] == 1
+        logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
+        assert logical_error_rate_func(1)[0] == 1
+
+    # with an erasure-enabled decoder, unrecognised syndromes are discarded
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
+    )
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
 
 
 def test_qudit_to_css() -> None:
@@ -551,10 +573,10 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert code.num_checks == code.num_checks_x + code.num_checks_z
     assert code == codes.CSSCode(code.code_x, code.code_z)
 
-    # equivlence to QuditCode with the same parity check matrix
+    # equivalence to QuditCode with the same parity check matrix
     assert code.is_equiv_to(codes.QuditCode(code.matrix))
 
-    # equivlence to code with redundant stabilizers
+    # equivalence to code with redundant stabilizers
     redundant_code = codes.CSSCode(np.vstack([code.matrix_x, code.matrix_x]), code.matrix_z)
     assert codes.CSSCode.equiv(code, redundant_code)
 
@@ -581,8 +603,9 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
 def test_css_ops(pytestconfig: pytest.Config) -> None:
     """Logical and stabilizer operator construction for CSS codes."""
     seed = pytestconfig.getoption("randomly_seed")
+    code: codes.CSSCode
 
-    code: codes.CSSCode = codes.SHPCode(codes.ClassicalCode.random(4, 2, field=3, seed=seed))
+    code = codes.SHPCode(codes.ClassicalCode.random(4, 2, field=3, seed=seed))
 
     # set X-type logicals and determine Z-type logicals automatically
     other_code = codes.CSSCode(code.matrix_x, code.matrix_z)
@@ -618,10 +641,6 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
 def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
-
-    # code = codes.SteaneCode()
-    # code.forget_distance()
-    # assert code.get_distance() == 3
 
     # qubit code distance
     code = codes.QuditCode(codes.SHPCode(codes.RepetitionCode(2)).matrix).to_css()
@@ -720,13 +739,35 @@ def test_css_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.SteaneCode()
 
-    logical_error_rate = code.get_logical_error_rate_func(num_samples=10)
-    assert logical_error_rate(0) == (0, 0)  # no logical error with zero uncertainty
-
-    with pytest.raises(ValueError, match="error rates greater than"):
-        logical_error_rate(1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
     # guaranteed logical X and Z errors
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
-        logical_error_rate = code.get_logical_error_rate_func(10, 1, pauli_bias)
-        assert logical_error_rate(1)[0] == 1
+        logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
+        assert logical_error_rate_func(1)[0] == 1
+
+    # pauli_bias convention is (X, Y, Z); (0, 0, 1) = pure Z
+    # if the max_weight for lookup is 0, any Z syndrome triggers erasure
+    logical_error_rate_func_z = code.get_logical_error_rate_func(
+        num_samples=1,
+        max_error_rate=1,
+        pauli_bias=(0, 0, 1),
+        with_lookup=True,
+        max_weight=0,
+        add_erasure_bit=True,
+    )
+    assert logical_error_rate_func_z(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func_z(0.5, discard_rate=True)[0] > 0  # Z syndromes → erasure
+
+    # (1 ,0, 0) = pure X: Z syndromes are always zero so samples reach the X decoder
+    logical_error_rate_func_x = code.get_logical_error_rate_func(
+        num_samples=1,
+        max_error_rate=1,
+        pauli_bias=(1, 0, 0),
+        with_lookup=True,
+        max_weight=0,
+        add_erasure_bit=True,
+    )
+    assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure

@@ -29,8 +29,8 @@ import qldpc
 
 
 def _bitwise_count(
-    val: npt.ArrayLike, out: npt.NDArray[np.uint] | None = None
-) -> npt.NDArray[np.uint]:
+    val: npt.ArrayLike, out: npt.NDArray[np.uint64] | None = None
+) -> npt.NDArray[np.uint64]:
     """Simplistic implementation of `bitwise_count` used to validate optimized variants."""
     val = np.asarray(val)
     nbits = 8 * val.itemsize
@@ -46,7 +46,8 @@ def _bitwise_count(
 
 
 def test_hamming_weight() -> None:
-    vals = np.random.randint(0, 2**64, size=(7, 11), dtype=np.uint)
+    """Validate _hamming_weight against a simple reference bit-counting implementation."""
+    vals = np.random.randint(0, 2**64, size=(7, 11), dtype=np.uint64)
     expected_weights = _bitwise_count(vals)
 
     weights = qldpc.codes.distance._hamming_weight(vals)
@@ -63,9 +64,10 @@ def test_hamming_weight() -> None:
 
 
 def test_symplectic_weight() -> None:
-    vals = np.random.randint(0, 2**64, size=(7, 11), dtype=np.uint)
+    """Validate _symplectic_weight against the reference bit-counting implementation."""
+    vals = np.random.randint(0, 2**64, size=(7, 11), dtype=np.uint64)
     weights = qldpc.codes.distance._symplectic_weight(vals)
-    expected_weights = _bitwise_count((vals | (vals >> np.uint(1))) & 0x5555555555555555)
+    expected_weights = _bitwise_count((vals | (vals >> np.uint64(1))) & 0x5555555555555555)
     np.testing.assert_array_equal(weights, expected_weights)
 
     weight_fn = np.vectorize(qldpc.codes.distance._symplectic_weight_single, signature="()->()")
@@ -79,7 +81,8 @@ def test_symplectic_weight() -> None:
 
 
 def test_get_hamming_weight_fn() -> None:
-    generators = np.random.randint(2, size=(4, 64), dtype=np.uint)
+    """_get_hamming_weight_fn selects the right backend: numpy bitcount, fallback, or numba."""
+    generators = np.random.randint(2, size=(4, 64), dtype=np.uint64)
     weight_fn, nbuf = qldpc.codes.distance._get_hamming_weight_fn()
     weights_default = weight_fn(generators)
 
@@ -123,7 +126,8 @@ def test_get_hamming_weight_fn() -> None:
 
 
 def test_get_symplectic_weight_fn() -> None:
-    generators = np.random.randint(2, size=(4, 56), dtype=np.uint)
+    """_get_symplectic_weight_fn selects the right backend: numpy bitcount, fallback, or numba."""
+    generators = np.random.randint(2, size=(4, 56), dtype=np.uint64)
     weight_fn, nbuf = qldpc.codes.distance._get_symplectic_weight_fn()
     weights_default = weight_fn(generators)
 
@@ -176,16 +180,18 @@ def test_get_symplectic_weight_fn() -> None:
 
 @pytest.mark.parametrize(
     "base_val",
-    [1, 2**64 - 1, int(np.random.randint(2**64, dtype=np.uint)) | 1],
+    [1, 2**64 - 1, int(np.random.randint(2**64, dtype=np.uint64)) | 1],
 )
 def test_count_trailing_zeros(base_val: int) -> None:
+    """_count_trailing_zeros(val << i) == i for several base values across all 128 shift amounts."""
     for i in range(128):
         assert qldpc.codes.distance._count_trailing_zeros(base_val << i) == i
 
 
 @pytest.mark.parametrize("width", range(1, 8))
 def test_inplace_rowsum(width: int) -> None:
-    arr = np.random.randint(2**31, size=(10, width), dtype=np.uint)
+    """_inplace_rowsum reduces each row to its sum and stores the result in the first column."""
+    arr = np.random.randint(2**31, size=(10, width), dtype=np.uint64)
     expected = arr.sum(-1)
     actual = qldpc.codes.distance._inplace_rowsum(arr)
     np.testing.assert_array_equal(actual, expected)
@@ -193,6 +199,7 @@ def test_inplace_rowsum(width: int) -> None:
 
 
 def test_rows_to_ints_endianness() -> None:
+    """_rows_to_ints produces the same bit order as np.packbits."""
     # Compare bit order to that used by `np.packbits`
     bits = np.random.randint(2, size=(10, 120))
     ints = qldpc.codes.distance._rows_to_ints(bits, dtype=np.uint8)
@@ -202,8 +209,9 @@ def test_rows_to_ints_endianness() -> None:
     np.testing.assert_array_equal(ints, expected)
 
 
-@pytest.mark.parametrize("dtype", [int, np.uint, np.uint8, np.int16])
+@pytest.mark.parametrize("dtype", [int, np.uint64, np.uint8, np.int16])
 def test_rows_to_ints(dtype: npt.DTypeLike) -> None:
+    """_rows_to_ints packs binary rows into integer words of the requested dtype."""
     bits = np.random.randint(2, size=(10, 93))
     ints = qldpc.codes.distance._rows_to_ints(bits, dtype=dtype)
 
@@ -243,6 +251,7 @@ def test_rows_to_ints(dtype: npt.DTypeLike) -> None:
 
 @pytest.mark.parametrize("block_size", range(1, 14))
 def test_get_distance_classical(block_size: int) -> None:
+    """get_distance_classical visits every nontrivial XOR combination of generators exactly once."""
     generators = np.random.randint(2, size=(9, 137))
 
     # Intercept `hamming_weight` calls to check that every nontrivial combination of generators
@@ -250,10 +259,10 @@ def test_get_distance_classical(block_size: int) -> None:
     observed_bitstrings: list[tuple[int, ...]] = []
 
     def _mock_hamming_weight(
-        arr: npt.NDArray[np.uint],
-        buf: npt.NDArray[np.uint] | None = None,
-        out: npt.NDArray[np.uint] | None = None,
-    ) -> npt.NDArray[np.uint]:
+        arr: npt.NDArray[np.uint64],
+        buf: npt.NDArray[np.uint64] | None = None,
+        out: npt.NDArray[np.uint64] | None = None,
+    ) -> npt.NDArray[np.uint64]:
         observed_bitstrings.extend(map(tuple, arr.tolist()))
         return qldpc.codes.distance._hamming_weight(arr, buf=buf, out=out)
 
@@ -272,13 +281,17 @@ def test_get_distance_classical(block_size: int) -> None:
     assert len(observed_bitstrings) == len(expected_bitstrings)
     assert set(observed_bitstrings) == set(expected_bitstrings)
 
-    observed_array = np.array(observed_bitstrings, dtype=np.uint)
+    observed_array = np.array(observed_bitstrings, dtype=np.uint64)
     expected_distance = _bitwise_count(observed_array).sum(-1).min()
     assert distance == expected_distance
 
 
 @pytest.mark.parametrize("block_size", range(1, 14))
 def test_get_distance_quantum(block_size: int) -> None:
+    """get_distance_quantum visits every stabilizer + logical-op combination exactly once.
+
+    Uses Hamming (homogeneous) weight mode.
+    """
     stabilizers = np.random.randint(2, size=(8, 97))
     logical_ops = np.random.randint(2, size=(5, 97))
 
@@ -287,10 +300,10 @@ def test_get_distance_quantum(block_size: int) -> None:
     observed_bitstrings: list[tuple[int, ...]] = []
 
     def _mock_hamming_weight(
-        arr: npt.NDArray[np.uint],
-        buf: npt.NDArray[np.uint] | None = None,
-        out: npt.NDArray[np.uint] | None = None,
-    ) -> npt.NDArray[np.uint]:
+        arr: npt.NDArray[np.uint64],
+        buf: npt.NDArray[np.uint64] | None = None,
+        out: npt.NDArray[np.uint64] | None = None,
+    ) -> npt.NDArray[np.uint64]:
         observed_bitstrings.extend(map(tuple, arr.tolist()))
         return qldpc.codes.distance._hamming_weight(arr, buf=buf, out=out)
 
@@ -314,13 +327,17 @@ def test_get_distance_quantum(block_size: int) -> None:
     assert len(observed_bitstrings) == len(expected_bitstrings)
     assert set(observed_bitstrings) == set(expected_bitstrings)
 
-    observed_array = np.array(observed_bitstrings, dtype=np.uint)
+    observed_array = np.array(observed_bitstrings, dtype=np.uint64)
     expected_distance = _bitwise_count(observed_array).sum(-1).min()
     assert distance == expected_distance
 
 
 @pytest.mark.parametrize("block_size", range(1, 14))
 def test_get_distance_quantum_symplectic(block_size: int) -> None:
+    """get_distance_quantum visits every stabilizer + logical-op combination exactly once.
+
+    Uses symplectic weight mode.
+    """
     stabilizers = np.random.randint(2, size=(3, 98))
     logical_ops = np.random.randint(2, size=(5, 98))
 
@@ -329,10 +346,10 @@ def test_get_distance_quantum_symplectic(block_size: int) -> None:
     observed_bitstrings: list[tuple[int, ...]] = []
 
     def _mock_symplectic_weight(
-        arr: npt.NDArray[np.uint],
-        buf: npt.NDArray[np.uint] | None = None,
-        out: npt.NDArray[np.uint] | None = None,
-    ) -> npt.NDArray[np.uint]:
+        arr: npt.NDArray[np.uint64],
+        buf: npt.NDArray[np.uint64] | None = None,
+        out: npt.NDArray[np.uint64] | None = None,
+    ) -> npt.NDArray[np.uint64]:
         observed_bitstrings.extend(map(tuple, arr.tolist()))
         return qldpc.codes.distance._symplectic_weight(arr, buf=buf, out=out)
 
@@ -364,7 +381,8 @@ def test_get_distance_quantum_symplectic(block_size: int) -> None:
 
 
 def test_get_distance_classical_methods() -> None:
-    generators = np.random.randint(2, size=(6, 56), dtype=np.uint)
+    """get_distance_classical dispatches to numpy bitcount, fallback, or numba as available."""
+    generators = np.random.randint(2, size=(6, 56), dtype=np.uint64)
     distance_default = qldpc.codes.distance.get_distance_classical(generators, block_size=3)
 
     # Tests should work with numpy < 2.0.0 so provide a backup `np.bitwise_count` implementation
@@ -412,8 +430,9 @@ def test_get_distance_classical_methods() -> None:
 
 
 def test_get_distance_quantum_methods() -> None:
-    stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint)
-    logical_ops = np.random.randint(2, size=(3, 56), dtype=np.uint)
+    """get_distance_quantum (homogeneous) dispatches to numpy bitcount, fallback, or numba."""
+    stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint64)
+    logical_ops = np.random.randint(2, size=(3, 56), dtype=np.uint64)
     distance_default = qldpc.codes.distance.get_distance_quantum(
         logical_ops, stabilizers, block_size=3, homogeneous=True
     )
@@ -467,8 +486,9 @@ def test_get_distance_quantum_methods() -> None:
 
 
 def test_get_distance_quantum_methods_symplectic() -> None:
-    stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint)
-    logical_ops = np.random.randint(2, size=(3, 56), dtype=np.uint)
+    """get_distance_quantum (symplectic) dispatches to numpy bitcount, fallback, or numba."""
+    stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint64)
+    logical_ops = np.random.randint(2, size=(3, 56), dtype=np.uint64)
     distance_default = qldpc.codes.distance.get_distance_quantum(
         logical_ops, stabilizers, block_size=3, homogeneous=False
     )
@@ -533,6 +553,7 @@ def test_get_distance_quantum_methods_symplectic() -> None:
 def test_get_distance_classical_known_codes(
     code: qldpc.codes.ClassicalCode, expected_distance: int
 ) -> None:
+    """Classical distance matches known values for Hamming, repetition, and ring codes."""
     distance = qldpc.codes.distance.get_distance_classical(code.generator)
     assert distance == expected_distance
 
@@ -552,6 +573,7 @@ def test_get_distance_classical_known_codes(
     ],
 )
 def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_distance: int) -> None:
+    """Quantum distance matches known values for C4, C6, Steane, and small surface/toric codes."""
     distance_x = qldpc.codes.distance.get_distance_quantum(
         code.get_logical_ops(qldpc.objects.Pauli.X),
         code.get_stabilizer_ops(qldpc.objects.Pauli.X),
@@ -582,6 +604,7 @@ def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_dist
 def test_get_distance_quantum_noncss_codes(
     code: qldpc.codes.QuditCode, expected_distance: int
 ) -> None:
+    """Quantum distance matches known values for small non-CSS codes."""
     distance = qldpc.codes.distance.get_distance_quantum(
         code.get_logical_ops(),
         code.get_stabilizer_ops(),

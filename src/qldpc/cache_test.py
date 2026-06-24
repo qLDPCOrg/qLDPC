@@ -26,7 +26,7 @@ import qldpc.cache
 
 
 def test_pytest() -> None:
-    """We are running with pytest."""
+    """Disk caching is bypassed when running under pytest."""
     assert qldpc.cache.running_with_pytest()
 
     def test_func() -> None: ...

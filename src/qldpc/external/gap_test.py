@@ -94,6 +94,13 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
         ):
             assert external.gap.get_output() == "_TEST_"
 
+        # GAP is callable, and succeeds with piped input
+        with (
+            unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process("_TEST_")),
+        ):
+            assert external.gap.get_output(use_pipe=True) == "_TEST_"
+
         # GAP is not callable, so the user must pass around commands and outputs
         cache: dict[str, str] = {}
         inputs = iter(["_OUTPUT_", ""])

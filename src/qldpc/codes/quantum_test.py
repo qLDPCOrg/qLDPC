@@ -26,11 +26,32 @@ import pytest
 import sympy
 from sympy.abc import x, y
 
+import qldpc
 from qldpc import abstract, codes
-from qldpc.math import block_matrix
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
+
+
+def test_trivial_code() -> None:
+    """The trivial code is... trivial."""
+    code = codes.TrivialCode(3, 2)
+    assert code.num_checks_x == 0
+    assert code.num_checks_z == 2
+    assert code.get_distance() == 1
+
+    code = codes.TrivialCode(4, 2, 1)
+    assert code.num_checks_x == 2
+    assert code.num_checks_z == 1
+    assert code.get_distance() == 1
+
+    code = codes.TrivialCode(6, 2, gauge_dimension=1, self_dual=True)
+    assert np.array_equal(code.get_stabilizer_ops(Pauli.X), code.get_stabilizer_ops(Pauli.Z))
+    assert code.gauge_dimension == 1
+    assert code.get_distance() == 1
+
+    with pytest.raises(ValueError, match="equal number of X and Z stabilizers"):
+        code = codes.TrivialCode(4, 2, 1, self_dual=True)
 
 
 def test_small_codes() -> None:
@@ -57,14 +78,12 @@ def test_hamming_and_tetrahedral_codes() -> None:
     assert tetrahedral_code.get_code_params() == (15, 1, 3)
     assert tetrahedral_code.is_equiv_to(codes.TetrahedralCode(algebraic=True))
 
-    """
-    The tetrahedral code (TC) can be constructed by concatenating the quantum Hamming code (QHC)
-    with a classical code on the logical X operators of the QHC, as we show below.  To this end, we
-    first decompose the logical X operator of the TC into a product of logical X operators of the
-    QHC, which can be found by checking (anti-)commutation with the logical Zs of the QHC.  We then
-    concatenate the QHC with a classical code that has only this combination of QHC logical Xs as a
-    nontrivial code word.
-    """
+    # The tetrahedral code (TC) can be constructed by concatenating the quantum Hamming code (QHC)
+    # with a classical code on the logical X operators of the QHC, as we show below.  To this end,
+    # we first decompose the logical X operator of the TC into a product of logical X operators of
+    # the QHC, which can be found by checking (anti-)commutation with the logical Zs of the QHC.
+    # We then concatenate the QHC with a classical code that has only this combination of QHC
+    # logical Xs as a nontrivial code word.
     decomposition = (
         tetrahedral_code.get_logical_ops(Pauli.X) @ quantum_hamming_code.get_logical_ops(Pauli.Z).T
     )
@@ -120,10 +139,10 @@ def test_bivariate_bicycle_codes() -> None:
     assert code.dimension == 8
     for orders, poly_a, poly_b in code.get_equivalent_toric_layout_code_data():
         # assert that the polynomials look like 1 + x + ... and 1 + y + ...
-        exponents_a = [code.get_coefficient_and_exponents(term)[1] for term in poly_a.args]
-        exponents_b = [code.get_coefficient_and_exponents(term)[1] for term in poly_b.args]
-        assert {} in exponents_a and {x: 1} in exponents_a
-        assert {} in exponents_b and {y: 1} in exponents_b
+        exponents_a = [abstract.get_coefficient_and_exponents(term)[1] for term in poly_a.args]
+        exponents_b = [abstract.get_coefficient_and_exponents(term)[1] for term in poly_b.args]
+        assert [] in exponents_a and [(x, 1)] in exponents_a
+        assert [] in exponents_b and [(y, 1)] in exponents_b
 
         # assert that the code has equivalent parameters
         equiv_code = codes.BBCode(orders, poly_a, poly_b, field=3)
@@ -215,15 +234,11 @@ def get_dist_l1(
 
 
 def test_quasi_cyclic_codes() -> None:
-    """Multivariave versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
+    """Multivariate versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
 
     # not enough orders provided
     with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
         codes.QCCode([], x, y)
-
-    # invalid coefficients
-    with pytest.raises(ValueError, match="Coefficient .* is invalid"):
-        codes.QCCode([2], 2 * x, x)
 
     # add placeholder symbols if necessary
     code = codes.QCCode([1, 2, 3], x, x * y)
@@ -257,7 +272,38 @@ def test_hypergraph_product(
     assert_valid_subgraphs(code)
 
     # verify that the canonical logicals are valid
-    code.set_logical_ops(code.get_logical_ops(), validate=True)
+    code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
+
+    # verify X and Z distance
+    dist_x = code.get_distance(Pauli.X)
+    dist_z = code.get_distance(Pauli.Z)
+    code._get_distance_exact = lambda _: NotImplemented  # type:ignore[method-assign,assignment]
+    assert dist_x == code.get_distance(Pauli.X)
+    assert dist_z == code.get_distance(Pauli.Z)
+
+
+def test_cyclic_hypergraph_product_codes() -> None:
+    """CHGPCode and CRCode."""
+
+    # verify Remark 3 from arxiv:2511.09683v2
+    code_a = codes.CHGPCode((4, 4), 1 - x, 1 - y, field=3)
+    code_b = codes.ToricCode(4, rotated=False, field=3)
+    assert np.array_equal(code_a.matrix_x, code_b.matrix_x)
+    assert np.array_equal(code_a.matrix_z, code_b.matrix_z)
+
+    # reproduce Table 3 from arxiv:2511.09683v2
+    chgp_codes = {
+        (15, 1 + x + x**4): ((450, 32, 8), (240, 8, 8)),
+        (21, 1 + x + x**5): ((882, 50, 10), (420, 10, 10)),
+        (28, 1 + x**2 + x**4 + x**10): ((1568, 200, 6), (336, 20, 6)),
+        (21, 1 + x + x**3 + x**8): ((882, 98, 8), (336, 14, 8)),
+        (30, 1 + x + x**2 + x**7): ((1800, 72, 14), (840, 12, 14)),
+        (31, 1 + x + x**2 + x**6 + x**27): ((1922, 200, 10), (620, 20, 10)),
+        (31, 1 + x + x**3 + x**9 + x**10): ((1922, 200, 12), (744, 20, 12)),
+    }
+    for (bits, poly), (c2_params, cr_params) in chgp_codes.items():
+        assert codes.CHGPCode(bits, poly).get_code_params() == c2_params
+        assert codes.CRCode(bits, poly).get_code_params() == cr_params
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -281,7 +327,7 @@ def test_subsystem_hypergraph_product(
     )
 
     # verify that the canonical logicals are valid
-    code.set_logical_ops(code.get_logical_ops(), validate=True)
+    code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
 
 def test_trivial_lift(
@@ -297,8 +343,8 @@ def test_trivial_lift(
     code_b = codes.ClassicalCode.random(*bits_checks_b, field=field, seed=np.random.randint(2**31))
     code_HGP = codes.HGPCode(code_a, code_b, field)
 
-    matrix_a = abstract.TrivialGroup.to_ring_array(code_a.matrix)
-    matrix_b = abstract.TrivialGroup.to_ring_array(code_b.matrix)
+    matrix_a = abstract.RingArray.build(code_a.matrix)
+    matrix_b = abstract.RingArray.build(code_b.matrix)
     code_LP = codes.LPCode(matrix_a, matrix_b)
 
     assert np.array_equal(code_HGP.matrix_x, code_LP.matrix_x)
@@ -314,11 +360,11 @@ def test_trivial_lift(
     assert np.array_equal(matrix_z.lift(), code_HGP.matrix_z)
 
 
-def test_lift() -> None:
+def test_lift(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """Verify lifting in Eqs. (8) and (10) of arXiv:2202.01702v3."""
-    group = abstract.CyclicGroup(3)
-    zero = abstract.RingMember(group)
-    x0, x1, x2 = [abstract.RingMember(group, member) for member in group.generate()]
+    ring = ring_cyclic3_gf2
+    zero = abstract.RingMember(ring.group)
+    x0, x1, x2 = [abstract.RingMember(ring, member) for member in ring.group.generate()]
     base_matrix = [[x1 + x2, x0, zero], [zero, x0 + x1, x1]]
 
     ring_matrix = abstract.RingArray(base_matrix)
@@ -334,7 +380,7 @@ def test_lift() -> None:
 
     # check that the lifted product code is indeed smaller than the HGP code!
     code_HP = codes.HGPCode(lifted_matrix)
-    code_LP = codes.LPCode(ring_matrix)
+    code_LP = codes.LPCode(ring_matrix, set_logicals=True)
     assert code_HP.num_qudits > code_LP.num_qudits
     assert code_HP.num_checks > code_LP.num_checks
 
@@ -342,8 +388,15 @@ def test_lift() -> None:
     assert code_HP.sector_size.sum() == code_HP.num_qudits + code_HP.num_checks
     assert code_LP.sector_size.sum() == code_LP.num_qudits + code_LP.num_checks
 
+    # line operators for the LPCode have lower weight than Gottesman-canonical logicals
+    logical_line_ops = code_LP.get_logical_ops()
+    logical_ops = code_LP.get_logical_ops(recompute=True)
+    line_weights = np.count_nonzero(logical_line_ops.view(np.ndarray), axis=1)
+    weights = np.count_nonzero(logical_ops.view(np.ndarray), axis=1)
+    assert np.all(line_weights <= weights)
 
-def test_twisted_XZZX(width: int = 3) -> None:
+
+def test_twisted_xzzx(width: int = 3) -> None:
     """Verify twisted XZZX code in Eqs.(29) and (32) of arXiv:2202.01702v3."""
     num_qudits = 2 * width**2
     code: codes.QuditCode
@@ -352,22 +405,30 @@ def test_twisted_XZZX(width: int = 3) -> None:
     ring_code = codes.RingCode(width).matrix.T
     mat_1 = np.kron(ring_code, np.eye(width, dtype=int))
     mat_2 = codes.RingCode(num_qudits // 2).matrix.T
-    matrix = block_matrix(
+    matrix = qldpc.math.block_matrix(
         [
             [mat_1, 0, 0, mat_2.T],
             [0, mat_1.T, -mat_2, 0],
         ]
-    ).view(np.ndarray)
+    )
 
     # construct lifted product code
     group = abstract.CyclicGroup(num_qudits // 2)
     ring = abstract.GroupRing(group)
-    shift = abstract.RingMember(ring, group.generators[0])
+    shift = ring.generators[0]
     element_a = ring.one - shift**width
     element_b = ring.one - shift
-    code = codes.LPCode([[element_a]], [[element_b]])
+    code = codes.LPCode([[element_a]], [[element_b]], set_logicals=True)
     bias_tailoring_qubits = code.bias_tailoring_qubits
     assert np.array_equal(matrix, code.conjugated(bias_tailoring_qubits).matrix)
+
+    # the canonical line operators for this code are disjoint!
+    logical_ops = np.count_nonzero(code.get_logical_ops().view(np.ndarray), axis=0)
+    assert np.all(logical_ops == 1)
+
+    # ...which is not true of the Gottesman-canonical logicals
+    logical_ops = np.count_nonzero(code.get_logical_ops(recompute=True).view(np.ndarray), axis=0)
+    assert ~np.all(logical_ops == 1)
 
     # same construction with a chain complex
     matrix_a = abstract.RingArray([[element_a]])
@@ -395,10 +456,71 @@ def test_lifted_product_codes() -> None:
         rate = code.dimension / code.num_qudits
         assert rate >= 2 / 17
 
-        # the subsystem version of this code has a highe encoding rate
+        # the subsystem version of this code has a higher encoding rate
         subsystem_code = codes.SLPCode(matrix)
         subsystem_rate = subsystem_code.dimension / subsystem_code.num_qudits
         assert subsystem_rate > rate
+
+
+def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) -> None:
+    """Subsystem lifted product codes in arXiv:2404.18302v1."""
+
+    # example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1
+    group = abstract.CyclicGroup(2)
+    ring = abstract.GroupRing(group)
+    xx = ring.generators[0]
+    matrix = abstract.RingArray.build([[1, xx, xx], [xx, xx, 1]])  # Eq. 21
+    code = codes.SLPCode(matrix)
+    assert code.get_code_params() == (18, 4, 2)
+
+    # example 2 on page 6 of https://arxiv.org/pdf/2404.18302v1
+    ring = ring_cyclic3_gf2
+    xx = ring.generators[0]
+    matrix = abstract.RingArray.build([[xx**2 + xx + 1, xx + 1, xx]])  # Eq. 23
+    code = codes.SLPCode(matrix, set_logicals=True)
+    assert code.get_code_params() == (27, 12, 2)
+
+    # line operators for this code have (on average) lower weight than Gottesman-canonical logicals
+    logical_line_ops = code.get_logical_ops()
+    logical_ops = code.get_logical_ops(recompute=True)
+    line_weights = np.count_nonzero(logical_line_ops.view(np.ndarray), axis=1)
+    weights = np.count_nonzero(logical_ops.view(np.ndarray), axis=1)
+    assert np.sum(line_weights) < np.sum(weights)
+
+
+def test_lifted_product_line_logicals(
+    pytestconfig: pytest.Config, ring: abstract.GroupRing, rows: int = 2, cols: int = 3
+) -> None:
+    """Canonical line operators of lifted product codes."""
+    code: codes.CSSCode
+
+    seed = pytestconfig.getoption("randomly_seed")
+    sympy.core.random.seed(seed)
+
+    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
+    matrix = abstract.RingArray.build(values, ring)
+    code = codes.LPCode(matrix, set_logicals=True)
+    assert np.array_equal(
+        code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
+        np.eye(code.dimension),
+    )
+
+    code = codes.SLPCode(matrix, set_logicals=True)
+    assert np.array_equal(
+        code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
+        np.eye(code.dimension),
+    )
+
+
+def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
+    """We do not support line operators in lifted product codes with non-semisimple rings."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
+    matrix = abstract.RingArray.build(values, ring)
+    with pytest.raises(ValueError, match="not yet supported"):
+        codes.LPCode(matrix, set_logicals=True)
+    with pytest.raises(ValueError, match="not yet supported"):
+        codes.SLPCode(matrix, set_logicals=True)
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
@@ -497,7 +619,7 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
     assert codes.CSSCode.get_distance(code, Pauli.Z) == rows
     assert_valid_subgraphs(code)
 
-    # the bais-tailored rotated surface code is an XZZX code
+    # the bias-tailored rotated surface code is an XZZX code
     code = codes.SurfaceCode(max(rows, cols), rotated=True)
     for row in code.conjugated(code.bias_tailoring_qubits).matrix:
         row_x, row_z = row[: code.num_qudits], row[-code.num_qudits :]
@@ -538,7 +660,7 @@ def test_toric_codes() -> None:
     code = codes.ToricCode(2, rotated=True)
     assert len(code.matrix_x) == len(code.matrix_z) == 1
 
-    # the bais-tailored rotated toric code is an XZZX code
+    # the bias-tailored rotated toric code is an XZZX code
     rows, cols = 6, 4
     code = codes.ToricCode(rows, cols, rotated=True)
     for row in code.conjugated(code.bias_tailoring_qubits).matrix:
@@ -574,6 +696,39 @@ def test_generalized_surface_codes(size: int = 3) -> None:
 
     with pytest.raises(ValueError, match=">= 2"):
         codes.GeneralizedSurfaceCode(size, dim=1)
+
+
+def test_4d_toric_codes() -> None:
+    """Reproduce Table 1 from arXiv:2506.15130v1."""
+    t4_codes = {
+        ((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 0), (0, 0, 0, 2)): (12, 6, 2),
+        ((1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 1), (0, 0, 0, 3)): (18, 6, 3),
+        ((1, 0, 0, 1), (0, 1, 0, 2), (0, 0, 1, 3), (0, 0, 0, 5)): (30, 6, 4),
+    }
+    for lattice, params in t4_codes.items():
+        code = codes.T4Code(lattice)
+        assert code.get_code_params() == params
+
+        # check the Betti numbers of the chain complex
+        d_1, d_2, d_3 = code.chain.ops
+        assert not isinstance(d_1, abstract.RingArray)
+        assert not isinstance(d_2, abstract.RingArray)
+        assert not isinstance(d_3, abstract.RingArray)
+
+        # the first Betti number of T^4 is 4
+        dim_ker_d1 = d_1.shape[1] - np.linalg.matrix_rank(d_1)
+        dim_im_d2 = np.linalg.matrix_rank(d_2)
+        assert dim_ker_d1 - dim_im_d2 == 4
+
+        # the second Betti number of T^4 is 6
+        dim_ker_d2 = d_2.shape[1] - np.linalg.matrix_rank(d_2)
+        dim_im_d3 = np.linalg.matrix_rank(d_3)
+        assert dim_ker_d2 - dim_im_d3 == 6
+
+    # the "Hadamard lattice code" of arXiv:2506.15130v1
+    hadamard = [[1, 1], [1, -1]]
+    code = codes.T4Code(np.kron(hadamard, hadamard))
+    assert (len(code), code.dimension) == (96, 6)
 
 
 def test_many_hypercube_code() -> None:

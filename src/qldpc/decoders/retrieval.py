@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import inspect
 import sys
-import warnings
 from collections.abc import Sequence
 
 import galois
@@ -99,7 +98,7 @@ def get_decoder_BP_OSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
     f"""Decoder based on belief propagation with ordered statistics (BP+OSD).
@@ -108,7 +107,7 @@ def get_decoder_BP_OSD(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
@@ -130,7 +129,7 @@ def get_decoder_BP_LSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
     f"""Decoder based on belief propagation with localized statistics (BP+LSD).
@@ -139,7 +138,7 @@ def get_decoder_BP_LSD(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
@@ -161,7 +160,7 @@ def get_decoder_BF(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
     f"""Decoder based on belief finding (BF).
@@ -170,7 +169,7 @@ def get_decoder_BF(
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: A vector declaring the probability of each errer mechanism in pcm_or_dem.
+        error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
             If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
@@ -194,8 +193,8 @@ def get_decoder_BF(
 def _to_ldpc_inputs(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_rate: float,
-    error_channel: npt.NDArray[np.float64] | Sequence[float] | None,
-) -> tuple[IntegerArray, npt.NDArray[np.float64] | Sequence[float]]:
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
+) -> tuple[IntegerArray, list[float]]:
     """Post-process the arguments to ldpc decoders."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
@@ -204,12 +203,13 @@ def _to_ldpc_inputs(
     else:
         pcm = pcm_or_dem
         error_channel = [error_rate] * pcm.shape[1] if error_channel is None else error_channel
-    return pcm, error_channel
+    return pcm, list(error_channel)
 
 
 def get_decoder_MWPM(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
+    decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
     **decoder_args: object,
 ) -> BatchDecoder:
@@ -217,16 +217,13 @@ def get_decoder_MWPM(
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
-        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors.
+        decompose_errors: Whether apply suggested decompositions of error mechanisms.
+        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors (after
+            decomposition, if applicable).
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
 
     Returns:
         A decoder constructed by pymatching.Matching.from_check_matrix.
-
-    If called with the keyword argument ignore_non_graphlike_errors=True, columns of the parity
-    check matrix with more than two ones (which correspond to error mechanisms that trigger more
-    than two detectors in a detector error model) are ignored.  Otherwise, such columns cause
-    pymatching to throw an error.
 
     All other keyword arguments are passed to pymatching.Matching.from_check_matrix.
 
@@ -237,27 +234,31 @@ def get_decoder_MWPM(
     """
     # identify parity check matrix and error probabilities
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
+        dem_arrays = DetectorErrorModelArrays(pcm_or_dem, decompose_errors=decompose_errors)
         pcm = dem_arrays.detector_flip_matrix
-        if decoder_args.get("error_probabilities") is not None:  # pragma: no cover
-            warnings.warn(
-                "Explicitly provided error_probabilities will override the error probabilities of"
-                " the provided detector error model",
-                stacklevel=2,
-            )
-        else:
-            decoder_args["error_probabilities"] = dem_arrays.error_probs
+        if decoder_args.get("weights") is not None:  # pragma: no cover
+            raise ValueError("Cannot set error weights when initializing a MWPM decoder from a DEM")
+        decoder_args["weights"] = np.log((1 - dem_arrays.error_probs) / dem_arrays.error_probs)
     else:
         pcm = pcm_or_dem
 
     # possibly ignore non-graphlike errors
+    detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
+    error_is_not_graphlike = detectors_per_error > 2
     if ignore_non_graphlike_errors:
-        detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
-        error_is_not_graphlike = detectors_per_error > 2
         if np.any(error_is_not_graphlike):
             mask = np.ones(pcm.shape[1])
             mask[error_is_not_graphlike] = 0
             pcm = pcm @ scipy.sparse.diags(mask)
+    elif np.any(error_is_not_graphlike):
+        raise ValueError(
+            "The provided parity check matrix or detector error model contains a non-graphlike"
+            " error, meaning some column of the parity check matrix contains more than two ones,"
+            " which may occur (for example) due to the presence of a Pauli-Y error that flips both"
+            " X and Z detectors.  Try decomposing non-graphlike errors by passing"
+            " 'decompose_errors=True' to the decoder.  If that does not work either, you can try"
+            " 'ignore_non_graphlike_errors=True'"
+        )
 
     # retrieve a matching decoder from pymatching
     return pymatching.Matching.from_check_matrix(pcm, **decoder_args)
@@ -265,7 +266,7 @@ def get_decoder_MWPM(
 
 def get_decoder_RBP(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-    error_priors: npt.NDArray[np.float64] | Sequence[float] | None = None,
+    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> RelayBPDecoder:
     """Relay-BP decoders.

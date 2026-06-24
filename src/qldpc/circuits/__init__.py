@@ -1,19 +1,35 @@
-from .alpha_syndrome import AlphaSyndrome
+from .benchmarking import (
+    get_logical_error_and_discard_rate,
+    get_state_prep_diagnostic_circuit,
+    get_state_prep_diagnostic_tasks,
+)
 from .bookkeeping import (
     DetectorRecord,
     MeasurementRecord,
-    MemoryExperimentParts,
     QubitIDs,
     Record,
 )
 from .common import (
+    get_pauli_product_measurements,
+    get_unaddressed_measurements,
+    restrict_to_qubits,
+    with_remapped_qubits,
+)
+from .encoding import (
     get_encoder_and_decoder,
     get_encoding_circuit,
     get_encoding_tableau,
+    get_logical_state_stabilizers,
     get_logical_tableau,
-    with_remapped_qubits,
+    get_state_stabilizers,
+    restrict_tableau,
 )
 from .memory import (
+    AlphaSyndrome,
+    EdgeColoring,
+    EdgeColoringXZ,
+    MemoryExperimentParts,
+    SyndromeMeasurementStrategy,
     get_logical_bell_prep,
     get_memory_experiment,
     get_memory_experiment_parts,
@@ -28,11 +44,6 @@ from .noise_model import (
     TargetedNoiseRule,
     as_noiseless_circuit,
 )
-from .syndrome_measurement import (
-    EdgeColoring,
-    EdgeColoringXZ,
-    SyndromeMeasurementStrategy,
-)
 from .transversal import (
     get_transversal_automorphism_group,
     get_transversal_circuit,
@@ -41,16 +52,29 @@ from .transversal import (
 )
 
 __all__ = [
+    "get_logical_error_and_discard_rate",
+    "get_state_prep_diagnostic_circuit",
+    "get_state_prep_diagnostic_tasks",
     "DetectorRecord",
     "MeasurementRecord",
-    "MemoryExperimentParts",
     "QubitIDs",
     "Record",
+    "get_pauli_product_measurements",
+    "get_unaddressed_measurements",
+    "restrict_to_qubits",
+    "with_remapped_qubits",
     "get_encoder_and_decoder",
     "get_encoding_circuit",
     "get_encoding_tableau",
+    "get_logical_state_stabilizers",
     "get_logical_tableau",
-    "with_remapped_qubits",
+    "get_state_stabilizers",
+    "restrict_tableau",
+    "AlphaSyndrome",
+    "EdgeColoring",
+    "EdgeColoringXZ",
+    "MemoryExperimentParts",
+    "SyndromeMeasurementStrategy",
     "get_logical_bell_prep",
     "get_memory_experiment",
     "get_memory_experiment_parts",
@@ -62,10 +86,6 @@ __all__ = [
     "SI1000NoiseModel",
     "TargetedNoiseRule",
     "as_noiseless_circuit",
-    "EdgeColoring",
-    "EdgeColoringXZ",
-    "AlphaSyndrome",
-    "SyndromeMeasurementStrategy",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",
     "get_transversal_circuits",

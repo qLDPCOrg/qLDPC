@@ -22,9 +22,9 @@ import collections
 import functools
 import itertools
 import math
-import operator
 import os
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
+from typing import TypeVar
 
 import galois
 import networkx as nx
@@ -32,13 +32,15 @@ import numpy as np
 import numpy.typing as npt
 import scipy
 import sympy
+from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
 from qldpc import abstract
-from qldpc.abstract import DEFAULT_FIELD_ORDER
+from qldpc.abstract import GF2, resolve_field
 from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditPauli
 
 from .classical import (
+    CyclicCode,
     HammingCode,
     ReedMullerCode,
     RepetitionCode,
@@ -47,6 +49,71 @@ from .classical import (
     TannerCode,
 )
 from .common import ClassicalCode, CSSCode, QuditCode
+
+
+class TrivialCode(CSSCode):
+    """The trivial code with single-qubit logical operators."""
+
+    def __init__(
+        self,
+        size: int,
+        num_stabs: int = 0,
+        num_stabs_z: int | None = None,
+        *,
+        gauge_dimension: int = 0,
+        self_dual: bool = False,
+        field: int | type[galois.FieldArray] | None = None,
+    ):
+        """Initialize a trivial code with the given code parameters.
+
+        If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers.
+        If num_stabs_z is None and...
+            self_dual is False, then num_stabs is the number of Z-type stabilizers.
+            self_dual is True, then num_stabs is the total number of stabilizers.
+        """
+        field = resolve_field(field)
+        dimension = size - gauge_dimension - num_stabs - num_stabs - (num_stabs_z or 0)
+
+        if self_dual:
+            if num_stabs_z is None:
+                num_stabs_x = num_stabs_z = num_stabs // 2
+            else:
+                num_stabs_x = num_stabs
+            if num_stabs % 2 or num_stabs_x != num_stabs_z:
+                raise ValueError(
+                    "Self-dual trivial codes must have an equal number of X and Z stabilizers"
+                )
+        else:
+            if num_stabs_z is None:
+                num_stabs_x = 0
+                num_stabs_z = num_stabs
+            else:
+                num_stabs_x = num_stabs
+
+        num_checks_x = gauge_dimension + num_stabs_x
+        num_checks_z = gauge_dimension + num_stabs_z
+        matrix_x = field.Zeros((num_checks_x, size))
+        matrix_z = field.Zeros((num_checks_z, size))
+
+        gauge_qubits = np.arange(dimension, dimension + gauge_dimension)
+        matrix_x[range(gauge_dimension), gauge_qubits] = 1
+        matrix_z[range(gauge_dimension), gauge_qubits] = 1
+
+        stab_x_qubits = range(size - num_stabs_z - num_stabs_x, size - num_stabs_z)
+        stab_z_qubits = range(size - num_stabs_z, size)
+
+        matrix_x[range(gauge_dimension, num_checks_x), stab_x_qubits] = 1
+        matrix_z[range(gauge_dimension, num_checks_z), stab_z_qubits] = 1
+        if self_dual:
+            matrix_x[range(gauge_dimension, num_checks_x), stab_z_qubits] = 1
+            matrix_z[range(gauge_dimension, num_checks_z), stab_x_qubits] = 1
+
+        super().__init__(
+            matrix_x,
+            matrix_z,
+            is_subsystem_code=bool(gauge_dimension),
+            promise_equal_distance_xz=True,
+        )
 
 
 class FiveQuditCode(QuditCode):
@@ -58,8 +125,8 @@ class FiveQuditCode(QuditCode):
     - https://errorcorrectionzoo.org/c/galois_5_1_3
     """
 
-    def __init__(self, field: int | None = None) -> None:
-        code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
+    def __init__(self, field: int | type[galois.FieldArray] | None = None) -> None:
+        field = resolve_field(field)
         matrix = [
             [1, 0, 0, -1, 0, 0, 1, -1, 0, 0],
             [0, 1, 0, 0, -1, 0, 0, 1, -1, 0],
@@ -67,7 +134,7 @@ class FiveQuditCode(QuditCode):
             [0, -1, 0, 1, 0, -1, 0, 0, 0, 1],
         ]
         super().__init__(
-            code_field(1) * np.array(matrix, dtype=int),
+            field(1) * np.array(matrix, dtype=int),
             is_subsystem_code=False,
         )
         self._dimension = 1
@@ -92,12 +159,18 @@ class QuantumHammingCode(CSSCode):
     - https://errorcorrectionzoo.org/c/quantum_hamming_css
     """
 
-    def __init__(self, size: int, field: int | None = None, *, set_logicals: bool = True) -> None:
+    def __init__(
+        self,
+        size: int,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
         code = HammingCode(size, field)
         super().__init__(code, code, is_subsystem_code=False)
         self._distance_x = self._distance_z = 3
 
-        if size == 4 and set_logicals and self.field.order == 2:
+        if size == 4 and set_logicals and self.field is GF2:
             """
             Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
             Pinning all but the last logical qubit to |0> results in the TetrahedralCode.
@@ -300,7 +373,7 @@ class TBCode(CSSCode):
     and matrix_z a valid choice of parity check matrices of a CSSCode.
 
     Two-block codes constructed out of circulant matrices (i.e., matrices chosen from a ring over an
-    Abelian group) are known as quasi-cyclic codes (QCCodes).
+    abelian group) are known as quasi-cyclic codes (QCCodes).
 
     References:
     - https://errorcorrectionzoo.org/c/two_block_quantum
@@ -310,15 +383,15 @@ class TBCode(CSSCode):
         self,
         matrix_a: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         matrix_b: npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         promise_equal_distance_xz: bool = False,
-        validate: bool = True,
+        skip_validation: bool = False,
     ) -> None:
         """Construct a two-block quantum code."""
         matrix_a = ClassicalCode(matrix_a, field).matrix
         matrix_b = ClassicalCode(matrix_b, field).matrix
-        if validate and not np.array_equal(matrix_a @ matrix_b, matrix_b @ matrix_a):
+        if not skip_validation and not np.array_equal(matrix_a @ matrix_b, matrix_b @ matrix_a):
             raise ValueError("The matrices provided for this TBCode do not commute")
 
         matrix_x = np.block([matrix_a, matrix_b])
@@ -336,7 +409,7 @@ class QCCode(TBCode):
     """Quasi-cyclic code.
 
     A QCCode is a two block code (TBCode) built out of matrices A and B that are chosen from a ring
-    over an Abelian group to ensure that A and B commute.  More specifically, a QCCode is a CSS code
+    over an abelian group to ensure that A and B commute.  More specifically, a QCCode is a CSS code
     with subcode parity check matrices
     - matrix_x = [A, B], and
     - matrix_z = [B.T, -A.T].
@@ -378,7 +451,7 @@ class QCCode(TBCode):
         orders: Sequence[int] | dict[sympy.Symbol, int],
         poly_a: sympy.Basic,
         poly_b: sympy.Basic,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a generalized bicycle code."""
         self.poly_a = sympy.Poly(poly_a)
@@ -412,57 +485,11 @@ class QCCode(TBCode):
         self.symbol_gens = dict(zip(self.symbols, self.group.generators))
 
         # build defining matrices of a quasi-cyclic code; transpose the lift by convention
-        matrix_a = self.eval(self.poly_a).lift().T
-        matrix_b = self.eval(self.poly_b).lift().T
-        super().__init__(matrix_a, matrix_b, field, promise_equal_distance_xz=True, validate=False)
-
-    def eval(self, expression: sympy.Basic) -> abstract.RingMember:
-        """Convert a sympy expression into an element of this code's group algebra."""
-        if isinstance(expression, sympy.Poly):
-            terms = sympy.Add.make_args(expression.as_expr())
-            return functools.reduce(operator.add, [self.eval(term) for term in terms])
-
-        coeff, monomial = expression.as_coeff_Mul()
-        member = self.to_group_member(monomial)
-        if not 0 <= int(coeff) < self.ring.field.order:
-            raise ValueError(
-                f"Coefficient {coeff} in expression {expression} is invalid over the finite"
-                f" field GF({self.ring.field.order})"
-            )
-        return abstract.RingMember(self.ring, (int(coeff), member))
-
-    def to_group_member(
-        self, monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul
-    ) -> abstract.GroupMember:
-        """Convert a monomial into an associated member of this code's base group."""
-        _, exponents = self.get_coefficient_and_exponents(monomial)
-
-        output = self.group.identity
-        for base, exponent in exponents.items():
-            output *= self.symbol_gens[base] ** exponent
-        return output
-
-    @staticmethod
-    def get_coefficient_and_exponents(
-        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul,
-    ) -> tuple[int, dict[sympy.Symbol, int]]:
-        """Extract the coefficients and exponents in a monomial expression.
-
-        For example, this method takes 5 x**3 y**2 to (5, {x: 3, y: 2})."""
-        coeff, monomial = monomial.as_coeff_Mul()
-        exponents = {}
-        if isinstance(monomial, sympy.Integer):
-            coeff *= int(monomial)
-        elif isinstance(monomial, sympy.Symbol):
-            exponents[monomial] = 1
-        elif isinstance(monomial, sympy.Pow):
-            base, exponent = monomial.as_base_exp()
-            exponents[base] = exponent
-        elif isinstance(monomial, sympy.Mul):
-            for factor in monomial.args:
-                base, exponent = factor.as_base_exp()
-                exponents[base] = exponent
-        return coeff, exponents
+        matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
+        matrix_b = self.ring.eval(self.poly_b, self.symbol_gens).lift().T
+        super().__init__(
+            matrix_a, matrix_b, field, promise_equal_distance_xz=True, skip_validation=True
+        )
 
     def get_canonical_form(
         self, poly: sympy.Poly, orders: tuple[int, ...] | None = None
@@ -474,7 +501,8 @@ class QCCode(TBCode):
         # canonialize and add one term ata time
         new_poly = sympy.core.numbers.Zero()
         for term in poly.args:
-            coeff, exponents = self.get_coefficient_and_exponents(term)
+            coeff, _exponents = abstract.get_coefficient_and_exponents(term)
+            exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
             new_term = sympy.core.numbers.One()
             for symbol, order in zip(self.symbols, orders):
@@ -521,8 +549,8 @@ class QCCode(TBCode):
         # build matrices for each term in A and B
         terms_a = sympy.Add.make_args(self.poly_a.as_expr())
         terms_b = sympy.Add.make_args(self.poly_b.as_expr())
-        matrices_a = [self.eval(term).lift().T for term in terms_a]
-        matrices_b = [self.eval(term).lift().T for term in terms_b]
+        matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
+        matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
 
         # collect edges by type and index of a term in A or B
         edges_XL: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
@@ -621,7 +649,7 @@ class BBCode(QCCode):
         orders: Sequence[int] | dict[sympy.Symbol, int],
         poly_a: sympy.Basic,
         poly_b: sympy.Basic,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a bivariate bicycle code."""
         symbols = sympy.Poly(poly_a).free_symbols | sympy.Poly(poly_b).free_symbols
@@ -635,7 +663,7 @@ class BBCode(QCCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = ""
-        if self.field.order == 2:
+        if self.field is GF2:
             text += f"{self.name} on {self.num_qubits} qubits"
         else:
             text += f"{self.name} on {self.num_qudits} qudits over {self.field_name}"
@@ -724,7 +752,7 @@ class BBCode(QCCode):
         to (g, h) produces an equivalent BBCode so long as g and h satisfy the conditions in Lemma 4
         of arXiv:2308.07915, which boils down to the requirement that
             order(g) * order(h) = order(<g, h>) = order(<x, y>),
-        where (for example) <x, y> is the Abelian group generated by x and y.
+        where (for example) <x, y> is the abelian group generated by x and y.
         """
         if not nx.is_weakly_connected(self.graph):
             # a connected tanner graph is required for a toric layout to exist
@@ -781,7 +809,8 @@ class BBCode(QCCode):
 
     def as_exponent_vector(self, monomial: sympy.Mul) -> tuple[int, int]:
         """Express the given monomial as a vector of exponents, as in x**3/y**2 -> (3, -2)."""
-        _, exponents = self.get_coefficient_and_exponents(monomial)
+        _, _exponents = abstract.get_coefficient_and_exponents(monomial)
+        exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
         return (exponents.get(self.symbols[0], 0), exponents.get(self.symbols[1], 0))
 
     def change_poly_basis(
@@ -871,6 +900,9 @@ class BBCode(QCCode):
 # hypergraph product code, lifted product code, and their subsystem variants
 
 
+FieldOrRingArray = TypeVar("FieldOrRingArray", galois.FieldArray, abstract.RingArray)
+
+
 class HGPCode(CSSCode):
     """Hypergraph product code.
 
@@ -925,13 +957,15 @@ class HGPCode(CSSCode):
     - https://www.youtube.com/watch?v=iehMcUr2saM
     """
 
+    code_a: ClassicalCode
+    code_b: ClassicalCode
     sector_size: npt.NDArray[np.int_]
 
     def __init__(
         self,
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
@@ -953,7 +987,7 @@ class HGPCode(CSSCode):
             code_b = code_a
         self.code_a = ClassicalCode(code_a, field)
         self.code_b = ClassicalCode(code_b, field)
-        field = self.code_a.field.order
+        field = self.code_a.field
 
         # use a matrix-based hypergraph product to identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
@@ -973,10 +1007,11 @@ class HGPCode(CSSCode):
             field,
             is_subsystem_code=False,
         )
-
         if set_logicals:
-            logical_ops_xz = HGPCode.get_canonical_logical_ops(self.code_a, self.code_b)
-            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
+            logical_ops_xz = HGPCode.get_canonical_logical_line_ops(
+                self.code_a.matrix, self.code_b.matrix
+            )
+            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
 
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
@@ -1034,27 +1069,28 @@ class HGPCode(CSSCode):
 
     @staticmethod
     def get_matrix_product(
-        matrix_a: npt.NDArray[np.int_ | np.object_],
-        matrix_b: npt.NDArray[np.int_ | np.object_],
-    ) -> tuple[npt.NDArray[np.int_ | np.object_], npt.NDArray[np.int_ | np.object_]]:
+        matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
+    ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Hypergraph product of two parity check matrices."""
+        _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
+
         # construct the nontrivial blocks of the final parity check matrices
-        mat_H1_In2 = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
-        mat_In1_H2 = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
-        mat_H1_T_Im2 = np.kron(matrix_a.T, np.eye(matrix_b.shape[0], dtype=int))
-        mat_Im1_H2_T = np.kron(np.eye(matrix_a.shape[0], dtype=int), matrix_b.T)
+        mat_H1_In2 = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
+        mat_In1_H2 = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
+        mat_H1_T_Im2 = _kron(matrix_a.T, np.eye(matrix_b.shape[0], dtype=int))
+        mat_Im1_H2_T = _kron(np.eye(matrix_a.shape[0], dtype=int), matrix_b.T)
 
         # construct the X-sector and Z-sector parity check matrices
-        matrix_x = np.block([mat_H1_In2, mat_Im1_H2_T])
-        matrix_z = np.block([-mat_In1_H2, mat_H1_T_Im2])
+        matrix_x = np.hstack([mat_H1_In2, mat_Im1_H2_T])
+        matrix_z = np.hstack([-mat_In1_H2, mat_H1_T_Im2])  # type: ignore[misc]
         return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
     def get_graph_product(graph_a: nx.DiGraph, graph_b: nx.DiGraph) -> nx.DiGraph:
         """Hypergraph product of two Tanner graphs."""
         graph = nx.DiGraph()
-        field = getattr(graph_a, "field", galois.GF(DEFAULT_FIELD_ORDER))
-        _Pauli = Pauli if field.order == 2 else QuditPauli
+        field = getattr(graph_a, "field", GF2)
+        _Pauli = Pauli if field is GF2 else QuditPauli
 
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
@@ -1127,62 +1163,116 @@ class HGPCode(CSSCode):
         return node_map
 
     @staticmethod
-    def get_canonical_logical_ops(
-        code_a: ClassicalCode, code_b: ClassicalCode
+    def get_canonical_logical_line_ops(
+        matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical operators for the hypergraph product code.
+        """Canonical logical line operators for a hypergraph product code.
 
         These operators are essentially those in Lemma 1 of arXiv:2204.10812v3, modified using pivot
         matrices similarly to Theorem VIII.10 of arXiv:2502.07150v1 to ensure pair-wise
         anti-commutation relations.
+
+        X-type logical operators are "horizontal" in sector (0, 0) and "vertical" in sector (1, 1).
+        Vice versa for Z-type logical operators.
         """
-        assert code_a.field is code_b.field
-        code_field = code_a.field
+        field = type(matrix_a)
 
-        generator_a = code_a.generator.row_reduce()
-        generator_b = code_b.generator.row_reduce()
-        generator_a_T = code_a.matrix.T.null_space()
-        generator_b_T = code_b.matrix.T.null_space()
+        generator_a = matrix_a.null_space()
+        generator_b = matrix_b.null_space()
+        generator_a_T = matrix_a.T.null_space()
+        generator_b_T = matrix_b.T.null_space()
 
-        pivots_a = code_field.Zeros(generator_a.shape)
-        pivots_b = code_field.Zeros(generator_b.shape)
+        pivots_a = field.Zeros(generator_a.shape)
+        pivots_b = field.Zeros(generator_b.shape)
         pivots_a[range(len(pivots_a)), qldpc.math.first_nonzero_cols(generator_a)] = 1
         pivots_b[range(len(pivots_b)), qldpc.math.first_nonzero_cols(generator_b)] = 1
 
-        pivots_a_T = code_field.Zeros(generator_a_T.shape)
-        pivots_b_T = code_field.Zeros(generator_b_T.shape)
+        pivots_a_T = field.Zeros(generator_a_T.shape)
+        pivots_b_T = field.Zeros(generator_b_T.shape)
         pivots_a_T[range(len(pivots_a_T)), qldpc.math.first_nonzero_cols(generator_a_T)] = 1
         pivots_b_T[range(len(pivots_b_T)), qldpc.math.first_nonzero_cols(generator_b_T)] = 1
 
         logical_ops_x_l = np.kron(pivots_a, generator_b)
-        logical_ops_x_r = np.kron(generator_a_T, pivots_b_T)
-
         logical_ops_z_l = np.kron(generator_a, pivots_b)
+        logical_ops_x_r = np.kron(generator_a_T, pivots_b_T)
         logical_ops_z_r = np.kron(pivots_a_T, generator_b_T)
 
         logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
-        return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+        return logical_ops_x.view(field), logical_ops_z.view(field)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
-        """Exact distance calculation for hypergraph product codes, from arXiv:2308.15520."""
-        if pauli is not None:
-            # TODO: address the case of X and Z distance
-            return NotImplemented  # pragma: no cover
-        code_a = self.code_a
-        code_b = self.code_b
-        code_a_T = ClassicalCode(self.code_a.matrix.T)
-        code_b_T = ClassicalCode(self.code_b.matrix.T)
-        if code_a_T.get_distance() is np.nan or code_b_T.get_distance() is np.nan:
-            return min(code_a.get_distance(), code_b.get_distance())  # pragma: no cover
-        if code_a.get_distance() is np.nan or code_b.get_distance() is np.nan:
-            return min(code_a_T.get_distance(), code_b_T.get_distance())  # pragma: no cover
-        return min(
-            code_a.get_distance(),
-            code_b.get_distance(),
-            code_a_T.get_distance(),
-            code_b_T.get_distance(),
-        )
+        """Exact distance calculation for hypergraph product codes.
+
+        These calculations are based on arXiv:2308.15520, but additionally allow for the separate
+        calculation of X-distance and Z-distance.  The basic idea is to identify the size of
+        minimum-weight string operators in the (0, 0) and (1, 1) sectors of the HGPCode.
+        """
+        if pauli is None:
+            # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
+            return NotImplemented
+
+        if pauli is Pauli.X:
+            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance()
+            dist_b = self.code_b.get_distance()
+        else:
+            assert pauli is Pauli.Z
+            dist_a = self.code_a.get_distance()
+            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance()
+
+        return dist_a if dist_b is np.nan else dist_b if dist_a is np.nan else min(dist_a, dist_b)
+
+
+class CHGPCode(HGPCode):
+    """Cyclic hypergraph product code.
+
+    A CHGPCode is a hypergraph product of classical CyclicCodes.
+
+    References:
+    - https://arxiv.org/pdf/2511.09683v2 (Definition 1)
+    """
+
+    def __init__(
+        self,
+        dims: tuple[int, int] | int,
+        poly_a: sympy.Basic,
+        poly_b: sympy.Basic | None = None,
+        field: int | type[galois.FieldArray] | None = None,
+    ) -> None:
+        """Construct a CHGPCode from two classical block lengths and two univariate polynomials.
+
+        If provided only one block length or one polynomial, use it for both underlying CyclicCodes.
+        """
+        if isinstance(dims, Iterable):
+            bits_a, bits_b = dims
+        else:
+            bits_a = bits_b = int(dims)
+        code_a = CyclicCode(bits_a, poly_a, field)
+        code_b = CyclicCode(bits_b, poly_b or poly_a, field)
+        super().__init__(code_a, code_b, field)
+
+
+class CRCode(HGPCode):
+    """Repeated cyclic hypergraph product code.
+
+    A CRCode is a hypergraph product of a CyclicCode and a RingCode.
+
+    References:
+    - https://arxiv.org/pdf/2511.09683v2 (Definition 3)
+    """
+
+    def __init__(
+        self, bits: int, poly: sympy.Basic, field: int | type[galois.FieldArray] | None = None
+    ) -> None:
+        """Construct a CRCode from the block length and univariate polynomial of a CyclicCode.
+
+        The block length of the RingCode used in the hypergraph product is set to the distance of
+        the CyclicCode.
+        """
+        cyclic_code = CyclicCode(bits, poly, field)
+        distance = cyclic_code.get_distance()
+        ring_code = RingCode(distance if isinstance(distance, int) else 1, field)
+        super().__init__(cyclic_code, ring_code, field)
 
 
 class SHPCode(CSSCode):
@@ -1206,7 +1296,7 @@ class SHPCode(CSSCode):
         self,
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
@@ -1215,57 +1305,58 @@ class SHPCode(CSSCode):
             code_b = code_a
         self.code_a = ClassicalCode(code_a, field)
         self.code_b = ClassicalCode(code_b, field)
-        code_field = self.code_a.field
+        field = self.code_a.field
 
         matrix_x, matrix_z = SHPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
         super().__init__(
             matrix_x.view(np.ndarray).astype(int),
             matrix_z.view(np.ndarray).astype(int),
-            code_field.order,
+            field,
             is_subsystem_code=True,
         )
 
         stab_ops_x = np.kron(self.code_a.matrix, self.code_b.generator)
         stab_ops_z = np.kron(-self.code_a.generator, self.code_b.matrix)
-        self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(code_field)
+        self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(field)
 
         if set_logicals:
-            logical_ops_xz = SHPCode.get_canonical_logical_ops(self.code_a, self.code_b)
-            self.set_logical_ops_xz(*logical_ops_xz, validate=False)
+            logical_ops_xz = SHPCode.get_canonical_logical_line_ops(
+                self.code_a.matrix, self.code_b.matrix
+            )
+            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
 
     @staticmethod
     def get_matrix_product(
-        matrix_a: npt.NDArray[np.int_ | np.object_],
-        matrix_b: npt.NDArray[np.int_ | np.object_],
-    ) -> tuple[npt.NDArray[np.int_ | np.object_], npt.NDArray[np.int_ | np.object_]]:
+        matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
+    ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Subsystem hypergraph product of two parity check matrices."""
-        matrix_x = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int)).view(type(matrix_a))
-        matrix_z = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b).view(type(matrix_a))
-        return matrix_x, matrix_z
+        _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
+        matrix_x = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
+        matrix_z = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
+        return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
-    def get_canonical_logical_ops(
-        code_x: ClassicalCode, code_z: ClassicalCode
+    def get_canonical_logical_line_ops(
+        matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical operators for the subsystem hypergraph product code.
+        """Canonical logical line operators for a subsystem hypergraph product code.
 
         These operators are essentially those in Theorem VIII.10 of arXiv:2502.07150v1, generalized
-        slightly to account for the possibility that code_x != code_z.
+        slightly to account for the possibility that code_a != code_b.
         """
-        assert code_x.field is code_z.field
-        code_field = code_x.field
+        field = type(matrix_a)
 
-        generator_x = code_x.generator.row_reduce()
-        generator_z = code_z.generator.row_reduce()
+        generator_a = matrix_a.null_space()
+        generator_b = matrix_b.null_space()
 
-        pivots_x = code_field.Zeros(generator_x.shape)
-        pivots_z = code_field.Zeros(generator_z.shape)
-        pivots_x[range(len(pivots_x)), qldpc.math.first_nonzero_cols(generator_x)] = 1
-        pivots_z[range(len(pivots_z)), qldpc.math.first_nonzero_cols(generator_z)] = 1
+        pivots_a = field.Zeros(generator_a.shape)
+        pivots_b = field.Zeros(generator_b.shape)
+        pivots_a[range(len(pivots_a)), qldpc.math.first_nonzero_cols(generator_a)] = 1
+        pivots_b[range(len(pivots_b)), qldpc.math.first_nonzero_cols(generator_b)] = 1
 
-        logical_ops_x = np.kron(pivots_x, generator_z)
-        logical_ops_z = np.kron(generator_x, pivots_z)
-        return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+        logical_ops_x = np.kron(pivots_a, generator_b)
+        logical_ops_z = np.kron(generator_a, pivots_b)
+        return logical_ops_x.view(field), logical_ops_z.view(field)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for subsystem hypergraph product codes."""
@@ -1296,10 +1387,10 @@ class LPCode(CSSCode):
 
         num_copies = 5  # the number of surface codes to stitch together
         group = CyclicGroup(num_copies)
-        ring = GroupRing(group)
-        x = RingMember(ring, group.generators[0])  # generator of the cyclic group
+        x = group.generators[0]  # generator of the cyclic group
 
         # stitch together small surface codes by hand
+        ring = GroupRing(group)
         rep_matrix = RingArray.build([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], ring)
         int_matrix = RingArray.build([[0, x, 0, 0], [0, 0, x, 0], [0, 0, 0, x]], ring)
         code = LPCode(rep_matrix + int_matrix)
@@ -1329,33 +1420,118 @@ class LPCode(CSSCode):
     - https://arxiv.org/abs/2306.16400
     """
 
+    matrix_a: abstract.RingArray
+    matrix_b: abstract.RingArray
+    sector_size: npt.NDArray[np.int_]
+
     def __init__(
         self,
         matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
         matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+        *,
+        set_logicals: bool = False,
     ) -> None:
         """Lifted product of two RingArrays, as in arXiv:2012.04068."""
         if matrix_b is None:
             matrix_b = matrix_a
-        matrix_a = abstract.RingArray(matrix_a)
-        matrix_b = abstract.RingArray(matrix_b)
-        field = matrix_a.field.order
+        self.matrix_a = abstract.RingArray(matrix_a)
+        self.matrix_b = abstract.RingArray(matrix_b)
+
+        ring = self.matrix_a.ring
+        field = ring.field
 
         # identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = HGPCode.get_matrix_product(matrix_a, matrix_b)
-        assert isinstance(matrix_x, abstract.RingArray)
-        assert isinstance(matrix_z, abstract.RingArray)
+        matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
 
         # identify the number of qudits in each sector
-        self.sector_size = matrix_a.group.lift_dim * np.outer(
-            matrix_a.shape[::-1],
-            matrix_b.shape[::-1],
+        self.sector_size = self.matrix_a.group.lift_dim * np.outer(
+            self.matrix_a.shape[::-1],
+            self.matrix_b.shape[::-1],
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
         self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
+
+        if set_logicals:
+            try:
+                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
+                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            except (ValueError, NotImplementedError):
+                raise ValueError(
+                    "Cannot set canonical logical operators for this code, likely due to a"
+                    " choice of group algebra for which some features are not yet supported"
+                )
+
+    @staticmethod
+    def get_canonical_logical_line_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Canonical logical line operators for a subsystem lifted product code."""
+        logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
+        return LPCode.to_lifted_logical_ops(*logical_ops_xz)
+
+    @staticmethod
+    def get_canonical_ring_logical_line_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[abstract.RingArray, abstract.RingArray]:
+        """Canonical ring-logical line operators for a lifted product code.
+
+        Generalizes HGPCode.get_canonical_logical_line_ops.
+        """
+        generator_a = matrix_a.null_space().howell_normal_form_semisimple()
+        generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
+        generator_a_T = matrix_a.T.null_space().howell_normal_form_semisimple()
+        generator_b_T = matrix_b.T.null_space(right=True).howell_normal_form_semisimple(right=True)
+
+        dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
+        dual_b = abstract.get_howell_dual(generator_b, right=True)
+        dual_a_T = abstract.get_howell_dual(generator_a_T)
+        dual_b_T = abstract.get_howell_dual(generator_b_T, right=True)
+
+        logical_ops_x_l = abstract.kron(dual_a, generator_b)
+        logical_ops_z_l = abstract.kron(generator_a, dual_b)
+        logical_ops_x_r = abstract.kron(generator_a_T, dual_b_T)
+        logical_ops_z_r = abstract.kron(dual_a_T, generator_b_T)
+
+        logical_ops_x = abstract.block_diag(logical_ops_x_l, logical_ops_x_r)
+        logical_ops_z = abstract.block_diag(logical_ops_z_l, logical_ops_z_r)
+        return logical_ops_x, logical_ops_z
+
+    @staticmethod
+    def to_lifted_logical_ops(
+        logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Lift logical operators over a ring to logical operators over the base field."""
+        ring = logical_ops_x.ring
+        num_columns = logical_ops_x.shape[1]
+        block_size = ring.group.lift_dim
+        num_lifted_columns = num_columns * block_size
+        identity = np.eye(block_size, dtype=int)
+        lifted_ops_x = ring.field.Zeros((0, num_lifted_columns))
+        lifted_ops_z = ring.field.Zeros((0, num_lifted_columns))
+        for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
+            ops_x = op_x.reshape(1, *op_x.shape).lift()
+            ops_z = op_z.reshape(1, *op_z.shape).lift()
+            inner_product = ops_x @ ops_z.T
+            if not np.array_equal(inner_product, identity):
+                sector_rank = np.linalg.matrix_rank(inner_product)
+                if ring.is_commutative:
+                    basis_change = np.linalg.inv(inner_product[:sector_rank, :sector_rank]).T
+                    ops_x = ops_x[:sector_rank]
+                    ops_z = basis_change @ ops_z[:sector_rank]
+                else:
+                    pivot_rows = qldpc.math.first_nonzero_cols(inner_product.T.row_reduce())
+                    rows = pivot_rows[pivot_rows < block_size]
+                    cols = qldpc.math.first_nonzero_cols(inner_product[rows].row_reduce())
+                    basis_change = np.linalg.inv(inner_product[np.ix_(rows, cols)]).T
+                    ops_x = ops_x[rows]
+                    ops_z = basis_change @ ops_z[cols]
+            lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
+            lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
+
+        return lifted_ops_x, lifted_ops_z
 
 
 class SLPCode(CSSCode):
@@ -1373,8 +1549,8 @@ class SLPCode(CSSCode):
 
         group = CyclicGroup(2)
         ring = GroupRing(group)
-        x = group.generators[0]
-        matrix = RingArray.build([[1, x, x], [x, x, 1]], ring)  # Eq. 21 of arXiv:2404.18302v1
+        x = group.generators[0]  # generator of the cyclic group
+        matrix = abstract.RingArray.build([[1, x, x], [x, x, 1]])  # Eq. 21 of arXiv:2404.18302v1
         code = SLPCode(matrix)
         assert code.get_code_params() == (18, 4, 2)
 
@@ -1382,7 +1558,7 @@ class SLPCode(CSSCode):
 
         group = CyclicGroup(3)
         ring = GroupRing(group)
-        x = RingMember(ring, group.generators[0])
+        x = ring.generators[0]    # generator of the cyclic group, as a member of the ring
         matrix = RingArray([[ring.one + x + x**2, ring.one + x, x]])  # Eq. 23 of arXiv:2404.18302v1
         code = SLPCode(matrix)
         assert code.get_code_params() == (27, 12, 2)
@@ -1396,20 +1572,66 @@ class SLPCode(CSSCode):
         self,
         matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
         matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+        *,
+        set_logicals: bool = False,
     ) -> None:
-        """Subsystem lifted product of two RingArrays."""
+        """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302."""
         if matrix_b is None:
             matrix_b = matrix_a
-        matrix_a = abstract.RingArray(matrix_a)
-        matrix_b = abstract.RingArray(matrix_b)
-        field = matrix_a.field.order
+        self.matrix_a = abstract.RingArray(matrix_a)
+        self.matrix_b = abstract.RingArray(matrix_b)
+
+        ring = self.matrix_a.ring
+        field = ring.field
 
         # identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = SHPCode.get_matrix_product(matrix_a, matrix_b)
-        assert isinstance(matrix_x, abstract.RingArray)
-        assert isinstance(matrix_z, abstract.RingArray)
-
+        matrix_x, matrix_z = SHPCode.get_matrix_product(self.matrix_a, self.matrix_b)
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=True)
+
+        # TODO: set self._stabilizer_ops
+
+        if set_logicals:
+            try:
+                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
+                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            except (ValueError, NotImplementedError):
+                raise ValueError(
+                    "Cannot set canonical logical operators for this code, likely due to a"
+                    " choice of group algebra for which some features are not yet supported"
+                )
+
+    @staticmethod
+    def get_canonical_logical_line_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Canonical logical line operators for a subsystem lifted product code."""
+        logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
+        return SLPCode.to_lifted_logical_ops(*logical_ops_xz)
+
+    @staticmethod
+    def get_canonical_ring_logical_line_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[abstract.RingArray, abstract.RingArray]:
+        """Canonical ring-logical line operators for a subsystem lifted product code.
+
+        Generalizes SHPCode.get_canonical_logical_line_ops.
+        """
+        generator_a = matrix_a.null_space().howell_normal_form_semisimple()
+        generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
+
+        dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
+        dual_b = abstract.get_howell_dual(generator_b, right=True)
+
+        logical_ops_x = abstract.kron(dual_a, generator_b)
+        logical_ops_z = abstract.kron(generator_a, dual_b)
+        return logical_ops_x, logical_ops_z
+
+    @staticmethod
+    def to_lifted_logical_ops(
+        logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Lift logical operators over a ring to logical operators over the base field."""
+        return LPCode.to_lifted_logical_ops(logical_ops_x, logical_ops_z)
 
 
 ####################################################################################################
@@ -1459,7 +1681,7 @@ class QTCode(CSSCode):
         subset_b: Collection[abstract.GroupMember],
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
     ) -> None:
@@ -1567,7 +1789,7 @@ class QTCode(CSSCode):
         group: abstract.Group,
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
         one_subset: bool = False,
@@ -1666,7 +1888,7 @@ class SurfaceCode(CSSCode):
         self,
         rows: int,
         cols: int | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         rotated: bool = True,
     ) -> None:
@@ -1700,9 +1922,9 @@ class SurfaceCode(CSSCode):
             ]
 
             # invert Z-type Pauli on every other qubit
-            code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
-            if code_field.order > 2:
-                matrix_z = matrix_z.view(code_field)
+            field = resolve_field(field)
+            if field is not GF2:
+                matrix_z = matrix_z.view(field)
                 matrix_z[:, self.bias_tailoring_qubits] *= -1
 
         super().__init__(matrix_x, matrix_z, field=field, promise_equal_distance_xz=rows == cols)
@@ -1866,7 +2088,7 @@ class ToricCode(CSSCode):
         self,
         rows: int,
         cols: int | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         rotated: bool = True,
     ) -> None:
@@ -1906,9 +2128,9 @@ class ToricCode(CSSCode):
             ]
 
             # invert Z-type Pauli on every other qubit
-            code_field = galois.GF(field or DEFAULT_FIELD_ORDER)
-            if code_field.order > 2:
-                matrix_z = matrix_z.view(code_field)
+            field = resolve_field(field)
+            if field is not GF2:
+                matrix_z = matrix_z.view(field)
                 matrix_z[:, self.bias_tailoring_qubits] *= -1
 
             if rows == cols == 2 and rotated:
@@ -2005,7 +2227,7 @@ class GeneralizedSurfaceCode(CSSCode):
         self,
         size: int,
         dim: int,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         periodic: bool = False,
     ) -> None:
@@ -2033,6 +2255,118 @@ class GeneralizedSurfaceCode(CSSCode):
         assert not isinstance(matrix_x, abstract.RingArray)
         assert not isinstance(matrix_z, abstract.RingArray)
         super().__init__(matrix_x, matrix_z, field)
+
+
+class T4Code(CSSCode):
+    """Four-dimensional (2, 2) toric code.
+
+    A T4Code depends on a four-dimensional integer lattice.
+    The lattice acts on Euclidean four-space by translations.
+    The quotient manifold is a four-dimensional torus T^4.
+    The number of physical qudits is 6 times the volume of the lattice.
+    The number of logical qudits is the dimension of the 2nd homology group of T^4, which is 6.
+
+    Homologically, a T4Code is the topological CSS code attached to the 3-term sub-complex in the
+    middle of the 5-term chain-complex
+
+        F[vertices] <- F[edges] <- F[faces] <- F[cubes] <- F[tesseracts]
+
+    of T^4 tiled by integer unit tesseracts.  Cubes have 6 faces on the boundary, and edges are
+    incident to 6 faces, so stabilizers have weight 6.
+
+    References:
+    - https://arxiv.org/pdf/2506.15130v1
+    - https://arxiv.org/pdf/2505.10403
+    """
+
+    def __init__(
+        self,
+        matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        skip_validation: bool = False,
+    ) -> None:
+        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
+        self._field = resolve_field(field)
+
+        self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
+        self.num_vertices = self.lattice_basis.det()
+        self.num_edges = 4 * self.num_vertices
+        self.num_faces = 6 * self.num_vertices
+        self.num_cubes = 4 * self.num_vertices
+
+        self.edges = list(self._iter_edges())
+        self.face_basis = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+        self.face_index = {face: index for index, face in enumerate(self.face_basis)}
+
+        d_1 = np.vstack([self._d_1(edge) for edge in range(self.num_edges)]).T
+        d_2 = np.vstack([self._d_2(face) for face in range(self.num_faces)]).T
+        d_3 = np.vstack([self._d_3(cude) for cude in range(self.num_cubes)]).T
+        self.chain = ChainComplex([d_1, d_2, d_3], skip_validation=skip_validation)
+
+        matrix_x, matrix_z = self.chain.op(2), self.chain.op(3).T
+        assert not isinstance(matrix_x, abstract.RingArray)
+        assert not isinstance(matrix_z, abstract.RingArray)
+        super().__init__(matrix_x, matrix_z, field)
+
+    def _iter_edges(self) -> Iterator[tuple[int, int]]:
+        """Identify edges in the standard integer lattice Z^4."""
+        I4 = np.eye(4, dtype=np.int32)
+        diag = self.lattice_basis.diagonal()
+        vertices = list(itertools.product(*[range(n) for n in diag]))
+        cosets = [self.lattice_basis.T.solve(sympy.Matrix(vertex)) % 1 for vertex in vertices]
+        for source_vertex in range(self.num_vertices):
+            for edge_direction in range(4):
+                edge = sympy.Matrix(vertices[source_vertex]) + sympy.Matrix(I4[edge_direction])
+                coset = self.lattice_basis.T.solve(edge).applyfunc(sympy.frac)
+                k = [coset == c for c in cosets].index(True)
+                yield (source_vertex, k)
+
+    def _ones_vec(
+        self, length: int, positive: Sequence[int], negative: Sequence[int]
+    ) -> galois.FieldArray:
+        """Construct a vector of +/- ones at the given locations."""
+        output = self.field.Zeros(length)
+        output[list(positive)] += self.field(1)
+        output[list(negative)] -= self.field(1)
+        return output
+
+    def _get_edge_target(self, edge_index: int) -> int:
+        """The "target" vertex of an edge."""
+        return self.edges[edge_index][1]
+
+    def _d_1(self, edge_index: int) -> npt.NDArray[np.int_]:
+        """Boundary operator F[edges] -> F[vertices], evaluated at an edge."""
+        source, target = self.edges[edge_index]
+        return self._ones_vec(self.num_vertices, [target], [source])
+
+    def _d_2(self, face_index: int) -> npt.NDArray[np.int_]:
+        """Boundary operator F[faces] -> F[edges], evaluated at a face."""
+        v, (i, j) = face_index // 6, self.face_basis[face_index % 6]
+        bottom_edge = 4 * v + i
+        left_edge = 4 * v + j
+        right_edge = 4 * self._get_edge_target(bottom_edge) + j
+        top_edge = 4 * self._get_edge_target(left_edge) + i
+        return self._ones_vec(self.num_edges, [bottom_edge, right_edge], [top_edge, left_edge])
+
+    def _d_3(self, cube_index: int) -> npt.NDArray[np.int_]:
+        """Boundary operator F[cubes] -> F[faces], evaluated at a cube.
+
+        See Section 2.2.3 of "Computational Homology" by T. Kaczynski, K. Mischaikow, and M. Mrozek.
+        """
+        v, (i, j, k) = cube_index // 4, (idx for idx in range(4) if idx != cube_index % 4)
+        vi = self._get_edge_target(4 * v + i)
+        vj = self._get_edge_target(4 * v + j)
+        vk = self._get_edge_target(4 * v + k)
+        front_face = 6 * v + self.face_index[(i, j)]
+        left_face = 6 * v + self.face_index[(i, k)]
+        bottom_face = 6 * v + self.face_index[(j, k)]
+        top_face = 6 * vi + self.face_index[(j, k)]
+        right_face = 6 * vj + self.face_index[(i, k)]
+        back_face = 6 * vk + self.face_index[(i, j)]
+        return self._ones_vec(
+            self.num_faces, [top_face, back_face, left_face], [bottom_face, front_face, right_face]
+        )
 
 
 ####################################################################################################
@@ -2084,7 +2418,7 @@ class BaconShorCode(SHPCode):
         self,
         rows: int,
         cols: int | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:
@@ -2113,7 +2447,7 @@ class SHYPSCode(SHPCode):
         self,
         dim_x: int,
         dim_z: int | None = None,
-        field: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
         *,
         set_logicals: bool = True,
     ) -> None:

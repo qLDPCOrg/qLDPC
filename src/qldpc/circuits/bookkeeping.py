@@ -21,8 +21,7 @@ import collections
 import copy
 import dataclasses
 import itertools
-from collections.abc import Hashable, ItemsView, Iterator, Mapping, Sequence
-from typing import NamedTuple
+from collections.abc import Hashable, ItemsView, Iterable, Iterator, Mapping, Sequence
 
 import numpy as np
 import stim
@@ -44,7 +43,7 @@ class QubitIDs:
     checks_z: tuple[int, ...] = ()
 
     def __init__(
-        self, data: Sequence[int], check: Sequence[int], ancilla: Sequence[int] = ()
+        self, data: Sequence[int], check: Sequence[int] = (), ancilla: Sequence[int] = ()
     ) -> None:
         self.data = tuple(data)
         self.check = tuple(check)
@@ -54,8 +53,13 @@ class QubitIDs:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
         yield from (self.data, self.check, self.ancilla)
 
+    @property
+    def all_qubits(self) -> tuple[int, ...]:
+        """Serialized tuple of all qubits tracked by this QubitIDs object."""
+        return self.data + self.check + self.ancilla
+
     @staticmethod
-    def from_code(code: codes.QuditCode, *, num_ancillas: int = 0) -> QubitIDs:
+    def from_code(code: codes.QuditCode, *, num_ancillas: int = 0, shift: int = 0) -> QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
         data = tuple(range(len(code)))
         check = tuple(range(len(code), len(code) + code.num_checks))
@@ -63,6 +67,7 @@ class QubitIDs:
         qubit_ids = QubitIDs(data, check, ancilla)
         qubit_ids.checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else ()
         qubit_ids.checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else ()
+        qubit_ids.shift(shift)
         return qubit_ids
 
     @staticmethod
@@ -88,6 +93,13 @@ class QubitIDs:
         self.checks_z = tuple(qq + shift for qq in self.checks_z)
         return self
 
+    def shifted(self, shift: int) -> QubitIDs:
+        """New QubitIDs object with shifted qubit indices."""
+        qubit_ids = QubitIDs(self.data, self.check, self.ancilla)
+        qubit_ids.checks_x = self.checks_x
+        qubit_ids.checks_z = self.checks_z
+        return qubit_ids.shift(shift)
+
     def add_ancillas(self, number: int) -> None:
         """Add ancilla qubits."""
         if number > 0:
@@ -109,10 +121,16 @@ class Record(Mapping[Hashable, list[int]]):
     num_events: int
     key_to_events: dict[Hashable, list[int]]
 
-    def __init__(self, initial_record: Mapping[Hashable, Sequence[int]] | None = None) -> None:
+    def __init__(
+        self, initial_record: Mapping[Hashable, Iterable[int] | int] | None = None
+    ) -> None:
         self.key_to_events = collections.defaultdict(list)
         if initial_record:
-            self.key_to_events |= {key: list(events) for key, events in initial_record.items()}
+            _record = {  # convert initial_record into dict[Hashable, list[int]]
+                key: list(events) if isinstance(events, Iterable) else [events]
+                for key, events in initial_record.items()
+            }
+            self.key_to_events |= _record
         self.num_events = sum(len(events) for events in self.key_to_events.values())
 
     def __repr__(self) -> str:
@@ -147,7 +165,7 @@ class Record(Mapping[Hashable, list[int]]):
             {copy.deepcopy(key): copy.deepcopy(events) for key, events in self.items()}
         )
 
-    def append(self, record: Mapping[Hashable, Sequence[int]], repeat: int = 1) -> None:
+    def append(self, record: Mapping[Hashable, Iterable[int] | int], repeat: int = 1) -> None:
         """Append the given record to this one.
 
         All event numbers in the appended record are increased by the number of events in the current
@@ -155,8 +173,12 @@ class Record(Mapping[Hashable, list[int]]):
         (0, 1, ...) in the appended record are added to the current record as (n, n+1, ...).
         """
         assert repeat >= 0
-        num_events_in_record = sum(len(events) for _, events in record.items())
-        for key, events in record.items():
+        _record = {  # convert input record into dict[Hashable, list[int]]
+            key: list(events) if isinstance(events, Iterable) else [events]
+            for key, events in record.items()
+        }
+        num_events_in_record = sum(len(events) for _, events in _record.items())
+        for key, events in _record.items():
             self.key_to_events[key].extend(
                 [
                     self.num_events + measurement + repetition * num_events_in_record
@@ -166,7 +188,7 @@ class Record(Mapping[Hashable, list[int]]):
             )
         self.num_events += num_events_in_record * repeat
 
-    def __iadd__(self, other: Mapping[Hashable, Sequence[int]]) -> Self:
+    def __iadd__(self, other: Mapping[Hashable, Iterable[int] | int]) -> Self:
         """Append the given record to this one.  See help(qldpc.circuits.Record.append)."""
         self.append(other)
         return self
@@ -252,12 +274,3 @@ class DetectorRecord(Record):
                 if other_key != key
             }
         )
-
-
-class MemoryExperimentParts(NamedTuple):
-    initialization: stim.Circuit
-    qec_cycle: stim.Circuit
-    readout: stim.Circuit
-    measurement_record: MeasurementRecord
-    detector_record: DetectorRecord
-    qubit_ids: QubitIDs

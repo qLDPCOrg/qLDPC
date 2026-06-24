@@ -31,7 +31,8 @@ dependencies = [
   "pymatching>=2.1.0",
   "pyperclip>=1.11.0",
   "scipy>=1.14.1",
-  "stim>=1.16.dev1768963940",
+  "sinter>=1.16.0",
+  "stim>=1.16.0",
   "sympy>=1.12",
 ]
 
@@ -42,9 +43,7 @@ dev = [
   "python-lsp-server[all]>=1.14.0",
   "relay-bp[stim]==0.2.1",
 ]
-relay-bp = [
-  "relay-bp[stim]==0.2.1",
-]
+relay-bp = ["relay-bp[stim]==0.2.1"]
 
 [project.urls]
 Repository = "https://github.com/qLDPCOrg/qLDPC"

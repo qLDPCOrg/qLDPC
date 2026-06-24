@@ -20,6 +20,7 @@ from __future__ import annotations
 import networkx as nx
 import numpy as np
 import pytest
+from sympy.abc import x, y
 
 from qldpc import codes
 
@@ -33,6 +34,34 @@ def test_basic() -> None:
     # the rank of repetition and Hamming codes is independent of the field
     assert codes.RepetitionCode(3, 2).rank == codes.RepetitionCode(3, 3).rank
     assert codes.HammingCode(3, 2).rank == codes.HammingCode(3, 3).rank
+
+
+def test_cyclic_codes() -> None:
+    """Cyclic codes."""
+
+    # the RingCode is a CyclicCode
+    code_a = codes.CyclicCode(5, 1 - x, field=9)
+    code_b = codes.RingCode(5, field=9)
+    assert np.array_equal(code_a.matrix, code_b.matrix)
+
+    # reproduce Table 2 from arxiv:2511.09683v2
+    cyclic_codes = {
+        (15, 1 + x + x**4): (15, 4, 8),
+        (21, 1 + x + x**5): (21, 5, 10),
+        (28, 1 + x**2 + x**4 + x**10): (28, 10, 6),
+        (21, 1 + x + x**3 + x**8): (21, 7, 8),
+        (30, 1 + x + x**2 + x**7): (30, 6, 14),
+        (31, 1 + x + x**2 + x**6 + x**27): (31, 10, 10),
+        (31, 1 + x + x**3 + x**9 + x**10): (31, 10, 12),
+    }
+    for (bits, poly), params in cyclic_codes.items():
+        assert codes.CyclicCode(bits, poly).get_code_params() == params
+
+    with pytest.raises(ValueError, match="not a univariate polynomial"):
+        codes.CyclicCode(3, 4)
+
+    with pytest.raises(ValueError, match="not a univariate polynomial"):
+        codes.CyclicCode(5, x + y)
 
 
 def test_special_codes() -> None:

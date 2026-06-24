@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 import numpy as np
+import pytest
 import stim
 
 from qldpc import decoders
@@ -31,7 +32,7 @@ def test_initialization() -> None:
         logical_observable L0
         logical_observable L1
         error(0.001) D0
-        error(0.002) D0 D1
+        error(0.002) D0 ^ D1
         error(0.003) D2 L1
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
@@ -65,6 +66,13 @@ def test_initialization() -> None:
 def test_simplify() -> None:
     """Simplify and merge errors."""
 
+    # simplification rules exercised below:
+    # - D0 D0 D0 → D0 (odd number of like targets collapses to one)
+    # - error(0) and error(p) with even-count targets (D2 D2) are dropped
+    # - two errors with identical syndromes merge via the XOR formula:
+    #   p_combined = p1 + p2 - 2*p1*p2  (probability of an odd number of occurrences)
+    #   e.g. 0.001 D0 and 0.003 D0  →  0.001 + 0.003 - 2*0.001*0.003 ≈ 0.004
+    #        0.002 D0D3 and 0.004 D0D3  →  0.002 + 0.004 - 2*0.002*0.004 ≈ 0.006
     dem = stim.DetectorErrorModel("""
         error(0.001) D0 D0 D0
         error(0.002) D0 D3
@@ -87,12 +95,9 @@ def test_simplify() -> None:
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=True)
     assert simplified_dem.approx_equals(dem_arrays.to_detector_error_model(), atol=1e-4)
-    assert dem_arrays.num_errors == 3
-    assert dem_arrays.num_detectors == 4
-    assert dem_arrays.num_observables == 2
 
     dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
-        np.array([[1, 0, 1], [1, 1, 1]]), np.array([[1, 0, 1]]), np.ones(3) * 0.3
+        np.array([[1, 0, 1], [1, 1, 1]]), np.array([[1, 0, 1]]), 0.3
     )
     dem = stim.DetectorErrorModel("""
         detector D0
@@ -113,22 +118,165 @@ def test_simplify() -> None:
     assert simplified_dem == dem_arrays.simplified().to_detector_error_model()
 
 
+def test_with_erasure() -> None:
+    """Add erasure bits to a DetectorErrorModelArrays."""
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0
+        error(0.2) D1 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    erasure_arrays = dem_arrays.with_erasure()
+
+    # one new error mechanism and one new observable; detectors unchanged
+    assert erasure_arrays.num_errors == dem_arrays.num_errors + 1
+    assert erasure_arrays.num_observables == dem_arrays.num_observables + 1
+    assert erasure_arrays.num_detectors == dem_arrays.num_detectors
+
+    # erasure mechanism flips no detectors and has zero probability
+    assert erasure_arrays.detector_flip_matrix[:, -1].nnz == 0
+    assert erasure_arrays.error_probs[-1] == 0
+
+    # erasure mechanism flips only the new erasure observable, not the original ones
+    assert erasure_arrays.observable_flip_matrix[:-1, -1].nnz == 0
+    assert erasure_arrays.observable_flip_matrix[-1, -1] == 1
+
+    # original errors do not flip the new erasure observable
+    assert erasure_arrays.observable_flip_matrix[-1, :-1].nnz == 0
+
+    # original detector/observable matrices and error probs are preserved
+    assert np.array_equal(
+        erasure_arrays.detector_flip_matrix[:, :-1].todense(),
+        dem_arrays.detector_flip_matrix.todense(),
+    )
+    assert np.array_equal(
+        erasure_arrays.observable_flip_matrix[:-1, :-1].todense(),
+        dem_arrays.observable_flip_matrix.todense(),
+    )
+    assert np.array_equal(erasure_arrays.error_probs[:-1], dem_arrays.error_probs)
+
+    # with bits=2, the bottom-right block of observable_flip_matrix is a 2×2 identity
+    erasure_arrays_2 = dem_arrays.with_erasure(bits=2)
+    assert erasure_arrays_2.num_errors == dem_arrays.num_errors + 2
+    assert erasure_arrays_2.num_observables == dem_arrays.num_observables + 2
+    assert np.array_equal(
+        erasure_arrays_2.observable_flip_matrix[-2:, -2:].todense(), np.eye(2, dtype=int)
+    )
+
+
 def test_post_selection() -> None:
     """Post select on some detectors."""
+    # post-selecting removes detectors, the errors that trigger them, and remaps detector IDs
+    dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        detector D2
+        error(0.1) D1 ^ D2
+        error(0.2) D0 D1
+    """)
+    post_selected_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        error(0.1) D0 ^ D1
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
+
+    # if passed an integer order=2, pairs error mechanisms that whose post-selected detector flips
+    # cancel out are added back to the detector error model
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        logical_observable L0
+        error({prob}) D0 D2
+        error({prob}) D0 L0
+        error({prob}) D1 D2
+        error({prob}) D1 L0
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        detector D0
+        logical_observable L0
+        error({2 * prob**2 - 2 * prob**4}) D0 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0, 1], order=2).to_dem() == post_selected_dem
+
+    # setting order=3 will recover combinations of four error mechanisms
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        detector D2
+        logical_observable L0
+        error({prob}) D0 D1 L0
+        error({prob}) D1 D2 L0
+        error({prob}) D2 D0 L0
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        logical_observable L0
+        error({prob**3}) L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert dem_arrays.post_selected_on([0, 1, 2], order=3).to_dem() == post_selected_dem
+
+    # setting order=4 will recover combinations of four error mechanisms
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        detector D2
+        logical_observable L0
+        error({prob}) D0 L0
+        error({prob}) D1 L0
+        error({prob}) D2 L0
+        error({prob}) D0 D1 D2
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        logical_observable L0
+        error({prob**4}) L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert (
+        dem_arrays.post_selected_on([0, 1, 2], order=4)
+        .to_dem()
+        .approx_equals(post_selected_dem, atol=1e-10)
+    )
+
+    with pytest.raises(ValueError, match="order"):
+        decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=0)
+
+
+def test_to_circuit() -> None:
+    """Round-trip a DEM through DetectorErrorModelArrays and to_circuit."""
     dem = stim.DetectorErrorModel("""
         detector D0
         detector D1
         logical_observable L0
-        logical_observable L1
-        error(0.3) D0 D1 L0
-        error(0.3) D1 L1
+        error(0.1) D0 D1
+        error(0.2) D1 L0
     """)
-    post_selected_dem = stim.DetectorErrorModel("""
+    circuit = decoders.DetectorErrorModelArrays(dem).to_circuit()
+    assert dem.approx_equals(decoders.DetectorErrorModelArrays(circuit).to_dem(), atol=1e-10)
+
+
+def test_decomposing_errors() -> None:
+    """Apply suggested decompositions to split errors into their components."""
+    dem = stim.DetectorErrorModel("""
+        error(0.001) D0
+        error(0.002) D1 ^ D2
+        error(0.001) D2
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+
+    # error(0.002) D1 ^ D2 splits into two; all four resulting components are distinct so
+    # simplify=True (the default) does not merge any of them
+    split_dem = stim.DetectorErrorModel("""
         detector D0
-        logical_observable L0
-        logical_observable L1
-        error(0.3) D0 L1
+        detector D1
+        detector D2
+        error(0.001) D0
+        error(0.002) D1
+        error(0.002) D2
+        error(0.001) D2
     """)
-    assert (
-        post_selected_dem == decoders.DetectorErrorModelArrays(dem).post_selected_on([0]).to_dem()
-    )
+    assert dem_arrays.with_decomposed_errors(simplify=False).to_dem() == split_dem

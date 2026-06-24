@@ -31,17 +31,17 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     seed = pytestconfig.getoption("randomly_seed")
 
     # default strategies for non-CSS and CSS codes
-    assert syndome_measurement_is_valid(codes.FiveQubitCode())
-    assert syndome_measurement_is_valid(codes.SteaneCode())
+    assert syndrome_measurement_is_valid(codes.FiveQubitCode())
+    assert syndrome_measurement_is_valid(codes.SteaneCode())
 
     # special strategies for toric and surface codes
-    assert syndome_measurement_is_valid(codes.ToricCode(2, rotated=True))
-    assert syndome_measurement_is_valid(codes.SurfaceCode(2, rotated=True))
+    assert syndrome_measurement_is_valid(codes.ToricCode(2, rotated=True))
+    assert syndrome_measurement_is_valid(codes.SurfaceCode(2, rotated=True))
 
     # special strategy for HGPCodes
     code_a = codes.ClassicalCode.random(5, 3, seed=seed)
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
-    assert syndome_measurement_is_valid(codes.HGPCode(code_a, code_b))
+    assert syndrome_measurement_is_valid(codes.HGPCode(code_a, code_b))
 
     # special strategy for QCCodes
     np.random.seed(seed)
@@ -59,15 +59,15 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         np.prod([symbol**exponent for symbol, exponent in zip(symbols, exponents_b)])
         for exponents_b in term_exponents_b
     )
-    assert syndome_measurement_is_valid(codes.QCCode(orders, poly_a, poly_b))
+    assert syndrome_measurement_is_valid(codes.QCCode(orders, poly_a, poly_b))
 
     # EdgeColoringXZ strategy
-    assert syndome_measurement_is_valid(codes.SteaneCode(), circuits.EdgeColoringXZ())
+    assert syndrome_measurement_is_valid(codes.SteaneCode(), circuits.EdgeColoringXZ())
     with pytest.raises(ValueError, match="only supports CSS codes"):
         circuits.EdgeColoringXZ().get_circuit(codes.FiveQubitCode())
 
 
-def syndome_measurement_is_valid(
+def syndrome_measurement_is_valid(
     code: codes.QuditCode, strategy: circuits.SyndromeMeasurementStrategy = circuits.EdgeColoring()
 ) -> bool:
     """Check the validity of syndrome measurement in a given code."""

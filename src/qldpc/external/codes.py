@@ -21,6 +21,9 @@ import ast
 import re
 import urllib
 
+import numpy as np
+import numpy.typing as npt
+
 import qldpc
 import qldpc.cache
 import qldpc.external.gap
@@ -64,26 +67,76 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int | None]:
 
 
 @qldpc.cache.use_disk_cache("qecdb")
-def get_quantum_code(code_id: str) -> tuple[list[str], int, bool]:
+def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     """Retrieve a quantum code from qecdb.org.
 
     Return the stabilizers of the code, its distance, and whether it's CSS.
     """
     url = f"https://qecdb.org/codes/{code_id}"
     try:
-        lines = urllib.request.urlopen(url).read().decode("utf-8").splitlines()
-    except (urllib.error.URLError, urllib.error.HTTPError):
-        print(f"ERROR: cannot access the webpage {url}")
-        raise
+        lines = urllib.request.urlopen(url, timeout=10).read().decode("utf-8").splitlines()
+    except urllib.error.URLError as exception:
+        raise RuntimeError(f"Cannot access {url}") from exception
 
-    stab_line = next(line for line in lines if "<td>H</td>" in line)
-    dist_line = next(line for line in lines if "<td>d</td>" in line)
-    css_line = next(line for line in lines if "<td>css</td>" in line)
+    stab_line = next((line for line in lines if "<td>H</td>" in line), None)
+    dist_line = next((line for line in lines if "<td>d</td>" in line), None)
+    css_line = next((line for line in lines if "<td>css</td>" in line), None)
+
+    if stab_line is None:
+        raise ValueError(f"Could not find stabilizer data for code '{code_id}'")
 
     stabilizers = re.findall("[IXYZ]+", stab_line)
-    distance = int(re.findall(r"\d+", dist_line)[0])
-    is_css = "True" in css_line
+    distance = int(dist.group()) if (dist := re.search(r"\d+", dist_line or "")) else None
+    is_css = bool(re.search(r"\btrue\b", css_line, re.IGNORECASE)) if css_line else False
     return stabilizers, distance, is_css
+
+
+def _gap_define_sparse_matrix(
+    matrix_var: str, field_order: int, matrix: npt.NDArray[np.int_]
+) -> list[str]:
+    _, matrix_width = matrix.shape
+    # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
+    # where, for all values `l` in that list, `matrix[i,l] == j+1`.
+    # Example:
+    #     matrix_var: NDArray[F3] = [
+    #         [0, 0, 0, 1, 2, 1],
+    #         [1, 0, 0, 0, 0, 0],
+    #     ]
+    #     nonzero_entries: list[list[np.NDArray[np.int_]]] = [
+    #         [ # Sparse definition of the first matrix row, `matrix_var[0]`
+    #             [3, 5],  # Columns in this row that contain 1's: `matrix_var[0, 3] == 1`
+    #             [4],  # Columns in this row that contain 2's: `matrix_var[0, 4] == 2`
+    #         ],
+    #         [ # Sparse definition of the second matrix row, `matrix_var[1]`
+    #             [0],  # Columns in this row that contain 1's
+    #             [],  # Columns in this row that contain 2's
+    #         ],
+    #     ]
+    nonzero_entries = [
+        [np.nonzero(row == val)[0] for val in range(1, field_order)] for row in matrix
+    ]
+
+    def nonzero_row_str(nonzeros: list[npt.NDArray[np.int_]]) -> str:
+        all_field_vals = [f"[{','.join(str(int(val)) for val in columns)}]" for columns in nonzeros]
+        return f"[{','.join(all_field_vals)}]"
+
+    nonzero_str = ",".join(nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
+    commands = [
+        f"nz:=[{nonzero_str}];;",
+        f"F:=GF({field_order});;",
+        f"{matrix_var}:=[];",
+        "for r in nz do",
+        f"  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;",
+        f"  for f in [1..{field_order - 1}] do",
+        "    for i in r[f] do",
+        "      v[i+1]:=f*One(F);;",
+        "    od;;",
+        "  od;;",
+        f"  Append({matrix_var},[v]);;",
+        "od;;",
+    ]
+    commands = [cmd.strip() for cmd in commands]
+    return commands
 
 
 def get_distance_bound(
@@ -115,8 +168,8 @@ def get_distance_bound(
         args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);;',
-            f"matrix_x := {code_x.matrix_as_string()};;",
-            f"matrix_z := {code_z.matrix_as_string()};;",
+            *_gap_define_sparse_matrix("matrix_x", code.field.order, code_x.matrix),
+            *_gap_define_sparse_matrix("matrix_z", code.field.order, code_z.matrix),
             f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
 
@@ -130,11 +183,12 @@ def get_distance_bound(
         args = ",".join([f"{one}*matrix", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);',
-            f"matrix := {riffled_code.matrix_as_string()};",
+            *_gap_define_sparse_matrix("matrix", code.field.order, riffled_code.matrix),
             f"Print(DistRandStab({args}:{kwargs}));",
         ]
 
-    output = qldpc.external.gap.get_output(*commands)
+    # Issue: Piped input somehow causes extra terminal output.  Fix: Ignore all but last line.
+    output = qldpc.external.gap.get_output(*commands, use_pipe=True).strip().splitlines()[-1]
 
     # strip whitespace and comments, and interpret the remaining text as the bound
     lines = [line.strip() for line in output.splitlines()]

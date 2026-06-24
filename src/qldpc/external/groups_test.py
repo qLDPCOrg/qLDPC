@@ -32,8 +32,8 @@ GROUP = f"SmallGroup({ORDER},{INDEX})"
 GROUP_URL = external.groups.GROUPNAMES_URL + "1/C2.html"
 MOCK_INDEX_HTML = """<table class="gptable" columns="6" style='width: 70%;'>
 <tr><th width="12%"></th><th width="60%"></th><th width="5%"><a href='T.html'>d</a></th><th width="5%"><a href='R.html'>&rho;</a></th><th width="12%">Label</th><th width="7%">ID</th></tr><tr><td id="c2"><a href="1/C2.html">C<sub>2</sub></a></td><td><a href="cyclic.html">Cyclic</a> group</td><td><a href="T15.html#c2">2</a></td><td><a href="R.html#dim1+">1+</a></td><td>C2</td><td>2,1</td></tr>
-</table>"""  # pylint: disable=line-too-long  # noqa: E501
-MOCK_GROUP_HTML = """<b><a href='https://en.wikipedia.org/wiki/Group actions' title='See wikipedia' class='wiki'>Permutation representations of C<sub>2</sub></a></b><br><a id='shl1' class='shl' href="javascript:showhide('shs1','shl1','Regular action on 2 points');"><span class="nsgpn">&#x25ba;</span>Regular action on 2 points</a> - transitive group <a href="../T15.html#2t1">2T1</a><div id='shs1' class='shs'>Generators in S<sub>2</sub><br><pre class='pre' id='textgn1'>(1 2)</pre>&emsp;<button class='copytext' id='copygn1'>Copy</button><br>"""  # pylint: disable=line-too-long  # noqa: E501
+</table>"""
+MOCK_GROUP_HTML = """<b><a href='https://en.wikipedia.org/wiki/Group actions' title='See wikipedia' class='wiki'>Permutation representations of C<sub>2</sub></a></b><br><a id='shl1' class='shl' href="javascript:showhide('shs1','shl1','Regular action on 2 points');"><span class="nsgpn">&#x25ba;</span>Regular action on 2 points</a> - transitive group <a href="../T15.html#2t1">2T1</a><div id='shs1' class='shs'>Generators in S<sub>2</sub><br><pre class='pre' id='textgn1'>(1 2)</pre>&emsp;<button class='copytext' id='copygn1'>Copy</button><br>"""
 
 
 def get_mock_page(text: str) -> unittest.mock.MagicMock:
@@ -112,7 +112,7 @@ def test_maybe_get_generators_from_gap() -> None:
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1, 2a)\n"),
         pytest.raises(ValueError, match="Cannot extract cycle"),
     ):
-        assert external.groups.maybe_get_generators_from_gap(GROUP) is None
+        external.groups.maybe_get_generators_from_gap(GROUP)
 
     # everything works as expected
     with (
@@ -271,14 +271,18 @@ def test_get_small_group_structure() -> None:
 
 def test_idempotents() -> None:
     """Find primitive central idempotents of a group algebra."""
+    # retrieve known PCIs
+    for (group, field_order), pcis in external.groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.items():
+        assert external.groups.get_primitive_central_idempotents(group, field_order) == pcis
+
     z_2 = galois.GF(2).primitive_element
     z_2_2 = galois.GF(4).primitive_element
     field = galois.GF(4)
     fake_output = "[ (Z(2))*(), (Z(2^2)^2)*(1,2)+(Z(2)^0)*(3,4)(5,6) ]"
-    expected_idempotents = (
+    expected_idempotents = [
         ((int(field(z_2)), ((),)),),
         ((int(field(z_2_2**2)), ((0, 1),)), (int(field(z_2**0)), ((2, 3), (4, 5)))),
-    )
+    ]
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
