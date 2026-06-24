@@ -186,7 +186,6 @@ def as_noiseless_circuit(circuit: stim.Circuit) -> stim.Circuit:
     return noiseless_circuit
 
 
-
 # PAULI_CHANNEL_2 arg order: IX(0), IY(1), IZ(2), XI(3), XX(4), XY(5), XZ(6),
 #                             YI(7), YX(8), YY(9), YZ(10), ZI(11), ZX(12), ZY(13), ZZ(14)
 # Marginal indices when the second qubit is immune (surviving: first qubit, non-cross terms: XI, YI, ZI):
@@ -282,7 +281,9 @@ def immunize_noise(
             # 1-qubit noise with multiple targets: keep only non-immune targets
             surviving = [t for t in noise_op.targets_copy() if t.value not in immune_qubits]
             if surviving:
-                result.append(stim.CircuitInstruction(noise_op.name, surviving, noise_op.gate_args_copy()))
+                result.append(
+                    stim.CircuitInstruction(noise_op.name, surviving, noise_op.gate_args_copy())
+                )
     return result
 
 
@@ -346,9 +347,6 @@ class NoiseRule:
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 
-        Immunity to noise is not handled here.  The caller is responsible for filtering the
-        returned noise circuit using immunize_noise if needed.
-
         Args:
             op: The operation to add noise to.
 
@@ -387,7 +385,7 @@ class NoiseRule:
         """Build the extra noise circuit to append after the given operation.
 
         Subclasses may override this to customize the noise that follows an operation.  Reset errors
-        are excluded here and handled separately in noisy_operation.
+        are excluded here and handled separately in NoiseRule.noisy_operation.
 
         Args:
             op: The operation being applied.
@@ -464,13 +462,9 @@ class TargetedNoiseRule(NoiseRule):
         return op.targets_copy() == self.noisy_op.targets_copy()
 
     def noisy_operation(
-        self,
-        op: stim.CircuitInstruction,
+        self, op: stim.CircuitInstruction
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this targeted noise rule to the given operation.
-
-        Immunity to noise is not handled here.  The caller is responsible for filtering the
-        returned noise circuit using immunize_noise if needed.
 
         Args:
             op: The operation to add noise to.
@@ -588,8 +582,8 @@ class NoiseModel:
         system_qubits: Collection[int] | None = None,
         immune_qubits: Collection[int] | None = None,
         immune_op_tag: str = DEFAULT_IMMUNE_OP_TAG,
+        marginalize: bool = False,
         insert_ticks: bool = True,
-        marginalize: bool = False
     ) -> stim.Circuit:
         f"""Construct a noisy version of the given circuit.
 
@@ -607,7 +601,9 @@ class NoiseModel:
                 noiseless.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
             insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes that this preprocessing is not necessary.
-            marginalize: If True, marginalize 2-qubit noise onto surviving qubits instead of removing.
+            marginalize: If True, marginalize 2-qubit noise on the absense of errors on noise-immune
+                qubits.  If False, gates that address noise-immune qubits are also noiseless.
+                Default: False.
 
         Returns:
             stim.Circuit: A noisy version of the input circuit.
