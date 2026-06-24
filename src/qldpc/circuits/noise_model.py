@@ -1,8 +1,10 @@
 """Implementation of noise models for Stim circuits
 
 The main components of this module are:
-- NoiseRule: Defines how to add noise to individual operations.
 - NoiseModel: Defines how noise is added to circuits.
+- NoiseRule: Defines how to add noise to operations according to their gate type.
+- TargetedNoiseRule: Defines how to add noise to individual operations according to gate type and
+    targeted qubits.
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 
 Examples of basic usage with a predefined noise model:
@@ -186,302 +188,6 @@ def as_noiseless_circuit(circuit: stim.Circuit) -> stim.Circuit:
     return noiseless_circuit
 
 
-# PAULI_CHANNEL_2 arg order: IX(0), IY(1), IZ(2), XI(3), XX(4), XY(5), XZ(6),
-#                             YI(7), YX(8), YY(9), YZ(10), ZI(11), ZX(12), ZY(13), ZZ(14)
-# Marginal indices when the second qubit is immune (surviving: first qubit, non-cross terms: XI, YI, ZI):
-_PC2_SECOND_IMMUNE_INDICES = (3, 7, 11)
-# Marginal indices when the first qubit is immune (surviving: second qubit, non-cross terms: IX, IY, IZ):
-_PC2_FIRST_IMMUNE_INDICES = (0, 1, 2)
-
-
-def _marginalize_2q_noise(
-    noise_op: stim.CircuitInstruction, immune_qubits: set[int], *, marginalize: bool
-) -> stim.Circuit:
-    """Filter or marginalize a 2-qubit noise instruction over immune qubits.
-
-    Processes each pair of targets independently.  Pairs with no immune qubits are kept as-is.
-    Pairs where both qubits are immune are dropped.  For partially-immune pairs, if marginalize is
-    True the surviving qubit receives a 1-qubit marginal (ignoring cross-Pauli terms); if False the
-    pair is dropped.  Only DEPOLARIZE2 and PAULI_CHANNEL_2 support marginalization; other 2-qubit
-    channels emit a warning and are dropped for partially-immune pairs.
-
-    Args:
-        noise_op: A 2-qubit noise instruction.
-        immune_qubits: Set of qubit indices that should not receive noise.
-        marginalize: If True, emit a 1-qubit marginal for partially-immune pairs.
-
-    Returns:
-        stim.Circuit: The filtered/marginalized circuit for this instruction.
-    """
-    result = stim.Circuit()
-    name = noise_op.name
-    args = noise_op.gate_args_copy()
-    targets = noise_op.targets_copy()
-
-    for i in range(0, len(targets), 2):
-        q1, q2 = targets[i], targets[i + 1]
-        q1_immune = q1.value in immune_qubits
-        q2_immune = q2.value in immune_qubits
-
-        if not q1_immune and not q2_immune:
-            result.append(stim.CircuitInstruction(name, [q1, q2], args))
-        elif q1_immune and q2_immune:
-            pass  # both immune: skip
-        elif not marginalize:
-            pass  # partially immune, no marginalization: drop the pair
-        elif name == "DEPOLARIZE2":
-            p = args[0]
-            surviving = q2.value if q1_immune else q1.value
-            result.append(stim.CircuitInstruction("DEPOLARIZE1", [surviving], [p / 5]))
-        elif name == "PAULI_CHANNEL_2":
-            if q2_immune:
-                marginal = [args[idx] for idx in _PC2_SECOND_IMMUNE_INDICES]
-                surviving = q1.value
-            else:
-                marginal = [args[idx] for idx in _PC2_FIRST_IMMUNE_INDICES]
-                surviving = q2.value
-            result.append(stim.CircuitInstruction("PAULI_CHANNEL_1", [surviving], marginal))
-        else:  # pragma: no cover
-            warnings.warn(
-                f"Cannot marginalize {name} over immune qubits; noise is dropped.",
-                stacklevel=2,
-            )
-
-    return result
-
-
-def immunize_noise(
-    noise: stim.Circuit, immune_qubits: set[int], *, marginalize: bool = False
-) -> stim.Circuit:
-    """Return a copy of a flat noise circuit with instructions targeting immune qubits removed.
-
-    An instruction is removed if any of its qubit targets belongs to immune_qubits.  If marginalize
-    is True, DEPOLARIZE2 and PAULI_CHANNEL_2 instructions where only one qubit in a pair is immune
-    are replaced by the marginal 1-qubit noise channel on the surviving qubit (ignoring cross-Pauli
-    terms).
-
-    Args:
-        noise: A flat noise circuit (no repeat blocks) to filter.
-        immune_qubits: Set of qubit indices that should not have noise applied to them.
-        marginalize: If True, marginalize 2-qubit noise onto surviving qubits instead of removing.
-
-    Returns:
-        stim.Circuit: A filtered copy of the input circuit.
-    """
-    if not immune_qubits:
-        return noise
-    result = stim.Circuit()
-    for noise_op in noise:
-        assert isinstance(noise_op, stim.CircuitInstruction)
-        if all(t.value not in immune_qubits for t in noise_op.targets_copy() if not t.is_combiner):
-            result.append(noise_op)
-        elif stim.gate_data(noise_op.name).is_two_qubit_gate:
-            result += _marginalize_2q_noise(noise_op, immune_qubits, marginalize=marginalize)
-        else:
-            # 1-qubit noise with multiple targets: keep only non-immune targets
-            surviving = [t for t in noise_op.targets_copy() if t.value not in immune_qubits]
-            if surviving:
-                result.append(
-                    stim.CircuitInstruction(noise_op.name, surviving, noise_op.gate_args_copy())
-                )
-    return result
-
-
-class NoiseRule:
-    """Describes how to add noise to an operation.
-
-    This class encapsulates the noise channels and measurement error probabilities that should be
-    applied to a particular type of quantum operation.
-    """
-
-    def __init__(
-        self,
-        *,
-        after: dict[str, float | Iterable[float]] = {},
-        readout_error: float = 0,
-        reset_error: float = 0,
-    ) -> None:
-        """Initializes a noise rule with specified error channels.
-
-        Args:
-            after: A dictionary mapping noise channel names to their probability arguments.  For
-                example, {"DEPOLARIZE2": 0.01, "PAULI_CHANNEL_1": [0.02, 0, 0]} will add two-qubit
-                depolarization with parameter 0.01, followed by 2% bit-flip noise.  These noise
-                channels occur after all other operations in the moment and are applied to the same
-                targets as the relevant operation.
-            readout_error: The probability that a measurement result is reported incorrectly.  Only
-                allowed for operations that produce measurement results.
-            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
-                operations that reset qubits.
-
-        Raises:
-            ValueError: If any noise channel name is not recognized or if any net probability of an
-                error is not between 0 and 1 (inclusive).
-        """
-        self.readout_error = readout_error
-        if not (0 <= readout_error <= 1):
-            raise ValueError(f"{readout_error=} is not between 0 and 1")
-
-        self.reset_error = reset_error
-        if not (0 <= reset_error <= 1):
-            raise ValueError(f"{reset_error=} is not between 0 and 1")
-
-        self.after = {
-            op: tuple(prob_or_probs) if isinstance(prob_or_probs, Iterable) else (prob_or_probs,)
-            for op, prob_or_probs in after.items()
-        }
-        for op, probs in self.after.items():
-            if OP_TYPES[op] != NOISE:
-                raise ValueError(f"Invalid or unrecognized noise channel {op} in {after=}")
-            if not (0 <= sum(probs) <= 1):
-                raise ValueError(
-                    f"The net probability of an error is not between 0 and 1 in {after=}"
-                )
-
-    def __bool__(self) -> bool:
-        """Is this noise rule nontrivial?"""
-        return bool(self.after) or bool(self.readout_error) or bool(self.reset_error)
-
-    def noisy_operation(
-        self, op: stim.CircuitInstruction
-    ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
-        """Apply this noise rule to the given operation.
-
-        Args:
-            op: The operation to add noise to.
-
-        Returns:
-            stim.CircuitInstruction: The given operation possibly modified to account for noise.
-            stim.Circuit: Noise operations that should follow the given operation.
-        """
-        targets = op.targets_copy()
-        args = op.gate_args_copy()
-
-        if self.readout_error:
-            assert op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
-            if not args:
-                args = [self.readout_error]
-            else:
-                assert len(args) == 1
-                # combine the bit-flip probabilities self.readout_error and args[0]
-                args = [1 - (1 - self.readout_error) * (1 - args[0])]
-
-        noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
-        noise_after = stim.Circuit()
-
-        if self.reset_error:
-            assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
-            qubit_targets = [target.value for target in targets if not target.is_combiner]
-            error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
-            noise_after.append(
-                stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
-            )
-
-        noise_after += self._build_noise_after(op)
-
-        return noisy_op, noise_after
-
-    def _build_noise_after(self, op: stim.CircuitInstruction) -> stim.Circuit:
-        """Build the extra noise circuit to append after the given operation.
-
-        Subclasses may override this to customize the noise that follows an operation.  Reset errors
-        are excluded here and handled separately in NoiseRule.noisy_operation.
-
-        Args:
-            op: The operation being applied.
-
-        Returns:
-            stim.Circuit: Additional noise to append after the operation.
-        """
-        qubit_targets = [target.value for target in op.targets_copy() if not target.is_combiner]
-        noise = stim.Circuit()
-        for op_name, args in self.after.items():
-            noise.append(stim.CircuitInstruction(op_name, qubit_targets, args))
-        return noise
-
-
-class TargetedNoiseRule(NoiseRule):
-    """Describes how to add noise to a specific circuit instruction on specific qubits.
-
-    Unlike NoiseRule, which applies to all operations of a given type, this rule matches only an
-    exact gate-and-target combination, allowing fine-grained per-operation noise overrides.
-    """
-
-    def __init__(
-        self,
-        *,
-        noisy_op: stim.CircuitInstruction,
-        noise: stim.Circuit,
-        readout_error: float = 0,
-        reset_error: float = 0,
-        tags: Collection[str] | None = None,
-    ) -> None:
-        """Initializes a targeted noise rule for a specific circuit instruction.
-
-        Args:
-            noisy_op: The circuit instruction that this rule targets.  Defines the gate name and
-                qubit targets to match against.  Gate args on this instruction are ignored during
-                matching.
-            noise: An explicit noise circuit to append after the matched operation.
-            readout_error: The probability that a measurement result is reported incorrectly.  Only
-                allowed for operations that produce measurement results.
-            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
-                operations that reset qubits.
-            tags: If not None, only match operations whose tag exactly matches one of the given
-                strings.  If None, match operations regardless of their tag.
-
-        Raises:
-            ValueError: If readout_error or reset_error is not between 0 and 1 (inclusive).
-        """
-        super().__init__(readout_error=readout_error, reset_error=reset_error)
-        self.noisy_op = noisy_op
-        self.noise = noise
-        self.tags: frozenset[str] | None = frozenset(tags) if tags is not None else None
-
-    def __bool__(self) -> bool:
-        """Is this noise rule nontrivial?"""
-        nontrivial_noise = bool(self.noise) or bool(self.readout_error) or bool(self.reset_error)
-        nontrivial_targets = bool(self.noisy_op.targets_copy())
-        return nontrivial_noise and nontrivial_targets
-
-    def is_targeted_noisy_op(self, op: stim.CircuitInstruction) -> bool:
-        """Determine whether the given operation matches this rule's target instruction.
-
-        Two operations match if they have the same gate name and the same qubit target values in the
-        same order.  Gate args are ignored.  If self.tags is not None, op.tag must exactly match an
-        element of self.tags.
-
-        Args:
-            op: The circuit instruction to check.
-
-        Returns:
-            True if op matches this rule's target instruction.  False otherwise.
-        """
-        if op.name != self.noisy_op.name or (self.tags is not None and op.tag not in self.tags):
-            return False
-        return op.targets_copy() == self.noisy_op.targets_copy()
-
-    def noisy_operation(
-        self, op: stim.CircuitInstruction
-    ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
-        """Apply this targeted noise rule to the given operation.
-
-        Args:
-            op: The operation to add noise to.
-
-        Returns:
-            stim.CircuitInstruction: The given operation, possibly modified to account for readout
-                or reset errors.
-            stim.Circuit: Noise operations that should follow the given operation.
-        """
-        if not self.is_targeted_noisy_op(op):
-            return op, stim.Circuit()
-        return super().noisy_operation(op)
-
-    def _build_noise_after(self, op: stim.CircuitInstruction) -> stim.Circuit:
-        return self.noise
-
-
 class NoiseModel:
     """A model that defines how to add noise to quantum circuits.
 
@@ -504,10 +210,10 @@ class NoiseModel:
         """Initializes a noise model with specified parameters.
 
         Args:
-            clifford_1q_error: Default noise rule or depolarization probability for one-qubit unitary
-                Clifford gates.
-            clifford_2q_error: Default noise rule or depolarization probability for two-qubit unitary
-                Clifford gates.
+            clifford_1q_error: Default noise rule or depolarization probability for one-qubit
+                unitary Clifford gates.
+            clifford_2q_error: Default noise rule or depolarization probability for two-qubit
+                unitary Clifford gates.
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of resetting qubits to the wrong state.
             idle_error: Probability of depolarization for each idling qubit in any given moment.
@@ -713,8 +419,8 @@ class NoiseModel:
     ) -> None:
         """Append idling errors from the given moment to the given circuit.
 
-        This method identifies which qubits are idle during a moment and applies depolarization noise
-        to them according to the noise model parameters.
+        This method identifies which qubits are idle during a moment and applies depolarization
+        noise to them according to the noise model parameters.
 
         Args:
             circuit: The circuit to append idle error operations to.
@@ -810,6 +516,302 @@ class SI1000NoiseModel(NoiseModel):
             idle_error=p / 10,
             additional_error_waiting_for_m_or_r=2 * p,
         )
+
+
+class NoiseRule:
+    """Describes how to add noise to an operation.
+
+    This class encapsulates the noise channels and measurement error probabilities that should be
+    applied to a particular type of quantum operation.
+    """
+
+    def __init__(
+        self,
+        *,
+        after: dict[str, float | Iterable[float]] = {},
+        readout_error: float = 0,
+        reset_error: float = 0,
+    ) -> None:
+        """Initializes a noise rule with specified error channels.
+
+        Args:
+            after: A dictionary mapping noise channel names to their probability arguments.  For
+                example, {"DEPOLARIZE2": 0.01, "PAULI_CHANNEL_1": [0.02, 0, 0]} will add two-qubit
+                depolarization with parameter 0.01, followed by 2% bit-flip noise.  These noise
+                channels occur after all other operations in the moment and are applied to the same
+                targets as the relevant operation.
+            readout_error: The probability that a measurement result is reported incorrectly.  Only
+                allowed for operations that produce measurement results.
+            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
+                operations that reset qubits.
+
+        Raises:
+            ValueError: If any noise channel name is not recognized or if any net probability of an
+                error is not between 0 and 1 (inclusive).
+        """
+        self.readout_error = readout_error
+        if not (0 <= readout_error <= 1):
+            raise ValueError(f"{readout_error=} is not between 0 and 1")
+
+        self.reset_error = reset_error
+        if not (0 <= reset_error <= 1):
+            raise ValueError(f"{reset_error=} is not between 0 and 1")
+
+        self.after = {
+            op: tuple(prob_or_probs) if isinstance(prob_or_probs, Iterable) else (prob_or_probs,)
+            for op, prob_or_probs in after.items()
+        }
+        for op, probs in self.after.items():
+            if OP_TYPES[op] != NOISE:
+                raise ValueError(f"Invalid or unrecognized noise channel {op} in {after=}")
+            if not (0 <= sum(probs) <= 1):
+                raise ValueError(
+                    f"The net probability of an error is not between 0 and 1 in {after=}"
+                )
+
+    def __bool__(self) -> bool:
+        """Is this noise rule nontrivial?"""
+        return bool(self.after) or bool(self.readout_error) or bool(self.reset_error)
+
+    def noisy_operation(
+        self, op: stim.CircuitInstruction
+    ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
+        """Apply this noise rule to the given operation.
+
+        Args:
+            op: The operation to add noise to.
+
+        Returns:
+            stim.CircuitInstruction: The given operation possibly modified to account for noise.
+            stim.Circuit: Noise operations that should follow the given operation.
+        """
+        targets = op.targets_copy()
+        args = op.gate_args_copy()
+
+        if self.readout_error:
+            assert op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
+            if not args:
+                args = [self.readout_error]
+            else:
+                assert len(args) == 1
+                # combine the bit-flip probabilities self.readout_error and args[0]
+                args = [1 - (1 - self.readout_error) * (1 - args[0])]
+
+        noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
+        noise_after = stim.Circuit()
+
+        if self.reset_error:
+            assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
+            qubit_targets = [target.value for target in targets if not target.is_combiner]
+            error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
+            noise_after.append(
+                stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
+            )
+
+        noise_after += self._build_noise_after(op)
+
+        return noisy_op, noise_after
+
+    def _build_noise_after(self, op: stim.CircuitInstruction) -> stim.Circuit:
+        """Build the extra noise circuit to append after the given operation.
+
+        Subclasses may override this to customize the noise that follows an operation.  Reset errors
+        are excluded here and handled separately in NoiseRule.noisy_operation.
+
+        Args:
+            op: The operation being applied.
+
+        Returns:
+            stim.Circuit: Additional noise to append after the operation.
+        """
+        qubit_targets = [target.value for target in op.targets_copy() if not target.is_combiner]
+        noise = stim.Circuit()
+        for op_name, args in self.after.items():
+            noise.append(stim.CircuitInstruction(op_name, qubit_targets, args))
+        return noise
+
+
+class TargetedNoiseRule(NoiseRule):
+    """Describes how to add noise to a specific circuit instruction on specific qubits.
+
+    Unlike NoiseRule, which applies to all operations of a given type, this rule matches only an
+    exact gate-and-target combination, allowing fine-grained per-operation noise overrides.
+    """
+
+    def __init__(
+        self,
+        *,
+        noisy_op: stim.CircuitInstruction,
+        noise: stim.Circuit,
+        readout_error: float = 0,
+        reset_error: float = 0,
+        tags: Collection[str] | None = None,
+    ) -> None:
+        """Initializes a targeted noise rule for a specific circuit instruction.
+
+        Args:
+            noisy_op: The circuit instruction that this rule targets.  Defines the gate name and
+                qubit targets to match against.  Gate args on this instruction are ignored during
+                matching.
+            noise: An explicit noise circuit to append after the matched operation.
+            readout_error: The probability that a measurement result is reported incorrectly.  Only
+                allowed for operations that produce measurement results.
+            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
+                operations that reset qubits.
+            tags: If not None, only match operations whose tag exactly matches one of the given
+                strings.  If None, match operations regardless of their tag.
+
+        Raises:
+            ValueError: If readout_error or reset_error is not between 0 and 1 (inclusive).
+        """
+        super().__init__(readout_error=readout_error, reset_error=reset_error)
+        self.noisy_op = noisy_op
+        self.noise = noise
+        self.tags: frozenset[str] | None = frozenset(tags) if tags is not None else None
+
+    def __bool__(self) -> bool:
+        """Is this noise rule nontrivial?"""
+        nontrivial_noise = bool(self.noise) or bool(self.readout_error) or bool(self.reset_error)
+        nontrivial_targets = bool(self.noisy_op.targets_copy())
+        return nontrivial_noise and nontrivial_targets
+
+    def is_targeted_noisy_op(self, op: stim.CircuitInstruction) -> bool:
+        """Determine whether the given operation matches this rule's target instruction.
+
+        Two operations match if they have the same gate name and the same qubit target values in the
+        same order.  Gate args are ignored.  If self.tags is not None, op.tag must exactly match an
+        element of self.tags.
+
+        Args:
+            op: The circuit instruction to check.
+
+        Returns:
+            True if op matches this rule's target instruction.  False otherwise.
+        """
+        if op.name != self.noisy_op.name or (self.tags is not None and op.tag not in self.tags):
+            return False
+        return op.targets_copy() == self.noisy_op.targets_copy()
+
+    def noisy_operation(
+        self, op: stim.CircuitInstruction
+    ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
+        """Apply this targeted noise rule to the given operation.
+
+        Args:
+            op: The operation to add noise to.
+
+        Returns:
+            stim.CircuitInstruction: The given operation, possibly modified to account for readout
+                or reset errors.
+            stim.Circuit: Noise operations that should follow the given operation.
+        """
+        if not self.is_targeted_noisy_op(op):
+            return op, stim.Circuit()
+        return super().noisy_operation(op)
+
+    def _build_noise_after(self, op: stim.CircuitInstruction) -> stim.Circuit:
+        return self.noise
+
+
+# PAULI_CHANNEL_2 arg order:
+# IX(0), IY(1), IZ(2), XI(3), XX(4), XY(5), XZ(6), YI(7), YX(8), YY(9), YZ(10), ZI(11), ZX(12), ZY(13), ZZ(14)
+# Marginal indices when the second qubit is immune (surviving: first qubit, non-cross terms: XI, YI, ZI):
+_PC2_SECOND_IMMUNE_INDICES = (3, 7, 11)
+# Marginal indices when the first qubit is immune (surviving: second qubit, non-cross terms: IX, IY, IZ):
+_PC2_FIRST_IMMUNE_INDICES = (0, 1, 2)
+
+
+def _marginalize_2q_noise(
+    noise_op: stim.CircuitInstruction, immune_qubits: set[int], *, marginalize: bool
+) -> stim.Circuit:
+    """Filter or marginalize a 2-qubit noise instruction over immune qubits.
+
+    Processes each pair of targets independently.  Pairs with no immune qubits are kept as-is.
+    Pairs where both qubits are immune are dropped.  For partially-immune pairs, if marginalize is
+    True the surviving qubit receives a 1-qubit marginal (ignoring cross-Pauli terms); if False the
+    pair is dropped.  Only DEPOLARIZE2 and PAULI_CHANNEL_2 support marginalization; other 2-qubit
+    channels emit a warning and are dropped for partially-immune pairs.
+
+    Args:
+        noise_op: A 2-qubit noise instruction.
+        immune_qubits: Set of qubit indices that should not receive noise.
+        marginalize: If True, emit a 1-qubit marginal for partially-immune pairs.
+
+    Returns:
+        stim.Circuit: The filtered/marginalized circuit for this instruction.
+    """
+    result = stim.Circuit()
+    name = noise_op.name
+    args = noise_op.gate_args_copy()
+    targets = noise_op.targets_copy()
+
+    for i in range(0, len(targets), 2):
+        q1, q2 = targets[i], targets[i + 1]
+        q1_immune = q1.value in immune_qubits
+        q2_immune = q2.value in immune_qubits
+
+        if not q1_immune and not q2_immune:
+            result.append(stim.CircuitInstruction(name, [q1, q2], args))
+        elif q1_immune and q2_immune:
+            pass  # both immune: skip
+        elif not marginalize:
+            pass  # partially immune, no marginalization: drop the pair
+        elif name == "DEPOLARIZE2":
+            p = args[0]
+            surviving = q2.value if q1_immune else q1.value
+            result.append(stim.CircuitInstruction("DEPOLARIZE1", [surviving], [p / 5]))
+        elif name == "PAULI_CHANNEL_2":
+            if q2_immune:
+                marginal = [args[idx] for idx in _PC2_SECOND_IMMUNE_INDICES]
+                surviving = q1.value
+            else:
+                marginal = [args[idx] for idx in _PC2_FIRST_IMMUNE_INDICES]
+                surviving = q2.value
+            result.append(stim.CircuitInstruction("PAULI_CHANNEL_1", [surviving], marginal))
+        else:  # pragma: no cover
+            warnings.warn(
+                f"Cannot marginalize {name} over immune qubits; noise is dropped.",
+                stacklevel=2,
+            )
+
+    return result
+
+
+def immunize_noise(
+    noise: stim.Circuit, immune_qubits: set[int], *, marginalize: bool = False
+) -> stim.Circuit:
+    """Return a copy of a flat noise circuit with instructions targeting immune qubits removed.
+
+    An instruction is removed if any of its qubit targets belongs to immune_qubits.  If marginalize
+    is True, DEPOLARIZE2 and PAULI_CHANNEL_2 instructions where only one qubit in a pair is immune
+    are replaced by the marginal 1-qubit noise channel on the surviving qubit (ignoring cross-Pauli
+    terms).
+
+    Args:
+        noise: A flat noise circuit (no repeat blocks) to filter.
+        immune_qubits: Set of qubit indices that should not have noise applied to them.
+        marginalize: If True, marginalize 2-qubit noise onto surviving qubits instead of removing.
+
+    Returns:
+        stim.Circuit: A filtered copy of the input circuit.
+    """
+    if not immune_qubits:
+        return noise
+    result = stim.Circuit()
+    for noise_op in noise:
+        assert isinstance(noise_op, stim.CircuitInstruction)
+        if all(t.value not in immune_qubits for t in noise_op.targets_copy() if not t.is_combiner):
+            result.append(noise_op)
+        elif stim.gate_data(noise_op.name).is_two_qubit_gate:
+            result += _marginalize_2q_noise(noise_op, immune_qubits, marginalize=marginalize)
+        else:
+            # 1-qubit noise with multiple targets: keep only non-immune targets
+            surviving = [t for t in noise_op.targets_copy() if t.value not in immune_qubits]
+            if surviving:
+                result.append(
+                    stim.CircuitInstruction(noise_op.name, surviving, noise_op.gate_args_copy())
+                )
+    return result
 
 
 def _get_standardized_name(op: stim.CircuitInstruction) -> str:
