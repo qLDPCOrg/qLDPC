@@ -27,7 +27,6 @@ import numpy.typing as npt
 import sympy
 
 from qldpc import abstract
-from qldpc.abstract import GF2, resolve_field
 
 from .common import ClassicalCode
 
@@ -36,7 +35,7 @@ class RepetitionCode(ClassicalCode):
     """Classical repetition code."""
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
-        self._field = resolve_field(field)
+        self._field = abstract.resolve_field(field)
         self._matrix = self.field.Zeros((bits - 1, bits))
         for row in range(bits - 1):
             self._matrix[row, row] = 1
@@ -50,7 +49,7 @@ class RingCode(ClassicalCode):
     """Classical ring code: repetition code with periodic boundary conditions."""
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
-        self._field = resolve_field(field)
+        self._field = abstract.resolve_field(field)
         self._matrix = self.field.Zeros((bits, bits))
         for row in range(bits):
             self._matrix[row, row] = 1
@@ -97,8 +96,8 @@ class HammingCode(ClassicalCode):
     def __init__(self, size: int, field: int | type[galois.FieldArray] | None = None) -> None:
         """Construct a Hamming code of a given rank."""
         self._distance = 3
-        self._field = resolve_field(field)
-        if self.field is GF2:
+        self._field = abstract.resolve_field(field)
+        if self.field is galois.GF2:
             # collect all nonzero bitstrings
             bitstrings = list(itertools.product([0, 1], repeat=size))
             self._matrix = self.field(bitstrings[1:]).T
@@ -156,7 +155,7 @@ class ReedMullerCode(ClassicalCode):
 
         generator = ReedMullerCode.get_generator(order, size)
         self._matrix = ClassicalCode(generator, field).generator
-        self._field = resolve_field(field)
+        self._field = abstract.resolve_field(field)
 
         self._dimension = len(generator)
         self._distance = 2 ** (size - order)
@@ -221,7 +220,7 @@ class BCHCode(ClassicalCode):
     def __init__(
         self, length: int, dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> None:
-        field = resolve_field(field)
+        field = abstract.resolve_field(field)
         length_in_base = np.base_repr(length, base=field.order)
         if length_in_base != str(field.order - 1) * len(length_in_base):
             raise ValueError(
@@ -244,7 +243,7 @@ class SimplexCode(ClassicalCode):
     """
 
     def __init__(self, dim: int, field: int | type[galois.FieldArray] | None = None) -> None:
-        field = resolve_field(field)
+        field = abstract.resolve_field(field)
         polynomial = SimplexCode.get_defining_polynomial(dim, field)
         coefficients = polynomial.coefficients(size=field.order**dim - 1, order="asc")
         matrix = np.array([np.roll(coefficients, jj) for jj in range(len(coefficients))])
@@ -264,7 +263,7 @@ class SimplexCode(ClassicalCode):
         - the exponents c and d are integers, and
         - gcd(h(x), x ** (field**dim - 1) - 1) is a primitive polynomial of degree dim.
         """
-        field = resolve_field(field)
+        field = abstract.resolve_field(field)
 
         # first try finding a primitive three-term polynomial of degree dim
         try:
