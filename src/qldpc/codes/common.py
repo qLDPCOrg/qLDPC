@@ -36,7 +36,6 @@ import scipy.sparse
 import stim
 
 from qldpc import abstract, decoders, external, math
-from qldpc.abstract import GF2, resolve_field
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
@@ -100,7 +99,7 @@ class AbstractCode(abc.ABC):
             self._dimension = matrix._dimension
             self._distance = matrix._distance
 
-            if field is not None and resolve_field(field) is not matrix._field:
+            if field is not None and abstract.resolve_field(field) is not matrix._field:
                 raise ValueError(
                     f"Field argument {field} is inconsistent with the given code, which is defined"
                     f" over F_{self._field.order}"
@@ -109,11 +108,11 @@ class AbstractCode(abc.ABC):
             self._is_canonicalized = matrix._is_canonicalized
 
         elif isinstance(matrix, galois.FieldArray):
-            self._field = resolve_field(field) if field is not None else type(matrix)
+            self._field = abstract.resolve_field(field) if field is not None else type(matrix)
             self._matrix = matrix.view(self._field)
 
         else:
-            self._field = resolve_field(field)
+            self._field = abstract.resolve_field(field)
             self._matrix = np.asanyarray(
                 matrix.todense() if scipy.sparse.issparse(matrix) else matrix,  # type:ignore[union-attr]
             ).view(self.field)
@@ -248,7 +247,7 @@ class ClassicalCode(AbstractCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = ""
-        if self.field is GF2:
+        if self.field is galois.GF2:
             text += f"{self.name} on {len(self)} bits"
         else:
             text += f"{self.name} on {len(self)} symbols over {self.field_name}"
@@ -310,7 +309,9 @@ class ClassicalCode(AbstractCode):
             node_c = Node(index=int(row), is_data=False)
             node_d = Node(index=int(col), is_data=True)
             graph.add_edge(node_c, node_d, val=matrix[row][col])
-        setattr(graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else GF2)
+        setattr(
+            graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
+        )
         return graph
 
     @staticmethod
@@ -318,7 +319,7 @@ class ClassicalCode(AbstractCode):
         """Convert a Tanner graph into a parity check matrix."""
         num_bits = sum(node.is_data for node in graph.nodes())
         num_checks = len(graph.nodes()) - num_bits
-        field = getattr(graph, "field", GF2)
+        field = getattr(graph, "field", galois.GF2)
         matrix = field.Zeros((num_checks, num_bits))
         for node_c, node_b, data in graph.edges(data=True):
             matrix[node_c.index, node_b.index] = data.get("val", 1)
@@ -466,7 +467,7 @@ class ClassicalCode(AbstractCode):
             return known_distance
 
         # we do not know the exact distance, so compute it
-        if self.field is GF2 and vector is None:
+        if self.field is galois.GF2 and vector is None:
             distance = get_distance_classical(self.generator, cutoff=cutoff)
             if cutoff <= 1:
                 self._distance = int(distance)
@@ -585,7 +586,7 @@ class ClassicalCode(AbstractCode):
         Reject any code with trivial checks or unchecked bits, identified by an all-zero row or
         column in the code's parity check matrix.
         """
-        field = resolve_field(field)
+        field = abstract.resolve_field(field)
 
         def nontrivial(matrix: galois.FieldArray) -> bool:
             """Return True iff all rows and columns are nonzero."""
@@ -634,7 +635,7 @@ class ClassicalCode(AbstractCode):
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
 
         # try GAP/GAUAVA's AutomorphismGroup method
-        if self.field is GF2:
+        if self.field is galois.GF2:
             try:
                 return abstract.Group.from_name(
                     f"AutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
@@ -687,7 +688,7 @@ class ClassicalCode(AbstractCode):
             if nonzero_rows.size:
                 pivot_row, rows_to_reduce = nonzero_rows[0], nonzero_rows[1:]
                 if rows_to_reduce.size:
-                    if self.field is GF2:
+                    if self.field is galois.GF2:
                         new_matrix[rows_to_reduce] -= new_matrix[pivot_row]
                     else:
                         prefactors = new_matrix[rows_to_reduce, bit] / new_matrix[pivot_row, bit]
@@ -869,7 +870,7 @@ class QuditCode(AbstractCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = f"{self.name} on {len(self)}"
-        if self.field is GF2:
+        if self.field is galois.GF2:
             text += " qubits"
         else:
             text += f" qudits over {self.field_name}"
@@ -910,12 +911,14 @@ class QuditCode(AbstractCode):
 
         # initialize graph with nodes
         graph = nx.DiGraph()
-        setattr(graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else GF2)
+        setattr(
+            graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
+        )
         for qudit in range(matrix.shape[-1]):
             graph.add_node(Node(index=qudit, is_data=True))
 
         # add edges
-        _Pauli = Pauli if graph.field is GF2 else QuditPauli
+        _Pauli = Pauli if graph.field is galois.GF2 else QuditPauli
         for row, xz, col in zip(*np.nonzero(matrix)):
             node_check = Node(index=int(row), is_data=False)
             node_qudit = Node(index=int(col), is_data=True)
@@ -936,7 +939,7 @@ class QuditCode(AbstractCode):
         matrix = np.zeros((num_checks, 2, num_qudits), dtype=int)
         for node_check, node_qudit, data in graph.edges(data=True):
             matrix[node_check.index, :, node_qudit.index] = data.get(Pauli).value
-        field = getattr(graph, "field", GF2)
+        field = getattr(graph, "field", galois.GF2)
         return field(matrix.reshape(num_checks, 2 * num_qudits))
 
     def maybe_to_css(self) -> QuditCode:
@@ -999,7 +1002,7 @@ class QuditCode(AbstractCode):
 
     def get_strings(self) -> list[str]:
         """Parity checks checks of this code, represented by strings."""
-        _Pauli = Pauli if self.field is GF2 else QuditPauli
+        _Pauli = Pauli if self.field is galois.GF2 else QuditPauli
 
         matrix = self.matrix.reshape(self.num_checks, 2, self.num_qudits)
         checks = []
@@ -1025,8 +1028,8 @@ class QuditCode(AbstractCode):
         the Galois field GF(field), such as "Z(1) _ Y(3) X(2)".  In this case "Y(a)" is an alias
         for "X(a)*Z(a)", and strings such as "Z(1) _ X(1)*Z(3) X(2)" are also valid.
         """
-        field = resolve_field(field)
-        operator: type[Pauli] | type[QuditPauli] = Pauli if field is GF2 else QuditPauli
+        field = abstract.resolve_field(field)
+        operator: type[Pauli] | type[QuditPauli] = Pauli if field is galois.GF2 else QuditPauli
 
         def parse_check(check: str) -> list[str]:
             check = check.replace("_", "I")
@@ -1069,7 +1072,7 @@ class QuditCode(AbstractCode):
     @property
     def num_qubits(self) -> int:
         """Number of data qubits in this code."""
-        if self.field is not GF2:
+        if self.field is not galois.GF2:
             raise ValueError(
                 "You asked for the number of qubits in this code, but this code is built out of "
                 rf"{self.field.order}-dimensional qudits.\nTry calling {type(self)}.num_qudits."
@@ -1655,7 +1658,7 @@ class QuditCode(AbstractCode):
         if self.is_subsystem_code:
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops()]).view(self.field)
 
-        if self.field is GF2:
+        if self.field is galois.GF2:
             distance = get_distance_quantum(
                 logical_ops, stabilizers, cutoff=cutoff, homogeneous=False
             )
@@ -1761,7 +1764,7 @@ class QuditCode(AbstractCode):
                 the original code, throwing an error if the original logical operators are invalid
                 for the deformed code.  Default: False.
         """
-        if self.field is not GF2:
+        if self.field is not galois.GF2:
             raise ValueError("Code deformation is only supported for qubit codes")
 
         # convert the physical circuit into a tableau
@@ -2088,7 +2091,7 @@ class CSSCode(QuditCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = ""
-        if self.field is GF2:
+        if self.field is galois.GF2:
             text += f"{self.name} on {len(self)} qubits"
         else:
             text += f"{self.name} on {len(self)} qudits over {self.field_name}"
@@ -2641,7 +2644,7 @@ class CSSCode(QuditCode):
         if self.is_subsystem_code:
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
 
-        if self.field is GF2:
+        if self.field is galois.GF2:
             distance = get_distance_quantum(
                 logical_ops, stabilizers, cutoff=cutoff, homogeneous=True
             )

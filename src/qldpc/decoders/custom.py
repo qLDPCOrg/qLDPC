@@ -32,7 +32,6 @@ import scipy.sparse
 import stim
 
 from qldpc import codes, math
-from qldpc.abstract import GF2
 from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
@@ -642,7 +641,7 @@ class GUFDecoder(Decoder):
             solutions = candidate_solutions[np.where(candidate_solutions[:, -1])]
 
         # convert solutions [y,c] --> [y/c,1] --> y
-        if self.code.field is GF2:
+        if self.code.field is galois.GF2:
             converted_solutions = solutions[:, :-1]
         else:
             converted_solutions = solutions[:, :-1] / solutions[:, -1][:, None]
@@ -785,7 +784,7 @@ class DirectDecoder(Decoder):
     @staticmethod
     def from_indirect(decoder: Decoder, matrix: IntegerArray) -> DirectDecoder:
         """Instantiate a DirectDecoder from an indirect decoder and a parity check matrix."""
-        field = type(matrix) if isinstance(matrix, galois.FieldArray) else GF2
+        field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         field_matrix = matrix.view(field)
 
         def decode_func(candidate_word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:

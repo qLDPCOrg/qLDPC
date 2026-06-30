@@ -1,5 +1,4 @@
 from .groups import (
-    GF2,
     PSL,
     SL,
     AbelianGroup,

@@ -36,7 +36,6 @@ from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
 from qldpc import abstract
-from qldpc.abstract import GF2, resolve_field
 from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditPauli
 
 from .classical import (
@@ -71,7 +70,7 @@ class TrivialCode(CSSCode):
             self_dual is False, then num_stabs is the number of Z-type stabilizers.
             self_dual is True, then num_stabs is the total number of stabilizers.
         """
-        field = resolve_field(field)
+        field = abstract.resolve_field(field)
         dimension = size - gauge_dimension - num_stabs - num_stabs - (num_stabs_z or 0)
 
         if self_dual:
@@ -126,7 +125,7 @@ class FiveQuditCode(QuditCode):
     """
 
     def __init__(self, field: int | type[galois.FieldArray] | None = None) -> None:
-        field = resolve_field(field)
+        field = abstract.resolve_field(field)
         matrix = [
             [1, 0, 0, -1, 0, 0, 1, -1, 0, 0],
             [0, 1, 0, 0, -1, 0, 0, 1, -1, 0],
@@ -170,7 +169,7 @@ class QuantumHammingCode(CSSCode):
         super().__init__(code, code, is_subsystem_code=False)
         self._distance_x = self._distance_z = 3
 
-        if size == 4 and set_logicals and self.field is GF2:
+        if size == 4 and set_logicals and self.field is galois.GF2:
             """
             Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
             Pinning all but the last logical qubit to |0> results in the TetrahedralCode.
@@ -663,7 +662,7 @@ class BBCode(QCCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = ""
-        if self.field is GF2:
+        if self.field is galois.GF2:
             text += f"{self.name} on {self.num_qubits} qubits"
         else:
             text += f"{self.name} on {self.num_qudits} qudits over {self.field_name}"
@@ -1089,8 +1088,8 @@ class HGPCode(CSSCode):
     def get_graph_product(graph_a: nx.DiGraph, graph_b: nx.DiGraph) -> nx.DiGraph:
         """Hypergraph product of two Tanner graphs."""
         graph = nx.DiGraph()
-        field = getattr(graph_a, "field", GF2)
-        _Pauli = Pauli if field is GF2 else QuditPauli
+        field = getattr(graph_a, "field", galois.GF2)
+        _Pauli = Pauli if field is galois.GF2 else QuditPauli
 
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
@@ -1922,8 +1921,8 @@ class SurfaceCode(CSSCode):
             ]
 
             # invert Z-type Pauli on every other qubit
-            field = resolve_field(field)
-            if field is not GF2:
+            field = abstract.resolve_field(field)
+            if field is not galois.GF2:
                 matrix_z = matrix_z.view(field)
                 matrix_z[:, self.bias_tailoring_qubits] *= -1
 
@@ -2128,8 +2127,8 @@ class ToricCode(CSSCode):
             ]
 
             # invert Z-type Pauli on every other qubit
-            field = resolve_field(field)
-            if field is not GF2:
+            field = abstract.resolve_field(field)
+            if field is not galois.GF2:
                 matrix_z = matrix_z.view(field)
                 matrix_z[:, self.bias_tailoring_qubits] *= -1
 
@@ -2287,7 +2286,7 @@ class T4Code(CSSCode):
         skip_validation: bool = False,
     ) -> None:
         """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
-        self._field = resolve_field(field)
+        self._field = abstract.resolve_field(field)
 
         self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
         self.num_vertices = self.lattice_basis.det()
