@@ -301,10 +301,10 @@ def test_trivial_noise() -> None:
 
 def test_tsim_circuits() -> None:
     """noisy_circuit and as_noiseless_circuit accept and return tsim.Circuit."""
-    stim_circuit = stim.Circuit("H 0\nCX 0 1\nM 0 1")
-    tsim_circuit = tsim.Circuit("H 0\nCX 0 1\nM 0 1")
-
     noise_model = circuits.DepolarizingNoiseModel(0.01)
+
+    tsim_circuit = tsim.Circuit("H 0\nCX 0 1\nM 0 1")
+    stim_circuit = tsim_circuit.stim_circuit
 
     stim_noisy = noise_model.noisy_circuit(stim_circuit)
     tsim_noisy = noise_model.noisy_circuit(tsim_circuit)
