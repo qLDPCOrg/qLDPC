@@ -1,4 +1,4 @@
-"""Implementation of noise models for Stim circuits
+"""Implementation of noise models for Stim (and tsim) circuits
 
 The main components of this module are:
 - NoiseRule: Defines how to add noise to individual operations.
@@ -49,8 +49,19 @@ from __future__ import annotations
 
 import collections
 from collections.abc import Collection, Iterable, Iterator
+from typing import TYPE_CHECKING, TypeVar
 
 import stim
+
+try:
+    import tsim
+
+    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
+except ImportError:  # pragma: no cover
+    if not TYPE_CHECKING:
+        tsim = None
+        stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
+
 
 CLIFFORD_1Q = "C1"
 CLIFFORD_2Q = "C2"
@@ -177,8 +188,10 @@ COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
 
 
-def as_noiseless_circuit(circuit: stim.Circuit) -> stim.Circuit:
+def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
     """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
+    if tsim is not None and isinstance(circuit, tsim.Circuit):
+        return tsim.Circuit.from_stim_program(as_noiseless_circuit(circuit.stim_circuit))
     block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
     noiseless_circuit = stim.Circuit()
     noiseless_circuit.append(block)
@@ -387,13 +400,13 @@ class NoiseModel:
 
     def noisy_circuit(
         self,
-        circuit: stim.Circuit,
+        circuit: stim_or_tsim_Circuit,
         *,
         system_qubits: Collection[int] | None = None,
         immune_qubits: Collection[int] | None = None,
         immune_op_tag: str = DEFAULT_IMMUNE_OP_TAG,
         insert_ticks: bool = True,
-    ) -> stim.Circuit:
+    ) -> stim_or_tsim_Circuit:
         f"""Construct a noisy version of the given circuit.
 
         This method first uses TICKs to split the input circuit into moments of operations that can
@@ -412,8 +425,19 @@ class NoiseModel:
                 conflicts.  If False, assumes that this preprocessing is not necessary.
 
         Returns:
-            stim.Circuit: A noisy version of the input circuit.
+            The input circuit with added noise.
         """
+        if tsim is not None and isinstance(circuit, tsim.Circuit):
+            return tsim.Circuit.from_stim_program(
+                self.noisy_circuit(
+                    circuit.stim_circuit,
+                    system_qubits=system_qubits,
+                    immune_qubits=immune_qubits,
+                    immune_op_tag=immune_op_tag,
+                    insert_ticks=insert_ticks,
+                )
+            )
+
         system_qubits = set(system_qubits or range(circuit.num_qubits))
         immune_qubits = set(immune_qubits or [])
 

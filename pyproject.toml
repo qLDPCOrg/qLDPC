@@ -38,12 +38,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "bloqade-tsim>=0.1.4",
   "checks-superstaq>=0.5.62",
   "jupyter>=1.1.1",
   "python-lsp-server[all]>=1.14.0",
   "relay-bp[stim]==0.2.1",
 ]
 relay-bp = ["relay-bp[stim]==0.2.1"]
+tsim = ["bloqade-tsim>=0.1.4"]
 
 [project.urls]
 Repository = "https://github.com/qLDPCOrg/qLDPC"
