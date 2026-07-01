@@ -296,3 +296,27 @@ def test_trivial_noise() -> None:
     assert not bool(circuits.NoiseModel())
     assert bool(circuits.NoiseRule(readout_error=0.1))
     assert bool(circuits.NoiseModel(readout_error=0.1))
+
+
+def test_tsim_circuits() -> None:
+    """noisy_circuit and as_noiseless_circuit accept and return tsim.Circuit."""
+    try:
+        import tsim
+    except ImportError:
+        pytest.skip("tsim not installed")
+
+    stim_circuit = stim.Circuit("H 0\nCX 0 1\nM 0 1")
+    tsim_circuit = tsim.Circuit("H 0\nCX 0 1\nM 0 1")
+
+    noise_model = circuits.DepolarizingNoiseModel(0.01)
+
+    stim_noisy = noise_model.noisy_circuit(stim_circuit)
+    tsim_noisy = noise_model.noisy_circuit(tsim_circuit)
+    assert isinstance(stim_noisy, stim.Circuit)
+    assert isinstance(tsim_noisy, tsim.Circuit)
+    assert stim_noisy == tsim_noisy.stim_circuit
+
+    stim_noiseless = circuits.as_noiseless_circuit(stim_circuit)
+    tsim_noiseless = circuits.as_noiseless_circuit(tsim_circuit)
+    assert isinstance(stim_noiseless, stim.Circuit)
+    assert isinstance(tsim_noiseless, tsim.Circuit)
