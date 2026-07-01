@@ -17,6 +17,7 @@ limitations under the License.
 
 import pytest
 import stim
+import tsim
 
 from qldpc import circuits
 
@@ -300,11 +301,6 @@ def test_trivial_noise() -> None:
 
 def test_tsim_circuits() -> None:
     """noisy_circuit and as_noiseless_circuit accept and return tsim.Circuit."""
-    try:
-        import tsim
-    except ImportError:
-        pytest.skip("tsim not installed")
-
     stim_circuit = stim.Circuit("H 0\nCX 0 1\nM 0 1")
     tsim_circuit = tsim.Circuit("H 0\nCX 0 1\nM 0 1")
 

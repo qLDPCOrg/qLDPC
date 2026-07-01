@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import collections
 from collections.abc import Collection, Iterable, Iterator
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import stim
 
@@ -57,9 +57,11 @@ try:
     import tsim
 
     stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
-except ImportError:
-    tsim = None  # type:ignore[assignment]
-    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)  # type:ignore[misc]
+except ImportError:  # pragma: no cover
+    if not TYPE_CHECKING:
+        tsim = None
+        stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
+
 
 CLIFFORD_1Q = "C1"
 CLIFFORD_2Q = "C2"
@@ -189,7 +191,7 @@ DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
 def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
     """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
     if tsim is not None and isinstance(circuit, tsim.Circuit):
-        return tsim.Circuit.from_stim_program(as_noiseless_circuit(circuit._stim_circ))
+        return tsim.Circuit.from_stim_program(as_noiseless_circuit(circuit.stim_circuit))
     block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
     noiseless_circuit = stim.Circuit()
     noiseless_circuit.append(block)
@@ -428,7 +430,7 @@ class NoiseModel:
         if tsim is not None and isinstance(circuit, tsim.Circuit):
             return tsim.Circuit.from_stim_program(
                 self.noisy_circuit(
-                    circuit._stim_circ,
+                    circuit.stim_circuit,
                     system_qubits=system_qubits,
                     immune_qubits=immune_qubits,
                     immune_op_tag=immune_op_tag,
