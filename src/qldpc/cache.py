@@ -18,7 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
-import os
+import pathlib
 import sys
 import warnings
 from collections.abc import Callable, Hashable
@@ -30,13 +30,17 @@ import platformdirs
 Params = ParamSpec("Params")
 
 
-def get_disk_cache_path(cache_name: str, *, cache_dir: str | None = None) -> str:
+def get_disk_cache_path(
+    cache_name: str, *, cache_dir: pathlib.Path | str | None = None
+) -> pathlib.Path:
     """Retrieve the path of a cache."""
-    cache_dir = cache_dir or os.path.join(platformdirs.user_cache_dir(), "qldpc")
-    return os.path.join(cache_dir, cache_name)
+    cache_dir = cache_dir or pathlib.Path(platformdirs.user_cache_dir()) / "qldpc"
+    return pathlib.Path(cache_dir) / cache_name
 
 
-def get_disk_cache(cache_name: str, *, cache_dir: str | None = None) -> diskcache.Cache:
+def get_disk_cache(
+    cache_name: str, *, cache_dir: pathlib.Path | str | None = None
+) -> diskcache.Cache:
     """Retrieve a dictionary-like cache object."""
     if running_with_pytest():
         return {}
@@ -46,7 +50,7 @@ def get_disk_cache(cache_name: str, *, cache_dir: str | None = None) -> diskcach
 def use_disk_cache(
     cache_name: str,
     *,
-    cache_dir: str | None = None,
+    cache_dir: pathlib.Path | str | None = None,
     key_func: Callable[..., Hashable] | None = None,
 ) -> Callable[[Callable[Params, Any]], Callable[Params, Any]]:
     """Decorator to cache results to disk."""
@@ -82,7 +86,9 @@ def running_with_pytest() -> bool:
     return "pytest" in sys.modules
 
 
-def clear_entry(cache_name: str, key: Hashable, *, cache_dir: str | None = None) -> None:
+def clear_entry(
+    cache_name: str, key: Hashable, *, cache_dir: pathlib.Path | str | None = None
+) -> None:
     """Clear an entry from a local cache."""
     cache = get_disk_cache(cache_name, cache_dir=cache_dir)
     if key in cache:
