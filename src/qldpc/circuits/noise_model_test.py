@@ -236,6 +236,61 @@ def test_pauli_product_measurements() -> None:
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
 
+def test_pauli_product_cliffords() -> None:
+    """SPP gates on 1 or 2 qubits get, respectively, 1q or 2q noise."""
+
+    # SPP on one qubit -> clifford_1q_error; SPP on two qubits -> clifford_2q_error;
+    # SPP on three or more qubits is ignored by default.
+    circuit = stim.Circuit("""
+        SPP X0
+        TICK
+        SPP X0*Y1
+        TICK
+        SPP_DAG X0*Y1*Z2
+    """)
+    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, clifford_2q_error=0.2)
+    noisy_circuit = stim.Circuit("""
+        SPP X0
+        DEPOLARIZE1(0.1) 0
+        TICK
+        SPP X0*Y1
+        DEPOLARIZE2(0.2) 0 1
+        TICK
+        SPP_DAG X0*Y1*Z2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # multi-product SPP is split so each Pauli product is treated independently
+    circuit = stim.Circuit("""
+        SPP X0 Y1*Z2 X0*Y1*Z2
+    """)
+    noisy_circuit = stim.Circuit("""
+        SPP X0
+        SPP Y1*Z2
+        SPP X0*Y1*Z2
+        DEPOLARIZE1(0.1) 0
+        DEPOLARIZE2(0.2) 1 2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # explicit rules dict overrides the default weight-based dispatch, including for weight >= 3
+    noise_rule = circuits.NoiseRule(after={"DEPOLARIZE1": 0.3})
+    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, rules={"SPP": noise_rule})
+    circuit = stim.Circuit("""
+        SPP X0
+        TICK
+        SPP X0*Y1*Z2
+    """)
+    noisy_circuit = stim.Circuit("""
+        SPP X0
+        DEPOLARIZE1(0.3) 0
+        TICK
+        SPP X0*Y1*Z2
+        DEPOLARIZE1(0.3) 0 1 2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+
 def test_repeat_blocks() -> None:
     """Repeat blocks get special treatment."""
 

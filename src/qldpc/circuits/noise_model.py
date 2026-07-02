@@ -388,6 +388,12 @@ class NoiseModel:
             return self.clifford_1q_error
         if self.clifford_2q_error is not None and op_type == CLIFFORD_2Q:
             return self.clifford_2q_error
+        if op_type == CLIFFORD_PP:
+            num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
+            if num_qubits == 1 and self.clifford_1q_error is not None:
+                return self.clifford_1q_error
+            if num_qubits == 2 and self.clifford_2q_error is not None:
+                return self.clifford_2q_error
 
         if self.readout_error and op.name in JUST_MEASURE_OPS:
             return NoiseRule(readout_error=self.readout_error)
