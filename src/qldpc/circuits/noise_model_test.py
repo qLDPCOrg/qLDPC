@@ -126,6 +126,36 @@ def test_idle_errors() -> None:
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
+    # user-defined idling noise via NoiseRule (overrides the default DEPOLARIZE1 channel)
+    idle_rule = circuits.NoiseRule(after={"PAULI_CHANNEL_1": [0.05, 0.0, 0.1]})
+    m_or_r_rule = circuits.NoiseRule(after={"X_ERROR": 0.2, "Z_ERROR": 0.3})
+    noise_model = circuits.NoiseModel(
+        readout_error=0.1, idle_error=idle_rule, additional_error_waiting_for_m_or_r=m_or_r_rule
+    )
+    noisy_circuit = stim.Circuit("""
+        H 0 1 2
+        H 1
+        M(0.1) 0
+        DETECTOR rec[-1]
+        PAULI_CHANNEL_1(0.05, 0.0, 0.1) 2
+        X_ERROR(0.2) 1 2
+        Z_ERROR(0.3) 1 2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # zero/None errors normalize to None for all NoiseRule-valued fields
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error=0,
+        clifford_2q_error=0,
+        idle_error=0,
+        additional_error_waiting_for_m_or_r=None,
+    )
+    assert noise_model.clifford_1q_error is None
+    assert noise_model.clifford_2q_error is None
+    assert noise_model.idle_error is None
+    assert noise_model.additional_error_waiting_for_m_or_r is None
+    assert not bool(noise_model)
+
 
 def test_immunity() -> None:
     """Qubits and operations can be immune to errors."""
@@ -232,6 +262,59 @@ def test_pauli_product_measurements() -> None:
     noisy_circuit = stim.Circuit("""
         MPP(0.1) Z0*Z1*Z2
         MPP(0.2) X0*Y1*Z2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+
+def test_pauli_product_cliffords() -> None:
+    """SPP gates on 1 or 2 qubits get, respectively, 1q or 2q noise."""
+
+    # SPP on one qubit -> clifford_1q_error; SPP on two qubits -> clifford_2q_error;
+    # SPP on three or more qubits is ignored by default.
+    circuit = stim.Circuit("""
+        SPP X0
+        TICK
+        SPP X0*Y1
+        TICK
+        SPP_DAG X0*Y1*Z2
+    """)
+    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, clifford_2q_error=0.2)
+    noisy_circuit = stim.Circuit("""
+        SPP X0
+        DEPOLARIZE1(0.1) 0
+        TICK
+        SPP X0*Y1
+        DEPOLARIZE2(0.2) 0 1
+        TICK
+        SPP_DAG X0*Y1*Z2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # multi-product SPP is split so each Pauli product is treated independently
+    circuit = stim.Circuit("""
+        SPP X0 Y1*Z2 X3*Y4*Z5
+    """)
+    noisy_circuit = stim.Circuit("""
+        SPP X0 Y1*Z2 X3*Y4*Z5
+        DEPOLARIZE1(0.1) 0
+        DEPOLARIZE2(0.2) 1 2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # explicit rules dict overrides the default weight-based dispatch, including for weight >= 3
+    noise_rule = circuits.NoiseRule(after={"DEPOLARIZE1": 0.3})
+    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, rules={"SPP": noise_rule})
+    circuit = stim.Circuit("""
+        SPP X0
+        TICK
+        SPP X0*Y1*Z2
+    """)
+    noisy_circuit = stim.Circuit("""
+        SPP X0
+        DEPOLARIZE1(0.3) 0
+        TICK
+        SPP X0*Y1*Z2
+        DEPOLARIZE1(0.3) 0 1 2
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
