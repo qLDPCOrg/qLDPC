@@ -320,8 +320,8 @@ class NoiseModel:
         readout_error: float | None = None,
         reset_error: float | None = None,
         *,
-        idle_error: float | None = None,
-        additional_error_waiting_for_m_or_r: float | None = None,
+        idle_error: NoiseRule | float | None = None,
+        additional_error_waiting_for_m_or_r: NoiseRule | float | None = None,
         rules: dict[str, NoiseRule] | None = None,
     ):
         """Initializes a noise model with specified parameters.
@@ -333,24 +333,24 @@ class NoiseModel:
                 Clifford gates.
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of resetting qubits to the wrong state.
-            idle_error: Probability of depolarization for each idling qubit in any given moment.
-            additional_error_waiting_for_m_or_r: Additional depolarization probability applied to
-                qubits that are waiting while other qubits undergo measurement or reset operations.
+            idle_error: Noise rule or depolarization probability applied to each idling qubit in any
+                given moment.  If a NoiseRule is provided, its `after` channels are appended to the
+                idle qubits (its readout_error/reset_error fields are ignored).
+            additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
+                applied to qubits that are waiting while other qubits undergo measurement or reset
+                operations.  Same NoiseRule semantics as `idle_error`.
             rules: Dictionary mapping specific gate names to their noise rules.  Overrides all other
                 rules for unitary, measurement, and reset gates.
         """
-        if not (isinstance(clifford_1q_error, NoiseRule) or clifford_1q_error is None):
-            clifford_1q_error = NoiseRule(after={"DEPOLARIZE1": clifford_1q_error})
-        if not (isinstance(clifford_2q_error, NoiseRule) or clifford_2q_error is None):
-            clifford_2q_error = NoiseRule(after={"DEPOLARIZE2": clifford_2q_error})
-
         self.rules = rules
-        self.clifford_1q_error = clifford_1q_error
-        self.clifford_2q_error = clifford_2q_error
+        self.clifford_1q_error = _as_noise_rule(clifford_1q_error, "DEPOLARIZE1")
+        self.clifford_2q_error = _as_noise_rule(clifford_2q_error, "DEPOLARIZE2")
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
-        self.idle_error = idle_error
-        self.additional_error_waiting_for_m_or_r = additional_error_waiting_for_m_or_r
+        self.idle_error = _as_noise_rule(idle_error, "DEPOLARIZE1")
+        self.additional_error_waiting_for_m_or_r = _as_noise_rule(
+            additional_error_waiting_for_m_or_r, "DEPOLARIZE1"
+        )
 
     def __bool__(self) -> bool:
         """Is this noise model nontrivial?"""
@@ -591,11 +591,11 @@ class NoiseModel:
         idle_qubits = sorted(non_collapse_qubits - set(operation_qubits))
 
         if self.idle_error and idle_qubits:
-            circuit.append("DEPOLARIZE1", idle_qubits, self.idle_error)
+            for op_name, args in self.idle_error.after.items():
+                circuit.append(op_name, idle_qubits, args)
         if self.additional_error_waiting_for_m_or_r and collapsed_qubits and non_collapse_qubits:
-            circuit.append(
-                "DEPOLARIZE1", non_collapse_qubits, self.additional_error_waiting_for_m_or_r
-            )
+            for op_name, args in self.additional_error_waiting_for_m_or_r.after.items():
+                circuit.append(op_name, non_collapse_qubits, args)
 
 
 class DepolarizingNoiseModel(NoiseModel):
@@ -641,6 +641,19 @@ class SI1000NoiseModel(NoiseModel):
             idle_error=p / 10,
             additional_error_waiting_for_m_or_r=2 * p,
         )
+
+
+def _as_noise_rule(error: NoiseRule | float | None, default_channel: str) -> NoiseRule | None:
+    """Normalize a noise-error argument to a NoiseRule (or None if falsy).
+
+    A falsy scalar (0, False, None) or empty NoiseRule collapses to None.  A truthy scalar is
+    wrapped as `NoiseRule(after={default_channel: error})`.
+    """
+    if isinstance(error, NoiseRule):
+        return error or None
+    if not error:
+        return None
+    return NoiseRule(after={default_channel: error})
 
 
 def _get_standardized_name(op: stim.CircuitInstruction) -> str:

@@ -126,6 +126,36 @@ def test_idle_errors() -> None:
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
+    # user-defined idling noise via NoiseRule (overrides the default DEPOLARIZE1 channel)
+    idle_rule = circuits.NoiseRule(after={"PAULI_CHANNEL_1": [0.05, 0.0, 0.1]})
+    m_or_r_rule = circuits.NoiseRule(after={"X_ERROR": 0.2, "Z_ERROR": 0.3})
+    noise_model = circuits.NoiseModel(
+        readout_error=0.1, idle_error=idle_rule, additional_error_waiting_for_m_or_r=m_or_r_rule
+    )
+    noisy_circuit = stim.Circuit("""
+        H 0 1 2
+        H 1
+        M(0.1) 0
+        DETECTOR rec[-1]
+        PAULI_CHANNEL_1(0.05, 0.0, 0.1) 2
+        X_ERROR(0.2) 1 2
+        Z_ERROR(0.3) 1 2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # zero/None errors normalize to None for all NoiseRule-valued fields
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error=0,
+        clifford_2q_error=0,
+        idle_error=0,
+        additional_error_waiting_for_m_or_r=None,
+    )
+    assert noise_model.clifford_1q_error is None
+    assert noise_model.clifford_2q_error is None
+    assert noise_model.idle_error is None
+    assert noise_model.additional_error_waiting_for_m_or_r is None
+    assert not bool(noise_model)
+
 
 def test_immunity() -> None:
     """Qubits and operations can be immune to errors."""
