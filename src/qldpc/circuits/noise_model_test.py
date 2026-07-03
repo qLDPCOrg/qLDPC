@@ -294,7 +294,7 @@ def test_pauli_product_cliffords() -> None:
     circuit = stim.Circuit("""
         SPP X0 Y1*Z2 X3*Y4*Z5
     """)
-    noisy_circuit = circuit + stim.Circuit("""
+    noisy_circuit = stim.Circuit("""
         SPP X0 Y1*Z2 X3*Y4*Z5
         DEPOLARIZE1(0.1) 0
         DEPOLARIZE2(0.2) 1 2
