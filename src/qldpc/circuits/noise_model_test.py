@@ -292,12 +292,10 @@ def test_pauli_product_cliffords() -> None:
 
     # multi-product SPP is split so each Pauli product is treated independently
     circuit = stim.Circuit("""
-        SPP X0 Y1*Z2 X0*Y1*Z2
+        SPP X0 Y1*Z2 X3*Y4*Z5
     """)
-    noisy_circuit = stim.Circuit("""
-        SPP X0
-        SPP Y1*Z2
-        SPP X0*Y1*Z2
+    noisy_circuit = circuit + stim.Circuit("""
+        SPP X0 Y1*Z2 X3*Y4*Z5
         DEPOLARIZE1(0.1) 0
         DEPOLARIZE2(0.2) 1 2
     """)
