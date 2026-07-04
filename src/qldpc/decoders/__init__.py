@@ -9,7 +9,10 @@ from .custom import (
     RelayBPDecoder,
     WeightedLookupDecoder,
 )
-from .dems import DetectorErrorModelArrays
+from .dems import (
+    DetectorErrorModelArrays,
+    ErrorTargets,
+)
 from .retrieval import (
     decode,
     get_decoder,
@@ -47,6 +50,7 @@ __all__ = [
     "RelayBPDecoder",
     "WeightedLookupDecoder",
     "DetectorErrorModelArrays",
+    "ErrorTargets",
     "decode",
     "get_decoder",
     "get_decoder_BF",

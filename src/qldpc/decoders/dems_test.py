@@ -280,3 +280,14 @@ def test_decomposing_errors() -> None:
         error(0.001) D2
     """)
     assert dem_arrays.with_decomposed_errors(simplify=False).to_dem() == split_dem
+
+
+def test_error_targets_dem_targets() -> None:
+    """ErrorTargets.dem_targets returns sorted DemTarget lists for detectors and observables."""
+    targets = decoders.ErrorTargets([2, 0, 1], [3, 1, 2, 2])
+    det_targets, obs_targets = targets.dem_targets()
+    assert det_targets == [stim.DemTarget.relative_detector_id(dd) for dd in (0, 1, 2)]
+    assert obs_targets == [stim.DemTarget.logical_observable_id(oo) for oo in (1, 3)]
+
+    empty_det, empty_obs = decoders.ErrorTargets([], []).dem_targets()
+    assert empty_det == [] and empty_obs == []
