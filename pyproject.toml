@@ -58,7 +58,8 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 100
-lint.extend-select = ["I"]
+lint.extend-select = ["I", "W505"]
+lint.pycodestyle.max-doc-length = 100
 
 [tool.mypy]
 pretty = true
