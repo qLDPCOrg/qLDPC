@@ -111,8 +111,8 @@ class Record(Mapping[Hashable, list[int]]):
     """An organized record of events in a Stim circuit.
 
     A record is essentially a dictionary that maps some key (such as a qubit index) to an ordered
-    list of the events (such as measurements or detectors) associated with that key.  The events that
-    a Record keeps track of are assumed to be indexed from zero.
+    list of the events (such as measurements or detectors) associated with that key.  The events
+    that a Record keeps track of are assumed to be indexed from zero.
 
     Record is subclassed by MeasurementRecord to keep track of measurements in a circuit, and
     by DetectorRecord to keep track of the detectors in a circuit.
@@ -168,9 +168,10 @@ class Record(Mapping[Hashable, list[int]]):
     def append(self, record: Mapping[Hashable, Iterable[int] | int], repeat: int = 1) -> None:
         """Append the given record to this one.
 
-        All event numbers in the appended record are increased by the number of events in the current
-        record.  That is, if the current record holds n events numbered from 0 to n - 1, then events
-        (0, 1, ...) in the appended record are added to the current record as (n, n+1, ...).
+        All event numbers in the appended record are increased by the number of events in the
+        current record.  That is, if the current record holds n events numbered from 0 to n - 1,
+        then events (0, 1, ...) in the appended record are added to the current record as
+        (n, n+1, ...).
         """
         assert repeat >= 0
         _record = {  # convert input record into dict[Hashable, list[int]]

@@ -196,7 +196,8 @@ def get_memory_experiment_parts(
     See help(qldpc.circuits.get_memory_experiment) for additional information.
 
     Returns:
-        initialization: A circuit that sets the coordinates and initializes the state of data qubits.
+        initialization: A circuit that sets the coordinates and initializes the state of data
+            qubits.
         qec_cycle: A circuit for one logical QEC cycle, with num_rounds syndrome measurements.
         readout: A circuit that reads out final stabilizers.
         measurement_record: A record of all measurements in the above circuits.
