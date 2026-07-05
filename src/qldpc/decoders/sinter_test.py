@@ -151,9 +151,9 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
         E1: flips D0, L0.
     A window decoder may therefore merge these errors into one:
         E0': flips D0, L0.
-     In this case, after decoding the window decoder has to map the error E0' back to E0 or E1 after
-     decoding.  Note that E0 and E1 flip the same observable (L0), so the choice of E0 or E1 does not
-     affect observable predictions.
+     In this case, after decoding the window decoder has to map the error E0' back to E0 or E1
+     after decoding.  Note that E0 and E1 flip the same observable (L0), so the choice of E0 or E1
+     does not affect observable predictions.
     """
 
     dem = stim.DetectorErrorModel("""

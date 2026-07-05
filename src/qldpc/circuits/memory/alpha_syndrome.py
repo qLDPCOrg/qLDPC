@@ -67,9 +67,9 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         This strategy uses a Monte Carlo tree serch (MCTS) to construct a syndrome measurement
         circuit that minimizes logical error rates.
 
-        The MCTS requires building and simulating noisy evaluation circuits, which naturally requires
-        defining a noise model.  Computing a logical error rate, in turn, requires specifying a
-        decoder.  The "decoder' and "custom_decoders" arguments to AlphaSyndrome are
+        The MCTS requires building and simulating noisy evaluation circuits, which naturally
+        requires defining a noise model.  Computing a logical error rate, in turn, requires
+        specifying a decoder.  The "decoder' and "custom_decoders" arguments to AlphaSyndrome are
 
         Args:
             noise_model: The noise model append to the syndrome measurement circuit.
