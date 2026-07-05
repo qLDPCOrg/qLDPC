@@ -466,8 +466,8 @@ class NoiseModel:
                 float ``p`` (interpreted as a uniform ``k``-qubit depolarizing channel of total
                 error probability ``p``), a ``PauliChannel`` (used directly), or a ``NoiseRule``
                 (full control).  Specifying both ``clifford_pp_error[1]`` and ``clifford_1q_error``
-                raises an error due to the induced ambiguity for treat one-qubit Clifford gates;
-                likewise with ``clifford_pp_error[2]`` and ``clifford_2q_error``.
+                raises an error due to the induced ambiguity for how to treat one-qubit Clifford
+                gates; likewise with ``clifford_pp_error[2]`` and ``clifford_2q_error``.
             idle_error: Noise rule or depolarization probability applied to each idling qubit in any
                 given moment.  If a NoiseRule is provided, its `after` channels are appended to the
                 idle qubits (its readout_error/reset_error fields are ignored).
