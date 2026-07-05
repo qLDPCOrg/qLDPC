@@ -343,7 +343,7 @@ def _rows_to_ints(
 
 
 def _riffle(array: npt.ArrayLike) -> npt.ArrayLike:
-    """'Riffle' Pauli strings, putting the X and Z support bits for each qubit next to each other."""
+    """'Riffle' Pauli strings, putting X and Z support bits for each qubit next to each other."""
     num_bits = np.shape(array)[-1]
     assert num_bits % 2 == 0
     return np.reshape(array, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)

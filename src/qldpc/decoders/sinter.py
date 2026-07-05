@@ -51,7 +51,8 @@ class SinterDecoder(Decoder, sinter.Decoder):
         predict observable flips.  See help(sinter.Decoder) for additional information.
 
         Args:
-            simplify: Whether merge equivalent errors in a DEM when compiling a decoder for that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
+                that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
@@ -248,7 +249,8 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_detectors: A sequence containing one set of detectors per subgraph.
             subgraph_observables: A sequence containing one set of observables per subgraph; or None
                 to indicate that every subgraph should decode every observable.  Default: None.
-            simplify: Whether merge equivalent errors in a DEM when compiling a decoder for that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
+                that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
@@ -396,12 +398,12 @@ class SequentialWindowDecoder(SinterDecoder):
         in subsequent windows.
     The net circuit error inferred by decoding all windows is used to predict observable flips.
 
-    A SequentialWindowDecoder initialized without specifying commit regions sets the commit region of
-    each window to the corresponding detection region.
+    A SequentialWindowDecoder initialized without specifying commit regions sets the commit region
+    of each window to the corresponding detection region.
 
     A special case of SequentialWindowDecoder is a SlidingWindowDecoder, in which case this
-    decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which is
-    explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
+    decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which
+    is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
     """
 
     def __init__(
@@ -425,7 +427,8 @@ class SequentialWindowDecoder(SinterDecoder):
             commit_regions: A sequence containing a set of detectors for each window, or None, in
                 which case the commit region of each window is equal to its detection regions.
                 Default: None.
-            simplify: Whether merge equivalent errors in a DEM when compiling a decoder for that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
+                that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
@@ -509,11 +512,11 @@ class SequentialWindowDecoder(SinterDecoder):
 class _ExpandedWindowDecoder(Decoder):
     """Wrapper for a decoder, to map decoded errors in a simplified DEM to errors in the full DEM.
 
-    The SequentialWindowDecoder restricts a DEM to a "window" before passing the DEM to a decoder for
-    that window.  Restricting a DEM may result in equivalent error mechanisms that end up getting
-    merged, which causes the restricted + simplified DEM to have fewer errors in the window than the
-    un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM to equivalent
-    errors in the original DEM.
+    The SequentialWindowDecoder restricts a DEM to a "window" before passing the DEM to a decoder
+    for that window.  Restricting a DEM may result in equivalent error mechanisms that end up
+    getting merged, which causes the restricted + simplified DEM to have fewer errors in the
+    window than the un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM
+    to equivalent errors in the original DEM.
     """
 
     def __init__(self, decoder: Decoder, window_dem: stim.DetectorErrorModel) -> None:
@@ -713,7 +716,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 WARNING: if a detector_to_time mapping is not None, it will be assumed to be
                 both valid compatible with any detector error model that this decoder is later
                 compiled to with SlidingWindowDecoder.compile_decoder_for_dem.
-            simplify: Whether merge equivalent errors in a DEM when compiling a decoder for that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
+                that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a

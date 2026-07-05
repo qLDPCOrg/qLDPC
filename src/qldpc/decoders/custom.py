@@ -80,7 +80,8 @@ class RelayBPDecoder(BatchDecoder):
         does not recognize, such as decoder.decode_observables_batch(detectors, parallel=True) or
         decoder.decode_detailed(detectors), it tries to pass all arguments to an identically-named
         method of relay_bp.ObservableDecoderRunner.  A consequence of this hack is that most of the
-        methods that are recognized by RelayBPDecoder in practice do not appear in its documentation.
+        methods that are recognized by RelayBPDecoder in practice do not appear in its
+        documentation.
         See help(relay_bp.ObservableDecoderRunner) for a list of all RelayBPDecoder methods.
 
     For details about Relay-BP decoders, see:
@@ -219,14 +220,14 @@ class LookupDecoder(Decoder):
     decreasing weight.  For each error ee, it computes the corresponding syndrome ss, and assigns
     syndrome ss the "correction" ee, overriding any previously assigned correction if present.
 
-    If initialized with symplectic=True, this decoder treats the provided parity check matrix as that
-    of a QuditCode, with the first and last half of the columns denoting, respectively, the X and Z
-    support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
+    If initialized with symplectic=True, this decoder treats the provided parity check matrix as
+    that of a QuditCode, with the first and last half of the columns denoting, respectively, the X
+    and Z support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
     support by the first and second half of their entries.
 
-    If initialized with add_erasure_bit=True, this decoder appends a bit to all decoded errors.  If
-    asked to decode a syndrome that was not observed when constructing the lookup table, the erasure
-    bit is set to 1.  The erasure bit is set to 0 otherwise.
+    If initialized with add_erasure_bit=True, this decoder appends a bit to all decoded errors.
+    If asked to decode a syndrome that was not observed when constructing the lookup table, the
+    erasure bit is set to 1.  The erasure bit is set to 0 otherwise.
 
     If provided an error_channel of independent probabilities for each "error mechanism" (associated
     with one column of the parity check matrix), construct a penalty_func that penalizes unlikely
@@ -236,9 +237,9 @@ class LookupDecoder(Decoder):
     only assigns correction ee to syndrome ss if (a) ss has no assigned correction, or (b) the
     penalty of ee is <= the penalty of the correction currently assigned to ss.
 
-    If provided an observable_flip_matrix (shape num_observables × num_errors), this decoder picks an
-    error that induces the most likely observable flip for each syndrome, rather than the single most
-    likely error.  Concretely: errors consistent with a given syndrome are grouped by their
+    If provided an observable_flip_matrix (shape num_observables × num_errors), this decoder picks
+    an error that induces the most likely observable flip for each syndrome, rather than the single
+    most likely error.  Concretely: errors consistent with a given syndrome are grouped by their
     observable flip value; the total probability of each group is (approximately) the sum of the
     probabilities of its member errors.  This decoder returns the highest-probability individual
     error from the group with the highest total probability.  When initialized from a
@@ -317,7 +318,7 @@ class LookupDecoder(Decoder):
         self.syndrome_to_error: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
 
         if observable_flip_matrix is None:
-            # Loop over all errors in decreasing weight.  Assign each syndrome its most likely error.
+            # Loop over all errors in decreasing weight; assign each syndrome its likeliest error.
             error_penalty: dict[tuple[int, ...], float] = {}
             for error, syndrome in LookupDecoder.iter_errors_and_syndromes(
                 pcm, max_weight, symplectic
@@ -565,9 +566,9 @@ class GUFDecoder(Decoder):
     the minimum-weight error that it found while trying.  Be warned that passing a max_weight makes
     this decoder have worst-case exponential runtime.
 
-    If initialized with symplectic=True, this decoder treats the provided parity check matrix as that
-    of a QuditCode, with the first and last half of the columns denoting, respectively, the X and Z
-    support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
+    If initialized with symplectic=True, this decoder treats the provided parity check matrix as
+    that of a QuditCode, with the first and last half of the columns denoting, respectively, the X
+    and Z support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
     support by the first and second half of their entries.
 
     Warning: this implementation of the generalized Union-Find decoder is highly unoptimized.  For

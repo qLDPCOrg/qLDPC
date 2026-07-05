@@ -327,10 +327,10 @@ class NoiseModel:
         """Initializes a noise model with specified parameters.
 
         Args:
-            clifford_1q_error: Default noise rule or depolarization probability for one-qubit unitary
-                Clifford gates.
-            clifford_2q_error: Default noise rule or depolarization probability for two-qubit unitary
-                Clifford gates.
+            clifford_1q_error: Default noise rule or depolarization probability for one-qubit
+                unitary Clifford gates.
+            clifford_2q_error: Default noise rule or depolarization probability for two-qubit
+                unitary Clifford gates.
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of resetting qubits to the wrong state.
             idle_error: Noise rule or depolarization probability applied to each idling qubit in any
@@ -544,8 +544,8 @@ class NoiseModel:
     ) -> None:
         """Append idling errors from the given moment to the given circuit.
 
-        This method identifies which qubits are idle during a moment and applies depolarization noise
-        to them according to the noise model parameters.
+        This method identifies which qubits are idle during a moment and applies depolarization
+        noise to them according to the noise model parameters.
 
         Args:
             circuit: The circuit to append idle error operations to.
