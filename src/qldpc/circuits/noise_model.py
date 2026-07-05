@@ -811,12 +811,12 @@ def _append_pauli_channel(
     channel: PauliChannel,
     qubit_targets: list[int],
 ) -> None:
-    """Emit a CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain implementing ``channel``.
+    """Append in-place [ELSE_]CORRELATED_ERROR instructions that implement ``channel``.
 
-    The chain is renormalized so that each Pauli string's marginal firing probability equals its
-    value in the channel: the ``k``-th ELSE_CORRELATED_ERROR fires with conditional probability
-    ``p_k / (1 - sum_{i<k} p_i)``, since ELSE_CORRELATED_ERROR only fires when all prior errors
-    in the chain did not.
+    The probabilities of instructions get normalized so that each Pauli string's marginal firing
+    probability equals its value in the channel: the ``k``-th ELSE_CORRELATED_ERROR fires with
+    conditional probability ``p_k / (1 - sum_{i<k} p_i)``, since ELSE_CORRELATED_ERROR only fires
+    when all prior errors in the chain did not.
     """
     remaining = 1.0
     first = True
