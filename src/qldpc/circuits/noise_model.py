@@ -249,7 +249,9 @@ class PauliChannel:
         if not (0 <= total <= 1):
             raise ValueError(f"Sum of Pauli channel probabilities {total} is not in [0, 1]")
         self._num_qubits = num_qubits
-        self._probabilities = dict(probabilities)
+        # Canonicalize insertion order (lex over Pauli strings) so `__eq__`-equal channels
+        # produce identical CORRELATED_ERROR chains at emission time.
+        self._probabilities = {key: probabilities[key] for key in sorted(probabilities)}
 
     @property
     def num_qubits(self) -> int:
@@ -361,7 +363,7 @@ class NoiseRule:
 
         if after_pauli_channel is not None and not isinstance(after_pauli_channel, PauliChannel):
             after_pauli_channel = PauliChannel(after_pauli_channel)
-        self.after_pauli_channel = after_pauli_channel or None
+        self.after_pauli_channel = after_pauli_channel
 
     def __bool__(self) -> bool:
         """Is this noise rule nontrivial?"""
@@ -369,7 +371,7 @@ class NoiseRule:
             bool(self.after)
             or bool(self.readout_error)
             or bool(self.reset_error)
-            or self.after_pauli_channel is not None
+            or bool(self.after_pauli_channel)
         )
 
     def noisy_operation(
@@ -483,20 +485,33 @@ class NoiseModel:
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
         self.clifford_pp_error = _normalize_clifford_pp_error(clifford_pp_error)
-        if 1 in self.clifford_pp_error and self.clifford_1q_error is not None:
-            raise ValueError(
-                "Ambiguous noise specification: both `clifford_pp_error[1]` and "
-                "`clifford_1q_error` are set.  Specify one or the other."
-            )
-        if 2 in self.clifford_pp_error and self.clifford_2q_error is not None:
-            raise ValueError(
-                "Ambiguous noise specification: both `clifford_pp_error[2]` and "
-                "`clifford_2q_error` are set.  Specify one or the other."
-            )
+        # Check against the RAW input rather than the normalized dict so that an explicitly
+        # zero-valued (or otherwise falsy) `clifford_pp_error[k]` entry still counts as
+        # user-specified for the purposes of ambiguity detection.
+        for k, other, other_name in (
+            (1, self.clifford_1q_error, "clifford_1q_error"),
+            (2, self.clifford_2q_error, "clifford_2q_error"),
+        ):
+            if clifford_pp_error and k in clifford_pp_error and other is not None:
+                raise ValueError(
+                    f"Ambiguous noise specification: both `clifford_pp_error[{k}]` and "
+                    f"`{other_name}` are set.  Specify one or the other."
+                )
         self.idle_error = _as_noise_rule(idle_error, "DEPOLARIZE1")
         self.additional_error_waiting_for_m_or_r = _as_noise_rule(
             additional_error_waiting_for_m_or_r, "DEPOLARIZE1"
         )
+        # Idle-error emission applies channels per-qubit, so a joint multi-qubit PauliChannel has
+        # no natural interpretation here.  Reject rather than silently drop.
+        for field_name, rule in (
+            ("idle_error", self.idle_error),
+            ("additional_error_waiting_for_m_or_r", self.additional_error_waiting_for_m_or_r),
+        ):
+            if rule is not None and rule.after_pauli_channel is not None:
+                raise ValueError(
+                    f"`{field_name}` does not support `after_pauli_channel`: idle noise is "
+                    "applied per qubit, but a PauliChannel is a joint multi-qubit channel."
+                )
 
     def __bool__(self) -> bool:
         """Is this noise model nontrivial?"""
@@ -794,16 +809,11 @@ class SI1000NoiseModel(NoiseModel):
 
 def _pauli_string_to_targets(pauli_str: str, qubit_targets: list[int]) -> list[stim.GateTarget]:
     """Convert a Pauli string over the given qubits to a list of Pauli-typed stim targets."""
-    targets: list[stim.GateTarget] = []
-    for pauli, qubit in zip(pauli_str, qubit_targets):
-        if pauli == "X":
-            targets.append(stim.target_x(qubit))
-        elif pauli == "Y":
-            targets.append(stim.target_y(qubit))
-        elif pauli == "Z":
-            targets.append(stim.target_z(qubit))
-        # "I" contributes nothing
-    return targets
+    return [
+        stim.target_pauli(qubit, pauli)
+        for pauli, qubit in zip(pauli_str, qubit_targets, strict=True)
+        if pauli != "I"
+    ]
 
 
 def _append_pauli_channel(
@@ -828,7 +838,11 @@ def _append_pauli_channel(
             circuit.append("CORRELATED_ERROR", pauli_targets, [prob])
             first = False
         else:
-            circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [prob / remaining])
+            # Clamp to [0, 1]: `remaining` is `1 - sum_of_prior` in exact arithmetic and is
+            # guaranteed >= prob because the constructor rejects total > 1, but floating-point
+            # subtraction can leave it a hair smaller than prob and yield a ratio > 1.
+            ratio = 1.0 if remaining <= prob else prob / remaining
+            circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [ratio])
         remaining -= prob
 
 
@@ -863,27 +877,26 @@ def _normalize_clifford_pp_error(
     for k, v in error.items():
         if k < 1:
             raise ValueError(f"clifford_pp_error key {k} must be >= 1")
-        rule: NoiseRule
         if isinstance(v, NoiseRule):
-            if v.after_pauli_channel is not None and v.after_pauli_channel.num_qubits != k:
-                raise ValueError(
-                    f"clifford_pp_error[{k}] has a PauliChannel with "
-                    f"num_qubits={v.after_pauli_channel.num_qubits}; expected {k}"
-                )
             rule = v
         elif isinstance(v, PauliChannel):
-            if v.num_qubits != k:
-                raise ValueError(
-                    f"clifford_pp_error[{k}] has a PauliChannel with num_qubits={v.num_qubits}; "
-                    f"expected {k}"
-                )
             rule = NoiseRule(after_pauli_channel=v)
+        elif isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise TypeError(
+                f"clifford_pp_error[{k}] has unsupported type {type(v).__name__}; "
+                "expected NoiseRule, PauliChannel, or float"
+            )
         else:
             if not (0 <= v <= 1):
                 raise ValueError(f"clifford_pp_error[{k}]={v} is not in [0, 1]")
             if v == 0:
                 continue
             rule = NoiseRule(after_pauli_channel=PauliChannel.depolarizing(k, v))
+        if rule.after_pauli_channel is not None and rule.after_pauli_channel.num_qubits != k:
+            raise ValueError(
+                f"clifford_pp_error[{k}] has a PauliChannel with "
+                f"num_qubits={rule.after_pauli_channel.num_qubits}; expected {k}"
+            )
         if rule:
             result[k] = rule
     return result

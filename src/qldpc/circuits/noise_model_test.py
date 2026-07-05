@@ -500,6 +500,60 @@ def test_clifford_pp_error_errors() -> None:
         with pytest.raises(ValueError, match="use `after_pauli_channel`"):
             circuits.NoiseRule(after={name: 0.01})
 
+    # bool is not a valid float here — reject to avoid True → depolarizing(k, 1.0) surprises
+    with pytest.raises(TypeError, match="unsupported type bool"):
+        circuits.NoiseModel(clifford_pp_error={2: True})
+
+    # Ambiguity is detected against the raw input, so a zero pp entry still counts as specified
+    with pytest.raises(ValueError, match="clifford_pp_error\\[1\\]"):
+        circuits.NoiseModel(clifford_1q_error=0.01, clifford_pp_error={1: 0.0})
+
+
+def test_pauli_channel_idle_error_rejection() -> None:
+    """after_pauli_channel is not accepted on idle-error rules (idle noise is per-qubit)."""
+    channel = circuits.PauliChannel({"X": 0.01})
+    with pytest.raises(ValueError, match="idle_error.*after_pauli_channel"):
+        circuits.NoiseModel(idle_error=circuits.NoiseRule(after_pauli_channel=channel))
+    with pytest.raises(
+        ValueError, match="additional_error_waiting_for_m_or_r.*after_pauli_channel"
+    ):
+        circuits.NoiseModel(
+            additional_error_waiting_for_m_or_r=circuits.NoiseRule(after_pauli_channel=channel)
+        )
+
+
+def test_pauli_channel_preserves_input_and_canonicalizes_order() -> None:
+    """PauliChannel preserves user-supplied entries (incl. zero probs) and canonicalizes order."""
+    ch = circuits.PauliChannel({"XI": 0.0, "IX": 0.05, "XX": 0.05})
+    assert list(ch.probabilities.keys()) == ["IX", "XI", "XX"]  # lex-sorted
+    # Two channels differing only in insertion order compare equal and emit identical circuits.
+    ch_alt = circuits.PauliChannel({"XX": 0.05, "IX": 0.05, "XI": 0.0})
+    assert ch == ch_alt
+    m1 = circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(after_pauli_channel=ch)})
+    m2 = circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(after_pauli_channel=ch_alt)})
+    assert m1.noisy_circuit(stim.Circuit("SPP X0*Y1")) == m2.noisy_circuit(
+        stim.Circuit("SPP X0*Y1")
+    )
+    # A user-supplied empty PauliChannel is preserved, not silently coerced to None.
+    empty_rule = circuits.NoiseRule(after_pauli_channel=circuits.PauliChannel({}))
+    assert isinstance(empty_rule.after_pauli_channel, circuits.PauliChannel)
+    assert empty_rule.after_pauli_channel.num_qubits == 0
+    assert not bool(empty_rule)  # trivial rule
+    # An all-zero PauliChannel is likewise preserved with its declared num_qubits.
+    all_zero_rule = circuits.NoiseRule(after_pauli_channel=circuits.PauliChannel({"XY": 0.0}))
+    assert isinstance(all_zero_rule.after_pauli_channel, circuits.PauliChannel)
+    assert all_zero_rule.after_pauli_channel.num_qubits == 2
+
+
+def test_pauli_channel_float_drift_clamped() -> None:
+    """Chain emission clamps the final ELSE_CORRELATED_ERROR probability to 1.0 under FP drift."""
+    # Constructor accepts sum == 1.0 (via pairwise summation) but sequential subtraction under-runs
+    # remaining below the final prob; the emitted ratio must be clamped instead of exceeding 1.
+    channel = circuits.PauliChannel({"XX": 0.1, "YY": 0.2, "ZZ": 0.3, "XY": 0.4})
+    rule = circuits.NoiseRule(after_pauli_channel=channel)
+    noise_model = circuits.NoiseModel(rules={"SPP": rule})
+    noise_model.noisy_circuit(stim.Circuit("SPP X0*Y1"))  # must not raise
+
 
 def test_repeat_blocks() -> None:
     """Repeat blocks get special treatment."""
