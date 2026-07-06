@@ -502,24 +502,12 @@ class NoiseRule:
 
         Args:
             op: The operation to add noise to.
-            immune_qubits: Qubits declared immune to noise.  Immunization is applied to all four
-                noise sources on ``NoiseRule``:
-                - ``after`` broadcast entries are emitted covering all targets and filtered by
-                  the moment-level immunity pass (see ``_immunize_noise``): broadcast 1q noise
-                  drops immune targets, broadcast 2q noise drops or marginalizes partially-immune
-                  pairs (per ``marginalize``).
-                - ``after_pauli_channel`` is projected onto surviving qubits here at emit time
-                  so its ``CORRELATED_ERROR`` chain never mentions immune qubits.
-                - ``reset_error`` is always single-qubit; it is emitted as broadcast ``X_ERROR``
-                  or ``Z_ERROR`` and the moment-level immunity pass drops the immune targets.
-                - ``readout_error`` is a single per-instruction bit-flip and cannot be projected
-                  onto a subset of the measurement's qubits.  It is dropped only when *every*
-                  measured qubit is immune; if any measured qubit is non-immune, the readout
-                  error is applied unchanged, since the classical result still depends on real
-                  qubits that could have flipped.
-            marginalize: If True, an ``after_pauli_channel`` touching immune qubits is projected
-                onto the surviving qubits (keeping only Pauli strings with ``I`` on every immune
-                position, probabilities unchanged) instead of being dropped.
+            immune_qubits: Qubits declared immune to noise.  Immunization is applied to every
+                noise source on this rule; see ``emit_after`` and ``_immunize_noise`` for the
+                per-channel details.  Measurement errors (from ``self.reset_error``) are unaffected
+                unless all measured qubits are immune.
+            marginalize: If True, joint Pauli noise on partially-immune qubits is projected onto
+                the surviving qubits instead of dropped.  See ``emit_after``.
 
         Returns:
             stim.CircuitInstruction: The given operation possibly modified to account for noise.
