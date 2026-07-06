@@ -70,8 +70,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         Args:
             strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
                 Defaults to "smallest_last".
-            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs when retrieving
-                the Tanner subgraphs of a code.
+            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs when
+                retrieving the Tanner subgraphs of a code.
         """
         self.strategy = strategy
         self.subgraph_kwargs = subgraph_kwargs

@@ -1,6 +1,6 @@
 [project]
 name = "qLDPC"
-version = "0.2.9"
+version = "0.3.0"
 description = "Tools for constructing and analyzing quantum low density parity check (qLDPC) codes."
 readme = "README.md"
 license = "Apache-2.0"
@@ -38,12 +38,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "bloqade-tsim>=0.1.4",
   "checks-superstaq>=0.5.62",
   "jupyter>=1.1.1",
   "python-lsp-server[all]>=1.14.0",
   "relay-bp[stim]==0.2.1",
 ]
 relay-bp = ["relay-bp[stim]==0.2.1"]
+tsim = ["bloqade-tsim>=0.1.4"]
 
 [project.urls]
 Repository = "https://github.com/qLDPCOrg/qLDPC"
@@ -56,7 +58,8 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 100
-lint.extend-select = ["I"]
+lint.extend-select = ["I", "W505"]
+lint.pycodestyle.max-doc-length = 100
 
 [tool.mypy]
 pretty = true

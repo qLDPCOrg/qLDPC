@@ -48,15 +48,13 @@ import sympy.core
 
 from qldpc import external
 
-GF2: type[galois.FieldArray] = galois.GF(2)
-
 
 def resolve_field(
     field: int | type[galois.FieldArray] | None,
 ) -> type[galois.FieldArray]:  # pragma: no cover
     """Parse a finite field argument to obtain an actual finite field."""
     if field is None:
-        return GF2
+        return galois.GF2
     if isinstance(field, int):
         return galois.GF(field)
     return field
@@ -921,7 +919,7 @@ class ProjectiveSpecialLinearGroup(Group):
         """Generating matrices of PSL, constructed out of the generating matrices of SL."""
         field = resolve_field(field)
         gen_x, gen_w = SpecialLinearGroup.get_generating_mats(dimension, field)
-        if field is GF2:
+        if field is galois.GF2:
             return gen_x, gen_w
         return (
             np.kron(np.linalg.inv(gen_x), gen_x).view(field),

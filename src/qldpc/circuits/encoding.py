@@ -20,11 +20,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import ParamSpec, TypeVar
 
+import galois
 import numpy as np
 import stim
 
 from qldpc import codes, math
-from qldpc.abstract import GF2
 from qldpc.objects import Pauli
 
 from .bookkeeping import QubitIDs
@@ -198,7 +198,7 @@ def get_state_stabilizers(
     cols_other_z = other_qubits + num_qubits
 
     # build a matrix of stabilizers for the entire circuit output, determined by the flows
-    matrix = GF2.Zeros((num_rows, num_columns))
+    matrix = galois.GF2.Zeros((num_rows, num_columns))
     for gg, flow in enumerate(flow_generators):
         pauli_string = flow.output_copy()
         if pauli_string:
