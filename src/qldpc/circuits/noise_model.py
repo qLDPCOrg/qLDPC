@@ -677,12 +677,17 @@ class NoiseModel:
                 return rule
 
         op_type = OP_TYPES[op.name]
-        if self.clifford_1q_error is not None and op_type == CLIFFORD_1Q:
-            return self.clifford_1q_error
-        if self.clifford_2q_error is not None and op_type == CLIFFORD_2Q:
-            return self.clifford_2q_error
-        if op_type == CLIFFORD_PP:
-            num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
+        if op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
+            # `clifford_nq_error` is keyed by the "arity per unit application" — 1 for CLIFFORD_1Q,
+            # 2 for CLIFFORD_2Q, and the Pauli-product weight for CLIFFORD_PP.  The pre-construction
+            # ambiguity check guarantees that at most one of `clifford_nq_error[k]` and
+            # `clifford_{k}q_error` is set for k in {1, 2}.
+            if op_type == CLIFFORD_1Q:
+                num_qubits = 1
+            elif op_type == CLIFFORD_2Q:
+                num_qubits = 2
+            else:
+                num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
             if num_qubits in self.clifford_nq_error:
                 return self.clifford_nq_error[num_qubits]
             if num_qubits == 1 and self.clifford_1q_error is not None:
@@ -906,15 +911,18 @@ class DepolarizingNoiseModel(NoiseModel):
     - Measurements have their outcomes probabilistically flipped.
     - Reset gates probabalistically reset qubits to the wrong (orthogonal) state.
     - If applicable, every idling qubit in a given moment gets depolarized.
+
+    Multi-qubit Cliffords can also be depolarized by increasing the max_gate_size.
     """
 
-    def __init__(self, p: float, *, include_idling_error: bool = False) -> None:
+    def __init__(
+        self, p: float, *, include_idling_error: bool = False, max_gate_size: int = 2
+    ) -> None:
         """Instantiate a depolarizing noise model."""
         self.p = p
         self.include_idling_error = include_idling_error
         super().__init__(
-            clifford_1q_error=p,
-            clifford_2q_error=p,
+            clifford_nq_error={size: p for size in range(1, max_gate_size + 1)},
             readout_error=p,
             reset_error=p,
             idle_error=p if include_idling_error else False,
