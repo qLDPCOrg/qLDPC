@@ -217,7 +217,7 @@ def test_immunity() -> None:
     assert noise_model.noisy_circuit(noiseless_circuit).to_tableau() == tableau
 
 
-def test_immune_marginalize() -> None:
+def test_immune_qubits() -> None:
     noise_model: circuits.NoiseModel
     circuit = stim.Circuit("""
         CNOT 0 1
@@ -226,8 +226,10 @@ def test_immune_marginalize() -> None:
     """)
     noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
 
-    # error marginalize on part of DEPOLARIZE2 on qubit 0 1
-    noisy_circuit_marginalize = stim.Circuit("""
+    # immunize_gates=False: condition partially-immune DEPOLARIZE2 pairs on the immune qubit
+    # acting as identity.  Pair (0, 1) becomes DEPOLARIZE1(0.02) on qubit 2 (well: on the
+    # surviving qubit of the pair, which is qubit 2 for pair (1, 2)).
+    expected = stim.Circuit("""
         CNOT 0 1
         CNOT 1 2
         CNOT 3 4
@@ -235,21 +237,21 @@ def test_immune_marginalize() -> None:
         DEPOLARIZE2(0.1) 3 4
     """)
     assert _circuits_are_equivalent(
-        noisy_circuit_marginalize,
+        expected,
         noise_model.noisy_circuit(
             circuit, immune_qubits=[0, 1], insert_ticks=False, immunize_gates=False
         ),
     )
 
-    # turn off marginalization
-    noisy_circuit_marginalize = stim.Circuit("""
+    # immunize_gates=True: any gate touching an immune qubit is treated as noiseless.
+    expected = stim.Circuit("""
         CNOT 0 1
         CNOT 1 2
         CNOT 3 4
         DEPOLARIZE2(0.1) 3 4
     """)
     assert _circuits_are_equivalent(
-        noisy_circuit_marginalize,
+        expected,
         noise_model.noisy_circuit(
             circuit, immune_qubits=[0, 1], insert_ticks=False, immunize_gates=True
         ),
@@ -287,7 +289,7 @@ def test_immune_marginalize() -> None:
         ),
     )
 
-    # multi-qubit PauliChannel marginalization: keep only strings that are I on the immune qubit
+    # multi-qubit PauliChannel conditioning: keep only strings that are I on the immune qubit
     circuit = stim.Circuit("SPP X0*Y1*Z2")
     channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03})
     noise_model = circuits.NoiseModel(
@@ -316,9 +318,9 @@ def test_immune_marginalize() -> None:
     )
 
     # immunize_gates=False but every string has a non-I on the immune qubit -> nothing emitted.
-    empty_marg_channel = circuits.PauliChannel({"XYZ": 0.01, "IYY": 0.02})
+    no_survivors_channel = circuits.PauliChannel({"XYZ": 0.01, "IYY": 0.02})
     noise_model = circuits.NoiseModel(
-        rules={"SPP": circuits.NoiseRule(after_pauli_channel=empty_marg_channel)}
+        rules={"SPP": circuits.NoiseRule(after_pauli_channel=no_survivors_channel)}
     )
     assert _circuits_are_equivalent(
         stim.Circuit("SPP X0*Y1*Z2"),
@@ -327,13 +329,13 @@ def test_immune_marginalize() -> None:
         ),
     )
 
-    # 4-qubit channel marginalizing one qubit -> surviving 4-qubit channel with I always at pos 1.
+    # 4-qubit channel conditioned on one qubit -> surviving 4-qubit channel with I always at pos 1.
     circuit = stim.Circuit("SPP X0*Y1*Z2*X3")
     channel = circuits.PauliChannel({"XIZX": 0.01, "IIYX": 0.02, "XYZX": 0.03})
     noise_model = circuits.NoiseModel(
         rules={"SPP": circuits.NoiseRule(after_pauli_channel=channel)}
     )
-    # Immune qubit 1: only "XIZX" and "IIYX" survive (both have I at pos 1); the marginalized
+    # Immune qubit 1: only "XIZX" and "IIYX" survive (both have I at pos 1); the conditioned
     # channel is {"IIYX": 0.02, "XIZX": 0.01} in lex order.  Emitted as a CE chain on qubits
     # 0, 2, 3 (position 1 skipped because it's I everywhere), second entry renormalized to
     # conditional-fire prob = 0.01 / (1 - 0.02).
@@ -348,7 +350,7 @@ def test_immune_marginalize() -> None:
         ),
     )
 
-    # `after` broadcast noise: 1q entries drop immune targets; 2q entries drop / marginalize pairs.
+    # `after` broadcast noise: 1q entries drop immune targets; 2q entries drop / condition pairs.
     circuit = stim.Circuit("""
         H 0
         H 1
@@ -391,7 +393,7 @@ def test_immune_marginalize() -> None:
     )
 
     # reset_error: emitted as X_ERROR / Z_ERROR broadcast on all targets; immune targets are
-    # dropped by the moment-level filter regardless of `marginalize`.
+    # dropped by the moment-level filter regardless of `immunize_gates`.
     circuit = stim.Circuit("R 0 1 2")
     noise_model = circuits.NoiseModel(reset_error=0.1)
     assert _circuits_are_equivalent(
@@ -553,7 +555,7 @@ def test_pauli_channel_class() -> None:
     # zero-prob channel is falsy but still constructible
     assert not bool(circuits.PauliChannel({"X": 0.0}))
 
-    # depolarizing(n, p): 4**n - 1 entries, marginals sum to p, first key in lex order is "IX"
+    # depolarizing(n, p): 4**n - 1 entries, probabilities sum to p, first key in lex order is "IX"
     dp = circuits.PauliChannel.depolarizing(2, 0.15)
     assert dp.num_qubits == 2
     assert len(dp.probabilities) == 15

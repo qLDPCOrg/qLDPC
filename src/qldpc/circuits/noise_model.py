@@ -267,7 +267,7 @@ class PauliChannel:
     non-combiner target of the operation the channel is applied to.
 
     Emitted as a chain of ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` instructions, whose
-    firing probabilities are renormalized at each instruction so that each Pauli string's marginal
+    conditional firing probabilities are renormalized so that each Pauli string's (unconditional)
     firing probability equals the value provided.
     """
 
@@ -391,15 +391,15 @@ class PauliChannel:
     def conditioned_on(self, immune_qubits: Iterable[int]) -> PauliChannel:
         """Return the sub-channel of error mechanisms that act as identity on the given qubits.
 
-        Keeps only Pauli strings whose positions in ``immune_qubit_indices`` are all ``I``, with
-        their original probabilities.  The returned channel has the same ``num_qubits`` as ``self``
-        — surviving strings retain their length; the immune positions are still present, always as
+        Keeps only Pauli strings whose positions in ``immune_qubits`` are all ``I``, with their
+        original probabilities.  The returned channel has the same ``num_qubits`` as ``self`` —
+        surviving strings retain their length; the immune positions are still present, always as
         ``I``.  Total probability is in general reduced (the dropped weight represents error events
         that would have acted nontrivially on an immune qubit, which are assumed to not occur).
 
         Args:
-            immune_qubit_indices: Positions in ``[0, num_qubits)`` to constrain to identity.
-                Repeats are ignored.
+            immune_qubits: Positions in ``[0, num_qubits)`` to constrain to identity.  Repeats
+                are ignored.
 
         Returns:
             A ``PauliChannel`` on the same qubits as ``self``.  If no strings survive, the returned
@@ -448,10 +448,10 @@ class NoiseRule:
                 ELSE_CORRELATED_ERROR are not accepted here; use `after_pauli_channel` instead.
             after_pauli_channel: An n-qubit Pauli channel applied jointly to the operation's
                 qubits.  Emitted as a chain of CORRELATED_ERROR / ELSE_CORRELATED_ERROR
-                instructions whose firing probabilities are renormalized so each Pauli string's
-                marginal firing probability equals the value in the channel.  The channel's
-                num_qubits must match the number of non-combiner targets of the operation it is
-                applied to.  Accepts a `PauliChannel` or a raw dict (auto-wrapped).
+                instructions whose conditional firing probabilities are renormalized so each
+                Pauli string's unconditional firing probability equals the value in the channel.
+                The channel's num_qubits must match the number of non-combiner targets of the
+                operation it is applied to.  Accepts a `PauliChannel` or a raw dict (auto-wrapped).
             readout_error: The probability that a measurement result is reported incorrectly.  Only
                 allowed for operations that produce measurement results.
             reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
@@ -513,7 +513,7 @@ class NoiseRule:
             op: The operation to add noise to.
             immune_qubits: Qubits that are declared to be immune to noise.
             immunize_gates: If True (the default), a gate that touches an immune qubit is treated
-                as noiseless.  Otherwise, its Pauli noise is conditioned on the absense of errors on
+                as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
 
         Returns:
@@ -579,7 +579,7 @@ class NoiseRule:
             qubit_targets: The qubits the noise applies to (in the operation's target order).
             immune_qubits: Qubits that are declared to be immune to noise.
             immunize_gates: If True (the default), a gate that touches an immune qubit is treated
-                as noiseless.  Otherwise, its Pauli noise is conditioned on the absense of errors on
+                as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
             context: A short description of the operation, used only in error messages.
 
@@ -608,9 +608,9 @@ class NoiseRule:
             if not immune_positions:
                 _append_pauli_channel(circuit, self.after_pauli_channel, qubit_targets)
             elif not immunize_gates:
-                after_pauli_channel = self.after_pauli_channel.conditioned_on(immune_positions)
-                if after_pauli_channel:
-                    _append_pauli_channel(circuit, after_pauli_channel, qubit_targets)
+                sub_channel = self.after_pauli_channel.conditioned_on(immune_positions)
+                if sub_channel:
+                    _append_pauli_channel(circuit, sub_channel, qubit_targets)
 
 
 class NoiseModel:
@@ -806,7 +806,7 @@ class NoiseModel:
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
             immunize_gates: If True (the default), a gate that touches an immune qubit is treated
-                as noiseless.  Otherwise, its Pauli noise is conditioned on the absense of errors on
+                as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
             insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes that this preprocessing is not necessary.
@@ -901,7 +901,7 @@ class NoiseModel:
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.
             immunize_gates: If True (the default), a gate that touches an immune qubit is treated
-                as noiseless.  Otherwise, its Pauli noise is conditioned on the absense of errors on
+                as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
         """
         noise_after_moment = stim.Circuit()
@@ -1103,9 +1103,9 @@ def _append_pauli_channel(
     ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` on the corresponding qubit(s), even if the channel's
     formal arity is larger; channels with 3+ active positions emit a chain of one
     ``CORRELATED_ERROR`` followed by one ``ELSE_CORRELATED_ERROR`` per remaining non-zero Pauli
-    string, with conditional probabilities renormalized so each Pauli string's marginal firing
-    probability equals its value in ``channel``.  An empty channel (or one whose surviving strings
-    are all identity, which cannot occur but is defensively handled) emits nothing.
+    string, with conditional probabilities renormalized so each Pauli string's unconditional
+    firing probability equals its value in ``channel``.  An empty channel (or one whose surviving
+    strings are all identity, which cannot occur but is defensively handled) emits nothing.
     """
     active_positions = sorted(
         {i for string in channel.probabilities for i, pauli in enumerate(string) if pauli != "I"}
@@ -1182,20 +1182,22 @@ def _immunize_noise(
     cases:
     - Broadcast 1-qubit noise (``DEPOLARIZE1``, ``X_ERROR``, etc.): immune targets are dropped,
       non-immune targets kept.
-    - Broadcast 2-qubit noise (``DEPOLARIZE2``, ``PAULI_CHANNEL_2``): with ``immunize_gates=False``,
-      partially-immune pairs are projected onto the surviving qubit's 1-qubit marginal (see
-      ``_marginalize_2q_noise``); with ``immunize_gates=True``, they are dropped.
+    - Broadcast 2-qubit noise (``DEPOLARIZE2``, ``PAULI_CHANNEL_2``): with ``immunize_gates=True``,
+      partially-immune pairs are dropped; with ``immunize_gates=False``, they are conditioned on
+      the immune qubit acting as identity and emitted as the resulting 1-qubit sub-channel on the
+      surviving qubit (see ``_immunize_2q_noise``).
 
     ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chains are always emitted by
-    ``NoiseRule.emit_after`` on the already-marginalized surviving qubits, so they never mention
-    immune qubits at this point and pass through the identity branch.
+    ``NoiseRule.emit_after`` on qubit sets that are either fully immune (dropped upstream) or
+    fully non-immune (via ``PauliChannel.conditioned_on``), so they never mention immune qubits
+    at this point and pass through the identity branch.
 
     Args:
         noise: A flat noise circuit (no repeat blocks) to filter.
         immune_qubits: Qubits that are declared to be immune to noise.
         immunize_gates: If True (the default), a gate that touches an immune qubit is treated
-            as noiseless.  Otherwise, its Pauli noise is conditioned on the absense of errors on
-            noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
+            as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
+            the immune qubits, keeping only terms that act as ``I`` on every immune qubit.
 
     Returns:
         stim.Circuit: A filtered copy of the input circuit.
@@ -1225,21 +1227,23 @@ def _immunize_2q_noise(
     *,
     immunize_gates: bool,
 ) -> stim.Circuit:
-    """Filter or marginalize a 2-qubit noise instruction over immune qubits.
+    """Filter or condition a 2-qubit noise instruction on the identity-on-immune subspace.
 
     Processes each pair of targets independently.  Pairs with no immune qubits are kept as-is.
-    Pairs where both qubits are immune are dropped.  For partially-immune pairs, if marginalize is
-    True the surviving qubit receives a 1-qubit marginal (ignoring cross-Pauli terms); if False the
-    pair is dropped.  Only DEPOLARIZE2 and PAULI_CHANNEL_2 support marginalization; other 2-qubit
-    channels emit a warning and are dropped for partially-immune pairs.
+    Pairs where both qubits are immune are dropped.  For partially-immune pairs, if
+    ``immunize_gates`` is True the pair is dropped; otherwise the surviving qubit receives the
+    1-qubit sub-channel obtained by keeping only terms that act as ``I`` on the immune position
+    (probabilities unchanged).  Only DEPOLARIZE2 and PAULI_CHANNEL_2 support conditioning; other
+    2-qubit channels emit a warning and are dropped for partially-immune pairs.
 
     Args:
         noise_op: A 2-qubit noise instruction.
         immune_qubits: Qubits that are declared to be immune to noise.
-        marginalize: If True, emit a 1-qubit marginal for partially-immune pairs.
+        immunize_gates: If True, drop partially-immune pairs.  Otherwise, emit the surviving-qubit
+            sub-channel for each partially-immune pair.
 
     Returns:
-        stim.Circuit: The filtered/marginalized circuit for this instruction.
+        stim.Circuit: The filtered/conditioned circuit for this instruction.
     """
     result = stim.Circuit()
     name = noise_op.name
@@ -1256,19 +1260,21 @@ def _immunize_2q_noise(
         elif q1_immune and q2_immune:
             pass  # both immune: skip
         elif immunize_gates:
-            pass  # partially immune, no marginalization: drop the pair
+            pass  # partially immune, gate immunized: drop the pair
         elif name == "DEPOLARIZE2":
             p = args[0]
             surviving = q2.value if q1_immune else q1.value
             result.append(stim.CircuitInstruction("DEPOLARIZE1", [surviving], [p / 5]))
         elif name == "PAULI_CHANNEL_2":
             if q2_immune:
-                marginal = [args[idx] for idx in _PC2_SECOND_IMMUNE_INDICES]
+                sub_channel_probs = [args[idx] for idx in _PC2_SECOND_IMMUNE_INDICES]
                 surviving = q1.value
             else:
-                marginal = [args[idx] for idx in _PC2_FIRST_IMMUNE_INDICES]
+                sub_channel_probs = [args[idx] for idx in _PC2_FIRST_IMMUNE_INDICES]
                 surviving = q2.value
-            result.append(stim.CircuitInstruction("PAULI_CHANNEL_1", [surviving], marginal))
+            result.append(
+                stim.CircuitInstruction("PAULI_CHANNEL_1", [surviving], sub_channel_probs)
+            )
         else:  # pragma: no cover
             warnings.warn(
                 f"Cannot immunize {name} over immune qubits; noise is dropped.",
