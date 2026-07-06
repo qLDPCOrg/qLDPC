@@ -592,10 +592,10 @@ class NoiseModel:
         """
         self.rules = rules
         if rules is not None:
-            # Validate rules whose gate arity is fixed and known.  Rule keys for MPP are
-            # standardized on the Pauli-product basis (e.g., "MXYZ" for MPP X*Y*Z), so their
-            # arity varies with the product weight and can only be checked at emission time
-            # by `emit_after`, which re-checks against the actual qubit-target count.
+            # Validate rules whose gate arity (size) is fixed and known.  Rule keys for MPP are
+            # standardized on the Pauli-product basis (e.g., "MXYZ" for MPP X*Y*Z), so their arity
+            # varies with the product weight and can only be checked at emission time by
+            # `emit_after`, which re-checks against the actual qubit-target count.
             for op_name, rule in rules.items():
                 arity = _known_gate_arity(op_name)
                 if arity is not None:
@@ -606,28 +606,34 @@ class NoiseModel:
                         can_measure=_op_can_measure(op_name),
                         can_reset=_op_can_reset(op_name),
                     )
-        self.clifford_1q_error = _as_noise_rule(clifford_1q_error, "DEPOLARIZE1")
-        self.clifford_2q_error = _as_noise_rule(clifford_2q_error, "DEPOLARIZE2")
-        # 1q/2q Clifford rules apply to unitary Cliffords, which are neither measurement nor reset.
-        if self.clifford_1q_error is not None:
-            _validate_rule_for_arity(self.clifford_1q_error, 1, "clifford_1q_error")
-        if self.clifford_2q_error is not None:
-            _validate_rule_for_arity(self.clifford_2q_error, 2, "clifford_2q_error")
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
-        self.clifford_nq_error = _normalize_clifford_nq_error(clifford_nq_error)
-        # Ambiguity detection is symmetric on RAW inputs: an argument counts as "user-specified"
-        # if the user passed anything other than None (including a zero float, an empty NoiseRule,
-        # etc.), even if it normalizes to a no-op.
-        for weight, pp_raw, competing_raw, competing_name in (
-            (1, clifford_nq_error, clifford_1q_error, "clifford_1q_error"),
-            (2, clifford_nq_error, clifford_2q_error, "clifford_2q_error"),
+
+        # `clifford_1q_error` / `clifford_2q_error` are syntactic sugar for `clifford_nq_error[1]`
+        # / `clifford_nq_error[2]`; internally we normalize everything into a single
+        # `clifford_nq_error` dict.  Ambiguity detection is symmetric on RAW inputs — an argument
+        # counts as "user-specified" if the user passed anything other than None (including a
+        # zero float, an empty NoiseRule, etc.), even if it normalizes to a no-op.
+        for size, param, name in (
+            (1, clifford_1q_error, "clifford_1q_error"),
+            (2, clifford_2q_error, "clifford_2q_error"),
         ):
-            if pp_raw is not None and weight in pp_raw and competing_raw is not None:
+            if clifford_nq_error is not None and size in clifford_nq_error and param is not None:
                 raise ValueError(
-                    f"Ambiguous noise specification: both `clifford_nq_error[{weight}]` and "
-                    f"`{competing_name}` are set.  Specify one or the other."
+                    f"Ambiguous noise specification: both `clifford_nq_error[{size}]` and"
+                    f"`{name}` are set.  Specify one or the other."
                 )
+        merged_nq_input: dict[int, NoiseRule | PauliChannel | Mapping[str, float] | float] = (
+            dict(clifford_nq_error) if clifford_nq_error else {}
+        )
+        rule_1q = _as_noise_rule(clifford_1q_error, "DEPOLARIZE1")
+        rule_2q = _as_noise_rule(clifford_2q_error, "DEPOLARIZE2")
+        if rule_1q is not None:
+            merged_nq_input[1] = rule_1q
+        if rule_2q is not None:
+            merged_nq_input[2] = rule_2q
+        self.clifford_nq_error = _normalize_clifford_nq_error(merged_nq_input)
+
         self.idle_error = _as_noise_rule(idle_error, "DEPOLARIZE1")
         self.additional_error_waiting_for_m_or_r = _as_noise_rule(
             additional_error_waiting_for_m_or_r, "DEPOLARIZE1"
@@ -644,12 +650,20 @@ class NoiseModel:
                     "applied per qubit, but a PauliChannel is a joint multi-qubit channel."
                 )
 
+    @property
+    def clifford_1q_error(self) -> NoiseRule | None:
+        """Convenience view: ``clifford_nq_error[1]`` if set, else None."""
+        return self.clifford_nq_error.get(1)
+
+    @property
+    def clifford_2q_error(self) -> NoiseRule | None:
+        """Convenience view: ``clifford_nq_error[2]`` if set, else None."""
+        return self.clifford_nq_error.get(2)
+
     def __bool__(self) -> bool:
         """Is this noise model nontrivial?"""
         return (
             bool(self.rules)
-            or bool(self.clifford_1q_error)
-            or bool(self.clifford_2q_error)
             or bool(self.clifford_nq_error)
             or bool(self.readout_error)
             or bool(self.reset_error)
@@ -686,10 +700,6 @@ class NoiseModel:
                 num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
             if num_qubits in self.clifford_nq_error:
                 return self.clifford_nq_error[num_qubits]
-            if num_qubits == 1 and self.clifford_1q_error is not None:
-                return self.clifford_1q_error
-            if num_qubits == 2 and self.clifford_2q_error is not None:
-                return self.clifford_2q_error
 
         if self.readout_error and op.name in JUST_MEASURE_OPS:
             return NoiseRule(readout_error=self.readout_error)
