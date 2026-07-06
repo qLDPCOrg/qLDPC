@@ -502,10 +502,21 @@ class NoiseRule:
 
         Args:
             op: The operation to add noise to.
-            immune_qubits: Qubits declared immune to noise.  Broadcast ``after`` entries and
-                ``reset_error`` follow-ups are still emitted covering all targets and get filtered
-                downstream by the moment-level immunity pass; ``after_pauli_channel`` is projected
-                here at emit time so its ``CORRELATED_ERROR`` chain never mentions immune qubits.
+            immune_qubits: Qubits declared immune to noise.  Immunization is applied to all four
+                noise sources on ``NoiseRule``:
+                - ``after`` broadcast entries are emitted covering all targets and filtered by
+                  the moment-level immunity pass (see ``_immunize_noise``): broadcast 1q noise
+                  drops immune targets, broadcast 2q noise drops or marginalizes partially-immune
+                  pairs (per ``marginalize``).
+                - ``after_pauli_channel`` is projected onto surviving qubits here at emit time
+                  so its ``CORRELATED_ERROR`` chain never mentions immune qubits.
+                - ``reset_error`` is always single-qubit; it is emitted as broadcast ``X_ERROR``
+                  or ``Z_ERROR`` and the moment-level immunity pass drops the immune targets.
+                - ``readout_error`` is a single per-instruction bit-flip and cannot be projected
+                  onto a subset of the measurement's qubits.  It is dropped only when *every*
+                  measured qubit is immune; if any measured qubit is non-immune, the readout
+                  error is applied unchanged, since the classical result still depends on real
+                  qubits that could have flipped.
             marginalize: If True, an ``after_pauli_channel`` touching immune qubits is projected
                 onto the surviving qubits (keeping only Pauli strings with ``I`` on every immune
                 position, probabilities unchanged) instead of being dropped.
@@ -516,7 +527,14 @@ class NoiseRule:
         """
         targets = op.targets_copy()
         args = op.gate_args_copy()
-        if self.readout_error:
+        qubit_targets = [target.value for target in targets if not target.is_combiner]
+
+        # Drop readout_error only when *every* measured qubit is immune: readout_error is a single
+        # per-instruction bit-flip probability, and a measurement whose classical result depends on
+        # any non-immune qubit still has a real readout to potentially flip.
+        all_immune = bool(qubit_targets) and all(q in immune_qubits for q in qubit_targets)
+
+        if self.readout_error and not all_immune:
             assert op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
             if not args:
                 args = [self.readout_error]
@@ -528,7 +546,6 @@ class NoiseRule:
         noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
         noise_after = stim.Circuit()
 
-        qubit_targets = [target.value for target in targets if not target.is_combiner]
         if self.reset_error:
             assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
             error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
@@ -795,9 +812,11 @@ class NoiseModel:
                 on.  If None, defaults to the empty set.
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
-            marginalize: If True, marginalize 2-qubit noise on the absence of errors on noise-immune
-                qubits.  If False, gates that address noise-immune qubits are also noiseless.
-                Default: False.
+            marginalize: If True, Pauli noise on partially-immune qubits is projected onto the
+                subspace where every immune qubit acts as identity: strings whose immune positions
+                are all ``I`` are kept with their original probabilities and emitted on the
+                surviving qubits, while all other strings are dropped.  If False, any noise
+                instruction touching an immune qubit is dropped entirely.  Default: False.
             insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes that this preprocessing is not necessary.
 
@@ -888,8 +907,9 @@ class NoiseModel:
             immune_qubits: Set of all qubits that should not have noise applied to them.
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.
-            marginalize: If True, marginalize 2-qubit noise onto surviving qubits instead of
-                removing.
+            marginalize: If True, Pauli noise on partially-immune qubits is projected onto the
+                surviving qubits (keeping strings that are ``I`` on every immune position) instead
+                of dropped.
         """
         frozen_immune = frozenset(immune_qubits)
         noise_after_moment = stim.Circuit()
@@ -1162,7 +1182,10 @@ def _immunize_noise(
     Args:
         noise: A flat noise circuit (no repeat blocks) to filter.
         immune_qubits: Qubit indices that should not have noise applied to them.
-        marginalize: If True, marginalize 2-qubit noise onto surviving qubits instead of removing.
+        marginalize: If True, partially-immune broadcast 2-qubit noise is projected onto the
+            surviving qubit instead of dropped.  (Broadcast 1-qubit noise always keeps its
+            non-immune targets; ``after_pauli_channel``-style joint Pauli channels are handled
+            upstream by ``NoiseRule.emit_after`` and never reach this filter with immune targets.)
 
     Returns:
         stim.Circuit: A filtered copy of the input circuit.

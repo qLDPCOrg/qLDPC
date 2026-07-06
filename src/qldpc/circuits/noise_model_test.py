@@ -327,6 +327,79 @@ def test_immune_marginalize() -> None:
         noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
     )
 
+    # `after` broadcast noise: 1q entries drop immune targets; 2q entries drop / marginalize pairs.
+    circuit = stim.Circuit("""
+        H 0
+        H 1
+        TICK
+        CX 0 1 2 3
+    """)
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error=circuits.NoiseRule(after={"DEPOLARIZE1": 0.1}),
+        clifford_2q_error=circuits.NoiseRule(after={"DEPOLARIZE2": 0.2}),
+    )
+    # immune_qubits=[1] with marginalize=False: DEPOLARIZE1 keeps only qubit 0, DEPOLARIZE2 pair
+    # (0, 1) dropped, pair (2, 3) kept.  With marginalize=True: pair (0, 1) becomes
+    # DEPOLARIZE1(0.2/5) on qubit 0.
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+            H 0
+            H 1
+            DEPOLARIZE1(0.1) 0
+            TICK
+            CX 0 1 2 3
+            DEPOLARIZE2(0.2) 2 3
+        """),
+        noise_model.noisy_circuit(
+            circuit, immune_qubits=[1], insert_ticks=False, marginalize=False
+        ),
+    )
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+            H 0
+            H 1
+            DEPOLARIZE1(0.1) 0
+            TICK
+            CX 0 1 2 3
+            DEPOLARIZE1(0.04) 0
+            DEPOLARIZE2(0.2) 2 3
+        """),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
+    )
+
+    # reset_error: emitted as X_ERROR / Z_ERROR broadcast on all targets; immune targets are
+    # dropped by the moment-level filter regardless of `marginalize`.
+    circuit = stim.Circuit("R 0 1 2")
+    noise_model = circuits.NoiseModel(reset_error=0.1)
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+            R 0 1 2
+            X_ERROR(0.1) 0 2
+        """),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False),
+    )
+
+    # readout_error: dropped only when *every* measured qubit is immune.  A measurement whose
+    # classical result depends on any non-immune qubit keeps its readout error unchanged.
+    circuit = stim.Circuit("""
+        M 0
+        TICK
+        M 1
+        TICK
+        MPP X0*Y1
+    """)
+    noise_model = circuits.NoiseModel(readout_error=0.1)
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+            M(0.1) 0
+            TICK
+            M 1
+            TICK
+            MPP(0.1) X0*Y1
+        """),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False),
+    )
+
 
 def test_classical_controls() -> None:
     """Classically controled gates get special treatment."""
