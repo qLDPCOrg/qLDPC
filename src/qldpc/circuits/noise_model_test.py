@@ -562,38 +562,38 @@ def test_pauli_channel_class() -> None:
         circuits.PauliChannel.depolarizing(2, 1.5)
 
 
-def test_pauli_channel_marginalize_over() -> None:
-    """PauliChannel.marginalize_over projects the channel onto identity-on-immune subspace."""
+def test_pauli_channel_marginalize_on() -> None:
+    """PauliChannel.marginalize_on projects the channel onto identity-on-immune subspace."""
 
     channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03, "XII": 0.04})
 
     # Marginalize position 1 (middle): keep strings with I at pos 1.
     # XYZ: pos 1 is Y, drop.  XIZ: pos 1 is I, keep -> "XZ".
     # IZI: pos 1 is Z, drop.  XII: pos 1 is I, keep -> "XI".
-    assert channel.marginalize_over([1]) == circuits.PauliChannel({"XZ": 0.02, "XI": 0.04})
+    assert channel.marginalize_on([1]) == circuits.PauliChannel({"XZ": 0.02, "XI": 0.04})
 
     # Marginalize positions 0 and 2: keep strings with I at pos 0 AND pos 2.
     # Only "IZI" has I at 0 and 2 -> "Z" on surviving position 1.
-    assert channel.marginalize_over([0, 2]) == circuits.PauliChannel({"Z": 0.03})
+    assert channel.marginalize_on([0, 2]) == circuits.PauliChannel({"Z": 0.03})
 
     # Empty index list is a no-op (returns an equal channel).
-    assert channel.marginalize_over([]) == channel
+    assert channel.marginalize_on([]) == channel
 
     # Marginalizing every position yields an empty channel (no non-identity string is all-I).
-    assert channel.marginalize_over([0, 1, 2]) == circuits.PauliChannel({})
+    assert channel.marginalize_on([0, 1, 2]) == circuits.PauliChannel({})
 
     # Repeated indices are deduplicated.
-    assert channel.marginalize_over([1, 1]) == channel.marginalize_over([1])
+    assert channel.marginalize_on([1, 1]) == channel.marginalize_on([1])
 
     # If nothing survives, the result is empty.
     all_non_id = circuits.PauliChannel({"XY": 0.1, "YX": 0.1})
-    assert all_non_id.marginalize_over([0]) == circuits.PauliChannel({})
+    assert all_non_id.marginalize_on([0]) == circuits.PauliChannel({})
 
     # Out-of-range indices raise.
     with pytest.raises(ValueError, match="not in"):
-        channel.marginalize_over([3])
+        channel.marginalize_on([3])
     with pytest.raises(ValueError, match="not in"):
-        channel.marginalize_over([-1])
+        channel.marginalize_on([-1])
 
 
 def test_multi_qubit_pauli_channel_after_gate() -> None:

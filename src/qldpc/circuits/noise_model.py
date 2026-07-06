@@ -376,28 +376,28 @@ class PauliChannel:
                 probs[string] = weight
         return PauliChannel(probs)
 
-    def marginalize_over(self, qubit_indices: Collection[int]) -> PauliChannel:
+    def marginalize_on(self, immune_qubit_indices: Collection[int]) -> PauliChannel:
         """Project the channel onto the subspace where the given qubits act as identity.
 
-        Keeps only Pauli strings whose positions in ``qubit_indices`` are all ``I``, and returns
-        a new channel on the remaining positions (in their original relative order).  The kept
-        strings retain their original probabilities; total probability is therefore in general
+        Keeps only Pauli strings whose positions in ``immune_qubit_indices`` are all ``I``, and
+        returns a new channel on the remaining positions (in their original relative order).  The
+        kept strings retain their original probabilities; total probability is therefore in general
         reduced (the dropped weight represents error events that would have hit a marginalized
         qubit, which are assumed to not occur).
 
         Args:
-            qubit_indices: Positions in ``[0, num_qubits)`` to project onto identity.  Repeats
-                are ignored.
+            immune_qubit_indices: Positions in ``[0, num_qubits)`` to project onto identity.
+                Repeats are ignored.
 
         Returns:
-            A ``PauliChannel`` on ``num_qubits - len(set(qubit_indices))`` qubits.  If every
+            A ``PauliChannel`` on ``num_qubits - len(set(immune_qubit_indices))`` qubits.  If every
             surviving string reduces to identity (or no strings survive), the returned channel
             is empty.
 
         Raises:
             ValueError: If any index is outside ``[0, num_qubits)``.
         """
-        marginalized = frozenset(qubit_indices)
+        marginalized = frozenset(immune_qubit_indices)
         for index in marginalized:
             if not 0 <= index < self._num_qubits:
                 raise ValueError(f"index {index} not in [0, {self._num_qubits})")
@@ -606,7 +606,7 @@ class NoiseRule:
             if not immune_positions:
                 _append_pauli_channel(circuit, self.after_pauli_channel, qubit_targets)
             elif marginalize:
-                marginal = self.after_pauli_channel.marginalize_over(immune_positions)
+                marginal = self.after_pauli_channel.marginalize_on(immune_positions)
                 if marginal:
                     surviving = [q for q in qubit_targets if q not in immune_qubits]
                     _append_pauli_channel(circuit, marginal, surviving)
