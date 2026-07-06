@@ -208,7 +208,7 @@ def test_immunity() -> None:
     assert noise_model.noisy_circuit(noiseless_circuit).to_tableau() == tableau
 
 
-def test_immune_project() -> None:
+def test_immune_marginalize() -> None:
     noise_model: circuits.NoiseModel
     circuit = stim.Circuit("""
         CNOT 0 1
@@ -217,8 +217,8 @@ def test_immune_project() -> None:
     """)
     noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
 
-    # error project on part of DEPOLARIZE2 on qubit 0 1
-    noisy_circuit_project = stim.Circuit("""
+    # error marginalize on part of DEPOLARIZE2 on qubit 0 1
+    noisy_circuit_marginalize = stim.Circuit("""
         CNOT 0 1
         CNOT 1 2
         CNOT 3 4
@@ -226,20 +226,24 @@ def test_immune_project() -> None:
         DEPOLARIZE2(0.1) 3 4
     """)
     assert _circuits_are_equivalent(
-        noisy_circuit_project,
-        noise_model.noisy_circuit(circuit, immune_qubits=[0, 1], insert_ticks=False, project=True),
+        noisy_circuit_marginalize,
+        noise_model.noisy_circuit(
+            circuit, immune_qubits=[0, 1], insert_ticks=False, marginalize=True
+        ),
     )
 
-    # turn off projection
-    noisy_circuit_project = stim.Circuit("""
+    # turn off marginalization
+    noisy_circuit_marginalize = stim.Circuit("""
         CNOT 0 1
         CNOT 1 2
         CNOT 3 4
         DEPOLARIZE2(0.1) 3 4
     """)
     assert _circuits_are_equivalent(
-        noisy_circuit_project,
-        noise_model.noisy_circuit(circuit, immune_qubits=[0, 1], insert_ticks=False, project=False),
+        noisy_circuit_marginalize,
+        noise_model.noisy_circuit(
+            circuit, immune_qubits=[0, 1], insert_ticks=False, marginalize=False
+        ),
     )
 
     # test PAULI_CHANNEL_2
@@ -259,7 +263,7 @@ def test_immune_project() -> None:
             CNOT 0 1
             PAULI_CHANNEL_1(0.01, 0.02, 0.03) 1
         """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False, project=True),
+        noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False, marginalize=True),
     )
 
     assert _circuits_are_equivalent(
@@ -267,43 +271,45 @@ def test_immune_project() -> None:
             CNOT 0 1
             PAULI_CHANNEL_1(0.04, 0.05, 0.06) 0
         """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, project=True),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
     )
 
-    # multi-qubit PauliChannel projection: keep only strings that are I on the immune qubit
+    # multi-qubit PauliChannel marginalization: keep only strings that are I on the immune qubit
     circuit = stim.Circuit("SPP X0*Y1*Z2")
     channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03})
     noise_model = circuits.NoiseModel(
         rules={"SPP": circuits.NoiseRule(after_pauli_channel=channel)}
     )
 
-    # project=True, immune qubit 1: only "XIZ" survives; projected to positions [0, 2].
-    # The projected 2-qubit channel is emitted natively as PAULI_CHANNEL_2 with XZ at index 6.
+    # marginalize=True, immune qubit 1: only "XIZ" survives; projected to positions [0, 2].
+    # The marginalized 2-qubit channel is emitted natively as PAULI_CHANNEL_2 with XZ at index 6.
     assert _circuits_are_equivalent(
         stim.Circuit("""
             SPP X0*Y1*Z2
             PAULI_CHANNEL_2(0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0) 0 2
         """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, project=True),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
     )
 
-    # project=False, immune qubit 1: drop the whole channel.
+    # marginalize=False, immune qubit 1: drop the whole channel.
     assert _circuits_are_equivalent(
         stim.Circuit("SPP X0*Y1*Z2"),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, project=False),
+        noise_model.noisy_circuit(
+            circuit, immune_qubits=[1], insert_ticks=False, marginalize=False
+        ),
     )
 
-    # project=True but every string has a non-I on the immune qubit -> nothing emitted.
+    # marginalize=True but every string has a non-I on the immune qubit -> nothing emitted.
     empty_marg_channel = circuits.PauliChannel({"XYZ": 0.01, "IYY": 0.02})
     noise_model = circuits.NoiseModel(
         rules={"SPP": circuits.NoiseRule(after_pauli_channel=empty_marg_channel)}
     )
     assert _circuits_are_equivalent(
         stim.Circuit("SPP X0*Y1*Z2"),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, project=True),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
     )
 
-    # 4-qubit channel projecting one qubit -> 3-qubit surviving channel, emitted as CE chain.
+    # 4-qubit channel marginalizing one qubit -> 3-qubit surviving channel, emitted as CE chain.
     circuit = stim.Circuit("SPP X0*Y1*Z2*X3")
     channel = circuits.PauliChannel({"XIZX": 0.01, "IIYX": 0.02, "XYZX": 0.03})
     noise_model = circuits.NoiseModel(
@@ -318,10 +324,10 @@ def test_immune_project() -> None:
             CORRELATED_ERROR(0.02) Y2 X3
             ELSE_CORRELATED_ERROR({0.01 / (1 - 0.02)}) X0 Z2 X3
         """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, project=True),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
     )
 
-    # `after` broadcast noise: 1q entries drop immune targets; 2q entries drop / project pairs.
+    # `after` broadcast noise: 1q entries drop immune targets; 2q entries drop / marginalize pairs.
     circuit = stim.Circuit("""
         H 0
         H 1
@@ -332,8 +338,8 @@ def test_immune_project() -> None:
         clifford_1q_error=circuits.NoiseRule(after={"DEPOLARIZE1": 0.1}),
         clifford_2q_error=circuits.NoiseRule(after={"DEPOLARIZE2": 0.2}),
     )
-    # immune_qubits=[1] with project=False: DEPOLARIZE1 keeps only qubit 0, DEPOLARIZE2 pair
-    # (0, 1) dropped, pair (2, 3) kept.  With project=True: pair (0, 1) becomes
+    # immune_qubits=[1] with marginalize=False: DEPOLARIZE1 keeps only qubit 0, DEPOLARIZE2 pair
+    # (0, 1) dropped, pair (2, 3) kept.  With marginalize=True: pair (0, 1) becomes
     # DEPOLARIZE1(0.2/5) on qubit 0.
     assert _circuits_are_equivalent(
         stim.Circuit("""
@@ -344,7 +350,9 @@ def test_immune_project() -> None:
             CX 0 1 2 3
             DEPOLARIZE2(0.2) 2 3
         """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, project=False),
+        noise_model.noisy_circuit(
+            circuit, immune_qubits=[1], insert_ticks=False, marginalize=False
+        ),
     )
     assert _circuits_are_equivalent(
         stim.Circuit("""
@@ -356,11 +364,11 @@ def test_immune_project() -> None:
             DEPOLARIZE1(0.04) 0
             DEPOLARIZE2(0.2) 2 3
         """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, project=True),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
     )
 
     # reset_error: emitted as X_ERROR / Z_ERROR broadcast on all targets; immune targets are
-    # dropped by the moment-level filter regardless of `project`.
+    # dropped by the moment-level filter regardless of `marginalize`.
     circuit = stim.Circuit("R 0 1 2")
     noise_model = circuits.NoiseModel(reset_error=0.1)
     assert _circuits_are_equivalent(
@@ -522,7 +530,7 @@ def test_pauli_channel_class() -> None:
     # zero-prob channel is falsy but still constructible
     assert not bool(circuits.PauliChannel({"X": 0.0}))
 
-    # depolarizing(n, p): 4**n - 1 entries, probabilities sum to p, first key in lex order is "IX"
+    # depolarizing(n, p): 4**n - 1 entries, marginals sum to p, first key in lex order is "IX"
     dp = circuits.PauliChannel.depolarizing(2, 0.15)
     assert dp.num_qubits == 2
     assert len(dp.probabilities) == 15
@@ -554,38 +562,38 @@ def test_pauli_channel_class() -> None:
         circuits.PauliChannel.depolarizing(2, 1.5)
 
 
-def test_pauli_channel_project() -> None:
-    """PauliChannel.project projects the channel onto identity-on-immune subspace."""
+def test_pauli_channel_marginalize_over() -> None:
+    """PauliChannel.marginalize_over projects the channel onto identity-on-immune subspace."""
 
     channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03, "XII": 0.04})
 
     # Marginalize position 1 (middle): keep strings with I at pos 1.
     # XYZ: pos 1 is Y, drop.  XIZ: pos 1 is I, keep -> "XZ".
     # IZI: pos 1 is Z, drop.  XII: pos 1 is I, keep -> "XI".
-    assert channel.project([1]) == circuits.PauliChannel({"XZ": 0.02, "XI": 0.04})
+    assert channel.marginalize_over([1]) == circuits.PauliChannel({"XZ": 0.02, "XI": 0.04})
 
     # Marginalize positions 0 and 2: keep strings with I at pos 0 AND pos 2.
     # Only "IZI" has I at 0 and 2 -> "Z" on surviving position 1.
-    assert channel.project([0, 2]) == circuits.PauliChannel({"Z": 0.03})
+    assert channel.marginalize_over([0, 2]) == circuits.PauliChannel({"Z": 0.03})
 
     # Empty index list is a no-op (returns an equal channel).
-    assert channel.project([]) == channel
+    assert channel.marginalize_over([]) == channel
 
     # Marginalizing every position yields an empty channel (no non-identity string is all-I).
-    assert channel.project([0, 1, 2]) == circuits.PauliChannel({})
+    assert channel.marginalize_over([0, 1, 2]) == circuits.PauliChannel({})
 
     # Repeated indices are deduplicated.
-    assert channel.project([1, 1]) == channel.project([1])
+    assert channel.marginalize_over([1, 1]) == channel.marginalize_over([1])
 
     # If nothing survives, the result is empty.
     all_non_id = circuits.PauliChannel({"XY": 0.1, "YX": 0.1})
-    assert all_non_id.project([0]) == circuits.PauliChannel({})
+    assert all_non_id.marginalize_over([0]) == circuits.PauliChannel({})
 
     # Out-of-range indices raise.
     with pytest.raises(ValueError, match="not in"):
-        channel.project([3])
+        channel.marginalize_over([3])
     with pytest.raises(ValueError, match="not in"):
-        channel.project([-1])
+        channel.marginalize_over([-1])
 
 
 def test_multi_qubit_pauli_channel_after_gate() -> None:
