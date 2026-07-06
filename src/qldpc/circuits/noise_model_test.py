@@ -401,11 +401,11 @@ def test_multi_qubit_pauli_channel_after_gate() -> None:
     assert isinstance(rule.after_pauli_channel, circuits.PauliChannel)
 
 
-def test_clifford_pp_error() -> None:
-    """clifford_pp_error dispatches by Pauli-product weight."""
+def test_clifford_nq_error() -> None:
+    """clifford_nq_error dispatches by qubit count k."""
 
     # A float value produces a uniform depolarizing channel of that weight
-    noise_model = circuits.NoiseModel(clifford_pp_error={3: 0.001})
+    noise_model = circuits.NoiseModel(clifford_nq_error={3: 0.001})
     circuit = stim.Circuit("SPP X0*Y1*Z2")
     noisy = noise_model.noisy_circuit(circuit)
     # 63 non-identity 3q Paulis: 1 CORRELATED_ERROR (canonicalized by stim to "E") plus
@@ -418,7 +418,7 @@ def test_clifford_pp_error() -> None:
     # channels emit native PAULI_CHANNEL_1 / PAULI_CHANNEL_2; weight-3 and above use a
     # CORRELATED_ERROR chain.  Values may be a raw Mapping (auto-wrapped) or a PauliChannel.
     noise_model = circuits.NoiseModel(
-        clifford_pp_error={
+        clifford_nq_error={
             1: {"X": 0.01},  # raw Mapping — auto-wrapped as PauliChannel
             2: circuits.PauliChannel({"XY": 0.02}),
             3: circuits.PauliChannel({"XYZ": 0.03}),
@@ -439,7 +439,7 @@ def test_clifford_pp_error() -> None:
         after={"X_ERROR": 0.01},
         after_pauli_channel=circuits.PauliChannel({"XYZ": 0.02}),
     )
-    noise_model = circuits.NoiseModel(clifford_pp_error={3: rule})
+    noise_model = circuits.NoiseModel(clifford_nq_error={3: rule})
     circuit = stim.Circuit("SPP X0*Y1*Z2")
     noisy = noise_model.noisy_circuit(circuit)
     expected = stim.Circuit("""
@@ -450,35 +450,35 @@ def test_clifford_pp_error() -> None:
     assert _circuits_are_equivalent(expected, noisy)
 
     # Falsy values (zero float, empty NoiseRule) are dropped from the normalized dict
-    assert circuits.NoiseModel(clifford_pp_error={3: 0.0}).clifford_pp_error == {}
-    assert circuits.NoiseModel(clifford_pp_error={3: circuits.NoiseRule()}).clifford_pp_error == {}
+    assert circuits.NoiseModel(clifford_nq_error={3: 0.0}).clifford_nq_error == {}
+    assert circuits.NoiseModel(clifford_nq_error={3: circuits.NoiseRule()}).clifford_nq_error == {}
 
 
-def test_clifford_pp_error_errors() -> None:
-    """Validation errors around clifford_pp_error and related rules."""
+def test_clifford_nq_error_errors() -> None:
+    """Validation errors around clifford_nq_error and related rules."""
 
     # Ambiguity: pp[k] and clifford_kq_error both user-specified (symmetric — either side raises,
     # even when either value is a no-op zero).
     with pytest.raises(ValueError, match="Ambiguous"):
-        circuits.NoiseModel(clifford_1q_error=0.01, clifford_pp_error={1: 0.02})
+        circuits.NoiseModel(clifford_1q_error=0.01, clifford_nq_error={1: 0.02})
     with pytest.raises(ValueError, match="Ambiguous"):
-        circuits.NoiseModel(clifford_2q_error=0.01, clifford_pp_error={2: 0.02})
+        circuits.NoiseModel(clifford_2q_error=0.01, clifford_nq_error={2: 0.02})
     with pytest.raises(ValueError, match="Ambiguous"):
-        circuits.NoiseModel(clifford_1q_error=0.01, clifford_pp_error={1: 0.0})
+        circuits.NoiseModel(clifford_1q_error=0.01, clifford_nq_error={1: 0.0})
     with pytest.raises(ValueError, match="Ambiguous"):
-        circuits.NoiseModel(clifford_1q_error=0.0, clifford_pp_error={1: 0.01})
+        circuits.NoiseModel(clifford_1q_error=0.0, clifford_nq_error={1: 0.01})
 
     # Invalid key / out-of-range probability / bool rejection
     with pytest.raises(ValueError, match="must be >= 1"):
-        circuits.NoiseModel(clifford_pp_error={0: 0.01})
+        circuits.NoiseModel(clifford_nq_error={0: 0.01})
     with pytest.raises(ValueError, match="not in \\[0, 1\\]"):
-        circuits.NoiseModel(clifford_pp_error={3: 1.5})
+        circuits.NoiseModel(clifford_nq_error={3: 1.5})
     with pytest.raises(TypeError, match="unsupported type bool"):
-        circuits.NoiseModel(clifford_pp_error={2: True})
+        circuits.NoiseModel(clifford_nq_error={2: True})
 
     # num_qubits mismatch between key and PauliChannel value (checked at construction).
     with pytest.raises(ValueError, match="num_qubits=2"):
-        circuits.NoiseModel(clifford_pp_error={3: circuits.PauliChannel.depolarizing(2, 0.01)})
+        circuits.NoiseModel(clifford_nq_error={3: circuits.PauliChannel.depolarizing(2, 0.01)})
 
     # num_qubits mismatch via `rules=` is not caught at construction (arity varies), but is caught
     # at emission by `emit_after`.

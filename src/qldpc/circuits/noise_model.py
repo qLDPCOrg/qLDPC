@@ -1,6 +1,7 @@
 """Implementation of noise models for Stim (and tsim) circuits
 
 The main components of this module are:
+- PauliChannel: A sparse multi-qubit Pauli channel used to specify multi-qubit noise.
 - NoiseRule: Defines how to add noise to individual operations.
 - NoiseModel: Defines how noise is added to circuits.
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
@@ -32,10 +33,39 @@ Examples of basic usage with a predefined noise model:
     noisy_circuit = custom_model.noisy_circuit(circuit)
 
 
+Noise on multi-qubit Clifford gates (SPP / MPP):
+
+    from qldpc.circuits.noise_model import NoiseModel, NoiseRule, PauliChannel
+
+    # `clifford_nq_error` maps a qubit count ``k`` to the noise applied after each ``k``-qubit
+    # unitary Clifford gate (namely, the Pauli-product Cliffords SPP and SPP_DAG, which are stim's
+    # multi-qubit unitary Clifford primitives).  Values may be a float (uniform ``k``-qubit
+    # depolarizing channel), a Mapping[str, float] (auto-wrapped as PauliChannel), a PauliChannel,
+    # or a full NoiseRule.
+    noise_model = NoiseModel(
+        clifford_nq_error={
+            1: 1e-4,                                 # DEPOLARIZE1(1e-4) after each 1-qubit gate
+            2: 1e-3,                                 # DEPOLARIZE2(1e-3) after each 2-qubit gate
+            3: PauliChannel.depolarizing(3, 5e-3),   # 3-qubit depolarizing channel, emitted as
+                                                     # a chain of CORRELATED_ERROR /
+                                                     # ELSE_CORRELATED_ERROR instructions
+            4: {"XXXX": 1e-4, "ZZZZ": 2e-4},         # sparse 4-qubit channel (raw dict)
+        }
+    )
+
+    # Multi-qubit MPP gates receive ordinary readout_error.  To assign per-basis rules, key on the
+    # standardized name that measurement gates are dispatched under: "M<paulis>", e.g. "MXYZ" for
+    # `MPP X*Y*Z`, "MXX" for `MPP X*X`, etc.
+    noise_model = NoiseModel(
+        readout_error=1e-3,                                # default readout flip probability
+        rules={"MXYZ": NoiseRule(readout_error=5e-3)},     # override for MPP X*Y*Z specifically
+    )
+
+
 Important note:
 ---------------
 
-This file was taken and modified from
+This file was originally taken and modified from
     https://github.com/tqec/tqec/blob/main/src/tqec/utils/noise_model.py
 which itself was taken from
     https://zenodo.org/records/7487893
@@ -325,7 +355,7 @@ class PauliChannel:
         self._probabilities = types.MappingProxyType(probs)
 
     @staticmethod
-    def depolarizing(num_qubits: int, probability: float) -> "PauliChannel":
+    def depolarizing(num_qubits: int, probability: float) -> PauliChannel:
         """Uniform ``num_qubits``-qubit depolarizing channel with total error ``probability``.
 
         Each of the ``4**num_qubits - 1`` non-identity Pauli strings is assigned probability
@@ -526,7 +556,7 @@ class NoiseModel:
         readout_error: float | None = None,
         reset_error: float | None = None,
         *,
-        clifford_pp_error: (
+        clifford_nq_error: (
             Mapping[int, NoiseRule | PauliChannel | Mapping[str, float] | float] | None
         ) = None,
         idle_error: NoiseRule | float | None = None,
@@ -542,13 +572,15 @@ class NoiseModel:
                 unitary Clifford gates.
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of resetting qubits to the wrong state.
-            clifford_pp_error: Optional mapping from Pauli-product weight ``k`` to the noise applied
-                after weight-``k`` Pauli-product Clifford gates (SPP, SPP_DAG).  Values may be a
-                float ``p`` (interpreted as a uniform ``k``-qubit depolarizing channel of total
-                error probability ``p``), a ``PauliChannel``, a raw ``Mapping[str, float]`` (auto-
-                wrapped as ``PauliChannel``), or a ``NoiseRule`` (full control).  Specifying both
-                ``clifford_pp_error[1]`` and ``clifford_1q_error`` raises an error due to the
-                induced ambiguity; likewise with ``clifford_pp_error[2]`` and ``clifford_2q_error``.
+            clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied
+                after each ``k``-qubit unitary Clifford gate — currently the Pauli-product
+                Cliffords SPP and SPP_DAG, which are stim's general n-qubit unitary Clifford
+                primitives.  Values may be a float ``p`` (interpreted as a uniform ``k``-qubit
+                depolarizing channel of total error probability ``p``), a ``PauliChannel``, a raw
+                ``Mapping[str, float]`` (auto-wrapped as ``PauliChannel``), or a ``NoiseRule``
+                (full control).  Specifying both ``clifford_nq_error[1]`` and ``clifford_1q_error``
+                raises an error due to the induced ambiguity; likewise with
+                ``clifford_nq_error[2]`` and ``clifford_2q_error``.
             idle_error: Noise rule or depolarization probability applied to each idling qubit in any
                 given moment.  If a NoiseRule is provided, its `after` channels are appended to the
                 idle qubits (its readout_error/reset_error fields are ignored).
@@ -583,17 +615,17 @@ class NoiseModel:
             _validate_rule_for_arity(self.clifford_2q_error, 2, "clifford_2q_error")
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
-        self.clifford_pp_error = _normalize_clifford_pp_error(clifford_pp_error)
+        self.clifford_nq_error = _normalize_clifford_nq_error(clifford_nq_error)
         # Ambiguity detection is symmetric on RAW inputs: an argument counts as "user-specified"
         # if the user passed anything other than None (including a zero float, an empty NoiseRule,
         # etc.), even if it normalizes to a no-op.
         for weight, pp_raw, competing_raw, competing_name in (
-            (1, clifford_pp_error, clifford_1q_error, "clifford_1q_error"),
-            (2, clifford_pp_error, clifford_2q_error, "clifford_2q_error"),
+            (1, clifford_nq_error, clifford_1q_error, "clifford_1q_error"),
+            (2, clifford_nq_error, clifford_2q_error, "clifford_2q_error"),
         ):
             if pp_raw is not None and weight in pp_raw and competing_raw is not None:
                 raise ValueError(
-                    f"Ambiguous noise specification: both `clifford_pp_error[{weight}]` and "
+                    f"Ambiguous noise specification: both `clifford_nq_error[{weight}]` and "
                     f"`{competing_name}` are set.  Specify one or the other."
                 )
         self.idle_error = _as_noise_rule(idle_error, "DEPOLARIZE1")
@@ -618,7 +650,7 @@ class NoiseModel:
             bool(self.rules)
             or bool(self.clifford_1q_error)
             or bool(self.clifford_2q_error)
-            or bool(self.clifford_pp_error)
+            or bool(self.clifford_nq_error)
             or bool(self.readout_error)
             or bool(self.reset_error)
             or bool(self.idle_error)
@@ -651,8 +683,8 @@ class NoiseModel:
             return self.clifford_2q_error
         if op_type == CLIFFORD_PP:
             num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
-            if num_qubits in self.clifford_pp_error:
-                return self.clifford_pp_error[num_qubits]
+            if num_qubits in self.clifford_nq_error:
+                return self.clifford_nq_error[num_qubits]
             if num_qubits == 1 and self.clifford_1q_error is not None:
                 return self.clifford_1q_error
             if num_qubits == 2 and self.clifford_2q_error is not None:
@@ -1082,10 +1114,10 @@ def _as_noise_rule(error: NoiseRule | float | None, default_channel: str) -> Noi
     return NoiseRule(after={default_channel: error})
 
 
-def _normalize_clifford_pp_error(
+def _normalize_clifford_nq_error(
     error: Mapping[int, NoiseRule | PauliChannel | Mapping[str, float] | float] | None,
 ) -> dict[int, NoiseRule]:
-    """Normalize the ``clifford_pp_error`` argument to a ``dict[int, NoiseRule]``.
+    """Normalize the ``clifford_nq_error`` argument to a ``dict[int, NoiseRule]``.
 
     - Floats become uniform ``k``-qubit depolarizing noise: ``DEPOLARIZE1`` for ``k == 1``,
       ``DEPOLARIZE2`` for ``k == 2``, and ``PauliChannel.depolarizing`` otherwise.
@@ -1102,7 +1134,7 @@ def _normalize_clifford_pp_error(
     result: dict[int, NoiseRule] = {}
     for weight, entry in error.items():
         if weight < 1:
-            raise ValueError(f"clifford_pp_error key {weight} must be >= 1")
+            raise ValueError(f"clifford_nq_error key {weight} must be >= 1")
         if isinstance(entry, NoiseRule):
             rule = entry
         elif isinstance(entry, PauliChannel):
@@ -1111,12 +1143,12 @@ def _normalize_clifford_pp_error(
             rule = NoiseRule(after_pauli_channel=PauliChannel(entry))
         elif isinstance(entry, bool) or not isinstance(entry, (int, float)):
             raise TypeError(
-                f"clifford_pp_error[{weight}] has unsupported type {type(entry).__name__}; "
+                f"clifford_nq_error[{weight}] has unsupported type {type(entry).__name__}; "
                 "expected NoiseRule, PauliChannel, Mapping[str, float], int, or float"
             )
         else:
             if not (0 <= entry <= 1):
-                raise ValueError(f"clifford_pp_error[{weight}]={entry} is not in [0, 1]")
+                raise ValueError(f"clifford_nq_error[{weight}]={entry} is not in [0, 1]")
             if entry == 0:
                 continue
             if weight == 1:
@@ -1125,7 +1157,7 @@ def _normalize_clifford_pp_error(
                 rule = NoiseRule(after={"DEPOLARIZE2": entry})
             else:
                 rule = NoiseRule(after_pauli_channel=PauliChannel.depolarizing(weight, entry))
-        _validate_rule_for_arity(rule, weight, f"clifford_pp_error[{weight}]")
+        _validate_rule_for_arity(rule, weight, f"clifford_nq_error[{weight}]")
         if rule:
             result[weight] = rule
     return result
