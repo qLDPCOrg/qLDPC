@@ -271,7 +271,7 @@ class PauliChannel:
     firing probability equals the value provided.
     """
 
-    def __init__(self, probabilities: Mapping[str, float]):
+    def __init__(self, probabilities: Mapping[str, float], *, num_qubits: int | None = None):
         """Instantiate a Pauli channel.
 
         Args:
@@ -279,22 +279,32 @@ class PauliChannel:
                 strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
                 ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
                 probability zero are silently dropped.
+            num_qubits: The arity of the channel.  Required only for an empty ``probabilities``
+                on a nontrivial number of qubits — otherwise defaults to the length of the Pauli
+                strings when ``probabilities`` is non-empty, or ``0`` when empty.  If both are
+                supplied and inconsistent, a ``ValueError`` is raised.
 
         Raises:
             ValueError: If the input contains an invalid Pauli string, contains the identity
-                string, any probability is not in [0, 1], or the sum of probabilities is not in
-                [0, 1].
+                string, any probability is not in [0, 1], the sum of probabilities is not in
+                [0, 1], or ``num_qubits`` disagrees with the length of the Pauli strings.
         """
         if not probabilities:
-            self._num_qubits = 0
+            self._num_qubits = num_qubits if num_qubits is not None else 0
             self._probabilities: Mapping[str, float] = types.MappingProxyType({})
             return
         first_key = next(iter(probabilities))
-        num_qubits = len(first_key)
-        identity = "I" * num_qubits
+        derived_num_qubits = len(first_key)
+        if num_qubits is not None and num_qubits != derived_num_qubits:
+            raise ValueError(
+                f"num_qubits={num_qubits} disagrees with Pauli string length {derived_num_qubits}"
+            )
+        identity = "I" * derived_num_qubits
         for string, prob in probabilities.items():
-            if len(string) != num_qubits:
-                raise ValueError(f"All Pauli strings must have length {num_qubits}; got {string!r}")
+            if len(string) != derived_num_qubits:
+                raise ValueError(
+                    f"All Pauli strings must have length {derived_num_qubits}; got {string!r}"
+                )
             if any(pauli not in "IXYZ" for pauli in string):
                 raise ValueError(
                     f"Pauli string {string!r} contains invalid characters (allowed: I, X, Y, Z)"
@@ -317,7 +327,7 @@ class PauliChannel:
             for string in sorted(probabilities)
             if probabilities[string] > 0
         }
-        self._num_qubits = num_qubits if nonzero else 0
+        self._num_qubits = derived_num_qubits
         self._probabilities = types.MappingProxyType(nonzero)
 
     @property
@@ -337,13 +347,15 @@ class PauliChannel:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PauliChannel):
             return NotImplemented
-        return self._probabilities == other._probabilities
+        return self._num_qubits == other._num_qubits and self._probabilities == other._probabilities
 
     def __hash__(self) -> int:
         # Canonical order is guaranteed by __init__, so tuple(items()) is deterministic.
-        return hash(tuple(self._probabilities.items()))
+        return hash((self._num_qubits, tuple(self._probabilities.items())))
 
     def __repr__(self) -> str:
+        if not self._probabilities and self._num_qubits:
+            return f"PauliChannel({{}}, num_qubits={self._num_qubits})"
         return f"PauliChannel({dict(self._probabilities)!r})"
 
     def __getstate__(self) -> tuple[int, dict[str, float]]:
@@ -377,40 +389,37 @@ class PauliChannel:
         return PauliChannel(probs)
 
     def marginalize_on(self, immune_qubit_indices: Collection[int]) -> PauliChannel:
-        """Project the channel onto the subspace where the given qubits act as identity.
+        """Return the sub-channel of error mechanisms that act as identity on the given qubits.
 
-        Keeps only Pauli strings whose positions in ``immune_qubit_indices`` are all ``I``, and
-        returns a new channel on the remaining positions (in their original relative order).  The
-        kept strings retain their original probabilities; total probability is therefore in general
-        reduced (the dropped weight represents error events that would have hit a marginalized
-        qubit, which are assumed to not occur).
+        Keeps only Pauli strings whose positions in ``immune_qubit_indices`` are all ``I``, with
+        their original probabilities.  The returned channel has the same ``num_qubits`` as ``self``
+        — surviving strings retain their length; the immune positions are still present, always as
+        ``I``.  Total probability is in general reduced (the dropped weight represents error events
+        that would have acted nontrivially on an immune qubit, which are assumed to not occur).
 
         Args:
-            immune_qubit_indices: Positions in ``[0, num_qubits)`` to project onto identity.
+            immune_qubit_indices: Positions in ``[0, num_qubits)`` to constrain to identity.
                 Repeats are ignored.
 
         Returns:
-            A ``PauliChannel`` on ``num_qubits - len(set(immune_qubit_indices))`` qubits.  If every
-            surviving string reduces to identity (or no strings survive), the returned channel
-            is empty.
+            A ``PauliChannel`` on the same qubits as ``self``.  If no strings survive, the returned
+            channel is empty but still reports ``num_qubits == self.num_qubits``.
 
         Raises:
             ValueError: If any index is outside ``[0, num_qubits)``.
         """
-        marginalized = frozenset(immune_qubit_indices)
-        for index in marginalized:
+        immune = frozenset(immune_qubit_indices)
+        for index in immune:
             if not 0 <= index < self._num_qubits:
                 raise ValueError(f"index {index} not in [0, {self._num_qubits})")
-        if not marginalized:
-            return PauliChannel(dict(self._probabilities))
-        surviving = [i for i in range(self._num_qubits) if i not in marginalized]
-        projected: dict[str, float] = {}
-        for string, prob in self._probabilities.items():
-            if all(string[i] == "I" for i in marginalized):
-                new_string = "".join(string[i] for i in surviving)
-                if new_string:  # empty when every position was marginalized
-                    projected[new_string] = prob
-        return PauliChannel(projected)
+        if not immune:
+            return PauliChannel(dict(self._probabilities), num_qubits=self._num_qubits)
+        surviving = {
+            string: prob
+            for string, prob in self._probabilities.items()
+            if all(string[i] == "I" for i in immune)
+        }
+        return PauliChannel(surviving, num_qubits=self._num_qubits)
 
 
 class NoiseRule:
@@ -606,10 +615,11 @@ class NoiseRule:
             if not immune_positions:
                 _append_pauli_channel(circuit, self.after_pauli_channel, qubit_targets)
             elif marginalize:
+                # marginalize_on preserves arity — the immune positions stay in the strings as
+                # ``I`` and get skipped naturally at emission by ``_pauli_string_to_targets``.
                 marginal = self.after_pauli_channel.marginalize_on(immune_positions)
                 if marginal:
-                    surviving = [q for q in qubit_targets if q not in immune_qubits]
-                    _append_pauli_channel(circuit, marginal, surviving)
+                    _append_pauli_channel(circuit, marginal, qubit_targets)
 
 
 class NoiseModel:
@@ -831,9 +841,9 @@ class NoiseModel:
         immune_qubits = set(immune_qubits or [])
 
         if insert_ticks:
-            # split moments with TICKs to prevent qubit reuse conflicts
-            if immune_qubits:
-                raise ValueError("Automatic TICK insertion does not support immune qubits.")
+            # split moments with TICKs to prevent qubit reuse conflicts.  The preprocessing
+            # operates purely on gate-level qubit reuse and ignores ``immune_qubits`` (it uses a
+            # sentinel to force per-target splitting), so it composes cleanly with immunity.
             circuit = _split_moments_with_ticks(circuit, immune_op_tag)
 
         noisy_circuit = stim.Circuit()
@@ -1098,20 +1108,39 @@ def _append_pauli_channel(
 ) -> None:
     """Append noise instructions to ``circuit`` that implement ``channel`` on ``qubit_targets``.
 
-    Emission form depends on the channel's arity: 1-qubit channels emit a single
-    ``PAULI_CHANNEL_1(px, py, pz)``, 2-qubit channels a single ``PAULI_CHANNEL_2(...)``, and
-    channels of 3+ qubits emit a chain of one ``CORRELATED_ERROR`` followed by one
-    ``ELSE_CORRELATED_ERROR`` per remaining non-zero Pauli string, with conditional probabilities
-    renormalized so each Pauli string's marginal firing probability equals its value in
-    ``channel``.
+    The emitted form depends on the number of *active* positions — positions where at least one
+    Pauli string acts nontrivially.  Channels with 1 or 2 active positions emit a native
+    ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` on the corresponding qubit(s), even if the channel's
+    formal arity is larger; channels with 3+ active positions emit a chain of one
+    ``CORRELATED_ERROR`` followed by one ``ELSE_CORRELATED_ERROR`` per remaining non-zero Pauli
+    string, with conditional probabilities renormalized so each Pauli string's marginal firing
+    probability equals its value in ``channel``.  An empty channel (or one whose surviving strings
+    are all identity, which cannot occur but is defensively handled) emits nothing.
     """
-    if channel.num_qubits == 1:
-        args = [channel.probabilities.get(string, 0.0) for string in _PAULI_CHANNEL_1_ORDER]
-        circuit.append("PAULI_CHANNEL_1", qubit_targets, args)
+    active_positions = sorted(
+        {i for string in channel.probabilities for i, pauli in enumerate(string) if pauli != "I"}
+    )
+    if not active_positions:  # pragma: no cover -- callers gate on `bool(channel)`
         return
-    if channel.num_qubits == 2:
-        args = [channel.probabilities.get(string, 0.0) for string in _PAULI_CHANNEL_2_ORDER]
-        circuit.append("PAULI_CHANNEL_2", qubit_targets, args)
+    active_qubits = [qubit_targets[i] for i in active_positions]
+
+    if len(active_positions) == 1:
+        probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+        for string, prob in channel.probabilities.items():
+            probs_1q[string[active_positions[0]]] = prob
+        circuit.append(
+            "PAULI_CHANNEL_1", active_qubits, [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
+        )
+        return
+
+    if len(active_positions) == 2:
+        pos0, pos1 = active_positions
+        probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
+        for string, prob in channel.probabilities.items():
+            probs_2q[string[pos0] + string[pos1]] = prob
+        circuit.append(
+            "PAULI_CHANNEL_2", active_qubits, [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
+        )
         return
 
     remaining = 1.0

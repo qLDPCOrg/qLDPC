@@ -176,10 +176,19 @@ def test_immunity() -> None:
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False)
     )
 
-    with pytest.raises(ValueError, match="does not support immune qubits"):
-        assert _circuits_are_equivalent(
-            noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=True)
-        )
+    # Automatic TICK insertion composes with immune qubits.  Because the input reuses qubit 1
+    # across ``H 0 1`` and ``CNOT 1 2``, the preprocessing splits those into separate moments,
+    # so the noise for each moment is emitted before the TICK boundary.
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+            H 0 1
+            DEPOLARIZE1(0.1) 1
+            TICK
+            CNOT 1 2
+            DEPOLARIZE2(0.1) 1 2
+        """),
+        noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=True),
+    )
 
     # operations can be immune to errors
     immune_op_tag = "_TEST_"
@@ -281,8 +290,9 @@ def test_immune_marginalize() -> None:
         rules={"SPP": circuits.NoiseRule(after_pauli_channel=channel)}
     )
 
-    # marginalize=True, immune qubit 1: only "XIZ" survives; projected to positions [0, 2].
-    # The marginalized 2-qubit channel is emitted natively as PAULI_CHANNEL_2 with XZ at index 6.
+    # marginalize=True, immune qubit 1: only "XIZ" survives; the channel is 3-qubit but has only
+    # 2 active positions (0 and 2), so it emits natively as PAULI_CHANNEL_2 on those qubits with
+    # XZ at index 6.
     assert _circuits_are_equivalent(
         stim.Circuit("""
             SPP X0*Y1*Z2
@@ -309,15 +319,16 @@ def test_immune_marginalize() -> None:
         noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
     )
 
-    # 4-qubit channel marginalizing one qubit -> 3-qubit surviving channel, emitted as CE chain.
+    # 4-qubit channel marginalizing one qubit -> surviving 4-qubit channel with I always at pos 1.
     circuit = stim.Circuit("SPP X0*Y1*Z2*X3")
     channel = circuits.PauliChannel({"XIZX": 0.01, "IIYX": 0.02, "XYZX": 0.03})
     noise_model = circuits.NoiseModel(
         rules={"SPP": circuits.NoiseRule(after_pauli_channel=channel)}
     )
-    # Immune qubit 1: only "XIZX" and "IIYX" have I at pos 1.  Projected onto positions
-    # [0, 2, 3] -> {"IYX": 0.02, "XZX": 0.01} (lex-sorted).  Emitted as a CE chain on qubits 0, 2, 3
-    # with the second entry renormalized to conditional-fire prob = 0.01 / (1 - 0.02).
+    # Immune qubit 1: only "XIZX" and "IIYX" survive (both have I at pos 1); the marginalized
+    # channel is {"IIYX": 0.02, "XIZX": 0.01} in lex order.  Emitted as a CE chain on qubits
+    # 0, 2, 3 (position 1 skipped because it's I everywhere), second entry renormalized to
+    # conditional-fire prob = 0.01 / (1 - 0.02).
     assert _circuits_are_equivalent(
         stim.Circuit(f"""
             SPP X0*Y1*Z2*X3
@@ -560,34 +571,43 @@ def test_pauli_channel_class() -> None:
         circuits.PauliChannel.depolarizing(0, 0.1)
     with pytest.raises(ValueError, match="not in \\[0, 1\\]"):
         circuits.PauliChannel.depolarizing(2, 1.5)
+    with pytest.raises(ValueError, match="disagrees with Pauli string length"):
+        circuits.PauliChannel({"XY": 0.1}, num_qubits=3)
+
+    # An empty channel with a nontrivial arity is a distinct object and reproduces via repr.
+    empty_3q = circuits.PauliChannel({}, num_qubits=3)
+    assert empty_3q.num_qubits == 3
+    assert repr(empty_3q) == "PauliChannel({}, num_qubits=3)"
+    assert empty_3q != circuits.PauliChannel({})
 
 
 def test_pauli_channel_marginalize_on() -> None:
-    """PauliChannel.marginalize_on projects the channel onto identity-on-immune subspace."""
+    """PauliChannel.marginalize_on returns the identity-on-immune-qubits sub-channel."""
 
     channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03, "XII": 0.04})
 
-    # Marginalize position 1 (middle): keep strings with I at pos 1.
-    # XYZ: pos 1 is Y, drop.  XIZ: pos 1 is I, keep -> "XZ".
-    # IZI: pos 1 is Z, drop.  XII: pos 1 is I, keep -> "XI".
-    assert channel.marginalize_on([1]) == circuits.PauliChannel({"XZ": 0.02, "XI": 0.04})
+    # Marginalize position 1 (middle): keep strings with I at pos 1.  Arity is preserved, so the
+    # surviving strings still have an I at position 1.
+    assert channel.marginalize_on([1]) == circuits.PauliChannel({"XIZ": 0.02, "XII": 0.04})
 
-    # Marginalize positions 0 and 2: keep strings with I at pos 0 AND pos 2.
-    # Only "IZI" has I at 0 and 2 -> "Z" on surviving position 1.
-    assert channel.marginalize_on([0, 2]) == circuits.PauliChannel({"Z": 0.03})
+    # Marginalize positions 0 and 2: only "IZI" has I at both.
+    assert channel.marginalize_on([0, 2]) == circuits.PauliChannel({"IZI": 0.03})
 
     # Empty index list is a no-op (returns an equal channel).
     assert channel.marginalize_on([]) == channel
 
-    # Marginalizing every position yields an empty channel (no non-identity string is all-I).
-    assert channel.marginalize_on([0, 1, 2]) == circuits.PauliChannel({})
+    # Marginalizing every position yields an empty channel on the same number of qubits.
+    empty_3q = channel.marginalize_on([0, 1, 2])
+    assert empty_3q == circuits.PauliChannel({}, num_qubits=3)
+    assert empty_3q.num_qubits == 3
+    assert not bool(empty_3q)
 
     # Repeated indices are deduplicated.
     assert channel.marginalize_on([1, 1]) == channel.marginalize_on([1])
 
-    # If nothing survives, the result is empty.
+    # If nothing survives, the result is empty but arity is preserved.
     all_non_id = circuits.PauliChannel({"XY": 0.1, "YX": 0.1})
-    assert all_non_id.marginalize_on([0]) == circuits.PauliChannel({})
+    assert all_non_id.marginalize_on([0]) == circuits.PauliChannel({}, num_qubits=2)
 
     # Out-of-range indices raise.
     with pytest.raises(ValueError, match="not in"):
@@ -769,9 +789,10 @@ def test_pauli_channel_canonicalizes_order_and_drops_zeros() -> None:
     assert m1.noisy_circuit(stim.Circuit("SPP X0*Y1")) == m2.noisy_circuit(
         stim.Circuit("SPP X0*Y1")
     )
-    # An all-zero PauliChannel reduces to the trivial 0-qubit channel.
+    # An all-zero PauliChannel drops its zero-probability entries but keeps the arity derived
+    # from the input strings.
     all_zero = circuits.PauliChannel({"XY": 0.0})
-    assert all_zero.num_qubits == 0
+    assert all_zero.num_qubits == 2
     assert dict(all_zero.probabilities) == {}
     assert not bool(all_zero)
     # ...and attaching one to a NoiseRule likewise leaves after_pauli_channel = None.
