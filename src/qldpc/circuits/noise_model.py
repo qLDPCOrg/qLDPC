@@ -573,14 +573,14 @@ class NoiseModel:
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of resetting qubits to the wrong state.
             clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied
-                after each ``k``-qubit unitary Clifford gate — currently the Pauli-product
-                Cliffords SPP and SPP_DAG, which are stim's general n-qubit unitary Clifford
-                primitives.  Values may be a float ``p`` (interpreted as a uniform ``k``-qubit
-                depolarizing channel of total error probability ``p``), a ``PauliChannel``, a raw
-                ``Mapping[str, float]`` (auto-wrapped as ``PauliChannel``), or a ``NoiseRule``
-                (full control).  Specifying both ``clifford_nq_error[1]`` and ``clifford_1q_error``
-                raises an error due to the induced ambiguity; likewise with
-                ``clifford_nq_error[2]`` and ``clifford_2q_error``.
+                after each ``k``-qubit unitary Clifford gate.  Values may be one of
+                    - a float ``p`` (interpreted as a uniform ``k``-qubit depolarizing channel of
+                        total error probability ``p``),
+                    - a ``PauliChannel``,
+                    - a raw ``Mapping[str, float]`` (auto-wrapped as ``PauliChannel``), or
+                    - a ``NoiseRule``.
+                Specifying both ``clifford_nq_error[1]`` and ``clifford_1q_error`` raises an
+                ambiguity error; likewise with ``clifford_nq_error[2]`` and ``clifford_2q_error``.
             idle_error: Noise rule or depolarization probability applied to each idling qubit in any
                 given moment.  If a NoiseRule is provided, its `after` channels are appended to the
                 idle qubits (its readout_error/reset_error fields are ignored).
