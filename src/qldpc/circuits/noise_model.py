@@ -388,7 +388,7 @@ class PauliChannel:
                 probs[string] = weight
         return PauliChannel(probs)
 
-    def marginalize_on(self, immune_qubit_indices: Iterable[int]) -> PauliChannel:
+    def marginalize_on(self, immune_qubits: Iterable[int]) -> PauliChannel:
         """Return the sub-channel of error mechanisms that act as identity on the given qubits.
 
         Keeps only Pauli strings whose positions in ``immune_qubit_indices`` are all ``I``, with
@@ -408,16 +408,16 @@ class PauliChannel:
         Raises:
             ValueError: If any index is outside ``[0, num_qubits)``.
         """
-        immune = frozenset(immune_qubit_indices)
-        for index in immune:
-            if not 0 <= index < self._num_qubits:
-                raise ValueError(f"index {index} not in [0, {self._num_qubits})")
-        if not immune:
+        immune_qubits = frozenset(immune_qubits)
+        for qubit in immune_qubits:
+            if not 0 <= qubit < self._num_qubits:
+                raise ValueError(f"index {qubit} not in [0, {self._num_qubits})")
+        if not immune_qubits:
             return PauliChannel(dict(self._probabilities), num_qubits=self._num_qubits)
         surviving = {
             string: prob
             for string, prob in self._probabilities.items()
-            if all(string[i] == "I" for i in immune)
+            if all(string[i] == "I" for i in immune_qubits)
         }
         return PauliChannel(surviving, num_qubits=self._num_qubits)
 
