@@ -213,7 +213,7 @@ DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
 
 
 ####################################################################################################
-# PauliChannel
+# primary methods and classes: as_noiseless_circuit, PauliChannel, NoiseRule, NoiseModel
 
 
 def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
@@ -911,7 +911,7 @@ class SI1000NoiseModel(NoiseModel):
 
 
 ####################################################################################################
-# helper methods
+# helper methods, roughly in order of use above in the file (sub-helpers grouped with their caller)
 
 
 # Floating-point tolerance used for probability comparisons throughout this module.  Small enough
@@ -925,13 +925,34 @@ def _approx_in_unit_interval(value: float, *, tol: float = _APPROX_TOL) -> bool:
     return -tol <= value <= 1 + tol
 
 
-def _pauli_string_to_targets(string: str, qubit_targets: list[int]) -> list[stim.GateTarget]:
-    """Convert a Pauli string over the given qubits to a list of Pauli-typed stim targets."""
-    return [
-        stim.target_pauli(qubit, pauli)
-        for pauli, qubit in zip(string, qubit_targets, strict=True)
-        if pauli != "I"
-    ]
+def _get_standardized_name(op: stim.CircuitInstruction) -> str:
+    """Stardardized name of a circuit instruction.
+
+    The primary function of this method is to disambiguate the basis of measurement and reset gates.
+
+    Args:
+        op:_name The name of the circuit instruction that we need to standardize.
+
+    Returns:
+        str: The standardized name.
+    """
+    op_name = op.name
+    if op_name == "M" or op_name == "R" or op_name == "MR":
+        return op_name + "Z"
+
+    if op_name == "MPP":
+        name = "M"
+        for target in op.targets_copy()[::2]:
+            if target.is_x_target:
+                name += "X"
+            elif target.is_y_target:
+                name += "Y"
+            else:
+                assert target.is_z_target
+                name += "Z"
+        return name
+
+    return op_name
 
 
 _PAULI_CHANNEL_1_ORDER = ("X", "Y", "Z")
@@ -980,6 +1001,25 @@ def _append_pauli_channel(
         remaining -= prob
 
 
+def _pauli_string_to_targets(string: str, qubit_targets: list[int]) -> list[stim.GateTarget]:
+    """Convert a Pauli string over the given qubits to a list of Pauli-typed stim targets."""
+    return [
+        stim.target_pauli(qubit, pauli)
+        for pauli, qubit in zip(string, qubit_targets, strict=True)
+        if pauli != "I"
+    ]
+
+
+def _known_gate_arity(op_name: str) -> int | None:
+    """Return the fixed number of qubits a gate acts on, or None if variable / unknown."""
+    op_type = OP_TYPES.get(op_name)
+    if op_type in (CLIFFORD_1Q, JUST_MEASURE_1Q, JUST_RESET_1Q, MEASURE_RESET_1Q):
+        return 1
+    if op_type in (CLIFFORD_2Q, JUST_MEASURE_2Q):
+        return 2
+    return None
+
+
 def _validate_rule_for_arity(
     rule: NoiseRule,
     num_qubits: int,
@@ -1012,16 +1052,6 @@ def _validate_rule_for_arity(
         raise ValueError(f"{context}: `readout_error` is only valid on measurement gates")
     if rule.reset_error and not can_reset:
         raise ValueError(f"{context}: `reset_error` is only valid on reset gates")
-
-
-def _known_gate_arity(op_name: str) -> int | None:
-    """Return the fixed number of qubits a gate acts on, or None if variable / unknown."""
-    op_type = OP_TYPES.get(op_name)
-    if op_type in (CLIFFORD_1Q, JUST_MEASURE_1Q, JUST_RESET_1Q, MEASURE_RESET_1Q):
-        return 1
-    if op_type in (CLIFFORD_2Q, JUST_MEASURE_2Q):
-        return 2
-    return None
 
 
 def _op_can_measure(op_name: str) -> bool:
@@ -1101,34 +1131,19 @@ def _normalize_clifford_pp_error(
     return result
 
 
-def _get_standardized_name(op: stim.CircuitInstruction) -> str:
-    """Stardardized name of a circuit instruction.
-
-    The primary function of this method is to disambiguate the basis of measurement and reset gates.
+def _involves_classical_bits(op: stim.CircuitInstruction) -> bool:
+    """Determines if an operation involves classical bits.
 
     Args:
-        op:_name The name of the circuit instruction that we need to standardize.
+        op: The circuit instruction to check.
 
     Returns:
-        str: The standardized name.
+        True if the operation involves classical control bits.  False otherwise.
     """
-    op_name = op.name
-    if op_name == "M" or op_name == "R" or op_name == "MR":
-        return op_name + "Z"
-
-    if op_name == "MPP":
-        name = "M"
-        for target in op.targets_copy()[::2]:
-            if target.is_x_target:
-                name += "X"
-            elif target.is_y_target:
-                name += "Y"
-            else:
-                assert target.is_z_target
-                name += "Z"
-        return name
-
-    return op_name
+    return any(
+        target.is_measurement_record_target or target.is_sweep_bit_target
+        for target in op.targets_copy()
+    )
 
 
 def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim.Circuit:
@@ -1198,19 +1213,42 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
     return result
 
 
-def _involves_classical_bits(op: stim.CircuitInstruction) -> bool:
-    """Determines if an operation involves classical bits.
+def _iter_moments_and_repeat_blocks(
+    circuit: stim.Circuit, immune_qubits: set[int], immune_op_tag: str
+) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
+    """Splits a circuit into moments and some operations into pieces.
+
+    Classical control system operations like CX rec[-1] 0 are split from quantum operations like
+    CX 1 0.  SPP and MPP operations are split into one operation per Pauli product.
 
     Args:
-        op: The circuit instruction to check.
+        circuit: The circuit to split into moments.
+        immune_qubits: Set of qubits that are immune to noise.
+        immune_op_tag: Don't split operations with this tag.
 
-    Returns:
-        True if the operation involves classical control bits.  False otherwise.
+    Yields:
+        Lists of operations corresponding to one moment in the circuit, with any problematic
+        operations like MPPs split into pieces, or CircuitRepeatBlock instances for repeat blocks.
+
+    Note:
+        A moment is the time between two TICKs.
     """
-    return any(
-        target.is_measurement_record_target or target.is_sweep_bit_target
-        for target in op.targets_copy()
-    )
+    current_moment: list[stim.CircuitInstruction] = []
+
+    for op in circuit:
+        if isinstance(op, stim.CircuitRepeatBlock):
+            if current_moment:
+                yield current_moment
+                current_moment = []
+            yield op
+        elif op.name == "TICK":
+            if current_moment:
+                yield current_moment
+                current_moment = []
+        else:
+            current_moment.extend(_split_targets_if_needed(op, immune_qubits, immune_op_tag))
+    if current_moment:
+        yield current_moment
 
 
 def _split_targets_if_needed(
@@ -1312,41 +1350,3 @@ def _split_targets_pp(op: stim.CircuitInstruction) -> Iterator[stim.CircuitInstr
         else:
             end += 2
     assert end == len(targets)
-
-
-def _iter_moments_and_repeat_blocks(
-    circuit: stim.Circuit, immune_qubits: set[int], immune_op_tag: str
-) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
-    """Splits a circuit into moments and some operations into pieces.
-
-    Classical control system operations like CX rec[-1] 0 are split from quantum operations like
-    CX 1 0.  SPP and MPP operations are split into one operation per Pauli product.
-
-    Args:
-        circuit: The circuit to split into moments.
-        immune_qubits: Set of qubits that are immune to noise.
-        immune_op_tag: Don't split operations with this tag.
-
-    Yields:
-        Lists of operations corresponding to one moment in the circuit, with any problematic
-        operations like MPPs split into pieces, or CircuitRepeatBlock instances for repeat blocks.
-
-    Note:
-        A moment is the time between two TICKs.
-    """
-    current_moment: list[stim.CircuitInstruction] = []
-
-    for op in circuit:
-        if isinstance(op, stim.CircuitRepeatBlock):
-            if current_moment:
-                yield current_moment
-                current_moment = []
-            yield op
-        elif op.name == "TICK":
-            if current_moment:
-                yield current_moment
-                current_moment = []
-        else:
-            current_moment.extend(_split_targets_if_needed(op, immune_qubits, immune_op_tag))
-    if current_moment:
-        yield current_moment
