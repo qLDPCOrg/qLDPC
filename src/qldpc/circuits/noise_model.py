@@ -504,17 +504,14 @@ class NoiseRule:
         self,
         op: stim.CircuitInstruction,
         *,
-        immune_qubits: frozenset[int] = frozenset(),
+        immune_qubits: Iterable[int] = (),
         marginalize: bool = False,
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 
         Args:
             op: The operation to add noise to.
-            immune_qubits: Qubits declared immune to noise.  Immunization is applied to every
-                noise source on this rule; see ``emit_after`` and ``_immunize_noise`` for the
-                per-channel details.  Measurement errors (from ``self.reset_error``) are unaffected
-                unless all measured qubits are immune.
+            immune_qubits: Qubits that are declared to be immune to noise.
             marginalize: If False (the default), a gate that touches an immune qubit is treated
                 as noiseless.  Otherwise, its Pauli noise is marginalized onto the non-immune
                 qubits, keeping only strings that act as ``I`` on every immune qubit (with their
@@ -524,6 +521,7 @@ class NoiseRule:
             stim.CircuitInstruction: The given operation possibly modified to account for noise.
             stim.Circuit: Noise operations that should follow the given operation.
         """
+        immune_qubits = frozenset(immune_qubits)
         targets = op.targets_copy()
         args = op.gate_args_copy()
         qubit_targets = [target.value for target in targets if not target.is_combiner]
@@ -566,7 +564,7 @@ class NoiseRule:
         circuit: stim.Circuit,
         qubit_targets: list[int],
         *,
-        immune_qubits: frozenset[int] = frozenset(),
+        immune_qubits: Iterable[int] = (),
         marginalize: bool = False,
         context: str = "operation",
     ) -> None:
@@ -580,10 +578,7 @@ class NoiseRule:
         Args:
             circuit: The circuit to append the noise instructions to.
             qubit_targets: The qubits the noise applies to (in the operation's target order).
-            immune_qubits: Qubits declared immune to noise.  ``after`` entries are still emitted
-                covering all targets (the moment-level immunity pass filters them); an
-                ``after_pauli_channel`` touching an immune qubit is projected here so its
-                ``CORRELATED_ERROR`` chain never mentions the immune qubits.
+            immune_qubits: Qubits that are declared to be immune to noise.
             marginalize: If False (the default), an ``after_pauli_channel`` touching an immune
                 qubit is treated as noiseless.  Otherwise, it is marginalized onto the non-immune
                 qubits, keeping only strings that act as ``I`` on every immune qubit (with their
@@ -597,6 +592,7 @@ class NoiseRule:
                 that ``len(qubit_targets)`` does not satisfy (e.g., a 2-qubit-broadcast channel
                 like ``DEPOLARIZE2`` applied to an odd number of qubits).
         """
+        immune_qubits = frozenset(immune_qubits)
         num_qubits = len(qubit_targets)
         for op_name, args in self.after.items():
             if op_name in BROADCAST_2Q_NOISE and num_qubits % 2 != 0:
@@ -795,8 +791,8 @@ class NoiseModel:
         self,
         circuit: stim_or_tsim_Circuit,
         *,
-        system_qubits: Collection[int] | None = None,
-        immune_qubits: Collection[int] | None = None,
+        system_qubits: Iterable[int] | None = None,
+        immune_qubits: Iterable[int] = (),
         immune_op_tag: str = DEFAULT_IMMUNE_OP_TAG,
         marginalize: bool = False,
         insert_ticks: bool = True,
@@ -811,8 +807,7 @@ class NoiseModel:
             circuit: The circuit to apply noise to.
             system_qubits: All qubits that are used by the circuit or are otherwise allowed to
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
-            immune_qubits: All qubits that are declared immune to noise, even if they are operated
-                on.  If None, defaults to the empty set.
+            immune_qubits: Qubits that are declared to be immune to noise.  Defaults to none.
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
             marginalize: If False (the default), a gate that touches an immune qubit is treated
@@ -837,8 +832,10 @@ class NoiseModel:
                 )
             )
 
-        system_qubits = set(system_qubits or range(circuit.num_qubits))
-        immune_qubits = set(immune_qubits or [])
+        system_qubits = frozenset(
+            range(circuit.num_qubits) if system_qubits is None else system_qubits
+        )
+        immune_qubits = frozenset(immune_qubits)
 
         if insert_ticks:
             # split moments with TICKs to prevent qubit reuse conflicts.  The preprocessing
@@ -892,8 +889,8 @@ class NoiseModel:
         *,
         circuit: stim.Circuit,
         moment: Collection[stim.CircuitInstruction],
-        system_qubits: set[int],
-        immune_qubits: set[int],
+        system_qubits: frozenset[int],
+        immune_qubits: frozenset[int],
         immune_op_tag: str,
         marginalize: bool,
     ) -> None:
@@ -906,26 +903,25 @@ class NoiseModel:
             circuit: The circuit to append the noisy operations to.
             moment: Collection of operations happening during the moment in question.
             system_qubits: Set of all qubits in the system that may experience idle errors.
-            immune_qubits: Set of all qubits that should not have noise applied to them.
+            immune_qubits: Qubits that are declared to be immune to noise.
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.
             marginalize: If True, a gate that touches immune qubits has its Pauli noise projected
                 onto the non-immune qubits (keeping strings that are ``I`` on every immune qubit)
                 instead of dropped.
         """
-        frozen_immune = frozenset(immune_qubits)
         noise_after_moment = stim.Circuit()
         for op in moment:
             if immune_op_tag in op.tag or (rule := self.get_noise_rule(op)) is None:
                 circuit.append(op)
             else:
                 noisy_op, after = rule.noisy_operation(
-                    op, immune_qubits=frozen_immune, marginalize=marginalize
+                    op, immune_qubits=immune_qubits, marginalize=marginalize
                 )
                 circuit.append(noisy_op)
                 noise_after_moment += after
 
-        circuit += _immunize_noise(noise_after_moment, frozen_immune, marginalize=marginalize)
+        circuit += _immunize_noise(noise_after_moment, immune_qubits, marginalize=marginalize)
 
         moment_was_noisy = any(immune_op_tag not in op.tag for op in moment)
         if moment_was_noisy and (self.idle_error or self.additional_error_waiting_for_m_or_r):
@@ -941,8 +937,8 @@ class NoiseModel:
         *,
         circuit: stim.Circuit,
         moment: Collection[stim.CircuitInstruction],
-        system_qubits: set[int],
-        immune_qubits: set[int],
+        system_qubits: frozenset[int],
+        immune_qubits: frozenset[int],
     ) -> None:
         """Append idling errors from the given moment to the given circuit.
 
@@ -953,7 +949,7 @@ class NoiseModel:
             circuit: The circuit to append idle error operations to.
             moment: The collection of operations happening in the final moment of the circuit.
             system_qubits: Set of all qubits in the system that can experience idle errors.
-            immune_qubits: Set of qubit indices that should not have noise applied to them.
+            immune_qubits: Qubits that are declared to be immune to noise.
 
         Raises:
             ValueError: If qubits are operated on multiple times within the same moment without a
@@ -1182,7 +1178,7 @@ _PC2_FIRST_IMMUNE_INDICES = (0, 1, 2)
 
 def _immunize_noise(
     noise: stim.Circuit,
-    immune_qubits: frozenset[int] | set[int],
+    immune_qubits: frozenset[int],
     *,
     marginalize: bool = False,
 ) -> stim.Circuit:
@@ -1202,7 +1198,7 @@ def _immunize_noise(
 
     Args:
         noise: A flat noise circuit (no repeat blocks) to filter.
-        immune_qubits: Qubit indices that should not have noise applied to them.
+        immune_qubits: Qubits that are declared to be immune to noise.
         marginalize: If True, partially-immune broadcast 2-qubit noise is projected onto the
             surviving qubit instead of dropped.  (Broadcast 1-qubit noise always keeps its
             non-immune targets; ``after_pauli_channel``-style joint Pauli channels are handled
@@ -1232,7 +1228,7 @@ def _immunize_noise(
 
 def _marginalize_2q_noise(
     noise_op: stim.CircuitInstruction,
-    immune_qubits: frozenset[int] | set[int],
+    immune_qubits: frozenset[int],
     *,
     marginalize: bool,
 ) -> stim.Circuit:
@@ -1246,7 +1242,7 @@ def _marginalize_2q_noise(
 
     Args:
         noise_op: A 2-qubit noise instruction.
-        immune_qubits: Set of qubit indices that should not receive noise.
+        immune_qubits: Qubits that are declared to be immune to noise.
         marginalize: If True, emit a 1-qubit marginal for partially-immune pairs.
 
     Returns:
@@ -1470,7 +1466,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
         reuse properly.  Use a dummy immune_qubits set with -1 to force splitting of 2-qubit
         operations.
         """
-        split_ops = list(_split_targets_if_needed(op, {-1}, immune_op_tag))
+        split_ops = list(_split_targets_if_needed(op, frozenset({-1}), immune_op_tag))
 
         for split_op in split_ops:
             # Check if this split operation would reuse any qubits
@@ -1493,7 +1489,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
 
 
 def _iter_moments_and_repeat_blocks(
-    circuit: stim.Circuit, immune_qubits: set[int], immune_op_tag: str
+    circuit: stim.Circuit, immune_qubits: frozenset[int], immune_op_tag: str
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
     """Splits a circuit into moments and some operations into pieces.
 
@@ -1502,7 +1498,7 @@ def _iter_moments_and_repeat_blocks(
 
     Args:
         circuit: The circuit to split into moments.
-        immune_qubits: Set of qubits that are immune to noise.
+        immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
 
     Yields:
@@ -1531,7 +1527,7 @@ def _iter_moments_and_repeat_blocks(
 
 
 def _split_targets_if_needed(
-    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
+    op: stim.CircuitInstruction, immune_qubits: frozenset[int], immune_op_tag: str
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits operations into pieces as needed.
 
@@ -1540,7 +1536,7 @@ def _split_targets_if_needed(
 
     Args:
         op: The circuit instruction to potentially split.
-        immune_qubits: Set of qubits that are immune to noise.
+        immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
 
     Yields:
@@ -1558,13 +1554,13 @@ def _split_targets_if_needed(
 
 
 def _split_targets_clifford_1q(
-    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
+    op: stim.CircuitInstruction, immune_qubits: frozenset[int], immune_op_tag: str
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits single-qubit Clifford operations when immune qubits are present.
 
     Args:
         op: The single-qubit Clifford operation to split.
-        immune_qubits: Set of qubits that are immune to noise.
+        immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
 
     Yields:
@@ -1579,7 +1575,7 @@ def _split_targets_clifford_1q(
 
 
 def _split_targets_clifford_2q(
-    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
+    op: stim.CircuitInstruction, immune_qubits: frozenset[int], immune_op_tag: str
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits two-qubit Clifford operations into individual gate pairs.
 
@@ -1588,7 +1584,7 @@ def _split_targets_clifford_2q(
 
     Args:
         op: The two-qubit Clifford operation to split.
-        immune_qubits: Set of qubits that are immune to noise.
+        immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
 
     Yields:
