@@ -488,14 +488,11 @@ class NoiseRule:
         self.after: PauliChannel | stim.Circuit
         if not after:
             self.after = stim.Circuit()
-            self._after_num_qubits = 0
         elif isinstance(after, PauliChannel):
             self.after = after
-            self._after_num_qubits = after.num_qubits
         elif isinstance(after, stim.Circuit):
             _validate_after_circuit(after)
             self.after = after
-            self._after_num_qubits = after.num_qubits
         else:
             # Mapping form is syntactic sugar: normalize into either a PauliChannel (native
             # broadcast) or a stim.Circuit (raw fragment) so the downstream code paths deal only
@@ -521,7 +518,6 @@ class NoiseRule:
                         f"The net probability of an error is not between 0 and 1 in {after=}"
                     )
             self.after = _mapping_after_to_channel_or_circuit(normalized_mapping)
-            self._after_num_qubits = self.after.num_qubits
 
     def __bool__(self) -> bool:
         """Is this noise rule nontrivial?"""
@@ -623,21 +619,21 @@ class NoiseRule:
         num_qubits = len(qubit_targets)
         if not self.after:
             return
-        k = self._after_num_qubits
-        if num_qubits % k != 0:
+        num_qubits = self.after.num_qubits
+        if num_qubits % num_qubits != 0:
             raise ValueError(
-                f"This NoiseRule expects a multiple of {k} qubits but {context} has "
+                f"This NoiseRule expects a multiple of {num_qubits} qubits but {context} has "
                 f"{num_qubits} qubit targets"
             )
 
         if isinstance(self.after, PauliChannel):
-            if k == 1:
+            if num_qubits == 1:
                 # stim natively broadcasts PAULI_CHANNEL_1 across all targets.
                 probs = self.after.probabilities
                 args = [probs.get(p, 0.0) for p in _PAULI_CHANNEL_1_ORDER]
                 if any(args):
                     circuit.append("PAULI_CHANNEL_1", qubit_targets, args)
-            elif k == 2:
+            elif num_qubits == 2:
                 # stim natively broadcasts PAULI_CHANNEL_2 across pairs.
                 probs = self.after.probabilities
                 args = [probs.get(p, 0.0) for p in _PAULI_CHANNEL_2_ORDER]
@@ -646,8 +642,8 @@ class NoiseRule:
             else:
                 # Higher-arity channels emit a CE chain — no native broadcast — so emit one chain
                 # per k-qubit gate, conditioning up-front where needed.
-                for i in range(0, num_qubits, k):
-                    chunk = qubit_targets[i : i + k]
+                for i in range(0, num_qubits, num_qubits):
+                    chunk = qubit_targets[i : i + num_qubits]
                     immune_positions = [j for j, q in enumerate(chunk) if q in immune_qubits]
                     if not immune_positions:
                         _append_pauli_channel(circuit, self.after, chunk)
@@ -668,8 +664,8 @@ class NoiseRule:
                     assert isinstance(op, stim.CircuitInstruction)
                     circuit.append(op.name, qubit_targets, op.gate_args_copy(), tag=op.tag)
             else:
-                for i in range(0, num_qubits, k):
-                    circuit += with_remapped_qubits(self.after, qubit_targets[i : i + k])
+                for i in range(0, num_qubits, num_qubits):
+                    circuit += with_remapped_qubits(self.after, qubit_targets[i : i + num_qubits])
 
 
 class NoiseModel:
@@ -777,10 +773,10 @@ class NoiseModel:
         ):
             if idle_rule is None or not idle_rule.after:
                 continue
-            if idle_rule._after_num_qubits != 1:
+            if idle_rule.after.num_qubits != 1:
                 raise ValueError(
                     f"`{field_name}` does not support a multi-qubit `after` rule "
-                    f"(arity={idle_rule._after_num_qubits})."
+                    f"(arity={idle_rule.after.num_qubits})."
                 )
 
     @property
@@ -1437,9 +1433,9 @@ def _validate_rule_for_arity(
     - ``readout_error`` is only meaningful if ``can_measure`` is True.
     - ``reset_error`` is only meaningful if ``can_reset`` is True.
     """
-    if rule.after and rule._after_num_qubits != num_qubits:
+    if rule.after and rule.after.num_qubits != num_qubits:
         raise ValueError(
-            f"{context}: `after` has arity {rule._after_num_qubits}; expected {num_qubits}"
+            f"{context}: `after` has arity {rule.after.num_qubits}; expected {num_qubits}"
         )
     if rule.readout_error and not can_measure:
         raise ValueError(f"{context}: `readout_error` is only valid on measurement gates")
