@@ -40,6 +40,7 @@ from .noise_model import (
     DepolarizingNoiseModel,
     NoiseModel,
     NoiseRule,
+    PauliChannel,
     SI1000NoiseModel,
     as_noiseless_circuit,
 )
@@ -82,6 +83,7 @@ __all__ = [
     "DepolarizingNoiseModel",
     "NoiseModel",
     "NoiseRule",
+    "PauliChannel",
     "SI1000NoiseModel",
     "as_noiseless_circuit",
     "get_transversal_automorphism_group",
