@@ -616,24 +616,24 @@ class NoiseRule:
                 matching the rule).
         """
         immune_qubits = frozenset(immune_qubits)
-        num_qubits = len(qubit_targets)
+        n_targets = len(qubit_targets)
         if not self.after:
             return
-        num_qubits = self.after.num_qubits
-        if num_qubits % num_qubits != 0:
+        k = self.after.num_qubits
+        if n_targets % k != 0:
             raise ValueError(
-                f"This NoiseRule expects a multiple of {num_qubits} qubits but {context} has "
-                f"{num_qubits} qubit targets"
+                f"This NoiseRule expects a multiple of {k} qubits but {context} has "
+                f"{n_targets} qubit targets"
             )
 
         if isinstance(self.after, PauliChannel):
-            if num_qubits == 1:
+            if k == 1:
                 # stim natively broadcasts PAULI_CHANNEL_1 across all targets.
                 probs = self.after.probabilities
                 args = [probs.get(p, 0.0) for p in _PAULI_CHANNEL_1_ORDER]
                 if any(args):
                     circuit.append("PAULI_CHANNEL_1", qubit_targets, args)
-            elif num_qubits == 2:
+            elif k == 2:
                 # stim natively broadcasts PAULI_CHANNEL_2 across pairs.
                 probs = self.after.probabilities
                 args = [probs.get(p, 0.0) for p in _PAULI_CHANNEL_2_ORDER]
@@ -642,8 +642,8 @@ class NoiseRule:
             else:
                 # Higher-arity channels emit a CE chain — no native broadcast — so emit one chain
                 # per k-qubit gate, conditioning up-front where needed.
-                for i in range(0, num_qubits, num_qubits):
-                    chunk = qubit_targets[i : i + num_qubits]
+                for i in range(0, n_targets, k):
+                    chunk = qubit_targets[i : i + k]
                     immune_positions = [j for j, q in enumerate(chunk) if q in immune_qubits]
                     if not immune_positions:
                         _append_pauli_channel(circuit, self.after, chunk)
@@ -664,8 +664,8 @@ class NoiseRule:
                     assert isinstance(op, stim.CircuitInstruction)
                     circuit.append(op.name, qubit_targets, op.gate_args_copy(), tag=op.tag)
             else:
-                for i in range(0, num_qubits, num_qubits):
-                    circuit += with_remapped_qubits(self.after, qubit_targets[i : i + num_qubits])
+                for i in range(0, n_targets, k):
+                    circuit += with_remapped_qubits(self.after, qubit_targets[i : i + k])
 
 
 class NoiseModel:
@@ -960,7 +960,14 @@ class NoiseModel:
             immunize_gates: If True (the default), a gate that touches an immune qubit is treated
                 as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
+
+        Raises:
+            ValueError: If qubits are operated on multiple times within the same moment without a
+                TICK in between (violating the "each qubit at most once per moment" invariant that
+                noise application relies on).
         """
+        collapsed_qubits, operation_qubits = _categorize_moment_qubits(moment)
+
         noise_after_moment = stim.Circuit()
         for op in moment:
             if immune_op_tag in op.tag or (rule := self.get_noise_rule(op)) is None:
@@ -978,7 +985,8 @@ class NoiseModel:
         if moment_was_noisy and (self.idle_error or self.additional_error_waiting_for_m_or_r):
             self._inplace_append_idle_errors(
                 circuit=circuit,
-                moment=moment,
+                collapsed_qubits=collapsed_qubits,
+                operation_qubits=operation_qubits,
                 system_qubits=system_qubits,
                 immune_qubits=immune_qubits,
             )
@@ -987,55 +995,24 @@ class NoiseModel:
         self,
         *,
         circuit: stim.Circuit,
-        moment: Collection[stim.CircuitInstruction],
+        collapsed_qubits: list[int],
+        operation_qubits: list[int],
         system_qubits: frozenset[int],
         immune_qubits: frozenset[int],
     ) -> None:
         """Append idling errors from the given moment to the given circuit.
 
         This method identifies which qubits are idle during a moment and applies depolarization
-        noise to them according to the noise model parameters.
+        noise to them according to the noise model parameters.  The qubit categorization is
+        precomputed by ``_categorize_moment_qubits`` and passed in.
 
         Args:
             circuit: The circuit to append idle error operations to.
-            moment: The collection of operations happening in the final moment of the circuit.
+            collapsed_qubits: Qubits acted on by measurement / reset ops in this moment.
+            operation_qubits: Qubits acted on by non-collapsing (unitary) ops in this moment.
             system_qubits: Set of all qubits in the system that can experience idle errors.
             immune_qubits: Qubits that are declared to be immune to noise.
-
-        Raises:
-            ValueError: If qubits are operated on multiple times within the same moment without a
-                TICK in between.
         """
-        collapsed_qubits: list[int] = []
-        operation_qubits: list[int] = []
-        classically_controlled_qubits: list[int] = []
-        for op in moment:
-            if OP_TYPES[op.name] == ANNOTATION:
-                continue
-
-            target_qubits = [
-                target.qubit_value for target in op.targets_copy() if target.qubit_value is not None
-            ]
-            if op.name in COLLAPSING_OPS:
-                qubits = collapsed_qubits
-            elif _involves_classical_bits(op):
-                qubits = classically_controlled_qubits
-            else:
-                qubits = operation_qubits
-            qubits.extend(target_qubits)
-
-        # Safety check for operation collisions.
-        usage_counts = collections.Counter(
-            collapsed_qubits + operation_qubits + classically_controlled_qubits
-        )
-        qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
-        if qubits_used_multiple_times:
-            raise ValueError(
-                f"Qubits were operated on multiple times without a TICK in between:\n"
-                f"multiple uses: {sorted(qubits_used_multiple_times)}\n"
-                f"moment:\n{moment}"
-            )
-
         non_collapse_qubits = system_qubits - immune_qubits - set(collapsed_qubits)
         idle_qubits = sorted(non_collapse_qubits - set(operation_qubits))
 
@@ -1533,6 +1510,60 @@ def _involves_classical_bits(op: stim.CircuitInstruction) -> bool:
         target.is_measurement_record_target or target.is_sweep_bit_target
         for target in op.targets_copy()
     )
+
+
+def _categorize_moment_qubits(
+    moment: Collection[stim.CircuitInstruction],
+) -> tuple[list[int], list[int]]:
+    """Categorize a moment's qubit targets and check for reuse.
+
+    Iterates every non-annotation instruction and buckets its qubit targets into three lists —
+    collapsed (measurement / reset), classically-controlled, and everything else ("operation").
+    Raises if any qubit is used more than once across the three buckets, since noise application
+    relies on the "each qubit at most once per moment" invariant that ``_split_moments_with_ticks``
+    enforces when ``insert_ticks=True``.  The classically-controlled bucket contributes only to
+    the reuse check.
+
+    Args:
+        moment: The moment's operations.
+
+    Returns:
+        A tuple ``(collapsed_qubits, operation_qubits)``, each in the order the moment referenced
+        them.  Consumers use these for idle-error emission (see
+        ``NoiseModel._inplace_append_idle_errors``).
+
+    Raises:
+        ValueError: If any qubit is operated on multiple times within the moment without a TICK
+            in between.
+    """
+    collapsed_qubits: list[int] = []
+    operation_qubits: list[int] = []
+    classically_controlled_qubits: list[int] = []
+    for op in moment:
+        if OP_TYPES[op.name] == ANNOTATION:
+            continue
+        target_qubits = [
+            target.qubit_value for target in op.targets_copy() if target.qubit_value is not None
+        ]
+        if op.name in COLLAPSING_OPS:
+            qubits = collapsed_qubits
+        elif _involves_classical_bits(op):
+            qubits = classically_controlled_qubits
+        else:
+            qubits = operation_qubits
+        qubits.extend(target_qubits)
+
+    usage_counts = collections.Counter(
+        collapsed_qubits + operation_qubits + classically_controlled_qubits
+    )
+    qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
+    if qubits_used_multiple_times:
+        raise ValueError(
+            f"Qubits were operated on multiple times without a TICK in between:\n"
+            f"multiple uses: {sorted(qubits_used_multiple_times)}\n"
+            f"moment:\n{moment}"
+        )
+    return collapsed_qubits, operation_qubits
 
 
 def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim.Circuit:

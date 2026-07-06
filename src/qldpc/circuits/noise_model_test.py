@@ -160,35 +160,36 @@ def test_idle_errors() -> None:
 def test_immunity() -> None:
     """Qubits and operations can be immune to errors."""
 
-    # qubits can be immune to errors
+    # qubits can be immune to errors.  The input reuses qubit 1 across ``H 0 1`` and ``CNOT 1 2``,
+    # so a TICK must separate them (either manually with ``insert_ticks=False`` or automatically).
     circuit = stim.Circuit("""
         H 0 1
         CNOT 1 2
     """)
     noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
-    noisy_circuit = stim.Circuit("""
+    expected = stim.Circuit("""
         H 0 1
-        CNOT 1 2
         DEPOLARIZE1(0.1) 1
+        TICK
+        CNOT 1 2
         DEPOLARIZE2(0.1) 1 2
     """)
+    # Automatic TICK insertion:
     assert _circuits_are_equivalent(
-        noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False)
+        expected, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=True)
     )
-
-    # Automatic TICK insertion composes with immune qubits.  Because the input reuses qubit 1
-    # across ``H 0 1`` and ``CNOT 1 2``, the preprocessing splits those into separate moments,
-    # so the noise for each moment is emitted before the TICK boundary.
+    # Explicit TICK with ``insert_ticks=False``:
     assert _circuits_are_equivalent(
-        stim.Circuit("""
-            H 0 1
-            DEPOLARIZE1(0.1) 1
-            TICK
-            CNOT 1 2
-            DEPOLARIZE2(0.1) 1 2
-        """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=True),
+        expected,
+        noise_model.noisy_circuit(
+            stim.Circuit("H 0 1\nTICK\nCNOT 1 2"),
+            immune_qubits=[0],
+            insert_ticks=False,
+        ),
     )
+    # Without a TICK between reusing gates, ``insert_ticks=False`` raises loudly.
+    with pytest.raises(ValueError, match="multiple times without a TICK"):
+        noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False)
 
     # operations can be immune to errors
     immune_op_tag = "_TEST_"
@@ -219,18 +220,22 @@ def test_immunity() -> None:
 
 def test_immune_qubits() -> None:
     noise_model: circuits.NoiseModel
+    # Input reuses qubit 1 across the first two CNOTs, so a TICK must separate them.  The third
+    # CNOT is on disjoint qubits and shares the second moment.
     circuit = stim.Circuit("""
         CNOT 0 1
+        TICK
         CNOT 1 2
         CNOT 3 4
     """)
     noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
 
-    # immunize_gates=False: condition partially-immune DEPOLARIZE2 pairs on the immune qubit
-    # acting as identity.  Pair (0, 1) becomes DEPOLARIZE1(0.02) on qubit 2 (well: on the
-    # surviving qubit of the pair, which is qubit 2 for pair (1, 2)).
+    # immunize_gates=False: both qubits 0 and 1 immune → pair (0, 1) has all-immune noise (drops).
+    # Pair (1, 2) has qubit 1 immune → conditioned onto qubit 2 as DEPOLARIZE1(0.02).
+    # Pair (3, 4) has no immune qubits → full DEPOLARIZE2(0.1).
     expected = stim.Circuit("""
         CNOT 0 1
+        TICK
         CNOT 1 2
         CNOT 3 4
         DEPOLARIZE1(0.02) 2
@@ -243,9 +248,11 @@ def test_immune_qubits() -> None:
         ),
     )
 
-    # immunize_gates=True: any gate touching an immune qubit is treated as noiseless.
+    # immunize_gates=True: any gate touching an immune qubit is treated as noiseless, so only the
+    # (3, 4) pair receives noise.
     expected = stim.Circuit("""
         CNOT 0 1
+        TICK
         CNOT 1 2
         CNOT 3 4
         DEPOLARIZE2(0.1) 3 4
@@ -922,9 +929,7 @@ def test_noise_rule_errors() -> None:
     with pytest.raises(ValueError, match="non-noise instruction"):
         circuits.NoiseRule(after=stim.Circuit("H 0"))
     fragment_with_repeat = stim.Circuit()
-    fragment_with_repeat.append(
-        stim.CircuitRepeatBlock(2, stim.Circuit("X_ERROR(0.1) 0"))
-    )
+    fragment_with_repeat.append(stim.CircuitRepeatBlock(2, stim.Circuit("X_ERROR(0.1) 0")))
     with pytest.raises(ValueError, match="may contain only noise instructions"):
         circuits.NoiseRule(after=fragment_with_repeat)
 
