@@ -388,7 +388,7 @@ class PauliChannel:
                 probs[string] = weight
         return PauliChannel(probs)
 
-    def marginalize_on(self, immune_qubit_indices: Collection[int]) -> PauliChannel:
+    def marginalize_on(self, immune_qubit_indices: Iterable[int]) -> PauliChannel:
         """Return the sub-channel of error mechanisms that act as identity on the given qubits.
 
         Keeps only Pauli strings whose positions in ``immune_qubit_indices`` are all ``I``, with
