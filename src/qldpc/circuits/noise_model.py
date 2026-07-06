@@ -678,10 +678,6 @@ class NoiseModel:
 
         op_type = OP_TYPES[op.name]
         if op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
-            # `clifford_nq_error` is keyed by the "arity per unit application" — 1 for CLIFFORD_1Q,
-            # 2 for CLIFFORD_2Q, and the Pauli-product weight for CLIFFORD_PP.  The pre-construction
-            # ambiguity check guarantees that at most one of `clifford_nq_error[k]` and
-            # `clifford_{k}q_error` is set for k in {1, 2}.
             if op_type == CLIFFORD_1Q:
                 num_qubits = 1
             elif op_type == CLIFFORD_2Q:
