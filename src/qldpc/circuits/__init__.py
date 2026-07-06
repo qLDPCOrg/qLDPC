@@ -42,7 +42,6 @@ from .noise_model import (
     NoiseRule,
     PauliChannel,
     SI1000NoiseModel,
-    TargetedNoiseRule,
     as_noiseless_circuit,
 )
 from .transversal import (
@@ -86,7 +85,6 @@ __all__ = [
     "NoiseRule",
     "PauliChannel",
     "SI1000NoiseModel",
-    "TargetedNoiseRule",
     "as_noiseless_circuit",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",

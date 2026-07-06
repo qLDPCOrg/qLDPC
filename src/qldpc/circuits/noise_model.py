@@ -3,8 +3,6 @@
 The main components of this module are:
 - PauliChannel: A sparse multi-qubit Pauli channel used to specify multi-qubit noise.
 - NoiseRule: Defines how to add noise to individual operations.
-- TargetedNoiseRule: Defines how to add noise to individual operations according to gate type and
-    targeted qubits.
 - NoiseModel: Defines how noise is added to circuits.
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 
@@ -378,6 +376,42 @@ class PauliChannel:
                 probs[string] = weight
         return PauliChannel(probs)
 
+    def marginalize_over(self, qubit_indices: Collection[int]) -> PauliChannel:
+        """Project the channel onto the subspace where the given qubits act as identity.
+
+        Keeps only Pauli strings whose positions in ``qubit_indices`` are all ``I``, and returns
+        a new channel on the remaining positions (in their original relative order).  The kept
+        strings retain their original probabilities; total probability is therefore in general
+        reduced (the dropped weight represents error events that would have hit a marginalized
+        qubit, which are assumed to not occur).
+
+        Args:
+            qubit_indices: Positions in ``[0, num_qubits)`` to project onto identity.  Repeats
+                are ignored.
+
+        Returns:
+            A ``PauliChannel`` on ``num_qubits - len(set(qubit_indices))`` qubits.  If every
+            surviving string reduces to identity (or no strings survive), the returned channel
+            is empty.
+
+        Raises:
+            ValueError: If any index is outside ``[0, num_qubits)``.
+        """
+        marginalized = frozenset(qubit_indices)
+        for index in marginalized:
+            if not 0 <= index < self._num_qubits:
+                raise ValueError(f"index {index} not in [0, {self._num_qubits})")
+        if not marginalized:
+            return PauliChannel(dict(self._probabilities))
+        surviving = [i for i in range(self._num_qubits) if i not in marginalized]
+        projected: dict[str, float] = {}
+        for string, prob in self._probabilities.items():
+            if all(string[i] == "I" for i in marginalized):
+                new_string = "".join(string[i] for i in surviving)
+                if new_string:  # empty when every position was marginalized
+                    projected[new_string] = prob
+        return PauliChannel(projected)
+
 
 class NoiseRule:
     """Describes how to add noise to an operation.
@@ -458,12 +492,23 @@ class NoiseRule:
         )
 
     def noisy_operation(
-        self, op: stim.CircuitInstruction
+        self,
+        op: stim.CircuitInstruction,
+        *,
+        immune_qubits: frozenset[int] = frozenset(),
+        marginalize: bool = False,
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 
         Args:
             op: The operation to add noise to.
+            immune_qubits: Qubits declared immune to noise.  Broadcast ``after`` entries and
+                ``reset_error`` follow-ups are still emitted covering all targets and get filtered
+                downstream by the moment-level immunity pass; ``after_pauli_channel`` is projected
+                here at emit time so its ``CORRELATED_ERROR`` chain never mentions immune qubits.
+            marginalize: If True, an ``after_pauli_channel`` touching immune qubits is projected
+                onto the surviving qubits (keeping only Pauli strings with ``I`` on every immune
+                position, probabilities unchanged) instead of being dropped.
 
         Returns:
             stim.CircuitInstruction: The given operation possibly modified to account for noise.
@@ -490,12 +535,24 @@ class NoiseRule:
             error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
             noise_after.append(error_op)
 
-        self.emit_after(noise_after, qubit_targets, context=f"operation {op.name!r}")
+        self.emit_after(
+            noise_after,
+            qubit_targets,
+            immune_qubits=immune_qubits,
+            marginalize=marginalize,
+            context=f"operation {op.name!r}",
+        )
 
         return noisy_op, noise_after
 
     def emit_after(
-        self, circuit: stim.Circuit, qubit_targets: list[int], *, context: str = "operation"
+        self,
+        circuit: stim.Circuit,
+        qubit_targets: list[int],
+        *,
+        immune_qubits: frozenset[int] = frozenset(),
+        marginalize: bool = False,
+        context: str = "operation",
     ) -> None:
         """Append this rule's ``after`` and ``after_pauli_channel`` noise in-place.
 
@@ -507,6 +564,12 @@ class NoiseRule:
         Args:
             circuit: The circuit to append the noise instructions to.
             qubit_targets: The qubits the noise applies to (in the operation's target order).
+            immune_qubits: Qubits declared immune to noise.  ``after`` entries are still emitted
+                covering all targets (the moment-level immunity pass filters them); an
+                ``after_pauli_channel`` touching an immune qubit is projected here so its
+                ``CORRELATED_ERROR`` chain never mentions the immune qubits.
+            marginalize: If True, an ``after_pauli_channel`` touching immune qubits is projected
+                onto the surviving qubits instead of dropped.  Ignored for ``after`` entries.
             context: A short description of the operation, used only in error messages.
 
         Raises:
@@ -529,91 +592,14 @@ class NoiseRule:
                     f"PauliChannel with num_qubits={self.after_pauli_channel.num_qubits} cannot "
                     f"be applied to {context} with {num_qubits} qubit targets"
                 )
-            _append_pauli_channel(circuit, self.after_pauli_channel, qubit_targets)
-
-
-class TargetedNoiseRule(NoiseRule):
-    """Describes how to add noise to a specific circuit instruction on specific qubits.
-
-    Unlike NoiseRule, which applies to all operations of a given type, this rule matches only an
-    exact gate-and-target combination, allowing fine-grained per-operation noise overrides.
-    """
-
-    def __init__(
-        self,
-        *,
-        noisy_op: stim.CircuitInstruction,
-        noise: stim.Circuit,
-        readout_error: float = 0,
-        reset_error: float = 0,
-        tags: Collection[str] | None = None,
-    ) -> None:
-        """Initializes a targeted noise rule for a specific circuit instruction.
-
-        Args:
-            noisy_op: The circuit instruction that this rule targets.  Defines the gate name and
-                qubit targets to match against.  Gate args on this instruction are ignored during
-                matching.
-            noise: An explicit noise circuit to append after the matched operation.
-            readout_error: The probability that a measurement result is reported incorrectly.  Only
-                allowed for operations that produce measurement results.
-            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
-                operations that reset qubits.
-            tags: If not None, only match operations whose tag exactly matches one of the given
-                strings.  If None, match operations regardless of their tag.
-
-        Raises:
-            ValueError: If readout_error or reset_error is not between 0 and 1 (inclusive).
-        """
-        super().__init__(readout_error=readout_error, reset_error=reset_error)
-        self.noisy_op = noisy_op
-        self.noise = noise
-        self.tags: frozenset[str] | None = frozenset(tags) if tags is not None else None
-
-    def __bool__(self) -> bool:
-        """Is this noise rule nontrivial?"""
-        nontrivial_noise = bool(self.noise) or bool(self.readout_error) or bool(self.reset_error)
-        nontrivial_targets = bool(self.noisy_op.targets_copy())
-        return nontrivial_noise and nontrivial_targets
-
-    def is_targeted_noisy_op(self, op: stim.CircuitInstruction) -> bool:
-        """Determine whether the given operation matches this rule's target instruction.
-
-        Two operations match if they have the same gate name and the same qubit target values in the
-        same order.  Gate args are ignored.  If self.tags is not None, op.tag must exactly match an
-        element of self.tags.
-
-        Args:
-            op: The circuit instruction to check.
-
-        Returns:
-            True if op matches this rule's target instruction.  False otherwise.
-        """
-        if op.name != self.noisy_op.name or (self.tags is not None and op.tag not in self.tags):
-            return False
-        return op.targets_copy() == self.noisy_op.targets_copy()
-
-    def noisy_operation(
-        self, op: stim.CircuitInstruction
-    ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
-        """Apply this targeted noise rule to the given operation.
-
-        Args:
-            op: The operation to add noise to.
-
-        Returns:
-            stim.CircuitInstruction: The given operation, possibly modified to account for readout
-                or reset errors.
-            stim.Circuit: Noise operations that should follow the given operation.
-        """
-        if not self.is_targeted_noisy_op(op):
-            return op, stim.Circuit()
-        return super().noisy_operation(op)
-
-    def emit_after(
-        self, circuit: stim.Circuit, qubit_targets: list[int], *, context: str = "operation"
-    ) -> None:
-        circuit += self.noise
+            immune_positions = [i for i, q in enumerate(qubit_targets) if q in immune_qubits]
+            if not immune_positions:
+                _append_pauli_channel(circuit, self.after_pauli_channel, qubit_targets)
+            elif marginalize:
+                marginal = self.after_pauli_channel.marginalize_over(immune_positions)
+                if marginal:
+                    surviving = [q for q in qubit_targets if q not in immune_qubits]
+                    _append_pauli_channel(circuit, marginal, surviving)
 
 
 class NoiseModel:
@@ -905,16 +891,19 @@ class NoiseModel:
             marginalize: If True, marginalize 2-qubit noise onto surviving qubits instead of
                 removing.
         """
+        frozen_immune = frozenset(immune_qubits)
         noise_after_moment = stim.Circuit()
         for op in moment:
             if immune_op_tag in op.tag or (rule := self.get_noise_rule(op)) is None:
                 circuit.append(op)
             else:
-                noisy_op, after = rule.noisy_operation(op)
+                noisy_op, after = rule.noisy_operation(
+                    op, immune_qubits=frozen_immune, marginalize=marginalize
+                )
                 circuit.append(noisy_op)
                 noise_after_moment += after
 
-        circuit += immunize_noise(noise_after_moment, immune_qubits, marginalize=marginalize)
+        circuit += _immunize_noise(noise_after_moment, frozen_immune, marginalize=marginalize)
 
         moment_was_noisy = any(immune_op_tag not in op.tag for op in moment)
         if moment_was_noisy and (self.idle_error or self.additional_error_waiting_for_m_or_r):
@@ -1150,19 +1139,29 @@ _PC2_SECOND_IMMUNE_INDICES = (3, 7, 11)
 _PC2_FIRST_IMMUNE_INDICES = (0, 1, 2)
 
 
-def immunize_noise(
-    noise: stim.Circuit, immune_qubits: set[int], *, marginalize: bool = False
+def _immunize_noise(
+    noise: stim.Circuit,
+    immune_qubits: frozenset[int] | set[int],
+    *,
+    marginalize: bool = False,
 ) -> stim.Circuit:
     """Return a copy of a flat noise circuit with instructions targeting immune qubits removed.
 
-    An instruction is removed if any of its qubit targets belongs to immune_qubits.  If marginalize
-    is True, DEPOLARIZE2 and PAULI_CHANNEL_2 instructions where only one qubit in a pair is immune
-    are replaced by the marginal 1-qubit noise channel on the surviving qubit (ignoring cross-Pauli
-    terms).
+    An instruction is removed if any of its qubit targets belongs to ``immune_qubits``.  Special
+    cases:
+    - Broadcast 1-qubit noise (``DEPOLARIZE1``, ``X_ERROR``, etc.): immune targets are dropped,
+      non-immune targets kept.
+    - Broadcast 2-qubit noise (``DEPOLARIZE2``, ``PAULI_CHANNEL_2``): with ``marginalize=True``,
+      partially-immune pairs are projected onto the surviving qubit's 1-qubit marginal (see
+      ``_marginalize_2q_noise``); with ``marginalize=False``, they are dropped.
+
+    ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chains are always emitted by
+    ``NoiseRule.emit_after`` on the already-marginalized surviving qubits, so they never mention
+    immune qubits at this point and pass through the identity branch.
 
     Args:
         noise: A flat noise circuit (no repeat blocks) to filter.
-        immune_qubits: Set of qubit indices that should not have noise applied to them.
+        immune_qubits: Qubit indices that should not have noise applied to them.
         marginalize: If True, marginalize 2-qubit noise onto surviving qubits instead of removing.
 
     Returns:
@@ -1188,7 +1187,10 @@ def immunize_noise(
 
 
 def _marginalize_2q_noise(
-    noise_op: stim.CircuitInstruction, immune_qubits: set[int], *, marginalize: bool
+    noise_op: stim.CircuitInstruction,
+    immune_qubits: frozenset[int] | set[int],
+    *,
+    marginalize: bool,
 ) -> stim.Circuit:
     """Filter or marginalize a 2-qubit noise instruction over immune qubits.
 

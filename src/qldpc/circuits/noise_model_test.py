@@ -104,123 +104,6 @@ def test_gate_errors() -> None:
         noise_model.noisy_circuit(circuit, insert_ticks=False)
 
 
-def test_targeted_gate_errors() -> None:
-    """TargetedNoiseRule applies noise only to exact gate-and-qubit matches."""
-
-    # only CX 0 1 gets depolarizing noise; CX 1 2 is unaffected
-    circuit = stim.Circuit("""
-        CX 0 1 1 2
-        TICK
-        M 0
-        RX 1
-        MR 2
-    """)
-
-    targeted_cx = circuits.TargetedNoiseRule(
-        noisy_op=stim.CircuitInstruction("CX", [0, 1]),
-        noise=stim.Circuit("DEPOLARIZE2(0.2) 0 1"),
-    )
-    noise_model = circuits.NoiseModel(clifford_2q_error=targeted_cx)
-    assert _circuits_are_equivalent(
-        stim.Circuit("""
-        CX 0 1
-        DEPOLARIZE2(0.2) 0 1
-        CX 1 2
-        TICK
-        M 0
-        RX 1
-        MR 2
-    """),
-        noise_model.noisy_circuit(circuit),
-    )
-
-    # only CX 0 1 gets depolarizing noise but on 1 2
-    targeted_cx = circuits.TargetedNoiseRule(
-        noisy_op=stim.CircuitInstruction("CX", [0, 1]),
-        noise=stim.Circuit("DEPOLARIZE2(0.2) 1 2"),
-    )
-    noise_model = circuits.NoiseModel(clifford_2q_error=targeted_cx)
-    assert _circuits_are_equivalent(
-        stim.Circuit("""
-        CX 0 1
-        DEPOLARIZE2(0.2) 1 2
-        CX 1 2
-        TICK
-        M 0
-        RX 1
-        MR 2
-    """),
-        noise_model.noisy_circuit(circuit),
-    )
-
-    # targeted readout and reset errors on specific qubits
-    circuit = stim.Circuit("""
-        H 0
-        CX 0 1 1 2
-        TICK
-        M 0
-        RX 1
-        MR 2
-    """)
-    noise_model = circuits.NoiseModel(
-        clifford_1q_error=0.1,
-        clifford_2q_error=0.2,
-        rules={
-            "MZ": circuits.TargetedNoiseRule(
-                noisy_op=stim.CircuitInstruction("MZ", [0]), noise=stim.Circuit(), readout_error=0.3
-            ),
-            "RX": circuits.TargetedNoiseRule(
-                noisy_op=stim.CircuitInstruction("RX", [1]), noise=stim.Circuit(), reset_error=0.4
-            ),
-        },
-    )
-    assert _circuits_are_equivalent(
-        stim.Circuit("""
-        H 0
-        DEPOLARIZE1(0.1) 0
-        CX 0 1
-        DEPOLARIZE2(0.2) 0 1
-        CX 1 2
-        DEPOLARIZE2(0.2) 1 2
-        TICK
-        MZ(0.3) 0
-        RX 1
-        MR 2
-        Z_ERROR(0.4) 1
-    """),
-        noise_model.noisy_circuit(circuit),
-    )
-
-    # # tags: only apply noise to operations with the matching tag
-    circuit = stim.Circuit("""
-        H[ancilla] 0
-        H 1
-        S 0
-        TICK
-        CX 0 1
-    """)
-    noise_model = circuits.NoiseModel(
-        clifford_2q_error=0.2,
-        clifford_1q_error=circuits.TargetedNoiseRule(
-            noisy_op=stim.CircuitInstruction("H", [0]),
-            tags={"ancilla"},
-            noise=stim.Circuit("DEPOLARIZE1(0.1) 0"),
-        ),
-    )
-    noisy_circuit = stim.Circuit("""
-        H[ancilla] 0
-        H 1
-        DEPOLARIZE1(0.1) 0
-        S 0
-        TICK
-        CX 0 1
-        DEPOLARIZE2(0.2) 0 1
-    """)
-    print("=====Expect", noisy_circuit)
-    print("=====But got", noise_model.noisy_circuit(circuit))
-    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
-
-
 def test_idle_errors() -> None:
     """Add idling errors to a circuit."""
 
@@ -391,6 +274,59 @@ def test_immune_marginalize() -> None:
         noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
     )
 
+    # multi-qubit PauliChannel marginalization: keep only strings that are I on the immune qubit
+    circuit = stim.Circuit("SPP X0*Y1*Z2")
+    channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03})
+    noise_model = circuits.NoiseModel(
+        rules={"SPP": circuits.NoiseRule(after_pauli_channel=channel)}
+    )
+
+    # marginalize=True, immune qubit 1: only "XIZ" survives; projected to positions [0, 2].
+    # The marginalized 2-qubit channel is emitted natively as PAULI_CHANNEL_2 with XZ at index 6.
+    assert _circuits_are_equivalent(
+        stim.Circuit("""
+            SPP X0*Y1*Z2
+            PAULI_CHANNEL_2(0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0) 0 2
+        """),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
+    )
+
+    # marginalize=False, immune qubit 1: drop the whole channel.
+    assert _circuits_are_equivalent(
+        stim.Circuit("SPP X0*Y1*Z2"),
+        noise_model.noisy_circuit(
+            circuit, immune_qubits=[1], insert_ticks=False, marginalize=False
+        ),
+    )
+
+    # marginalize=True but every string has a non-I on the immune qubit -> nothing emitted.
+    empty_marg_channel = circuits.PauliChannel({"XYZ": 0.01, "IYY": 0.02})
+    noise_model = circuits.NoiseModel(
+        rules={"SPP": circuits.NoiseRule(after_pauli_channel=empty_marg_channel)}
+    )
+    assert _circuits_are_equivalent(
+        stim.Circuit("SPP X0*Y1*Z2"),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
+    )
+
+    # 4-qubit channel marginalizing one qubit -> 3-qubit surviving channel, emitted as CE chain.
+    circuit = stim.Circuit("SPP X0*Y1*Z2*X3")
+    channel = circuits.PauliChannel({"XIZX": 0.01, "IIYX": 0.02, "XYZX": 0.03})
+    noise_model = circuits.NoiseModel(
+        rules={"SPP": circuits.NoiseRule(after_pauli_channel=channel)}
+    )
+    # Immune qubit 1: only "XIZX" and "IIYX" have I at pos 1.  Projected onto positions
+    # [0, 2, 3] -> {"IYX": 0.02, "XZX": 0.01} (lex-sorted).  Emitted as a CE chain on qubits 0, 2, 3
+    # with the second entry renormalized to conditional-fire prob = 0.01 / (1 - 0.02).
+    assert _circuits_are_equivalent(
+        stim.Circuit(f"""
+            SPP X0*Y1*Z2*X3
+            CORRELATED_ERROR(0.02) Y2 X3
+            ELSE_CORRELATED_ERROR({0.01 / (1 - 0.02)}) X0 Z2 X3
+        """),
+        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False, marginalize=True),
+    )
+
 
 def test_classical_controls() -> None:
     """Classically controled gates get special treatment."""
@@ -551,6 +487,40 @@ def test_pauli_channel_class() -> None:
         circuits.PauliChannel.depolarizing(0, 0.1)
     with pytest.raises(ValueError, match="not in \\[0, 1\\]"):
         circuits.PauliChannel.depolarizing(2, 1.5)
+
+
+def test_pauli_channel_marginalize_over() -> None:
+    """PauliChannel.marginalize_over projects the channel onto identity-on-immune subspace."""
+
+    channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03, "XII": 0.04})
+
+    # Marginalize position 1 (middle): keep strings with I at pos 1.
+    # XYZ: pos 1 is Y, drop.  XIZ: pos 1 is I, keep -> "XZ".
+    # IZI: pos 1 is Z, drop.  XII: pos 1 is I, keep -> "XI".
+    assert channel.marginalize_over([1]) == circuits.PauliChannel({"XZ": 0.02, "XI": 0.04})
+
+    # Marginalize positions 0 and 2: keep strings with I at pos 0 AND pos 2.
+    # Only "IZI" has I at 0 and 2 -> "Z" on surviving position 1.
+    assert channel.marginalize_over([0, 2]) == circuits.PauliChannel({"Z": 0.03})
+
+    # Empty index list is a no-op (returns an equal channel).
+    assert channel.marginalize_over([]) == channel
+
+    # Marginalizing every position yields an empty channel (no non-identity string is all-I).
+    assert channel.marginalize_over([0, 1, 2]) == circuits.PauliChannel({})
+
+    # Repeated indices are deduplicated.
+    assert channel.marginalize_over([1, 1]) == channel.marginalize_over([1])
+
+    # If nothing survives, the result is empty.
+    all_non_id = circuits.PauliChannel({"XY": 0.1, "YX": 0.1})
+    assert all_non_id.marginalize_over([0]) == circuits.PauliChannel({})
+
+    # Out-of-range indices raise.
+    with pytest.raises(ValueError, match="not in"):
+        channel.marginalize_over([3])
+    with pytest.raises(ValueError, match="not in"):
+        channel.marginalize_over([-1])
 
 
 def test_multi_qubit_pauli_channel_after_gate() -> None:
