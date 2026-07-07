@@ -224,10 +224,7 @@ def test_immune_qubits() -> None:
     # 2-qubit broadcast pairs: (0, 1) both immune → drop, (1, 2) partial → condition or drop,
     # (3, 4) no immune → full 2q noise.
     circuit = stim.Circuit("""
-        CNOT 0 1
-        TICK
-        CNOT 1 2
-        CNOT 3 4
+        CNOT 0 1 1 2 3 4
     """)
     dm = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
     assert _circuits_are_equivalent(
@@ -382,10 +379,7 @@ def test_pauli_product_cliffords() -> None:
     # SPP on one qubit -> clifford_1q_error; SPP on two qubits -> clifford_2q_error;
     # SPP on three or more qubits is ignored by default.
     circuit = stim.Circuit("""
-        SPP X0
-        TICK
-        SPP X0*Y1
-        TICK
+        SPP X0 X0*Y1
         SPP_DAG X0*Y1*Z2
     """)
     noise_model = circuits.NoiseModel(clifford_1q_error=0.1, clifford_2q_error=0.2)
@@ -415,9 +409,7 @@ def test_pauli_product_cliffords() -> None:
     noise_rule = circuits.NoiseRule(after={"DEPOLARIZE1": 0.3})
     noise_model = circuits.NoiseModel(clifford_1q_error=0.1, rules={"SPP": noise_rule})
     circuit = stim.Circuit("""
-        SPP X0
-        TICK
-        SPP X0*Y1*Z2
+        SPP X0 X0*Y1*Z2
     """)
     noisy_circuit = stim.Circuit("""
         SPP X0
