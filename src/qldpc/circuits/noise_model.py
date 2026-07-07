@@ -53,12 +53,16 @@ Noise on multi-qubit Clifford gates (SPP / MPP):
         }
     )
 
-    # Multi-qubit MPP gates receive ordinary readout_error.  To assign per-basis rules, key on the
-    # standardized name that measurement gates are dispatched under: "M<paulis>", e.g. "MXYZ" for
-    # `MPP X*Y*Z`, "MXX" for `MPP X*X`, etc.
+    # Multi-qubit MPP / SPP gates receive ordinary readout_error / clifford_nq_error.  To assign
+    # per-basis rules, key on the standardized name that measurement / SPP gates are dispatched
+    # under: "M<paulis>" for MPP (e.g. "MXYZ" for `MPP X*Y*Z`, "MXX" for `MPP X*X`) and
+    # "S<paulis>" / "S<paulis>_DAG" for SPP (e.g. "SXYZ" for `SPP X*Y*Z`).
     noise_model = NoiseModel(
         readout_error=1e-3,                                # default readout flip probability
-        rules={"MXYZ": NoiseRule(readout_error=5e-3)},     # override for MPP X*Y*Z specifically
+        rules={
+            "MXYZ": NoiseRule(readout_error=5e-3),         # override for MPP X*Y*Z specifically
+            "SXYZ": NoiseRule(after=PauliChannel.depolarizing(3, 1e-2)),  # SPP X*Y*Z override
+        },
     )
 
 
@@ -66,12 +70,16 @@ Per-gate-application noise via a callback (`noise_rule_func`):
 
     from qldpc.circuits.noise_model import NoiseModel, NoiseRule
 
-    # `noise_rule_func` is consulted once per individual gate application and takes top priority
-    # over every other argument (`rules` included).  Broadcast gates (e.g. `H 0 1 2`, `CX 0 1 2 3`)
-    # are decomposed into their individual applications first, so `targets` holds exactly one
-    # application's worth of stim.GateTargets.  Returning `None` falls back to the ordinary rules.
+    # `noise_rule_func` is consulted per individual gate application and takes top priority over
+    # every other argument (`rules` included).  Broadcast gates (e.g. `H 0 1 2`, `CX 0 1 2 3`) are
+    # decomposed into their individual applications first, so `targets` holds exactly one
+    # application's worth of stim.GateTargets.  For each application the callback is consulted with
+    # every alias of the gate — first the standardized name (`"MXYZ"` for `MPP X*Y*Z`, `"MZ"` for
+    # `M`, ...), then all stim aliases (`"M"` and `"MZ"`; `"CX"`, `"CNOT"`, `"ZCX"`; ...) —
+    # stopping at the first non-`None` return.  Returning `None` for every alias falls back to
+    # the ordinary rules.
     def bad_qubit_noise(
-        gate: str, tag: str, targets: Iterable[stim.GateTarget]
+        gate: str, tag: str, targets: Sequence[stim.GateTarget]
     ) -> NoiseRule | None:
         # Give any gate touching qubit 7 a heavier depolarizing kick; leave everything else alone.
         if any(t.qubit_value == 7 for t in targets):
@@ -106,7 +114,7 @@ import functools
 import itertools
 import math
 import types
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, TypeVar
 
 import stim
@@ -304,7 +312,7 @@ class PauliChannel:
         # normalized input isn't rejected due to per-value rounding (e.g.,
         # ``[p_i / sum(p_i) for p_i in ...]`` can accumulate to ~1 + O(n * eps)).
         total = math.fsum(probabilities.values())
-        if not _approx_in_unit_interval(total):
+        if not _is_approx_in_unit_interval(total):
             raise ValueError(f"Sum of Pauli channel probabilities {total} is not in [0, 1]")
         # Drop zero-probability entries and canonicalize insertion order (lex over Pauli strings)
         # so `__eq__`-equal channels produce identical noise chains at emission time.  Store
@@ -502,7 +510,7 @@ class NoiseRule:
                         f"{op} cannot be specified in a broadcast `after` mapping; pass an "
                         "explicit stim.Circuit or a PauliChannel instead"
                     )
-                if not _approx_in_unit_interval(math.fsum(probs)):
+                if not _is_approx_in_unit_interval(math.fsum(probs)):
                     raise ValueError(
                         f"The net probability of an error is not between 0 and 1 in {after=}"
                     )
@@ -648,7 +656,7 @@ class NoiseModel:
         additional_error_waiting_for_m_or_r: NoiseRule | float | None = None,
         rules: Mapping[str, NoiseRule] | None = None,
         noise_rule_func: (
-            Callable[[str, str, list[stim.GateTarget]], NoiseRule | None] | None
+            Callable[[str, str, Sequence[stim.GateTarget]], NoiseRule | None] | None
         ) = None,
     ):
         """Initializes a noise model with specified parameters.
@@ -680,21 +688,27 @@ class NoiseModel:
             noise_rule_func: Optional user-defined callback that assigns noise to individual gate
                 applications, taking top priority over every other argument (``rules`` included).
                 It is called as ``noise_rule_func(gate_name, tag, targets)`` — where ``gate_name``
-                is the stim gate name (e.g. ``"H"``, ``"CX"``, ``"MPP"``), ``tag`` is the
-                instruction's tag, and ``targets`` is the ``list[stim.GateTarget]`` of a single
-                gate application — and must return a ``NoiseRule`` (used verbatim for that
-                application) or ``None`` (fall back to ``rules`` then the arity-based defaults).
-                Any gate that stim broadcasts across multiple independent applications
+                is a name for the gate (see below), ``tag`` is the instruction's tag, and
+                ``targets`` is the sequence of ``stim.GateTarget`` for a single gate application
+                — and must return a ``NoiseRule`` (used verbatim for that application) or
+                ``None`` (fall back to the next name / then ``rules`` / then the arity-based
+                defaults).  Any gate that stim broadcasts across multiple independent applications
                 (e.g. ``H 0 1 2`` or ``CX 0 1 2 3``) is decomposed into its individual applications
-                before the callback is invoked, so ``targets`` holds exactly one application's worth
-                of targets: one for a one-qubit gate, two for a two-qubit gate, and one Pauli
-                product's targets for an SPP/MPP.  The callback is consulted only for genuine noisy
-                gates (unitary Cliffords, measurements, and resets) that are not classically
-                controlled; it does not affect annotations, pure-noise instructions, or idling
-                errors.  Noise-immune qubits/tags still take precedence, so a returned rule is
-                subject to the same immunity handling as any other rule.  A returned rule with
-                ``readout_error`` (``reset_error``) is only valid on a gate that produces
-                measurements (resets).
+                before the callback is invoked, so ``targets`` holds exactly one application's
+                worth of targets: one for a one-qubit gate, two for a two-qubit gate, and one
+                Pauli product's targets for an SPP/MPP.  For each application the callback is
+                consulted with every name the gate is known by, in order: first the standardized
+                name used by ``rules`` (e.g. ``"MZ"`` for ``M``, ``"MXYZ"`` for ``MPP X*Y*Z``,
+                ``"SXY_DAG"`` for ``SPP_DAG X*Y``), then every stim alias (e.g. ``"M"`` / ``"MZ"``;
+                ``"CX"`` / ``"CNOT"`` / ``"ZCX"``; ``"H"`` / ``"H_XZ"``).  The first non-``None``
+                return wins; if every call returns ``None`` we fall back to ``rules``.  The
+                callback is consulted only for genuine noisy gates (unitary Cliffords,
+                measurements, and resets) that are not classically controlled; it does not affect
+                annotations, pure-noise instructions, or idling errors.  Noise-immune qubits/tags
+                still take precedence, so a returned rule is subject to the same immunity handling
+                as any other rule.  A returned ``NoiseRule`` must have (a) an ``after`` channel
+                whose arity matches the gate application's qubit count and (b) ``readout_error``
+                (``reset_error``) only if the gate produces measurements (resets).
         """
         self.rules = rules
         self.noise_rule_func = noise_rule_func
@@ -789,6 +803,10 @@ class NoiseModel:
     def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
         """Determines the noise rule to apply to a specific operation.
 
+        When ``noise_rule_func`` is set, it is consulted first (for genuine noisy gates that are
+        not classically controlled); a non-None return takes top priority over ``rules`` and the
+        arity-based defaults.
+
         Args:
             op: The circuit instruction to find a noise rule for.
 
@@ -797,6 +815,18 @@ class NoiseModel:
         """
         if op_type(op.name) == ANNOTATION or _involves_classical_bits(op):
             return None
+
+        if self.noise_rule_func is not None and op_type(op.name) in GATE_OP_TYPES:
+            targets = [target for target in op.targets_copy() if not target.is_combiner]
+            seen: set[str] = set()
+            for name in (_get_standardized_name(op), *_get_gate_aliases(op.name)):
+                if name in seen:
+                    continue
+                seen.add(name)
+                rule = self.noise_rule_func(name, op.tag, targets)
+                if rule is not None:
+                    _validate_custom_rule(rule, op, len(targets))
+                    return rule
 
         if self.rules is not None:
             rule = self.rules.get(_get_standardized_name(op)) or self.rules.get(
@@ -824,38 +854,6 @@ class NoiseModel:
             return NoiseRule(readout_error=self.readout_error, reset_error=self.reset_error)
 
         return None
-
-    def _custom_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
-        """Consult the user-provided ``noise_rule_func`` for a single gate application.
-
-        Returns the ``NoiseRule`` the callback assigns to ``op`` (which takes top priority over all
-        other rules), or ``None`` when no callback is set, ``op`` is not a genuine noisy gate, or
-        the callback itself returns ``None``.
-
-        ``op`` is expected to be a single gate application: whenever a ``noise_rule_func`` is set,
-        broadcast gates are decomposed upstream (via ``force_split`` in the moment iteration) so
-        that ``op.targets_copy()`` holds exactly one application's worth of targets.
-
-        Args:
-            op: The (single-application) circuit instruction to find a custom rule for.
-
-        Returns:
-            The callback's ``NoiseRule`` for ``op``, or ``None`` to fall back to ordinary rules.
-
-        Raises:
-            ValueError: If the returned rule sets ``readout_error`` on a gate that does not produce
-                measurements, or ``reset_error`` on a gate that does not reset.
-        """
-        if self.noise_rule_func is None:
-            return None
-        if op_type(op.name) not in GATE_OP_TYPES or _involves_classical_bits(op):
-            return None
-        targets = [target for target in op.targets_copy() if not target.is_combiner]
-        rule = self.noise_rule_func(op.name, op.tag, targets)
-        if rule is None:
-            return None
-        _validate_custom_rule(rule, op)
-        return rule
 
     def noisy_circuit(
         self,
@@ -931,7 +929,9 @@ class NoiseModel:
                         moment_or_repeat_block.body_copy(),
                         system_qubits=system_qubits,
                         immune_qubits=immune_qubits,
+                        immune_op_tag=immune_op_tag,
                         immunize_gates=immunize_gates,
+                        insert_ticks=insert_ticks,
                     )
                     noisy_body.append("TICK")
                     noisy_circuit.append(
@@ -988,15 +988,7 @@ class NoiseModel:
 
         noise_after_moment = stim.Circuit()
         for op in moment:
-            if immune_op_tag in op.tag:
-                circuit.append(op)
-                continue
-            # A user-provided `noise_rule_func` takes top priority per gate application; when it
-            # declines (returns None) we fall back to the model's ordinary rules.
-            rule = self._custom_noise_rule(op)
-            if rule is None:
-                rule = self.get_noise_rule(op)
-            if rule is None:
+            if immune_op_tag in op.tag or (rule := self.get_noise_rule(op)) is None:
                 circuit.append(op)
                 continue
             effective_rule = _rule_with_immunity(
@@ -1115,9 +1107,18 @@ class SI1000NoiseModel(NoiseModel):
 _APPROX_TOL = 1e-9
 
 
-def _approx_in_unit_interval(value: float, *, tol: float = _APPROX_TOL) -> bool:
+def _is_approx_in_unit_interval(value: float, *, tol: float = _APPROX_TOL) -> bool:
     """Return True if ``value`` is in [0, 1], up to floating-point tolerance ``tol``."""
     return -tol <= value <= 1 + tol
+
+
+@functools.cache
+def _get_gate_aliases(op_name: str) -> tuple[str, ...]:
+    """Return the stim-recognized aliases of a gate name (empty if the name is unknown)."""
+    try:
+        return tuple(stim.gate_data(op_name).aliases)
+    except (IndexError, ValueError):
+        return ()
 
 
 def _get_standardized_name(op: stim.CircuitInstruction) -> str:
@@ -1135,17 +1136,22 @@ def _get_standardized_name(op: stim.CircuitInstruction) -> str:
     if op_name == "M" or op_name == "R" or op_name == "MR":
         return op_name + "Z"
 
-    if op_name == "MPP":
-        name = "M"
-        for target in op.targets_copy()[::2]:
+    if op_name == "MPP" or op_name == "SPP" or op_name == "SPP_DAG":
+        prefix, suffix = ("S", "_DAG") if op_name == "SPP_DAG" else (op_name[0], "")
+        targets = op.targets_copy()
+        assert all(target.is_combiner for target in targets[1::2]), (
+            f"{op_name} must be split into a single Pauli product before standardization"
+        )
+        basis = ""
+        for target in targets[::2]:
             if target.is_x_target:
-                name += "X"
+                basis += "X"
             elif target.is_y_target:
-                name += "Y"
+                basis += "Y"
             else:
                 assert target.is_z_target
-                name += "Z"
-        return name
+                basis += "Z"
+        return prefix + basis + suffix
 
     return op_name
 
@@ -1372,27 +1378,32 @@ def _validate_rule_for_arity(
         raise ValueError(f"{context}: `reset_error` is only valid on reset gates")
 
 
-def _validate_custom_rule(rule: NoiseRule, op: stim.CircuitInstruction) -> None:
-    """Reject a ``noise_rule_func`` result whose readout/reset error is meaningless for ``op``.
-
-    Arity mismatches between the rule's ``after`` channel and the gate application are left to
-    ``NoiseRule.emit_after``, which raises a descriptive ``ValueError`` at emission time.
+def _validate_custom_rule(rule: NoiseRule, op: stim.CircuitInstruction, num_qubits: int) -> None:
+    """Reject a ``noise_rule_func`` result that is incompatible with the gate application ``op``.
 
     Args:
         rule: The ``NoiseRule`` returned by the user's ``noise_rule_func``.
         op: The single-application gate the rule was returned for.
+        num_qubits: The number of qubit targets in ``op`` (combiners excluded).
 
     Raises:
-        ValueError: If the rule sets ``readout_error`` on a gate that does not produce
-            measurements, or ``reset_error`` on a gate that does not reset.
+        ValueError: If the rule's ``after`` arity does not match ``num_qubits``, or if it sets
+            ``readout_error`` on a gate that does not produce measurements, or ``reset_error``
+            on a gate that does not reset.
     """
-    gate_data = stim.gate_data(op.name)
-    if rule.readout_error and not gate_data.produces_measurements:
+    if rule.after is not None and rule.after.num_qubits != num_qubits:
+        raise ValueError(
+            f"noise_rule_func returned a rule with `after` arity {rule.after.num_qubits} for "
+            f"{op.name!r} ({num_qubits}-qubit application)"
+        )
+    produces_measurements = op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
+    is_reset = op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
+    if rule.readout_error and not produces_measurements:
         raise ValueError(
             f"noise_rule_func returned a rule with readout_error for {op.name!r}, which does not "
             "produce measurements"
         )
-    if rule.reset_error and not gate_data.is_reset:
+    if rule.reset_error and not is_reset:
         raise ValueError(
             f"noise_rule_func returned a rule with reset_error for {op.name!r}, which is not a "
             "reset gate"
