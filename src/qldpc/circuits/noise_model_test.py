@@ -817,18 +817,88 @@ def test_noise_rule_errors() -> None:
     with pytest.raises(ValueError, match="may contain only noise instructions"):
         circuits.NoiseRule(after=fragment_with_repeat)
 
+    # Wrong argcount for a stim channel in Mapping form is caught at construction with a qLDPC
+    # message, not as a low-level stim error at emit time.
+    with pytest.raises(ValueError, match="probability argument"):
+        circuits.NoiseRule(after={"DEPOLARIZE1": (0.1, 0)})
+    with pytest.raises(ValueError, match="probability argument"):
+        circuits.NoiseRule(after={"PAULI_CHANNEL_1": (0.1,)})
+
+    # An empty PauliChannel with an explicitly-declared arity is honored — a mismatch against the
+    # rule's expected arity is flagged rather than silently dropped.
+    with pytest.raises(ValueError, match="arity 3; expected 2"):
+        circuits.NoiseModel(clifford_nq_error={2: circuits.PauliChannel({}, num_qubits=3)})
+
+    # noisy_operation refuses a multi-target 1q measurement with mixed immunity — callers must
+    # split such measurements per-qubit first.  Defends against a leaked broadcast M(p) that would
+    # flip immune qubits' classical readouts.
+    m_rule = circuits.NoiseRule(readout_error=0.1)
+    m_op = stim.Circuit("M 0 1 2")[0]
+    assert isinstance(m_op, stim.CircuitInstruction)
+    with pytest.raises(ValueError, match="mixed immunity"):
+        m_rule.noisy_operation(m_op, immune_qubits={1})
+
 
 def test_after_stim_circuit_form() -> None:
-    """`after=stim.Circuit(...)`: CE chains touching immune qubits are rejected loudly; sparse-
-    support high-arity PauliChannels emit natively per chunk."""
+    """`after=stim.Circuit(...)`: CE chains touching immune qubits drop under immunize_gates=True
+    but raise on partial immunity under immunize_gates=False; sparse-support high-arity
+    PauliChannels emit natively per chunk."""
 
     circuit = stim.Circuit("SPP X0*Y1*Z2")
 
-    # A raw CE chain touching an immune qubit is rejected — chain-conditional semantics cannot
-    # survive per-link projection, and silently dropping the chain would mis-sample.
+    # A raw CE chain touching an immune qubit is dropped under immunize_gates=True (default).
     ce_rule = circuits.NoiseRule(after=stim.Circuit("CORRELATED_ERROR(0.02) X0 Y1 Z2"))
+    assert _circuits_are_equivalent(
+        circuit,
+        circuits.NoiseModel(rules={"SPP": ce_rule}).noisy_circuit(circuit, immune_qubits=[1]),
+    )
+
+    # Under immunize_gates=False, a CE chain that addresses both immune and non-immune qubits
+    # cannot be per-link projected — raise.
     with pytest.raises(ValueError, match="CORRELATED_ERROR"):
-        circuits.NoiseModel(rules={"SPP": ce_rule}).noisy_circuit(circuit, immune_qubits=[1])
+        circuits.NoiseModel(rules={"SPP": ce_rule}).noisy_circuit(
+            circuit, immune_qubits=[1], immunize_gates=False
+        )
+
+    # HERALDED_ERASE follows the same policy: silent drop under immunize_gates=True (default),
+    # raise on partial immunity under immunize_gates=False.  Dropping targets would shift
+    # measurement-record indices used by downstream detectors.
+    heralded_rule = circuits.NoiseRule(after=stim.Circuit("HERALDED_ERASE(0.05) 0 1"))
+    cx_circuit = stim.Circuit("CX 0 1")
+    assert _circuits_are_equivalent(
+        cx_circuit,
+        circuits.NoiseModel(rules={"CX": heralded_rule}).noisy_circuit(
+            cx_circuit, immune_qubits=[1]
+        ),
+    )
+    with pytest.raises(ValueError, match="measurement-record"):
+        circuits.NoiseModel(rules={"CX": heralded_rule}).noisy_circuit(
+            cx_circuit, immune_qubits=[1], immunize_gates=False
+        )
+
+    # II_ERROR is identity noise; conditioning yields an empty channel and emits nothing.
+    ii_rule = circuits.NoiseRule(after=stim.Circuit("II_ERROR(0.01) 0 1"))
+    assert _circuits_are_equivalent(
+        cx_circuit,
+        circuits.NoiseModel(rules={"CX": ii_rule}).noisy_circuit(
+            cx_circuit, immune_qubits=[1], immunize_gates=False
+        ),
+    )
+
+    # A Mapping `after` whose entries all have zero probabilities normalizes to a trivial rule.
+    zero_rule = circuits.NoiseRule(after={"DEPOLARIZE1": 0.0, "PAULI_CHANNEL_1": (0.0, 0.0, 0.0)})
+    assert not bool(zero_rule)
+
+    # A mixed 1q+2q stim.Circuit fragment must emit per-k-qubit-block, NOT native-broadcast
+    # wholesale across every qubit_target (the Mapping form rejects this shape; the stim.Circuit
+    # escape hatch is expected to preserve per-block semantics).
+    mixed_rule = circuits.NoiseRule(after=stim.Circuit("X_ERROR(0.01) 0\nDEPOLARIZE2(0.02) 0 1"))
+    assert _circuits_are_equivalent(
+        stim.Circuit(
+            "CX 0 1 2 3\nX_ERROR(0.01) 0\nDEPOLARIZE2(0.02) 0 1\nX_ERROR(0.01) 2\nDEPOLARIZE2(0.02) 2 3"
+        ),
+        circuits.NoiseModel(rules={"CX": mixed_rule}).noisy_circuit(stim.Circuit("CX 0 1 2 3")),
+    )
 
     # A 3q PauliChannel whose strings are non-I on a single position emits natively as
     # PAULI_CHANNEL_1 (via `_append_pauli_channel`'s 1-active-position branch).
