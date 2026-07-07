@@ -446,6 +446,8 @@ def test_pauli_channel_class() -> None:
         circuits.PauliChannel.depolarizing(2, 1.5)
     with pytest.raises(ValueError, match="disagrees with Pauli string length"):
         circuits.PauliChannel({"XY": 0.1}, num_qubits=3)
+    with pytest.raises(ValueError, match="must be >= 0"):
+        circuits.PauliChannel({}, num_qubits=-1)
 
     # An empty channel with a nontrivial arity is a distinct object and reproduces via repr.
     empty_3q = circuits.PauliChannel({}, num_qubits=3)
