@@ -283,11 +283,11 @@ def test_decomposing_errors() -> None:
 
 
 def test_error_targets_dem_targets() -> None:
-    """ErrorTargets.dem_targets returns sorted DemTarget lists for detectors and observables."""
-    targets = decoders.ErrorTargets([2, 0, 1], [3, 1, 2, 2])
+    """FlipPattern.dem_targets returns sorted DemTarget lists for detectors and observables."""
+    targets = decoders.FlipPattern([2, 0, 1], [3, 1, 2, 2])
     det_targets, obs_targets = targets.dem_targets()
     assert det_targets == [stim.DemTarget.relative_detector_id(dd) for dd in (0, 1, 2)]
     assert obs_targets == [stim.DemTarget.logical_observable_id(oo) for oo in (1, 3)]
 
-    empty_det, empty_obs = decoders.ErrorTargets([], []).dem_targets()
+    empty_det, empty_obs = decoders.FlipPattern().dem_targets()
     assert empty_det == [] and empty_obs == []

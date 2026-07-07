@@ -32,26 +32,26 @@ HashableType = TypeVar("HashableType", bound=Hashable)
 
 
 @dataclasses.dataclass(frozen=True, init=False)
-class ErrorTargets:
+class FlipPattern:
     """A set of flipped detectors and observables."""
 
     detectors: frozenset[int]
     observables: frozenset[int]
 
-    def __init__(self, detectors: Iterable[int], observables: Iterable[int]) -> None:
+    def __init__(self, detectors: Iterable[int] = (), observables: Iterable[int] = ()) -> None:
         object.__setattr__(self, "detectors", _xor_reduce(detectors))
         object.__setattr__(self, "observables", _xor_reduce(observables))
 
     @classmethod
-    def from_data(cls, detectors: Set[int], observables: Set[int]) -> ErrorTargets:
+    def from_data(cls, detectors: Set[int], observables: Set[int]) -> FlipPattern:
         """Construct from sets, skipping the mod-2 pass at normal initialization."""
         instance = object.__new__(cls)
         object.__setattr__(instance, "detectors", frozenset(detectors))
         object.__setattr__(instance, "observables", frozenset(observables))
         return instance
 
-    def __xor__(self, other: ErrorTargets) -> ErrorTargets:
-        return ErrorTargets.from_data(
+    def __xor__(self, other: FlipPattern) -> FlipPattern:
+        return FlipPattern.from_data(
             self.detectors ^ other.detectors, self.observables ^ other.observables
         )
 
@@ -65,7 +65,7 @@ class ErrorTargets:
         return det_targets, obs_targets
 
 
-CircuitError = tuple[float, frozenset[ErrorTargets]]
+CircuitError = tuple[float, frozenset[FlipPattern]]
 
 
 class DetectorErrorModelArrays:
@@ -88,7 +88,7 @@ class DetectorErrorModelArrays:
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
     observable_flip_matrix: scipy.sparse.csc_matrix  # maps errors to observable flips
     error_probs: npt.NDArray[np.floating]  # probability of occurrence for each error
-    suggested_decompositions: dict[int, frozenset[ErrorTargets]]
+    suggested_decompositions: dict[int, frozenset[FlipPattern]]
 
     def __init__(
         self,
@@ -134,7 +134,7 @@ class DetectorErrorModelArrays:
         detector_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_],
         observable_flip_matrix: scipy.sparse.csc_matrix | npt.NDArray[np.int_] | None,
         error_probs: npt.NDArray[np.floating] | float,
-        suggested_decompositions: dict[int, frozenset[ErrorTargets]] | None = None,
+        suggested_decompositions: dict[int, frozenset[FlipPattern]] | None = None,
         *,
         simplify: bool = False,
     ) -> DetectorErrorModelArrays:
@@ -146,7 +146,7 @@ class DetectorErrorModelArrays:
                 zero observables.
             error_probs: per-error probabilities, or a single float broadcast to all errors.
             suggested_decompositions (optional): dictionary that maps an error (by index) into
-                a frozenset of ErrorTargets, one per suggested decomposition component.
+                a frozenset of FlipPattern, one per suggested decomposition component.
         """
         dem_arrays = object.__new__(DetectorErrorModelArrays)
         dem_arrays.detector_flip_matrix = _canonicalize_mod2(
@@ -221,9 +221,9 @@ class DetectorErrorModelArrays:
                 else:
                     target_components[-1].append(target)
 
-            components: list[ErrorTargets] = []
+            components: list[FlipPattern] = []
             for targets in target_components:
-                error_targets = ErrorTargets(
+                error_targets = FlipPattern(
                     (target.val for target in targets if target.is_relative_detector_id()),
                     (target.val for target in targets if target.is_logical_observable_id()),
                 )
@@ -240,7 +240,7 @@ class DetectorErrorModelArrays:
     @staticmethod
     def get_merged_circuit_errors(errors: list[CircuitError]) -> list[CircuitError]:
         """Merge circuit errors that have the same targets."""
-        merged: dict[frozenset[ErrorTargets], float] = {}
+        merged: dict[frozenset[FlipPattern], float] = {}
         for prob, targets in errors:
             previous_prob = merged.get(targets, 0.0)
             merged[targets] = previous_prob + prob - 2 * previous_prob * prob
@@ -264,7 +264,7 @@ class DetectorErrorModelArrays:
 
         # iterate over and account for all circuit errors
         for error_index, (probability, components) in enumerate(errors):
-            combined = ErrorTargets.from_data(frozenset(), frozenset())
+            combined = FlipPattern.from_data(frozenset(), frozenset())
             for targets in components:
                 combined ^= targets
             detector_flip_matrix[list(combined.detectors), error_index] = 1
@@ -384,7 +384,7 @@ class DetectorErrorModelArrays:
                             for dd in targets.detectors
                             if detectors_to_keep[dd]
                         )
-                        new_components.add(ErrorTargets.from_data(new_dets, targets.observables))
+                        new_components.add(FlipPattern.from_data(new_dets, targets.observables))
                     suggested_decompositions[new_err_idx] = frozenset(new_components)
 
         # build the post-selected arrays
