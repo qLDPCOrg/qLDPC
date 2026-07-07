@@ -497,8 +497,7 @@ class NoiseRule:
         return bool(self.after) or bool(self.readout_error) or bool(self.reset_error)
 
     def noisy_operation(
-        self,
-        op: stim.CircuitInstruction,
+        self, op: stim.CircuitInstruction
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 
