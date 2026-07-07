@@ -443,8 +443,7 @@ class NoiseRule:
             # Mapping form is syntactic sugar: normalize into either a PauliChannel (native
             # broadcast) or a stim.Circuit (raw fragment) so the downstream code paths deal only
             # with those two forms.  Full validation happens before we drop all-zero entries so a
-            # malformed spelling (e.g. wrong arg count) is rejected loudly even when the
-            # probabilities themselves are zero.
+            # malformed spelling is rejected loudly even when the probabilities themselves are zero.
             normalized_mapping: dict[str, tuple[float, ...]] = {}
             for op, prob_or_probs in after.items():
                 if isinstance(prob_or_probs, Iterable) and not isinstance(
