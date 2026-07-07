@@ -522,8 +522,6 @@ class NoiseRule:
             else:
                 self.after = _mapping_after_to_channel_or_circuit(filtered_mapping)
 
-        # Invariant: a measurement / reset rule (nonzero readout_error / reset_error) cannot
-        # carry an ``after``.  Users needing both should build them as separate rules.
         if (readout_error or reset_error) and self.after is not None:
             raise ValueError(
                 "NoiseRule cannot combine `after`-noise with readout_error / reset_error.  If you"
