@@ -423,13 +423,6 @@ class NoiseRule:
                 error is not in [0, 1], if a broadcast ``after`` mixes 1q and 2q entries, or if
                 the ``stim.Circuit`` form contains a non-noise instruction.
         """
-        if (readout_error or reset_error) and self.after:
-            raise ValueError(
-                "NoiseRule cannot combine `after`-noise with readout_error / reset_error.  If you"
-                " need this capability, please open an issue at"
-                " https://github.com/qLDPCOrg/qLDPC/issues"
-            )
-
         self.readout_error = readout_error
         if not (0 <= readout_error <= 1):
             raise ValueError(f"{readout_error=} is not between 0 and 1")
@@ -438,9 +431,9 @@ class NoiseRule:
         if not (0 <= reset_error <= 1):
             raise ValueError(f"{reset_error=} is not between 0 and 1")
 
-        self.after: PauliChannel | stim.Circuit
+        self.after: PauliChannel | stim.Circuit | None
         if after is None:
-            self.after = PauliChannel({})
+            self.after = None
         elif isinstance(after, PauliChannel):
             self.after = after
         elif isinstance(after, stim.Circuit):
@@ -485,9 +478,18 @@ class NoiseRule:
                 )
             filtered_mapping = {op: probs for op, probs in normalized_mapping.items() if any(probs)}
             if not filtered_mapping:
-                self.after = PauliChannel({})
+                self.after = None
             else:
                 self.after = _mapping_after_to_channel_or_circuit(filtered_mapping)
+
+        # Invariant: a measurement / reset rule (nonzero readout_error / reset_error) cannot
+        # carry an ``after``.  Users needing both should build them as separate rules.
+        if (readout_error or reset_error) and self.after is not None:
+            raise ValueError(
+                "NoiseRule cannot combine `after`-noise with readout_error / reset_error.  If you"
+                " need this capability, please open an issue at"
+                " https://github.com/qLDPCOrg/qLDPC/issues"
+            )
 
     def __bool__(self) -> bool:
         """Is this noise rule nontrivial?"""
@@ -693,7 +695,7 @@ class NoiseModel:
         ):
             if idle_rule is None:
                 continue
-            if idle_rule.after.num_qubits and idle_rule.after.num_qubits != 1:
+            if idle_rule.after is not None and idle_rule.after.num_qubits != 1:
                 raise ValueError(
                     f"`{field_name}` does not support a multi-qubit `after` rule "
                     f"(arity={idle_rule.after.num_qubits})."
@@ -1253,14 +1255,13 @@ def _validate_rule_for_arity(
 ) -> None:
     """Reject a NoiseRule whose channels are ambiguous / incompatible on ``num_qubits`` qubits.
 
-    - The rule's ``after`` arity must equal ``num_qubits`` unless the ``after`` is the trivial
-      empty default (``PauliChannel({})`` with ``num_qubits == 0``, or an empty ``stim.Circuit``).
-      An explicitly-declared arity — even on an empty PauliChannel like
+    - The rule's ``after`` arity must equal ``num_qubits`` unless ``after`` is ``None`` (the
+      trivial default).  An explicitly-declared arity — even on an empty PauliChannel like
       ``PauliChannel({}, num_qubits=3)`` — is honored so callers can flag user typos.
     - ``readout_error`` is only meaningful if ``can_measure`` is True.
     - ``reset_error`` is only meaningful if ``can_reset`` is True.
     """
-    if rule.after.num_qubits and rule.after.num_qubits != num_qubits:
+    if rule.after is not None and rule.after.num_qubits != num_qubits:
         raise ValueError(
             f"{context}: `after` has arity {rule.after.num_qubits}; expected {num_qubits}"
         )
