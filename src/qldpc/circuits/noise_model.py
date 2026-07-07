@@ -391,32 +391,28 @@ class NoiseRule:
                 instruction addresses every qubit at most once (which is what
                 ``_split_moments_with_ticks`` enforces during preprocessing).  Three forms are
                 accepted:
-                - ``PauliChannel``: a joint Pauli channel of some arity ``k``.  The
-                  instruction's target count must be a multiple of ``k`` (so it can be viewed as
-                  packaging one or more ``k``-qubit gates).  Emitted natively via
-                  ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` when ``k ≤ 2`` (stim broadcasts), or
-                  as a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain per ``k``-qubit
-                  block for ``k ≥ 3``.
+                - ``PauliChannel``: a joint Pauli channel of some arity ``k``.  Emitted natively via
+                    ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` when ``k ≤ 2`` (stim broadcasts), or
+                    as a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain per ``k``-qubit
+                    block for ``k ≥ 3``.
                 - ``Mapping[str, float | Iterable[float]]``: syntactic sugar.  A single-entry
-                  mapping over a pure-Pauli broadcast noise (``X_ERROR``, ``Y_ERROR``,
-                  ``Z_ERROR``, ``DEPOLARIZE1``, ``PAULI_CHANNEL_1``, ``DEPOLARIZE2``,
-                  ``PAULI_CHANNEL_2``) is converted to the equivalent ``PauliChannel``;
-                  everything else (heralded noise, identity, multi-entry mappings) is converted
-                  to a ``stim.Circuit`` fragment.  ``CORRELATED_ERROR`` and
-                  ``ELSE_CORRELATED_ERROR`` are not accepted here — pass a ``PauliChannel`` or a
-                  ``stim.Circuit`` instead.
-                - ``stim.Circuit``: an escape hatch — a raw fragment of noise instructions
-                  emitted verbatim after each ``k``-qubit block, with qubit indices remapped
-                  from ``[0, k)`` in the fragment to the corresponding block's targets.  The
-                  fragment's arity is inferred from ``circuit.num_qubits``.  Every instruction
-                  must be a noise instruction (``op_type(name) == NOISE``); repeat blocks are
-                  rejected.  Prefer ``PauliChannel`` or the ``Mapping`` sugar when they suffice
-                  — the ``stim.Circuit`` form skips native broadcasting and requires the user to
-                  spell out targets explicitly.  Caveat: measurement-producing noise
-                  (``HERALDED_ERASE``, ``HERALDED_PAULI_CHANNEL_1``) emitted via this form will
-                  change the number of measurement records the surrounding circuit produces, and
-                  can shift indices used by ``DETECTOR`` / ``rec[-k]`` — the caller is responsible
-                  for making sure those indices remain consistent.
+                    mapping over a pure-Pauli broadcast noise (e.g., ``X_ERROR``, ``DEPOLARIZE2``)
+                    is converted to the equivalent ``PauliChannel``; everything else (such as
+                    heralded noise) is converted to a ``stim.Circuit`` fragment.
+                    ``CORRELATED_ERROR`` and ``ELSE_CORRELATED_ERROR`` are not accepted here — pass
+                    a ``PauliChannel`` or a ``stim.Circuit`` instead.
+                - ``stim.Circuit``: an escape hatch — a raw fragment of noise instructions emitted
+                    verbatim after each ``k``-qubit block, with qubit indices remapped
+                    from ``[0, k)`` in the fragment to the corresponding block's targets.  The
+                    fragment's arity is inferred from ``circuit.num_qubits``.  Every instruction
+                    must be a noise instruction (``op_type(name) == NOISE``); repeat blocks are
+                    rejected.  Prefer ``PauliChannel`` or the ``Mapping`` sugar when they suffice
+                    — the ``stim.Circuit`` form skips native broadcasting and requires the user to
+                    spell out targets explicitly.  Caveat: measurement-producing noise
+                    (``HERALDED_ERASE``, ``HERALDED_PAULI_CHANNEL_1``) emitted via this form will
+                    change the number of measurement records the surrounding circuit produces, and
+                    can shift indices used by ``DETECTOR`` / ``rec[-k]`` — the caller is responsible
+                    for making sure those indices remain consistent.
             readout_error: The probability that a measurement result is reported incorrectly.  Only
                 allowed for operations that produce measurement results.
             reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
