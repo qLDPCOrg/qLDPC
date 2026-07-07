@@ -991,9 +991,7 @@ class NoiseModel:
                 continue
             # A user-provided `noise_rule_func` takes top priority per gate application; when it
             # declines (returns None) we fall back to the model's ordinary rules.
-            rule = self._custom_noise_rule(op)
-            if rule is None:
-                rule = self.get_noise_rule(op)
+            rule = self._custom_noise_rule(op) or self.get_noise_rule(op)
             if rule is None:
                 circuit.append(op)
                 continue
