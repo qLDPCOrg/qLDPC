@@ -273,14 +273,21 @@ def test_immune_qubits() -> None:
         ),
     )
 
-    # readout_error is dropped only when *every* measured qubit is immune: `M 1` on immune qubit 1
-    # loses its error; `MPP X0*Y1` still has a non-immune target so keeps the error.
+    # Under immunize_gates=True, any measurement touching an immune qubit is dropped entirely —
+    # readout_error included.  `M 0` keeps its readout error; `M 1` (fully immune) drops it;
+    # `MPP X0*Y1` (partial immunity) also drops it, matching the dead-simple policy.
     assert _circuits_are_equivalent(
-        stim.Circuit("M(0.1) 0\nTICK\nM 1\nTICK\nMPP(0.1) X0*Y1"),
+        stim.Circuit("M(0.1) 0\nTICK\nM 1\nTICK\nMPP X0*Y1"),
         circuits.NoiseModel(readout_error=0.1).noisy_circuit(
             stim.Circuit("M 0\nTICK\nM 1\nTICK\nMPP X0*Y1"), immune_qubits=[1]
         ),
     )
+    # Under immunize_gates=False, the same MPP with partial immunity has no clean projection
+    # (readout_error can't be conditioned), so we raise.
+    with pytest.raises(ValueError, match="partial immunity"):
+        circuits.NoiseModel(readout_error=0.1).noisy_circuit(
+            stim.Circuit("MPP X0*Y1"), immune_qubits=[1], immunize_gates=False
+        )
 
 
 def test_classical_controls() -> None:

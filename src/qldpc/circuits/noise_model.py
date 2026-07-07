@@ -423,6 +423,13 @@ class NoiseRule:
                 error is not in [0, 1], if a broadcast ``after`` mixes 1q and 2q entries, or if
                 the ``stim.Circuit`` form contains a non-noise instruction.
         """
+        if (readout_error or reset_error) and self.after:
+            raise ValueError(
+                "NoiseRule cannot combine `after`-noise with readout_error / reset_error.  If you"
+                " need this capability, please open an issue at"
+                " https://github.com/qLDPCOrg/qLDPC/issues"
+            )
+
         self.readout_error = readout_error
         if not (0 <= readout_error <= 1):
             raise ValueError(f"{readout_error=} is not between 0 and 1")
@@ -481,16 +488,6 @@ class NoiseRule:
                 self.after = PauliChannel({})
             else:
                 self.after = _mapping_after_to_channel_or_circuit(filtered_mapping)
-
-        # A measurement/reset rule combines `readout_error`/`reset_error` with the underlying gate.
-        # Adding after-noise on top has no clean interpretation under the current pipeline (reset
-        # ops split per-target, measurement outcomes are inspected directly) and would fight the
-        # immunity policy in NoiseModel.  Users needing both should build them as separate rules.
-        if (readout_error or reset_error) and self.after:
-            raise ValueError(
-                "NoiseRule cannot combine `after`-noise with readout_error / reset_error; "
-                "specify them as separate rules or via NoiseModel-level defaults."
-            )
 
     def __bool__(self) -> bool:
         """Is this noise rule nontrivial?"""
@@ -1201,19 +1198,16 @@ def _rule_with_immunity(
 
     - **None immune**: apply ``rule`` unchanged.
     - **All immune**: skip noise entirely (return ``None``); the op still appears in the output
-      circuit, just without a noise rule.
+      circuit, but no ``after``, ``readout_error``, or ``reset_error`` is applied.
     - **Mixed** (only possible for atomic k>=2 ops the splitter cannot decompose further —
-      2-qubit Clifford pairs, MPP Pauli products, high-arity ``SPP``):
-        - If ``rule.after`` is a ``PauliChannel``: replace it with
-          ``rule.after.conditioned_on(immune_positions)`` — the same-arity sub-channel that acts
-          as identity on the immune positions.  Applies for both ``immunize_gates`` values;
-          ``immunize_gates=True`` collapses to a trivial (empty) sub-channel via ``conditioned_on``
-          when the whole gate ought to be dropped.
-        - If ``rule.after`` is a ``stim.Circuit`` fragment: raise ``ValueError`` under
-          ``immunize_gates=False``; drop the fragment under ``immunize_gates=True``.
-        - ``readout_error`` is preserved (the joint classical outcome depends on non-immune
-          qubits, so a per-instruction bit-flip probability still applies).  ``reset_error`` is
-          not reachable here because reset ops always split per-target upstream.
+      2-qubit Clifford pairs, ``MXX``/``MYY``/``MZZ``, and MPP/SPP Pauli products):
+        - ``immunize_gates=True`` (default): dead simple — drop everything (``after``,
+          ``readout_error``, ``reset_error``).  The gate touches an immune qubit, so no noise
+          is applied.
+        - ``immunize_gates=False``: only ``PauliChannel`` ``after``-noise supports proper
+          conditioning via ``PauliChannel.conditioned_on``.  Anything else (a ``stim.Circuit``
+          ``after``, ``readout_error``, or ``reset_error``) has no defined projection on the
+          identity-on-immune subspace and raises.
     """
     if not immune_qubits:
         return rule
@@ -1223,30 +1217,19 @@ def _rule_with_immunity(
         return rule
     if all(immune_flags):
         return None
-    # Mixed immunity.  Split the concerns:
-    #  - After-noise: dropped under immunize_gates=True; under immunize_gates=False, conditioned
-    #    for PauliChannel via ``conditioned_on``, or raise for stim.Circuit (partial immunity on
-    #    an opaque fragment has no defined "condition on identity" projection).
-    #  - readout_error: preserved (the joint outcome depends on non-immune qubits).
-    #  - reset_error: not reachable here (reset ops split per-target upstream).
-    new_after: PauliChannel | stim.Circuit | None
-    if not rule.after or immunize_gates:
-        new_after = None
-    elif isinstance(rule.after, PauliChannel):
+    # Partial immunity: the atom touches both immune and non-immune qubits.
+    if immunize_gates:
+        return None  # dead simple: no noise on gates that touch immune qubits.
+    # immunize_gates=False: only PauliChannel `after` supports proper conditioning.
+    if isinstance(rule.after, PauliChannel) and rule.after:
         immune_positions = [i for i, immune in enumerate(immune_flags) if immune]
-        new_after = rule.after.conditioned_on(immune_positions)
-    else:
-        raise ValueError(
-            f"Cannot apply a stim.Circuit `after` fragment to {op.name!r} with partial immunity "
-            f"(immune qubits: {sorted(q for q in qubits if q in immune_qubits)}); use a "
-            "PauliChannel `after` to enable conditioning, or set immunize_gates=True.  If this "
-            "edge case matters for your use case, please open an issue at "
-            "https://github.com/qLDPCOrg/qLDPC/issues."
-        )
-    return NoiseRule(
-        after=new_after,
-        readout_error=rule.readout_error,
-        reset_error=rule.reset_error,
+        return NoiseRule(after=rule.after.conditioned_on(immune_positions))
+    raise ValueError(
+        f"Cannot apply a rule to {op.name!r} with partial immunity (immune qubits: "
+        f"{sorted(q for q in qubits if q in immune_qubits)}) under immunize_gates=False.  Only "
+        "PauliChannel `after`-noise supports conditioning; set immunize_gates=True to drop noise "
+        "on gates that touch immune qubits.  If this edge case matters for your use case, please "
+        "open an issue at https://github.com/qLDPCOrg/qLDPC/issues."
     )
 
 
