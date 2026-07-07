@@ -81,7 +81,6 @@ import collections
 import itertools
 import math
 import types
-import warnings
 from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, TypeVar
 
@@ -290,6 +289,8 @@ class PauliChannel:
                 string, any probability is not in [0, 1], the sum of probabilities is not in
                 [0, 1], or ``num_qubits`` disagrees with the length of the Pauli strings.
         """
+        if num_qubits is not None and num_qubits < 0:
+            raise ValueError(f"num_qubits={num_qubits} must be >= 0")
         if not probabilities:
             self._num_qubits = num_qubits if num_qubits is not None else 0
             self._probabilities: Mapping[str, float] = types.MappingProxyType({})
@@ -466,7 +467,11 @@ class NoiseRule:
                   must be a noise instruction (``OP_TYPES[name] == NOISE``); repeat blocks are
                   rejected.  Prefer ``PauliChannel`` or the ``Mapping`` sugar when they suffice
                   — the ``stim.Circuit`` form skips native broadcasting and requires the user to
-                  spell out targets explicitly.
+                  spell out targets explicitly.  Caveat: measurement-producing noise
+                  (``HERALDED_ERASE``, ``HERALDED_PAULI_CHANNEL_1``, ``MPAD``) emitted via this
+                  form will change the number of measurement records the surrounding circuit
+                  produces, and can shift indices used by ``DETECTOR`` / ``rec[-k]`` — the caller
+                  is responsible for making sure those indices remain consistent.
             readout_error: The probability that a measurement result is reported incorrectly.  Only
                 allowed for operations that produce measurement results.
             reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
@@ -486,8 +491,8 @@ class NoiseRule:
             raise ValueError(f"{reset_error=} is not between 0 and 1")
 
         self.after: PauliChannel | stim.Circuit
-        if not after:
-            self.after = stim.Circuit()
+        if after is None:
+            self.after = PauliChannel({})
         elif isinstance(after, PauliChannel):
             self.after = after
         elif isinstance(after, stim.Circuit):
@@ -496,7 +501,9 @@ class NoiseRule:
         else:
             # Mapping form is syntactic sugar: normalize into either a PauliChannel (native
             # broadcast) or a stim.Circuit (raw fragment) so the downstream code paths deal only
-            # with those two forms.
+            # with those two forms.  Entries whose probabilities are all zero are dropped so a
+            # user-facing "no noise" spelling (e.g. ``{"DEPOLARIZE1": 0.0}``) is treated the same
+            # as ``after=None``.
             normalized_mapping = {
                 op: (
                     tuple(prob_or_probs)
@@ -505,6 +512,8 @@ class NoiseRule:
                 )
                 for op, prob_or_probs in after.items()
             }
+            has_1q = False
+            has_2q = False
             for op, probs in normalized_mapping.items():
                 if OP_TYPES.get(op) != NOISE:
                     raise ValueError(f"Invalid or unrecognized noise channel {op!r} in {after=}")
@@ -517,7 +526,21 @@ class NoiseRule:
                     raise ValueError(
                         f"The net probability of an error is not between 0 and 1 in {after=}"
                     )
-            self.after = _mapping_after_to_channel_or_circuit(normalized_mapping)
+                if op in BROADCAST_1Q_NOISE:
+                    has_1q = True
+                if op in BROADCAST_2Q_NOISE:
+                    has_2q = True
+            if has_1q and has_2q:
+                raise ValueError(
+                    f"broadcast `after` mixes 1-qubit and 2-qubit noise entries in {after=}; "
+                    "combine them into a single 2-qubit PauliChannel, or pass an explicit "
+                    "stim.Circuit fragment"
+                )
+            filtered_mapping = {op: probs for op, probs in normalized_mapping.items() if any(probs)}
+            if not filtered_mapping:
+                self.after = PauliChannel({})
+            else:
+                self.after = _mapping_after_to_channel_or_circuit(filtered_mapping)
 
     def __bool__(self) -> bool:
         """Is this noise rule nontrivial?"""
@@ -543,7 +566,8 @@ class NoiseRule:
             stim.CircuitInstruction: The given operation possibly modified to account for noise.
             stim.Circuit: Noise operations that should follow the given operation.
         """
-        immune_qubits = frozenset(immune_qubits)
+        if not isinstance(immune_qubits, frozenset):
+            immune_qubits = frozenset(immune_qubits)
         targets = op.targets_copy()
         args = op.gate_args_copy()
         qubit_targets = [target.value for target in targets if not target.is_combiner]
@@ -615,7 +639,8 @@ class NoiseRule:
                 (i.e. the operation cannot be split into an integer number of individual gates
                 matching the rule).
         """
-        immune_qubits = frozenset(immune_qubits)
+        if not isinstance(immune_qubits, frozenset):
+            immune_qubits = frozenset(immune_qubits)
         n_targets = len(qubit_targets)
         if not self.after:
             return
@@ -1129,6 +1154,8 @@ def _append_pauli_channel(
     circuit: stim.Circuit,
     channel: PauliChannel,
     qubit_targets: list[int],
+    *,
+    tag: str = "",
 ) -> None:
     """Append noise instructions to ``circuit`` that implement ``channel`` on ``qubit_targets``.
 
@@ -1153,7 +1180,10 @@ def _append_pauli_channel(
         for string, prob in channel.probabilities.items():
             probs_1q[string[active_positions[0]]] = prob
         circuit.append(
-            "PAULI_CHANNEL_1", active_qubits, [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
+            "PAULI_CHANNEL_1",
+            active_qubits,
+            [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER],
+            tag=tag,
         )
         return
 
@@ -1163,7 +1193,10 @@ def _append_pauli_channel(
         for string, prob in channel.probabilities.items():
             probs_2q[string[pos0] + string[pos1]] = prob
         circuit.append(
-            "PAULI_CHANNEL_2", active_qubits, [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
+            "PAULI_CHANNEL_2",
+            active_qubits,
+            [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER],
+            tag=tag,
         )
         return
 
@@ -1172,7 +1205,7 @@ def _append_pauli_channel(
     for string, prob in channel.probabilities.items():
         pauli_targets = _pauli_string_to_targets(string, qubit_targets)
         if first:
-            circuit.append("CORRELATED_ERROR", pauli_targets, [prob])
+            circuit.append("CORRELATED_ERROR", pauli_targets, [prob], tag=tag)
             first = False
         else:
             # `remaining` is `1 - sum_of_prior` in exact arithmetic and is guaranteed >= prob
@@ -1180,9 +1213,9 @@ def _append_pauli_channel(
             # a hair smaller than prob (or zero), emit an ELSE_CORRELATED_ERROR(1) that absorbs
             # the rest of the probability mass and stop — any subsequent ELSE_CE would never fire.
             if remaining <= prob:
-                circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [1.0])
+                circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [1.0], tag=tag)
                 break
-            circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [prob / remaining])
+            circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [prob / remaining], tag=tag)
         remaining -= prob
 
 
@@ -1256,15 +1289,6 @@ def _fragment_broadcasts_naturally(fragment: stim.Circuit) -> bool:
     return all(op.name in BROADCAST_1Q_NOISE or op.name in BROADCAST_2Q_NOISE for op in fragment)
 
 
-# PAULI_CHANNEL_2 arg order:
-# IX(0), IY(1), IZ(2), XI(3), XX(4), XY(5), XZ(6),
-# YI(7), YX(8), YY(9), YZ(10), ZI(11), ZX(12), ZY(13), ZZ(14)
-# Marginal indices when the second qubit is immune (surviving: first qubit; non-cross: XI, YI, ZI):
-_PC2_SECOND_IMMUNE_INDICES = (3, 7, 11)
-# Marginal indices when the first qubit is immune (surviving: second qubit; non-cross: IX, IY, IZ):
-_PC2_FIRST_IMMUNE_INDICES = (0, 1, 2)
-
-
 def _immunize_noise(
     noise: stim.Circuit,
     immune_qubits: frozenset[int],
@@ -1282,13 +1306,14 @@ def _immunize_noise(
       the immune qubit acting as identity and emitted as the resulting 1-qubit sub-channel on the
       surviving qubit (see ``_immunize_2q_noise``).
 
-    ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR``: chain semantics preclude post-hoc
-    conditioning, so any such instruction that touches an immune qubit is dropped whole
-    regardless of ``immunize_gates``.  When CE arises from ``NoiseRule.after`` (a
-    ``PauliChannel``), it has already been conditioned upstream and never mentions immune qubits
-    here.  When it arises from ``NoiseRule.after_circuit``, it may.  Dropping a subset of a chain
-    breaks its conditional-probability semantics, so users mixing raw CE chains with immune
-    qubits should structure their fragments accordingly.
+    Unsafe combinations are rejected loudly rather than corrupted silently:
+    - ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chains touching an immune qubit break their
+      conditional-probability semantics under any per-link projection.  (These arise only from a
+      user-supplied ``stim.Circuit`` ``after`` — CE chains from a ``PauliChannel`` are conditioned
+      upstream and never mention immune qubits here.)
+    - Measurement-producing noise (``HERALDED_ERASE``, ``HERALDED_PAULI_CHANNEL_1``, ``MPAD``)
+      touching an immune qubit would change the number of classical records the moment produces,
+      shifting every downstream ``rec[-k]`` / ``DETECTOR`` reference.
 
     Args:
         noise: A flat noise circuit (no repeat blocks) to filter.
@@ -1299,25 +1324,44 @@ def _immunize_noise(
 
     Returns:
         stim.Circuit: A filtered copy of the input circuit.
+
+    Raises:
+        ValueError: If ``noise`` contains a CE chain or a measurement-producing noise instruction
+            that touches an immune qubit.
     """
     if not immune_qubits:
         return noise
     result = stim.Circuit()
     for noise_op in noise:
         assert isinstance(noise_op, stim.CircuitInstruction)
-        if all(t.value not in immune_qubits for t in noise_op.targets_copy() if not t.is_combiner):
+        touches_immune = any(
+            t.value in immune_qubits for t in noise_op.targets_copy() if not t.is_combiner
+        )
+        if not touches_immune:
             result.append(noise_op)
-        elif noise_op.name in CORRELATED_ERROR_NAMES:
-            pass  # drop whole instruction; chain semantics preclude post-hoc conditioning
-        elif stim.gate_data(noise_op.name).is_two_qubit_gate:
+            continue
+        if noise_op.name in CORRELATED_ERROR_NAMES:
+            raise ValueError(
+                f"Cannot immunize {noise_op.name} against immune qubits; a CORRELATED_ERROR "
+                "chain must apply as a whole.  Restructure the noise so no chain touches an "
+                "immune qubit."
+            )
+        if stim.gate_data(noise_op.name).produces_measurements:
+            raise ValueError(
+                f"Cannot immunize {noise_op.name} against immune qubits; dropping targets would "
+                "shift measurement-record indices used by downstream detectors."
+            )
+        if stim.gate_data(noise_op.name).is_two_qubit_gate:
             result += _immunize_2q_noise(noise_op, immune_qubits, immunize_gates=immunize_gates)
-        else:
-            # 1-qubit noise with multiple targets: keep only non-immune targets
-            surviving = [t for t in noise_op.targets_copy() if t.value not in immune_qubits]
-            if surviving:
-                result.append(
-                    stim.CircuitInstruction(noise_op.name, surviving, noise_op.gate_args_copy())
+            continue
+        # 1-qubit noise with multiple targets: keep only non-immune targets.
+        surviving = [t for t in noise_op.targets_copy() if t.value not in immune_qubits]
+        if surviving:
+            result.append(
+                stim.CircuitInstruction(
+                    noise_op.name, surviving, noise_op.gate_args_copy(), tag=noise_op.tag
                 )
+            )
     return result
 
 
@@ -1333,8 +1377,9 @@ def _immunize_2q_noise(
     Pairs where both qubits are immune are dropped.  For partially-immune pairs, if
     ``immunize_gates`` is True the pair is dropped; otherwise the surviving qubit receives the
     1-qubit sub-channel obtained by keeping only terms that act as ``I`` on the immune position
-    (probabilities unchanged).  Only DEPOLARIZE2 and PAULI_CHANNEL_2 support conditioning; other
-    2-qubit channels emit a warning and are dropped for partially-immune pairs.
+    (probabilities unchanged).  Only ``DEPOLARIZE2`` and ``PAULI_CHANNEL_2`` — the two 2-qubit
+    noise gates that are proper Pauli channels — support conditioning; anything else with a
+    partially-immune pair is rejected.
 
     Args:
         noise_op: A 2-qubit noise instruction.
@@ -1344,11 +1389,16 @@ def _immunize_2q_noise(
 
     Returns:
         stim.Circuit: The filtered/conditioned circuit for this instruction.
+
+    Raises:
+        ValueError: If a partially-immune pair is encountered on a 2-qubit noise instruction that
+            is not ``DEPOLARIZE2`` or ``PAULI_CHANNEL_2`` (and ``immunize_gates`` is False).
     """
     result = stim.Circuit()
     name = noise_op.name
     args = noise_op.gate_args_copy()
     targets = noise_op.targets_copy()
+    tag = noise_op.tag
 
     for i in range(0, len(targets), 2):
         q1, q2 = targets[i], targets[i + 1]
@@ -1356,30 +1406,28 @@ def _immunize_2q_noise(
         q2_immune = q2.value in immune_qubits
 
         if not q1_immune and not q2_immune:
-            result.append(stim.CircuitInstruction(name, [q1, q2], args))
-        elif q1_immune and q2_immune:
-            pass  # both immune: skip
-        elif immunize_gates:
-            pass  # partially immune, gate immunized: drop the pair
-        elif name == "DEPOLARIZE2":
-            p = args[0]
-            surviving = q2.value if q1_immune else q1.value
-            result.append(stim.CircuitInstruction("DEPOLARIZE1", [surviving], [p / 5]))
+            result.append(stim.CircuitInstruction(name, [q1, q2], args, tag=tag))
+            continue
+        if q1_immune and q2_immune:
+            continue  # both immune: skip
+        if immunize_gates:
+            continue  # partially immune, gate immunized: drop the pair
+
+        # Partially immune: condition the 2q Pauli channel on identity at the immune position.
+        if name == "DEPOLARIZE2":
+            per_pair = args[0] / 15
+            probs = {p_str: per_pair for p_str in _PAULI_CHANNEL_2_ORDER}
         elif name == "PAULI_CHANNEL_2":
-            if q2_immune:
-                sub_channel_probs = [args[idx] for idx in _PC2_SECOND_IMMUNE_INDICES]
-                surviving = q1.value
-            else:
-                sub_channel_probs = [args[idx] for idx in _PC2_FIRST_IMMUNE_INDICES]
-                surviving = q2.value
-            result.append(
-                stim.CircuitInstruction("PAULI_CHANNEL_1", [surviving], sub_channel_probs)
+            probs = dict(zip(_PAULI_CHANNEL_2_ORDER, args))
+        else:
+            raise ValueError(
+                f"Cannot condition {name} on an immune qubit; only DEPOLARIZE2 and "
+                "PAULI_CHANNEL_2 are supported as conditionable 2-qubit noise channels."
             )
-        else:  # pragma: no cover
-            warnings.warn(
-                f"Cannot immunize {name} over immune qubits; noise is dropped.",
-                stacklevel=2,
-            )
+        immune_position = 0 if q1_immune else 1
+        sub_channel = PauliChannel(probs).conditioned_on([immune_position])
+        if sub_channel:
+            _append_pauli_channel(result, sub_channel, [q1.value, q2.value], tag=tag)
 
     return result
 
