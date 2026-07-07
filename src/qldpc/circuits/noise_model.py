@@ -531,17 +531,12 @@ class NoiseRule:
             noise_after.append(error_op)
 
         self.emit_after(noise_after, qubit_targets, context=f"operation {op.name!r}")
-
         return noisy_op, noise_after
 
     def emit_after(
-        self,
-        circuit: stim.Circuit,
-        qubit_targets: list[int],
-        *,
-        context: str = "operation",
+        self, circuit: stim.Circuit, qubit_targets: list[int], *, context: str = "operation"
     ) -> None:
-        """Append this rule's ``after`` noise in-place, immunity-agnostic.
+        """Append this rule's ``after`` noise in-place to the provided circuit.
 
         If the operation packages multiple independent gates (e.g., ``H 0 1 2`` — three ``H``
         gates in one instruction), the noise is applied per gate.  For broadcast forms
