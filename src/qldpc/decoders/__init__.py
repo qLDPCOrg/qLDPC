@@ -11,7 +11,7 @@ from .custom import (
 )
 from .dems import (
     DetectorErrorModelArrays,
-    ErrorTargets,
+    FlipPattern,
 )
 from .retrieval import (
     decode,
@@ -50,7 +50,7 @@ __all__ = [
     "RelayBPDecoder",
     "WeightedLookupDecoder",
     "DetectorErrorModelArrays",
-    "ErrorTargets",
+    "FlipPattern",
     "decode",
     "get_decoder",
     "get_decoder_BF",
