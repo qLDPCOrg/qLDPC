@@ -399,6 +399,121 @@ def test_pauli_product_cliffords() -> None:
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
 
+def test_noise_rule_func() -> None:
+    """A user-provided noise_rule_func assigns noise per gate application, with top priority."""
+
+    # Broadcast gates are decomposed into individual applications before the callback is invoked;
+    # it is consulted once per application (per qubit for a 1q gate).  Returning None falls back to
+    # the ordinary clifford_1q_error.
+    seen: list[tuple[str, str, tuple[int, ...]]] = []
+
+    def per_qubit(gate: str, tag: str, targets: list[stim.GateTarget]) -> circuits.NoiseRule | None:
+        seen.append((gate, tag, tuple(t.qubit_value for t in targets)))
+        if gate == "H" and targets[0].qubit_value == 1:
+            return circuits.NoiseRule(after={"X_ERROR": 0.5})
+        return None
+
+    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, noise_rule_func=per_qubit)
+    circuit = stim.Circuit("H 0 1 2")
+    noisy_circuit = stim.Circuit("""
+        H 0 1 2
+        DEPOLARIZE1(0.1) 0
+        X_ERROR(0.5) 1
+        DEPOLARIZE1(0.1) 2
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert seen == [("H", "", (0,)), ("H", "", (1,)), ("H", "", (2,))]
+
+    # A two-qubit gate is decomposed per pair; the callback sees both targets and may return a
+    # two-qubit rule.  Other pairs fall back to clifford_2q_error.
+    def per_pair(gate: str, tag: str, targets: list[stim.GateTarget]) -> circuits.NoiseRule | None:
+        if gate == "CX" and {t.qubit_value for t in targets} == {2, 3}:
+            return circuits.NoiseRule(after={"DEPOLARIZE2": 0.9})
+        return None
+
+    noise_model = circuits.NoiseModel(clifford_2q_error=0.1, noise_rule_func=per_pair)
+    circuit = stim.Circuit("CX 0 1 2 3")
+    noisy_circuit = stim.Circuit("""
+        CX 0 1 2 3
+        DEPOLARIZE2(0.1) 0 1
+        DEPOLARIZE2(0.9) 2 3
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # The callback takes top priority over `rules`, and receives the instruction's tag.
+    def tagged(gate: str, tag: str, targets: list[stim.GateTarget]) -> circuits.NoiseRule:
+        assert tag == "mytag"
+        return circuits.NoiseRule(after={"DEPOLARIZE1": 0.7})
+
+    noise_model = circuits.NoiseModel(
+        rules={"H": circuits.NoiseRule(after={"DEPOLARIZE1": 0.2})}, noise_rule_func=tagged
+    )
+    circuit = stim.Circuit()
+    circuit.append("H", [0], tag="mytag")
+    noisy_circuit = stim.Circuit()
+    noisy_circuit.append("H", [0], tag="mytag")
+    noisy_circuit.append("DEPOLARIZE1", [0], [0.7])
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # Measurement and reset errors can be assigned per application too.
+    def measure_reset(
+        gate: str, tag: str, targets: list[stim.GateTarget]
+    ) -> circuits.NoiseRule | None:
+        if gate == "R":
+            return circuits.NoiseRule(reset_error=0.3)
+        if gate == "M" and targets[0].qubit_value == 0:
+            return circuits.NoiseRule(readout_error=0.25)
+        return None
+
+    noise_model = circuits.NoiseModel(readout_error=0.01, noise_rule_func=measure_reset)
+    circuit = stim.Circuit("R 2\nTICK\nM 0 1")
+    noisy_circuit = stim.Circuit("""
+        R 2
+        X_ERROR(0.3) 2
+        TICK
+        M(0.25) 0
+        M(0.01) 1
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # Noise-immune qubits still take precedence over the callback.
+    def kick(gate: str, tag: str, targets: list[stim.GateTarget]) -> circuits.NoiseRule:
+        return circuits.NoiseRule(after={"DEPOLARIZE1": 0.5})
+
+    noise_model = circuits.NoiseModel(noise_rule_func=kick)
+    circuit = stim.Circuit("H 0 1")
+    noisy_circuit = stim.Circuit("""
+        H 0 1
+        DEPOLARIZE1(0.5) 0
+    """)
+    assert _circuits_are_equivalent(
+        noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits={1})
+    )
+
+    # The callback is not consulted for annotations or classically-controlled operations.
+    consulted: list[str] = []
+
+    def record(gate: str, tag: str, targets: list[stim.GateTarget]) -> circuits.NoiseRule:
+        consulted.append(gate)
+        return circuits.NoiseRule(after={"X_ERROR": 0.5})
+
+    noise_model = circuits.NoiseModel(noise_rule_func=record)
+    noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nM 0\nCX rec[-1] 1"))
+    assert consulted == ["M"]
+
+    # A returned rule's readout_error/reset_error must match the gate it is assigned to.
+    bad_readout = circuits.NoiseModel(
+        noise_rule_func=lambda gate, tag, targets: circuits.NoiseRule(readout_error=0.1)
+    )
+    with pytest.raises(ValueError, match="readout_error for 'H'"):
+        bad_readout.noisy_circuit(stim.Circuit("H 0"))
+    bad_reset = circuits.NoiseModel(
+        noise_rule_func=lambda gate, tag, targets: circuits.NoiseRule(reset_error=0.1)
+    )
+    with pytest.raises(ValueError, match="reset_error for 'H'"):
+        bad_reset.noisy_circuit(stim.Circuit("H 0"))
+
+
 def test_pauli_channel_class() -> None:
     """PauliChannel construction, validation, and helpers."""
 
@@ -875,6 +990,7 @@ def test_trivial_noise() -> None:
     assert not bool(circuits.NoiseModel())
     assert bool(circuits.NoiseRule(readout_error=0.1))
     assert bool(circuits.NoiseModel(readout_error=0.1))
+    assert bool(circuits.NoiseModel(noise_rule_func=lambda gate, tag, targets: None))
 
 
 def test_tsim_circuits() -> None:
