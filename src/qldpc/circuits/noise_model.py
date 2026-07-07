@@ -502,10 +502,6 @@ class NoiseRule:
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 
-        This method is immunity-agnostic — the caller (typically ``NoiseModel``) is responsible for
-        deciding whether a rule should apply based on qubit immunity, and for supplying an already-
-        conditioned rule when partial-immunity conditioning is required.
-
         Args:
             op: The operation to add noise to.
 
