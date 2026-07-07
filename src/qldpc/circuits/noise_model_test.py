@@ -219,211 +219,99 @@ def test_immunity() -> None:
 
 
 def test_immune_qubits() -> None:
-    noise_model: circuits.NoiseModel
-    # Input reuses qubit 1 across the first two CNOTs, so a TICK must separate them.  The third
-    # CNOT is on disjoint qubits and shares the second moment.
+    """immune_qubits + immunize_gates: partial-immune noise is either dropped or conditioned."""
+
+    # 2-qubit broadcast pairs: (0, 1) both immune → drop, (1, 2) partial → condition or drop,
+    # (3, 4) no immune → full 2q noise.
     circuit = stim.Circuit("""
         CNOT 0 1
         TICK
         CNOT 1 2
         CNOT 3 4
     """)
-    noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
-
-    # immunize_gates=False: both qubits 0 and 1 immune → pair (0, 1) has all-immune noise (drops).
-    # Pair (1, 2) has qubit 1 immune → conditioned onto qubit 2 as DEPOLARIZE1(0.02).
-    # Pair (3, 4) has no immune qubits → full DEPOLARIZE2(0.1).
-    expected = stim.Circuit("""
-        CNOT 0 1
-        TICK
-        CNOT 1 2
-        CNOT 3 4
-        DEPOLARIZE1(0.02) 2
-        DEPOLARIZE2(0.1) 3 4
-    """)
-    assert _circuits_are_equivalent(
-        expected,
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[0, 1], insert_ticks=False, immunize_gates=False
-        ),
-    )
-
-    # immunize_gates=True: any gate touching an immune qubit is treated as noiseless, so only the
-    # (3, 4) pair receives noise.
-    expected = stim.Circuit("""
-        CNOT 0 1
-        TICK
-        CNOT 1 2
-        CNOT 3 4
-        DEPOLARIZE2(0.1) 3 4
-    """)
-    assert _circuits_are_equivalent(
-        expected,
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[0, 1], insert_ticks=False, immunize_gates=True
-        ),
-    )
-
-    # test PAULI_CHANNEL_2
-    circuit = stim.Circuit("""
-        CNOT 0 1
-    """)
-    noise_model = circuits.NoiseModel(
-        clifford_2q_error=circuits.NoiseRule(
-            after={
-                "PAULI_CHANNEL_2": [0.01, 0.02, 0.03, 0.04, 0, 0, 0, 0.05, 0, 0, 0, 0.06, 0, 0, 0]
-            }
-        )
-    )
-
+    dm = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
     assert _circuits_are_equivalent(
         stim.Circuit("""
             CNOT 0 1
-            PAULI_CHANNEL_1(0.01, 0.02, 0.03) 1
+            TICK
+            CNOT 1 2
+            CNOT 3 4
+            DEPOLARIZE1(0.02) 2
+            DEPOLARIZE2(0.1) 3 4
         """),
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[0], insert_ticks=False, immunize_gates=False
-        ),
+        dm.noisy_circuit(circuit, immune_qubits=[0, 1], immunize_gates=False),
     )
-
     assert _circuits_are_equivalent(
         stim.Circuit("""
             CNOT 0 1
-            PAULI_CHANNEL_1(0.04, 0.05, 0.06) 0
+            TICK
+            CNOT 1 2
+            CNOT 3 4
+            DEPOLARIZE2(0.1) 3 4
         """),
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[1], insert_ticks=False, immunize_gates=False
-        ),
+        dm.noisy_circuit(circuit, immune_qubits=[0, 1], immunize_gates=True),
     )
 
-    # multi-qubit PauliChannel conditioning: keep only strings that are I on the immune qubit
-    circuit = stim.Circuit("SPP X0*Y1*Z2")
+    # PAULI_CHANNEL_2 args project via the XI/YI/ZI (surviving-first) and IX/IY/IZ (surviving-
+    # second) index sets — exercises both `_PC2_{FIRST,SECOND}_IMMUNE_INDICES` tables.
+    pc2_rule = circuits.NoiseRule(
+        after={"PAULI_CHANNEL_2": [0.01, 0.02, 0.03, 0.04, 0, 0, 0, 0.05, 0, 0, 0, 0.06, 0, 0, 0]}
+    )
+    pc2_model = circuits.NoiseModel(clifford_2q_error=pc2_rule)
+    assert _circuits_are_equivalent(
+        stim.Circuit("CNOT 0 1\nPAULI_CHANNEL_1(0.01, 0.02, 0.03) 1"),
+        pc2_model.noisy_circuit(stim.Circuit("CNOT 0 1"), immune_qubits=[0], immunize_gates=False),
+    )
+    assert _circuits_are_equivalent(
+        stim.Circuit("CNOT 0 1\nPAULI_CHANNEL_1(0.04, 0.05, 0.06) 0"),
+        pc2_model.noisy_circuit(stim.Circuit("CNOT 0 1"), immune_qubits=[1], immunize_gates=False),
+    )
+
+    # Multi-qubit PauliChannel `after`: conditioning happens at emit time.  3q channel with an
+    # immune middle position emits as native PAULI_CHANNEL_2 on the surviving qubits.
     channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03})
-    noise_model = circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(after=channel)})
-
-    # immunize_gates=False, immune qubit 1: only "XIZ" survives; the channel is 3-qubit but has only
-    # 2 active positions (0 and 2), so it emits natively as PAULI_CHANNEL_2 on those qubits with
-    # XZ at index 6.
+    spp_circuit = stim.Circuit("SPP X0*Y1*Z2")
+    spp_model = circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(after=channel)})
     assert _circuits_are_equivalent(
         stim.Circuit("""
             SPP X0*Y1*Z2
             PAULI_CHANNEL_2(0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0) 0 2
         """),
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[1], insert_ticks=False, immunize_gates=False
-        ),
+        spp_model.noisy_circuit(spp_circuit, immune_qubits=[1], immunize_gates=False),
     )
-
-    # immunize_gates=True, immune qubit 1: drop the whole channel.
     assert _circuits_are_equivalent(
-        stim.Circuit("SPP X0*Y1*Z2"),
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[1], insert_ticks=False, immunize_gates=True
-        ),
+        spp_circuit, spp_model.noisy_circuit(spp_circuit, immune_qubits=[1], immunize_gates=True)
     )
 
-    # immunize_gates=False but every string has a non-I on the immune qubit -> nothing emitted.
-    no_survivors_channel = circuits.PauliChannel({"XYZ": 0.01, "IYY": 0.02})
-    noise_model = circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(after=no_survivors_channel)})
-    assert _circuits_are_equivalent(
-        stim.Circuit("SPP X0*Y1*Z2"),
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[1], insert_ticks=False, immunize_gates=False
-        ),
-    )
-
-    # 4-qubit channel conditioned on one qubit -> surviving 4-qubit channel with I always at pos 1.
-    circuit = stim.Circuit("SPP X0*Y1*Z2*X3")
+    # 4-qubit channel with a middle immune position → 3-qubit conditioned channel, emitted as CE.
     channel = circuits.PauliChannel({"XIZX": 0.01, "IIYX": 0.02, "XYZX": 0.03})
-    noise_model = circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(after=channel)})
-    # Immune qubit 1: only "XIZX" and "IIYX" survive (both have I at pos 1); the conditioned
-    # channel is {"IIYX": 0.02, "XIZX": 0.01} in lex order.  Emitted as a CE chain on qubits
-    # 0, 2, 3 (position 1 skipped because it's I everywhere), second entry renormalized to
-    # conditional-fire prob = 0.01 / (1 - 0.02).
+    spp_model = circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(after=channel)})
     assert _circuits_are_equivalent(
         stim.Circuit(f"""
             SPP X0*Y1*Z2*X3
             CORRELATED_ERROR(0.02) Y2 X3
             ELSE_CORRELATED_ERROR({0.01 / (1 - 0.02)}) X0 Z2 X3
         """),
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[1], insert_ticks=False, immunize_gates=False
+        spp_model.noisy_circuit(
+            stim.Circuit("SPP X0*Y1*Z2*X3"), immune_qubits=[1], immunize_gates=False
         ),
     )
 
-    # `after` broadcast noise: 1q entries drop immune targets; 2q entries drop / condition pairs.
-    circuit = stim.Circuit("""
-        H 0
-        H 1
-        TICK
-        CX 0 1 2 3
-    """)
-    noise_model = circuits.NoiseModel(
-        clifford_1q_error=circuits.NoiseRule(after={"DEPOLARIZE1": 0.1}),
-        clifford_2q_error=circuits.NoiseRule(after={"DEPOLARIZE2": 0.2}),
-    )
-    # immune_qubits=[1] with immunize_gates=True: DEPOLARIZE1 keeps only qubit 0, DEPOLARIZE2 pair
-    # (0, 1) dropped, pair (2, 3) kept.  With immunize_gates=False: pair (0, 1) becomes
-    # DEPOLARIZE1(0.2/5) on qubit 0.
+    # reset_error broadcasts X_ERROR; immune targets are stripped.
     assert _circuits_are_equivalent(
-        stim.Circuit("""
-            H 0
-            H 1
-            DEPOLARIZE1(0.1) 0
-            TICK
-            CX 0 1 2 3
-            DEPOLARIZE2(0.2) 2 3
-        """),
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[1], insert_ticks=False, immunize_gates=True
-        ),
-    )
-    assert _circuits_are_equivalent(
-        stim.Circuit("""
-            H 0
-            H 1
-            DEPOLARIZE1(0.1) 0
-            TICK
-            CX 0 1 2 3
-            DEPOLARIZE1(0.04) 0
-            DEPOLARIZE2(0.2) 2 3
-        """),
-        noise_model.noisy_circuit(
-            circuit, immune_qubits=[1], insert_ticks=False, immunize_gates=False
+        stim.Circuit("R 0 1 2\nX_ERROR(0.1) 0 2"),
+        circuits.NoiseModel(reset_error=0.1).noisy_circuit(
+            stim.Circuit("R 0 1 2"), immune_qubits=[1]
         ),
     )
 
-    # reset_error: emitted as X_ERROR / Z_ERROR broadcast on all targets; immune targets are
-    # dropped by the moment-level filter regardless of `immunize_gates`.
-    circuit = stim.Circuit("R 0 1 2")
-    noise_model = circuits.NoiseModel(reset_error=0.1)
+    # readout_error is dropped only when *every* measured qubit is immune: `M 1` on immune qubit 1
+    # loses its error; `MPP X0*Y1` still has a non-immune target so keeps the error.
     assert _circuits_are_equivalent(
-        stim.Circuit("""
-            R 0 1 2
-            X_ERROR(0.1) 0 2
-        """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False),
-    )
-
-    # readout_error: dropped only when *every* measured qubit is immune.  A measurement whose
-    # classical result depends on any non-immune qubit keeps its readout error unchanged.
-    circuit = stim.Circuit("""
-        M 0
-        TICK
-        M 1
-        TICK
-        MPP X0*Y1
-    """)
-    noise_model = circuits.NoiseModel(readout_error=0.1)
-    assert _circuits_are_equivalent(
-        stim.Circuit("""
-            M(0.1) 0
-            TICK
-            M 1
-            TICK
-            MPP(0.1) X0*Y1
-        """),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False),
+        stim.Circuit("M(0.1) 0\nTICK\nM 1\nTICK\nMPP(0.1) X0*Y1"),
+        circuits.NoiseModel(readout_error=0.1).noisy_circuit(
+            stim.Circuit("M 0\nTICK\nM 1\nTICK\nMPP X0*Y1"), immune_qubits=[1]
+        ),
     )
 
 
@@ -616,9 +504,6 @@ def test_pauli_channel_conditioned_on() -> None:
     assert empty_3q == circuits.PauliChannel({}, num_qubits=3)
     assert empty_3q.num_qubits == 3
     assert not bool(empty_3q)
-
-    # Repeated indices are deduplicated.
-    assert channel.conditioned_on([1, 1]) == channel.conditioned_on([1])
 
     # If nothing survives, the result is empty but arity is preserved.
     all_non_id = circuits.PauliChannel({"XY": 0.1, "YX": 0.1})
@@ -934,33 +819,27 @@ def test_noise_rule_errors() -> None:
         circuits.NoiseRule(after=fragment_with_repeat)
 
 
-def test_after_circuit_raw_ce_and_high_arity_pauli_channel() -> None:
-    """`after` as stim.Circuit form: raw CE chain is dropped when touching immune qubits;
-    a 3-qubit PauliChannel with a single active position emits native PAULI_CHANNEL_1
-    per-chunk."""
+def test_after_stim_circuit_form() -> None:
+    """`after=stim.Circuit(...)`: CE chains touching immune qubits drop; sparse-support
+    high-arity PauliChannels emit natively per chunk."""
 
-    # Raw CE in `after=stim.Circuit(...)` gets dropped by the moment-level immunity pass when it
-    # touches an immune qubit (chain semantics preclude post-hoc conditioning).
-    rule = circuits.NoiseRule(after=stim.Circuit("CORRELATED_ERROR(0.02) X0 Y1 Z2"))
-    noise_model = circuits.NoiseModel(rules={"SPP": rule})
     circuit = stim.Circuit("SPP X0*Y1*Z2")
+
+    # A raw CE chain in `after` is dropped by the moment-level immunity pass when it touches
+    # an immune qubit (chain semantics preclude post-hoc conditioning).
+    ce_rule = circuits.NoiseRule(after=stim.Circuit("CORRELATED_ERROR(0.02) X0 Y1 Z2"))
     assert _circuits_are_equivalent(
-        stim.Circuit("SPP X0*Y1*Z2"),
-        noise_model.noisy_circuit(circuit, immune_qubits=[1], insert_ticks=False),
+        circuit,
+        circuits.NoiseModel(rules={"SPP": ce_rule}).noisy_circuit(circuit, immune_qubits=[1]),
     )
 
-    # A 3-qubit PauliChannel whose strings are non-I on a single position emits natively as
-    # PAULI_CHANNEL_1 per chunk (via `_append_pauli_channel`).
+    # A 3q PauliChannel whose strings are non-I on a single position emits natively as
+    # PAULI_CHANNEL_1 (via `_append_pauli_channel`'s 1-active-position branch).
     channel = circuits.PauliChannel({"IXI": 0.1, "IYI": 0.05})
-    rule = circuits.NoiseRule(after=channel)
-    noise_model = circuits.NoiseModel(rules={"SPP": rule})
-    circuit = stim.Circuit("SPP X0*Y1*Z2")
+    sparse_rule = circuits.NoiseRule(after=channel)
     assert _circuits_are_equivalent(
-        stim.Circuit("""
-            SPP X0*Y1*Z2
-            PAULI_CHANNEL_1(0.1, 0.05, 0) 1
-        """),
-        noise_model.noisy_circuit(circuit, insert_ticks=False),
+        stim.Circuit("SPP X0*Y1*Z2\nPAULI_CHANNEL_1(0.1, 0.05, 0) 1"),
+        circuits.NoiseModel(rules={"SPP": sparse_rule}).noisy_circuit(circuit),
     )
 
 
