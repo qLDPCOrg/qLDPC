@@ -70,17 +70,21 @@ Per-gate-application noise via a callback (`noise_rule_func`):
     # over every other argument (`rules` included).  Broadcast gates (e.g. `H 0 1 2`, `CX 0 1 2 3`)
     # are decomposed into their individual applications first, so `targets` holds exactly one
     # application's worth of stim.GateTargets.  Returning `None` falls back to the ordinary rules.
-    def bad_qubit_noise(gate, tag, targets):
+    def bad_qubit_noise(
+        gate: str, tag: str, targets: Iterable[stim.GateTarget]
+    ) -> NoiseRule | None:
         # Give any gate touching qubit 7 a heavier depolarizing kick; leave everything else alone.
         if any(t.qubit_value == 7 for t in targets):
             channel = "DEPOLARIZE2" if len(targets) == 2 else "DEPOLARIZE1"
             return NoiseRule(after={channel: 1e-2})
         return None
 
-    noise_model = NoiseModel(clifford_1q_error=1e-4, clifford_2q_error=1e-3,
-                             noise_rule_func=bad_qubit_noise)
+    noise_model = NoiseModel(
+        clifford_1q_error=1e-4,
+        clifford_2q_error=1e-3,
+        noise_rule_func=bad_qubit_noise
+    )
     noisy_circuit = noise_model.noisy_circuit(circuit)
-
 
 Important note:
 ---------------
