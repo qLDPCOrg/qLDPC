@@ -15,8 +15,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from collections.abc import Sequence
-
 import pytest
 import stim
 import tsim
@@ -409,11 +407,10 @@ def test_noise_rule_func() -> None:
     # the ordinary clifford_1q_error.
     seen: list[tuple[str, str, tuple[int, ...]]] = []
 
-    def per_qubit(
-        gate: str, tag: str, targets: Sequence[stim.GateTarget]
-    ) -> circuits.NoiseRule | None:
-        seen.append((gate, tag, tuple(t.qubit_value for t in targets)))
-        if gate == "H" and targets[0].qubit_value == 1:
+    def per_qubit(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+        targets = [t for t in op.targets_copy() if not t.is_combiner]
+        seen.append((op.name, op.tag, tuple(t.qubit_value for t in targets)))
+        if op.name == "H" and targets[0].qubit_value == 1:
             return circuits.NoiseRule(after={"X_ERROR": 0.5})
         return None
 
@@ -426,22 +423,13 @@ def test_noise_rule_func() -> None:
         DEPOLARIZE1(0.1) 2
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
-    # The callback is retried with every alias when it returns None; H's stim aliases are
-    # ("H", "H_XZ").  Qubit 1 stops at "H" because a non-None rule is returned.
-    assert seen == [
-        ("H", "", (0,)),
-        ("H_XZ", "", (0,)),
-        ("H", "", (1,)),
-        ("H", "", (2,)),
-        ("H_XZ", "", (2,)),
-    ]
+    assert seen == [("H", "", (0,)), ("H", "", (1,)), ("H", "", (2,))]
 
     # A two-qubit gate is decomposed per pair; the callback sees both targets and may return a
     # two-qubit rule.  Other pairs fall back to clifford_2q_error.
-    def per_pair(
-        gate: str, tag: str, targets: Sequence[stim.GateTarget]
-    ) -> circuits.NoiseRule | None:
-        if gate == "CX" and {t.qubit_value for t in targets} == {2, 3}:
+    def per_pair(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+        targets = op.targets_copy()
+        if op.name == "CX" and {t.qubit_value for t in targets} == {2, 3}:
             return circuits.NoiseRule(after={"DEPOLARIZE2": 0.9})
         return None
 
@@ -455,8 +443,8 @@ def test_noise_rule_func() -> None:
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
     # The callback takes top priority over `rules`, and receives the instruction's tag.
-    def tagged(gate: str, tag: str, targets: Sequence[stim.GateTarget]) -> circuits.NoiseRule:
-        assert tag == "mytag"
+    def tagged(op: stim.CircuitInstruction) -> circuits.NoiseRule:
+        assert op.tag == "mytag"
         return circuits.NoiseRule(after={"DEPOLARIZE1": 0.7})
 
     noise_model = circuits.NoiseModel(
@@ -469,14 +457,13 @@ def test_noise_rule_func() -> None:
     noisy_circuit.append("DEPOLARIZE1", [0], [0.7])
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
-    # Measurement and reset errors can be assigned per application too.
-    def measure_reset(
-        gate: str, tag: str, targets: Sequence[stim.GateTarget]
-    ) -> circuits.NoiseRule | None:
-        # The callback receives the standardized name (M → MZ, R → RZ, MR → MRZ, MPP X → MX, etc.).
-        if gate == "RZ":
+    # Measurement and reset errors can be assigned per application too.  The callback receives the
+    # raw op.name (`M`, `MZ`, `R`, etc.); if the user wants alias-agnostic matching they can either
+    # check every alias or use the same key that `rules` uses (stim's canonical name).
+    def measure_reset(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+        if op.name in ("R", "RZ"):
             return circuits.NoiseRule(reset_error=0.3)
-        if gate == "MZ" and targets[0].qubit_value == 0:
+        if op.name in ("M", "MZ") and op.targets_copy()[0].qubit_value == 0:
             return circuits.NoiseRule(readout_error=0.25)
         return None
 
@@ -492,7 +479,7 @@ def test_noise_rule_func() -> None:
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
     # Noise-immune qubits still take precedence over the callback.
-    def kick(gate: str, tag: str, targets: Sequence[stim.GateTarget]) -> circuits.NoiseRule:
+    def kick(op: stim.CircuitInstruction) -> circuits.NoiseRule:
         return circuits.NoiseRule(after={"DEPOLARIZE1": 0.5})
 
     noise_model = circuits.NoiseModel(noise_rule_func=kick)
@@ -508,67 +495,30 @@ def test_noise_rule_func() -> None:
     # The callback is not consulted for annotations or classically-controlled operations.
     consulted: list[str] = []
 
-    def record(gate: str, tag: str, targets: Sequence[stim.GateTarget]) -> circuits.NoiseRule:
-        consulted.append(gate)
+    def record(op: stim.CircuitInstruction) -> circuits.NoiseRule:
+        consulted.append(op.name)
         return circuits.NoiseRule(after={"X_ERROR": 0.5})
 
     noise_model = circuits.NoiseModel(noise_rule_func=record)
     noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nM 0\nCX rec[-1] 1"))
-    # The canonical name ("M" — first stim alias) is tried first; record returns non-None so
-    # we stop there rather than continuing to "MZ".
     assert consulted == ["M"]
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.
     bad_readout = circuits.NoiseModel(
-        noise_rule_func=lambda gate, tag, targets: circuits.NoiseRule(readout_error=0.1)
+        noise_rule_func=lambda op: circuits.NoiseRule(readout_error=0.1)
     )
     with pytest.raises(ValueError, match="readout_error for 'H'"):
         bad_readout.noisy_circuit(stim.Circuit("H 0"))
-    bad_reset = circuits.NoiseModel(
-        noise_rule_func=lambda gate, tag, targets: circuits.NoiseRule(reset_error=0.1)
-    )
+    bad_reset = circuits.NoiseModel(noise_rule_func=lambda op: circuits.NoiseRule(reset_error=0.1))
     with pytest.raises(ValueError, match="reset_error for 'H'"):
         bad_reset.noisy_circuit(stim.Circuit("H 0"))
 
     # A returned rule's `after` arity must match the gate application's qubit count.
     bad_arity = circuits.NoiseModel(
-        noise_rule_func=lambda gate, tag, targets: circuits.NoiseRule(after={"DEPOLARIZE1": 0.1})
+        noise_rule_func=lambda op: circuits.NoiseRule(after={"DEPOLARIZE1": 0.1})
     )
     with pytest.raises(ValueError, match="`after` arity 1 for 'CX' \\(2-qubit application\\)"):
         bad_arity.noisy_circuit(stim.Circuit("CX 0 1"))
-
-    # The callback is consulted with every alias of the gate — raw name, stim aliases, and the
-    # standardized product-basis name — so a user can key on whichever name they prefer.  Each of
-    # these callbacks matches on a different alias but produces the same rule for the same input.
-    for alias in ("M", "MZ"):
-
-        def match_m(
-            gate: str, tag: str, targets: Sequence[stim.GateTarget], _a: str = alias
-        ) -> circuits.NoiseRule | None:
-            return circuits.NoiseRule(readout_error=0.2) if gate == _a else None
-
-        noise_model = circuits.NoiseModel(noise_rule_func=match_m)
-        # A circuit written with `M` and one with `MZ` both trigger the rule regardless of which
-        # alias the callback keys on.
-        for src in ("M 0", "MZ 0"):
-            noisy = noise_model.noisy_circuit(stim.Circuit(src))
-            assert "(0.2) 0" in str(noisy)  # readout_error emitted regardless of alias used
-
-    # The callback also receives the standardized product-basis name for MPP / SPP / SPP_DAG.
-    matched: list[str] = []
-
-    def match_products(
-        gate: str, tag: str, targets: Sequence[stim.GateTarget]
-    ) -> circuits.NoiseRule | None:
-        if gate in ("MXYZ", "SXYZ", "SXY_DAG"):
-            matched.append(gate)
-            return circuits.NoiseRule()  # non-None terminates dispatch; empty rule has no effect
-        return None
-
-    circuits.NoiseModel(noise_rule_func=match_products).noisy_circuit(
-        stim.Circuit("MPP X0*Y1*Z2\nTICK\nSPP X0*Y1*Z2\nTICK\nSPP_DAG X0*Y1")
-    )
-    assert matched == ["MXYZ", "SXYZ", "SXY_DAG"]
 
     # SXYZ can be used as a `rules` key just like MXYZ.
     noise_model = circuits.NoiseModel(
@@ -579,7 +529,7 @@ def test_noise_rule_func() -> None:
 
     # The recursive noisy_circuit call inside a REPEAT block forwards immune_op_tag.
     kick_all = circuits.NoiseModel(
-        noise_rule_func=lambda gate, tag, targets: circuits.NoiseRule(after={"X_ERROR": 0.5})
+        noise_rule_func=lambda op: circuits.NoiseRule(after={"X_ERROR": 0.5})
     )
     body = stim.Circuit()
     body.append("H", [0], tag="__skip__")
@@ -1066,7 +1016,7 @@ def test_trivial_noise() -> None:
     assert not bool(circuits.NoiseModel())
     assert bool(circuits.NoiseRule(readout_error=0.1))
     assert bool(circuits.NoiseModel(readout_error=0.1))
-    assert bool(circuits.NoiseModel(noise_rule_func=lambda gate, tag, targets: None))
+    assert bool(circuits.NoiseModel(noise_rule_func=lambda op: None))
 
 
 def test_tsim_circuits() -> None:
