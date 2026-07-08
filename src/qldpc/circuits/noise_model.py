@@ -683,8 +683,8 @@ class NoiseModel:
                 operations.  Same NoiseRule semantics as `idle_error`.
             rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
                 arity-based defaults for unitary, measurement, and reset gates.
-            noise_rule_func: Optional user-defined callback that assigns noise to individual gate
-                applications, taking top priority over every other argument (``rules`` included).
+            noise_rule_func: Optional user-defined callback that maps a stim.CircuitInstruction
+                to a NoiseRule.  Takes priority over all other noise rules.
                 It is called as ``noise_rule_func(op)`` — where ``op`` is a single-application
                 ``stim.CircuitInstruction`` — and must return a ``NoiseRule`` (used verbatim for
                 that application) or ``None`` (fall back to ``rules``, then the arity-based
@@ -794,9 +794,11 @@ class NoiseModel:
     def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
         """Determines the noise rule to apply to a specific operation.
 
-        When ``noise_rule_func`` is set, it is consulted first (for genuine noisy gates that are
-        not classically controlled); a non-None return takes top priority over ``rules`` and the
-        arity-based defaults.
+        Noise rules are consulted in the following order of precedence:
+        1. ``noise_rule_func`` (stim.CircuitInstruction -> NoiseRule factory).
+        2. ``rules`` (name-based NoiseRules).
+        3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
+        4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
 
         Args:
             op: The circuit instruction to find a noise rule for.
