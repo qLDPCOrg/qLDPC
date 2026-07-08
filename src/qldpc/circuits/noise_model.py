@@ -683,23 +683,18 @@ class NoiseModel:
                 operations.  Same NoiseRule semantics as `idle_error`.
             rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
                 arity-based defaults for unitary, measurement, and reset gates.
-            noise_rule_func: Optional user-defined callback that maps a stim.CircuitInstruction
-                to a NoiseRule.  Takes priority over all other noise rules.
-                It is called as ``noise_rule_func(op)`` — where ``op`` is a single-application
-                ``stim.CircuitInstruction`` — and must return a ``NoiseRule`` (used verbatim for
-                that application) or ``None`` (fall back to ``rules``, then the arity-based
-                defaults).  Any gate that stim broadcasts across multiple independent applications
-                (e.g. ``H 0 1 2`` or ``CX 0 1 2 3``) is decomposed into its individual applications
-                before the callback is invoked, so ``op`` always holds exactly one application's
-                worth of targets: one for a one-qubit gate, two for a two-qubit gate, and one
-                Pauli product's targets for an SPP/MPP.  The callback is consulted only for
-                genuine noisy gates (unitary Cliffords, measurements, and resets) that are not
-                classically controlled; it does not affect annotations, pure-noise instructions,
-                or idling errors.  Noise-immune qubits/tags still take precedence, so a returned
-                rule is subject to the same immunity handling as any other rule.  A returned
-                ``NoiseRule`` must have (a) an ``after`` channel whose arity matches the gate
-                application's qubit count and (b) ``readout_error`` (``reset_error``) only if the
-                gate produces measurements (resets).
+            noise_rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
+                ``NoiseRule``.  Takes priority over all other noise rules.  Any gate that stim
+                broadcasts across multiple independent applications (e.g. ``H 0 1 2``,
+                ``CX 0 1 2 3``, or ``SPP X1*Y2 Z3*Y4*X5``) is decomposed into its individual
+                gate applications before being passed to ``noise_rule_func``, its input ``op``
+                always holds exactly one application's worth of targets: one for a one-qubit gate,
+                two for a two-qubit gate, and one Pauli product's targets for an SPP/MPP.  The
+                callback is consulted only for genuine noisy gates (unitary Cliffords, measurements,
+                and resets) that are not classically controlled; it does not affect annotations,
+                pure-noise instructions, or idling errors.  Noise-immune qubits/tags still take
+                precedence, so a returned rule is subject to the same immunity handling as any other
+                rule.
         """
         self.rules = rules
         self.noise_rule_func = noise_rule_func
