@@ -53,14 +53,42 @@ Noise on multi-qubit Clifford gates (SPP / MPP):
         }
     )
 
-    # Multi-qubit MPP gates receive ordinary readout_error.  To assign per-basis rules, key on the
-    # standardized name that measurement gates are dispatched under: "M<paulis>", e.g. "MXYZ" for
-    # `MPP X*Y*Z`, "MXX" for `MPP X*X`, etc.
+    # Multi-qubit MPP / SPP gates receive ordinary readout_error / clifford_nq_error.  To assign
+    # per-basis rules, use "M<paulis>" for MPP (e.g. "MXYZ" for `MPP X*Y*Z`, "MXX" for `MPP X*X`)
+    # and "S<paulis>" / "S<paulis>_DAG" for SPP / SPP_DAG (e.g. "SXYZ" for `SPP X*Y*Z`, "SXY_DAG"
+    # for `SPP_DAG X*Y`).
     noise_model = NoiseModel(
         readout_error=1e-3,                                # default readout flip probability
-        rules={"MXYZ": NoiseRule(readout_error=5e-3)},     # override for MPP X*Y*Z specifically
+        rules={
+            "MXYZ": NoiseRule(readout_error=5e-3),         # override for MPP X*Y*Z specifically
+            "SXYZ": NoiseRule(after=PauliChannel.depolarizing(3, 1e-2)),  # SPP X*Y*Z override
+        },
     )
 
+
+Per-gate-application noise via a callback (`rule_func`):
+
+    from qldpc.circuits.noise_model import NoiseModel, NoiseRule
+
+    # `rule_func` takes top priority over every other rule in a `NoiseModel`.  Broadcast gates such
+    # as `H 0 1 2` and `CX 0 1 2 3` are decomposed into individual gates before being passed to
+    # `rule_func`, so the `op` argument is always a stim.CircuitInstruction holding exactly one gate
+    # application's worth of targets (e.g. two targets for a two-qubit gate, one Pauli product for
+    # an SPP/MPP).  Returning `None` falls back to the ordinary `NoiseModel` rules.
+    def bad_qubit_noise(op: stim.CircuitInstruction) -> NoiseRule | None:
+        # Give any gate touching qubit 7 a heavier depolarizing kick; leave everything else alone.
+        targets = [t for t in op.targets_copy() if not t.is_combiner]
+        if any(t.qubit_value == 7 for t in targets):
+            channel = "DEPOLARIZE2" if len(targets) == 2 else "DEPOLARIZE1"
+            return NoiseRule(after={channel: 1e-2})
+        return None
+
+    noise_model = NoiseModel(
+        clifford_1q_error=1e-4,
+        clifford_2q_error=1e-3,
+        rule_func=bad_qubit_noise,
+    )
+    noisy_circuit = noise_model.noisy_circuit(circuit)
 
 Important note:
 ---------------
@@ -81,8 +109,9 @@ import collections
 import functools
 import itertools
 import math
+import re
 import types
-from collections.abc import Collection, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, TypeVar
 
 import stim
@@ -114,6 +143,22 @@ MEASURE_RESET_1Q = "MR1"
 ANNOTATION = "info"
 NOISE = "!?"
 UNSUPPORTED = "unsupported"
+
+# The op-type categories that name a genuine noisy gate (as opposed to pure-noise, annotation, or
+# unsupported instructions).  These are the operations a user-provided ``rule_func`` is
+# consulted for, once decomposed into individual gate applications.
+GATE_OP_TYPES = frozenset(
+    {
+        CLIFFORD_1Q,
+        CLIFFORD_2Q,
+        CLIFFORD_PP,
+        JUST_MEASURE_1Q,
+        JUST_MEASURE_2Q,
+        JUST_MEASURE_PP,
+        JUST_RESET_1Q,
+        MEASURE_RESET_1Q,
+    }
+)
 
 # Gates that stim knows about but qLDPC does not support (e.g., REPEAT is a block, not a gate,
 # and cannot appear as an ordinary CircuitInstruction).
@@ -264,7 +309,7 @@ class PauliChannel:
         # normalized input isn't rejected due to per-value rounding (e.g.,
         # ``[p_i / sum(p_i) for p_i in ...]`` can accumulate to ~1 + O(n * eps)).
         total = math.fsum(probabilities.values())
-        if not _approx_in_unit_interval(total):
+        if not _is_approx_in_unit_interval(total):
             raise ValueError(f"Sum of Pauli channel probabilities {total} is not in [0, 1]")
         # Drop zero-probability entries and canonicalize insertion order (lex over Pauli strings)
         # so `__eq__`-equal channels produce identical noise chains at emission time.  Store
@@ -380,8 +425,8 @@ class NoiseRule:
         self,
         *,
         after: PauliChannel | Mapping[str, float | Iterable[float]] | stim.Circuit | None = None,
-        readout_error: float = 0,
-        reset_error: float = 0,
+        readout_error: float | None = None,
+        reset_error: float | None = None,
     ):
         """Initializes a noise rule with specified error channels.
 
@@ -414,9 +459,12 @@ class NoiseRule:
                     can shift indices used by ``DETECTOR`` / ``rec[-k]`` — the caller is responsible
                     for making sure those indices remain consistent.
             readout_error: The probability that a measurement result is reported incorrectly.  Only
-                allowed for operations that produce measurement results.
+                allowed for operations that produce measurement results.  ``None`` (the default)
+                means the field is unset (validation ignores it); ``0.0`` is an explicit no-op flip
+                probability that is still validated against the gate type.
             reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
-                operations that reset qubits.
+                operations that reset qubits.  Same ``None`` vs. ``0.0`` distinction as
+                ``readout_error``.
 
         Raises:
             ValueError: If any noise channel name is not recognized, any net probability of an
@@ -424,11 +472,11 @@ class NoiseRule:
                 the ``stim.Circuit`` form contains a non-noise instruction.
         """
         self.readout_error = readout_error
-        if not (0 <= readout_error <= 1):
+        if readout_error is not None and not (0 <= readout_error <= 1):
             raise ValueError(f"{readout_error=} is not between 0 and 1")
 
         self.reset_error = reset_error
-        if not (0 <= reset_error <= 1):
+        if reset_error is not None and not (0 <= reset_error <= 1):
             raise ValueError(f"{reset_error=} is not between 0 and 1")
 
         self.after: PauliChannel | stim.Circuit | None
@@ -462,7 +510,7 @@ class NoiseRule:
                         f"{op} cannot be specified in a broadcast `after` mapping; pass an "
                         "explicit stim.Circuit or a PauliChannel instead"
                     )
-                if not _approx_in_unit_interval(math.fsum(probs)):
+                if not _is_approx_in_unit_interval(math.fsum(probs)):
                     raise ValueError(
                         f"The net probability of an error is not between 0 and 1 in {after=}"
                     )
@@ -482,9 +530,7 @@ class NoiseRule:
             else:
                 self.after = _mapping_after_to_channel_or_circuit(filtered_mapping)
 
-        # Invariant: a measurement / reset rule (nonzero readout_error / reset_error) cannot
-        # carry an ``after``.  Users needing both should build them as separate rules.
-        if (readout_error or reset_error) and self.after is not None:
+        if (readout_error is not None or reset_error is not None) and self.after is not None:
             raise ValueError(
                 "NoiseRule cannot combine `after`-noise with readout_error / reset_error.  If you"
                 " need this capability, please open an issue at"
@@ -525,7 +571,10 @@ class NoiseRule:
 
         if self.reset_error:
             assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
-            error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
+            # Reset gate `RB` (or `MRB`) prepares/resets in Pauli basis B ∈ {X, Y, Z}; a "wrong"
+            # reset is modeled by an error that anticommutes with B.  Z-basis (canonical `R`/`MR`)
+            # and Y-basis (`RY`/`MRY`) resets get X_ERROR; X-basis (`RX`/`MRX`) gets Z_ERROR.
+            error_name = "Z_ERROR" if op.name.endswith("X") else "X_ERROR"
             error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
             noise_after.append(error_op)
 
@@ -609,6 +658,7 @@ class NoiseModel:
         idle_error: NoiseRule | float | None = None,
         additional_error_waiting_for_m_or_r: NoiseRule | float | None = None,
         rules: Mapping[str, NoiseRule] | None = None,
+        rule_func: Callable[[stim.CircuitInstruction], NoiseRule | None] | None = None,
     ):
         """Initializes a noise model with specified parameters.
 
@@ -634,25 +684,36 @@ class NoiseModel:
             additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
                 applied to qubits that are waiting while other qubits undergo measurement or reset
                 operations.  Same NoiseRule semantics as `idle_error`.
-            rules: Dictionary mapping specific gate names to their noise rules.  Overrides all other
-                rules for unitary, measurement, and reset gates.
+            rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
+                arity-based defaults for unitary, measurement, and reset gates.
+            rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
+                ``NoiseRule``.  Takes priority over all other noise rules above.  Any gate that stim
+                broadcasts across multiple independent applications (e.g. ``H 0 1 2``,
+                ``CX 0 1 2 3``, or ``SPP X1*Y2 Z3*Y4*X5``) is decomposed into its individual
+                gate applications before being passed to ``rule_func``, its input ``op``
+                always holds exactly one application's worth of targets: one for a one-qubit gate,
+                two for a two-qubit gate, and one Pauli product's targets for an SPP/MPP.  The
+                callback is consulted only for genuine noisy gates (unitary Cliffords, measurements,
+                and resets) that are not classically controlled; it does not affect annotations,
+                pure-noise instructions, or idling errors.
         """
         self.rules = rules
+        self.rule_func = rule_func
         if rules is not None:
-            # Validate rules whose gate arity (size) is fixed and known.  Rule keys for MPP are
-            # standardized on the Pauli-product basis (e.g., "MXYZ" for MPP X*Y*Z), so their arity
-            # varies with the product weight and can only be checked at emission time by
-            # `emit_after`, which re-checks against the actual qubit-target count.
+            # Validate rules whose (arity, can_measure, can_reset) is known — fixed-arity stim
+            # gates and basis-suffixed rule keys (``"MXYZ"`` for MPP X*Y*Z, ``"SXY_DAG"`` for
+            # SPP_DAG X*Y).  Bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` are variable-arity and
+            # deferred to emission-time checks via ``emit_after``.
             for op_name, rule in rules.items():
-                arity = _known_gate_arity(op_name)
-                if arity is not None:
-                    gate_data = stim.gate_data(op_name)
+                shape = _known_gate_shape(op_name)
+                if shape is not None:
+                    arity, can_measure, can_reset = shape
                     _validate_rule_for_arity(
                         rule,
                         arity,
                         f"rules[{op_name!r}]",
-                        can_measure=gate_data.produces_measurements,
-                        can_reset=gate_data.is_reset,
+                        can_measure=can_measure,
+                        can_reset=can_reset,
                     )
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
@@ -718,6 +779,7 @@ class NoiseModel:
         """Is this noise model nontrivial?"""
         return (
             bool(self.rules)
+            or self.rule_func is not None
             or bool(self.clifford_nq_error)
             or bool(self.readout_error)
             or bool(self.reset_error)
@@ -728,6 +790,18 @@ class NoiseModel:
     def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
         """Determines the noise rule to apply to a specific operation.
 
+        Noise rules are consulted in the following order of precedence:
+        1. ``rule_func`` (stim.CircuitInstruction -> NoiseRule factory).
+        2. ``rules`` (name-based NoiseRules).
+        3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
+        4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
+
+        Note: MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one
+        Pauli product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product
+        instructions are decomposed upstream by ``_split_targets_pp`` before this method is
+        invoked; hand-calling with an unsplit multi-product op raises ``ValueError`` from
+        ``_get_gate_aliases``.
+
         Args:
             op: The circuit instruction to find a noise rule for.
 
@@ -737,12 +811,17 @@ class NoiseModel:
         if op_type(op.name) == ANNOTATION or _involves_classical_bits(op):
             return None
 
-        if self.rules is not None:
-            rule = self.rules.get(_get_standardized_name(op)) or self.rules.get(
-                op.name
-            )  # allows for an MPP rule, but first checks for rules such as MXY
+        if self.rule_func is not None and op_type(op.name) in GATE_OP_TYPES:
+            rule = self.rule_func(op)
             if rule is not None:
+                _validate_custom_rule(rule, op)
                 return rule
+
+        if self.rules is not None:
+            for name in _get_gate_aliases(op):
+                rule = self.rules.get(name)
+                if rule is not None:
+                    return rule
 
         this_op_type = op_type(op.name)
         if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
@@ -823,7 +902,7 @@ class NoiseModel:
 
         first_moment = True
         for moment_or_repeat_block in _iter_moments_and_repeat_blocks(
-            circuit, immune_qubits, immune_op_tag
+            circuit, immune_qubits, immune_op_tag, force_split=self.rule_func is not None
         ):
             if first_moment:
                 first_moment = False
@@ -838,9 +917,12 @@ class NoiseModel:
                         moment_or_repeat_block.body_copy(),
                         system_qubits=system_qubits,
                         immune_qubits=immune_qubits,
+                        immune_op_tag=immune_op_tag,
                         immunize_gates=immunize_gates,
+                        insert_ticks=insert_ticks,
                     )
-                    noisy_body.append("TICK")
+                    if insert_ticks:
+                        noisy_body.append("TICK")
                     noisy_circuit.append(
                         stim.CircuitRepeatBlock(
                             repeat_count=moment_or_repeat_block.repeat_count,
@@ -1014,39 +1096,46 @@ class SI1000NoiseModel(NoiseModel):
 _APPROX_TOL = 1e-9
 
 
-def _approx_in_unit_interval(value: float, *, tol: float = _APPROX_TOL) -> bool:
+def _is_approx_in_unit_interval(value: float, *, tol: float = _APPROX_TOL) -> bool:
     """Return True if ``value`` is in [0, 1], up to floating-point tolerance ``tol``."""
     return -tol <= value <= 1 + tol
 
 
-def _get_standardized_name(op: stim.CircuitInstruction) -> str:
-    """Stardardized name of a circuit instruction.
+def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
+    """Return the names by which ``op`` can be matched in ``rules`` and ``rule_func``.
 
-    The primary function of this method is to disambiguate the basis of measurement and reset gates.
-
-    Args:
-        op:_name The name of the circuit instruction that we need to standardize.
-
-    Returns:
-        str: The standardized name.
+    For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for
+    ``MPP X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than
+    the raw ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases.
+    For every other gate, this is just stim's alias list, which begins with the canonical name
+    (so ``M`` / ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield
+    ``("CNOT", "CX", "ZCX")``, etc.).
     """
-    op_name = op.name
-    if op_name == "M" or op_name == "R" or op_name == "MR":
-        return op_name + "Z"
+    aliases = _stim_aliases(op.name)
+    if op.name not in ("MPP", "SPP", "SPP_DAG"):
+        return aliases
+    prefix, suffix = ("S", "_DAG") if op.name == "SPP_DAG" else (op.name[0], "")
+    targets = op.targets_copy()
+    if not all(target.is_combiner for target in targets[1::2]):
+        raise ValueError(
+            f"{op.name} must be split into a single Pauli product before alias enumeration"
+        )
+    basis = ""
+    for target in targets[::2]:
+        if target.is_x_target:
+            basis += "X"
+        elif target.is_y_target:
+            basis += "Y"
+        else:
+            assert target.is_z_target
+            basis += "Z"
+    return (prefix + basis + suffix, *aliases)
 
-    if op_name == "MPP":
-        name = "M"
-        for target in op.targets_copy()[::2]:
-            if target.is_x_target:
-                name += "X"
-            elif target.is_y_target:
-                name += "Y"
-            else:
-                assert target.is_z_target
-                name += "Z"
-        return name
 
-    return op_name
+@functools.cache
+def _stim_aliases(op_name: str) -> tuple[str, ...]:
+    """Cached stim aliases of a gate name."""
+    return tuple(stim.gate_data(op_name).aliases)
 
 
 _PAULI_CHANNEL_1_ORDER = ("X", "Y", "Z")
@@ -1235,14 +1324,32 @@ def _rule_with_immunity(
     )
 
 
-def _known_gate_arity(op_name: str) -> int | None:
-    """Return the fixed number of qubits a gate acts on, or None if variable / unknown."""
+_BASIS_SUFFIXED_RULE_KEY = re.compile(r"([MS])([XYZ]+)(_DAG)?")
+
+
+def _known_gate_shape(op_name: str) -> tuple[int, bool, bool] | None:
+    """Return ``(arity, can_measure, can_reset)`` for a rule key with statically-known shape.
+
+    Applies to fixed-arity stim gates (e.g. ``"H"``, ``"CX"``, ``"M"``, ``"R"``, ``"MR"``) and to
+    basis-suffixed rule keys (``"MXYZ"`` for ``MPP X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``).
+    Returns ``None`` for variable-arity names (bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"``) or for
+    names not recognized as either kind.
+    """
     this_op_type = op_type(op_name)
     if this_op_type in (CLIFFORD_1Q, JUST_MEASURE_1Q, JUST_RESET_1Q, MEASURE_RESET_1Q):
-        return 1
+        gate_data = stim.gate_data(op_name)
+        return 1, gate_data.produces_measurements, gate_data.is_reset
     if this_op_type in (CLIFFORD_2Q, JUST_MEASURE_2Q):
-        return 2
-    return None
+        gate_data = stim.gate_data(op_name)
+        return 2, gate_data.produces_measurements, gate_data.is_reset
+    # Basis-suffixed rule keys parse as `[MS](XYZ)+(_DAG)?` — look up the underlying PP gate
+    # (``MPP`` / ``SPP`` / ``SPP_DAG``) for the measurement/reset flags.
+    match = _BASIS_SUFFIXED_RULE_KEY.fullmatch(op_name)
+    if match is None:
+        return None
+    prefix, basis, dag = match.groups()
+    gate_data = stim.gate_data(f"{prefix}PP{dag or ''}")
+    return len(basis), gate_data.produces_measurements, gate_data.is_reset
 
 
 def _validate_rule_for_arity(
@@ -1265,10 +1372,22 @@ def _validate_rule_for_arity(
         raise ValueError(
             f"{context}: `after` has arity {rule.after.num_qubits}; expected {num_qubits}"
         )
-    if rule.readout_error and not can_measure:
+    if rule.readout_error is not None and not can_measure:
         raise ValueError(f"{context}: `readout_error` is only valid on measurement gates")
-    if rule.reset_error and not can_reset:
+    if rule.reset_error is not None and not can_reset:
         raise ValueError(f"{context}: `reset_error` is only valid on reset gates")
+
+
+def _validate_custom_rule(rule: NoiseRule, op: stim.CircuitInstruction) -> None:
+    """Reject a ``rule_func`` result that is incompatible with the gate application ``op``."""
+    num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
+    _validate_rule_for_arity(
+        rule,
+        num_qubits,
+        context=f"rule_func returned a rule for {op.name!r}",
+        can_measure=op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS,
+        can_reset=op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS,
+    )
 
 
 def _as_noise_rule(error: NoiseRule | float | None, default_channel: str) -> NoiseRule | None:
@@ -1472,7 +1591,11 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
 
 
 def _iter_moments_and_repeat_blocks(
-    circuit: stim.Circuit, immune_qubits: frozenset[int], immune_op_tag: str
+    circuit: stim.Circuit,
+    immune_qubits: frozenset[int],
+    immune_op_tag: str,
+    *,
+    force_split: bool = False,
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
     """Splits a circuit into moments and some operations into pieces.
 
@@ -1483,6 +1606,10 @@ def _iter_moments_and_repeat_blocks(
         circuit: The circuit to split into moments.
         immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
+        force_split: If True, decompose every broadcast gate into its individual applications
+            (one target for one-qubit gates, one pair for two-qubit gates) even when no qubit is
+            immune.  Used when a ``rule_func`` is present so the callback is consulted once
+            per gate application.
 
     Yields:
         Lists of operations corresponding to one moment in the circuit, with any problematic
@@ -1504,13 +1631,19 @@ def _iter_moments_and_repeat_blocks(
                 yield current_moment
                 current_moment = []
         else:
-            current_moment.extend(_split_targets_if_needed(op, immune_qubits, immune_op_tag))
+            current_moment.extend(
+                _split_targets_if_needed(op, immune_qubits, immune_op_tag, force_split=force_split)
+            )
     if current_moment:
         yield current_moment
 
 
 def _split_targets_if_needed(
-    op: stim.CircuitInstruction, immune_qubits: frozenset[int], immune_op_tag: str
+    op: stim.CircuitInstruction,
+    immune_qubits: frozenset[int],
+    immune_op_tag: str,
+    *,
+    force_split: bool = False,
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits operations into pieces as needed.
 
@@ -1521,6 +1654,8 @@ def _split_targets_if_needed(
         op: The circuit instruction to potentially split.
         immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
+        force_split: If True, always decompose broadcast one- and two-qubit gates into individual
+            applications, regardless of immunity.
 
     Yields:
         Circuit instructions, potentially split into smaller pieces.
@@ -1529,17 +1664,25 @@ def _split_targets_if_needed(
     # Two-qubit ops (both Clifford CX/CZ/... and joint measurements MXX/MYY/MZZ) split per-pair
     # via _split_targets_clifford_2q so partial-immunity decisions happen at the pair level.
     if this_op_type in (CLIFFORD_2Q, JUST_MEASURE_2Q):
-        yield from _split_targets_clifford_2q(op, immune_qubits, immune_op_tag)
+        yield from _split_targets_clifford_2q(
+            op, immune_qubits, immune_op_tag, force_split=force_split
+        )
     elif this_op_type == CLIFFORD_PP or this_op_type == JUST_MEASURE_PP:
         yield from _split_targets_pp(op)
     elif this_op_type in (NOISE, ANNOTATION):
         yield op
     else:
-        yield from _split_targets_clifford_1q(op, immune_qubits, immune_op_tag)
+        yield from _split_targets_clifford_1q(
+            op, immune_qubits, immune_op_tag, force_split=force_split
+        )
 
 
 def _split_targets_clifford_1q(
-    op: stim.CircuitInstruction, immune_qubits: frozenset[int], immune_op_tag: str
+    op: stim.CircuitInstruction,
+    immune_qubits: frozenset[int],
+    immune_op_tag: str,
+    *,
+    force_split: bool = False,
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits single-qubit Clifford operations when immune qubits are present.
 
@@ -1547,11 +1690,12 @@ def _split_targets_clifford_1q(
         op: The single-qubit Clifford operation to split.
         immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
+        force_split: If True, split into individual single-target operations unconditionally.
 
     Yields:
         Circuit instructions split into individual single-target operations.
     """
-    if immune_qubits or immune_op_tag in op.tag:
+    if force_split or immune_qubits or immune_op_tag in op.tag:
         args = op.gate_args_copy()
         for target in op.targets_copy():
             yield stim.CircuitInstruction(op.name, [target], args, tag=op.tag)
@@ -1560,7 +1704,11 @@ def _split_targets_clifford_1q(
 
 
 def _split_targets_clifford_2q(
-    op: stim.CircuitInstruction, immune_qubits: frozenset[int], immune_op_tag: str
+    op: stim.CircuitInstruction,
+    immune_qubits: frozenset[int],
+    immune_op_tag: str,
+    *,
+    force_split: bool = False,
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits two-qubit operations into individual gate pairs.
 
@@ -1571,6 +1719,7 @@ def _split_targets_clifford_2q(
         op: The two-qubit operation to split.
         immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
+        force_split: If True, split into individual two-qubit gate pairs unconditionally.
 
     Yields:
         Circuit instructions split into individual two-qubit gate operations.
@@ -1578,7 +1727,8 @@ def _split_targets_clifford_2q(
     assert op_type(op.name) in (CLIFFORD_2Q, JUST_MEASURE_2Q)
     targets = op.targets_copy()
     if (
-        immune_qubits
+        force_split
+        or immune_qubits
         or immune_op_tag in op.tag
         or any(target.is_measurement_record_target for target in targets)
     ):
