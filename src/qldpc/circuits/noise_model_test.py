@@ -507,17 +507,17 @@ def test_noise_rule_func() -> None:
     bad_readout = circuits.NoiseModel(
         noise_rule_func=lambda op: circuits.NoiseRule(readout_error=0.1)
     )
-    with pytest.raises(ValueError, match="readout_error for 'H'"):
+    with pytest.raises(ValueError, match="rule for 'H'.*readout_error.*measurement gates"):
         bad_readout.noisy_circuit(stim.Circuit("H 0"))
     bad_reset = circuits.NoiseModel(noise_rule_func=lambda op: circuits.NoiseRule(reset_error=0.1))
-    with pytest.raises(ValueError, match="reset_error for 'H'"):
+    with pytest.raises(ValueError, match="rule for 'H'.*reset_error.*reset gates"):
         bad_reset.noisy_circuit(stim.Circuit("H 0"))
 
     # A returned rule's `after` arity must match the gate application's qubit count.
     bad_arity = circuits.NoiseModel(
         noise_rule_func=lambda op: circuits.NoiseRule(after={"DEPOLARIZE1": 0.1})
     )
-    with pytest.raises(ValueError, match="`after` arity 1 for 'CX' \\(2-qubit application\\)"):
+    with pytest.raises(ValueError, match="rule for 'CX'.*`after` has arity 1"):
         bad_arity.noisy_circuit(stim.Circuit("CX 0 1"))
 
     # SXYZ can be used as a `rules` key just like MXYZ.
@@ -764,13 +764,16 @@ def test_clifford_nq_error_errors() -> None:
             circuits.NoiseRule(after={name: 0.01})
 
     # Pairwise `after` broadcast entries (DEPOLARIZE2, ...) applied to a wrong-arity gate raise
-    # at construction time via `_validate_rule_for_arity`, and at emission time for
-    # variable-arity ops like MPP.
+    # at construction time via `_validate_rule_for_arity`, both for fixed-arity gate names and
+    # for basis-suffixed rule keys ("MXYZ" is arity 3 — a DEPOLARIZE2 `after` is caught up front).
     with pytest.raises(ValueError, match="arity 2; expected 1"):
         circuits.NoiseModel(rules={"H": circuits.NoiseRule(after={"DEPOLARIZE2": 0.01})})
+    with pytest.raises(ValueError, match="arity 2; expected 3"):
+        circuits.NoiseModel(rules={"MXYZ": circuits.NoiseRule(after={"DEPOLARIZE2": 0.01})})
+    # Bare "MPP" / "SPP" remain variable-arity; wrong-arity `after` is caught at emission.
     with pytest.raises(ValueError, match="expects a multiple of 2 qubits"):
         circuits.NoiseModel(
-            rules={"MXYZ": circuits.NoiseRule(after={"DEPOLARIZE2": 0.01})}
+            rules={"MPP": circuits.NoiseRule(after={"DEPOLARIZE2": 0.01})}
         ).noisy_circuit(stim.Circuit("MPP X0*Y1*Z2"))
 
     # readout_error / reset_error are rejected on rules for gates that can't measure/reset.
