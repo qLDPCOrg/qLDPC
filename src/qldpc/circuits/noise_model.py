@@ -1090,41 +1090,6 @@ def _is_approx_in_unit_interval(value: float, *, atol: float = _ABSOLUTE_ERROR_T
     return -atol <= value <= 1 + atol
 
 
-def _is_uniform_depolarizing(args: list[float], *, atol: float = _ABSOLUTE_ERROR_TOLERANCE) -> bool:
-    """Return True if all ``args`` are equal (up to ``atol``) and non-zero.
-
-    Detects a ``PauliChannel.depolarizing(k, p)`` shape at emit time so it can be written as
-    ``DEPOLARIZE{k}(p)`` instead of ``PAULI_CHANNEL_{k}(p/n, ..., p/n)``.
-    """
-    return bool(args) and args[0] > 0 and all(abs(x - args[0]) <= atol for x in args[1:])
-
-
-def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
-    """Return the compact stim ``(name, args)`` for a 1-qubit Pauli-channel probability vector.
-
-    Emits ``DEPOLARIZE1(p)`` when the three probabilities are equal and non-zero, or
-    ``{X,Y,Z}_ERROR(p)`` when exactly one is non-zero, else falls back to ``PAULI_CHANNEL_1``.
-    """
-    if _is_uniform_depolarizing(args):
-        return "DEPOLARIZE1", [sum(args)]
-    nonzero_positions = [i for i, x in enumerate(args) if x > 0]
-    if len(nonzero_positions) == 1:
-        (i,) = nonzero_positions
-        return f"{_PAULI_CHANNEL_1_ORDER[i]}_ERROR", [args[i]]
-    return "PAULI_CHANNEL_1", args
-
-
-def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
-    """Return the compact stim ``(name, args)`` for a 2-qubit Pauli-channel probability vector.
-
-    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls
-    back to ``PAULI_CHANNEL_2``.
-    """
-    if _is_uniform_depolarizing(args):
-        return "DEPOLARIZE2", [sum(args)]
-    return "PAULI_CHANNEL_2", args
-
-
 def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
     """Return the names by which ``op`` can be matched in ``rules`` and ``rule_func``.
 
@@ -1227,6 +1192,41 @@ def _append_pauli_channel(
                 break
             circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [prob / remaining], tag=tag)
         remaining -= prob
+
+
+def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
+    """Return the compact stim ``(name, args)`` for a 1-qubit Pauli-channel probability vector.
+
+    Emits ``DEPOLARIZE1(p)`` when the three probabilities are equal and non-zero, or
+    ``{X,Y,Z}_ERROR(p)`` when exactly one is non-zero, else falls back to ``PAULI_CHANNEL_1``.
+    """
+    if _is_uniform_depolarizing(args):
+        return "DEPOLARIZE1", [sum(args)]
+    nonzero_positions = [i for i, x in enumerate(args) if x > 0]
+    if len(nonzero_positions) == 1:
+        (i,) = nonzero_positions
+        return f"{_PAULI_CHANNEL_1_ORDER[i]}_ERROR", [args[i]]
+    return "PAULI_CHANNEL_1", args
+
+
+def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
+    """Return the compact stim ``(name, args)`` for a 2-qubit Pauli-channel probability vector.
+
+    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls
+    back to ``PAULI_CHANNEL_2``.
+    """
+    if _is_uniform_depolarizing(args):
+        return "DEPOLARIZE2", [sum(args)]
+    return "PAULI_CHANNEL_2", args
+
+
+def _is_uniform_depolarizing(args: list[float], *, atol: float = _ABSOLUTE_ERROR_TOLERANCE) -> bool:
+    """Return True if all ``args`` are equal (up to ``atol``) and non-zero.
+
+    Detects a ``PauliChannel.depolarizing(k, p)`` shape at emit time so it can be written as
+    ``DEPOLARIZE{k}(p)`` instead of ``PAULI_CHANNEL_{k}(p/n, ..., p/n)``.
+    """
+    return bool(args) and args[0] > 0 and all(abs(x - args[0]) <= atol for x in args[1:])
 
 
 def _pauli_string_to_targets(string: str, qubit_targets: list[int]) -> list[stim.GateTarget]:
