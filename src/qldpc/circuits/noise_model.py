@@ -453,11 +453,9 @@ class NoiseRule:
                     can shift indices used by ``DETECTOR`` / ``rec[-k]`` — the caller is responsible
                     for making sure those indices remain consistent.
                 - ``Mapping[str, float | Iterable[float]]``: syntactic sugar.  A single-entry
-                    mapping over a pure-Pauli broadcast noise (e.g., ``X_ERROR``, ``DEPOLARIZE2``)
-                    is converted to the equivalent ``PauliChannel``; everything else (such as
-                    heralded noise) is converted to a ``stim.Circuit`` fragment.
-                    ``CORRELATED_ERROR`` and ``ELSE_CORRELATED_ERROR`` are not accepted here — pass
-                    a ``stim.Circuit`` instead.
+                    mapping from ``DEPOLARIZE[12]``, ``PAULI_CHANNEL_[12]``, or ``[XYZ]_ERROR`` to
+                    appropriate gate arguments is converted to the equivalent ``PauliChannel``.
+                    Everything else is converted into a ``stim.Circuit``.
             readout_error: The probability that a measurement result is reported incorrectly.  Only
                 allowed for operations that produce measurement results.  ``None`` (the default)
                 means the field is unset (validation ignores it); ``0.0`` is an explicit no-op flip
@@ -1264,12 +1262,32 @@ def _validate_after_circuit(after_circuit: stim.Circuit) -> None:
             )
 
 
-# Names of the two Pauli-channel primitives, since their args are already the canonical
-# per-Pauli-string probability layout used by ``PauliChannel``.
-_PAULI_CHANNEL_MAPPING_NAMES: dict[str, tuple[str, ...]] = {
-    "PAULI_CHANNEL_1": _PAULI_CHANNEL_1_ORDER,
-    "PAULI_CHANNEL_2": _PAULI_CHANNEL_2_ORDER,
-}
+def _single_entry_pauli_channel(name: str, args: tuple[float, ...]) -> PauliChannel | None:
+    """Return the ``PauliChannel`` equivalent of a single Mapping-form entry, else ``None``.
+
+    Recognizes the Pauli-representable stim noise primitives: ``X_ERROR`` / ``Y_ERROR`` /
+    ``Z_ERROR`` (single Pauli), ``DEPOLARIZE1`` / ``DEPOLARIZE2`` (uniform), and
+    ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` (per-Pauli-string args).  Anything else
+    (``I_ERROR`` / ``II_ERROR``, ``HERALDED_ERASE``, ``HERALDED_PAULI_CHANNEL_1``, or a malformed
+    arg count) returns ``None`` so the caller falls back to a ``stim.Circuit`` fragment.
+    """
+    if len(args) == 1:
+        (p,) = args
+        if name == "X_ERROR":
+            return PauliChannel({"X": p})
+        if name == "Y_ERROR":
+            return PauliChannel({"Y": p})
+        if name == "Z_ERROR":
+            return PauliChannel({"Z": p})
+        if name == "DEPOLARIZE1":
+            return PauliChannel.depolarizing(1, p)
+        if name == "DEPOLARIZE2":
+            return PauliChannel.depolarizing(2, p)
+    if name == "PAULI_CHANNEL_1" and len(args) == 3:
+        return PauliChannel(dict(zip(_PAULI_CHANNEL_1_ORDER, args)))
+    if name == "PAULI_CHANNEL_2" and len(args) == 15:
+        return PauliChannel(dict(zip(_PAULI_CHANNEL_2_ORDER, args)))
+    return None
 
 
 def _mapping_after_to_channel_or_circuit(
@@ -1277,21 +1295,25 @@ def _mapping_after_to_channel_or_circuit(
 ) -> PauliChannel | stim.Circuit:
     """Convert a Mapping-form ``after`` to a ``PauliChannel`` if possible, else a stim.Circuit.
 
-    A single-entry mapping whose channel name is ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` — the
-    two stim primitives that already spell out per-Pauli-string probabilities — is exactly a
-    ``PauliChannel``.  Every other Mapping-form input (``X_ERROR``, ``DEPOLARIZE1``,
-    ``HERALDED_ERASE``, multi-entry mappings, …) round-trips into a stim.Circuit fragment on
-    qubits ``[0, k)``, where ``k`` is 2 if any 2-qubit-broadcast entry is present and 1
-    otherwise.  Multi-entry Mappings intentionally do NOT merge into a joint ``PauliChannel``:
-    users writing ``{"X_ERROR": p, "Z_ERROR": q}`` expect two independent noise ops (which
-    compose stochastically, with ``P(Y) = p·q``) — merging would silently give ``P(Y) = 0``.
+    A single-entry mapping whose name is one of the Pauli-representable stim noise primitives
+    (``X_ERROR``, ``Y_ERROR``, ``Z_ERROR``, ``DEPOLARIZE1``, ``DEPOLARIZE2``, ``PAULI_CHANNEL_1``,
+    ``PAULI_CHANNEL_2``) is converted to the equivalent ``PauliChannel`` — preserving the
+    Pauli-channel structure so downstream
+    ``PauliChannel.conditioned_on`` can project it under partial immunity.
+
+    Every other input — heralded / measurement-producing noise (``HERALDED_ERASE`` et al.),
+    single-entry mappings with wrong arg counts, or multi-entry mappings — round-trips into a
+    stim.Circuit fragment on qubits ``[0, k)``, where ``k`` is 2 if any 2-qubit-broadcast entry
+    is present and 1 otherwise.  Multi-entry mappings intentionally do NOT merge into a joint
+    ``PauliChannel``: users writing ``{"X_ERROR": p, "Z_ERROR": q}`` expect two independent noise
+    ops (which compose stochastically, with ``P(Y) = p·q``) — merging would silently give
+    ``P(Y) = 0``.
     """
     if len(mapping) == 1:
         [(name, args)] = mapping.items()
-        if name in _PAULI_CHANNEL_MAPPING_NAMES:
-            strings = _PAULI_CHANNEL_MAPPING_NAMES[name]
-            if len(args) == len(strings):
-                return PauliChannel(dict(zip(strings, args)))
+        channel = _single_entry_pauli_channel(name, args)
+        if channel is not None:
+            return channel
     arity = 2 if any(op in BROADCAST_2Q_NOISE for op in mapping) else 1
     fragment = stim.Circuit()
     for name, args in mapping.items():

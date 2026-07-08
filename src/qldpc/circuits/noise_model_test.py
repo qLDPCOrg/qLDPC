@@ -109,6 +109,39 @@ def test_gate_errors() -> None:
         noise_model.noisy_circuit(circuit, insert_ticks=False)
 
 
+def test_mapping_form_single_entry_pauli_channel() -> None:
+    """Single-entry Mapping-form ``after`` entries with Pauli-representable names are auto-
+    converted to ``PauliChannel``; anything else (heralded noise, mismatched arg counts,
+    multi-entry mappings) falls back to a ``stim.Circuit`` fragment."""
+
+    # Single-Pauli errors → single-string PauliChannel.
+    assert circuits.NoiseRule(after={"Y_ERROR": 0.1}).after == circuits.PauliChannel({"Y": 0.1})
+    assert circuits.NoiseRule(after={"Z_ERROR": 0.1}).after == circuits.PauliChannel({"Z": 0.1})
+
+    # DEPOLARIZE1 / DEPOLARIZE2 → uniform PauliChannel of the right arity.
+    r = circuits.NoiseRule(after={"DEPOLARIZE1": 0.3})
+    assert r.after == circuits.PauliChannel.depolarizing(1, 0.3)
+    r = circuits.NoiseRule(after={"DEPOLARIZE2": 0.15})
+    assert r.after == circuits.PauliChannel.depolarizing(2, 0.15)
+
+    # I_ERROR / II_ERROR are identity noise — not recognized as Pauli-channel-representable, so
+    # they fall through to the stim.Circuit fragment path.
+    assert isinstance(circuits.NoiseRule(after={"I_ERROR": 0.1}).after, stim.Circuit)
+    assert isinstance(circuits.NoiseRule(after={"II_ERROR": 0.1}).after, stim.Circuit)
+
+    # PAULI_CHANNEL_2 with the correct 15 args → 2-qubit PauliChannel.
+    r = circuits.NoiseRule(after={"PAULI_CHANNEL_2": [0.001] * 15})
+    assert isinstance(r.after, circuits.PauliChannel) and r.after.num_qubits == 2
+
+    # HERALDED_ERASE (not Pauli-representable) → stim.Circuit fragment.
+    assert isinstance(circuits.NoiseRule(after={"HERALDED_ERASE": 0.05}).after, stim.Circuit)
+
+    # PAULI_CHANNEL_1 with wrong argcount → stim.Circuit fragment (stim itself rejects at
+    # circuit-build time; the conversion path simply declines to auto-wrap).
+    with pytest.raises(Exception):
+        circuits.NoiseRule(after={"PAULI_CHANNEL_1": (0.1,)})
+
+
 def test_idle_errors() -> None:
     """Add idling errors to a circuit."""
 
