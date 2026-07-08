@@ -54,9 +54,9 @@ Noise on multi-qubit Clifford gates (SPP / MPP):
     )
 
     # Multi-qubit MPP / SPP gates receive ordinary readout_error / clifford_nq_error.  To assign
-    # per-basis rules, key on the standardized name that measurement / SPP gates are dispatched
-    # under: "M<paulis>" for MPP (e.g. "MXYZ" for `MPP X*Y*Z`, "MXX" for `MPP X*X`) and
-    # "S<paulis>" / "S<paulis>_DAG" for SPP (e.g. "SXYZ" for `SPP X*Y*Z`).
+    # per-basis rules, use "M<paulis>" for MPP (e.g. "MXYZ" for `MPP X*Y*Z`, "MXX" for `MPP X*X`)
+    # and "S<paulis>" / "S<paulis>_DAG" for SPP / SPP_DAG (e.g. "SXYZ" for `SPP X*Y*Z`, "SXY_DAG"
+    # for `SPP_DAG X*Y`).
     noise_model = NoiseModel(
         readout_error=1e-3,                                # default readout flip probability
         rules={
@@ -70,14 +70,14 @@ Per-gate-application noise via a callback (`noise_rule_func`):
 
     from qldpc.circuits.noise_model import NoiseModel, NoiseRule
 
-    # `noise_rule_func` is consulted per individual gate application and takes top priority over
-    # every other argument (`rules` included).  Broadcast gates (e.g. `H 0 1 2`, `CX 0 1 2 3`) are
-    # decomposed into their individual applications first, so `targets` holds exactly one
-    # application's worth of stim.GateTargets.  For each application the callback is consulted with
-    # every alias of the gate — first the standardized name (`"MXYZ"` for `MPP X*Y*Z`, `"MZ"` for
-    # `M`, ...), then all stim aliases (`"M"` and `"MZ"`; `"CX"`, `"CNOT"`, `"ZCX"`; ...) —
-    # stopping at the first non-`None` return.  Returning `None` for every alias falls back to
-    # the ordinary rules.
+    # `noise_rule_func` takes top priority over every other rule in a `NoiseModel`.  Broadcast gates
+    # (e.g. `H 0 1 2`, `CX 0 1 2 3`) are decomposed into individual gates before being passed to
+    # `noise_rule_func`, so the `targets` argument holds exactly one gates's worth of
+    # stim.GateTargets (e.g., two targets for a two-qubit gate, or one Pauli-product for Pauli
+    # product gate).  For each application of a gate, the callback is consulted with every name the
+    # gate is known by — the basis-suffixed name for MPP/SPP (e.g. `"MXYZ"` for `MPP X*Y*Z`,
+    # `"SXY_DAG"` for `SPP_DAG X*Y`) followed by every stim alias, stopping at the first non-`None`
+    # return. Returning `None` for every name falls back to the ordinary `NoiseModel` rules.
     def bad_qubit_noise(
         gate: str, tag: str, targets: Sequence[stim.GateTarget]
     ) -> NoiseRule | None:
@@ -571,7 +571,10 @@ class NoiseRule:
 
         if self.reset_error:
             assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
-            error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
+            # Reset gate `RB` (or `MRB`) prepares/resets in Pauli basis B ∈ {X, Y, Z}; a "wrong"
+            # reset is modeled by an error that anticommutes with B.  Z-basis (canonical `R`/`MR`)
+            # and Y-basis (`RY`/`MRY`) resets get X_ERROR; X-basis (`RX`/`MRX`) gets Z_ERROR.
+            error_name = "Z_ERROR" if op.name.endswith("X") else "X_ERROR"
             error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
             noise_after.append(error_op)
 
@@ -691,23 +694,23 @@ class NoiseModel:
                 is a name for the gate (see below), ``tag`` is the instruction's tag, and
                 ``targets`` is the sequence of ``stim.GateTarget`` for a single gate application
                 — and must return a ``NoiseRule`` (used verbatim for that application) or
-                ``None`` (fall back to the next name / then ``rules`` / then the arity-based
+                ``None`` (fall back to the next name, then ``rules``, then the arity-based
                 defaults).  Any gate that stim broadcasts across multiple independent applications
                 (e.g. ``H 0 1 2`` or ``CX 0 1 2 3``) is decomposed into its individual applications
                 before the callback is invoked, so ``targets`` holds exactly one application's
                 worth of targets: one for a one-qubit gate, two for a two-qubit gate, and one
                 Pauli product's targets for an SPP/MPP.  For each application the callback is
-                consulted with every name the gate is known by, in order: first the standardized
-                name used by ``rules`` (e.g. ``"MZ"`` for ``M``, ``"MXYZ"`` for ``MPP X*Y*Z``,
-                ``"SXY_DAG"`` for ``SPP_DAG X*Y``), then every stim alias (e.g. ``"M"`` / ``"MZ"``;
-                ``"CX"`` / ``"CNOT"`` / ``"ZCX"``; ``"H"`` / ``"H_XZ"``).  The first non-``None``
-                return wins; if every call returns ``None`` we fall back to ``rules``.  The
-                callback is consulted only for genuine noisy gates (unitary Cliffords,
-                measurements, and resets) that are not classically controlled; it does not affect
-                annotations, pure-noise instructions, or idling errors.  Noise-immune qubits/tags
-                still take precedence, so a returned rule is subject to the same immunity handling
-                as any other rule.  A returned ``NoiseRule`` must have (a) an ``after`` channel
-                whose arity matches the gate application's qubit count and (b) ``readout_error``
+                consulted with every name the gate is known by (see ``_get_gate_aliases``): the
+                basis-suffixed name first for ``MPP`` / ``SPP`` / ``SPP_DAG`` (``"MXYZ"`` for
+                ``MPP X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``), then stim's aliases (which
+                start with the canonical name — e.g. ``("M", "MZ")``, ``("CX", "CNOT", "ZCX")``,
+                ``("H", "H_XZ")``).  The first non-``None`` return wins.  The callback is
+                consulted only for genuine noisy gates (unitary Cliffords, measurements, and
+                resets) that are not classically controlled; it does not affect annotations,
+                pure-noise instructions, or idling errors.  Noise-immune qubits/tags still take
+                precedence, so a returned rule is subject to the same immunity handling as any
+                other rule.  A returned ``NoiseRule`` must have (a) an ``after`` channel whose
+                arity matches the gate application's qubit count and (b) ``readout_error``
                 (``reset_error``) only if the gate produces measurements (resets).
         """
         self.rules = rules
@@ -816,24 +819,20 @@ class NoiseModel:
         if op_type(op.name) == ANNOTATION or _involves_classical_bits(op):
             return None
 
+        gate_aliases = _get_gate_aliases(op)
+
         if self.noise_rule_func is not None and op_type(op.name) in GATE_OP_TYPES:
             targets = [target for target in op.targets_copy() if not target.is_combiner]
-            seen: set[str] = set()
-            for name in (_get_standardized_name(op), *_get_gate_aliases(op.name)):
-                if name in seen:
-                    continue
-                seen.add(name)
+            for name in gate_aliases:
                 rule = self.noise_rule_func(name, op.tag, targets)
                 if rule is not None:
                     _validate_custom_rule(rule, op, len(targets))
                     return rule
 
         if self.rules is not None:
-            rule = self.rules.get(_get_standardized_name(op)) or self.rules.get(
-                op.name
-            )  # allows for an MPP rule, but first checks for rules such as MXY
-            if rule is not None:
-                return rule
+            for name in gate_aliases:
+                if rule := self.rules.get(name):
+                    return rule
 
         this_op_type = op_type(op.name)
         if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
@@ -1113,47 +1112,44 @@ def _is_approx_in_unit_interval(value: float, *, tol: float = _APPROX_TOL) -> bo
 
 
 @functools.cache
-def _get_gate_aliases(op_name: str) -> tuple[str, ...]:
-    """Return the stim-recognized aliases of a gate name (empty if the name is unknown)."""
+def _stim_aliases(op_name: str) -> tuple[str, ...]:
+    """Cached stim aliases of a gate name (empty if the name is unknown).  Stim orders these with
+    the canonical name first, so ``_stim_aliases(name)[0] == stim.gate_data(name).name``."""
     try:
         return tuple(stim.gate_data(op_name).aliases)
     except (IndexError, ValueError):
         return ()
 
 
-def _get_standardized_name(op: stim.CircuitInstruction) -> str:
-    """Stardardized name of a circuit instruction.
+def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
+    """Names by which ``op`` can be matched in ``rules`` and ``noise_rule_func``.
 
-    The primary function of this method is to disambiguate the basis of measurement and reset gates.
-
-    Args:
-        op:_name The name of the circuit instruction that we need to standardize.
-
-    Returns:
-        str: The standardized name.
+    For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for
+    ``MPP X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than
+    the raw ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases.
+    For every other gate, this is just stim's alias list, which begins with the canonical name
+    (so ``M`` / ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield
+    ``("CX", "CNOT", "ZCX")``, etc.).
     """
-    op_name = op.name
-    if op_name == "M" or op_name == "R" or op_name == "MR":
-        return op_name + "Z"
-
-    if op_name == "MPP" or op_name == "SPP" or op_name == "SPP_DAG":
-        prefix, suffix = ("S", "_DAG") if op_name == "SPP_DAG" else (op_name[0], "")
-        targets = op.targets_copy()
-        assert all(target.is_combiner for target in targets[1::2]), (
-            f"{op_name} must be split into a single Pauli product before standardization"
+    aliases = _stim_aliases(op.name)
+    if op.name not in ("MPP", "SPP", "SPP_DAG"):
+        return aliases
+    prefix, suffix = ("S", "_DAG") if op.name == "SPP_DAG" else (op.name[0], "")
+    targets = op.targets_copy()
+    if not all(target.is_combiner for target in targets[1::2]):
+        raise ValueError(
+            f"{op.name} must be split into a single Pauli product before alias enumeration"
         )
-        basis = ""
-        for target in targets[::2]:
-            if target.is_x_target:
-                basis += "X"
-            elif target.is_y_target:
-                basis += "Y"
-            else:
-                assert target.is_z_target
-                basis += "Z"
-        return prefix + basis + suffix
-
-    return op_name
+    basis = ""
+    for target in targets[::2]:
+        if target.is_x_target:
+            basis += "X"
+        elif target.is_y_target:
+            basis += "Y"
+        else:
+            assert target.is_z_target
+            basis += "Z"
+    return (prefix + basis + suffix, *aliases)
 
 
 _PAULI_CHANNEL_1_ORDER = ("X", "Y", "Z")

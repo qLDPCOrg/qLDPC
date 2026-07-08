@@ -514,8 +514,9 @@ def test_noise_rule_func() -> None:
 
     noise_model = circuits.NoiseModel(noise_rule_func=record)
     noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nM 0\nCX rec[-1] 1"))
-    # Standardized name is tried first; record returns non-None so we stop there.
-    assert consulted == ["MZ"]
+    # The canonical name ("M" — first stim alias) is tried first; record returns non-None so
+    # we stop there rather than continuing to "MZ".
+    assert consulted == ["M"]
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.
     bad_readout = circuits.NoiseModel(
