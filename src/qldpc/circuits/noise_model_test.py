@@ -137,15 +137,16 @@ def test_idle_errors() -> None:
     noise_model = circuits.NoiseModel(
         readout_error=0.1, idle_error=idle_rule, additional_error_waiting_for_m_or_r=m_or_r_rule
     )
-    # The Mapping-form ``{"X_ERROR": 0.2, "Z_ERROR": 0.3}`` is auto-merged into a single
-    # ``PauliChannel({"X": 0.2, "Z": 0.3})``, emitted as one ``PAULI_CHANNEL_1(0.2, 0, 0.3)``.
     noisy_circuit = stim.Circuit("""
         H 0 1 2
         H 1
         M(0.1) 0
         DETECTOR rec[-1]
         PAULI_CHANNEL_1(0.05, 0.0, 0.1) 2
-        PAULI_CHANNEL_1(0.2, 0, 0.3) 1 2
+        X_ERROR(0.2) 1
+        Z_ERROR(0.3) 1
+        X_ERROR(0.2) 2
+        Z_ERROR(0.3) 2
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
@@ -747,6 +748,20 @@ def test_clifford_nq_error() -> None:
     assert circuits.NoiseModel(clifford_nq_error={3: 0.0}).clifford_nq_error == {}
     assert circuits.NoiseModel(clifford_nq_error={3: circuits.NoiseRule()}).clifford_nq_error == {}
 
+    # clifford_1q_error / clifford_2q_error also accept a PauliChannel directly, or a raw
+    # Pauli-string Mapping (auto-wrapped as PauliChannel).
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error=circuits.PauliChannel({"X": 0.01}),
+        clifford_2q_error={"XY": 0.02},
+    )
+    assert _circuits_are_equivalent(
+        stim.Circuit(
+            "H 0\nX_ERROR(0.01) 0\nTICK\nCX 0 1\nPAULI_CHANNEL_2("
+            + "0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0) 0 1"
+        ),
+        noise_model.noisy_circuit(stim.Circuit("H 0\nCX 0 1")),
+    )
+
 
 def test_clifford_nq_error_errors() -> None:
     """Validation errors around clifford_nq_error and related rules."""
@@ -975,32 +990,6 @@ def test_noise_rule_errors() -> None:
         circuits.NoiseRule(after={"X_ERROR": 0.01}, readout_error=0.1)
     with pytest.raises(ValueError, match="after.*readout_error"):
         circuits.NoiseRule(after=circuits.PauliChannel({"X": 0.01}), reset_error=0.1)
-
-
-def test_mapping_form_pauli_channel_conversion() -> None:
-    """Mapping-form ``after`` entries are auto-converted to ``PauliChannel`` when possible.
-
-    All the shapes below cover the recognized Pauli-representable noise names in
-    ``_mapping_entry_to_pauli_probs`` (Y_ERROR / I_ERROR / II_ERROR / PAULI_CHANNEL_2 /
-    non-convertible HERALDED_ERASE fallback), plus the stim.Circuit fallback path.
-    """
-    # Y_ERROR alone becomes a single-Pauli PauliChannel.
-    rule = circuits.NoiseRule(after={"Y_ERROR": 0.1})
-    assert rule.after == circuits.PauliChannel({"Y": 0.1})
-
-    # I_ERROR is identity noise; the converter yields an empty PauliChannel (trivial rule).
-    assert not bool(circuits.NoiseRule(after={"I_ERROR": 0.1}))
-    # II_ERROR is 2-qubit identity noise; also trivial.
-    assert not bool(circuits.NoiseRule(after={"II_ERROR": 0.1}))
-
-    # A Mapping-form PAULI_CHANNEL_2 round-trips into a PauliChannel of arity 2.
-    args = [0.001] * 15
-    rule = circuits.NoiseRule(after={"PAULI_CHANNEL_2": args})
-    assert isinstance(rule.after, circuits.PauliChannel) and rule.after.num_qubits == 2
-
-    # A non-Pauli-representable name (HERALDED_ERASE) falls back to a stim.Circuit fragment.
-    rule = circuits.NoiseRule(after={"HERALDED_ERASE": 0.05})
-    assert isinstance(rule.after, stim.Circuit)
 
 
 def test_after_stim_circuit_form() -> None:
