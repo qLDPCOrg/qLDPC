@@ -399,8 +399,8 @@ def test_pauli_product_cliffords() -> None:
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
 
-def test_noise_rule_func() -> None:
-    """A user-provided noise_rule_func assigns noise per gate application, with top priority."""
+def test_rule_func() -> None:
+    """A user-provided rule_func assigns noise per gate application, with top priority."""
 
     # Broadcast gates are decomposed into individual applications before the callback is invoked;
     # it is consulted once per application (per qubit for a 1q gate).  Returning None falls back to
@@ -414,7 +414,7 @@ def test_noise_rule_func() -> None:
             return circuits.NoiseRule(after={"X_ERROR": 0.5})
         return None
 
-    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, noise_rule_func=per_qubit)
+    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, rule_func=per_qubit)
     circuit = stim.Circuit("H 0 1 2")
     noisy_circuit = stim.Circuit("""
         H 0 1 2
@@ -433,7 +433,7 @@ def test_noise_rule_func() -> None:
             return circuits.NoiseRule(after={"DEPOLARIZE2": 0.9})
         return None
 
-    noise_model = circuits.NoiseModel(clifford_2q_error=0.1, noise_rule_func=per_pair)
+    noise_model = circuits.NoiseModel(clifford_2q_error=0.1, rule_func=per_pair)
     circuit = stim.Circuit("CX 0 1 2 3")
     noisy_circuit = stim.Circuit("""
         CX 0 1 2 3
@@ -448,7 +448,7 @@ def test_noise_rule_func() -> None:
         return circuits.NoiseRule(after={"DEPOLARIZE1": 0.7})
 
     noise_model = circuits.NoiseModel(
-        rules={"H": circuits.NoiseRule(after={"DEPOLARIZE1": 0.2})}, noise_rule_func=tagged
+        rules={"H": circuits.NoiseRule(after={"DEPOLARIZE1": 0.2})}, rule_func=tagged
     )
     circuit = stim.Circuit()
     circuit.append("H", [0], tag="mytag")
@@ -467,7 +467,7 @@ def test_noise_rule_func() -> None:
             return circuits.NoiseRule(readout_error=0.25)
         return None
 
-    noise_model = circuits.NoiseModel(readout_error=0.01, noise_rule_func=measure_reset)
+    noise_model = circuits.NoiseModel(readout_error=0.01, rule_func=measure_reset)
     circuit = stim.Circuit("R 2\nTICK\nM 0 1")
     noisy_circuit = stim.Circuit("""
         R 2
@@ -482,7 +482,7 @@ def test_noise_rule_func() -> None:
     def kick(op: stim.CircuitInstruction) -> circuits.NoiseRule:
         return circuits.NoiseRule(after={"DEPOLARIZE1": 0.5})
 
-    noise_model = circuits.NoiseModel(noise_rule_func=kick)
+    noise_model = circuits.NoiseModel(rule_func=kick)
     circuit = stim.Circuit("H 0 1")
     noisy_circuit = stim.Circuit("""
         H 0 1
@@ -499,23 +499,21 @@ def test_noise_rule_func() -> None:
         consulted.append(op.name)
         return circuits.NoiseRule(after={"X_ERROR": 0.5})
 
-    noise_model = circuits.NoiseModel(noise_rule_func=record)
+    noise_model = circuits.NoiseModel(rule_func=record)
     noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nM 0\nCX rec[-1] 1"))
     assert consulted == ["M"]
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.
-    bad_readout = circuits.NoiseModel(
-        noise_rule_func=lambda op: circuits.NoiseRule(readout_error=0.1)
-    )
+    bad_readout = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(readout_error=0.1))
     with pytest.raises(ValueError, match="rule for 'H'.*readout_error.*measurement gates"):
         bad_readout.noisy_circuit(stim.Circuit("H 0"))
-    bad_reset = circuits.NoiseModel(noise_rule_func=lambda op: circuits.NoiseRule(reset_error=0.1))
+    bad_reset = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(reset_error=0.1))
     with pytest.raises(ValueError, match="rule for 'H'.*reset_error.*reset gates"):
         bad_reset.noisy_circuit(stim.Circuit("H 0"))
 
     # A returned rule's `after` arity must match the gate application's qubit count.
     bad_arity = circuits.NoiseModel(
-        noise_rule_func=lambda op: circuits.NoiseRule(after={"DEPOLARIZE1": 0.1})
+        rule_func=lambda op: circuits.NoiseRule(after={"DEPOLARIZE1": 0.1})
     )
     with pytest.raises(ValueError, match="rule for 'CX'.*`after` has arity 1"):
         bad_arity.noisy_circuit(stim.Circuit("CX 0 1"))
@@ -528,9 +526,7 @@ def test_noise_rule_func() -> None:
     assert "PAULI_CHANNEL_3" in str(noisy_circuit) or "CORRELATED_ERROR" in str(noisy_circuit)
 
     # The recursive noisy_circuit call inside a REPEAT block forwards immune_op_tag.
-    kick_all = circuits.NoiseModel(
-        noise_rule_func=lambda op: circuits.NoiseRule(after={"X_ERROR": 0.5})
-    )
+    kick_all = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(after={"X_ERROR": 0.5}))
     body = stim.Circuit()
     body.append("H", [0], tag="__skip__")
     body.append("TICK")
@@ -538,6 +534,24 @@ def test_noise_rule_func() -> None:
     repeat_circuit.append(stim.CircuitRepeatBlock(repeat_count=2, body=body))
     result = kick_all.noisy_circuit(repeat_circuit, immune_op_tag="__skip__")
     assert "X_ERROR" not in str(result)
+
+    # Calling `get_noise_rule` directly with an unsplit multi-product MPP/SPP is a caller-side
+    # invariant violation; alias enumeration raises rather than silently returning a garbled name.
+    multi_product_mpp = stim.CircuitInstruction(
+        "MPP",
+        [
+            stim.target_x(0),
+            stim.target_combiner(),
+            stim.target_y(1),
+            stim.target_z(2),
+            stim.target_combiner(),
+            stim.target_x(3),
+        ],
+    )
+    with pytest.raises(ValueError, match="MPP must be split into a single Pauli product"):
+        circuits.NoiseModel(rules={"MXY": circuits.NoiseRule(readout_error=0.1)}).get_noise_rule(
+            multi_product_mpp
+        )
 
 
 def test_pauli_channel_class() -> None:
@@ -1019,7 +1033,7 @@ def test_trivial_noise() -> None:
     assert not bool(circuits.NoiseModel())
     assert bool(circuits.NoiseRule(readout_error=0.1))
     assert bool(circuits.NoiseModel(readout_error=0.1))
-    assert bool(circuits.NoiseModel(noise_rule_func=lambda op: None))
+    assert bool(circuits.NoiseModel(rule_func=lambda op: None))
 
 
 def test_tsim_circuits() -> None:
