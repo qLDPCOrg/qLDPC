@@ -613,22 +613,9 @@ class NoiseRule:
             )
 
         if isinstance(self.after, PauliChannel):
-            if k == 1:
-                # stim natively broadcasts PAULI_CHANNEL_1 across all targets.
-                probs = self.after.probabilities
-                args = [probs.get(p, 0.0) for p in _PAULI_CHANNEL_1_ORDER]
-                if any(args):
-                    circuit.append("PAULI_CHANNEL_1", qubit_targets, args)
-            elif k == 2:
-                # stim natively broadcasts PAULI_CHANNEL_2 across pairs.
-                probs = self.after.probabilities
-                args = [probs.get(p, 0.0) for p in _PAULI_CHANNEL_2_ORDER]
-                if any(args):
-                    circuit.append("PAULI_CHANNEL_2", qubit_targets, args)
-            else:
-                # Higher-arity channels emit a CE chain per k-qubit gate.
-                for i in range(0, n_targets, k):
-                    _append_pauli_channel(circuit, self.after, qubit_targets[i : i + k])
+            # Emit once per k-qubit chunk.
+            for i in range(0, n_targets, k):
+                _append_pauli_channel(circuit, self.after, qubit_targets[i : i + k])
         else:
             # stim.Circuit escape hatch: apply the fragment verbatim to each k-qubit block, with
             # qubit indices remapped from [0, k) to the block's targets.
@@ -735,17 +722,17 @@ class NoiseModel:
         merged_nq_input: dict[int, NoiseRule | PauliChannel | Mapping[str, float] | float] = (
             dict(clifford_nq_error) if clifford_nq_error else {}
         )
-        rule_1q = _as_noise_rule(clifford_1q_error, "DEPOLARIZE1")
-        rule_2q = _as_noise_rule(clifford_2q_error, "DEPOLARIZE2")
+        rule_1q = _as_noise_rule(clifford_1q_error, 1)
+        rule_2q = _as_noise_rule(clifford_2q_error, 2)
         if rule_1q is not None:
             merged_nq_input[1] = rule_1q
         if rule_2q is not None:
             merged_nq_input[2] = rule_2q
         self.clifford_nq_error = _normalize_clifford_nq_error(merged_nq_input)
 
-        self.idle_error = _as_noise_rule(idle_error, "DEPOLARIZE1")
+        self.idle_error = _as_noise_rule(idle_error, 1)
         self.additional_error_waiting_for_m_or_r = _as_noise_rule(
-            additional_error_waiting_for_m_or_r, "DEPOLARIZE1"
+            additional_error_waiting_for_m_or_r, 1
         )
         # Idle noise is applied per-qubit, so anything with a declared arity != 1 has no natural
         # interpretation here.  Validate the declared arity BEFORE trivializing so a user typo like
@@ -1093,12 +1080,47 @@ class SI1000NoiseModel(NoiseModel):
 # Floating-point tolerance used for probability comparisons throughout this module.  Small enough
 # to catch real bugs, large enough to absorb the ~O(n * eps) drift that accumulates when summing
 # or renormalizing many probabilities.
-_APPROX_TOL = 1e-9
+_ABSOLUTE_ERROR_TOLERANCE = 1e-9
 
 
-def _is_approx_in_unit_interval(value: float, *, tol: float = _APPROX_TOL) -> bool:
+def _is_approx_in_unit_interval(value: float, *, atol: float = _ABSOLUTE_ERROR_TOLERANCE) -> bool:
     """Return True if ``value`` is in [0, 1], up to floating-point tolerance ``tol``."""
-    return -tol <= value <= 1 + tol
+    return -atol <= value <= 1 + atol
+
+
+def _is_uniform_depolarizing(args: list[float], *, atol: float = _ABSOLUTE_ERROR_TOLERANCE) -> bool:
+    """Return True if all ``args`` are equal (up to ``atol``) and non-zero.
+
+    Detects a ``PauliChannel.depolarizing(k, p)`` shape at emit time so it can be written as
+    ``DEPOLARIZE{k}(p)`` instead of ``PAULI_CHANNEL_{k}(p/n, ..., p/n)``.
+    """
+    return bool(args) and args[0] > 0 and all(abs(x - args[0]) <= atol for x in args[1:])
+
+
+def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
+    """Return the compact stim ``(name, args)`` for a 1-qubit Pauli-channel probability vector.
+
+    Emits ``DEPOLARIZE1(p)`` when the three probabilities are equal and non-zero, or
+    ``{X,Y,Z}_ERROR(p)`` when exactly one is non-zero, else falls back to ``PAULI_CHANNEL_1``.
+    """
+    if _is_uniform_depolarizing(args):
+        return "DEPOLARIZE1", [sum(args)]
+    nonzero_positions = [i for i, x in enumerate(args) if x > 0]
+    if len(nonzero_positions) == 1:
+        (i,) = nonzero_positions
+        return f"{_PAULI_CHANNEL_1_ORDER[i]}_ERROR", [args[i]]
+    return "PAULI_CHANNEL_1", args
+
+
+def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
+    """Return the compact stim ``(name, args)`` for a 2-qubit Pauli-channel probability vector.
+
+    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls
+    back to ``PAULI_CHANNEL_2``.
+    """
+    if _is_uniform_depolarizing(args):
+        return "DEPOLARIZE2", [sum(args)]
+    return "PAULI_CHANNEL_2", args
 
 
 def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
@@ -1171,12 +1193,9 @@ def _append_pauli_channel(
         probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
         for string, prob in channel.probabilities.items():
             probs_1q[string[active_positions[0]]] = prob
-        circuit.append(
-            "PAULI_CHANNEL_1",
-            active_qubits,
-            [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER],
-            tag=tag,
-        )
+        args = [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
+        name, name_args = _pauli_channel_1_shortcut(args)
+        circuit.append(name, active_qubits, name_args, tag=tag)
         return
 
     if len(active_positions) == 2:
@@ -1184,12 +1203,9 @@ def _append_pauli_channel(
         probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
         for string, prob in channel.probabilities.items():
             probs_2q[string[pos0] + string[pos1]] = prob
-        circuit.append(
-            "PAULI_CHANNEL_2",
-            active_qubits,
-            [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER],
-            tag=tag,
-        )
+        args = [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
+        name, name_args = _pauli_channel_2_shortcut(args)
+        circuit.append(name, active_qubits, name_args, tag=tag)
         return
 
     remaining = 1.0
@@ -1242,33 +1258,64 @@ def _validate_after_circuit(after_circuit: stim.Circuit) -> None:
             )
 
 
-# Names of the two Pauli-channel primitives, since their args are already the canonical
-# per-Pauli-string probability layout used by ``PauliChannel``.
-_PAULI_CHANNEL_MAPPING_NAMES: dict[str, tuple[str, ...]] = {
-    "PAULI_CHANNEL_1": _PAULI_CHANNEL_1_ORDER,
-    "PAULI_CHANNEL_2": _PAULI_CHANNEL_2_ORDER,
-}
+def _mapping_entry_to_pauli_probs(
+    name: str, args: tuple[float, ...]
+) -> tuple[int, dict[str, float]] | None:
+    """Return ``(arity, {Pauli string: probability})`` if this Mapping-form noise entry is
+    representable as a ``PauliChannel``, else ``None``.
+
+    Recognized shapes: ``X_ERROR`` / ``Y_ERROR`` / ``Z_ERROR`` (single Pauli), ``I_ERROR`` /
+    ``II_ERROR`` (identity noise — non-observable, so contributes no non-I terms),
+    ``DEPOLARIZE1`` / ``DEPOLARIZE2`` (uniform), ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2``
+    (per-string args).  Anything else (``HERALDED_ERASE``, ``HERALDED_PAULI_CHANNEL_1``, or a
+    malformed arg count) returns ``None`` so the caller falls back to a ``stim.Circuit``
+    fragment.
+    """
+    if len(args) == 1:
+        (p,) = args
+        if name == "X_ERROR":
+            return 1, {"X": p}
+        if name == "Y_ERROR":
+            return 1, {"Y": p}
+        if name == "Z_ERROR":
+            return 1, {"Z": p}
+        if name == "I_ERROR":
+            return 1, {}
+        if name == "II_ERROR":
+            return 2, {}
+        if name == "DEPOLARIZE1":
+            return 1, {pauli: p / 3 for pauli in _PAULI_CHANNEL_1_ORDER}
+        if name == "DEPOLARIZE2":
+            return 2, {pair: p / 15 for pair in _PAULI_CHANNEL_2_ORDER}
+    if name == "PAULI_CHANNEL_1" and len(args) == 3:
+        return 1, dict(zip(_PAULI_CHANNEL_1_ORDER, args))
+    if name == "PAULI_CHANNEL_2" and len(args) == 15:
+        return 2, dict(zip(_PAULI_CHANNEL_2_ORDER, args))
+    return None
 
 
 def _mapping_after_to_channel_or_circuit(
     mapping: dict[str, tuple[float, ...]],
 ) -> PauliChannel | stim.Circuit:
-    """Convert a Mapping-form ``after`` to a ``PauliChannel`` if possible, else a stim.Circuit.
+    """Convert a Mapping-form ``after`` to a ``PauliChannel`` when every entry is Pauli-
+    representable (X_ERROR, Y_ERROR, Z_ERROR, I_ERROR, II_ERROR, DEPOLARIZE1, DEPOLARIZE2,
+    PAULI_CHANNEL_1, PAULI_CHANNEL_2 — merged per-Pauli-string when multiple entries share an
+    arity), otherwise into a ``stim.Circuit`` fragment.
 
-    A single-entry mapping whose channel name is ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` — the
-    two stim primitives that already spell out per-Pauli-string probabilities — is exactly a
-    ``PauliChannel``.  Other Mapping-form entries (``X_ERROR``, ``DEPOLARIZE1``,
-    ``HERALDED_ERASE``, mixed entries, …) round-trip into a stim.Circuit fragment on qubits
-    ``[0, k)``, where ``k`` is 2 if any 2-qubit-broadcast entry is present and 1 otherwise.  The
-    emitter treats broadcast-friendly fragments (all instructions in ``BROADCAST_{1,2}Q_NOISE``)
-    as native broadcasts, preserving instruction identity (``DEPOLARIZE1`` stays ``DEPOLARIZE1``).
+    Using a ``PauliChannel`` where possible lets ``PauliChannel.conditioned_on`` project the
+    channel under partial immunity in ``_rule_with_immunity``; only the escape-hatch shapes
+    (``HERALDED_ERASE`` et al., or mismatched arg counts) fall back to the opaque fragment form.
     """
-    if len(mapping) == 1:
-        [(name, args)] = mapping.items()
-        if name in _PAULI_CHANNEL_MAPPING_NAMES:
-            strings = _PAULI_CHANNEL_MAPPING_NAMES[name]
-            if len(args) == len(strings):
-                return PauliChannel(dict(zip(strings, args)))
+    conversions = [_mapping_entry_to_pauli_probs(name, args) for name, args in mapping.items()]
+    if all(c is not None for c in conversions):
+        arities = {arity for arity, _ in conversions}  # type: ignore[misc]
+        if len(arities) == 1:
+            (arity,) = arities
+            merged: dict[str, float] = {}
+            for _, probs in conversions:  # type: ignore[misc]
+                for pauli_str, p in probs.items():
+                    merged[pauli_str] = merged.get(pauli_str, 0.0) + p
+            return PauliChannel(merged, num_qubits=arity)
     arity = 2 if any(op in BROADCAST_2Q_NOISE for op in mapping) else 1
     fragment = stim.Circuit()
     for name, args in mapping.items():
@@ -1390,8 +1437,13 @@ def _validate_custom_rule(rule: NoiseRule, op: stim.CircuitInstruction) -> None:
     )
 
 
-def _as_noise_rule(error: NoiseRule | float | None, default_channel: str) -> NoiseRule | None:
+def _as_noise_rule(error: NoiseRule | float | None, default_arity: int) -> NoiseRule | None:
     """Normalize a noise-error argument to a NoiseRule (or None if the input is ``None``).
+
+    A float scalar is interpreted as a uniform depolarizing channel of the given ``default_arity``.
+    Using a ``PauliChannel`` (rather than a Mapping-form ``DEPOLARIZE{n}`` fragment) preserves the
+    Pauli-channel structure so downstream ``PauliChannel.conditioned_on`` can project it under
+    partial immunity.
 
     Does NOT trivialize an empty NoiseRule to ``None`` — callers must run their guard checks on
     the declared shape (e.g. arity) BEFORE trivializing, so that user typos like
@@ -1402,7 +1454,7 @@ def _as_noise_rule(error: NoiseRule | float | None, default_channel: str) -> Noi
         return error
     if error is None:
         return None
-    return NoiseRule(after={default_channel: error})
+    return NoiseRule(after=PauliChannel.depolarizing(default_arity, error))
 
 
 def _normalize_clifford_nq_error(
@@ -1442,12 +1494,7 @@ def _normalize_clifford_nq_error(
                 raise ValueError(f"clifford_nq_error[{weight}]={entry} is not in [0, 1]")
             if entry == 0:
                 continue
-            if weight == 1:
-                rule = NoiseRule(after={"DEPOLARIZE1": entry})
-            elif weight == 2:
-                rule = NoiseRule(after={"DEPOLARIZE2": entry})
-            else:
-                rule = NoiseRule(after=PauliChannel.depolarizing(weight, entry))
+            rule = NoiseRule(after=PauliChannel.depolarizing(weight, entry))
         _validate_rule_for_arity(rule, weight, f"clifford_nq_error[{weight}]")
         if rule:
             result[weight] = rule
