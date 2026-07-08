@@ -651,13 +651,11 @@ class NoiseModel:
             clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.
                 A float ``p`` is a uniform 1-qubit depolarizing channel of total error probability
                 ``p``.  Also accepts a 1-qubit ``PauliChannel``, a raw ``Mapping[str, float]`` of
-                Pauli-string probabilities (auto-wrapped as ``PauliChannel``), or a full
-                ``NoiseRule``.
+                Pauli-string probabilities (wrapped into a ``PauliChannel``), or a ``NoiseRule``.
             clifford_2q_error: Default noise applied after each two-qubit unitary Clifford gate.
                 A float ``p`` is a uniform 2-qubit depolarizing channel of total error probability
                 ``p``.  Also accepts a 2-qubit ``PauliChannel``, a raw ``Mapping[str, float]`` of
-                Pauli-string probabilities (auto-wrapped as ``PauliChannel``), or a full
-                ``NoiseRule``.
+                Pauli-string probabilities (wrapped into a ``PauliChannel``), or a ``NoiseRule``.
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of resetting qubits to the wrong state.
             clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied
