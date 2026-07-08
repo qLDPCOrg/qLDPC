@@ -1110,7 +1110,7 @@ def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
     the raw ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases.
     For every other gate, this is just stim's alias list, which begins with the canonical name
     (so ``M`` / ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield
-    ``("CX", "CNOT", "ZCX")``, etc.).
+    ``("CNOT", "CX", "ZCX")``, etc.).
     """
     aliases = _stim_aliases(op.name)
     if op.name not in ("MPP", "SPP", "SPP_DAG"):
