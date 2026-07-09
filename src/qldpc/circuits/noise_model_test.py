@@ -205,8 +205,13 @@ def test_immunity() -> None:
 
 
 def test_immune_qubits() -> None:
-    """immune_qubits + immunize_gates: partial-immune noise is dropped per broadcast atom under
-    immunize_gates=True (the default); immunize_gates=False raises on any nontrivial case."""
+    """immune_qubits + immunize_gates: noise on partially-immune gates and measurements.
+
+    Under immunize_gates=True (the default), partial-immune noise is dropped per broadcast atom.
+    Under immunize_gates=False, PauliChannel after-noise is conditioned via
+    ``PauliChannel.conditioned_on``; stim.Circuit fragments and readout_error on partial immunity
+    raise instead.
+    """
 
     # 2-qubit broadcast pairs: (0, 1) both immune → drop, (1, 2) partial → drop under True /
     # condition to DEPOLARIZE1(p/5) on surviving qubit under False, (3, 4) neither immune → keep
@@ -907,20 +912,9 @@ def test_noise_rule_errors() -> None:
     # get_noise_rule requires pre-split (single Pauli product) MPP/SPP ops.
     with pytest.raises(ValueError, match="split into a single Pauli product"):
         # Two products: X0*Y1 and Z2*X3 — targets at odd indices include non-combiners (Z2, X3).
-        multi = stim.CircuitInstruction(
-            "MPP",
-            [
-                stim.target_x(0),
-                stim.target_combiner(),
-                stim.target_y(1),
-                stim.target_z(2),
-                stim.target_combiner(),
-                stim.target_x(3),
-            ],
-        )
-        circuits.NoiseModel(rules={"MXY": circuits.NoiseRule(readout_error=0.1)}).get_noise_rule(
-            multi
-        )
+        mpp = stim.Circuit("MPP X0*Y1 Z2*X3")[0]
+        rule = circuits.NoiseRule(readout_error=0.1)
+        circuits.NoiseModel(rules={"MXY": rule}).get_noise_rule(mpp)
 
     # NoiseRule cannot combine `after`-noise with readout_error / reset_error — those should be
     # separate rules (or handled via NoiseModel-level defaults).
@@ -931,9 +925,11 @@ def test_noise_rule_errors() -> None:
 
 
 def test_after_stim_circuit_form() -> None:
-    """`after=stim.Circuit(...)`: fragments emit verbatim per k-qubit block (with remapped
-    qubits); immunity filters per instruction under immunize_gates=True and raises on any
-    partial-immunity case under immunize_gates=False."""
+    """`after=stim.Circuit(...)`: verbatim-fragment emission and immunity filtering.
+
+    Fragments emit verbatim per k-qubit block (with remapped qubits).  Immunity drops the whole
+    fragment under immunize_gates=True and raises under immunize_gates=False.
+    """
 
     # Multiple noise ops in one fragment (combining DEPOLARIZE2 + PAULI_CHANNEL_1 — not expressible
     # as a single PauliChannel — is the canonical reason to use the stim.Circuit escape hatch).

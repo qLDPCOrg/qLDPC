@@ -277,12 +277,14 @@ class PauliChannel:
             self._num_qubits = num_qubits if num_qubits is not None else 0
             self._probabilities: Mapping[str, float] = types.MappingProxyType({})
             return
+
         first_key = next(iter(probabilities))
         derived_num_qubits = len(first_key)
         if num_qubits is not None and num_qubits != derived_num_qubits:
             raise ValueError(
                 f"num_qubits={num_qubits} disagrees with Pauli string length {derived_num_qubits}"
             )
+
         identity = "I" * derived_num_qubits
         for string, prob in probabilities.items():
             if len(string) != derived_num_qubits:
@@ -297,15 +299,14 @@ class PauliChannel:
                 raise ValueError(f"Identity string {string!r} is implicit and must not be listed")
             if not (0 <= prob <= 1):
                 raise ValueError(f"Probability {prob} for {string!r} is not in [0, 1]")
+
         # Use math.fsum for a precise sum, and allow a small tolerance so a mathematically-
         # normalized input isn't rejected due to per-value rounding (e.g.,
         # ``[p_i / sum(p_i) for p_i in ...]`` can accumulate to ~1 + O(n * eps)).
         total = math.fsum(probabilities.values())
         if not _is_approx_in_unit_interval(total):
             raise ValueError(f"Sum of Pauli channel probabilities {total} is not in [0, 1]")
-        # Drop zero-probability entries and canonicalize insertion order (lex over Pauli strings)
-        # so `__eq__`-equal channels produce identical noise chains at emission time.  Store
-        # behind a MappingProxyType so the object is effectively immutable (needed for hashing).
+
         nonzero = {
             string: probabilities[string]
             for string in sorted(probabilities)
