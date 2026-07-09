@@ -81,13 +81,32 @@ def with_remapped_qubits(
             new_circuit.append(block)
 
         else:
-            new_targets = [_remap_target(target, qubit_map) for target in op.targets_copy()]
+            new_targets = [remap_qubit_target(target, qubit_map) for target in op.targets_copy()]
             new_op = stim.CircuitInstruction(
                 name=op.name, targets=new_targets, gate_args=op.gate_args_copy(), tag=op.tag
             )
             new_circuit.append(new_op)
 
     return new_circuit
+
+
+def remap_qubit_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
+    """Remap the qubit addressed by a stim.GateTarget, if any."""
+    if target.qubit_value is None:
+        return target
+
+    new_qubit_value = qubit_map.get(target.qubit_value, target.qubit_value)
+    if target.is_x_target or target.is_z_target or target.is_y_target:
+        return stim.target_pauli(
+            new_qubit_value,
+            target.pauli_type,
+            invert=target.is_inverted_result_target,
+        )
+
+    if target.is_inverted_result_target:
+        return stim.target_inv(new_qubit_value)
+
+    return stim.GateTarget(new_qubit_value)
 
 
 def get_pauli_product_measurements(
@@ -123,22 +142,3 @@ def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
                 measurements[target.value] for target in instruction.targets_copy()
             }
     return sorted(set(measurements) - addressed_measurements)
-
-
-def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
-    """Remap the qubit addressed by a stim.GateTarget, if any."""
-    if target.qubit_value is None:
-        return target
-
-    new_qubit_value = qubit_map.get(target.qubit_value, target.qubit_value)
-    if target.is_x_target or target.is_z_target or target.is_y_target:
-        return stim.target_pauli(
-            new_qubit_value,
-            target.pauli_type,
-            invert=target.is_inverted_result_target,
-        )
-
-    if target.is_inverted_result_target:
-        return stim.target_inv(new_qubit_value)
-
-    return stim.GateTarget(new_qubit_value)
