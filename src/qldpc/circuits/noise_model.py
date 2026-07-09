@@ -325,7 +325,7 @@ class PauliChannel:
         return self._probabilities
 
     def __bool__(self) -> bool:
-        """Is this channel nontrivial?  (Any zero-prob entries are already dropped in __init__.)"""
+        """Is this channel nontrivial?"""
         return bool(self._probabilities)
 
     def __eq__(self, other: object) -> bool:
@@ -334,22 +334,12 @@ class PauliChannel:
         return self._num_qubits == other._num_qubits and self._probabilities == other._probabilities
 
     def __hash__(self) -> int:
-        # Canonical order is guaranteed by __init__, so tuple(items()) is deterministic.
         return hash((self._num_qubits, tuple(self._probabilities.items())))
 
     def __repr__(self) -> str:
         if not self._probabilities and self._num_qubits:
             return f"PauliChannel({{}}, num_qubits={self._num_qubits})"
         return f"PauliChannel({dict(self._probabilities)!r})"
-
-    def __getstate__(self) -> tuple[int, dict[str, float]]:
-        """Support pickling.  ``types.MappingProxyType`` is not itself picklable."""
-        return self._num_qubits, dict(self._probabilities)
-
-    def __setstate__(self, state: tuple[int, dict[str, float]]) -> None:
-        num_qubits, probs = state
-        self._num_qubits = num_qubits
-        self._probabilities = types.MappingProxyType(probs)
 
     @staticmethod
     def depolarizing(num_qubits: int, probability: float) -> PauliChannel:
