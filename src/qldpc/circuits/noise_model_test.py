@@ -1101,6 +1101,10 @@ def test_noise_model_str() -> None:
         assert field in text
     assert "rule_func" not in text
 
+    # With no rule_func, __repr__ is the (eval-able) __str__.
+    assert repr(circuits.NoiseModel()) == "NoiseModel()"
+    assert repr(model) == text
+
 
 def test_noise_model_str_rule_func() -> None:
     """__str__ describes a user-provided rule_func by name, falling back to its type."""
@@ -1120,6 +1124,11 @@ def test_noise_model_str_rule_func() -> None:
     inst = circuits.NoiseModel(rule_func=_CallableRule())
     inst.noisy_circuit(circuit)
     assert "_CallableRule" in str(inst)
+
+    # A rule_func can't be reproduced faithfully, so __repr__ falls back to the default object repr
+    # (rather than the non-eval-able __str__).
+    assert repr(named) != str(named)
+    assert repr(named).startswith("<") and "NoiseModel object at " in repr(named)
 
 
 def _example_rule_func(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
