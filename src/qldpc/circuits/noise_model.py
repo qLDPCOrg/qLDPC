@@ -109,7 +109,6 @@ import functools
 import itertools
 import math
 import re
-import types
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, TypeVar
 
@@ -275,7 +274,7 @@ class PauliChannel:
             raise ValueError(f"num_qubits={num_qubits} must be >= 0")
         if not probabilities:
             self._num_qubits = num_qubits if num_qubits is not None else 0
-            self._probabilities: Mapping[str, float] = types.MappingProxyType({})
+            self._probabilities: dict[str, float] = {}
             return
 
         first_key = next(iter(probabilities))
@@ -313,7 +312,7 @@ class PauliChannel:
             if probabilities[string] > 0
         }
         self._num_qubits = derived_num_qubits
-        self._probabilities = types.MappingProxyType(nonzero)
+        self._probabilities = nonzero
 
     @property
     def num_qubits(self) -> int:
@@ -322,7 +321,7 @@ class PauliChannel:
 
     @property
     def probabilities(self) -> Mapping[str, float]:
-        """Read-only view of the non-identity Pauli-string → probability mapping."""
+        """Non-identity Pauli-string → probability mapping."""
         return self._probabilities
 
     def __bool__(self) -> bool:
@@ -475,6 +474,16 @@ class NoiseRule:
         """Is this noise rule nontrivial?"""
         return bool(self.after) or bool(self.readout_error) or bool(self.reset_error)
 
+    def __repr__(self) -> str:
+        args = []
+        if self.after is not None:
+            args.append(f"after={self.after!r}")
+        if self.readout_error is not None:
+            args.append(f"readout_error={self.readout_error!r}")
+        if self.reset_error is not None:
+            args.append(f"reset_error={self.reset_error!r}")
+        return f"NoiseRule({', '.join(args)})"
+
     def noisy_operation(
         self, op: stim.CircuitInstruction
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
@@ -539,23 +548,23 @@ class NoiseRule:
         n_targets = len(qubit_targets)
         if not self.after:
             return
-        k = self.after.num_qubits
-        if n_targets % k != 0:
+        num_qubits = self.after.num_qubits
+        if n_targets % num_qubits != 0:
             raise ValueError(
-                f"This NoiseRule expects a multiple of {k} qubits but {context} has "
+                f"This NoiseRule expects a multiple of {num_qubits} qubits but {context} has "
                 f"{n_targets} qubit targets"
             )
 
         if isinstance(self.after, PauliChannel):
             # Emit once per k-qubit chunk.
-            for i in range(0, n_targets, k):
-                _append_pauli_channel(circuit, self.after, qubit_targets[i : i + k])
+            for i in range(0, n_targets, num_qubits):
+                _append_pauli_channel(circuit, self.after, qubit_targets[i : i + num_qubits])
         else:
             # stim.Circuit escape hatch: apply the fragment verbatim to each k-qubit block, with
             # qubit indices remapped from [0, k) to the block's targets.
             assert isinstance(self.after, stim.Circuit)
-            for i in range(0, n_targets, k):
-                circuit += with_remapped_qubits(self.after, qubit_targets[i : i + k])
+            for i in range(0, n_targets, num_qubits):
+                circuit += with_remapped_qubits(self.after, qubit_targets[i : i + num_qubits])
 
 
 class NoiseModel:
@@ -706,6 +715,36 @@ class NoiseModel:
             or bool(self.idle_error)
             or bool(self.additional_error_waiting_for_m_or_r)
         )
+
+    def __str__(self) -> str:
+        """A constructor-like description listing only the set fields.
+
+        When ``rule_func`` is ``None`` this reads like a faithful ``repr`` — an eval-able
+        ``NoiseModel(...)`` call.  A ``rule_func`` cannot be reproduced faithfully, so it is instead
+        described by its qualified name and module (falling back to its type name for callables
+        without a ``__qualname__``, e.g. a callable object or ``functools.partial``), which makes
+        the result non-eval-able.
+        """
+        args = []
+        if self.clifford_nq_error:
+            args.append(f"clifford_nq_error={self.clifford_nq_error!r}")
+        if self.readout_error:
+            args.append(f"readout_error={self.readout_error!r}")
+        if self.reset_error:
+            args.append(f"reset_error={self.reset_error!r}")
+        if self.idle_error is not None:
+            args.append(f"idle_error={self.idle_error!r}")
+        if self.additional_error_waiting_for_m_or_r is not None:
+            args.append(
+                f"additional_error_waiting_for_m_or_r={self.additional_error_waiting_for_m_or_r!r}"
+            )
+        if self.rules:
+            args.append(f"rules={dict(self.rules)!r}")
+        if self.rule_func is not None:
+            func = self.rule_func
+            name = getattr(func, "__qualname__", None) or type(func).__name__
+            args.append(f"rule_func=<{getattr(func, '__module__', '?')}.{name}>")
+        return f"NoiseModel({', '.join(args)})"
 
     def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
         """Determines the noise rule to apply to a specific operation.
