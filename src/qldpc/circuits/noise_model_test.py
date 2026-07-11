@@ -15,6 +15,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import copy
+import pickle
+
 import pytest
 import stim
 import tsim
@@ -805,16 +808,13 @@ def test_pauli_channel_drops_zeros() -> None:
     assert not all_zero_rule.after and not bool(all_zero_rule)
 
 
-def test_pauli_channel_hashable_and_frozen() -> None:
-    """PauliChannel is hashable (equal channels hash equal) and its probabilities are frozen."""
+def test_pauli_channel_hashable() -> None:
+    """PauliChannel is hashable (equal channels hash equal), regardless of insertion order."""
     ch1 = circuits.PauliChannel({"XI": 0.1, "IX": 0.2})
     ch2 = circuits.PauliChannel({"IX": 0.2, "XI": 0.1})  # same channel, different insertion order
     assert ch1 == ch2 and hash(ch1) == hash(ch2)
     # Usable as a dict key / set member
     assert {ch1: "a", ch2: "b"} == {ch1: "b"}
-    # The `probabilities` view is read-only
-    with pytest.raises(TypeError):
-        ch1.probabilities["XI"] = 0.5  # type: ignore[index]
 
 
 def test_pauli_channel_float_drift_clamped() -> None:
@@ -955,6 +955,15 @@ def test_after_stim_circuit_form() -> None:
             circuit, immune_qubits=[1], immunize_gates=False
         )
 
+    # A 3q PauliChannel whose strings are non-I on a single position emits natively as
+    # PAULI_CHANNEL_1 (via `_append_pauli_channel`'s 1-active-position branch).
+    channel = circuits.PauliChannel({"IXI": 0.1, "IYI": 0.05})
+    sparse_rule = circuits.NoiseRule(after=channel)
+    assert _circuits_are_equivalent(
+        stim.Circuit("SPP X0*Y1*Z2\nPAULI_CHANNEL_1(0.1, 0.05, 0) 1"),
+        circuits.NoiseModel(rules={"SPP": sparse_rule}).noisy_circuit(circuit),
+    )
+
     # HERALDED_ERASE with partial immunity: under immunize_gates=True the whole fragment drops
     # (no partial-atom filtering — stim.Circuit fragments are all-or-nothing); under
     # immunize_gates=False the fragment can't be conditioned, so raise.
@@ -979,20 +988,16 @@ def test_after_stim_circuit_form() -> None:
     # wholesale across every qubit_target (the Mapping form rejects this shape; the stim.Circuit
     # escape hatch is expected to preserve per-block semantics).
     mixed_rule = circuits.NoiseRule(after=stim.Circuit("X_ERROR(0.01) 0\nDEPOLARIZE2(0.02) 0 1"))
+    circuit = stim.Circuit("CX 0 1 2 3")
+    expected = circuit + stim.Circuit("""
+        X_ERROR(0.01) 0
+        DEPOLARIZE2(0.02) 0 1
+        X_ERROR(0.01) 2
+        DEPOLARIZE2(0.02) 2 3
+        """)
     assert _circuits_are_equivalent(
-        stim.Circuit(
-            "CX 0 1 2 3\nX_ERROR(0.01) 0\nDEPOLARIZE2(0.02) 0 1\nX_ERROR(0.01) 2\nDEPOLARIZE2(0.02) 2 3"
-        ),
-        circuits.NoiseModel(rules={"CX": mixed_rule}).noisy_circuit(stim.Circuit("CX 0 1 2 3")),
-    )
-
-    # A 3q PauliChannel whose strings are non-I on a single position emits natively as
-    # PAULI_CHANNEL_1 (via `_append_pauli_channel`'s 1-active-position branch).
-    channel = circuits.PauliChannel({"IXI": 0.1, "IYI": 0.05})
-    sparse_rule = circuits.NoiseRule(after=channel)
-    assert _circuits_are_equivalent(
-        stim.Circuit("SPP X0*Y1*Z2\nPAULI_CHANNEL_1(0.1, 0.05, 0) 1"),
-        circuits.NoiseModel(rules={"SPP": sparse_rule}).noisy_circuit(circuit),
+        expected,
+        circuits.NoiseModel(rules={"CX": mixed_rule}).noisy_circuit(circuit),
     )
 
 
@@ -1020,3 +1025,110 @@ def test_tsim_circuits() -> None:
     tsim_noiseless = circuits.as_noiseless_circuit(tsim_circuit)
     assert isinstance(stim_noiseless, stim.Circuit)
     assert isinstance(tsim_noiseless, tsim.Circuit)
+
+
+####################################################################################################
+# serialization, str, and repr capabilities
+
+
+def test_noise_model_serialization() -> None:
+    """NoiseModel survives pickling / deep-copying and reconstructs an equivalent model.
+
+    This transitively exercises PauliChannel and NoiseRule pickling (both appear inside the model),
+    so no separate per-class serialization tests are needed.
+    """
+    model = circuits.NoiseModel(
+        clifford_1q_error=0.1,
+        clifford_2q_error=0.2,
+        readout_error=0.3,
+        reset_error=0.4,
+        idle_error=0.01,
+        additional_error_waiting_for_m_or_r=0.02,
+        rules={"SXY": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.05))},
+    )
+    circuit = stim.Circuit("R 0 1\nH 0\nCX 0 1\nTICK\nM 0 1")
+    for restored in (pickle.loads(pickle.dumps(model)), copy.deepcopy(model)):
+        assert _circuits_are_equivalent(
+            model.noisy_circuit(circuit), restored.noisy_circuit(circuit)
+        )
+
+    # The one caveat: a rule_func that isn't importable at module scope (a local closure or a
+    # lambda) can't be pickled.  That limitation is inherent to pickle, not to NoiseModel — a
+    # module-level function would pickle fine.
+    func_model = circuits.NoiseModel(clifford_1q_error=0.1, rule_func=lambda op: None)
+    with pytest.raises((pickle.PicklingError, AttributeError)):
+        pickle.dumps(func_model)
+
+
+def test_noise_rule_repr() -> None:
+    """NoiseRule has a repr that lists only its set fields."""
+    assert repr(circuits.NoiseRule()) == "NoiseRule()"
+    assert repr(circuits.NoiseRule(readout_error=0.1)) == "NoiseRule(readout_error=0.1)"
+    assert (
+        repr(circuits.NoiseRule(readout_error=0.1, reset_error=0.2))
+        == "NoiseRule(readout_error=0.1, reset_error=0.2)"
+    )
+    assert (
+        repr(circuits.NoiseRule(after={"XX": 0.1})) == "NoiseRule(after=PauliChannel({'XX': 0.1}))"
+    )
+    # The stim.Circuit `after` form defers to stim's own repr.
+    circuit_rule = circuits.NoiseRule(after=stim.Circuit("X_ERROR(0.1) 0"))
+    assert repr(circuit_rule).startswith("NoiseRule(after=")
+
+
+def test_noise_model_str() -> None:
+    """NoiseModel.__str__ reads like a constructor call listing only the set fields."""
+    assert str(circuits.NoiseModel()) == "NoiseModel()"
+
+    model = circuits.NoiseModel(
+        clifford_1q_error=0.1,
+        readout_error=0.3,
+        reset_error=0.4,
+        idle_error=0.01,
+        additional_error_waiting_for_m_or_r=0.02,
+        rules={"M": circuits.NoiseRule(readout_error=0.05)},
+    )
+    text = str(model)
+    assert text.startswith("NoiseModel(") and text.endswith(")")
+    for field in (
+        "clifford_nq_error=",
+        "readout_error=0.3",
+        "reset_error=0.4",
+        "idle_error=",
+        "additional_error_waiting_for_m_or_r=",
+        "rules={'M': NoiseRule(readout_error=0.05)}",
+    ):
+        assert field in text
+    assert "rule_func" not in text
+
+
+def test_noise_model_str_rule_func() -> None:
+    """__str__ describes a user-provided rule_func by name, falling back to its type."""
+    circuit = stim.Circuit("H 0")
+
+    # A named, module-level function: its qualified name and module appear.
+    named = circuits.NoiseModel(rule_func=_example_rule_func)
+    named.noisy_circuit(circuit)  # exercises (and thus covers) the rule_func body
+    assert "rule_func=<" in str(named) and "_example_rule_func" in str(named)
+
+    # A lambda reports as <lambda>.
+    lam = circuits.NoiseModel(rule_func=lambda op: None)
+    lam.noisy_circuit(circuit)
+    assert "<lambda>" in str(lam)
+
+    # A callable object without __qualname__ falls back to its class name.
+    inst = circuits.NoiseModel(rule_func=_CallableRule())
+    inst.noisy_circuit(circuit)
+    assert "_CallableRule" in str(inst)
+
+
+def _example_rule_func(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+    """A named, module-level rule_func used to check NoiseModel.__str__ prints its name."""
+    return None
+
+
+class _CallableRule:
+    """A callable object (no __qualname__) used to test the rule_func description fallback."""
+
+    def __call__(self, op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+        return None

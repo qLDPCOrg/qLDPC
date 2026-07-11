@@ -136,9 +136,6 @@ class Record(Mapping[Hashable, list[int]]):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({dict(self.key_to_events)})"
 
-    def __str__(self) -> str:
-        return repr(self)
-
     def __len__(self) -> int:
         """The number of keys associated with events in this record."""
         return len(self.key_to_events)
