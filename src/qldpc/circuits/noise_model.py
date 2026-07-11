@@ -746,6 +746,11 @@ class NoiseModel:
             args.append(f"rule_func=<{getattr(func, '__module__', '?')}.{name}>")
         return f"NoiseModel({', '.join(args)})"
 
+    def __repr__(self) -> str:
+        if self.rule_func is None:
+            return str(self)
+        return super().__repr__()
+
     def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
         """Determines the noise rule to apply to a specific operation.
 
