@@ -294,17 +294,27 @@ def _get_logical_tableau_from_code_data(
         sector_l = slice(dimension)
         sector_g = slice(dimension, dimension + gauge_dimension)
         sector_s = slice(dimension + gauge_dimension, len(encoder))
-        x2x, x2z, z2x, z2z, *_ = decoded_tableau.to_numpy()
+        x2x, x2z, z2x, z2z, _, z_signs = decoded_tableau.to_numpy()
 
         # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
-        assert not np.any(z2x[:, sector_s])
-        assert not np.any(x2x[sector_l, sector_s])
-        assert not np.any(x2x[sector_g, sector_s])
+        ops_acquired_destabilizers = (
+            np.any(z2x[:, sector_s])
+            or np.any(x2x[sector_l, sector_s])
+            or np.any(x2x[sector_g, sector_s])
+        )
 
         # sanity check: gauge operators should not pick up logical factors
-        assert not np.any(x2x[sector_g, sector_l])
-        assert not np.any(x2z[sector_g, sector_l])
-        assert not np.any(z2x[sector_g, sector_l])
-        assert not np.any(z2z[sector_g, sector_l])
+        gauges_acquired_logicals = (
+            np.any(x2x[sector_g, sector_l])
+            or np.any(x2z[sector_g, sector_l])
+            or np.any(z2x[sector_g, sector_l])
+            or np.any(z2z[sector_g, sector_l])
+        )
+
+        # sanity check: no stabilizers get flipped
+        stabilizers_flipped = np.any(z_signs)
+
+        if ops_acquired_destabilizers or gauges_acquired_logicals or stabilizers_flipped:
+            raise ValueError("The provided physical circuit does not implement a logical operation")
 
     return logical_tableau

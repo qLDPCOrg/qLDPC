@@ -684,7 +684,7 @@ class ClassicalCode(AbstractCode):
         assert all(0 <= bit < len(self) for bit in bits)
         new_matrix = self.matrix.copy()
         for bit in sorted(bits, reverse=True):
-            nonzero_rows = np.where(new_matrix[:, bit])[0]
+            nonzero_rows = np.flatnonzero(new_matrix[:, bit])
             if nonzero_rows.size:
                 pivot_row, rows_to_reduce = nonzero_rows[0], nonzero_rows[1:]
                 if rows_to_reduce.size:

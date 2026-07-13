@@ -42,8 +42,8 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
                 size=code.dimension + code.gauge_dimension,
             )
             basis_prep = stim.Circuit()
-            basis_prep.append("H", np.where(bases != Pauli.Z)[0])
-            basis_prep.append("S", np.where(bases == Pauli.Y)[0])
+            basis_prep.append("H", np.flatnonzero(bases != Pauli.Z))
+            basis_prep.append("S", np.flatnonzero(bases == Pauli.Y))
             simulator.do(basis_prep)
 
         encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)

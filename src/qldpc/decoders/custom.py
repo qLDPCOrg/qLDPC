@@ -608,10 +608,10 @@ class GUFDecoder(Decoder):
         """Decode an error syndrome and return an inferred error."""
         max_weight = max_weight if max_weight is not None else self.default_max_weight
         syndrome = syndrome.view(self.code.field)
-        syndrome_bits = np.where(syndrome)[0]
+        syndrome_bits = np.flatnonzero(syndrome)
 
         # construct an "error set", within which we look for solutions to the decoding problem
-        error_set = set(Node(index, is_data=False) for index in syndrome_bits)
+        error_set = set(Node(int(index), is_data=False) for index in syndrome_bits)
         solutions = np.zeros((0, len(self.code)), dtype=int)
         last_error_set_size = 0
         while solutions.size == 0:

@@ -276,7 +276,7 @@ def _get_basis_memory_experiment_parts(
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
     check_support = code.get_matrix(basis)
     for kk, check_id in enumerate(basis_check_ids):
-        data_support = np.where(check_support[kk])[0]
+        data_support = np.flatnonzero(check_support[kk])
         readout.append(
             "DETECTOR",
             [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support]
