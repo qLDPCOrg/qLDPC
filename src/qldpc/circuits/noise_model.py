@@ -400,57 +400,71 @@ class PauliChannel:
         *,
         append_to: stim.Circuit | None = None,
         qubits: Iterable[int] | None = None,
+        simplify: bool = True,
         tag: str = "",
     ) -> stim.Circuit:
-        """Convert this PauliChannel into a circuit, optionally appending to a provided circuit.
+        """Convert this PauliChannel into a circuit.
 
-        Channels that address only 1 or 2 qubits nontrivially emit a native ``PAULI_CHANNEL_1`` /
-        ``PAULI_CHANNEL_2``; those addressing 3+ qubits emit a ``CORRELATED_ERROR`` followed by one
-        ``ELSE_CORRELATED_ERROR`` per remaining Pauli string, with conditional probabilities
+        If provided a circuit, append to that circuit in-place and return it.
+
+        With ``simplify=True`` (the default) the channel is emitted in the simplest form its
+        probabilities permit: channels that address only one or two qubits nontrivially become
+        ``PAULI_CHANNEL_[12]`` / ``DEPOLARIZE[12]`` / ``[XYZ]_ERROR``.
+
+        With ``simplify=False`` the channel is always emitted as a ``CORRELATED_ERROR`` followed by
+        one ``ELSE_CORRELATED_ERROR`` per remaining Pauli string, with conditional probabilities
         renormalized so each string's unconditional firing probability matches this channel.
 
         Args:
-            append_to: The circuit to append to; if ``None`` (default), a new one is created.
+            append_to: The circuit to append to; if ``None`` (default), create a new circuit.
             qubits: The qubit targets, one per position of the channel; if ``None`` (default),
-                ``range(num_qubits)`` is used.
+                set to ``range(self.num_qubits)``.
+            simplify: If True (the default), emit the channel in the simplest equivalent form.  If
+                False, always emit a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain.
             tag: An optional tag applied to every emitted instruction.
 
         Returns:
             The circuit that the noise instructions were appended to.
+
+        Raises:
+            ValueError: If the number of ``qubits`` does not match the arity of the channel.
         """
         circuit = stim.Circuit() if append_to is None else append_to
         qubits = list(range(self._num_qubits)) if qubits is None else list(qubits)
-
-        # identify qubits that are addressed nontrivially by this PauliChannel
-        active_positions = sorted(
-            {i for string in self.probabilities for i, pauli in enumerate(string) if pauli != "I"}
-        )
-        if not active_positions:
-            return circuit
-        active_qubits = [qubits[i] for i in active_positions]
-
-        # Single-qubit channel: PAULI_CHANNEL_1
-        if len(active_positions) == 1:
-            probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
-            for string, prob in self.probabilities.items():
-                probs_1q[string[active_positions[0]]] = prob
-            args = [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
-            name, name_args = _pauli_channel_1_shortcut(args)
-            circuit.append(name, active_qubits, name_args, tag=tag)
+        if len(qubits) != self.num_qubits:
+            raise ValueError(f"Provided {len(qubits)} qubits for a {self.num_qubits}-qubit channel")
+        if not self.probabilities:
             return circuit
 
-        # Two-qubit channel: PAULI_CHANNEL_2
-        if len(active_positions) == 2:
-            pos0, pos1 = active_positions
-            probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
-            for string, prob in self.probabilities.items():
-                probs_2q[string[pos0] + string[pos1]] = prob
-            args = [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
-            name, name_args = _pauli_channel_2_shortcut(args)
-            circuit.append(name, active_qubits, name_args, tag=tag)
-            return circuit
+        if simplify:
+            # restrict to the qubits addressed nontrivially by this PauliChannel
+            positions = sorted(
+                {i for string in self.probabilities for i, p in enumerate(string) if p != "I"}
+            )
+            target_qubits = [qubits[i] for i in positions]
 
-        # Multi-qubit channel, emitted as a sequence of CORRELATED_ERROR and ELSE_CORRELATED_ERROR
+            # Single-qubit channel: PAULI_CHANNEL_1 / DEPOLARIZE1 / [XYZ]_ERROR
+            if len(positions) == 1:
+                probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+                for string, prob in self.probabilities.items():
+                    probs_1q[string[positions[0]]] = prob
+                args = [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
+                name, name_args = _pauli_channel_1_shortcut(args)
+                circuit.append(name, target_qubits, name_args, tag=tag)
+                return circuit
+
+            # Two-qubit channel: PAULI_CHANNEL_2 / DEPOLARIZE2
+            if len(positions) == 2:
+                pos0, pos1 = positions
+                probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
+                for string, prob in self.probabilities.items():
+                    probs_2q[string[pos0] + string[pos1]] = prob
+                args = [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
+                name, name_args = _pauli_channel_2_shortcut(args)
+                circuit.append(name, target_qubits, name_args, tag=tag)
+                return circuit
+
+        # Emit a CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain
         remaining = 1.0
         first = True
         for string, prob in self.probabilities.items():

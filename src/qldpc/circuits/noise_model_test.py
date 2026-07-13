@@ -647,11 +647,26 @@ def test_pauli_channel_to_circuit() -> None:
     tagged = channel.to_circuit(qubits=[0], tag="foo")
     assert tagged == stim.Circuit("PAULI_CHANNEL_1[foo](0.1, 0, 0.2) 0")
 
+    # simplify=False always emits a CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain instead of a
+    # native PAULI_CHANNEL form, even for a 1-qubit channel that would otherwise collapse.
+    expected = stim.Circuit()
+    expected.append("CORRELATED_ERROR", [stim.target_x(0)], [0.1])
+    expected.append("ELSE_CORRELATED_ERROR", [stim.target_z(0)], [0.2 / 0.9])
+    assert channel.to_circuit(simplify=False) == expected
+
+    # A two-qubit depolarizing channel collapses to a native DEPOLARIZE2.
+    depol2 = circuits.PauliChannel.depolarizing(2, 0.15)
+    assert depol2.to_circuit() == stim.Circuit("DEPOLARIZE2(0.15) 0 1")
+
     # An empty channel emits nothing, returning the (possibly provided) circuit unchanged.
     assert circuits.PauliChannel({}, num_qubits=3).to_circuit() == stim.Circuit()
     prefilled = stim.Circuit("H 0")
     assert circuits.PauliChannel({}).to_circuit(append_to=prefilled) is prefilled
     assert prefilled == stim.Circuit("H 0")
+
+    # Raise an error when provided qubit count that disagrees with the channel arity.
+    with pytest.raises(ValueError, match="Provided 2 qubits for a 1-qubit channel"):
+        channel.to_circuit(qubits=[0, 1])
 
 
 def test_multi_qubit_pauli_channel_after_gate() -> None:
