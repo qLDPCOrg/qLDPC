@@ -395,6 +395,96 @@ class PauliChannel:
         }
         return PauliChannel(surviving, num_qubits=self._num_qubits)
 
+    def to_circuit(
+        self,
+        *,
+        append_to: stim.Circuit | None = None,
+        qubits: Iterable[int] | None = None,
+        simplify: bool = True,
+        tag: str = "",
+    ) -> stim.Circuit:
+        """Convert this PauliChannel into a circuit.
+
+        If provided a circuit, append to that circuit in-place and return it.
+
+        With ``simplify=True`` (the default) the channel is emitted in the simplest form its
+        probabilities permit: channels that address only one or two qubits nontrivially become
+        ``PAULI_CHANNEL_[12]`` / ``DEPOLARIZE[12]`` / ``[XYZ]_ERROR``.
+
+        With ``simplify=False`` the channel is always emitted as a ``CORRELATED_ERROR`` followed by
+        one ``ELSE_CORRELATED_ERROR`` per remaining Pauli string, with conditional probabilities
+        renormalized so each string's unconditional firing probability matches this channel.
+
+        Args:
+            append_to: The circuit to append to; if ``None`` (default), create a new circuit.
+            qubits: The qubit targets, one per position of the channel; if ``None`` (default),
+                set to ``range(self.num_qubits)``.
+            simplify: If True (the default), emit the channel in the simplest equivalent form.  If
+                False, always emit a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain.
+            tag: An optional tag applied to every emitted instruction.
+
+        Returns:
+            The circuit that the noise instructions were appended to.
+
+        Raises:
+            ValueError: If the number of ``qubits`` does not match the arity of the channel.
+        """
+        circuit = stim.Circuit() if append_to is None else append_to
+        qubits = list(range(self._num_qubits)) if qubits is None else list(qubits)
+        if len(qubits) != self.num_qubits:
+            raise ValueError(f"Provided {len(qubits)} qubits for a {self.num_qubits}-qubit channel")
+        if not self.probabilities:
+            return circuit
+
+        if simplify:
+            # restrict to the qubits addressed nontrivially by this PauliChannel
+            positions = sorted(
+                {i for string in self.probabilities for i, p in enumerate(string) if p != "I"}
+            )
+            target_qubits = [qubits[i] for i in positions]
+
+            # Single-qubit channel: PAULI_CHANNEL_1 / DEPOLARIZE1 / [XYZ]_ERROR
+            if len(positions) == 1:
+                probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+                for string, prob in self.probabilities.items():
+                    probs_1q[string[positions[0]]] = prob
+                args = [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
+                name, name_args = _pauli_channel_1_shortcut(args)
+                circuit.append(name, target_qubits, name_args, tag=tag)
+                return circuit
+
+            # Two-qubit channel: PAULI_CHANNEL_2 / DEPOLARIZE2
+            if len(positions) == 2:
+                pos0, pos1 = positions
+                probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
+                for string, prob in self.probabilities.items():
+                    probs_2q[string[pos0] + string[pos1]] = prob
+                args = [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
+                name, name_args = _pauli_channel_2_shortcut(args)
+                circuit.append(name, target_qubits, name_args, tag=tag)
+                return circuit
+
+        # Emit a CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain
+        remaining = 1.0
+        first = True
+        for string, prob in self.probabilities.items():
+            pauli_targets = _pauli_string_to_targets(string, qubits)
+            if first:
+                circuit.append("CORRELATED_ERROR", pauli_targets, [prob], tag=tag)
+                first = False
+            else:
+                # `remaining` is `1 - sum_of_prior` in exact arithmetic and is guaranteed >= prob
+                # because the constructor rejects total > 1.  If floating-point subtraction leaves
+                # `remaining` a hair smaller than prob (or zero), emit an ELSE_CORRELATED_ERROR(1)
+                # that absorbs the rest of the probability mass and stop — any subsequent
+                # ELSE_CORRELATED_ERROR would never fire.
+                if remaining <= prob:
+                    circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [1.0], tag=tag)
+                    break
+                circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [prob / remaining], tag=tag)
+            remaining -= prob
+        return circuit
+
 
 class NoiseRule:
     """Describes how to add noise to an operation.
@@ -558,7 +648,7 @@ class NoiseRule:
         if isinstance(self.after, PauliChannel):
             # Emit once per k-qubit chunk.
             for i in range(0, n_targets, num_qubits):
-                _append_pauli_channel(circuit, self.after, qubit_targets[i : i + num_qubits])
+                self.after.to_circuit(append_to=circuit, qubits=qubit_targets[i : i + num_qubits])
         else:
             # stim.Circuit escape hatch: apply the fragment verbatim to each k-qubit block, with
             # qubit indices remapped from [0, k) to the block's targets.
@@ -1104,69 +1194,6 @@ def _stim_aliases(op_name: str) -> tuple[str, ...]:
 
 _PAULI_CHANNEL_1_ORDER = ("X", "Y", "Z")
 _PAULI_CHANNEL_2_ORDER = tuple(a + b for a in "IXYZ" for b in "IXYZ" if (a, b) != ("I", "I"))
-
-
-def _append_pauli_channel(
-    circuit: stim.Circuit,
-    channel: PauliChannel,
-    qubit_targets: list[int],
-    *,
-    tag: str = "",
-) -> None:
-    """Append noise instructions to ``circuit`` that implement ``channel`` on ``qubit_targets``.
-
-    The emitted form depends on the number of *active* positions — positions where at least one
-    Pauli string acts nontrivially.  Channels with 1 or 2 active positions emit a native
-    ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` on the corresponding qubit(s), even if the channel's
-    formal arity is larger; channels with 3+ active positions emit a chain of one
-    ``CORRELATED_ERROR`` followed by one ``ELSE_CORRELATED_ERROR`` per remaining non-zero Pauli
-    string, with conditional probabilities renormalized so each Pauli string's unconditional
-    firing probability equals its value in ``channel``.  An empty channel (or one whose surviving
-    strings are all identity, which cannot occur but is defensively handled) emits nothing.
-    """
-    active_positions = sorted(
-        {i for string in channel.probabilities for i, pauli in enumerate(string) if pauli != "I"}
-    )
-    if not active_positions:  # pragma: no cover -- callers gate on `bool(channel)`
-        return
-    active_qubits = [qubit_targets[i] for i in active_positions]
-
-    if len(active_positions) == 1:
-        probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
-        for string, prob in channel.probabilities.items():
-            probs_1q[string[active_positions[0]]] = prob
-        args = [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
-        name, name_args = _pauli_channel_1_shortcut(args)
-        circuit.append(name, active_qubits, name_args, tag=tag)
-        return
-
-    if len(active_positions) == 2:
-        pos0, pos1 = active_positions
-        probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
-        for string, prob in channel.probabilities.items():
-            probs_2q[string[pos0] + string[pos1]] = prob
-        args = [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
-        name, name_args = _pauli_channel_2_shortcut(args)
-        circuit.append(name, active_qubits, name_args, tag=tag)
-        return
-
-    remaining = 1.0
-    first = True
-    for string, prob in channel.probabilities.items():
-        pauli_targets = _pauli_string_to_targets(string, qubit_targets)
-        if first:
-            circuit.append("CORRELATED_ERROR", pauli_targets, [prob], tag=tag)
-            first = False
-        else:
-            # `remaining` is `1 - sum_of_prior` in exact arithmetic and is guaranteed >= prob
-            # because the constructor rejects total > 1.  If floating-point subtraction leaves it
-            # a hair smaller than prob (or zero), emit an ELSE_CORRELATED_ERROR(1) that absorbs
-            # the rest of the probability mass and stop — any subsequent ELSE_CE would never fire.
-            if remaining <= prob:
-                circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [1.0], tag=tag)
-                break
-            circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [prob / remaining], tag=tag)
-        remaining -= prob
 
 
 def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
