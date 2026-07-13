@@ -33,6 +33,41 @@ from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decod
 
 
 @restrict_to_qubits
+def get_transversal_s(code: codes.CSSCode) -> stim.Circuit:
+    """Get a physical circuit for the logical S gate of the code."""
+    logs_z = code.get_logical_ops(Pauli.Z)
+    if not np.array_equal(
+        code.canonicalized.matrix_x, code.canonicalized.matrix_z
+    ) or not np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int)):
+        raise ValueError("Only SWEL stabilizer codes are supported at the moment")
+
+    # build a starting physical circuit: S on everything
+    physical_circuit = stim.Circuit()
+    physical_circuit.append("S", range(len(code)))
+
+    # identify Pauli corrections
+    physical_tableau = physical_circuit.to_tableau()
+    encoder, decoder = get_encoder_and_decoder(code)
+    decoded_tableau = encoder.then(physical_tableau).then(decoder)
+    *_, x_signs, z_signs = decoded_tableau.to_numpy()
+    correction_xs = np.zeros(len(code), dtype=bool)
+    correction_zs = np.zeros(len(code), dtype=bool)
+    correction_zs[: code.dimension] = x_signs[: code.dimension]  # logical-operator corrections
+    correction_xs[: code.dimension] = z_signs[: code.dimension]
+    correction_xs[code.dimension :] = z_signs[code.dimension :]  # destabilizer corrections
+
+    # map the decoded-frame Pauli correction back to a physical Pauli and append it
+    correction = stim.PauliString.from_numpy(xs=correction_xs, zs=correction_zs).after(
+        encoder, targets=range(len(code))
+    )
+    for qubit, pauli in enumerate(correction):
+        if pauli:
+            physical_circuit.append("_XYZ"[pauli], qubit)
+
+    return physical_circuit
+
+
+@restrict_to_qubits
 def get_transversal_ops(
     code: codes.QuditCode,
     local_gates: Collection[str] = ("S", "H", "SWAP"),
