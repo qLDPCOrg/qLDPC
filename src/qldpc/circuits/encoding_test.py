@@ -42,8 +42,8 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
                 size=code.dimension + code.gauge_dimension,
             )
             basis_prep = stim.Circuit()
-            basis_prep.append("H", np.where(bases != Pauli.Z)[0])
-            basis_prep.append("S", np.where(bases == Pauli.Y)[0])
+            basis_prep.append("H", np.flatnonzero(bases != Pauli.Z))
+            basis_prep.append("S", np.flatnonzero(bases == Pauli.Y))
             simulator.do(basis_prep)
 
         encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
@@ -103,6 +103,15 @@ def test_logical_tableau() -> None:
 
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
+
+    # logical Pauli operations (which flip logical operator signs) are valid logical operations
+    logical_x = math.op_to_string(code.get_logical_ops(Pauli.X, symplectic=True)[0])
+    reconstructed_logical_tableau = circuits.get_logical_tableau(code, logical_x.to_tableau())
+    assert stim.Circuit("X 0").to_tableau() == reconstructed_logical_tableau
+
+    # a physical circuit that does not preserve the code space is not a logical operation
+    with pytest.raises(ValueError, match="does not implement a logical operation"):
+        circuits.get_logical_tableau(code, stim.Circuit("X 0"))
 
 
 def test_state_stabilizers(pytestconfig: pytest.Config) -> None:

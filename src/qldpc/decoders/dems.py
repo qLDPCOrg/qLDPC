@@ -471,7 +471,7 @@ def _with_higher_order_corrections(
     """
     assert order > 1
 
-    removed_error_indices = np.where(~errors_to_keep)[0]
+    removed_error_indices = np.flatnonzero(~errors_to_keep)
     removed_det_flip_submatrix = dem_arrays.detector_flip_matrix[
         np.ix_(detectors_to_remove, removed_error_indices.tolist())
     ]
