@@ -1,6 +1,6 @@
 [project]
 name = "qLDPC"
-version = "0.3.0"
+version = "0.3.1"
 description = "Tools for constructing and analyzing quantum low density parity check (qLDPC) codes."
 readme = "README.md"
 license = "Apache-2.0"
