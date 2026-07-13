@@ -312,7 +312,7 @@ def _get_logical_tableau_from_code_data(
         )
 
         # sanity check: no stabilizers get flipped
-        stabilizers_flipped = np.any(z_signs)
+        stabilizers_flipped = np.any(z_signs[sector_s])
 
         if ops_acquired_destabilizers or gauges_acquired_logicals or stabilizers_flipped:
             raise ValueError("The provided physical circuit does not implement a logical operation")
