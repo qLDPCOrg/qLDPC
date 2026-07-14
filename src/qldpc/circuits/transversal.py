@@ -69,12 +69,12 @@ def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Cir
     # Map the decoded-frame Pauli correction back to a physical Pauli.  For SWEL codes this
     # correction is purely Z-type (mod stabilizers), and appending a Z after an S makes it S_DAG,
     # so we can realize the correction by emitting S_DAG (rather than S) on the corrected qubits.
-    correction = decoded_frame_correction.after(encoder, targets=range(len(code)))
-    _, phys_zs = correction.to_numpy()
+    physical_correction = decoded_frame_correction.after(encoder, targets=range(len(code)))
+    _, physical_zs = physical_correction.to_numpy()
 
     circuit = stim.Circuit()
-    circuit.append("S", np.flatnonzero(~phys_zs))
-    circuit.append("S_DAG", np.flatnonzero(phys_zs))
+    circuit.append("S", np.flatnonzero(~physical_zs))
+    circuit.append("S_DAG", np.flatnonzero(physical_zs))
     return circuit
 
 
