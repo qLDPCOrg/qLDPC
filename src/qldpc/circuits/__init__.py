@@ -50,6 +50,7 @@ from .transversal import (
     get_transversal_circuit,
     get_transversal_circuits,
     get_transversal_ops,
+    get_transversal_s,
 )
 
 __all__ = [
@@ -92,4 +93,5 @@ __all__ = [
     "get_transversal_circuit",
     "get_transversal_circuits",
     "get_transversal_ops",
+    "get_transversal_s",
 ]

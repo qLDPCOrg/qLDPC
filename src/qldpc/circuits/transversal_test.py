@@ -26,6 +26,24 @@ import stim
 from qldpc import circuits, codes, external
 
 
+def test_transversal_s() -> None:
+    """Build a physical circuit for the transversal logical S gate of a SWEL code."""
+    # the Steane code is SWEL, so its logical S gate is transversal
+    code = codes.SteaneCode()
+    circuit = circuits.get_transversal_s(code)
+
+    # the circuit is built entirely from single-qubit S and S_DAG gates (no Pauli corrections)
+    assert {instruction.name for instruction in circuit} <= {"S", "S_DAG"}
+
+    # the circuit implements a logical S gate
+    logical_tableau = circuits.get_logical_tableau(code, circuit)
+    assert logical_tableau == stim.Circuit("S 0").to_tableau()
+
+    # non-SWEL codes are rejected
+    with pytest.raises(ValueError, match="SWEL"):
+        circuits.get_transversal_s(codes.ToricCode(2))
+
+
 def test_transversal_ops() -> None:
     """Construct SWAP-transversal logical Cliffords of a code."""
     code: codes.CSSCode

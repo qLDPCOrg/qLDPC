@@ -33,6 +33,51 @@ from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decod
 
 
 @restrict_to_qubits
+def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Circuit:
+    """Get a physical circuit for a transversal logical S = diag(1, i) gate of the code.
+
+    The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts
+    a logical S gate on every logical qubit of the code.
+
+    This construction only supports self-dual codes with equivalent logicals (SWEL):
+    1. Self dual = CSS code with identical X and Z stabilizers.
+    2. Equivalent logicals = applying a Hadamard to every physical qubit enacts a logical Hadamard
+        on every logical qubit.  This property depends on the choice of logical operator basis.
+    """
+    if validate:
+        logs_z = code.get_logical_ops(Pauli.Z)
+        if not np.array_equal(
+            code.canonicalized.matrix_x, code.canonicalized.matrix_z
+        ) or not np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int)):
+            raise ValueError(
+                "Transversal S gate construction currently only supports SWEL stabilizer codes"
+            )
+
+    # Build a test circuit: physical S on all qubits
+    test_circuit = stim.Circuit()
+    test_circuit.append("S", range(len(code)))
+    test_tableau = test_circuit.to_tableau()
+
+    # Identify Pauli corrections in the "decoded" frame of logicals/stabilizers/destabilizers.
+    encoder, decoder = get_encoder_and_decoder(code)
+    decoded_tableau = encoder.then(test_tableau).then(decoder)
+    *_, x_signs, z_signs = decoded_tableau.to_numpy()
+    # A flip of an X-type operator is corrected by its Z-type dual, and vice versa.
+    decoded_frame_correction = stim.PauliString.from_numpy(xs=z_signs, zs=x_signs)
+
+    # Map the decoded-frame Pauli correction back to a physical Pauli.  For SWEL codes this
+    # correction is purely Z-type (mod stabilizers), and appending a Z after an S makes it S_DAG,
+    # so we can realize the correction by emitting S_DAG (rather than S) on the corrected qubits.
+    physical_correction = decoded_frame_correction.after(encoder, targets=range(len(code)))
+    _, physical_zs = physical_correction.to_numpy()
+
+    circuit = stim.Circuit()
+    circuit.append("S", np.flatnonzero(~physical_zs))
+    circuit.append("S_DAG", np.flatnonzero(physical_zs))
+    return circuit
+
+
+@restrict_to_qubits
 def get_transversal_ops(
     code: codes.QuditCode,
     local_gates: Collection[str] = ("S", "H", "SWAP"),
