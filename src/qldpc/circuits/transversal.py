@@ -39,20 +39,19 @@ def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Cir
     The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts
     a logical S gate on every logical qubit of the code.
 
-    This construction only supports self-dual stabilizer codes with equivalent logicals (SWEL):
-    1. Self dual = a (non-subsystem) CSS code with identical X and Z stabilizers.
+    This construction only supports self-dual codes with equivalent logicals (SWEL):
+    1. Self dual = CSS code with identical X and Z stabilizers.
     2. Equivalent logicals = applying a Hadamard to every physical qubit enacts a logical Hadamard
         on every logical qubit.  This property depends on the choice of logical operator basis.
     """
-    logs_z = code.get_logical_ops(Pauli.Z)
-    if validate and (
-        code.is_subsystem_code
-        or not np.array_equal(code.canonicalized.matrix_x, code.canonicalized.matrix_z)
-        or not np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int))
-    ):
-        raise ValueError(
-            "Transversal S gate construction currently only supports SWEL stabilizer codes"
-        )
+    if validate:
+        logs_z = code.get_logical_ops(Pauli.Z)
+        if not np.array_equal(
+            code.canonicalized.matrix_x, code.canonicalized.matrix_z
+        ) or not np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int)):
+            raise ValueError(
+                "Transversal S gate construction currently only supports SWEL stabilizer codes"
+            )
 
     # Build a test circuit: physical S on all qubits
     test_circuit = stim.Circuit()
