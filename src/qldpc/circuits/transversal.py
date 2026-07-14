@@ -33,38 +33,49 @@ from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decod
 
 
 @restrict_to_qubits
-def get_transversal_s(code: codes.CSSCode) -> stim.Circuit:
-    """Get a physical circuit for the logical S gate of the code."""
+def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Circuit:
+    """Get a physical circuit for a transversal logical S gate of the code.
+
+    The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts
+    a logical S gate on every logical qubit of the code.
+
+    This construction only supports self-dual stabilizer codes with equivalent logicals (SWEL):
+    1. Self dual = a (non-subsystem) CSS code with identical X and Z stabilizers.
+    2. Equivalent logicals = applying a Hadamard to every physical qubit enacts a logical Hadamard
+        on every logical qubit.  This property depends on the choice of logical operator basis.
+    """
     logs_z = code.get_logical_ops(Pauli.Z)
-    if not np.array_equal(
-        code.canonicalized.matrix_x, code.canonicalized.matrix_z
-    ) or not np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int)):
-        raise ValueError("Only SWEL stabilizer codes are supported at the moment")
+    if validate and (
+        code.is_subsystem_code
+        or not np.array_equal(code.canonicalized.matrix_x, code.canonicalized.matrix_z)
+        or not np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int))
+    ):
+        raise ValueError(
+            "Transversal S gate construction currently only supports SWEL stabilizer codes"
+        )
 
-    # build a starting physical circuit: S on everything
-    physical_circuit = stim.Circuit()
-    physical_circuit.append("S", range(len(code)))
+    # Build a test circuit: physical S on all qubits
+    test_circuit = stim.Circuit()
+    test_circuit.append("S", range(len(code)))
+    test_tableau = test_circuit.to_tableau()
 
-    # identify Pauli corrections
-    physical_tableau = physical_circuit.to_tableau()
+    # Identify Pauli corrections in the "decoded" frame of logicals/stabilizers/destabilizers.
     encoder, decoder = get_encoder_and_decoder(code)
-    decoded_tableau = encoder.then(physical_tableau).then(decoder)
+    decoded_tableau = encoder.then(test_tableau).then(decoder)
     *_, x_signs, z_signs = decoded_tableau.to_numpy()
-    correction_xs = np.zeros(len(code), dtype=bool)
-    correction_zs = np.zeros(len(code), dtype=bool)
-    correction_zs[: code.dimension] = x_signs[: code.dimension]  # logical-operator corrections
-    correction_xs[: code.dimension] = z_signs[: code.dimension]
-    correction_xs[code.dimension :] = z_signs[code.dimension :]  # destabilizer corrections
+    # A flip of an X-type operator is corrected by its Z-type dual, and vice versa.
+    decoded_frame_correction = stim.PauliString.from_numpy(xs=z_signs, zs=x_signs)
 
-    # map the decoded-frame Pauli correction back to a physical Pauli and append it
-    correction = stim.PauliString.from_numpy(xs=correction_xs, zs=correction_zs).after(
-        encoder, targets=range(len(code))
-    )
-    for qubit, pauli in enumerate(correction):
-        if pauli:
-            physical_circuit.append("_XYZ"[pauli], qubit)
+    # Map the decoded-frame Pauli correction back to a physical Pauli.  For SWEL codes this
+    # correction is purely Z-type (mod stabilizers), and appending a Z after an S makes it S_DAG,
+    # so we can realize the correction by emitting S_DAG (rather than S) on the corrected qubits.
+    correction = decoded_frame_correction.after(encoder, targets=range(len(code)))
+    _, phys_zs = correction.to_numpy()
 
-    return physical_circuit
+    circuit = stim.Circuit()
+    circuit.append("S", np.flatnonzero(~phys_zs))
+    circuit.append("S_DAG", np.flatnonzero(phys_zs))
+    return circuit
 
 
 @restrict_to_qubits
