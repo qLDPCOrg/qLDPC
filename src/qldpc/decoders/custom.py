@@ -366,6 +366,11 @@ class LookupDecoder(Decoder):
             error = most_likely_errors[syndrome, most_likely_obs_flip]
             self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
 
+    @property
+    def size(self) -> int:
+        """The number of entries in the lookup table."""
+        return len(self.syndrome_to_error)
+
     @staticmethod
     def iter_errors_and_syndromes(
         matrix: IntegerArray, max_weight: int, symplectic: bool
