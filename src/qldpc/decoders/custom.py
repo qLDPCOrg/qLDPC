@@ -245,6 +245,11 @@ class LookupDecoder(Decoder):
     error from the group with the highest total probability.  When initialized from a
     DetectorErrorModel that contains observables, the observable_flip_matrix is extracted
     automatically.
+
+    If initialized with predict_observable_flips=True, this decoder maps each syndrome directly to
+    its most likely observable flip, rather than to an error.  In this case the decoded output is a
+    binary vector of length num_observables.  Predicting observable flips requires an
+    observable_flip_matrix (provided directly or extracted from a DetectorErrorModel).
     """
 
     def __init__(
@@ -257,6 +262,7 @@ class LookupDecoder(Decoder):
         error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
         observable_flip_matrix: IntegerArray | None = None,
+        predict_observable_flips: bool = False,
     ) -> None:
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
             # Initialize from a stim.DetectorErrorModel:
@@ -301,9 +307,18 @@ class LookupDecoder(Decoder):
         )
 
         # set some useful/necessary attributes
-        self.shape: tuple[int, ...] = pcm.shape
         self.has_erasure_bit = add_erasure_bit
-        self.default_error_to_return = np.zeros(self.shape[1], dtype=pcm.dtype)
+        self.predict_observable_flips = predict_observable_flips
+        if predict_observable_flips:
+            if observable_flip_matrix is None:  # pragma: no cover
+                raise ValueError(
+                    "Predicting observable flips with a LookupDecoder requires providing a"
+                    " stim.DetectorErrorModel with observables or an observable_flip_matrix"
+                )
+            output_length = observable_flip_matrix.shape[0]
+        else:
+            output_length = pcm.shape[1]
+        self.default_error_to_return = np.zeros(output_length, dtype=pcm.dtype)
         if self.has_erasure_bit:
             self.default_error_to_return = np.hstack(
                 [self.default_error_to_return, np.ones(1, dtype=pcm.dtype)]
@@ -363,12 +378,14 @@ class LookupDecoder(Decoder):
         # most likely error with that (syndrome, observable_flip) combination.
         for syndrome, obs_flip_to_net_prob in net_probs.items():
             most_likely_obs_flip = max(obs_flip_to_net_prob, key=obs_flip_to_net_prob.__getitem__)
-            error = most_likely_errors[syndrome, most_likely_obs_flip]
-            self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
+            if predict_observable_flips:
+                prediction = np.asarray(most_likely_obs_flip, dtype=pcm.dtype)
+            else:
+                prediction = most_likely_errors[syndrome, most_likely_obs_flip]
+            self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(prediction)
 
-    @property
-    def size(self) -> int:
-        """The number of entries in the lookup table."""
+    def __len__(self) -> int:
+        """The number of entries in this lookup table."""
         return len(self.syndrome_to_error)
 
     @staticmethod
@@ -399,7 +416,10 @@ class LookupDecoder(Decoder):
                     yield (error.view(np.ndarray).astype(dtype), tuple(syndrome.view(np.ndarray)))
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
+        """Decode an error syndrome and return an inferred error.
+
+        If initialized with predict_observable_flips=True, return the inferred observable flip.
+        """
         return self.syndrome_to_error.get(
             tuple(syndrome.view(np.ndarray)), self.default_error_to_return
         ).copy()
@@ -448,7 +468,6 @@ class WeightedLookupDecoder(LookupDecoder):
         def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             return np.hstack([error, np.zeros(1, dtype=pcm.dtype)]) if add_erasure_bit else error
 
-        self.shape: tuple[int, ...] = pcm.shape
         self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
             collections.defaultdict(list)
         )
@@ -456,11 +475,15 @@ class WeightedLookupDecoder(LookupDecoder):
             self.syndrome_to_candidates[syndrome].append(_maybe_add_erasure_bit(error))
 
         self.has_erasure_bit = add_erasure_bit
-        self.default_correction = np.zeros(self.shape[1], dtype=pcm.dtype)
+        self.default_correction = np.zeros(pcm.shape[1], dtype=pcm.dtype)
         if add_erasure_bit:
             self.default_correction = np.hstack(
                 [self.default_correction, np.ones(1, dtype=pcm.dtype)]
             )
+
+    def __len__(self) -> int:
+        """The number of entries in this lookup table."""
+        return len(self.syndrome_to_candidates)
 
     def decode(
         self,
