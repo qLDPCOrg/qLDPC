@@ -385,7 +385,7 @@ class LookupDecoder(Decoder):
             self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(prediction)
 
     def __len__(self) -> int:
-        """The number of entries in the lookup table."""
+        """The number of entries in this lookup table."""
         return len(self.syndrome_to_error)
 
     @staticmethod
@@ -480,6 +480,10 @@ class WeightedLookupDecoder(LookupDecoder):
             self.default_correction = np.hstack(
                 [self.default_correction, np.ones(1, dtype=pcm.dtype)]
             )
+
+    def __len__(self) -> int:
+        """The number of entries in this lookup table."""
+        return len(self.syndrome_to_candidates)
 
     def decode(
         self,
