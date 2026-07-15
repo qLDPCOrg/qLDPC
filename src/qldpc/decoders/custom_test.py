@@ -86,6 +86,7 @@ def test_lookup() -> None:
 
     decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
+    assert decoder.size == len(decoder.syndrome_to_error)
 
     # decode with a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
@@ -114,6 +115,22 @@ def test_observable_lookup_decoding() -> None:
     # provided a DEM, the LookupDecoder will simplify and predict the most likely observable flip
     decoder = decoders.LookupDecoder(dem, max_weight=1)
     assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
+
+    # with predict_observable_flips=True, the decoder returns the observable flip directly
+    decoder = decoders.LookupDecoder(dem, max_weight=1, predict_observable_flips=True)
+    assert np.array_equal(decoder.decode(syndrome), [1])
+    # an unseen syndrome falls back to a zero observable flip of the correct length
+    assert np.array_equal(decoder.decode(np.array([0], dtype=int)), [0])
+
+    # this also works when given a parity check matrix and observable_flip_matrix
+    decoder = decoders.LookupDecoder(
+        pcm,
+        max_weight=1,
+        error_channel=error_probs,
+        observable_flip_matrix=obs_matrix,
+        predict_observable_flips=True,
+    )
+    assert np.array_equal(decoder.decode(syndrome), [1])
 
     # The above example is "trivial" in the sense that simplifying the DEM is sufficient to predict
     # the correct observable flips....
