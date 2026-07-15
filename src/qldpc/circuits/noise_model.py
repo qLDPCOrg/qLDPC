@@ -228,7 +228,8 @@ CORRELATED_ERROR_NAMES = frozenset({"CORRELATED_ERROR", "E", "ELSE_CORRELATED_ER
 def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
     """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
     if tsim is not None and isinstance(circuit, tsim.Circuit):
-        return tsim.Circuit.from_stim_program(as_noiseless_circuit(circuit.stim_circuit))
+        output = as_noiseless_circuit(circuit.stim_circuit)
+        return tsim.Circuit.from_stim_program(output)
     block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
     noiseless_circuit = stim.Circuit()
     noiseless_circuit.append(block)
@@ -920,16 +921,15 @@ class NoiseModel:
             The input circuit with added noise.
         """
         if tsim is not None and isinstance(circuit, tsim.Circuit):
-            return tsim.Circuit.from_stim_program(
-                self.noisy_circuit(
-                    circuit.stim_circuit,
-                    system_qubits=system_qubits,
-                    immune_qubits=immune_qubits,
-                    immune_op_tag=immune_op_tag,
-                    immunize_gates=immunize_gates,
-                    insert_ticks=insert_ticks,
-                )
+            output = self.noisy_circuit(
+                circuit.stim_circuit,
+                system_qubits=system_qubits,
+                immune_qubits=immune_qubits,
+                immune_op_tag=immune_op_tag,
+                immunize_gates=immunize_gates,
+                insert_ticks=insert_ticks,
             )
+            return tsim.Circuit.from_stim_program(output)
 
         system_qubits = frozenset(
             range(circuit.num_qubits) if system_qubits is None else system_qubits

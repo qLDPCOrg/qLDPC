@@ -76,8 +76,12 @@ def with_remapped_qubits(
         inverse: If True, invert the provided qubit_map.  Default: False.
 
     Returns:
-        stim.Circuit: A remapped circuit.
+        The input circuit with remapped qubits.
     """
+    if tsim is not None and isinstance(circuit, tsim.Circuit):
+        output = with_remapped_qubits(circuit.stim_circuit, qubit_map, inverse=inverse)
+        return tsim.Circuit.from_stim_program(output)
+
     qubit_map = (
         qubit_map
         if isinstance(qubit_map, Mapping)
@@ -103,7 +107,7 @@ def with_remapped_qubits(
             )
             new_circuit.append(new_op)
 
-    return new_circuit if tsim is None else tsim.Circuit.from_stim_program(new_circuit)
+    return new_circuit
 
 
 def remap_qubit_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
