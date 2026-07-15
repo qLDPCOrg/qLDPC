@@ -2190,10 +2190,21 @@ class CSSCode(QuditCode):
         return self._is_subsystem_code
 
     @property
+    def is_self_dual(self) -> bool:
+        """Is this code self-dual?  That is, are its X-type and Z-type stabilizers equivalent?"""
+        return np.array_equal(self.canonicalized.matrix_x, self.canonicalized.matrix_z)
+
+    @property
     def is_swel(self) -> bool:
-        """Is this code self-dual with equivalent logicals (SWEL)?"""
+        """Is this code self-dual with equivalent logicals (SWEL)?
+
+        Specifically, SWEL codes are self-dual codes for which Hadamard-transforming every logical Z
+        operator recovers a dual logical X operator.
+
+        Whether a code is SWEL depends on the choice of logical operator basis.
+        """
         return bool(
-            np.array_equal(self.canonicalized.matrix_x, self.canonicalized.matrix_z)
+            self.is_self_dual
             and np.array_equal(
                 (logs_z := self.get_logical_ops(Pauli.Z)) @ logs_z.T,
                 np.eye(self.dimension, dtype=int),
