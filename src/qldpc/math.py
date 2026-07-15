@@ -129,8 +129,15 @@ def get_orthonormal_basis(vectors: galois.FieldArray) -> galois.FieldArray | Non
     vectors u with u @ u = 1 and "hyperbolic pairs" (b, c) with b @ b = c @ c = 0 and b @ c = 1, all
     mutually orthogonal.  Lemma 2 then rewrites one unit vector and one hyperbolic pair into three
     unit vectors, and is applied repeatedly to eliminate every hyperbolic pair.
+
+    This method is only implemented over GF(2).  Over a general field the "unit" and "hyperbolic
+    pair" steps would require rescaling by field coefficients, and over fields of odd characteristic
+    an orthonormal basis need not exist even for a nondegenerate non-alternating form (existence is
+    then governed by whether the discriminant of the form is a square).
     """
     field = type(vectors)
+    if field is not galois.GF2:
+        raise ValueError("get_orthonormal_basis is only implemented over GF(2)")
     dimension = vectors.shape[1]
     words = [row for row in vectors]
 

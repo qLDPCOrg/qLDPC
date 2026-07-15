@@ -950,7 +950,10 @@ class QuditCode(AbstractCode):
         zs = np.any(matrix_z, axis=1)
         if np.any(xs & zs):
             return self
-        return CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
+        code = CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
+        code._dimension = self._dimension
+        code._distance = self._distance
+        return code
 
     def to_css(self) -> CSSCode:
         """Try to convert this QuditCode into a CSSCode.  Throw an error if we fail."""
@@ -963,8 +966,23 @@ class QuditCode(AbstractCode):
             )
         return code
 
+    def maybe_to_swel(self) -> QuditCode:
+        """Try to convert this code into a CSSCode with a SWEL logical operator basis.
+
+        Return self if we fail.  See CSSCode.maybe_to_swel and CSSCode.is_swel.
+        """
+        code = self.maybe_to_css()
+        if isinstance(code, CSSCode):
+            swel_code = code.maybe_to_swel()
+            if swel_code is not code:
+                return swel_code
+        return self
+
     def to_swel(self) -> CSSCode:
-        """Convert this code into a CSSCode with a SWEL logical operator basis."""
+        """Convert this code into a CSSCode with a SWEL logical operator basis.
+
+        Throw an error if we fail.  See CSSCode.to_swel and CSSCode.is_swel.
+        """
         return self.to_css().to_swel()
 
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
@@ -2215,27 +2233,42 @@ class CSSCode(QuditCode):
             )
         )
 
-    def to_swel(self) -> CSSCode:
-        """Return a copy of this code with a SWEL logical operator basis (see is_swel).
+    def maybe_to_swel(self) -> CSSCode:
+        """Try to put this code into a SWEL logical operator basis.  Return self if we fail.
 
-        Raise a ValueError if this code is not self-dual, or if it has no SWEL basis.  A self-dual
-        CSS code has a SWEL basis if and only if it has an odd-weight logical operator
-        (arXiv:2503.19790, Theorem 1).
+        A code can be put into a SWEL basis (see is_swel) if and only if it is self-dual and has an
+        odd-weight logical operator (arXiv:2503.19790, Theorem 1).
         """
         if not self.is_self_dual:
-            raise ValueError("Only self-dual codes can be converted into a SWEL basis")
+            return self
         # A code is SWEL when its logical operator supports are orthonormal (L @ L.T = identity),
         # so a SWEL basis is an orthonormal basis for the space of logical operator supports.
         supports = math.get_orthonormal_basis(self.get_logical_ops(Pauli.Z))
         if supports is None:
-            raise ValueError("This self-dual code has no SWEL logical operator basis")
+            return self
+        # only the logical operator basis changes, so carry over all other cached properties
         code = CSSCode(self.code_x, self.code_z, is_subsystem_code=self._is_subsystem_code)
+        code._dimension = self._dimension
         code._distance = self._distance
         code._distance_x = self._distance_x
         code._distance_z = self._distance_z
         code._stabilizer_ops = self._stabilizer_ops
         code._gauge_ops = self._gauge_ops
         code.set_logical_ops_xz(supports, supports)
+        return code
+
+    def to_swel(self) -> CSSCode:
+        """Put this code into a SWEL logical operator basis.  Throw an error if we fail.
+
+        A code can be put into a SWEL basis (see is_swel) if and only if it is self-dual and has an
+        odd-weight logical operator (arXiv:2503.19790, Theorem 1).
+        """
+        code = self.maybe_to_swel()
+        if code is self:
+            raise ValueError(
+                "Failed to put this code into a SWEL basis;"
+                " it must be self-dual with an odd-weight logical operator"
+            )
         return code
 
     @functools.cached_property

@@ -102,6 +102,10 @@ def test_orthonormal_basis() -> None:
     vectors = field([[1, 1, 0, 0], [0, 0, 1, 1]])
     assert qldpc.math.get_orthonormal_basis(vectors) is None
 
+    # only GF(2) is supported
+    with pytest.raises(ValueError, match="only implemented over GF"):
+        qldpc.math.get_orthonormal_basis(galois.GF(3)([[1, 0], [0, 1]]))
+
 
 def test_block_matrix() -> None:
     """block_matrix assembles a nested block structure into a single NumPy array."""

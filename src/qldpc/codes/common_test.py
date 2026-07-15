@@ -622,18 +622,31 @@ def test_to_swel() -> None:
     assert sum_code.is_self_dual and not sum_code.is_swel
     assert sum_code.to_swel().is_swel
 
-    # a non-self-dual code cannot be converted into a SWEL basis
-    with pytest.raises(ValueError, match="self-dual"):
-        codes.SurfaceCode(3).to_swel()
+    # maybe_to_swel returns self when there is no SWEL basis: a non-self-dual code, ...
+    surface_code = codes.SurfaceCode(3)
+    assert surface_code.maybe_to_swel() is surface_code
+    # ... or a self-dual code whose logical operators all have even weight
+    even_code = codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]])
+    assert even_code.maybe_to_swel() is even_code
 
-    # a self-dual code whose logical operators all have even weight has no SWEL basis
-    with pytest.raises(ValueError, match="no SWEL"):
-        codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]]).to_swel()
+    # to_swel raises in both of those cases
+    with pytest.raises(ValueError, match="SWEL basis"):
+        surface_code.to_swel()
+    with pytest.raises(ValueError, match="SWEL basis"):
+        even_code.to_swel()
 
     # QuditCode.to_swel converts to a CSSCode first
     assert codes.QuditCode(code.matrix).to_swel().is_swel
     with pytest.raises(ValueError, match="both X and Z support"):
         codes.FiveQubitCode().to_swel()
+
+    # QuditCode.maybe_to_swel returns self unless it yields a SWEL CSSCode
+    maybe_swel = codes.QuditCode(code.matrix).maybe_to_swel()  # CSS and SWEL-able
+    assert isinstance(maybe_swel, codes.CSSCode) and maybe_swel.is_swel
+    non_swel_code = codes.QuditCode(toric.matrix)
+    assert non_swel_code.maybe_to_swel() is non_swel_code  # CSS but not SWEL-able
+    five_qubit_code = codes.FiveQubitCode()
+    assert five_qubit_code.maybe_to_swel() is five_qubit_code  # not even CSS
 
 
 def test_css_ops(pytestconfig: pytest.Config) -> None:
