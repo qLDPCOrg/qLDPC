@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 import stim
 import sympy.combinatorics as comb
+import tsim
 
 from qldpc import circuits, codes
 from qldpc.math import symplectic_conjugate
@@ -94,6 +95,13 @@ def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
     circuit_a = circuits.with_remapped_qubits(stim.Circuit("MPP X1*!Y2 \n M !4"), {2: 3})
     circuit_b = stim.Circuit("MPP X1*!Y3 \n M !4")
     assert circuit_a == circuit_b
+
+    # a tsim.Circuit input is remapped and returned as a tsim.Circuit
+    tsim_remapped = circuits.with_remapped_qubits(
+        tsim.Circuit.from_stim_program(circuit), qubit_map
+    )
+    assert isinstance(tsim_remapped, tsim.Circuit)
+    assert tsim_remapped.stim_circuit == circuits.with_remapped_qubits(circuit, qubit_map)
 
 
 def test_finding_unaddressed_measurements() -> None:

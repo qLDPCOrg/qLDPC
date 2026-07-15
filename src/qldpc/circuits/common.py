@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Mapping, Sequence
-from typing import Callable, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Callable, ParamSpec, TypeVar
 
 import galois
 import numpy as np
@@ -27,6 +27,19 @@ import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
+
+####################################################################################################
+# try to import tsim and define a circuit type that may be either of stim.Circuit or tsim.Circuit
+try:
+    import tsim
+
+    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
+except ImportError:  # pragma: no cover
+    if not TYPE_CHECKING:
+        tsim = None
+        stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
+####################################################################################################
+
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
@@ -47,8 +60,11 @@ def restrict_to_qubits(
 
 
 def with_remapped_qubits(
-    circuit: stim.Circuit, qubit_map: Mapping[int, int] | Sequence[int], *, inverse: bool = False
-) -> stim.Circuit:
+    circuit: stim_or_tsim_Circuit,
+    qubit_map: Mapping[int, int] | Sequence[int],
+    *,
+    inverse: bool = False,
+) -> stim_or_tsim_Circuit:
     """The same circuit, but with relabeled qubits.
 
     Qubits not in qubit_map get mapped to themselves.
@@ -60,8 +76,12 @@ def with_remapped_qubits(
         inverse: If True, invert the provided qubit_map.  Default: False.
 
     Returns:
-        stim.Circuit: A remapped circuit.
+        The input circuit with remapped qubits.
     """
+    if tsim is not None and isinstance(circuit, tsim.Circuit):
+        output = with_remapped_qubits(circuit.stim_circuit, qubit_map, inverse=inverse)
+        return tsim.Circuit.from_stim_program(output)
+
     qubit_map = (
         qubit_map
         if isinstance(qubit_map, Mapping)

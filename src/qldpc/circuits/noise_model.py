@@ -110,20 +110,10 @@ import itertools
 import math
 import re
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
-from typing import TYPE_CHECKING, TypeVar
 
 import stim
 
-try:
-    import tsim
-
-    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
-except ImportError:  # pragma: no cover
-    if not TYPE_CHECKING:
-        tsim = None
-        stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
-
-from .common import with_remapped_qubits
+from .common import stim_or_tsim_Circuit, tsim, with_remapped_qubits
 
 ####################################################################################################
 # global constants
@@ -238,7 +228,8 @@ CORRELATED_ERROR_NAMES = frozenset({"CORRELATED_ERROR", "E", "ELSE_CORRELATED_ER
 def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
     """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
     if tsim is not None and isinstance(circuit, tsim.Circuit):
-        return tsim.Circuit.from_stim_program(as_noiseless_circuit(circuit.stim_circuit))
+        output = as_noiseless_circuit(circuit.stim_circuit)
+        return tsim.Circuit.from_stim_program(output)
     block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
     noiseless_circuit = stim.Circuit()
     noiseless_circuit.append(block)
@@ -930,16 +921,15 @@ class NoiseModel:
             The input circuit with added noise.
         """
         if tsim is not None and isinstance(circuit, tsim.Circuit):
-            return tsim.Circuit.from_stim_program(
-                self.noisy_circuit(
-                    circuit.stim_circuit,
-                    system_qubits=system_qubits,
-                    immune_qubits=immune_qubits,
-                    immune_op_tag=immune_op_tag,
-                    immunize_gates=immunize_gates,
-                    insert_ticks=insert_ticks,
-                )
+            output = self.noisy_circuit(
+                circuit.stim_circuit,
+                system_qubits=system_qubits,
+                immune_qubits=immune_qubits,
+                immune_op_tag=immune_op_tag,
+                immunize_gates=immunize_gates,
+                insert_ticks=insert_ticks,
             )
+            return tsim.Circuit.from_stim_program(output)
 
         system_qubits = frozenset(
             range(circuit.num_qubits) if system_qubits is None else system_qubits
