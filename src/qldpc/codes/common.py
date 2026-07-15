@@ -963,6 +963,10 @@ class QuditCode(AbstractCode):
             )
         return code
 
+    def to_swel(self) -> CSSCode:
+        """Convert this code into a CSSCode with a SWEL logical operator basis."""
+        return self.to_css().to_swel()
+
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
@@ -2210,6 +2214,29 @@ class CSSCode(QuditCode):
                 np.eye(self.dimension, dtype=int),
             )
         )
+
+    def to_swel(self) -> CSSCode:
+        """Return a copy of this code with a SWEL logical operator basis (see is_swel).
+
+        Raise a ValueError if this code is not self-dual, or if it has no SWEL basis.  A self-dual
+        CSS code has a SWEL basis if and only if it has an odd-weight logical operator
+        (arXiv:2503.19790, Theorem 1).
+        """
+        if not self.is_self_dual:
+            raise ValueError("Only self-dual codes can be converted into a SWEL basis")
+        # A code is SWEL when its logical operator supports are orthonormal (L @ L.T = identity),
+        # so a SWEL basis is an orthonormal basis for the space of logical operator supports.
+        supports = math.get_orthonormal_basis(self.get_logical_ops(Pauli.Z))
+        if supports is None:
+            raise ValueError("This self-dual code has no SWEL logical operator basis")
+        code = CSSCode(self.code_x, self.code_z, is_subsystem_code=self._is_subsystem_code)
+        code._distance = self._distance
+        code._distance_x = self._distance_x
+        code._distance_z = self._distance_z
+        code._stabilizer_ops = self._stabilizer_ops
+        code._gauge_ops = self._gauge_ops
+        code.set_logical_ops_xz(supports, supports)
+        return code
 
     @functools.cached_property
     def canonicalized(self) -> CSSCode:

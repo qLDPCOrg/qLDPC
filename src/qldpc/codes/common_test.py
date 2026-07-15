@@ -604,6 +604,38 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert not codes.SurfaceCode(3).is_swel
 
 
+def test_to_swel() -> None:
+    """Convert codes into a SWEL logical operator basis (see CSSCode.is_swel)."""
+    # an already-SWEL code stays SWEL, with its parity checks unchanged
+    code = codes.SteaneCode()
+    swel_code = code.to_swel()
+    assert swel_code.is_swel
+    assert np.array_equal(swel_code.matrix_x, code.matrix_x)
+    assert np.array_equal(swel_code.matrix_z, code.matrix_z)
+
+    # a self-dual code that is not SWEL in its default basis: the direct sum of a SWEL code
+    # (SteaneCode) and a self-dual non-SWEL code (a toric code) requires Lemma 2 of arXiv:2503.19790
+    toric = codes.ToricCode(2)
+    matrix_x = math.block_matrix([[np.asarray(code.matrix_x, dtype=int), 0], [0, toric.matrix_x]])
+    matrix_z = math.block_matrix([[np.asarray(code.matrix_z, dtype=int), 0], [0, toric.matrix_z]])
+    sum_code = codes.CSSCode(matrix_x, matrix_z)
+    assert sum_code.is_self_dual and not sum_code.is_swel
+    assert sum_code.to_swel().is_swel
+
+    # a non-self-dual code cannot be converted into a SWEL basis
+    with pytest.raises(ValueError, match="self-dual"):
+        codes.SurfaceCode(3).to_swel()
+
+    # a self-dual code whose logical operators all have even weight has no SWEL basis
+    with pytest.raises(ValueError, match="no SWEL"):
+        codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]]).to_swel()
+
+    # QuditCode.to_swel converts to a CSSCode first
+    assert codes.QuditCode(code.matrix).to_swel().is_swel
+    with pytest.raises(ValueError, match="both X and Z support"):
+        codes.FiveQubitCode().to_swel()
+
+
 def test_css_ops(pytestconfig: pytest.Config) -> None:
     """Logical and stabilizer operator construction for CSS codes."""
     seed = pytestconfig.getoption("randomly_seed")

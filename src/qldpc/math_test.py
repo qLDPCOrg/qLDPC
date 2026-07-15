@@ -74,6 +74,35 @@ def test_dual_basis(pytestconfig: pytest.Config) -> None:
         qldpc.math.get_dual_basis(field.Random((2, 1)))
 
 
+def test_orthonormal_basis() -> None:
+    """Orthonormal bases over GF(2) (arXiv:2503.19790, Algorithm 1 and Lemma 2)."""
+    field = galois.GF(2)
+
+    # the empty subspace has an empty orthonormal basis
+    basis = qldpc.math.get_orthonormal_basis(field.Zeros((0, 4)))
+    assert basis is not None and np.array_equal(basis, field.Zeros((0, 4)))
+
+    # a subspace that only needs Gram-Schmidt against unit vectors
+    vectors = field([[1, 0, 0], [1, 1, 0], [0, 0, 1]])
+    basis = qldpc.math.get_orthonormal_basis(vectors)
+    assert basis is not None and np.array_equal(basis @ basis.T, field.Identity(3))
+
+    # a subspace that requires rewriting hyperbolic pairs into unit vectors (Lemma 2)
+    vectors = field([[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 0], [0, 0, 0, 0, 1, 1]])
+    basis = qldpc.math.get_orthonormal_basis(vectors)
+    assert basis is not None and np.array_equal(basis @ basis.T, field.Identity(3))
+
+    # an alternating form (every vector has even weight) admits no orthonormal basis
+    vectors = field(
+        [[1, 1, 0, 0, 0, 0], [1, 0, 1, 0, 0, 0], [0, 1, 1, 1, 1, 0], [0, 0, 0, 1, 0, 1]]
+    )
+    assert qldpc.math.get_orthonormal_basis(vectors) is None
+
+    # a degenerate form (a vector orthogonal to the whole subspace) admits no orthonormal basis
+    vectors = field([[1, 1, 0, 0], [0, 0, 1, 1]])
+    assert qldpc.math.get_orthonormal_basis(vectors) is None
+
+
 def test_block_matrix() -> None:
     """block_matrix assembles a nested block structure into a single NumPy array."""
     eye = np.eye(2, dtype=float)

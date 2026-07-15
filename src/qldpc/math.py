@@ -112,6 +112,80 @@ def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois
     return dual_basis.view(type(basis))
 
 
+def get_orthonormal_basis(vectors: galois.FieldArray) -> galois.FieldArray | None:
+    """An orthonormal basis for the row space of a matrix over the binary field GF(2).
+
+    Given a matrix with linearly independent rows spanning a subspace V of GF(2)^n, return a matrix
+    L whose rows are a basis for V with L @ L.T = identity -- that is, an orthonormal basis for V
+    under the standard bilinear form (the dot product).  If V has no orthonormal basis, return None.
+
+    An orthonormal basis exists if and only if the bilinear form restricted to V is nondegenerate
+    (no nonzero vector of V is orthogonal to all of V) and non-alternating (some vector v of V has
+    v @ v = 1).  Over GF(2) the alternating case is exactly the case in which every vector has even
+    weight.
+
+    The construction is a variant of symplectic Gram-Schmidt orthogonalization (Algorithm 1 and
+    Lemma 2 of arXiv:2503.19790).  The first loop reduces the row space to a collection of "unit"
+    vectors u with u @ u = 1 and "hyperbolic pairs" (b, c) with b @ b = c @ c = 0 and b @ c = 1, all
+    mutually orthogonal.  Lemma 2 then rewrites one unit vector and one hyperbolic pair into three
+    unit vectors, and is applied repeatedly to eliminate every hyperbolic pair.
+    """
+    field = type(vectors)
+    dimension = vectors.shape[1]
+    words = [row for row in vectors]
+
+    units: list[galois.FieldArray] = []  # vectors u with u @ u = 1
+    pairs: list[tuple[galois.FieldArray, galois.FieldArray]] = []  # (b, c) with b @ c = 1
+
+    while words:
+        self_overlaps = [int(word @ word) for word in words]
+        if 1 in self_overlaps:
+            # a unit vector; orthogonalize the other words against it
+            pp = self_overlaps.index(1)
+            unit = words[pp]
+            units.append(unit)
+            words = [
+                word + unit if int(word @ unit) else word
+                for qq, word in enumerate(words)
+                if qq != pp
+            ]
+        else:
+            # a hyperbolic pair; orthogonalize the other words against both of its vectors
+            first = words[0]
+            overlaps = [int(first @ word) for word in words]
+            if 1 not in overlaps:
+                return None  # "first" is orthogonal to all of V, so the form is degenerate
+            pp = overlaps.index(1)
+            partner = words[pp]
+            pairs.append((first, partner))
+            new_words = []
+            for qq, word in enumerate(words):
+                if qq == 0 or qq == pp:
+                    continue
+                add_first = int(word @ partner)
+                add_partner = int(word @ first)
+                if add_first:
+                    word = word + first
+                if add_partner:
+                    word = word + partner
+                new_words.append(word)
+            words = new_words
+
+    # an orthonormal basis requires a non-alternating form: at least one unit vector must exist
+    if not units and pairs:
+        return None
+
+    # Lemma 2: rewrite a unit vector a and a hyperbolic pair (b, c) as three unit vectors
+    while pairs:
+        vec_b, vec_c = pairs.pop()
+        vec_a = units.pop()
+        units += [vec_a + vec_b + vec_c, vec_a + vec_b, vec_a + vec_c]
+
+    if not units:
+        return field.Zeros((0, dimension))
+    return field(np.array(units, dtype=int))
+
+
 def block_matrix(
     blocks: Sequence[Sequence[npt.NDArray[np.generic] | int | object]],
 ) -> npt.NDArray[np.int_]:
