@@ -110,20 +110,10 @@ import itertools
 import math
 import re
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
-from typing import TYPE_CHECKING, TypeVar
 
 import stim
 
-try:
-    import tsim
-
-    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
-except ImportError:  # pragma: no cover
-    if not TYPE_CHECKING:
-        tsim = None
-        stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
-
-from .common import with_remapped_qubits
+from .common import stim_or_tsim_Circuit, tsim, with_remapped_qubits
 
 ####################################################################################################
 # global constants
