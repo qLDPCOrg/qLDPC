@@ -599,6 +599,10 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert nx.utils.graphs_equal(subgraphs[0], code.get_graph(Pauli.X))
     assert nx.utils.graphs_equal(subgraphs[1], code.get_graph(Pauli.Z))
 
+    # self-dual codes with equivalent logicals (SWEL)
+    assert codes.SteaneCode().is_swel
+    assert not codes.SurfaceCode(3).is_swel
+
 
 def test_css_ops(pytestconfig: pytest.Config) -> None:
     """Logical and stabilizer operator construction for CSS codes."""

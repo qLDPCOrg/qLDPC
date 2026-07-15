@@ -2189,6 +2189,17 @@ class CSSCode(QuditCode):
             self._is_subsystem_code = bool(np.any(self.matrix_x @ self.matrix_z.T))
         return self._is_subsystem_code
 
+    @property
+    def is_swel(self) -> bool:
+        """Is this code self-dual with equivalent logicals (SWEL)?"""
+        return bool(
+            np.array_equal(self.canonicalized.matrix_x, self.canonicalized.matrix_z)
+            and np.array_equal(
+                (logs_z := self.get_logical_ops(Pauli.Z)) @ logs_z.T,
+                np.eye(self.dimension, dtype=int),
+            )
+        )
+
     @functools.cached_property
     def canonicalized(self) -> CSSCode:
         """The same code with its parity matrices in reduced row echelon form."""
