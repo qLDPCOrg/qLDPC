@@ -86,7 +86,7 @@ def test_lookup() -> None:
 
     decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
-    assert decoder.size == len(decoder.syndrome_to_error)
+    assert len(decoder) == len(decoder.syndrome_to_error)
 
     # decode with a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()

@@ -384,8 +384,7 @@ class LookupDecoder(Decoder):
                 prediction = most_likely_errors[syndrome, most_likely_obs_flip]
             self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(prediction)
 
-    @property
-    def size(self) -> int:
+    def __len__(self) -> int:
         """The number of entries in the lookup table."""
         return len(self.syndrome_to_error)
 
