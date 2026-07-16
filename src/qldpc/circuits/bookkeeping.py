@@ -43,11 +43,22 @@ class QubitIDs:
     checks_z: tuple[int, ...] = ()
 
     def __init__(
-        self, data: Sequence[int], check: Sequence[int] = (), ancilla: Sequence[int] = ()
+        self,
+        data: int | Sequence[int],
+        check: int | Sequence[int] = (),
+        ancilla: int | Sequence[int] = (),
     ) -> None:
-        self.data = tuple(data)
-        self.check = tuple(check)
-        self.ancilla = tuple(ancilla)
+        self.data = tuple(data if isinstance(data, Sequence) else range(data))
+        self.check = tuple(
+            check
+            if isinstance(check, Sequence)
+            else range(self.data[-1] + 1, self.data[-1] + 1 + check)
+        )
+        self.ancilla = tuple(
+            ancilla
+            if isinstance(ancilla, Sequence)
+            else range(self.check[-1] + 1, self.check[-1] + 1 + ancilla)
+        )
 
     def __iter__(self) -> Iterator[tuple[int, ...]]:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
