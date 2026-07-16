@@ -21,7 +21,7 @@ import collections
 import functools
 import itertools
 import warnings
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from typing import Any, Protocol
 
 import cvxpy
@@ -263,6 +263,7 @@ class LookupDecoder(Decoder):
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
         observable_flip_matrix: IntegerArray | None = None,
         predict_observable_flips: bool = False,
+        post_select: Collection[int] = (),
     ) -> None:
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
             # Initialize from a stim.DetectorErrorModel:
@@ -336,7 +337,7 @@ class LookupDecoder(Decoder):
             # Loop over all errors in decreasing weight; assign each syndrome its likeliest error.
             error_penalty: dict[tuple[int, ...], float] = {}
             for error, syndrome in LookupDecoder.iter_errors_and_syndromes(
-                pcm, max_weight, symplectic
+                pcm, max_weight, symplectic, np.array(post_select, dtype=np.intp)
             ):
                 if penalty_func is None:
                     self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
@@ -366,7 +367,9 @@ class LookupDecoder(Decoder):
         net_probs: dict[Bitstring, dict[Bitstring, float]] = collections.defaultdict(dict)
         most_likely_errors: dict[tuple[Bitstring, Bitstring], npt.NDArray[np.int_]] = {}
         most_likely_error_probs: dict[tuple[Bitstring, Bitstring], float] = {}
-        for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
+        for error, syndrome in LookupDecoder.iter_errors_and_syndromes(
+            pcm, max_weight, symplectic, np.array(post_select, dtype=np.intp)
+        ):
             obs_flip = _get_obs_flip(error)
             prob = np.exp(-penalty_func(error))
             net_probs[syndrome][obs_flip] = net_probs[syndrome].get(obs_flip, 0.0) + prob
@@ -390,7 +393,7 @@ class LookupDecoder(Decoder):
 
     @staticmethod
     def iter_errors_and_syndromes(
-        matrix: IntegerArray, max_weight: int, symplectic: bool
+        matrix: IntegerArray, max_weight: int, symplectic: bool, post_select: npt.NDArray[np.intp]
     ) -> Iterator[tuple[npt.NDArray[np.int_], tuple[int, ...]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
 
@@ -399,6 +402,10 @@ class LookupDecoder(Decoder):
         dtype = matrix.dtype
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
+
+        # identify syndrome bits to keep
+        keep = np.ones(len(matrix), dtype=bool)
+        keep[post_select] = False
 
         # identify the set of local errors that can occur
         repeat = 2 if symplectic else 1
@@ -413,7 +420,11 @@ class LookupDecoder(Decoder):
                     error[:, error_site_indices] = np.asarray(local_errors, dtype=dtype).T
                     error = error.ravel()
                     syndrome = matrix @ error
-                    yield (error.view(np.ndarray).astype(dtype), tuple(syndrome.view(np.ndarray)))
+                    if not np.any(syndrome[post_select]):
+                        yield (
+                            error.view(np.ndarray).astype(dtype),
+                            tuple(syndrome[keep].view(np.ndarray)),
+                        )
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error.
