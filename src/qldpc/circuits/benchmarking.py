@@ -302,11 +302,10 @@ def get_logical_error_and_discard_rate(
         post_select_observables: The observables to post-select on.  Any time the decoder's
             prediction for these observable flips do not agree with the actual observable flips, the
             shot is discarded rather than counting as an error.
-        dem_to_decode: The detector error model to decode.  If post-selecting, this DEM should _not_
-            include any of the the detectors that are post-selected on.  If dem_to_decode is None,
-            this method builds
-                dem_arrays = decoders.DetectorErrorModelArrays(dem)
-                dem_to_decode = dem_arrays.post_selected_on(post_select).simplified().to_dem()
+        dem_to_decode: The detector error model to decode.  This DEM should include _all_ detectors,
+            including any that are post-selected on: the decoder receives every detector bit, for
+            consistency with how sinter works.  If dem_to_decode is None, this method decodes with
+            the (simplified) DEM sampled from circuit_or_dem.
 
     Returns:
         A fraction of samples in which at least one observable was decoded incorrectly.
@@ -318,12 +317,12 @@ def get_logical_error_and_discard_rate(
 
     if dem_to_decode is not None:
         same_num_observables = dem_to_decode.num_observables == dem.num_observables
-        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors - len(post_select)
+        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors
         if not same_num_observables or not same_num_detectors:
             raise ValueError(
                 f"Incompatible detector error models."
-                "\n(num_detectors, num_observables) in the DEM to sample (after post-selection):"
-                f" {(dem.num_detectors - len(post_select), dem.num_observables)}"
+                "\n(num_detectors, num_observables) in the DEM to sample:"
+                f" {(dem.num_detectors, dem.num_observables)}"
                 "\n(num_detectors, num_observables) in the DEM to decode:"
                 f" {(dem_to_decode.num_detectors, dem_to_decode.num_observables)}"
             )
@@ -341,31 +340,13 @@ def get_logical_error_and_discard_rate(
 
     # if applicable, post-select on flag detectors
     if postselection_mask is not None:
-        # remove shots in which post-selection detectors fired
         shot_mask = ~np.any(det_data & postselection_mask, axis=1)
         det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
-
-        # remove post-selected detectors from the detector sample data
-        detector_mask = np.ones(dem.num_detectors, dtype=bool)
-        detector_mask[list(post_select)] = False
-        det_data_unpacked = np.unpackbits(
-            det_data, count=dem.num_detectors, bitorder="little", axis=1
-        )
-        det_data = np.packbits(det_data_unpacked[:, detector_mask], bitorder="little", axis=1)
-
-        # record the fraction of shots that were discarded
         discard_rate += np.sum(~shot_mask) / num_samples
 
-        if dem_to_decode is None:
-            # remove the post-selected detectors from the DEM
-            dem_arrays = dem_arrays.post_selected_on(post_select).simplified()
-            dem = dem_arrays.to_dem()
-
-    # compile a decoder for this detector error model
-    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
-
     # decode and identify incorrectly predicted observable flips
+    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
     predicted_flips = compiled_sinter_decoder.decode_shots_bit_packed(det_data)
     incorrectly_predicted_flips = obs_data ^ predicted_flips
 
