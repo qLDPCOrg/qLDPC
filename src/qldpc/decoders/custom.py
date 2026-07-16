@@ -315,6 +315,12 @@ class LookupDecoder(Decoder):
             self.build_penalty_func(error_channel) if error_channel is not None else None
         )
 
+        # remember the post-selected syndrome (detector) bits and the mask of bits to keep
+        self.post_select = tuple(post_select)
+        keep = np.ones(pcm.shape[0], dtype=bool)
+        keep[list(self.post_select)] = False
+        self.keep: npt.NDArray[np.bool_] | None = keep if self.post_select else None
+
         # set some useful/necessary attributes
         self.has_erasure_bit = add_erasure_bit
         self.predict_observable_flips = predict_observable_flips
@@ -340,7 +346,7 @@ class LookupDecoder(Decoder):
             # Loop over all errors in decreasing weight; assign each syndrome its likeliest error.
             error_penalty: dict[tuple[int, ...], float] = {}
             for error, syndrome in LookupDecoder.iter_errors_and_syndromes(
-                pcm, max_weight, symplectic, np.array(post_select, dtype=np.intp)
+                pcm, max_weight, symplectic, keep
             ):
                 if penalty_func is None:
                     self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(error)
@@ -371,7 +377,7 @@ class LookupDecoder(Decoder):
         most_likely_errors: dict[tuple[Bitstring, Bitstring], npt.NDArray[np.int_]] = {}
         most_likely_error_probs: dict[tuple[Bitstring, Bitstring], float] = {}
         for error, syndrome in LookupDecoder.iter_errors_and_syndromes(
-            pcm, max_weight, symplectic, np.array(post_select, dtype=np.intp)
+            pcm, max_weight, symplectic, keep
         ):
             obs_flip = _get_obs_flip(error)
             prob = np.exp(-penalty_func(error))
@@ -402,19 +408,20 @@ class LookupDecoder(Decoder):
 
     @staticmethod
     def iter_errors_and_syndromes(
-        matrix: IntegerArray, max_weight: int, symplectic: bool, post_select: npt.NDArray[np.intp]
+        matrix: IntegerArray, max_weight: int, symplectic: bool, keep: npt.NDArray[np.bool_]
     ) -> Iterator[tuple[npt.NDArray[np.int_], tuple[int, ...]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
 
         Errors are sorted in decreasing weight (number of bits/qudits addressed nontrivially).
+
+        The keep argument is a boolean mask of syndrome bits to retain: errors whose syndrome is
+        nontrivial on any dropped (post-selected) bit are skipped, and dropped bits are omitted from
+        the yielded syndrome.
         """
         dtype = matrix.dtype
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
-
-        # identify syndrome bits to keep
-        keep = np.ones(len(matrix), dtype=bool)
-        keep[post_select] = False
+        drop = ~keep  # post-selected syndrome bits, which are required to be trivial
 
         # identify the set of local errors that can occur
         repeat = 2 if symplectic else 1
@@ -429,7 +436,7 @@ class LookupDecoder(Decoder):
                     error[:, error_site_indices] = np.asarray(local_errors, dtype=dtype).T
                     error = error.ravel()
                     syndrome = matrix @ error
-                    if not np.any(syndrome[post_select]):
+                    if not np.any(syndrome[drop]):
                         yield (
                             error.view(np.ndarray).astype(dtype),
                             tuple(syndrome[keep].view(np.ndarray)),
@@ -440,9 +447,10 @@ class LookupDecoder(Decoder):
 
         If initialized with predict_observable_flips=True, return the inferred observable flip.
         """
-        return self.syndrome_to_error.get(
-            tuple(syndrome.view(np.ndarray)), self.default_error_to_return
-        ).copy()
+        syndrome = syndrome.view(np.ndarray)
+        if self.keep is not None:
+            syndrome = syndrome[self.keep]
+        return self.syndrome_to_error.get(tuple(syndrome), self.default_error_to_return).copy()
 
     @staticmethod
     def build_penalty_func(
@@ -496,6 +504,12 @@ class WeightedLookupDecoder(LookupDecoder):
                 " stim.DetectorErrorModel with observables"
             )
 
+        # remember the post-selected syndrome (detector) bits and the mask of bits to keep
+        self.post_select = tuple(post_select)
+        keep = np.ones(pcm.shape[0], dtype=bool)
+        keep[list(self.post_select)] = False
+        self.keep: npt.NDArray[np.bool_] | None = keep if self.post_select else None
+
         self.has_erasure_bit = add_erasure_bit
         self.predict_observable_flips = predict_observable_flips
         if predict_observable_flips:
@@ -512,7 +526,7 @@ class WeightedLookupDecoder(LookupDecoder):
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
         for error, syndrome in LookupDecoder.iter_errors_and_syndromes(
-            pcm, max_weight, symplectic, np.array(post_select, dtype=np.intp)
+            pcm, max_weight, symplectic, keep
         ):
             if predict_observable_flips:
                 assert observable_flip_matrix is not None  # primarily for type-checking reasons
@@ -541,7 +555,10 @@ class WeightedLookupDecoder(LookupDecoder):
         ),
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        key = tuple(syndrome.view(np.ndarray))
+        syndrome = syndrome.view(np.ndarray)
+        if self.keep is not None:
+            syndrome = syndrome[self.keep]
+        key = tuple(syndrome)
         if key not in self.syndrome_to_candidates:
             return self.default_correction.copy()
 

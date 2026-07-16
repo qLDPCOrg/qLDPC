@@ -165,9 +165,12 @@ def test_observable_lookup_decoding() -> None:
     assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
     assert np.array_equal(weighted.decode(np.array([0, 1], dtype=int)), [0])
 
-    # post-selecting on a detector drops it from the syndrome keys
+    # post-selecting on a detector drops it from the syndrome keys; decode still takes the full
+    # syndrome and internally removes the post-selected bits before the lookup
+    decoder = decoders.LookupDecoder(dem, max_weight=2, post_select=[0])
+    assert np.array_equal(obs_matrix @ decoder.decode(np.array([0, 1], dtype=int)), [1])  # E4
     weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, post_select=[0])
-    assert np.array_equal(obs_matrix @ weighted.decode(np.array([1], dtype=int)), [0])  # E2: D1
+    assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
 
 
 def test_ilp_decoder() -> None:
