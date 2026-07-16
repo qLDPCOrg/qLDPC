@@ -603,10 +603,12 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
 def test_swel() -> None:
     """Identify and construct SWEL logical operator bases (see CSSCode.is_swel)."""
     # is_swel is a property of the code, independent of the choice of logical basis
-    assert codes.SteaneCode().is_swel  # self-dual with an odd-weight logical operator
+    assert codes.SteaneCode().is_swel  # self-dual with an orthonormalizable logical basis
     assert not codes.SurfaceCode(3).is_swel  # not self-dual
     even_code = codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]])
-    assert not even_code.is_swel  # self-dual, but every logical operator has even weight
+    assert not even_code.is_swel  # self-dual, but its logicals admit no orthonormal basis
+    # a self-dual code over an odd field can also fail to be SWEL (non-square discriminant)
+    assert not codes.CSSCode([[1, 1, 1]], [[1, 1, 1]], field=3).is_swel
 
     # get_swel_logical_ops returns an orthonormal logical basis, or raises if none exists
     supports = codes.SteaneCode().get_swel_logical_ops()
@@ -614,20 +616,24 @@ def test_swel() -> None:
     with pytest.raises(ValueError, match="no SWEL"):
         codes.SurfaceCode(3).get_swel_logical_ops()  # not self-dual
     with pytest.raises(ValueError, match="no SWEL"):
-        even_code.get_swel_logical_ops()  # self-dual, but no odd-weight logical operator
+        even_code.get_swel_logical_ops()  # self-dual, but no orthonormal logical basis
 
-    # set_swel_logical_ops installs such a basis in place and returns self
-    code = codes.SteaneCode()
-    assert code.set_swel_logical_ops() is code
-    logs_z = code.get_logical_ops(Pauli.Z)
-    assert np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int))
-
-    # SWEL is currently only supported for qubit codes
-    qutrit_code = codes.CSSCode([[1, 1, 1]], [[1, 1, 1]], field=3)
-    with pytest.raises(ValueError, match="only provided for qubit codes"):
-        qutrit_code.is_swel
-    with pytest.raises(ValueError, match="only provided for qubit codes"):
-        qutrit_code.get_swel_logical_ops()
+    # set_swel_logical_ops installs such a basis in place and returns self, over any finite field
+    # and for subsystem codes (which require a self-dual gauge group)
+    swel_codes = [
+        codes.SteaneCode(),  # a qubit code
+        codes.CSSCode(
+            [[0, 0, 1, 1, 1], [0, 1, 0, 1, 2]], [[0, 0, 1, 1, 1], [0, 1, 0, 1, 2]], field=3
+        ),
+        codes.CSSCode([[0, 0, 1, 1]], [[0, 0, 1, 1]], field=4),
+        codes.CSSCode([[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]], [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]]),
+    ]
+    assert swel_codes[-1].is_subsystem_code
+    for code in swel_codes:
+        assert code.is_swel
+        assert code.set_swel_logical_ops() is code
+        logs_z = code.get_logical_ops(Pauli.Z)
+        assert np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int))
 
 
 def test_css_ops(pytestconfig: pytest.Config) -> None:

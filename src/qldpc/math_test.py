@@ -75,31 +75,34 @@ def test_dual_basis(pytestconfig: pytest.Config) -> None:
 
 
 def test_orthonormal_basis() -> None:
-    """Orthonormal bases over GF(2) (arXiv:2503.19790, Algorithm 1 and Lemma 2)."""
-    field = galois.GF(2)
+    """Orthonormal bases over finite fields (arXiv:2503.19790, Algorithm 1 and Lemma 2)."""
+    # subspaces that admit an orthonormal basis: check that L @ L.T is the identity
+    with_basis = [
+        galois.GF(2).Zeros((0, 4)),  # the empty subspace
+        galois.GF(2)([[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 0], [0, 0, 0, 0, 1, 1]]),  # Lemma 2
+        galois.GF(4)([[2, 0]]),  # characteristic 2, a rescaled unit vector
+        galois.GF(3)([[1, 0], [0, 1]]),  # odd characteristic, unit norms
+        galois.GF(7)([[1, 1]]),  # odd characteristic, a rescaled square norm
+        galois.GF(7)([[1, 2], [1, 3]]),  # odd characteristic, two non-square norms paired off
+    ]
+    for vectors in with_basis:
+        field = type(vectors)
+        basis = qldpc.math.get_orthonormal_basis(vectors)
+        assert basis is not None and np.array_equal(basis @ basis.T, field.Identity(len(basis)))
 
-    # the empty subspace has an empty orthonormal basis
-    basis = qldpc.math.get_orthonormal_basis(field.Zeros((0, 4)))
-    assert basis is not None and np.array_equal(basis, field.Zeros((0, 4)))
-
-    # a subspace that requires rewriting hyperbolic pairs into unit vectors (Lemma 2)
-    vectors = field([[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 0], [0, 0, 0, 0, 1, 1]])
-    basis = qldpc.math.get_orthonormal_basis(vectors)
-    assert basis is not None and np.array_equal(basis @ basis.T, field.Identity(3))
-
-    # an alternating form (every vector has even weight) admits no orthonormal basis
-    vectors = field(
-        [[1, 1, 0, 0, 0, 0], [1, 0, 1, 0, 0, 0], [0, 1, 1, 1, 1, 0], [0, 0, 0, 1, 0, 1]]
-    )
-    assert qldpc.math.get_orthonormal_basis(vectors) is None
-
-    # a degenerate form (a vector orthogonal to the whole subspace) admits no orthonormal basis
-    vectors = field([[1, 1, 0, 0], [0, 0, 1, 1]])
-    assert qldpc.math.get_orthonormal_basis(vectors) is None
-
-    # only GF(2) is supported
-    with pytest.raises(ValueError, match="only implemented over GF"):
-        qldpc.math.get_orthonormal_basis(galois.GF(3)([[1, 0], [0, 1]]))
+    # subspaces with no orthonormal basis: get_orthonormal_basis returns None
+    without_basis = [
+        # characteristic 2, an alternating form (every vector has even weight)
+        galois.GF(2)(
+            [[1, 1, 0, 0, 0, 0], [1, 0, 1, 0, 0, 0], [0, 1, 1, 1, 1, 0], [0, 0, 0, 1, 0, 1]]
+        ),
+        galois.GF(2)([[1, 1, 0, 0], [0, 0, 1, 1]]),  # a degenerate form
+        galois.GF(7)([[1, 2]]),  # odd characteristic, a non-square discriminant
+        galois.GF(7)([[1, 2, 3]]),  # odd characteristic, a degenerate (isotropic) form
+        galois.GF(7)([[1, 2, 3], [1, 2, 4]]),  # odd characteristic, isotropic then non-square
+    ]
+    for vectors in without_basis:
+        assert qldpc.math.get_orthonormal_basis(vectors) is None
 
 
 def test_block_matrix() -> None:

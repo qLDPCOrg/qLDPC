@@ -2208,39 +2208,30 @@ class CSSCode(QuditCode):
     def is_swel(self) -> bool:
         """Can this code be self-dual with equivalent logicals (SWEL)?
 
-        A SWEL basis is a choice of logical operators for which Hadamard-transforming every logical
-        Z operator recovers a dual logical X operator, equivalently for which the logical operator
-        supports are orthonormal (L @ L.T = identity).  This is a property of the code, not of any
-        particular logical basis: a self-dual code admits a SWEL basis if and only if it has an
-        odd-weight logical operator (arXiv:2503.19790, Theorem 1).  Use set_swel_logical_ops to
-        actually put the code into such a basis.
-
-        SWEL code support is currently only provided for qubit codes.
+        A SWEL basis is a choice of logical operators whose supports are orthonormal
+        (L @ L.T = identity), equivalently one for which a transversal Fourier transform (a
+        Hadamard, over qubits) maps every logical Z operator to a dual logical X operator.  Whether
+        a SWEL basis exists is a property of the code, not of any particular logical basis (see
+        arXiv:2503.19790, Theorem 1, for qubits).  Use set_swel_logical_ops to put the code into
+        such a basis.
         """
-        if self.field is not galois.GF2:
-            raise ValueError("SWEL code support is currently only provided for qubit codes")
         return self.is_self_dual and (
-            self.dimension == 0
-            or any(int(logical_op @ logical_op) for logical_op in self.get_logical_ops(Pauli.Z))
+            math.get_orthonormal_basis(self.get_logical_ops(Pauli.Z)) is not None
         )
 
     def get_swel_logical_ops(self) -> galois.FieldArray:
         """Logical operator supports of a SWEL logical basis (see is_swel).
 
         The returned matrix L has L @ L.T = identity, and each row is usable as both the X-type and
-        Z-type support of a logical qubit.  Raise a ValueError if the code has no SWEL basis.
-
-        SWEL code support is currently only provided for qubit codes.
+        Z-type support of a logical qudit.  Raise a ValueError if the code has no SWEL basis.
         """
-        if self.field is not galois.GF2:
-            raise ValueError("SWEL code support is currently only provided for qubit codes")
         supports = (
             math.get_orthonormal_basis(self.get_logical_ops(Pauli.Z)) if self.is_self_dual else None
         )
         if supports is None:
             raise ValueError(
-                "This code has no SWEL logical operator basis;"
-                " it must be self-dual with an odd-weight logical operator"
+                "This code has no SWEL logical operator basis; it must be self-dual, and its"
+                " logical operators must admit an orthonormal basis"
             )
         return supports
 
