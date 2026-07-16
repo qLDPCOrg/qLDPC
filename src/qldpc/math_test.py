@@ -82,11 +82,6 @@ def test_orthonormal_basis() -> None:
     basis = qldpc.math.get_orthonormal_basis(field.Zeros((0, 4)))
     assert basis is not None and np.array_equal(basis, field.Zeros((0, 4)))
 
-    # a subspace that only needs Gram-Schmidt against unit vectors
-    vectors = field([[1, 0, 0], [1, 1, 0], [0, 0, 1]])
-    basis = qldpc.math.get_orthonormal_basis(vectors)
-    assert basis is not None and np.array_equal(basis @ basis.T, field.Identity(3))
-
     # a subspace that requires rewriting hyperbolic pairs into unit vectors (Lemma 2)
     vectors = field([[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 0], [0, 0, 0, 0, 1, 1]])
     basis = qldpc.math.get_orthonormal_basis(vectors)

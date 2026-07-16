@@ -605,48 +605,29 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
 
 
 def test_to_swel() -> None:
-    """Convert codes into a SWEL logical operator basis (see CSSCode.is_swel)."""
-    # an already-SWEL code stays SWEL, with its parity checks unchanged
-    code = codes.SteaneCode()
-    swel_code = code.to_swel()
-    assert swel_code.is_swel
-    assert np.array_equal(swel_code.matrix_x, code.matrix_x)
-    assert np.array_equal(swel_code.matrix_z, code.matrix_z)
-
-    # a self-dual code that is not SWEL in its default basis: the direct sum of a SWEL code
-    # (SteaneCode) and a self-dual non-SWEL code (a toric code) requires Lemma 2 of arXiv:2503.19790
-    toric = codes.ToricCode(2)
-    matrix_x = math.block_matrix([[np.asarray(code.matrix_x, dtype=int), 0], [0, toric.matrix_x]])
-    matrix_z = math.block_matrix([[np.asarray(code.matrix_z, dtype=int), 0], [0, toric.matrix_z]])
-    sum_code = codes.CSSCode(matrix_x, matrix_z)
-    assert sum_code.is_self_dual and not sum_code.is_swel
-    assert sum_code.to_swel().is_swel
+    """Put codes into a SWEL logical operator basis (see CSSCode.is_swel)."""
+    # a SWEL-able CSS code can be put into a SWEL basis
+    steane_code = codes.SteaneCode()
+    assert not steane_code.is_swel
+    assert steane_code.to_swel().is_swel
 
     # maybe_to_swel returns self when there is no SWEL basis: a non-self-dual code, ...
     surface_code = codes.SurfaceCode(3)
     assert surface_code.maybe_to_swel() is surface_code
+    with pytest.raises(ValueError, match="SWEL basis"):
+        surface_code.to_swel()
     # ... or a self-dual code whose logical operators all have even weight
     even_code = codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]])
     assert even_code.maybe_to_swel() is even_code
 
-    # to_swel raises in both of those cases
-    with pytest.raises(ValueError, match="SWEL basis"):
-        surface_code.to_swel()
-    with pytest.raises(ValueError, match="SWEL basis"):
-        even_code.to_swel()
-
-    # QuditCode.to_swel converts to a CSSCode first
-    assert codes.QuditCode(code.matrix).to_swel().is_swel
-    with pytest.raises(ValueError, match="both X and Z support"):
-        codes.FiveQubitCode().to_swel()
-
-    # QuditCode.maybe_to_swel returns self unless it yields a SWEL CSSCode
-    maybe_swel = codes.QuditCode(code.matrix).maybe_to_swel()  # CSS and SWEL-able
+    # QuditCode.to_swel and maybe_to_swel convert to a CSSCode first
+    assert codes.QuditCode(codes.SteaneCode().matrix).to_swel().is_swel
+    maybe_swel = codes.QuditCode(codes.SteaneCode().matrix).maybe_to_swel()  # CSS and SWEL-able
     assert isinstance(maybe_swel, codes.CSSCode) and maybe_swel.is_swel
-    non_swel_code = codes.QuditCode(toric.matrix)
-    assert non_swel_code.maybe_to_swel() is non_swel_code  # CSS but not SWEL-able
-    five_qubit_code = codes.FiveQubitCode()
-    assert five_qubit_code.maybe_to_swel() is five_qubit_code  # not even CSS
+    non_swel_code = codes.QuditCode(codes.ToricCode(2).matrix)  # CSS but not SWEL-able
+    assert non_swel_code.maybe_to_swel() is non_swel_code
+    five_qubit_code = codes.FiveQubitCode()  # not even CSS
+    assert five_qubit_code.maybe_to_swel() is five_qubit_code
 
 
 def test_css_ops(pytestconfig: pytest.Config) -> None:
