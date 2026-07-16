@@ -599,35 +599,28 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert nx.utils.graphs_equal(subgraphs[0], code.get_graph(Pauli.X))
     assert nx.utils.graphs_equal(subgraphs[1], code.get_graph(Pauli.Z))
 
-    # self-dual codes with equivalent logicals (SWEL)
-    assert codes.SteaneCode().is_swel
-    assert not codes.SurfaceCode(3).is_swel
 
-
-def test_to_swel() -> None:
-    """Put codes into a SWEL logical operator basis (see CSSCode.is_swel)."""
-    # a SWEL-able CSS code can be put into a SWEL basis
-    steane_code = codes.SteaneCode()
-    assert not steane_code.is_swel
-    assert steane_code.to_swel().is_swel
-
-    # maybe_to_swel returns self when there is no SWEL basis: a non-self-dual code, ...
-    surface_code = codes.SurfaceCode(3)
-    assert surface_code.maybe_to_swel() is surface_code
-    with pytest.raises(ValueError, match="SWEL basis"):
-        surface_code.to_swel()
-    # ... or a self-dual code whose logical operators all have even weight
+def test_swel() -> None:
+    """Identify and construct SWEL logical operator bases (see CSSCode.is_swel)."""
+    # is_swel is a property of the code, independent of the choice of logical basis
+    assert codes.SteaneCode().is_swel  # self-dual with an odd-weight logical operator
+    assert not codes.SurfaceCode(3).is_swel  # not self-dual
     even_code = codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]])
-    assert even_code.maybe_to_swel() is even_code
+    assert not even_code.is_swel  # self-dual, but every logical operator has even weight
 
-    # QuditCode.to_swel and maybe_to_swel convert to a CSSCode first
-    assert codes.QuditCode(codes.SteaneCode().matrix).to_swel().is_swel
-    maybe_swel = codes.QuditCode(codes.SteaneCode().matrix).maybe_to_swel()  # CSS and SWEL-able
-    assert isinstance(maybe_swel, codes.CSSCode) and maybe_swel.is_swel
-    non_swel_code = codes.QuditCode(codes.ToricCode(2).matrix)  # CSS but not SWEL-able
-    assert non_swel_code.maybe_to_swel() is non_swel_code
-    five_qubit_code = codes.FiveQubitCode()  # not even CSS
-    assert five_qubit_code.maybe_to_swel() is five_qubit_code
+    # get_swel_logical_ops returns an orthonormal logical basis, or raises if none exists
+    supports = codes.SteaneCode().get_swel_logical_ops()
+    assert np.array_equal(supports @ supports.T, np.eye(len(supports), dtype=int))
+    with pytest.raises(ValueError, match="no SWEL"):
+        codes.SurfaceCode(3).get_swel_logical_ops()  # not self-dual
+    with pytest.raises(ValueError, match="no SWEL"):
+        even_code.get_swel_logical_ops()  # self-dual, but no odd-weight logical operator
+
+    # set_swel_logical_ops installs such a basis in place and returns self
+    code = codes.SteaneCode()
+    assert code.set_swel_logical_ops() is code
+    logs_z = code.get_logical_ops(Pauli.Z)
+    assert np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int))
 
 
 def test_css_ops(pytestconfig: pytest.Config) -> None:
