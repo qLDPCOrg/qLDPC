@@ -160,6 +160,15 @@ def test_observable_lookup_decoding() -> None:
     decoder = decoders.LookupDecoder(dem, max_weight=2)
     assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
 
+    # a WeightedLookupDecoder can be built from a DEM and predict observable flips directly
+    weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, predict_observable_flips=True)
+    assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
+    assert np.array_equal(weighted.decode(np.array([0, 1], dtype=int)), [0])
+
+    # post-selecting on a detector drops it from the syndrome keys
+    weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, post_select=[0])
+    assert np.array_equal(obs_matrix @ weighted.decode(np.array([1], dtype=int)), [0])  # E2: D1
+
 
 def test_ilp_decoder() -> None:
     """Decode using an integer linear program."""

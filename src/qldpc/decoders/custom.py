@@ -333,11 +333,6 @@ class LookupDecoder(Decoder):
                 [self.default_error_to_return, np.ones(1, dtype=pcm.dtype)]
             )
 
-        def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            return (
-                np.hstack([error, np.zeros(1, dtype=pcm.dtype)]) if self.has_erasure_bit else error
-            )
-
         # start working on the decoding map from syndrome -> error
         self.syndrome_to_error: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
 
@@ -348,10 +343,10 @@ class LookupDecoder(Decoder):
                 pcm, max_weight, symplectic, np.array(post_select, dtype=np.intp)
             ):
                 if penalty_func is None:
-                    self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
+                    self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(error)
                 elif (error_weight := penalty_func(error)) <= error_penalty.get(syndrome, np.inf):
                     error_penalty[syndrome] = error_weight
-                    self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
+                    self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(error)
             return  # we have built the syndrome_to_error map, so we have no more to do!
 
         # If we got here, we are building a lookup table that maps each syndrome to an error that
@@ -393,7 +388,13 @@ class LookupDecoder(Decoder):
                 prediction = np.asarray(most_likely_obs_flip, dtype=pcm.dtype)
             else:
                 prediction = most_likely_errors[syndrome, most_likely_obs_flip]
-            self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(prediction)
+            self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(prediction)
+
+    def _maybe_add_erasure_bit(self, error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Append a trivial (zero) erasure bit to an error if this decoder tracks erasure bits."""
+        if not self.has_erasure_bit:
+            return error
+        return np.hstack([error, np.zeros(1, dtype=error.dtype)])
 
     def __len__(self) -> int:
         """The number of entries in this lookup table."""
@@ -477,24 +478,52 @@ class WeightedLookupDecoder(LookupDecoder):
         *,
         symplectic: bool = False,
         add_erasure_bit: bool = False,
+        predict_observable_flips: bool = False,
+        post_select: Collection[int] = (),
     ) -> None:
-        pcm = (
-            DetectorErrorModelArrays(pcm_or_dem, simplify=False).detector_flip_matrix
-            if isinstance(pcm_or_dem, stim.DetectorErrorModel)
-            else pcm_or_dem
-        )
+        observable_flip_matrix: IntegerArray | None = None
+        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+            dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
+            pcm = dem_arrays.detector_flip_matrix
+            if dem_arrays.num_observables > 0:
+                observable_flip_matrix = dem_arrays.observable_flip_matrix
+        else:
+            pcm = pcm_or_dem
 
-        def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            return np.hstack([error, np.zeros(1, dtype=pcm.dtype)]) if add_erasure_bit else error
-
-        self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
-            collections.defaultdict(list)
-        )
-        for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
-            self.syndrome_to_candidates[syndrome].append(_maybe_add_erasure_bit(error))
+        if predict_observable_flips and observable_flip_matrix is None:  # pragma: no cover
+            raise ValueError(
+                "Predicting observable flips with a WeightedLookupDecoder requires providing a"
+                " stim.DetectorErrorModel with observables"
+            )
 
         self.has_erasure_bit = add_erasure_bit
-        self.default_correction = np.zeros(pcm.shape[1], dtype=pcm.dtype)
+        self.predict_observable_flips = predict_observable_flips
+        if predict_observable_flips:
+            assert observable_flip_matrix is not None  # primarily for type-checking reasons
+            output_length = observable_flip_matrix.shape[0]
+        else:
+            output_length = pcm.shape[1]
+
+        # Record all errors consistent with each syndrome, together with the output to return if
+        # that error is selected: an observable-flip prediction if requested (else the error
+        # itself), with a trivial erasure bit appended.  The output is precomputed here so that
+        # decode() only has to select the minimum-penalty candidate error.
+        self.syndrome_to_candidates: dict[
+            tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
+        ] = collections.defaultdict(list)
+        for error, syndrome in LookupDecoder.iter_errors_and_syndromes(
+            pcm, max_weight, symplectic, np.array(post_select, dtype=np.intp)
+        ):
+            if predict_observable_flips:
+                assert observable_flip_matrix is not None  # primarily for type-checking reasons
+                output = (observable_flip_matrix @ error).view(np.ndarray) % 2
+            else:
+                output = error
+            self.syndrome_to_candidates[syndrome].append(
+                (error, self._maybe_add_erasure_bit(output))
+            )
+
+        self.default_correction = np.zeros(output_length, dtype=pcm.dtype)
         if add_erasure_bit:
             self.default_correction = np.hstack(
                 [self.default_correction, np.ones(1, dtype=pcm.dtype)]
@@ -512,10 +541,16 @@ class WeightedLookupDecoder(LookupDecoder):
         ),
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        errors = self.syndrome_to_candidates.get(
-            tuple(syndrome.view(np.ndarray)), [self.default_correction]
-        )
-        return (min(errors, key=penalty_func) if penalty_func is not None else errors[-1]).copy()
+        key = tuple(syndrome.view(np.ndarray))
+        if key not in self.syndrome_to_candidates:
+            return self.default_correction.copy()
+
+        candidates = self.syndrome_to_candidates[key]
+        if penalty_func is None:
+            output = candidates[-1][1]
+        else:
+            output = min(candidates, key=lambda candidate: penalty_func(candidate[0]))[1]
+        return output.copy()
 
 
 class ILPDecoder(Decoder):
