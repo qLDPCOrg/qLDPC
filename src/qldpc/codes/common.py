@@ -1769,6 +1769,8 @@ class QuditCode(AbstractCode):
             code._stabilizer_ops = transform_ops(self.get_stabilizer_ops())
         if self._gauge_ops is not None:
             code._gauge_ops = transform_ops(self.get_gauge_ops())
+        code._dimension = self._dimension
+        code._distance = self._distance
         return code
 
     def conjugate(self) -> QuditCode:
@@ -1817,6 +1819,7 @@ class QuditCode(AbstractCode):
         if self._gauge_ops is not None:
             code._gauge_ops = transform_ops(self.get_gauge_ops())
 
+        code._dimension = self._dimension
         return code
 
     @staticmethod
@@ -2993,6 +2996,10 @@ class CSSCode(QuditCode):
             code._gauge_ops = scipy.linalg.block_diag(
                 self.get_gauge_ops(Pauli.Z), self.get_gauge_ops(Pauli.X)
             ).view(self.field)
+        code._dimension = self._dimension
+        code._distance = self._distance
+        code._distance_x = self._distance_z
+        code._distance_z = self._distance_x
         return code
 
     def deformed(
