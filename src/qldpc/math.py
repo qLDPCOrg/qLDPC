@@ -302,7 +302,7 @@ def _orthonormalize_odd(
 
     # pair non-square-norm vectors into unit vectors, using a fixed non-square element epsilon
     if non_squares:
-        epsilon = next(elt for elt in field.elements if elt and not field.is_square(elt))
+        epsilon = field.primitive_element  # a generator of GF(q)* is always a non-square
         # solve alpha**2 + beta**2 = 1 / epsilon, so that alpha u + beta w has self-overlap 1
         alpha, beta = _sum_of_two_squares(field, epsilon ** (field.order - 2))
         for (u_vec, u_norm), (w_vec, w_norm) in zip(non_squares[::2], non_squares[1::2]):
@@ -331,7 +331,8 @@ def _sum_of_two_squares(
     field: type[galois.FieldArray], target: galois.FieldArray
 ) -> tuple[galois.FieldArray, galois.FieldArray]:
     """Field elements (a, b) with a**2 + b**2 == target; these exist in odd characteristic."""
-    for alpha in field.elements:
+    for value in range(field.order):  # roughly half of all "alpha" succeed, so this exits quickly
+        alpha = field(value)
         remainder = target - alpha * alpha
         if field.is_square(remainder):
             return alpha, np.sqrt(np.atleast_1d(remainder))[0]
