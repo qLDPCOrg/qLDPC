@@ -2214,7 +2214,11 @@ class CSSCode(QuditCode):
         particular logical basis: a self-dual code admits a SWEL basis if and only if it has an
         odd-weight logical operator (arXiv:2503.19790, Theorem 1).  Use set_swel_logical_ops to
         actually put the code into such a basis.
+
+        SWEL code support is currently only provided for qubit codes.
         """
+        if self.field is not galois.GF2:
+            raise ValueError("SWEL code support is currently only provided for qubit codes")
         return self.is_self_dual and (
             self.dimension == 0
             or any(int(logical_op @ logical_op) for logical_op in self.get_logical_ops(Pauli.Z))
@@ -2225,7 +2229,11 @@ class CSSCode(QuditCode):
 
         The returned matrix L has L @ L.T = identity, and each row is usable as both the X-type and
         Z-type support of a logical qubit.  Raise a ValueError if the code has no SWEL basis.
+
+        SWEL code support is currently only provided for qubit codes.
         """
+        if self.field is not galois.GF2:
+            raise ValueError("SWEL code support is currently only provided for qubit codes")
         supports = (
             math.get_orthonormal_basis(self.get_logical_ops(Pauli.Z)) if self.is_self_dual else None
         )

@@ -622,6 +622,13 @@ def test_swel() -> None:
     logs_z = code.get_logical_ops(Pauli.Z)
     assert np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int))
 
+    # SWEL is currently only supported for qubit codes
+    qutrit_code = codes.CSSCode([[1, 1, 1]], [[1, 1, 1]], field=3)
+    with pytest.raises(ValueError, match="only provided for qubit codes"):
+        qutrit_code.is_swel
+    with pytest.raises(ValueError, match="only provided for qubit codes"):
+        qutrit_code.get_swel_logical_ops()
+
 
 def test_css_ops(pytestconfig: pytest.Config) -> None:
     """Logical and stabilizer operator construction for CSS codes."""
