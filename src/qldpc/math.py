@@ -210,9 +210,7 @@ def get_orthonormal_basis(
     field = type(vectors)
     dimension = vectors.shape[1]
     if not promise_full_rank:
-        # reduce to a basis of the row space, discarding any linearly dependent rows
-        vectors = vectors.row_reduce()
-        vectors = vectors[first_nonzero_cols(vectors) < dimension]
+        vectors = vectors.row_space()  # reduce to a basis, discarding linearly dependent rows
     words = list(vectors)
     units = (
         _orthonormalize_char_2(words)
@@ -242,7 +240,7 @@ def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldA
         if index is not None:
             # a unit vector: rescale to self-overlap 1 and orthogonalize the other words against it
             pivot = words.pop(index)
-            unit = pivot / np.sqrt(np.atleast_1d(pivot @ pivot))[0]
+            unit = pivot / _sqrt(pivot @ pivot)
             words = [word - (word @ unit) * unit for word in words]
             units.append(unit)
         else:
@@ -300,7 +298,7 @@ def _orthonormalize_odd(
     non_squares: list[tuple[galois.FieldArray, galois.FieldArray]] = []
     for pivot, overlap in diagonal:
         if field.is_square(overlap):
-            units.append(pivot / np.sqrt(np.atleast_1d(overlap))[0])
+            units.append(pivot / _sqrt(overlap))
         else:
             non_squares.append((pivot, overlap))
 
@@ -315,8 +313,8 @@ def _orthonormalize_odd(
         alpha, beta = _sum_of_two_squares(field, field(1) / epsilon)
         for (u_vec, u_norm), (w_vec, w_norm) in zip(non_squares[::2], non_squares[1::2]):
             # rescale u_vec and w_vec to self-overlap epsilon, then combine into two unit vectors
-            u_vec = u_vec * np.sqrt(np.atleast_1d(epsilon / u_norm))[0]
-            w_vec = w_vec * np.sqrt(np.atleast_1d(epsilon / w_norm))[0]
+            u_vec = u_vec * _sqrt(epsilon / u_norm)
+            w_vec = w_vec * _sqrt(epsilon / w_norm)
             units += [alpha * u_vec + beta * w_vec, -beta * u_vec + alpha * w_vec]
     return units
 
@@ -339,9 +337,17 @@ def _sum_of_two_squares(
     field: type[galois.FieldArray], target: galois.FieldArray
 ) -> tuple[galois.FieldArray, galois.FieldArray]:
     """Field elements (a, b) with a**2 + b**2 == target; these exist in odd characteristic."""
-    for value in range(field.order):  # roughly half of all "alpha" succeed, so this exits quickly
-        alpha = field(value)
+    for alpha in field.elements:  # roughly half of all "alpha" succeed, so this exits quickly
         remainder = target - alpha * alpha
         if field.is_square(remainder):
-            return alpha, np.sqrt(np.atleast_1d(remainder))[0]
+            return alpha, _sqrt(remainder)
     raise AssertionError("no solution to a**2 + b**2 = target")  # pragma: no cover
+
+
+def _sqrt(value: galois.FieldArray) -> galois.FieldArray:
+    """A square root of a (0-dimensional) field element that is known to be a square.
+
+    Delegates to np.sqrt, which computes finite-field square roots but must be given an array
+    rather than a 0-dimensional scalar (which it rejects over some extension fields).
+    """
+    return np.sqrt(np.atleast_1d(value))[0]
