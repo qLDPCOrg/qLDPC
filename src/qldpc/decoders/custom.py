@@ -271,71 +271,29 @@ class LookupDecoder(Decoder):
         predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
     ) -> None:
-        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            # Initialize from a stim.DetectorErrorModel:
-            # 1. Forbid conflicting arguments.
-            # 2. Extract parity check matrix, error probabilities, and observables (if applicable).
-            if (
-                error_channel is not None
-                or penalty_func is not None
-                or observable_flip_matrix is not None
-            ):  # pragma: no cover
-                raise ValueError(
-                    "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
-                    " providing a stim.DetectorErrorModel to a LookupDecoder"
-                )
-            dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
-            pcm = dem_arrays.detector_flip_matrix
-            error_channel = dem_arrays.error_probs
-            if dem_arrays.num_observables > 0:
-                observable_flip_matrix = dem_arrays.observable_flip_matrix
-
-        else:
-            # initialize from a parity check matrix and forbid conflicting arguments
-            pcm = pcm_or_dem
-            if error_channel is not None and penalty_func is not None:  # pragma: no cover
-                raise ValueError(
-                    "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
-                )
-            if (
-                observable_flip_matrix is not None
-                and penalty_func is None
-                and error_channel is None
-            ):  # pragma: no cover
-                raise ValueError(
-                    "Predicting observable flips with a LookupDecoder requires providing a"
-                    " stim.DetectorErrorModel, error_channel, or penalty_func"
-                )
-
-        # Construct the "penalty function" for each error.  If we have error probabilities, the
-        # penalty function is penalty_func(error) = -log(probability_of_error)
-        penalty_func = penalty_func or (
-            self.build_penalty_func(error_channel) if error_channel is not None else None
+        pcm, observable_flip_matrix, penalty_func, keep, default_correction = (
+            self._process_lookup_data(
+                pcm_or_dem,
+                error_channel,
+                penalty_func,
+                observable_flip_matrix,
+                add_erasure_bit,
+                predict_observable_flips,
+                post_select,
+            )
         )
-
-        # remember the post-selected syndrome (detector) bits and the mask of bits to keep
-        self.post_select = tuple(post_select)
-        keep = np.ones(pcm.shape[0], dtype=bool)
-        keep[list(self.post_select)] = False
-        self.keep: npt.NDArray[np.bool_] | None = keep if self.post_select else None
+        if observable_flip_matrix is not None and penalty_func is None:  # pragma: no cover
+            raise ValueError(
+                "Predicting observable flips with a LookupDecoder requires providing a"
+                " stim.DetectorErrorModel, error_channel, or penalty_func"
+            )
 
         # set some useful/necessary attributes
+        self.post_select = tuple(post_select)
+        self.keep = keep
         self.has_erasure_bit = add_erasure_bit
         self.predict_observable_flips = predict_observable_flips
-        if predict_observable_flips:
-            if observable_flip_matrix is None:  # pragma: no cover
-                raise ValueError(
-                    "Predicting observable flips with a LookupDecoder requires providing a"
-                    " stim.DetectorErrorModel with observables or an observable_flip_matrix"
-                )
-            output_length = observable_flip_matrix.shape[0]
-        else:
-            output_length = pcm.shape[1]
-        self.default_error_to_return = np.zeros(output_length, dtype=pcm.dtype)
-        if self.has_erasure_bit:
-            self.default_error_to_return = np.hstack(
-                [self.default_error_to_return, np.ones(1, dtype=pcm.dtype)]
-            )
+        self.default_correction = default_correction
 
         # start working on the decoding map from syndrome -> error
         self.syndrome_to_error: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
@@ -406,20 +364,20 @@ class LookupDecoder(Decoder):
 
     @staticmethod
     def iter_errors_and_syndromes(
-        matrix: IntegerArray, max_weight: int, symplectic: bool, keep: npt.NDArray[np.bool_]
+        matrix: IntegerArray, max_weight: int, symplectic: bool, keep: npt.NDArray[np.bool_] | None
     ) -> Iterator[tuple[npt.NDArray[np.int_], tuple[int, ...]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
 
         Errors are sorted in decreasing weight (number of bits/qudits addressed nontrivially).
 
-        The keep argument is a boolean mask of syndrome bits to retain: errors whose syndrome is
-        nontrivial on any dropped (post-selected) bit are skipped, and dropped bits are omitted from
-        the yielded syndrome.
+        The keep argument is a boolean mask of syndrome bits to retain, or None to keep all bits.
+        When post-selecting (keep is not None), errors whose syndrome is nontrivial on any dropped
+        bit are skipped, and dropped bits are omitted from the yielded syndrome.
         """
         dtype = matrix.dtype
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
-        drop = ~keep  # post-selected syndrome bits, which are required to be trivial
+        drop = None if keep is None else ~keep  # post-selected bits, required to be trivial
 
         # identify the set of local errors that can occur
         repeat = 2 if symplectic else 1
@@ -434,11 +392,14 @@ class LookupDecoder(Decoder):
                     error[:, error_site_indices] = np.asarray(local_errors, dtype=dtype).T
                     error = error.ravel()
                     syndrome = matrix @ error
-                    if not np.any(syndrome[drop]):
-                        yield (
-                            error.view(np.ndarray).astype(dtype),
-                            tuple(syndrome[keep].view(np.ndarray)),
-                        )
+                    if keep is not None:
+                        if np.any(syndrome[drop]):
+                            continue
+                        syndrome = syndrome[keep]
+                    yield (
+                        error.view(np.ndarray).astype(dtype),
+                        tuple(syndrome.view(np.ndarray)),
+                    )
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error.
@@ -448,7 +409,7 @@ class LookupDecoder(Decoder):
         syndrome = syndrome.view(np.ndarray)
         if self.keep is not None:
             syndrome = syndrome[self.keep]
-        return self.syndrome_to_error.get(tuple(syndrome), self.default_error_to_return).copy()
+        return self.syndrome_to_error.get(tuple(syndrome), self.default_correction).copy()
 
     @staticmethod
     def build_penalty_func(
@@ -467,6 +428,84 @@ class LookupDecoder(Decoder):
 
         return penalty_func
 
+    @staticmethod
+    def _process_lookup_data(
+        pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+        error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
+        observable_flip_matrix: IntegerArray | None,
+        add_erasure_bit: bool,
+        predict_observable_flips: bool,
+        post_select: Collection[int],
+    ) -> tuple[
+        IntegerArray,
+        IntegerArray | None,
+        Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
+        npt.NDArray[np.bool_] | None,
+        npt.NDArray[np.int_],
+    ]:
+        """Process and validate the inputs shared by LookupDecoder and WeightedLookupDecoder.
+
+        Returns a parity check matrix, an observable-flip matrix (or None), a penalty function (or
+        None), a boolean mask of syndrome bits to keep (or None if not post-selecting), and the
+        default output to return for syndromes absent from the lookup table.  If pcm_or_dem is a
+        stim.DetectorErrorModel, its parity check matrix, error probabilities, and (if present)
+        observable-flip matrix are extracted from it, and passing an explicit error_channel,
+        penalty_func, or observable_flip_matrix is forbidden.  Otherwise pcm_or_dem is treated as a
+        parity check matrix.  The returned penalty function is built from the error channel when one
+        is available, unless a penalty_func is provided directly.
+        """
+        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+            if (
+                error_channel is not None
+                or penalty_func is not None
+                or observable_flip_matrix is not None
+            ):  # pragma: no cover
+                raise ValueError(
+                    "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
+                    " providing a stim.DetectorErrorModel to a LookupDecoder"
+                )
+            dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
+            pcm = dem_arrays.detector_flip_matrix
+            error_channel = dem_arrays.error_probs
+            if dem_arrays.num_observables > 0:
+                observable_flip_matrix = dem_arrays.observable_flip_matrix
+        else:
+            pcm = pcm_or_dem
+            if error_channel is not None and penalty_func is not None:  # pragma: no cover
+                raise ValueError(
+                    "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
+                )
+
+        if predict_observable_flips and observable_flip_matrix is None:  # pragma: no cover
+            raise ValueError(
+                "Predicting observable flips with a LookupDecoder requires providing a"
+                " stim.DetectorErrorModel with observables or an observable_flip_matrix"
+            )
+
+        # build a penalty function from the error channel, unless one was provided directly
+        penalty_func = penalty_func or (
+            LookupDecoder.build_penalty_func(error_channel) if error_channel is not None else None
+        )
+
+        # build the mask of syndrome bits to keep (None if not post-selecting)
+        keep: npt.NDArray[np.bool_] | None = None
+        if len(post_select):
+            keep = np.ones(pcm.shape[0], dtype=bool)
+            keep[list(post_select)] = False
+
+        # build the default output returned for syndromes absent from the lookup table
+        if predict_observable_flips:
+            assert observable_flip_matrix is not None  # guaranteed by the check above
+            output_length = observable_flip_matrix.shape[0]
+        else:
+            output_length = pcm.shape[1]
+        default_correction = np.zeros(output_length, dtype=pcm.dtype)
+        if add_erasure_bit:
+            default_correction = np.hstack([default_correction, np.ones(1, dtype=pcm.dtype)])
+
+        return pcm, observable_flip_matrix, penalty_func, keep, default_correction
+
 
 class WeightedLookupDecoder(LookupDecoder):
     """Decoder based on a lookup table that maps syndromes to errors.
@@ -484,37 +523,26 @@ class WeightedLookupDecoder(LookupDecoder):
         *,
         symplectic: bool = False,
         add_erasure_bit: bool = False,
+        observable_flip_matrix: IntegerArray | None = None,
         predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
     ) -> None:
-        observable_flip_matrix: IntegerArray | None = None
-        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
-            pcm = dem_arrays.detector_flip_matrix
-            if dem_arrays.num_observables > 0:
-                observable_flip_matrix = dem_arrays.observable_flip_matrix
-        else:
-            pcm = pcm_or_dem
-
-        if predict_observable_flips and observable_flip_matrix is None:  # pragma: no cover
-            raise ValueError(
-                "Predicting observable flips with a WeightedLookupDecoder requires providing a"
-                " stim.DetectorErrorModel with observables"
-            )
+        pcm, observable_flip_matrix, _, keep, default_correction = self._process_lookup_data(
+            pcm_or_dem,
+            None,
+            None,
+            observable_flip_matrix,
+            add_erasure_bit,
+            predict_observable_flips,
+            post_select,
+        )
 
         # remember the post-selected syndrome (detector) bits and the mask of bits to keep
         self.post_select = tuple(post_select)
-        keep = np.ones(pcm.shape[0], dtype=bool)
-        keep[list(self.post_select)] = False
-        self.keep: npt.NDArray[np.bool_] | None = keep if self.post_select else None
-
+        self.keep = keep
         self.has_erasure_bit = add_erasure_bit
         self.predict_observable_flips = predict_observable_flips
-        if predict_observable_flips:
-            assert observable_flip_matrix is not None  # primarily for type-checking reasons
-            output_length = observable_flip_matrix.shape[0]
-        else:
-            output_length = pcm.shape[1]
+        self.default_correction = default_correction
 
         # Record all errors consistent with each syndrome, together with the output to return if
         # that error is selected: an observable-flip prediction if requested (else the error
@@ -533,12 +561,6 @@ class WeightedLookupDecoder(LookupDecoder):
                 output = error
             self.syndrome_to_candidates[syndrome].append(
                 (error, self._maybe_add_erasure_bit(output))
-            )
-
-        self.default_correction = np.zeros(output_length, dtype=pcm.dtype)
-        if add_erasure_bit:
-            self.default_correction = np.hstack(
-                [self.default_correction, np.ones(1, dtype=pcm.dtype)]
             )
 
     def __len__(self) -> int:
