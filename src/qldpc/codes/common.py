@@ -267,10 +267,9 @@ class ClassicalCode(AbstractCode):
         """The same code with its parity matrix in reduced row echelon form."""
         if self._is_canonicalized:  # pragma: no cover
             return self
-        matrix_rref = self.matrix.row_reduce()
-        matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
-        code = ClassicalCode(matrix_rref, self.field)
-        code._dimension = len(self) - len(matrix_rref)
+        matrix = self.matrix.row_space()
+        code = ClassicalCode(matrix, self.field)
+        code._dimension = len(self) - len(matrix)
         code._distance = self._distance
         code._is_canonicalized = True
         return code
@@ -894,11 +893,10 @@ class QuditCode(AbstractCode):
         """The same code with its parity matrix in reduced row echelon form."""
         if self._is_canonicalized:  # pragma: no cover
             return self
-        matrix_rref = self.matrix.row_reduce()
-        matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
-        code = QuditCode(matrix_rref, self.field, is_subsystem_code=self._is_subsystem_code)
+        matrix = self.matrix.row_space()
+        code = QuditCode(matrix, self.field, is_subsystem_code=self._is_subsystem_code)
         if not self._is_subsystem_code:
-            code._dimension = len(code) - len(matrix_rref)
+            code._dimension = len(code) - len(matrix)
         code._distance = self._distance
         code._stabilizer_ops = self._stabilizer_ops
         code._gauge_ops = self._gauge_ops
@@ -1241,7 +1239,7 @@ class QuditCode(AbstractCode):
         parity check matrix (modulo elementary row operations and array reshaping) is
         matrix[:, :, np.argsort(qudit_locs)].  As a sanity check, the following test should pass:
             matrix_2d = matrix[:, :, np.argsort(qudit_locs)].reshape(-1, 2 * len(self))
-            assert np.array_equal(matrix_2d.row_reduce(), self.canonicalized.matrix)
+            assert np.array_equal(matrix_2d.row_space(), self.canonicalized.matrix)
 
         Finally, this method also returns slices (index sets) for all row and column sectors, which
         enables selecting blocks of the parity check matrix with, say, matrix[rows_sx, 1, cols_lz].
