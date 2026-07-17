@@ -2227,7 +2227,7 @@ class CSSCode(QuditCode):
         return math.get_orthonormal_basis(self.get_logical_ops(Pauli.X)) is not None
 
     def get_swel_logical_ops(self) -> galois.FieldArray:
-        """Find a self-dual logical operator basis for this code: (Lx, Lz) = (L, L).  Return L.
+        """Find a self-dual basis of logical operators for this code: (Lx, Lz) = (L, L).  Return L.
 
         Raise a ValueError if no such basis exists (see QuditCode.is_swel).
         """

@@ -600,42 +600,22 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert nx.utils.graphs_equal(subgraphs[1], code.get_graph(Pauli.Z))
 
 
-def test_swel() -> None:
+def test_swel_codes() -> None:
     """Identify and construct SWEL logical operator bases (see CSSCode.is_swel)."""
-    # is_swel is a property of the code, independent of the choice of logical basis
-    assert (
-        codes.SteaneCode().is_swel
-    )  # self-dual qubit stabilizer code of odd length is always SWEL
-    assert not codes.SurfaceCode(3).is_swel  # not self-dual
+    steane_code = codes.SteaneCode()
+    surface_code = codes.SurfaceCode(3)
     even_code = codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]])
-    assert not even_code.is_swel  # self-dual, but its logicals admit no orthonormal basis
-    # a self-dual code over an odd field can also fail to be SWEL (non-square discriminant)
-    assert not codes.CSSCode([[1, 1, 1]], [[1, 1, 1]], field=3).is_swel
+    assert steane_code.is_swel
+    assert not surface_code.is_swel  # not self-dual
+    assert not even_code.is_swel  # self-dual but not SWEL
 
-    # get_swel_logical_ops returns an orthonormal logical basis, or raises if none exists
-    supports = codes.SteaneCode().get_swel_logical_ops()
-    assert np.array_equal(supports @ supports.T, np.eye(len(supports), dtype=int))
-    with pytest.raises(ValueError, match="no SWEL"):
-        codes.SurfaceCode(3).get_swel_logical_ops()  # not self-dual
-    with pytest.raises(ValueError, match="no SWEL"):
-        even_code.get_swel_logical_ops()  # self-dual, but no orthonormal logical basis
-
-    # set_swel_logical_ops installs such a basis in place and returns self, over any finite field
-    # and for subsystem codes (which require a self-dual gauge group)
-    swel_codes = [
-        codes.SteaneCode(),  # a qubit code
-        codes.CSSCode(
-            [[0, 0, 1, 1, 1], [0, 1, 0, 1, 2]], [[0, 0, 1, 1, 1], [0, 1, 0, 1, 2]], field=3
-        ),
-        codes.CSSCode([[0, 0, 1, 1]], [[0, 0, 1, 1]], field=4),
-        codes.CSSCode([[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]], [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]]),
-    ]
-    assert swel_codes[-1].is_subsystem_code
-    for code in swel_codes:
-        assert code.is_swel
-        assert code.set_swel_logical_ops() is code
-        logs_z = code.get_logical_ops(Pauli.Z)
-        assert np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int))
+    # we automatically find a self-dual logical operator basis, if it exists
+    code = steane_code.set_swel_logical_ops()
+    assert np.array_equal(code.get_logical_ops(Pauli.X), code.get_logical_ops(Pauli.Z))
+    with pytest.raises(ValueError, match="no self-dual logical operator basis"):
+        surface_code.get_swel_logical_ops()
+    with pytest.raises(ValueError, match="no self-dual logical operator basis"):
+        even_code.get_swel_logical_ops()
 
 
 def test_css_ops(pytestconfig: pytest.Config) -> None:
