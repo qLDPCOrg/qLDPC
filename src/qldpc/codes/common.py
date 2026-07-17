@@ -2210,13 +2210,13 @@ class CSSCode(QuditCode):
         (Lx, Lz) with Lx = Lz; that is, Hadamard-transforming any single-qudit logical Pauli X (in
         some logical Pauli basis) recovers the associated logical Pauli Z.
 
-        In the case of stabilizer (non-subsystem) codes over a field with characteristic 2, (that
-        is, over GF(2**m), which includes qubits with m = 1), a self-dual CSS code is SWEL iff if it
-        has odd block length (Corollary 1 of arXiv:2503.19790), or if at least one row of Lx (in any
+        In the case of stabilizer (non-subsystem) codes over a field with characteristic 2 (that
+        is, over GF(2**m), which includes qubits with m = 1), a self-dual CSS code is SWEL iff it
+        has odd block length (Corollary 1 of arXiv:2503.19790), or at least one row of Lx (in any
         basis) has nonzero self-overlap (Theorem 1 of arXiv:2503.19790).
 
         This method first checks special cases covered by arXiv:2503.19790, and otherwise directly
-        checks the existence of a a logical operator basis (Lx, Lz) with Lx = Lz.
+        checks the existence of a logical operator basis (Lx, Lz) with Lx = Lz.
         """
         if not self.is_self_dual:
             return False
