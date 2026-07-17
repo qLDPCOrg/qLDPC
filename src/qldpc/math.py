@@ -274,8 +274,8 @@ def _orthonormalize_odd(
     is a valid pivot: (u + w) @ (u + w) = 2 * u @ w.  If no cross-overlap is nonzero either, the
     form vanishes on the remaining space, which is therefore degenerate.  Each diagonal entry with a
     square self-overlap is rescaled to a unit vector; the remaining non-square-norm vectors are
-    paired off into unit vectors.  This is possible if and only if their number is even, i.e. if and
-    only if the discriminant of the form is a square.
+    paired off into unit vectors.  This is possible if and only if the number of non-square-norm
+    vectors is even.
     """
     # diagonalize: build an orthogonal basis of vectors with nonzero self-overlap
     diagonal: list[tuple[galois.FieldArray, galois.FieldArray]] = []
