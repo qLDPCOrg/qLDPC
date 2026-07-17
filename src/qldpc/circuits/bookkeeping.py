@@ -49,15 +49,15 @@ class QubitIDs:
         ancilla: int | Sequence[int] = (),
     ) -> None:
         self.data = tuple(data if isinstance(data, Sequence) else range(data))
+        check_start = self.data[-1] + 1 if self.data else 0
         self.check = tuple(
-            check
-            if isinstance(check, Sequence)
-            else range(self.data[-1] + 1, self.data[-1] + 1 + check)
+            check if isinstance(check, Sequence) else range(check_start, check_start + check)
         )
+        ancilla_start = self.check[-1] + 1 if self.check else check_start
         self.ancilla = tuple(
             ancilla
             if isinstance(ancilla, Sequence)
-            else range(self.check[-1] + 1, self.check[-1] + 1 + ancilla)
+            else range(ancilla_start, ancilla_start + ancilla)
         )
 
     def __iter__(self) -> Iterator[tuple[int, ...]]:

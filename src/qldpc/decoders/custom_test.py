@@ -160,6 +160,24 @@ def test_observable_lookup_decoding() -> None:
     decoder = decoders.LookupDecoder(dem, max_weight=2)
     assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
 
+    # a WeightedLookupDecoder can be built from a DEM and predict observable flips directly
+    weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, predict_observable_flips=True)
+    assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
+    assert np.array_equal(weighted.decode(np.array([0, 1], dtype=int)), [0])
+
+    # ... or from a parity check matrix and an explicit observable_flip_matrix
+    weighted = decoders.WeightedLookupDecoder(
+        pcm, max_weight=2, observable_flip_matrix=obs_matrix, predict_observable_flips=True
+    )
+    assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
+
+    # post-selecting on a detector drops it from the syndrome keys; decode still takes the full
+    # syndrome and internally removes the post-selected bits before the lookup
+    decoder = decoders.LookupDecoder(dem, max_weight=2, post_select=[0])
+    assert np.array_equal(obs_matrix @ decoder.decode(np.array([0, 1], dtype=int)), [1])  # E4
+    weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, post_select=[0])
+    assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
+
 
 def test_ilp_decoder() -> None:
     """Decode using an integer linear program."""
@@ -272,9 +290,13 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
     assert decoder.decode(np.ones_like(syndrome))[-1] == 1
 
+    # passing penalty_func=None returns the last-recorded (lowest-weight) consistent candidate
+    decoded_error = decoder.decode(syndrome, penalty_func=None).view(code.field)
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+
 
 def test_penalty_func() -> None:
     """Lookup tables can build penalty functions that penalize unlikely errors."""
     error_channel = [0.2, 0.1]
-    penalty_func = decoders.LookupDecoder.build_penalty_func(error_channel)
+    penalty_func = decoders.LookupDecoder._build_penalty_func(error_channel)
     assert penalty_func([0, 0]) < penalty_func([1, 0]) < penalty_func([0, 1]) < penalty_func([1, 1])
