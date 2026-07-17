@@ -603,7 +603,9 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
 def test_swel() -> None:
     """Identify and construct SWEL logical operator bases (see CSSCode.is_swel)."""
     # is_swel is a property of the code, independent of the choice of logical basis
-    assert codes.SteaneCode().is_swel  # self-dual with an orthonormalizable logical basis
+    assert (
+        codes.SteaneCode().is_swel
+    )  # self-dual qubit stabilizer code of odd length is always SWEL
     assert not codes.SurfaceCode(3).is_swel  # not self-dual
     even_code = codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]])
     assert not even_code.is_swel  # self-dual, but its logicals admit no orthonormal basis

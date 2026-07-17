@@ -2206,39 +2206,45 @@ class CSSCode(QuditCode):
 
     @property
     def is_swel(self) -> bool:
-        """Can this code be self-dual with equivalent logicals (SWEL)?
+        """Is this code self-dual with equivalent logicals (SWEL)?
 
-        A SWEL basis is a choice of logical operators whose supports are orthonormal
-        (L @ L.T = identity), equivalently one for which a transversal Fourier transform (a
-        Hadamard, over qubits) maps every logical Z operator to a dual logical X operator.  Whether
-        a SWEL basis exists is a property of the code, not of any particular logical basis (see
-        arXiv:2503.19790, Theorem 1, for qubits).  Use set_swel_logical_ops to put the code into
-        such a basis.
+        A SWEL code is a self-dual CSS code for which there exists a basis of logical operators
+        (Lx, Lz) with Lx = Lz; that is, Hadamard-transforming any single-qudit logical Pauli X (in
+        some logical Pauli basis) recovers the associated logical Pauli Z.
+
+        In the case of stabilizer (non-subsystem) codes over a field with characteristic 2, (that
+        is, over GF(2**m), which includes qubits with m = 1), a self-dual CSS code is SWEL iff if it
+        has odd block length (Corollary 1 of arXiv:2503.19790), or if at least one row of Lx (in any
+        basis) has nonzero self-overlap (Theorem 1 of arXiv:2503.19790).
+
+        This method first checks special cases covered by arXiv:2503.19790, and otherwise directly
+        checks the existence of a a logical operator basis (Lx, Lz) with Lx = Lz.
         """
-        return self.is_self_dual and (
-            math.get_orthonormal_basis(self.get_logical_ops(Pauli.Z)) is not None
-        )
+        if not self.is_self_dual:
+            return False
+        if not self.is_subsystem_code and self.field.characteristic == 2:
+            return len(self) % 2 == 1 or any(op @ op for op in self.get_logical_ops(Pauli.X))
+        return math.get_orthonormal_basis(self.get_logical_ops(Pauli.X)) is not None
 
     def get_swel_logical_ops(self) -> galois.FieldArray:
-        """Logical operator supports of a SWEL logical basis (see is_swel).
+        """Find a self-dual logical operator basis for this code: (Lx, Lz) = (L, L).  Return L.
 
-        The returned matrix L has L @ L.T = identity, and each row is usable as both the X-type and
-        Z-type support of a logical qudit.  Raise a ValueError if the code has no SWEL basis.
+        Raise a ValueError if no such basis exists (see QuditCode.is_swel).
         """
         supports = (
-            math.get_orthonormal_basis(self.get_logical_ops(Pauli.Z)) if self.is_self_dual else None
+            math.get_orthonormal_basis(self.get_logical_ops(Pauli.X)) if self.is_self_dual else None
         )
         if supports is None:
             raise ValueError(
-                "This code has no SWEL logical operator basis; it must be self-dual, and its"
+                "This code has no self-dual logical operator basis; it must be self-dual, and its"
                 " logical operators must admit an orthonormal basis"
             )
         return supports
 
     def set_swel_logical_ops(self) -> Self:
-        """Put this code into a SWEL logical operator basis (see is_swel), and return self.
+        """Set the logical operators of this code to those of a self-dual logical operator basis.
 
-        Raise a ValueError if the code has no SWEL basis.
+        Raise a ValueError if this code is not SWEL (see QuditCode.is_swel).
         """
         supports = self.get_swel_logical_ops()
         return self.set_logical_ops_xz(supports, supports)
@@ -2631,7 +2637,7 @@ class CSSCode(QuditCode):
         return gauge_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
 
     def dual(self) -> CSSCode:
-        """Dual to this code, which swaps the roles of logical and gauge operators.
+        """The dual of this code, which swaps the roles of logical and gauge operators.
 
         See help(qldpc.codes.QuditCode.dual) for an explanation.
         """
