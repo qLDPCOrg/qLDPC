@@ -368,7 +368,7 @@ class LookupDecoder(Decoder):
         npt.NDArray[np.bool_] | None,
         npt.NDArray[np.int_],
     ]:
-        """Process and validate the inputs shared by LookupDecoder and WeightedLookupDecoder.
+        """Process and validate the inputs shared by LookupDecoder.
 
         Returns a parity check matrix, an observable-flip matrix (or None), a penalty function (or
         None), a boolean mask of syndrome bits to keep (or None if not post-selecting), and the
