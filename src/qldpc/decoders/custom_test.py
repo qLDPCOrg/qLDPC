@@ -290,6 +290,10 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
     assert decoder.decode(np.ones_like(syndrome))[-1] == 1
 
+    # passing penalty_func=None returns the last-recorded (lowest-weight) consistent candidate
+    decoded_error = decoder.decode(syndrome, penalty_func=None).view(code.field)
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+
 
 def test_penalty_func() -> None:
     """Lookup tables can build penalty functions that penalize unlikely errors."""
