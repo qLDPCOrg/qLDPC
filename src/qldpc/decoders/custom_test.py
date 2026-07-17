@@ -294,5 +294,5 @@ def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
 def test_penalty_func() -> None:
     """Lookup tables can build penalty functions that penalize unlikely errors."""
     error_channel = [0.2, 0.1]
-    penalty_func = decoders.LookupDecoder.build_penalty_func(error_channel)
+    penalty_func = decoders.LookupDecoder._build_penalty_func(error_channel)
     assert penalty_func([0, 0]) < penalty_func([1, 0]) < penalty_func([0, 1]) < penalty_func([1, 1])
