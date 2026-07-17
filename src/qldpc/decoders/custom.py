@@ -216,9 +216,9 @@ class LookupDecoder(Decoder):
     """Decoder based on a lookup table that maps syndromes to errors.
 
     In addition to a parity check matrix, this decoder needs to be initialized with a max_weight.
-    The decoder consider enumerates all errors with weight <= max_weight, in order of decreasing
-    weight.  For each error ee, it computes the corresponding syndrome ss, and assigns syndrome ss
-    the "correction" ee, overriding any previously assigned correction if present.
+    The decoder then enumerates all errors with weight <= max_weight, in order of decreasing weight.
+    For each error ee, it computes the corresponding syndrome ss, and assigns syndrome ss the
+    "correction" ee, overriding any previously assigned correction if present.
 
     If initialized with symplectic=True, this decoder treats the provided parity check matrix as
     that of a QuditCode, with the first and last half of the columns denoting, respectively, the X
