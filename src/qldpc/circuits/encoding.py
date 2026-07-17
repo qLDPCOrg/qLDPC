@@ -226,7 +226,7 @@ def get_state_stabilizers(
 
     # identify stabilizers that are supported entirely on the data qubits of the code
     stabilizers = []
-    for row in matrix.row_reduce():
+    for row in matrix.row_space():
         state_xs = row[cols_state_x]
         state_zs = row[cols_state_z]
         other_xs = row[cols_other_x]

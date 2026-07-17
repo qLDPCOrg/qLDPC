@@ -34,6 +34,7 @@ import numpy.typing as npt
 import scipy.linalg
 import scipy.sparse
 import stim
+from typing_extensions import Self
 
 from qldpc import abstract, decoders, external, math
 from qldpc.math import IntegerArray
@@ -203,9 +204,10 @@ class AbstractCode(abc.ABC):
     def dimension(self) -> int:
         """The number of logical (qu)dits encoded by this code."""
 
-    def forget_distance(self) -> None:
+    def forget_distance(self) -> Self:
         """Forget the known distance of this code."""
         self._distance = None
+        return self
 
 
 ################################################################################
@@ -265,10 +267,9 @@ class ClassicalCode(AbstractCode):
         """The same code with its parity matrix in reduced row echelon form."""
         if self._is_canonicalized:  # pragma: no cover
             return self
-        matrix_rref = self.matrix.row_reduce()
-        matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
-        code = ClassicalCode(matrix_rref, self.field)
-        code._dimension = len(self) - len(matrix_rref)
+        matrix = self.matrix.row_space()
+        code = ClassicalCode(matrix, self.field)
+        code._dimension = len(self) - len(matrix)
         code._distance = self._distance
         code._is_canonicalized = True
         return code
@@ -343,7 +344,7 @@ class ClassicalCode(AbstractCode):
             self._generator = self.matrix.null_space()
         return self._generator
 
-    def set_generator(self, generator: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> None:
+    def set_generator(self, generator: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> Self:
         """Set the generator matrix of this code."""
         generator = np.asanyarray(generator).view(self.field)
         if np.any(self.matrix @ generator.T):
@@ -357,6 +358,7 @@ class ClassicalCode(AbstractCode):
                 f" {required_rank})"
             )
         self._generator = generator
+        return self
 
     def iter_words(self, skip_zero: bool = False) -> Iterator[galois.FieldArray]:
         """Iterate over the code words of this code."""
@@ -891,11 +893,10 @@ class QuditCode(AbstractCode):
         """The same code with its parity matrix in reduced row echelon form."""
         if self._is_canonicalized:  # pragma: no cover
             return self
-        matrix_rref = self.matrix.row_reduce()
-        matrix_rref = matrix_rref[np.any(matrix_rref, axis=1), :]
-        code = QuditCode(matrix_rref, self.field, is_subsystem_code=self._is_subsystem_code)
+        matrix = self.matrix.row_space()
+        code = QuditCode(matrix, self.field, is_subsystem_code=self._is_subsystem_code)
         if not self._is_subsystem_code:
-            code._dimension = len(code) - len(matrix_rref)
+            code._dimension = len(code) - len(matrix)
         code._distance = self._distance
         code._stabilizer_ops = self._stabilizer_ops
         code._gauge_ops = self._gauge_ops
@@ -950,7 +951,10 @@ class QuditCode(AbstractCode):
         zs = np.any(matrix_z, axis=1)
         if np.any(xs & zs):
             return self
-        return CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
+        code = CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
+        code._dimension = self._dimension
+        code._distance = self._distance
+        return code
 
     def to_css(self) -> CSSCode:
         """Try to convert this QuditCode into a CSSCode.  Throw an error if we fail."""
@@ -1235,7 +1239,7 @@ class QuditCode(AbstractCode):
         parity check matrix (modulo elementary row operations and array reshaping) is
         matrix[:, :, np.argsort(qudit_locs)].  As a sanity check, the following test should pass:
             matrix_2d = matrix[:, :, np.argsort(qudit_locs)].reshape(-1, 2 * len(self))
-            assert np.array_equal(matrix_2d.row_reduce(), self.canonicalized.matrix)
+            assert np.array_equal(matrix_2d.row_space(), self.canonicalized.matrix)
 
         Finally, this method also returns slices (index sets) for all row and column sectors, which
         enables selecting blocks of the parity check matrix with, say, matrix[rows_sx, 1, cols_lz].
@@ -1384,7 +1388,7 @@ class QuditCode(AbstractCode):
         logical_ops: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
         skip_validation: bool = False,
-    ) -> None:
+    ) -> Self:
         """Set the logical operators of this code to the provided logical operators."""
         logical_ops = np.asanyarray(logical_ops).view(self.field)
         if not skip_validation:
@@ -1400,13 +1404,14 @@ class QuditCode(AbstractCode):
                 raise ValueError("An incorrect number of logical operators was provided")
         self._logical_ops = logical_ops
         self._dimension = len(logical_ops) // 2
+        return self
 
     def set_logical_ops_x(
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
         skip_validation: bool = False,
-    ) -> None:
+    ) -> Self:
         """Set the X-type logical operators of this code.
 
         Determine suitable Z-type logical operators automatically.  This choice is unique mod
@@ -1431,7 +1436,7 @@ class QuditCode(AbstractCode):
         old_logicals_z = self.get_logical_ops(Pauli.Z, symplectic=True)
         basis_change = np.linalg.inv(math.symplectic_conjugate(old_logicals_z) @ logicals_ops_x.T)
         new_logicals_z = basis_change @ old_logicals_z
-        self.set_logical_ops(
+        return self.set_logical_ops(
             np.vstack([logicals_ops_x, new_logicals_z]), skip_validation=skip_validation
         )
 
@@ -1440,7 +1445,7 @@ class QuditCode(AbstractCode):
         logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
         skip_validation: bool = False,
-    ) -> None:
+    ) -> Self:
         """Set the Z-type logical operators of this code.
 
         Determine suitable X-type logical operators automatically.  This choice is unique mod
@@ -1465,7 +1470,7 @@ class QuditCode(AbstractCode):
         old_logicals_x = self.get_logical_ops(Pauli.X, symplectic=True)
         basis_change = np.linalg.inv(old_logicals_x @ math.symplectic_conjugate(logicals_ops_z).T)
         new_logicals_x = basis_change @ old_logicals_x
-        self.set_logical_ops(
+        return self.set_logical_ops(
             np.vstack([new_logicals_x, logicals_ops_z]), skip_validation=skip_validation
         )
 
@@ -1747,6 +1752,8 @@ class QuditCode(AbstractCode):
             code._stabilizer_ops = transform_ops(self.get_stabilizer_ops())
         if self._gauge_ops is not None:
             code._gauge_ops = transform_ops(self.get_gauge_ops())
+        code._dimension = self._dimension
+        code._distance = self._distance
         return code
 
     def conjugate(self) -> QuditCode:
@@ -1795,6 +1802,7 @@ class QuditCode(AbstractCode):
         if self._gauge_ops is not None:
             code._gauge_ops = transform_ops(self.get_gauge_ops())
 
+        code._dimension = self._dimension
         return code
 
     @staticmethod
@@ -2198,18 +2206,49 @@ class CSSCode(QuditCode):
     def is_swel(self) -> bool:
         """Is this code self-dual with equivalent logicals (SWEL)?
 
-        Specifically, SWEL codes are self-dual codes for which Hadamard-transforming every logical Z
-        operator recovers a dual logical X operator.
+        A SWEL code is a self-dual CSS code for which there exists a basis of logical operators
+        (Lx, Lz) with Lx = Lz; that is, Hadamard-transforming any single-qudit logical Pauli X (in
+        some logical Pauli basis) recovers the associated logical Pauli Z.
 
-        Whether a code is SWEL depends on the choice of logical operator basis.
+        In the case of stabilizer (non-subsystem) codes over a field with characteristic 2 (that
+        is, over GF(2**m), which includes qubits with m = 1), a self-dual CSS code is SWEL iff it
+        has odd block length (Corollary 1 of arXiv:2503.19790), or at least one row of Lx (in any
+        basis) has nonzero self-overlap (Theorem 1 of arXiv:2503.19790).
+
+        This method first checks special cases covered by arXiv:2503.19790, and otherwise directly
+        checks the existence of a logical operator basis (Lx, Lz) with Lx = Lz.
         """
-        return bool(
-            self.is_self_dual
-            and np.array_equal(
-                (logs_z := self.get_logical_ops(Pauli.Z)) @ logs_z.T,
-                np.eye(self.dimension, dtype=int),
-            )
+        if not self.is_self_dual:
+            return False
+        ops_x = self.get_logical_ops(Pauli.X)
+        if not self.is_subsystem_code and self.field.characteristic == 2:
+            return len(self) % 2 == 1 or any(op @ op for op in ops_x)
+        return math.get_orthonormal_basis(ops_x, promise_full_rank=True) is not None
+
+    def get_swel_logical_ops(self) -> galois.FieldArray:
+        """Find a self-dual basis of logical operators for this code: (Lx, Lz) = (L, L).  Return L.
+
+        Raise a ValueError if no such basis exists (see QuditCode.is_swel).
+        """
+        supports = (
+            math.get_orthonormal_basis(self.get_logical_ops(Pauli.X), promise_full_rank=True)
+            if self.is_self_dual
+            else None
         )
+        if supports is None:
+            raise ValueError(
+                "This code has no self-dual logical operator basis; it must be self-dual, and its"
+                " logical operators must admit an orthonormal basis"
+            )
+        return supports
+
+    def set_swel_logical_ops(self) -> Self:
+        """Set the logical operators of this code to those of a self-dual logical operator basis.
+
+        Raise a ValueError if this code is not SWEL (see QuditCode.is_swel).
+        """
+        supports = self.get_swel_logical_ops()
+        return self.set_logical_ops_xz(supports, supports)
 
     @functools.cached_property
     def canonicalized(self) -> CSSCode:
@@ -2490,17 +2529,17 @@ class CSSCode(QuditCode):
         logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
         skip_validation: bool = False,
-    ) -> None:
+    ) -> Self:
         """Set the logical operators of this code to the provided logical operators."""
         logical_ops = scipy.linalg.block_diag(logicals_ops_x, logicals_ops_z)
-        self.set_logical_ops(logical_ops, skip_validation=skip_validation)
+        return self.set_logical_ops(logical_ops, skip_validation=skip_validation)
 
     def set_logical_ops_x(
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
         skip_validation: bool = False,
-    ) -> None:
+    ) -> Self:
         """Set the X-type logical operators of this code.
 
         Determine suitable Z-type logical operators automatically.  This choice is unique mod
@@ -2519,14 +2558,16 @@ class CSSCode(QuditCode):
         logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
         old_logicals_z = self.get_logical_ops(Pauli.Z)
         new_logicals_z = np.linalg.inv(old_logicals_z @ logicals_ops_x.T) @ old_logicals_z
-        self.set_logical_ops_xz(logicals_ops_x, new_logicals_z, skip_validation=skip_validation)
+        return self.set_logical_ops_xz(
+            logicals_ops_x, new_logicals_z, skip_validation=skip_validation
+        )
 
     def set_logical_ops_z(
         self,
         logicals_ops_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         *,
         skip_validation: bool = False,
-    ) -> None:
+    ) -> Self:
         """Set the Z-type logical operators of this code.
 
         Determine suitable X-type logical operators automatically.  This choice is unique mod
@@ -2545,7 +2586,9 @@ class CSSCode(QuditCode):
         logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
         old_logicals_x = self.get_logical_ops(Pauli.X)
         new_logicals_x = np.linalg.inv(old_logicals_x @ logicals_ops_z.T) @ old_logicals_x
-        self.set_logical_ops_xz(new_logicals_x, logicals_ops_z, skip_validation=skip_validation)
+        return self.set_logical_ops_xz(
+            new_logicals_x, logicals_ops_z, skip_validation=skip_validation
+        )
 
     def get_stabilizer_ops(
         self,
@@ -2595,7 +2638,7 @@ class CSSCode(QuditCode):
         return gauge_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
 
     def dual(self) -> CSSCode:
-        """Dual to this code, which swaps the roles of logical and gauge operators.
+        """The dual of this code, which swaps the roles of logical and gauge operators.
 
         See help(qldpc.codes.QuditCode.dual) for an explanation.
         """
@@ -2863,11 +2906,12 @@ class CSSCode(QuditCode):
 
         return min_bound
 
-    def forget_distance(self) -> None:
+    def forget_distance(self) -> Self:
         """Forget the known distance of this code."""
         self._distance_x = self._distance_z = self._distance = None
+        return self
 
-    def reduce_logical_op(self, pauli: PauliXZ, logical_index: int, **decoder_kwargs: Any) -> None:
+    def reduce_logical_op(self, pauli: PauliXZ, logical_index: int, **decoder_kwargs: Any) -> Self:
         """Reduce the weight of a logical operator.
 
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
@@ -2899,8 +2943,9 @@ class CSSCode(QuditCode):
         self._logical_ops.shape = (2, self.dimension, 2, len(self))
         self._logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
         self._logical_ops.shape = (2 * self.dimension, 2 * len(self))
+        return self
 
-    def reduce_logical_ops(self, pauli: PauliXZ | None = None, **decoder_kwargs: Any) -> None:
+    def reduce_logical_ops(self, pauli: PauliXZ | None = None, **decoder_kwargs: Any) -> Self:
         """Reduce the weight of all logical operators."""
         assert pauli is None or pauli in PAULIS_XZ
         if pauli is None:
@@ -2909,6 +2954,7 @@ class CSSCode(QuditCode):
         else:
             for logical_index in range(self.dimension):
                 self.reduce_logical_op(pauli, logical_index, **decoder_kwargs)
+        return self
 
     def conjugated(self, qudits: slice | Sequence[int]) -> QuditCode:
         """Apply local Fourier transforms, swapping X-type and Z-type operators.
@@ -2933,6 +2979,10 @@ class CSSCode(QuditCode):
             code._gauge_ops = scipy.linalg.block_diag(
                 self.get_gauge_ops(Pauli.Z), self.get_gauge_ops(Pauli.X)
             ).view(self.field)
+        code._dimension = self._dimension
+        code._distance = self._distance
+        code._distance_x = self._distance_z
+        code._distance_z = self._distance_x
         return code
 
     def deformed(

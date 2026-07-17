@@ -1082,10 +1082,9 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     if right and size > 1:
         matrix = matrix.transpose(0, 1, 3, 2)
 
-    # row-reduce as an expanded 2-D matrix and remove all-zero rows
+    # row-reduce as an expanded 2-D matrix, keeping a basis of the row space (no all-zero rows)
     shape = (num_block_rows * size, num_block_cols * size)
-    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_reduce()
-    matrix = matrix[qldpc.math.first_nonzero_cols(matrix) < matrix.shape[1]].view(field)
+    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_space()
 
     if size > 1:
         # insert zero rows to shift pivots down so that they always lie on the diagonal of a block
