@@ -609,6 +609,10 @@ def test_swel_codes() -> None:
     assert not surface_code.is_swel  # not self-dual
     assert not even_code.is_swel  # self-dual but not SWEL
 
+    # a self-dual code over GF(3) reaches the general orthonormal-basis test (odd characteristic)
+    qutrit_matrix = [[0, 0, 1, 1, 1], [0, 1, 0, 1, 2]]
+    assert codes.CSSCode(qutrit_matrix, qutrit_matrix, field=3).is_swel
+
     # we automatically find a self-dual logical operator basis, if it exists
     code = steane_code.set_swel_logical_ops()
     assert np.array_equal(code.get_logical_ops(Pauli.X), code.get_logical_ops(Pauli.Z))

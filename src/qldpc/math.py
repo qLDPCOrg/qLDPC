@@ -124,10 +124,6 @@ def first_nonzero_cols(
     return first_nonzero_col_index.astype(np.int_, copy=False)
 
 
-####################################################################################################
-# matrix helper functions
-
-
 def block_matrix(
     blocks: Sequence[Sequence[npt.NDArray[np.generic] | int | object]],
 ) -> npt.NDArray[np.int_]:
@@ -191,12 +187,17 @@ def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois
     return dual_basis.view(type(basis))
 
 
-def get_orthonormal_basis(vectors: galois.FieldArray) -> galois.FieldArray | None:
+def get_orthonormal_basis(
+    vectors: galois.FieldArray, *, promise_full_rank: bool = False
+) -> galois.FieldArray | None:
     """An orthonormal basis for the row space of a matrix over a finite field.
 
-    Given a matrix with linearly independent rows spanning a subspace V of GF(q)^n, return a matrix
-    L whose rows are a basis for V with L @ L.T = identity -- that is, an orthonormal basis for V
-    under the standard bilinear form (the dot product).  If V has no orthonormal basis, return None.
+    Given a matrix whose rows span a subspace V of GF(q)^n, return a matrix L whose rows are a
+    basis for V with L @ L.T = identity -- that is, an orthonormal basis for V under the standard
+    bilinear form (the dot product).  If V has no orthonormal basis, return None.
+
+    The rows may be linearly dependent; they are first reduced to a basis of V.  Pass
+    promise_full_rank=True to skip this reduction when the rows are already independent.
 
     An orthonormal basis exists if and only if the bilinear form restricted to V is nondegenerate
     (no nonzero vector of V is orthogonal to all of V) and, in addition:
@@ -208,7 +209,11 @@ def get_orthonormal_basis(vectors: galois.FieldArray) -> galois.FieldArray | Non
     """
     field = type(vectors)
     dimension = vectors.shape[1]
-    words = [row for row in vectors]
+    if not promise_full_rank:
+        # reduce to a basis of the row space, discarding any linearly dependent rows
+        vectors = vectors.row_reduce()
+        vectors = vectors[first_nonzero_cols(vectors) < dimension]
+    words = list(vectors)
     units = (
         _orthonormalize_char_2(words)
         if field.characteristic == 2
@@ -268,8 +273,11 @@ def _orthonormalize_odd(
 ) -> list[galois.FieldArray] | None:
     """Orthonormalize a spanning set over a field of odd characteristic, or None if impossible.
 
-    Ordinary Gram-Schmidt diagonalizes the form (in odd characteristic an alternating form is zero).
-    Each diagonal entry with a square self-overlap is rescaled to a unit vector; the remaining
+    Gram-Schmidt diagonalizes the form, pivoting on a vector of nonzero self-overlap at each step.
+    If every remaining self-overlap vanishes but some cross-overlap does not, the sum of that pair
+    is a valid pivot (in odd characteristic (u + w) @ (u + w) = 2 * u @ w); if no cross-overlap is
+    nonzero either, the form vanishes on the remaining space, which is therefore degenerate.  Each
+    diagonal entry with a square self-overlap is rescaled to a unit vector; the remaining
     non-square-norm vectors are paired off into unit vectors.  This is possible if and only if their
     number is even, i.e. if and only if the discriminant of the form is a square.
     """
@@ -304,7 +312,7 @@ def _orthonormalize_odd(
     if non_squares:
         epsilon = field.primitive_element  # a generator of GF(q)* is always a non-square
         # solve alpha**2 + beta**2 = 1 / epsilon, so that alpha u + beta w has self-overlap 1
-        alpha, beta = _sum_of_two_squares(field, epsilon ** (field.order - 2))
+        alpha, beta = _sum_of_two_squares(field, field(1) / epsilon)
         for (u_vec, u_norm), (w_vec, w_norm) in zip(non_squares[::2], non_squares[1::2]):
             # rescale u_vec and w_vec to self-overlap epsilon, then combine into two unit vectors
             u_vec = u_vec * np.sqrt(np.atleast_1d(epsilon / u_norm))[0]

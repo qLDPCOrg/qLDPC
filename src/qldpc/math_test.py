@@ -60,18 +60,15 @@ def test_nonzero_cols() -> None:
     assert np.array_equal(qldpc.math.first_nonzero_cols(tensor), [0])
 
 
-def test_dual_basis(pytestconfig: pytest.Config) -> None:
+def test_dual_basis() -> None:
     """Construct dual bases."""
-    np.random.seed(pytestconfig.getoption("randomly_seed"))
-
     field = galois.GF(2)
-    basis = field.Random((4, 5)).row_reduce()
-    basis = basis[qldpc.math.first_nonzero_cols(basis) < basis.shape[1]]
+    basis = field([[1, 1, 0, 0, 1], [0, 1, 1, 0, 0], [1, 0, 0, 1, 1]])
     dual_basis = qldpc.math.get_dual_basis(basis)
     assert np.array_equal(dual_basis @ basis.T, field.Identity(len(basis)))
 
     with pytest.raises(ValueError, match="wide matrices of full rank"):
-        qldpc.math.get_dual_basis(field.Random((2, 1)))
+        qldpc.math.get_dual_basis(field([[1], [0]]))
 
 
 def test_orthonormal_basis() -> None:
@@ -85,9 +82,10 @@ def test_orthonormal_basis() -> None:
         galois.GF(7)([[1, 1]]),  # odd characteristic, a rescaled square norm
         galois.GF(7)([[1, 2], [1, 3]]),  # odd characteristic, two non-square norms paired off
     ]
+    # these inputs are full-rank bases crafted to exercise each branch of the orthonormalization
     for vectors in with_basis:
         field = type(vectors)
-        basis = qldpc.math.get_orthonormal_basis(vectors)
+        basis = qldpc.math.get_orthonormal_basis(vectors, promise_full_rank=True)
         assert basis is not None and np.array_equal(basis @ basis.T, field.Identity(len(basis)))
 
     # subspaces with no orthonormal basis: get_orthonormal_basis returns None
@@ -102,7 +100,13 @@ def test_orthonormal_basis() -> None:
         galois.GF(7)([[1, 2, 3], [1, 2, 4]]),  # odd characteristic, isotropic then non-square
     ]
     for vectors in without_basis:
-        assert qldpc.math.get_orthonormal_basis(vectors) is None
+        assert qldpc.math.get_orthonormal_basis(vectors, promise_full_rank=True) is None
+
+    # by default (promise_full_rank=False) the rows are first reduced to a basis of their row space
+    vectors = galois.GF(3)([[1, 0], [0, 1], [1, 1]])  # three dependent rows spanning all of GF(3)^2
+    basis = qldpc.math.get_orthonormal_basis(vectors)
+    assert basis is not None and basis.shape == (2, 2)
+    assert np.array_equal(basis @ basis.T, galois.GF(3).Identity(2))
 
 
 def test_block_matrix() -> None:

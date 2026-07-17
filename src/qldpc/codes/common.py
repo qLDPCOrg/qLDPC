@@ -2222,9 +2222,10 @@ class CSSCode(QuditCode):
         """
         if not self.is_self_dual:
             return False
+        ops_x = self.get_logical_ops(Pauli.X)
         if not self.is_subsystem_code and self.field.characteristic == 2:
-            return len(self) % 2 == 1 or any(op @ op for op in self.get_logical_ops(Pauli.X))
-        return math.get_orthonormal_basis(self.get_logical_ops(Pauli.X)) is not None
+            return len(self) % 2 == 1 or any(op @ op for op in ops_x)
+        return math.get_orthonormal_basis(ops_x, promise_full_rank=True) is not None
 
     def get_swel_logical_ops(self) -> galois.FieldArray:
         """Find a self-dual basis of logical operators for this code: (Lx, Lz) = (L, L).  Return L.
@@ -2232,7 +2233,9 @@ class CSSCode(QuditCode):
         Raise a ValueError if no such basis exists (see QuditCode.is_swel).
         """
         supports = (
-            math.get_orthonormal_basis(self.get_logical_ops(Pauli.X)) if self.is_self_dual else None
+            math.get_orthonormal_basis(self.get_logical_ops(Pauli.X), promise_full_rank=True)
+            if self.is_self_dual
+            else None
         )
         if supports is None:
             raise ValueError(
