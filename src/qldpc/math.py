@@ -193,19 +193,21 @@ def get_orthonormal_basis(
     """An orthonormal basis for the row space of a matrix over a finite field.
 
     Given a matrix whose rows span a subspace V of GF(q)^n, return a matrix L whose rows are a
-    basis for V with L @ L.T = identity -- that is, an orthonormal basis for V under the standard
-    bilinear form (the dot product).  If V has no orthonormal basis, return None.
+    basis for V with L @ L.T = identity -- that is, a basis of V whose vectors each have
+    self-overlap v @ v = 1 and are pairwise orthogonal under the dot product.  If V has no such
+    basis, return None.
 
     The rows of the matrix may be linearly dependent; they are first reduced to a basis of V.  Pass
     promise_full_rank=True to skip this reduction when the rows are already independent.
 
-    An orthonormal basis exists if and only if the bilinear form restricted to V is nondegenerate
-    (no nonzero vector of V is orthogonal to all of V) and, in addition:
-    - over a field of characteristic 2, the form is non-alternating (some vector v has v @ v != 0);
-    - over a field of odd characteristic, the discriminant of the form is a square in GF(q).
+    An orthonormal basis for V exists if and only if (a) V is nondegenerate, meaning no nonzero
+    vector of V is orthogonal to all of V, and (b), according to the field's characteristic:
+    - over a field of characteristic 2, some vector of V has nonzero self-overlap v @ v;
+    - over a field of odd characteristic, an even number of the vectors in any mutually orthogonal
+      basis of V have a self-overlap with no square root in GF(q).
 
-    The construction is a variant of symplectic/orthogonal Gram-Schmidt orthogonalization; the
-    characteristic-2 case follows Algorithm 1 and Lemma 2 of arXiv:2503.19790.
+    The construction is a variant of Gram-Schmidt orthogonalization; the characteristic-2 case
+    follows Algorithm 1 and Lemma 2 of arXiv:2503.19790.
     """
     field = type(matrix)
     dimension = matrix.shape[1]
@@ -223,7 +225,7 @@ def get_orthonormal_basis(
 
 
 def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldArray] | None:
-    """Orthonormalize a spanning set over a field of characteristic 2, or None if impossible.
+    """Try to orthonormalize linearly independent vectors over a field of characteristic 2.
 
     Reduce the row space to mutually orthogonal "unit" vectors u with u @ u = 1 and "hyperbolic
     pairs" (b, c) with b @ b = c @ c = 0 and b @ c = 1 (Algorithm 1 of arXiv:2503.19790).  Every
@@ -236,23 +238,23 @@ def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldA
     while words:
         index = next((ii for ii, word in enumerate(words) if word @ word), None)
         if index is not None:
-            # a unit vector: rescale to self-overlap 1 and orthogonalize the other words against it
+            # extract a unit vector and orthogonalize other words against it
             pivot = words.pop(index)
             unit = pivot / _sqrt(pivot @ pivot)
             words = [word - (word @ unit) * unit for word in words]
             units.append(unit)
         else:
-            # a hyperbolic pair: orthogonalize the other words against both of its vectors
+            # extract a hyperbolic pair and orthogonalize other words against both of its vectors
             first = words.pop(0)
             index = next((ii for ii, word in enumerate(words) if first @ word), None)
             if index is None:
-                return None  # "first" is orthogonal to all of V, so the form is degenerate
+                return None  # "first" is orthogonal to all of V, so no orthonormal basis exists
             partner = words.pop(index)
             partner = partner / (first @ partner)  # rescale so that first @ partner == 1
             words = [word - (word @ partner) * first - (word @ first) * partner for word in words]
             pairs.append((first, partner))
 
-    # an orthonormal basis requires a non-alternating form: at least one unit vector must exist
+    # an orthonormal basis needs at least one unit vector; pure hyperbolic pairs have none
     if not units and pairs:
         return None
 
@@ -267,25 +269,32 @@ def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldA
 def _orthonormalize_odd(
     words: list[galois.FieldArray], field: type[galois.FieldArray]
 ) -> list[galois.FieldArray] | None:
-    """Orthonormalize a spanning set over a field of odd characteristic, or None if impossible.
+    """Try to orthonormalize linearly independent vectors over a field of odd characteristic.
 
-    Gram-Schmidt diagonalizes the form, pivoting on a vector of nonzero self-overlap at each step.
-    If every remaining self-overlap vanishes but some cross-overlap does not, the sum of that pair
-    is a valid pivot: (u + w) @ (u + w) = 2 * u @ w.  If no cross-overlap is nonzero either, the
-    form vanishes on the remaining space, which is therefore degenerate.  Each diagonal entry with a
-    square self-overlap is rescaled to a unit vector; the remaining non-square-norm vectors are
-    paired off into unit vectors.  This is possible if and only if the number of non-square-norm
-    vectors is even.
+    First, find an orthogonal basis in which each vector has nonzero self-overlap (with Gram-Schmidt
+    orthogonalization): at each step, pick a vector with nonzero self-overlap v @ v and subtract
+    its projection from the others.  Out of the remaining null vectors (with zero self-overlap), if
+    a pair (u, v) have nonzero overlap u @ v, then their sum has nonzero self-overlap (in a field
+    with odd characteristic), (u + v) @ (u + v) = 2 * u @ v, so replace u <- u + v, and
+    orthogonalize remaining vectors against u.  If no remaining null vectors have nonzero overlap,
+    no orthonormal basis exists.
+
+    A vector with nonzero self-overlap can be rescaled to a unit vector (self-overlap 1) exactly
+    when its self-overlap has a square root in the field, by taking v -> v / sqrt(v @ v).  Vectors
+    with non-square self-overlaps cannot be rescaled on their own, but a pair of them may be
+    combined into two unit vectors, allowing an orthonormal basis when the number of such vectors
+    is even.
     """
     # diagonalize: build an orthogonal basis of vectors with nonzero self-overlap
     diagonal: list[tuple[galois.FieldArray, galois.FieldArray]] = []
     while words:
         index = next((ii for ii, word in enumerate(words) if word @ word), None)
         if index is None:
-            # every self-overlap vanishes; a nonzero cross-overlap yields an anisotropic vector
-            index = _combine_anisotropic(words)
+            # every self-overlap vanishes; sum an overlapping pair to get a nonzero self-overlap
+            index = _combine_null_vectors(words)
             if index is None:
-                return None  # the form vanishes on the remaining space, hence is degenerate
+                return None  # every overlap vanishes on the remaining space; no basis exists
+        # extract a vector with nonzero overlap, and otrhogonalize the remaining vectors against it
         pivot = words.pop(index)
         overlap = pivot @ pivot
         words = [word - (word @ pivot) / overlap * pivot for word in words]
@@ -300,7 +309,7 @@ def _orthonormalize_odd(
         else:
             non_squares.append((pivot, overlap))
 
-    # an odd number of non-square norms means a non-square discriminant: no orthonormal basis
+    # non-square self-overlaps pair off in twos, so an odd count means no orthonormal basis
     if len(non_squares) % 2:
         return None
 
@@ -317,11 +326,11 @@ def _orthonormalize_odd(
     return units
 
 
-def _combine_anisotropic(words: list[galois.FieldArray]) -> int | None:
+def _combine_null_vectors(words: list[galois.FieldArray]) -> int | None:
     """Add one word to another to obtain a nonzero self-overlap; return its index, or None.
 
     Assumes every word has zero self-overlap.  In odd characteristic, if some pair has nonzero
-    overlap then their sum has nonzero self-overlap; if no pair does, the form is identically zero.
+    overlap then their sum has nonzero self-overlap; if no pair does, every overlap is zero.
     """
     for ii in range(len(words)):
         for jj in range(ii + 1, len(words)):
