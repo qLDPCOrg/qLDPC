@@ -568,7 +568,7 @@ class WeightedLookupDecoder(LookupDecoder):
     def decode(
         self,
         syndrome: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] = lambda vec: int(
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = lambda vec: int(
             np.count_nonzero(vec)
         ),
     ) -> npt.NDArray[np.int_]:
