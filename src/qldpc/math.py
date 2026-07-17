@@ -188,7 +188,7 @@ def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois
 
 
 def get_orthonormal_basis(
-    vectors: galois.FieldArray, *, promise_full_rank: bool = False
+    matrix: galois.FieldArray, *, promise_full_rank: bool = False
 ) -> galois.FieldArray | None:
     """An orthonormal basis for the row space of a matrix over a finite field.
 
@@ -196,7 +196,7 @@ def get_orthonormal_basis(
     basis for V with L @ L.T = identity -- that is, an orthonormal basis for V under the standard
     bilinear form (the dot product).  If V has no orthonormal basis, return None.
 
-    The rows may be linearly dependent; they are first reduced to a basis of V.  Pass
+    The rows of the matrix may be linearly dependent; they are first reduced to a basis of V.  Pass
     promise_full_rank=True to skip this reduction when the rows are already independent.
 
     An orthonormal basis exists if and only if the bilinear form restricted to V is nondegenerate
@@ -207,11 +207,11 @@ def get_orthonormal_basis(
     The construction is a variant of symplectic/orthogonal Gram-Schmidt orthogonalization; the
     characteristic-2 case follows Algorithm 1 and Lemma 2 of arXiv:2503.19790.
     """
-    field = type(vectors)
-    dimension = vectors.shape[1]
+    field = type(matrix)
+    dimension = matrix.shape[1]
     if not promise_full_rank:
-        vectors = vectors.row_space()  # reduce to a basis, discarding linearly dependent rows
-    words = list(vectors)
+        matrix = matrix.row_space()  # reduce to a basis, discarding linearly dependent rows
+    words = list(matrix)
     units = (
         _orthonormalize_char_2(words)
         if field.characteristic == 2
@@ -219,9 +219,7 @@ def get_orthonormal_basis(
     )
     if units is None:
         return None
-    if not units:
-        return field.Zeros((0, dimension))
-    return field(np.array(units, dtype=int))
+    return field(units) if units else field.Zeros((0, dimension))
 
 
 def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldArray] | None:
@@ -230,8 +228,8 @@ def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldA
     Reduce the row space to mutually orthogonal "unit" vectors u with u @ u = 1 and "hyperbolic
     pairs" (b, c) with b @ b = c @ c = 0 and b @ c = 1 (Algorithm 1 of arXiv:2503.19790).  Every
     element of a characteristic-2 field is a square, so any vector with nonzero self-overlap can be
-    rescaled to a unit vector.  Lemma 2 then rewrites one unit vector and one hyperbolic pair into
-    three unit vectors, eliminating every hyperbolic pair.
+    rescaled to a unit vector.  Lemma 2 of arXiv:2503.19790 then rewrites one unit vector and one
+    hyperbolic pair into three unit vectors, eliminating every hyperbolic pair.
     """
     units: list[galois.FieldArray] = []  # vectors u with u @ u = 1
     pairs: list[tuple[galois.FieldArray, galois.FieldArray]] = []  # (b, c) with b @ c = 1
@@ -273,11 +271,11 @@ def _orthonormalize_odd(
 
     Gram-Schmidt diagonalizes the form, pivoting on a vector of nonzero self-overlap at each step.
     If every remaining self-overlap vanishes but some cross-overlap does not, the sum of that pair
-    is a valid pivot (in odd characteristic (u + w) @ (u + w) = 2 * u @ w); if no cross-overlap is
-    nonzero either, the form vanishes on the remaining space, which is therefore degenerate.  Each
-    diagonal entry with a square self-overlap is rescaled to a unit vector; the remaining
-    non-square-norm vectors are paired off into unit vectors.  This is possible if and only if their
-    number is even, i.e. if and only if the discriminant of the form is a square.
+    is a valid pivot: (u + w) @ (u + w) = 2 * u @ w.  If no cross-overlap is nonzero either, the
+    form vanishes on the remaining space, which is therefore degenerate.  Each diagonal entry with a
+    square self-overlap is rescaled to a unit vector; the remaining non-square-norm vectors are
+    paired off into unit vectors.  This is possible if and only if their number is even, i.e. if and
+    only if the discriminant of the form is a square.
     """
     # diagonalize: build an orthogonal basis of vectors with nonzero self-overlap
     diagonal: list[tuple[galois.FieldArray, galois.FieldArray]] = []
