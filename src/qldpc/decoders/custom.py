@@ -253,11 +253,9 @@ class LookupDecoder(Decoder):
 
     If provided a post_select collection of syndrome-bit (i.e., detector) indices, this decoder
     post-selects on those bits being trivial: when constructing the lookup table, it only considers
-    errors whose syndrome is zero on all post-selected bits, and it drops those bits from the
-    syndrome keys.  Syndromes passed to decode() should likewise omit the post-selected bits.  Any
-    error (or combination of errors) that would flip a post-selected bit is thus excluded from
-    consideration; the caller is responsible for discarding shots in which a post-selected bit is
-    observed to be nontrivial.
+    combinations of errors whose syndrome is zero on all post-selected bits, and it drops those bits
+    from the syndrome keys.  For consistency with the post-selection options in sinter, syndromes
+    passed to LookupDecoder.decode() should still contain all syndrome bits.
     """
 
     def __init__(
