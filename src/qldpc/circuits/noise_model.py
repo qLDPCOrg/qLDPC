@@ -328,10 +328,9 @@ class PauliChannel:
         return hash((self._num_qubits, tuple(self._probabilities.items())))
 
     def __repr__(self) -> str:
-        class_name = type(self).__name__
         if not self._probabilities and self._num_qubits:
-            return f"{class_name}({{}}, num_qubits={self._num_qubits})"
-        return f"{class_name}({dict(self._probabilities)!r})"
+            return f"PauliChannel({{}}, num_qubits={self._num_qubits})"
+        return f"PauliChannel({dict(self._probabilities)!r})"
 
     @staticmethod
     def depolarizing(num_qubits: int, probability: float) -> PauliChannel:
