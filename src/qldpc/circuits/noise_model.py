@@ -105,6 +105,7 @@ The original code was written for the paper at "Inplace Access to the Surface Co
 from __future__ import annotations
 
 import collections
+import copy
 import functools
 import itertools
 import math
@@ -328,9 +329,10 @@ class PauliChannel:
         return hash((self._num_qubits, tuple(self._probabilities.items())))
 
     def __repr__(self) -> str:
+        class_name = type(self).__name__
         if not self._probabilities and self._num_qubits:
-            return f"PauliChannel({{}}, num_qubits={self._num_qubits})"
-        return f"PauliChannel({dict(self._probabilities)!r})"
+            return f"{class_name}({{}}, num_qubits={self._num_qubits})"
+        return f"{class_name}({dict(self._probabilities)!r})"
 
     @staticmethod
     def depolarizing(num_qubits: int, probability: float) -> PauliChannel:
@@ -377,14 +379,14 @@ class PauliChannel:
         for qubit in immune_qubits:
             if not 0 <= qubit < self._num_qubits:
                 raise ValueError(f"index {qubit} not in [0, {self._num_qubits})")
-        if not immune_qubits:
-            return PauliChannel(dict(self._probabilities), num_qubits=self._num_qubits)
-        surviving = {
-            string: prob
-            for string, prob in self._probabilities.items()
-            if all(string[i] == "I" for i in immune_qubits)
-        }
-        return PauliChannel(surviving, num_qubits=self._num_qubits)
+        result = copy.deepcopy(self)
+        if immune_qubits:
+            result._probabilities = {
+                string: prob
+                for string, prob in result._probabilities.items()
+                if all(string[i] == "I" for i in immune_qubits)
+            }
+        return result
 
     def to_circuit(
         self,
@@ -392,26 +394,36 @@ class PauliChannel:
         append_to: stim.Circuit | None = None,
         qubits: Iterable[int] | None = None,
         simplify: bool = True,
+        drop_correlations: bool = False,
         tag: str = "",
     ) -> stim.Circuit:
         """Convert this PauliChannel into a circuit.
 
         If provided a circuit, append to that circuit in-place and return it.
 
-        With ``simplify=True`` (the default) the channel is emitted in the simplest form its
-        probabilities permit: channels that address only one or two qubits nontrivially become
-        ``PAULI_CHANNEL_[12]`` / ``DEPOLARIZE[12]`` / ``[XYZ]_ERROR``.
+        By default (with ``simplify=True`` and ``drop_correlations=False``), the channel is emitted
+        in the simplest form its probabilities permit: channels that address only one or two qubits
+        nontrivially become ``PAULI_CHANNEL_[12]`` / ``DEPOLARIZE[12]`` / ``[XYZ]_ERROR``.
 
-        With ``simplify=False`` the channel is always emitted as a ``CORRELATED_ERROR`` followed by
-        one ``ELSE_CORRELATED_ERROR`` per remaining Pauli string, with conditional probabilities
-        renormalized so each string's unconditional firing probability matches this channel.
+        With ``simplify=False`` (and ``drop_correlations=False``) the channel is always emitted as a
+        ``CORRELATED_ERROR`` followed by one ``ELSE_CORRELATED_ERROR`` per remaining Pauli string,
+        with conditional probabilities renormalized so each string's unconditional firing
+        probability matches this channel.
+
+        If ``drop_correlations=True``, forget correlations between individual entries in the
+        channel, and emit each as an independent ``CORRELATED_ERROR``.  In this case, the
+        ``simplify`` argument is ignored.  Warning: this capability is provided for convenience, but
+        it changes the definition of the channel substantially.  With ``drop_correlations=True``,
+        the channel should be thought of as a sequence of single-entry Pauli channels.
 
         Args:
             append_to: The circuit to append to; if ``None`` (default), create a new circuit.
             qubits: The qubit targets, one per position of the channel; if ``None`` (default),
                 set to ``range(self.num_qubits)``.
             simplify: If True (the default), emit the channel in the simplest equivalent form.  If
-                False, always emit a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain.
+                False, always emit a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain.  This
+                argument is ignored if ``drop_correlations=True``.
+            drop_correlations: If True, emit every entry of the channel as a ``CORRELATED_ERROR``.
             tag: An optional tag applied to every emitted instruction.
 
         Returns:
@@ -427,7 +439,7 @@ class PauliChannel:
         if not self.probabilities:
             return circuit
 
-        if simplify:
+        if simplify and not drop_correlations:
             # restrict to the qubits addressed nontrivially by this PauliChannel
             positions = sorted(
                 {i for string in self.probabilities for i, p in enumerate(string) if p != "I"}
@@ -460,7 +472,7 @@ class PauliChannel:
         first = True
         for string, prob in self.probabilities.items():
             pauli_targets = _pauli_string_to_targets(string, qubits)
-            if first:
+            if first or drop_correlations:
                 circuit.append("CORRELATED_ERROR", pauli_targets, [prob], tag=tag)
                 first = False
             else:
