@@ -91,6 +91,19 @@ def _get_logical_pauli_string(  # pragma: no cover
     return 1j * string_x * string_z
 
 
+def test_encoding_overcomplete_stabilizers() -> None:
+    """Build an encoding circuit for a code with an overcomplete stabilizer matrix."""
+    code = codes.ToricCode(4)  # has more stabilizer generators than len(code) - dimension
+    assert len(code.get_stabilizer_ops()) != len(code) - code.dimension - code.gauge_dimension
+
+    simulator = stim.TableauSimulator()
+    simulator.do(circuits.get_encoding_circuit(code))
+
+    # all stabilizers have expectation value +1
+    for op in code.get_stabilizer_ops():
+        assert simulator.peek_observable_expectation(math.op_to_string(op)) == 1
+
+
 def test_logical_tableau() -> None:
     """Reconstruct a logical tableau."""
     code = codes.FiveQubitCode()

@@ -1566,30 +1566,40 @@ class QuditCode(AbstractCode):
         This method first considers the stabilizer matrix built by self.get_stabilizer_ops().  If
         that choice is overcomplete, this method uses self.get_stabilizer_ops(canonicalized=True).
         """
-        # identify logical and gauge operators operators
+        # identify logical and gauge operators
         logical_ops = self.get_logical_ops()
         gauge_ops = self.get_gauge_ops()
 
-        # identify a minimal generating set of stabilizers
+        # Identify a minimal generating set of stabilizers.  Evaluating self.dimension and
+        # self.gauge_dimension may canonicalize (and thereby rebind) the cached stabilizer
+        # operators, so compute the expected number of stabilizers before retrieving them, and
+        # grab the stabilizers only afterwards to ensure the returned destabilizers are dual to the
+        # same stabilizer matrix that self.get_stabilizer_ops() reports.
+        num_stabilizers = len(self) - self.dimension - self.gauge_dimension
         stab_ops = self.get_stabilizer_ops()
-        if len(logical_ops) + len(gauge_ops) + len(stab_ops) != len(self):
+        if len(stab_ops) != num_stabilizers:
             stab_ops = self.get_stabilizer_ops(canonicalized=True)
 
         # Build "candidate" destabilizers that have correct pair-wise (anti-)commutation relations
         # with the stabilizers, but may contain extra stabilizer, logical, or gauge factors.
         destab_ops = math.get_dual_basis(math.symplectic_conjugate(stab_ops))
 
-        # remove logical and gauge operator components
-        dual_logical_ops = logical_ops.reshape(2, -1)[::-1, :].reshape(logical_ops.shape)
-        dual_gauge_ops = gauge_ops.reshape(2, -1)[::-1, :].reshape(gauge_ops.shape)
-        destab_ops -= destab_ops @ math.symplectic_conjugate(dual_logical_ops).T @ logical_ops
-        destab_ops -= destab_ops @ math.symplectic_conjugate(dual_gauge_ops).T @ gauge_ops
+        # Remove logical and gauge operator components.  Logical (gauge) operators satisfy
+        # logical_ops @ symplectic_conjugate(logical_ops).T = Ω, the symplectic form, so subtracting
+        # (destab_ops @ symplectic_conjugate(logical_ops).T) @ Ω⁻¹ @ logical_ops projects out the
+        # logical component.  This preserves the (anti-)commutation relations with the stabilizers
+        # because logical and gauge operators commute with the stabilizers.
+        for ops in [logical_ops, gauge_ops]:
+            if len(ops):
+                overlaps = destab_ops @ math.symplectic_conjugate(ops).T
+                symplectic_form = ops @ math.symplectic_conjugate(ops).T
+                destab_ops -= overlaps @ np.linalg.inv(symplectic_form) @ ops
 
         # enforce that destabilizers commute with each other by removing stabilizer factors
         for dd in range(len(destab_ops)):
             for ss in range(dd, len(destab_ops)):
-                if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):
-                    destab_ops[dd] -= stab_ops[ss]
+                if overlap := destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):
+                    destab_ops[dd] += overlap * stab_ops[ss]
         return destab_ops
 
     def dual(self) -> QuditCode:

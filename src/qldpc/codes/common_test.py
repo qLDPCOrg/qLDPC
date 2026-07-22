@@ -473,6 +473,19 @@ def test_qudit_ops(pytestconfig: pytest.Config) -> None:
         logical_ops = code.get_logical_ops()
         gauge_ops = code.get_gauge_ops()
         assert not np.any(stabilizer_ops @ math.symplectic_conjugate(stabilizer_ops).T)
+
+        # destabilizers anticommute with their paired stabilizer, commute with everything else
+        destabilizer_ops = code.get_destabilizer_ops()
+        minimal_stabilizer_ops = code.get_stabilizer_ops()
+        if len(minimal_stabilizer_ops) != len(code) - code.dimension - code.gauge_dimension:
+            minimal_stabilizer_ops = code.get_stabilizer_ops(canonicalized=True)
+        assert np.array_equal(
+            destabilizer_ops @ math.symplectic_conjugate(minimal_stabilizer_ops).T,
+            code.field.Identity(len(minimal_stabilizer_ops)),
+        )
+        assert not np.any(destabilizer_ops @ math.symplectic_conjugate(destabilizer_ops).T)
+        assert not np.any(destabilizer_ops @ math.symplectic_conjugate(logical_ops).T)
+        assert not np.any(destabilizer_ops @ math.symplectic_conjugate(gauge_ops).T)
         assert np.array_equal(
             gauge_ops @ math.symplectic_conjugate(gauge_ops).T,
             get_symplectic_form(code.gauge_dimension, code.field),
