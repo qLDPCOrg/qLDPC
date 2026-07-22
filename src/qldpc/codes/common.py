@@ -1647,8 +1647,6 @@ class QuditCode(AbstractCode):
             return len(self._logical_ops) // 2
         if not self.is_subsystem_code:
             return len(self) - self.rank
-        # Count independent stabilizer generators without the canonicalized=True call, which would
-        # otherwise rebind the cached stabilizer operators.
         num_stabs = len(self.get_stabilizer_ops().row_space())
         return len(self) - (self.rank + num_stabs) // 2
 
