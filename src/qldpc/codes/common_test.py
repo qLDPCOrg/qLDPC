@@ -556,6 +556,33 @@ def test_qudit_to_css() -> None:
         codes.FiveQubitCode().to_css()
 
 
+def test_qudit_to_swel() -> None:
+    """Convert a QuditCode to a CSSCode with SWEL logical operators."""
+    steane_code = codes.SteaneCode()
+    code = codes.QuditCode(steane_code.matrix).to_swel()
+    assert isinstance(code, codes.CSSCode)
+    assert np.array_equal(code.get_logical_ops(Pauli.X), code.get_logical_ops(Pauli.Z))
+    assert code.is_equiv_to(steane_code)
+
+    # maybe_to_swel returns an equivalent CSSCode with SWEL logical operators
+    maybe_code = codes.QuditCode(steane_code.matrix).maybe_to_swel()
+    assert isinstance(maybe_code, codes.CSSCode)
+    assert np.array_equal(maybe_code.get_logical_ops(Pauli.X), maybe_code.get_logical_ops(Pauli.Z))
+
+    # a non-CSS code cannot be converted to SWEL
+    assert codes.FiveQubitCode().maybe_to_swel() == codes.FiveQubitCode()
+    with pytest.raises(ValueError, match="both X and Z support"):
+        codes.FiveQubitCode().to_swel()
+
+    # a CSS code that is not SWEL cannot be converted to SWEL
+    surface_code = codes.SurfaceCode(3)
+    assert codes.QuditCode(surface_code.matrix).maybe_to_swel() == codes.QuditCode(
+        surface_code.matrix
+    )
+    with pytest.raises(ValueError, match="no self-dual logical operator basis"):
+        codes.QuditCode(surface_code.matrix).to_swel()
+
+
 ####################################################################################################
 # CSS code tests
 
