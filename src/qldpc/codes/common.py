@@ -1570,14 +1570,9 @@ class QuditCode(AbstractCode):
         logical_ops = self.get_logical_ops()
         gauge_ops = self.get_gauge_ops()
 
-        # Identify a minimal generating set of stabilizers.  Evaluating self.dimension and
-        # self.gauge_dimension may canonicalize (and thereby rebind) the cached stabilizer
-        # operators, so compute the expected number of stabilizers before retrieving them, and
-        # grab the stabilizers only afterwards to ensure the returned destabilizers are dual to the
-        # same stabilizer matrix that self.get_stabilizer_ops() reports.
-        num_stabilizers = len(self) - self.dimension - self.gauge_dimension
+        # identify a minimal generating set of stabilizers
         stab_ops = self.get_stabilizer_ops()
-        if len(stab_ops) != num_stabilizers:
+        if len(stab_ops) != len(self) - self.dimension - self.gauge_dimension:
             stab_ops = self.get_stabilizer_ops(canonicalized=True)
 
         # Build "candidate" destabilizers that have correct pair-wise (anti-)commutation relations
@@ -1652,7 +1647,9 @@ class QuditCode(AbstractCode):
             return len(self._logical_ops) // 2
         if not self.is_subsystem_code:
             return len(self) - self.rank
-        num_stabs = len(self.get_stabilizer_ops(canonicalized=True))
+        # Count independent stabilizer generators without the canonicalized=True call, which would
+        # otherwise rebind the cached stabilizer operators.
+        num_stabs = len(self.get_stabilizer_ops().row_space())
         return len(self) - (self.rank + num_stabs) // 2
 
     @functools.cached_property
@@ -1660,7 +1657,7 @@ class QuditCode(AbstractCode):
         """The number of gauge qudits in this code."""
         if not self.is_subsystem_code:
             return 0
-        num_stabs = len(self.get_stabilizer_ops(canonicalized=True))
+        num_stabs = len(self.get_stabilizer_ops().row_space())
         return (self.rank - num_stabs) // 2
 
     def get_code_params(

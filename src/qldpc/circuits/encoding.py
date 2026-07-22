@@ -53,16 +53,13 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
             allow_underconstrained=True,
         )
 
-    # identify logical and gauge operators operators
+    # identify logical and gauge operators
     logical_ops = code.get_logical_ops()
     gauge_ops = code.get_gauge_ops()
 
-    # identify a minimal generating set of stabilizers and the dual destabilizers.  Evaluate the
-    # stabilizer count (which may canonicalize the cached stabilizers) before grabbing the
-    # stabilizers, so that stab_ops matches the stabilizers used by code.get_destabilizer_ops.
-    num_stabilizers = len(code) - code.dimension - code.gauge_dimension
+    # identify a minimal generating set of stabilizers and the dual destabilizers
     stab_ops = code.get_stabilizer_ops()
-    if len(stab_ops) != num_stabilizers:
+    if len(stab_ops) != len(code) - code.dimension - code.gauge_dimension:
         stab_ops = code.get_stabilizer_ops(canonicalized=True)
     destab_ops = code.get_destabilizer_ops()
 
