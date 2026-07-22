@@ -1579,16 +1579,16 @@ class QuditCode(AbstractCode):
         # with the stabilizers, but may contain extra stabilizer, logical, or gauge factors.
         destab_ops = math.get_dual_basis(math.symplectic_conjugate(stab_ops))
 
-        # Remove logical and gauge operator components.  Logical (gauge) operators satisfy
-        # logical_ops @ symplectic_conjugate(logical_ops).T = Ω, the symplectic form, so subtracting
-        # (destab_ops @ symplectic_conjugate(logical_ops).T) @ Ω⁻¹ @ logical_ops projects out the
-        # logical component.  This preserves the (anti-)commutation relations with the stabilizers
-        # because logical and gauge operators commute with the stabilizers.
+        # Remove logical and gauge operator components.  The logical (gauge) operators are in
+        # standard symplectic form, so their symplectic dual basis -- the rows D that satisfy
+        # D @ symplectic_conjugate(ops).T = identity -- is just the operators reindexed as [Z; -X].
+        # Subtracting destab_ops's overlap with the operators along this dual removes the component
+        # while preserving the (anti-)commutation relations with the stabilizers, which commute with
+        # the logical and gauge operators.
         for ops in [logical_ops, gauge_ops]:
             if len(ops):
-                overlaps = destab_ops @ math.symplectic_conjugate(ops).T
-                symplectic_form = ops @ math.symplectic_conjugate(ops).T
-                destab_ops -= overlaps @ np.linalg.inv(symplectic_form) @ ops
+                dual_ops = np.vstack([ops[len(ops) // 2 :], -ops[: len(ops) // 2]])
+                destab_ops -= destab_ops @ math.symplectic_conjugate(dual_ops).T @ ops
 
         # enforce that destabilizers commute with each other by removing stabilizer factors
         for dd in range(len(destab_ops)):
