@@ -1559,6 +1559,39 @@ class QuditCode(AbstractCode):
         self._gauge_ops = self.dual().get_logical_ops()
         return self._gauge_ops
 
+    def get_destabilizer_ops(self) -> galois.FieldArray:
+        """The destabilizers of this code.
+
+        Destabilizers are defined relative to a specific minimal choice of stabilizer generators.
+        This method first considers the stabilizer matrix built by self.get_stabilizer_ops().  If
+        that choice is overcomplete, this method uses self.get_stabilizer_ops(canonicalized=True).
+        """
+        # identify logical and gauge operators operators
+        logical_ops = self.get_logical_ops()
+        gauge_ops = self.get_gauge_ops()
+
+        # identify a minimal generating set of stabilizers
+        stab_ops = self.get_stabilizer_ops()
+        if len(logical_ops) + len(gauge_ops) + len(stab_ops) != len(self):
+            stab_ops = self.get_stabilizer_ops(canonicalized=True)
+
+        # Build "candidate" destabilizers that have correct pair-wise (anti-)commutation relations
+        # with the stabilizers, but may contain extra stabilizer, logical, or gauge factors.
+        destab_ops = math.get_dual_basis(math.symplectic_conjugate(stab_ops))
+
+        # remove logical and gauge operator components
+        dual_logical_ops = logical_ops.reshape(2, -1)[::-1, :].reshape(logical_ops.shape)
+        dual_gauge_ops = gauge_ops.reshape(2, -1)[::-1, :].reshape(gauge_ops.shape)
+        destab_ops -= destab_ops @ math.symplectic_conjugate(dual_logical_ops).T @ logical_ops
+        destab_ops -= destab_ops @ math.symplectic_conjugate(dual_gauge_ops).T @ gauge_ops
+
+        # enforce that destabilizers commute with each other by removing stabilizer factors
+        for dd in range(len(destab_ops)):
+            for ss in range(dd, len(destab_ops)):
+                if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):
+                    destab_ops[dd] -= stab_ops[ss]
+        return destab_ops
+
     def dual(self) -> QuditCode:
         """Dual to this code, which swaps the roles of logical and gauge operators.
 

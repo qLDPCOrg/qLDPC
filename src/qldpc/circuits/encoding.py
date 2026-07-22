@@ -57,26 +57,11 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     logical_ops = code.get_logical_ops()
     gauge_ops = code.get_gauge_ops()
 
-    # Identify:
-    # (1) A minimal generating set of stabilizers.
-    # (2) "Candidate" destabilizers that have correct pair-wise (anti-)commutation relations
-    #     with the stabilizers, but may contain extra stabilizer, logical, or gauge factors.
+    # identify a minimal generating set of stabilizers, and dual destabilizers
     stab_ops = code.get_stabilizer_ops()
-    if len(stab_ops) != len(code) - code.dimension - code.gauge_dimension:  # pragma: no cover
+    if len(logical_ops) + len(gauge_ops) + len(stab_ops) != len(code):
         stab_ops = code.get_stabilizer_ops(canonicalized=True)
-    destab_ops = math.get_dual_basis(math.symplectic_conjugate(stab_ops))
-
-    # remove logical and gauge operator components
-    dual_logical_ops = logical_ops.reshape(2, -1)[::-1, :].reshape(logical_ops.shape)
-    dual_gauge_ops = gauge_ops.reshape(2, -1)[::-1, :].reshape(gauge_ops.shape)
-    destab_ops -= destab_ops @ math.symplectic_conjugate(dual_logical_ops).T @ logical_ops
-    destab_ops -= destab_ops @ math.symplectic_conjugate(dual_gauge_ops).T @ gauge_ops
-
-    # enforce that destabilizers commute with each other by removing stabilizer factors
-    for dd in range(len(destab_ops)):
-        for ss in range(dd, len(destab_ops)):
-            if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):  # pragma: no cover
-                destab_ops[dd] -= stab_ops[ss]
+    destab_ops = code.get_destabilizer_ops()
 
     # construct Pauli strings to hand over to Stim
     matrices_x = [logical_ops[: code.dimension], gauge_ops[: code.gauge_dimension], destab_ops]
