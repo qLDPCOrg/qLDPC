@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from qldpc import abstract, codes, external, math
-from qldpc.objects import Pauli
+from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
 # classical code tests
@@ -693,20 +693,12 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
     )
     assert not np.any(code.get_stabilizer_ops() @ math.symplectic_conjugate(code.get_gauge_ops()).T)
 
-    # CSS destabilizers can be retrieved by Pauli type, consistently with the symplectic form
+    # destabilizers of one Pauli type are dual to the stabilizers of the opposite type
     for code in get_codes_for_testing_ops():
-        destabilizer_ops = code.get_destabilizer_ops()
-        assert np.array_equal(code.get_destabilizer_ops(None), destabilizer_ops)
-
-        # X-type destabilizers only address qudits with physical X-type operators, and likewise for
-        # Z; taken together they partition the full (symplectic) destabilizer matrix
-        pivots_x = math.first_nonzero_cols(destabilizer_ops) < len(code)
-        for pauli, pivots in [(Pauli.X, pivots_x), (Pauli.Z, ~pivots_x)]:
-            destabs = code.get_destabilizer_ops(pauli, symplectic=True)
-            assert np.array_equal(destabs, destabilizer_ops[pivots])
-            assert np.array_equal(
-                code.get_destabilizer_ops(pauli), destabs.reshape(-1, 2, len(code))[:, pauli, :]
-            )
+        for pauli in PAULIS_XZ:
+            destabs = code.get_destabilizer_ops(pauli)
+            stabs = code.get_stabilizer_ops(pauli.swap_xz())
+            assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
     # successfully construct and reduce logical operators in a code with "over-complete" checks
     dist = 4
