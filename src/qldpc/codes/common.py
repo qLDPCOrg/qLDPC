@@ -1559,13 +1559,27 @@ class QuditCode(AbstractCode):
         self._gauge_ops = self.dual().get_logical_ops()
         return self._gauge_ops
 
-    def get_destabilizer_ops(self) -> galois.FieldArray:
+    def get_destabilizer_ops(
+        self, pauli: PauliXZ | None = None, *, symplectic: bool = True
+    ) -> galois.FieldArray:
         """The destabilizers of this code.
 
         Destabilizers are defined relative to a specific minimal choice of stabilizer generators.
         This method first considers the stabilizer matrix built by self.get_stabilizer_ops().  If
         that choice is overcomplete, this method uses self.get_stabilizer_ops(canonicalized=True).
+
+        The symplectic argument is provided for compatibility with CSSCode.get_destabilizer_ops, and
+        must always be True for a non-CSS code.
         """
+        assert symplectic is True
+        assert pauli is None or pauli in PAULIS_XZ
+
+        # if requested, retrieve destabilizer operators of one type only
+        if pauli is not None:
+            destabilizer_ops = self.get_destabilizer_ops()
+            pivots_x = math.first_nonzero_cols(destabilizer_ops) < len(self)
+            return destabilizer_ops[pivots_x if pauli is Pauli.X else ~pivots_x]
+
         # identify logical and gauge operators
         logical_ops = self.get_logical_ops()
         gauge_ops = self.get_gauge_ops()
@@ -2654,9 +2668,10 @@ class CSSCode(QuditCode):
     ) -> galois.FieldArray:
         """Basis of stabilizer group generators for this code.
 
-        If canonicalized is True, guarantee that the stabilizer matrix is canonicalized (i.e., row
-        reduced) such that its rows are a minimal generating set for the stabilizer group.
+        If canonicalized is True, guarantee that the stabilizer matrix is canonicalized (i.e.,
+        row-reduced) such that its rows are a minimal generating set for the stabilizer group.
         """
+        assert pauli is None or pauli in PAULIS_XZ
         if self._stabilizer_ops is None and self.is_subsystem_code:
             stabs_and_gauges_x = self.canonicalized.get_matrix(Pauli.X)
             stabs_and_gauges_z = self.canonicalized.get_matrix(Pauli.Z)
@@ -2686,10 +2701,24 @@ class CSSCode(QuditCode):
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
         logical Pauli operators computed by CSSCode.get_logical_ops.
         """
+        assert pauli is None or pauli in PAULIS_XZ
         gauge_ops = QuditCode.get_gauge_ops(self, pauli)
         if symplectic or pauli is None:
             return gauge_ops
         return gauge_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
+
+    def get_destabilizer_ops(
+        self, pauli: PauliXZ | None = None, *, symplectic: bool = False
+    ) -> galois.FieldArray:
+        """The destabilizers of this code.
+
+        See help(qldpc.codes.QuditCode.get_destabilizer_ops) for an explanation of destabilizers.
+        """
+        assert pauli is None or pauli in PAULIS_XZ
+        destabilizer_ops = QuditCode.get_destabilizer_ops(self, pauli)
+        if symplectic or pauli is None:
+            return destabilizer_ops
+        return destabilizer_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
 
     def dual(self) -> CSSCode:
         """The dual of this code, which swaps the roles of logical and gauge operators.

@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from qldpc import abstract, codes, external, math
-from qldpc.objects import Pauli
+from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
 # classical code tests
@@ -486,6 +486,11 @@ def test_qudit_ops(pytestconfig: pytest.Config) -> None:
         assert not np.any(destabilizer_ops @ math.symplectic_conjugate(destabilizer_ops).T)
         assert not np.any(destabilizer_ops @ math.symplectic_conjugate(logical_ops).T)
         assert not np.any(destabilizer_ops @ math.symplectic_conjugate(gauge_ops).T)
+
+        # destabilizers can be retrieved by Pauli type, partitioning the full destabilizer matrix
+        pivots_x = math.first_nonzero_cols(destabilizer_ops) < len(code)
+        assert np.array_equal(code.get_destabilizer_ops(Pauli.X), destabilizer_ops[pivots_x])
+        assert np.array_equal(code.get_destabilizer_ops(Pauli.Z), destabilizer_ops[~pivots_x])
         assert np.array_equal(
             gauge_ops @ math.symplectic_conjugate(gauge_ops).T,
             get_symplectic_form(code.gauge_dimension, code.field),
@@ -687,6 +692,13 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
         code.get_stabilizer_ops() @ math.symplectic_conjugate(code.get_logical_ops()).T
     )
     assert not np.any(code.get_stabilizer_ops() @ math.symplectic_conjugate(code.get_gauge_ops()).T)
+
+    # destabilizers of one Pauli type are dual to the stabilizers of the opposite type
+    for code in get_codes_for_testing_ops():
+        for pauli in PAULIS_XZ:
+            destabs = code.get_destabilizer_ops(pauli)
+            stabs = code.get_stabilizer_ops(pauli.swap_xz())
+            assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
     # successfully construct and reduce logical operators in a code with "over-complete" checks
     dist = 4
