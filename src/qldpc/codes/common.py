@@ -967,6 +967,23 @@ class QuditCode(AbstractCode):
             )
         return code
 
+    def maybe_to_swel(self) -> QuditCode:
+        """Try to convert this QuditCode into a CSSCode with SWEL logical operators.
+
+        Return self if we fail.
+        """
+        code = self.maybe_to_css()
+        if not isinstance(code, CSSCode) or not code.is_swel:
+            return self
+        return code.set_swel_logical_ops()
+
+    def to_swel(self) -> CSSCode:
+        """Convert this QuditCode into a CSSCode with SWEL logical operators.
+
+        Throw an error if we fail.
+        """
+        return self.to_css().set_swel_logical_ops()
+
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
