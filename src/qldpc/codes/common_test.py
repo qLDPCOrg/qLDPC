@@ -486,6 +486,11 @@ def test_qudit_ops(pytestconfig: pytest.Config) -> None:
         assert not np.any(destabilizer_ops @ math.symplectic_conjugate(destabilizer_ops).T)
         assert not np.any(destabilizer_ops @ math.symplectic_conjugate(logical_ops).T)
         assert not np.any(destabilizer_ops @ math.symplectic_conjugate(gauge_ops).T)
+
+        # destabilizers can be retrieved by Pauli type, partitioning the full destabilizer matrix
+        pivots_x = math.first_nonzero_cols(destabilizer_ops) < len(code)
+        assert np.array_equal(code.get_destabilizer_ops(Pauli.X), destabilizer_ops[pivots_x])
+        assert np.array_equal(code.get_destabilizer_ops(Pauli.Z), destabilizer_ops[~pivots_x])
         assert np.array_equal(
             gauge_ops @ math.symplectic_conjugate(gauge_ops).T,
             get_symplectic_form(code.gauge_dimension, code.field),
@@ -687,6 +692,21 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
         code.get_stabilizer_ops() @ math.symplectic_conjugate(code.get_logical_ops()).T
     )
     assert not np.any(code.get_stabilizer_ops() @ math.symplectic_conjugate(code.get_gauge_ops()).T)
+
+    # CSS destabilizers can be retrieved by Pauli type, consistently with the symplectic form
+    for code in get_codes_for_testing_ops():
+        destabilizer_ops = code.get_destabilizer_ops()
+        assert np.array_equal(code.get_destabilizer_ops(None), destabilizer_ops)
+
+        # X-type destabilizers only address qudits with physical X-type operators, and likewise for
+        # Z; taken together they partition the full (symplectic) destabilizer matrix
+        pivots_x = math.first_nonzero_cols(destabilizer_ops) < len(code)
+        for pauli, pivots in [(Pauli.X, pivots_x), (Pauli.Z, ~pivots_x)]:
+            destabs = code.get_destabilizer_ops(pauli, symplectic=True)
+            assert np.array_equal(destabs, destabilizer_ops[pivots])
+            assert np.array_equal(
+                code.get_destabilizer_ops(pauli), destabs.reshape(-1, 2, len(code))[:, pauli, :]
+            )
 
     # successfully construct and reduce logical operators in a code with "over-complete" checks
     dist = 4
