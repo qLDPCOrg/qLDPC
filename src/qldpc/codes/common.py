@@ -1559,6 +1559,43 @@ class QuditCode(AbstractCode):
         self._gauge_ops = self.dual().get_logical_ops()
         return self._gauge_ops
 
+    def get_destabilizer_ops(self) -> galois.FieldArray:
+        """The destabilizers of this code.
+
+        Destabilizers are defined relative to a specific minimal choice of stabilizer generators.
+        This method first considers the stabilizer matrix built by self.get_stabilizer_ops().  If
+        that choice is overcomplete, this method uses self.get_stabilizer_ops(canonicalized=True).
+        """
+        # identify logical and gauge operators
+        logical_ops = self.get_logical_ops()
+        gauge_ops = self.get_gauge_ops()
+
+        # identify a minimal generating set of stabilizers
+        stab_ops = self.get_stabilizer_ops()
+        if len(stab_ops) != len(self) - self.dimension - self.gauge_dimension:
+            stab_ops = self.get_stabilizer_ops(canonicalized=True)
+
+        # Build "candidate" destabilizers that have correct pair-wise (anti-)commutation relations
+        # with the stabilizers, but may contain extra stabilizer, logical, or gauge factors.
+        destab_ops = math.get_dual_basis(math.symplectic_conjugate(stab_ops))
+
+        # Remove logical and gauge operator components.  The logical (gauge) operators are in
+        # standard symplectic form, so symplectic_conjugate(ops.T).T is their symplectic dual basis:
+        # projecting destab_ops's overlaps with the operators back onto this dual removes the
+        # logical/gauge component, while preserving the (anti-)commutation with the stabilizers,
+        # which commute with the logical/gauge operators.
+        for ops in [logical_ops, gauge_ops]:
+            if len(ops):
+                overlaps = destab_ops @ math.symplectic_conjugate(ops).T
+                destab_ops += overlaps @ math.symplectic_conjugate(ops.T).T
+
+        # enforce that destabilizers commute with each other by removing stabilizer factors
+        for dd in range(len(destab_ops)):
+            for ss in range(dd, len(destab_ops)):
+                if overlap := destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):
+                    destab_ops[dd] += overlap * stab_ops[ss]
+        return destab_ops
+
     def dual(self) -> QuditCode:
         """Dual to this code, which swaps the roles of logical and gauge operators.
 
@@ -1609,7 +1646,7 @@ class QuditCode(AbstractCode):
             return len(self._logical_ops) // 2
         if not self.is_subsystem_code:
             return len(self) - self.rank
-        num_stabs = len(self.get_stabilizer_ops(canonicalized=True))
+        num_stabs = len(self.get_stabilizer_ops().row_space())
         return len(self) - (self.rank + num_stabs) // 2
 
     @functools.cached_property
@@ -1617,7 +1654,7 @@ class QuditCode(AbstractCode):
         """The number of gauge qudits in this code."""
         if not self.is_subsystem_code:
             return 0
-        num_stabs = len(self.get_stabilizer_ops(canonicalized=True))
+        num_stabs = len(self.get_stabilizer_ops().row_space())
         return (self.rank - num_stabs) // 2
 
     def get_code_params(
