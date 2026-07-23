@@ -2268,6 +2268,11 @@ class CSSCode(QuditCode):
         """
         return QuditCode.from_strings(checks, field).to_css()
 
+    @staticmethod
+    def from_qecdb_id(code_id: str) -> CSSCode:
+        """Retrieve a CSS code by ID from qecdb.org."""
+        return QuditCode.from_qecdb_id(code_id).to_css()
+
     @property
     def is_subsystem_code(self) -> bool:
         """Is this code a subsystem code?  That is, do all parity checks commute?."""

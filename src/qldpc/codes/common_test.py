@@ -574,13 +574,6 @@ def test_qudit_to_css() -> None:
         codes.FiveQubitCode().to_css()
 
 
-def test_css_from_strings() -> None:
-    """Construct a CSSCode from parity check strings."""
-    code = codes.CSSCode.from_strings(["XXXX", "ZZZZ"])
-    assert isinstance(code, codes.CSSCode)
-    assert code.is_equiv_to(codes.C4Code())
-
-
 def test_qudit_to_swel() -> None:
     """Convert a QuditCode to a CSSCode with SWEL logical operators."""
     steane_code = codes.SteaneCode()
@@ -650,6 +643,25 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     subgraphs = code.get_syndrome_subgraphs()
     assert nx.utils.graphs_equal(subgraphs[0], code.get_graph(Pauli.X))
     assert nx.utils.graphs_equal(subgraphs[1], code.get_graph(Pauli.Z))
+
+
+def test_css_from_strings() -> None:
+    """Construct a CSSCode from parity check strings."""
+    code = codes.CSSCode.from_strings(["XXXX", "ZZZZ"])
+    assert isinstance(code, codes.CSSCode)
+    assert code.is_equiv_to(codes.C4Code())
+
+
+def test_css_from_qecdb_id() -> None:
+    """Retrieve a CSS code from qecdb.org."""
+    strings = ["XXXX", "ZZZZ"]
+    distance = 2
+    is_css = True
+    code_data = (strings, distance, is_css)
+    with unittest.mock.patch("qldpc.external.codes.get_quantum_code", return_value=code_data):
+        code = codes.CSSCode.from_qecdb_id("")
+        assert isinstance(code, codes.CSSCode)
+        assert code.is_equiv_to(codes.C4Code())
 
 
 def test_swel_codes() -> None:
