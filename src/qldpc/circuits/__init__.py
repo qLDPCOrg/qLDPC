@@ -38,10 +38,12 @@ from .memory import (
     get_qubit_coordinates,
 )
 from .noise_model import (
+    AbstractPauliChannel,
     DepolarizingNoiseModel,
     NoiseModel,
     NoiseRule,
     PauliChannel,
+    PauliChannelSequence,
     SI1000NoiseModel,
     as_noiseless_circuit,
 )
@@ -83,10 +85,12 @@ __all__ = [
     "get_memory_experiment_parts",
     "get_observables",
     "get_qubit_coordinates",
+    "AbstractPauliChannel",
     "DepolarizingNoiseModel",
     "NoiseModel",
     "NoiseRule",
     "PauliChannel",
+    "PauliChannelSequence",
     "SI1000NoiseModel",
     "as_noiseless_circuit",
     "get_transversal_automorphism_group",

@@ -76,7 +76,7 @@ def get_random_array(
 
 
 class AbstractCode(abc.ABC):
-    """Template class for error-correcting codes."""
+    """Base class for error-correcting codes."""
 
     _matrix: galois.FieldArray
     _field: type[galois.FieldArray]
