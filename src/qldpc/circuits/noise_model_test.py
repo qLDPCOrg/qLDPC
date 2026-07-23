@@ -654,17 +654,6 @@ def test_pauli_channel_to_circuit() -> None:
     expected.append("ELSE_CORRELATED_ERROR", [stim.target_z(0)], [0.2 / 0.9])
     assert channel.to_circuit(simplify=False) == expected
 
-    # drop_correlations emits every entry as an independent CORRELATED_ERROR (no ELSE chain), and
-    # overrides simplify (which is left at its default True here, so the simplification that would
-    # otherwise collapse this 1-qubit channel to a PAULI_CHANNEL_1 is skipped).
-    expected = stim.Circuit()
-    expected.append("CORRELATED_ERROR", [stim.target_x(0)], [0.1])
-    expected.append("CORRELATED_ERROR", [stim.target_z(0)], [0.2])
-    assert channel.to_circuit(drop_correlations=True) == expected
-
-    # simplify=False and drop_correlations=True agree: still one independent CORRELATED_ERROR each.
-    assert channel.to_circuit(simplify=False, drop_correlations=True) == expected
-
     # A two-qubit depolarizing channel collapses to a native DEPOLARIZE2.
     depol2 = circuits.PauliChannel.depolarizing(2, 0.15)
     assert depol2.to_circuit() == stim.Circuit("DEPOLARIZE2(0.15) 0 1")
@@ -678,6 +667,24 @@ def test_pauli_channel_to_circuit() -> None:
     # Raise an error when provided qubit count that disagrees with the channel arity.
     with pytest.raises(ValueError, match="Provided 2 qubits for a 1-qubit channel"):
         channel.to_circuit(qubits=[0, 1])
+
+
+def test_pauli_channel_sequence() -> None:
+    """PauliChannelSequence emits independent errors and skips PauliChannel's normalization.
+
+    Only sequence-specific behavior is checked here; the storage / validation / dunders shared with
+    PauliChannel via AbstractPauliChannel are covered by ``test_pauli_channel_class``.
+    """
+
+    # One independent CORRELATED_ERROR per entry (no ELSE chain / PAULI_CHANNEL simplification) and,
+    # unlike PauliChannel, the probabilities need not sum to <= 1.
+    seq = circuits.PauliChannelSequence({"XX": 0.7, "ZZ": 0.7})
+    assert seq.to_circuit() == stim.Circuit(
+        "CORRELATED_ERROR(0.7) X0 X1\nCORRELATED_ERROR(0.7) Z0 Z1"
+    )
+
+    # A PauliChannel and a PauliChannelSequence with identical probabilities are unequal.
+    assert circuits.PauliChannelSequence({"X": 0.1}) != circuits.PauliChannel({"X": 0.1})
 
 
 def test_multi_qubit_pauli_channel_after_gate() -> None:
