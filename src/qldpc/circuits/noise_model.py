@@ -414,7 +414,7 @@ class PauliChannel:
         channel, and emit each as an independent ``CORRELATED_ERROR``.  In this case, the
         ``simplify`` argument is ignored.  Warning: this capability is provided for convenience, but
         it changes the definition of the channel substantially.  With ``drop_correlations=True``,
-        the channel should be thought of as a sequence of single-entry Pauli channels.
+        the channel should be thought of as a sequence of independent single-entry Pauli channels.
 
         Args:
             append_to: The circuit to append to; if ``None`` (default), create a new circuit.
