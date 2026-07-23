@@ -292,7 +292,6 @@ class LookupDecoder(Decoder):
             )
 
         # save attributes
-        self.post_select = tuple(post_select)
         self.predict_observable_flips = predict_observable_flips
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
@@ -536,7 +535,6 @@ class WeightedLookupDecoder(LookupDecoder):
         )
 
         # save attributes
-        self.post_select = tuple(post_select)
         self.predict_observable_flips = predict_observable_flips
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
