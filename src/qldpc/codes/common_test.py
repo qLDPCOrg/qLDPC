@@ -574,6 +574,13 @@ def test_qudit_to_css() -> None:
         codes.FiveQubitCode().to_css()
 
 
+def test_css_from_strings() -> None:
+    """Construct a CSSCode from parity check strings."""
+    code = codes.CSSCode.from_strings(["XXXX", "ZZZZ"])
+    assert isinstance(code, codes.CSSCode)
+    assert code.is_equiv_to(codes.C4Code())
+
+
 def test_qudit_to_swel() -> None:
     """Convert a QuditCode to a CSSCode with SWEL logical operators."""
     steane_code = codes.SteaneCode()

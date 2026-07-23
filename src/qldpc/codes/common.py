@@ -2258,6 +2258,16 @@ class CSSCode(QuditCode):
         )
         return self.graph_x, self.graph_z
 
+    @staticmethod
+    def from_strings(
+        checks: Sequence[str], field: int | type[galois.FieldArray] | None = None
+    ) -> QuditCode:
+        """Construct a CSSCode from the provided parity checks.
+
+        Alias for QuditCode.from_strings(checks, field).to_css().  See help(QuditCode.from_strings).
+        """
+        return QuditCode.from_strings(checks, field).to_css()
+
     @property
     def is_subsystem_code(self) -> bool:
         """Is this code a subsystem code?  That is, do all parity checks commute?."""
