@@ -36,7 +36,7 @@ import itertools
 import math
 import operator
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any, Union
+from typing import Any
 
 import galois
 import numpy as np
@@ -60,7 +60,7 @@ def resolve_field(
     return field
 
 
-NestedSequence = Sequence[Union[object, Sequence["NestedSequence"]]]
+NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
 ################################################################################
 # groups and group members
@@ -873,7 +873,7 @@ class ProjectiveSpecialLinearGroup(Group):
                 for index, vec_bytes in enumerate(target_space):
                     vec = np.frombuffer(vec_bytes, dtype=np.uint8).view(self.field)
                     next_orbit = [root * member @ vec for root in roots]
-                    next_vec = next((vec for vec in next_orbit if vec.tobytes() in target_space))
+                    next_vec = next(vec for vec in next_orbit if vec.tobytes() in target_space)
                     next_index = target_space.index(next_vec.tobytes())
                     perm[index] = next_index
                 generators.append(GroupMember(perm))

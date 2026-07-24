@@ -30,7 +30,7 @@ import itertools
 import operator
 import warnings
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal
 
 import galois
 import numpy as np
@@ -516,7 +516,7 @@ class Element(RingMember):  # pragma: no cover
 ################################################################################
 # RingArray: RingMember-valued array
 
-NestedSequence = Sequence[Union[object, Sequence["NestedSequence"]]]
+NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
 
 class RingArray(npt.NDArray[np.object_]):
@@ -552,7 +552,7 @@ class RingArray(npt.NDArray[np.object_]):
 
     def __array_finalize__(self, obj: npt.NDArray[np.object_] | None) -> None:
         """Propagate metadata to newly constructed arrays."""
-        setattr(self, "_ring", getattr(obj, "_ring", None))
+        self._ring = getattr(obj, "_ring", None)
 
     def __array_function__(
         self,
@@ -569,7 +569,7 @@ class RingArray(npt.NDArray[np.object_]):
         result = super().__array_function__(func, types, args, kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            setattr(result, "_ring", next(iter(rings), None))
+            result._ring = next(iter(rings), None)
         return result
 
     def __array_ufunc__(
@@ -587,7 +587,7 @@ class RingArray(npt.NDArray[np.object_]):
         result = super().__array_ufunc__(ufunc, method, *inputs, **kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            setattr(result, "_ring", next(iter(rings), None))
+            result._ring = next(iter(rings), None)
         return result
 
     def __str__(self) -> str:

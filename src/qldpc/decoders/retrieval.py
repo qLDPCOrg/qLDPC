@@ -75,12 +75,12 @@ def get_decoder(
 
     # optionally inject a static decoder, ignoring all other arguments
     if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
-        assert hasattr(static_decoder, "decode") and callable(getattr(static_decoder, "decode"))
+        assert hasattr(static_decoder, "decode") and callable(static_decoder.decode)
         assert not decoder_args, "If passed a static decoder, we cannot process decoding arguments"
         return static_decoder
 
     # look for and construct a recognized decoder
-    for name in DECODER_CONSTRUCTORS.keys():
+    for name in DECODER_CONSTRUCTORS:
         if decoder_args.pop(f"with_{name}", False):
             decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{name}")
             return decoder_constructor(pcm_or_dem, **decoder_args)

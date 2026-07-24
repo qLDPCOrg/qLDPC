@@ -35,7 +35,7 @@ from qldpc import abstract
 class Pauli(enum.Enum):
     """Pauli operators."""
 
-    I = (0, 0)  # noqa: E741
+    I = (0, 0)
     Z = (0, 1)
     X = (1, 0)
     Y = (1, 1)

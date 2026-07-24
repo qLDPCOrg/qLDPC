@@ -226,7 +226,7 @@ def get_state_stabilizers(
     simulator = stim.TableauSimulator()
     simulator.do(state_prep_circuit)
     for ss, stabilizer in enumerate(stabilizers):
-        if simulator.peek_observable_expectation(stabilizers[ss]) == -1:  # pragma: no cover
+        if simulator.peek_observable_expectation(stabilizer) == -1:  # pragma: no cover
             stabilizers[ss] = -stabilizer
 
     return stabilizers

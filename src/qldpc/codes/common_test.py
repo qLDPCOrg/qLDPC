@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 import itertools
 import unittest.mock
-from typing import Iterator
+from collections.abc import Iterator
 
 import galois
 import networkx as nx

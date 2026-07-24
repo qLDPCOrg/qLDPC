@@ -1817,8 +1817,7 @@ class QTCode(CSSCode):
         with open(path, "w") as file:
             # write provided headers
             for header in headers:
-                for line in header.splitlines():
-                    file.write(f"# {line}\n")
+                file.writelines(f"# {line}\n" for line in header.splitlines())
 
             # write subsets
             file.write("# subset_a:\n")

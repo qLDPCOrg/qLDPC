@@ -421,8 +421,7 @@ def get_max_comm_distance(
         for neighbor in code.graph.successors(node):
             loc_1 = get_qubit_pos(neighbor)
             squared_distance = (loc_0[0] - loc_1[0]) ** 2 + (loc_0[1] - loc_1[1]) ** 2
-            if squared_distance > max_squared_distance:
-                max_squared_distance = squared_distance
+            max_squared_distance = max(max_squared_distance, squared_distance)
 
     return math.sqrt(max_squared_distance)
 

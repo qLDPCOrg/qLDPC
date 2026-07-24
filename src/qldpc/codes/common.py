@@ -24,8 +24,8 @@ import functools
 import itertools
 import random
 import warnings
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
-from typing import Any, Iterator, TypeVar, cast
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
+from typing import Any, TypeVar, cast
 
 import galois
 import networkx as nx
@@ -310,9 +310,7 @@ class ClassicalCode(AbstractCode):
             node_c = Node(index=int(row), is_data=False)
             node_d = Node(index=int(col), is_data=True)
             graph.add_edge(node_c, node_d, val=matrix[row][col])
-        setattr(
-            graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
-        )
+        graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         return graph
 
     @staticmethod
@@ -611,7 +609,7 @@ class ClassicalCode(AbstractCode):
         standardized_name = name.strip().replace(" ", "")  # strip whitespace
         matrix, field = external.codes.get_classical_code(standardized_name)
         code = ClassicalCode(matrix, field)
-        setattr(code, "_name", name)
+        code._name = name
         return code
 
     def get_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
@@ -912,9 +910,7 @@ class QuditCode(AbstractCode):
 
         # initialize graph with nodes
         graph = nx.DiGraph()
-        setattr(
-            graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
-        )
+        graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         for qudit in range(matrix.shape[-1]):
             graph.add_node(Node(index=qudit, is_data=True))
 
@@ -1050,7 +1046,7 @@ class QuditCode(AbstractCode):
         for "X(a)*Z(a)", and strings such as "Z(1) _ X(1)*Z(3) X(2)" are also valid.
         """
         field = abstract.resolve_field(field)
-        operator: type[Pauli] | type[QuditPauli] = Pauli if field is galois.GF2 else QuditPauli
+        operator: type[Pauli | QuditPauli] = Pauli if field is galois.GF2 else QuditPauli
 
         def parse_check(check: str) -> list[str]:
             check = check.replace("_", "I")
