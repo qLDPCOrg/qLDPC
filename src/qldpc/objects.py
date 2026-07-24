@@ -299,7 +299,7 @@ class CayleyComplex:
         identity, shift = abstract.CyclicGroup(2).generate()
         if not self.bipartite:
             shift = shift @ identity
-        return set(aa @ shift for aa in self.subset_a)
+        return {aa @ shift for aa in self.subset_a}
 
     @functools.cached_property
     def cover_subset_b(self) -> set[abstract.GroupMember]:
@@ -307,7 +307,7 @@ class CayleyComplex:
         identity, shift = abstract.CyclicGroup(2).generate()
         if not self.bipartite:
             shift = identity @ shift
-        return set(bb @ shift for bb in self.subset_b)
+        return {bb @ shift for bb in self.subset_b}
 
     @staticmethod
     def build_cayley_graph(
@@ -320,7 +320,7 @@ class CayleyComplex:
         identity = member * ~member
 
         # identify the set of nodes for which we still need to add edges
-        nodes_to_add = set([identity])
+        nodes_to_add = {identity}
 
         # build the graph one node at a time
         graph = nx.Graph()

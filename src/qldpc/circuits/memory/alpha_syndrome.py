@@ -90,11 +90,11 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         # keyword arguments passed to sinter.predict_observables
         self.sinter_decoding_kwargs: dict[str, str | dict[str, sinter.Decoder]]
         if isinstance(decoder, str):
-            self.sinter_decoding_kwargs = dict(decoder=decoder)
+            self.sinter_decoding_kwargs = {"decoder": decoder}
         else:
-            self.sinter_decoding_kwargs = dict(
-                decoder="custom", custom_decoders=dict(custom=decoder)
-            )
+            self.sinter_decoding_kwargs = {
+                "decoder": "custom", "custom_decoders": {"custom": decoder}
+            }
 
     @restrict_to_qubits
     def get_circuit(

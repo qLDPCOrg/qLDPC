@@ -78,7 +78,7 @@ def test_subgraph_decoding() -> None:
         error(0.1) D2 L2
     """)
     sampler = dem.compile_sampler()
-    det_data, obs_data, err_data = sampler.sample(100)
+    det_data, obs_data, _err_data = sampler.sample(100)
 
     # build a monolithic lookup-table decoder, compile, and predict observable flips
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
@@ -113,7 +113,7 @@ def test_sequential_decoding() -> None:
         error(0.1) D2 L2
     """)
     sampler = dem.compile_sampler()
-    det_data, obs_data, err_data = sampler.sample(100)
+    det_data, obs_data, _err_data = sampler.sample(100)
 
     # build a monolithic lookup-table decoder, compile, and predict observable flips
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)

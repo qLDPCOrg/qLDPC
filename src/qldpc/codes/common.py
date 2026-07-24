@@ -1150,7 +1150,7 @@ class QuditCode(AbstractCode):
             matrix,
             qudit_locs,
             (rows_sx, rows_gx, rows_sz, rows_gz),
-            (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
+            (cols_sx, cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
         ) = self.get_standard_form_data()
         matrix_x = matrix[:, 0, :]
         matrix_z = matrix[:, 1, :]
@@ -2442,7 +2442,7 @@ class CSSCode(QuditCode):
             matrix_z,
             qudit_locs,
             (rows_sx, rows_gx, rows_sz, rows_gz),
-            (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
+            (cols_sx, cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
         ) = self.get_standard_form_data_xz()
 
         # X/Z support of X/Z logical operators, as column vectors

@@ -882,7 +882,7 @@ class BBCode(QCCode):
         """
         order_a = self.get_order(vec_a)
         order_b = self.get_order(vec_b)
-        if not order_a * order_b == len(self) // 2:
+        if order_a * order_b != len(self) // 2:
             return False
 
         # brute-force determine whether every plaquette can be reached by the basis vectors
@@ -1757,7 +1757,7 @@ class QTCode(CSSCode):
         identity = member * ~member
 
         # identify the set of nodes for which we still need to add faces
-        nodes_to_add = set([identity])
+        nodes_to_add = {identity}
 
         # build the subgraphs one node at a time
         subgraph_x = nx.DiGraph()
@@ -1859,8 +1859,8 @@ class QTCode(CSSCode):
                 last_index = index
 
         # construct subsets and generating codes
-        subset_a = set(abstract.GroupMember(gen) for gen in arrays[0])
-        subset_b = set(abstract.GroupMember(gen) for gen in arrays[1])
+        subset_a = {abstract.GroupMember(gen) for gen in arrays[0]}
+        subset_b = {abstract.GroupMember(gen) for gen in arrays[1]}
         code_a = ClassicalCode(arrays[2], field)
         code_b = ClassicalCode(arrays[3], field)
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)

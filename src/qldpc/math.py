@@ -132,7 +132,7 @@ def block_matrix(
     Literal 0 entries are replaced by zero matrices, and literal 1 entries are replaced by an
     identity matrix (padded below and to the right with zeros, if necessary).
     """
-    if not len(set(len(row) for row in blocks)) == 1:
+    if not len({len(row) for row in blocks}) == 1:
         raise ValueError("Inconsistent numbers of blocks in each row")
 
     # consistency checks

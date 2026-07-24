@@ -485,7 +485,7 @@ def get_completed_qubit_pos_func(
 
     # assign check qubits to candidate locations
     biadjacency_matrix = placement_matrix <= (max_comm_distance + 1e-15) ** 2
-    check_loc_indices, check_qubit_indices = scipy.optimize.linear_sum_assignment(
+    _check_loc_indices, check_qubit_indices = scipy.optimize.linear_sum_assignment(
         biadjacency_matrix, maximize=True
     )
 

@@ -113,7 +113,7 @@ class WedderburnArtinTransformer:
                 f"Provided {len(components)} WedderburnArtinTransformer components for a ring that"
                 f" should have {len(self.transformers)}"
             )
-        if not len(set([array.shape[:-2] for array in components])) == 1:
+        if not len({array.shape[:-2] for array in components}) == 1:
             raise ValueError("Asked to combine arrays of inconsistent shapes")
         terms = [
             trans.embed_array(array, from_blocks=from_blocks)
@@ -592,7 +592,7 @@ class WedderburnArtinComponentTransformer:
         quotient_coeff: galois.Poly
         gcd: galois.Poly
         for factor, quotient in zip(factors, quotients):
-            gcd, factor_coeff, quotient_coeff = galois.egcd(factor, quotient)  # type:ignore[assignment,arg-type]
+            gcd, _factor_coeff, quotient_coeff = galois.egcd(factor, quotient)  # type:ignore[assignment,arg-type]
             idempotent_poly = quotient_coeff * quotient // gcd  # <- G_j(x)
             new_idempotent = idempotent_poly.coeffs[::-1] @ powers[: len(idempotent_poly)]  # <- e_j
             new_idempotents.append(new_idempotent)

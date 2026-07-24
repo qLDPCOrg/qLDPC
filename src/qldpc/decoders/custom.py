@@ -604,7 +604,7 @@ class ILPDecoder(Decoder):
             matrix = matrix.todense()
 
         self.matrix = np.asarray(matrix, dtype=int) % self.modulus
-        num_checks, num_variables = self.matrix.shape
+        _num_checks, num_variables = self.matrix.shape
 
         # variables, their constraints, and the objective (minimizing number of nonzero variables)
         self.variable_constraints = []
@@ -726,14 +726,14 @@ class GUFDecoder(Decoder):
         syndrome_bits = np.flatnonzero(syndrome)
 
         # construct an "error set", within which we look for solutions to the decoding problem
-        error_set = set(Node(int(index), is_data=False) for index in syndrome_bits)
+        error_set = {Node(int(index), is_data=False) for index in syndrome_bits}
         solutions = np.zeros((0, len(self.code)), dtype=int)
         last_error_set_size = 0
         while solutions.size == 0:
             # grow the error set by one step on the Tanner graph
-            error_set |= set(
+            error_set |= {
                 neighbor for node in error_set for neighbor in self.graph.neighbors(node)
-            )
+            }
 
             # if the error set has not grown, there is no valid solution, so exit now
             if len(error_set) == last_error_set_size:
@@ -801,9 +801,9 @@ class GUFDecoder(Decoder):
         ]
         # identify interior data bit nodes, and their neighbors
         interior_data_nodes = [node for node in interior_nodes if node.is_data]
-        check_nodes = set(node for node in error_set if not node.is_data) | set(
+        check_nodes = {node for node in error_set if not node.is_data} | {
             neighbor for node in interior_data_nodes for neighbor in self.graph.neighbors(node)
-        )
+        }
         checks = [node.index for node in check_nodes]
         bits = [node.index for node in interior_data_nodes]
 
