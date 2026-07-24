@@ -153,7 +153,7 @@ def get_howell_dual(
     WARNING: This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
     """
     ring = matrix_hnf.ring
-    transformer = transformer = transformer or ring.get_transformer()
+    transformer = transformer or ring.get_transformer()
     dual_matrix = np.zeros(matrix_hnf.shape, dtype=object)
     for row, col in enumerate(math.first_nonzero_cols(matrix_hnf)):
         pivot = matrix_hnf[row, col].copy()

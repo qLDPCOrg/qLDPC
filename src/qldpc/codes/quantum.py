@@ -1972,9 +1972,9 @@ class SurfaceCode(CSSCode):
             row_indices = [row - 1, row, row - 1, row]
             col_indices = [col - 1, col - 1, col, col]
             check = np.zeros((rows, cols), dtype=int)
-            for row, col in zip(row_indices, col_indices):
-                if 0 <= row < rows and 0 <= col < cols:
-                    check[row, col] = 1
+            for check_row, check_col in zip(row_indices, col_indices):
+                if 0 <= check_row < rows and 0 <= check_col < cols:
+                    check[check_row, check_col] = 1
             return check.ravel()
 
         checks_x = []
@@ -2158,8 +2158,8 @@ class ToricCode(CSSCode):
             row_indices = np.array([row - 1, row, row - 1, row]) % rows
             col_indices = np.array([col - 1, col - 1, col, col]) % cols
             check = np.zeros((rows, cols), dtype=int)
-            for row, col in zip(row_indices, col_indices):
-                check[row, col] = 1
+            for check_row, check_col in zip(row_indices, col_indices):
+                check[check_row, check_col] = 1
             return check.ravel()
 
         checks_x = []

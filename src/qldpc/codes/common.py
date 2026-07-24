@@ -78,6 +78,7 @@ def get_random_array(
 class AbstractCode(abc.ABC):
     """Base class for error-correcting codes."""
 
+    _name: str
     _matrix: galois.FieldArray
     _field: type[galois.FieldArray]
     _dimension: int | None = None

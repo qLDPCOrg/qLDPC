@@ -36,7 +36,7 @@ import itertools
 import math
 import operator
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 import galois
 import numpy as np
@@ -639,7 +639,7 @@ class QuaternionGroup(Group):
 
     # multiplication table for this group
 
-    _table = [
+    _table: ClassVar = [
         [0, 1, 2, 3, 4, 5, 6, 7],
         [1, 4, 3, 6, 5, 0, 7, 2],
         [2, 7, 4, 1, 6, 3, 0, 5],

@@ -552,7 +552,8 @@ class RingArray(npt.NDArray[np.object_]):
 
     def __array_finalize__(self, obj: npt.NDArray[np.object_] | None) -> None:
         """Propagate metadata to newly constructed arrays."""
-        self._ring = getattr(obj, "_ring", None)
+        # obj may be None or lack _ring during numpy view construction; _ring is set before use
+        self._ring = getattr(obj, "_ring", None)  # type:ignore[assignment]
 
     def __array_function__(
         self,
@@ -569,7 +570,7 @@ class RingArray(npt.NDArray[np.object_]):
         result = super().__array_function__(func, types, args, kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            result._ring = next(iter(rings), None)
+            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
         return result
 
     def __array_ufunc__(
@@ -587,7 +588,7 @@ class RingArray(npt.NDArray[np.object_]):
         result = super().__array_ufunc__(ufunc, method, *inputs, **kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            result._ring = next(iter(rings), None)
+            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
         return result
 
     def __str__(self) -> str:

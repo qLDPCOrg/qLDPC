@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Sequence
-from typing import TypeVar, Union
+from typing import TypeVar
 
 import galois
 import numpy as np
@@ -28,9 +28,9 @@ import scipy.sparse
 import scipy.special
 import stim
 
-DenseIntegerArray = Union[galois.FieldArray, npt.NDArray[np.int_]]
-SparseIntegerArray = Union[scipy.sparse.spmatrix, scipy.sparse.sparray]
-IntegerArray = Union[DenseIntegerArray, SparseIntegerArray]
+DenseIntegerArray = galois.FieldArray | npt.NDArray[np.int_]
+SparseIntegerArray = scipy.sparse.spmatrix | scipy.sparse.sparray
+IntegerArray = DenseIntegerArray | SparseIntegerArray
 
 DenseIntegerArrayType = TypeVar("DenseIntegerArrayType", galois.FieldArray, npt.NDArray[np.int_])
 

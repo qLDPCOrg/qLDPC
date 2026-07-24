@@ -117,7 +117,7 @@ def test_finding_circuit(
         assert physical_circuit is not None
 
         # there are no logical two-qubit gates in this code
-        circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
+        assert circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
 
     # check that the physical circuit has the correct logical tableau
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)
