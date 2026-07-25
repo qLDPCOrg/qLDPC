@@ -29,6 +29,7 @@ import pymatching
 import scipy.sparse
 import stim
 
+from qldpc._util import format_docstring
 from qldpc.math import IntegerArray
 
 from .custom import (
@@ -94,6 +95,7 @@ def get_decoder(
     return get_decoder_BP_OSD(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
 
 
+@format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BP_OSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -101,7 +103,7 @@ def get_decoder_BP_OSD(
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
-    f"""Decoder based on belief propagation with ordered statistics (BP+OSD).
+    """Decoder based on belief propagation with ordered statistics (BP+OSD).
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
@@ -125,6 +127,7 @@ def get_decoder_BP_OSD(
     return ldpc.BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
+@format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BP_LSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -132,7 +135,7 @@ def get_decoder_BP_LSD(
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
-    f"""Decoder based on belief propagation with localized statistics (BP+LSD).
+    """Decoder based on belief propagation with localized statistics (BP+LSD).
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
@@ -156,6 +159,7 @@ def get_decoder_BP_LSD(
     return ldpc.bplsd_decoder.BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
+@format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BF(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -163,7 +167,7 @@ def get_decoder_BF(
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
-    f"""Decoder based on belief finding (BF).
+    """Decoder based on belief finding (BF).
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.

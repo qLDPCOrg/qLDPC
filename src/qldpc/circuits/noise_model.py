@@ -116,6 +116,8 @@ from typing import TypeAlias
 
 import stim
 
+from qldpc._util import format_docstring
+
 from .common import stim_or_tsim_Circuit, tsim, with_remapped_qubits
 
 ####################################################################################################
@@ -996,6 +998,7 @@ class NoiseModel:
 
         return None
 
+    @format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
     def noisy_circuit(
         self,
         circuit: stim_or_tsim_Circuit,
@@ -1006,7 +1009,7 @@ class NoiseModel:
         immunize_gates: bool = True,
         insert_ticks: bool = True,
     ) -> stim_or_tsim_Circuit:
-        f"""Construct a noisy version of the given circuit.
+        """Construct a noisy version of the given circuit.
 
         This method first uses TICKs to split the input circuit into moments of operations that can
         be applied in parallel, thereby preventing qubit reuse conflicts.  Noise is then applied to
