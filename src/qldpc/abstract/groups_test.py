@@ -74,6 +74,7 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
         abstract.CyclicGroup(1).index(abstract.GroupMember(2, 1))
 
     assert isinstance(hash(group.hashable_generators()), int)
+    assert isinstance(hash(group), int)
 
 
 def test_trivial_group() -> None:

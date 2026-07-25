@@ -33,6 +33,7 @@ def test_format_docstring_without_docstring() -> None:
 
     @format_docstring(value=1)
     def func() -> None:
-        pass
+        return None
 
     assert func.__doc__ is None
+    assert func() is None
