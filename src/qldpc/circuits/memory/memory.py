@@ -22,6 +22,7 @@ import numpy as np
 import stim
 
 from qldpc import codes
+from qldpc._util import format_docstring
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from ..bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
@@ -29,6 +30,9 @@ from ..common import get_pauli_product_measurements, restrict_to_qubits, with_re
 from ..encoding import get_encoding_circuit
 from ..noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
+
+# default strategy used to schedule the two-qubit gates of a syndrome measurement circuit
+DEFAULT_STRATEGY = EdgeColoring()
 
 
 class MemoryExperimentParts(NamedTuple):
@@ -40,6 +44,7 @@ class MemoryExperimentParts(NamedTuple):
     qubit_ids: QubitIDs
 
 
+@format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
 def get_memory_experiment(
     code: codes.QuditCode | codes.ClassicalCode,
     basis: PauliXZ | None = Pauli.X,
@@ -47,9 +52,9 @@ def get_memory_experiment(
     *,
     noise_model: NoiseModel | None = None,
     qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
 ) -> stim.Circuit:
-    f"""Construct a circuit for testing the performance of a code as a quantum memory.
+    """Construct a circuit for testing the performance of a code as a quantum memory.
 
     In a nutshell, the circuit constructed by this method performs (generally multiple) rounds
     quantum error correction (QEC) for the given code.  Each round of QEC measures all parity checks
@@ -98,8 +103,8 @@ def get_memory_experiment(
     must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
     XX and ZZ observables for each Bell pair.  Here one of the "X"s in XX is a logical X for a
     logical qubit of the code, and the other "X" is a physical X on an associated ancilla qubit;
-    likewise with ZZ.  Since the ancilla qubit is noiseless, we can attribute an error in XX or ZZ to
-    a logical qubit error.
+    likewise with ZZ.  Since the ancilla qubit is noiseless, we can attribute an error in XX or ZZ
+    to a logical qubit error.
 
     Having said all of that, we do not actually annotate memory simulation circuits with the XX and
     ZZ observables described above.  Instead, we recognize that Bell-pair XX and ZZ operators are
@@ -189,7 +194,7 @@ def get_memory_experiment_parts(
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
 ) -> MemoryExperimentParts:
     """Noiseless components of a memory experiment.
 
@@ -236,7 +241,7 @@ def _get_basis_memory_experiment_parts(
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
 ) -> MemoryExperimentParts:
     """Components of a memory experiment that tracks logical operators of a fixed type (basis).
 
@@ -248,7 +253,7 @@ def _get_basis_memory_experiment_parts(
             f" not {basis}"
         )
     if not isinstance(code, codes.CSSCode):
-        raise ValueError("Memory experiments in a fixed basis only support CSS codes")
+        raise TypeError("Memory experiments in a fixed basis only support CSS codes")
 
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
@@ -304,7 +309,7 @@ def _get_combined_memory_simulation_parts(
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
 ) -> MemoryExperimentParts:
     """Components of a memory experiment that tracks all logical operators.
 

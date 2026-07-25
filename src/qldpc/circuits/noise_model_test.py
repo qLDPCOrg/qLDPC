@@ -958,7 +958,7 @@ def test_noise_rule_errors() -> None:
         circuits.NoiseRule(after=stim.Circuit("H 0"))
     fragment_with_repeat = stim.Circuit()
     fragment_with_repeat.append(stim.CircuitRepeatBlock(2, stim.Circuit("X_ERROR(0.1) 0")))
-    with pytest.raises(ValueError, match="may contain only noise instructions"):
+    with pytest.raises(TypeError, match="may contain only noise instructions"):
         circuits.NoiseRule(after=fragment_with_repeat)
 
     # An empty PauliChannel with an explicitly-declared arity is honored — a mismatch against the

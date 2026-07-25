@@ -70,10 +70,11 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
 
     assert abstract.Group.from_generating_mats([[1]]) == abstract.CyclicGroup(1)
 
-    with pytest.raises(ValueError, match="not in group"):
+    with pytest.raises(TypeError, match="not in group"):
         abstract.CyclicGroup(1).index(abstract.GroupMember(2, 1))
 
     assert isinstance(hash(group.hashable_generators()), int)
+    assert isinstance(hash(group), int)
 
 
 def test_trivial_group() -> None:

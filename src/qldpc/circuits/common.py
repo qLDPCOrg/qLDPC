@@ -18,8 +18,8 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Callable, ParamSpec, TypeVar
+from collections.abc import Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 import galois
 import numpy as np

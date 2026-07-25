@@ -270,7 +270,7 @@ class SimplexCode(ClassicalCode):
             primitive_polys = galois.primitive_polys(order=field.order, degree=dim, terms=3)
             return next(primitive_polys)
         except StopIteration:
-            None
+            pass
 
         # find a suitable polynomial by brute force
 

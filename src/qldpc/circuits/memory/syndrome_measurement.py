@@ -174,7 +174,7 @@ class EdgeColoringXZ(EdgeColoring):
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
         if not isinstance(code, codes.CSSCode):
-            raise ValueError(
+            raise TypeError(
                 "The EdgeColoringXZ strategy for syndrome measurement only supports CSS codes"
             )
 

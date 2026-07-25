@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Sequence
-from typing import TypeVar, Union
+from typing import TypeVar
 
 import galois
 import numpy as np
@@ -28,9 +28,9 @@ import scipy.sparse
 import scipy.special
 import stim
 
-DenseIntegerArray = Union[galois.FieldArray, npt.NDArray[np.int_]]
-SparseIntegerArray = Union[scipy.sparse.spmatrix, scipy.sparse.sparray]
-IntegerArray = Union[DenseIntegerArray, SparseIntegerArray]
+DenseIntegerArray = galois.FieldArray | npt.NDArray[np.int_]
+SparseIntegerArray = scipy.sparse.spmatrix | scipy.sparse.sparray
+IntegerArray = DenseIntegerArray | SparseIntegerArray
 
 DenseIntegerArrayType = TypeVar("DenseIntegerArrayType", galois.FieldArray, npt.NDArray[np.int_])
 
@@ -132,7 +132,7 @@ def block_matrix(
     Literal 0 entries are replaced by zero matrices, and literal 1 entries are replaced by an
     identity matrix (padded below and to the right with zeros, if necessary).
     """
-    if not len(set(len(row) for row in blocks)) == 1:
+    if not len({len(row) for row in blocks}) == 1:
         raise ValueError("Inconsistent numbers of blocks in each row")
 
     # consistency checks

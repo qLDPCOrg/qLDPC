@@ -266,7 +266,7 @@ def _get_hamming_weight_fn(
         return weight_fn, 0
 
     if getattr(np, "bitwise_count", None) is not None:
-        weight_fn = getattr(np, "bitwise_count")
+        weight_fn = np.bitwise_count
         return weight_fn, 0
 
     return _hamming_weight, 1
@@ -282,7 +282,7 @@ def _get_symplectic_weight_fn(
         return weight_fn, 0
 
     if getattr(np, "bitwise_count", None) is not None:
-        np_bitwise_count = getattr(np, "bitwise_count")
+        np_bitwise_count = np.bitwise_count
 
         def weight_fn(
             arr: npt.NDArray[np.uint64],

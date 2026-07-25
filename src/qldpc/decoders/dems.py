@@ -20,7 +20,8 @@ from __future__ import annotations
 import collections
 import dataclasses
 import itertools
-from collections.abc import Collection, Hashable, Iterable, Set
+from collections.abc import Collection, Hashable, Iterable
+from collections.abc import Set as AbstractSet
 from typing import TypeVar
 
 import numpy as np
@@ -43,7 +44,7 @@ class FlipPattern:
         object.__setattr__(self, "observables", _xor_reduce(observables))
 
     @classmethod
-    def from_data(cls, detectors: Set[int], observables: Set[int]) -> FlipPattern:
+    def from_data(cls, detectors: AbstractSet[int], observables: AbstractSet[int]) -> FlipPattern:
         """Construct from sets, skipping the mod-2 pass at normal initialization."""
         instance = object.__new__(cls)
         object.__setattr__(instance, "detectors", frozenset(detectors))

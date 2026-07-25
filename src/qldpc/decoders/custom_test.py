@@ -72,7 +72,7 @@ def test_relay_bp() -> None:
         decoders.get_decoder(np.array([[]]), with_RBP=True, name="invalid_name")
 
     # fail when a decoder name string is passed where the matrix should be
-    with pytest.raises(ValueError, match="breaking change"):
+    with pytest.raises(TypeError, match="breaking change"):
         decoders.RelayBPDecoder("MinSumBPDecoderF32")
 
     # passing explicit error_priors alongside a DEM emits a warning
