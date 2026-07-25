@@ -251,7 +251,7 @@ class Group:
         """The index of a GroupMember in this group."""
         index = self._members.get(member)
         if not isinstance(index, int):
-            raise ValueError(f"Member {member} not in group {self}")
+            raise TypeError(f"Member {member} not in group {self}")
         return index
 
     def __mul__(self, other: Group) -> Group:
@@ -279,7 +279,6 @@ class Group:
 
         return GroupMember.from_sympy(self._group.random())
 
-    @functools.cache
     def regular_lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
         """Lift a group member to its regular representation.
 
@@ -298,13 +297,19 @@ class Group:
         See:
         - https://en.wikipedia.org/wiki/Regular_representation
         """
-        matrix = np.zeros([self.order] * 2, dtype=int)
-        for ii, hh in enumerate(self.generate()):
-            jj = self.index(hh * member) if right else self.index(member * hh)
-            matrix[jj, ii] = 1
-        return matrix
+        if (member, right) not in self._regular_lift_cache:
+            matrix = np.zeros([self.order] * 2, dtype=int)
+            for ii, hh in enumerate(self.generate()):
+                jj = self.index(hh * member) if right else self.index(member * hh)
+                matrix[jj, ii] = 1
+            self._regular_lift_cache[member, right] = matrix
+        return self._regular_lift_cache[member, right]
 
-    @functools.cache
+    @functools.cached_property
+    def _regular_lift_cache(self) -> dict[tuple[GroupMember, bool], npt.NDArray[np.int_]]:
+        """Per-instance cache for regular_lift (avoids the memory leak of caching on methods)."""
+        return {}
+
     def adjoint_lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
         r"""Lift a group member to its adjoint representation.
 
@@ -315,7 +320,16 @@ class Group:
 
         If the group is abelian, the adjoint lift of every group member is the identity matrix.
         """
-        return self.regular_lift(member) @ self.regular_lift(member, right=True).T
+        if member not in self._adjoint_lift_cache:
+            self._adjoint_lift_cache[member] = (
+                self.regular_lift(member) @ self.regular_lift(member, right=True).T
+            )
+        return self._adjoint_lift_cache[member]
+
+    @functools.cached_property
+    def _adjoint_lift_cache(self) -> dict[GroupMember, npt.NDArray[np.int_]]:
+        """Per-instance cache for adjoint_lift (avoids the memory leak of caching on methods)."""
+        return {}
 
     @functools.cached_property
     def inversion_matrix(self) -> npt.NDArray[np.int_]:

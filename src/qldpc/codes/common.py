@@ -957,7 +957,7 @@ class QuditCode(AbstractCode):
         """Try to convert this QuditCode into a CSSCode.  Throw an error if we fail."""
         code = self.maybe_to_css()
         if not isinstance(code, CSSCode):
-            raise ValueError(
+            raise TypeError(
                 "Failed to convert a QuditCode into a CSSCode."
                 "\nSome parity checks have both X and Z support:"
                 f"\n{self}"

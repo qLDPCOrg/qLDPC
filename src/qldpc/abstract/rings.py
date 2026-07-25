@@ -536,7 +536,7 @@ class RingArray(npt.NDArray[np.object_]):
         # identify the base group for this RingArray
         for value in array.ravel():
             if not isinstance(value, RingMember):
-                raise ValueError(
+                raise TypeError(
                     "Requirement failed: all entries of a RingArray must be RingMember-valued."
                     "\nTry building an array with RingArray.build(...)"
                 )
@@ -929,7 +929,7 @@ class RingArray(npt.NDArray[np.object_]):
         """
         assert self.ndim == 2
         if not isinstance(self.group, CyclicGroup):
-            raise ValueError(
+            raise TypeError(
                 "The Howell normal form induced by polynomial division requires an underlying"
                 f" CyclicGroup, not {self.group}"
             )

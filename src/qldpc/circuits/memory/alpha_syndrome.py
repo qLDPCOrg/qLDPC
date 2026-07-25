@@ -93,7 +93,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             self.sinter_decoding_kwargs = {"decoder": decoder}
         else:
             self.sinter_decoding_kwargs = {
-                "decoder": "custom", "custom_decoders": {"custom": decoder}
+                "decoder": "custom",
+                "custom_decoders": {"custom": decoder},
             }
 
     @restrict_to_qubits
@@ -112,7 +113,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
         if not isinstance(code, codes.CSSCode):
-            raise ValueError(
+            raise TypeError(
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
@@ -252,7 +253,7 @@ class TreeNode:
     - https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
     """
 
-    def __init__(self, state: TreeState, parent: TreeNode | None = None):
+    def __init__(self, state: TreeState, parent: TreeNode | None = None) -> None:
         self.state = state
         self.parent = parent
 

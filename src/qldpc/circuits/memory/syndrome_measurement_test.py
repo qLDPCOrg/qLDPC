@@ -63,7 +63,7 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
 
     # EdgeColoringXZ strategy
     assert syndrome_measurement_is_valid(codes.SteaneCode(), circuits.EdgeColoringXZ())
-    with pytest.raises(ValueError, match="only supports CSS codes"):
+    with pytest.raises(TypeError, match="only supports CSS codes"):
         circuits.EdgeColoringXZ().get_circuit(codes.FiveQubitCode())
 
 

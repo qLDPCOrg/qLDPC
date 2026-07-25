@@ -760,7 +760,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             for detector in detectors:
                 time = self.detector_to_time(detector)
                 if not isinstance(time, int):  # pragma: no cover
-                    raise ValueError(
+                    raise TypeError(
                         f"detector {detector} has an invalid (non-integer) time index: {time}"
                     )
                 time_to_dets[time].append(detector)

@@ -129,7 +129,7 @@ class RelayBPDecoder(BatchDecoder):
                 "See 'import relay_bp; help(relay_bp.bp)' for available Relay-BP decoders"
             )
         if isinstance(pcm_or_dem, str):
-            raise ValueError(
+            raise TypeError(
                 "I think you provided a Relay-BP decoder decoder name in place of a parity check"
                 " matrix.  There was breaking change to this API.  See"
                 " help(qldpc.decoders.RelayBPDecoder)"
@@ -731,9 +731,7 @@ class GUFDecoder(Decoder):
         last_error_set_size = 0
         while solutions.size == 0:
             # grow the error set by one step on the Tanner graph
-            error_set |= {
-                neighbor for node in error_set for neighbor in self.graph.neighbors(node)
-            }
+            error_set |= {neighbor for node in error_set for neighbor in self.graph.neighbors(node)}
 
             # if the error set has not grown, there is no valid solution, so exit now
             if len(error_set) == last_error_set_size:

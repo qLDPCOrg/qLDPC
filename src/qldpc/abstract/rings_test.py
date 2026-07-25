@@ -155,7 +155,7 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
 
     # fail to construct a valid ring array
     rings = [abstract.GroupRing(abstract.TrivialGroup(), field) for field in [2, 3]]
-    with pytest.raises(ValueError, match="must be RingMember-valued"):
+    with pytest.raises(TypeError, match="must be RingMember-valued"):
         abstract.RingArray([[0]])
     with pytest.raises(ValueError, match="Cannot determine the underlying ring"):
         abstract.RingArray([])
@@ -272,7 +272,7 @@ def test_ring_row_reduction(
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
     # the "polynomial" Howell normal form requires an underlying cyclic group
-    with pytest.raises(ValueError, match="requires an underlying CyclicGroup"):
+    with pytest.raises(TypeError, match="requires an underlying CyclicGroup"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form(poly=True)
 
     # computing a reduced Groebner basis is the final boss

@@ -163,8 +163,8 @@ def test_distance_classical(bits: int = 3) -> None:
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     random_vector = np.random.randint(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
-    assert trivial_code.get_distance_exact() is np.nan
-    assert trivial_code.get_distance_bound() is np.nan
+    assert np.isnan(trivial_code.get_distance_exact())
+    assert np.isnan(trivial_code.get_distance_bound())
     assert (
         np.count_nonzero(random_vector)
         == trivial_code.get_distance_exact(vector=random_vector)
@@ -366,7 +366,7 @@ def test_distance_qudit() -> None:
         assert code.get_distance(bound=True) == -1
 
     # the distance of dimension-0 codes is undefined
-    assert codes.QuditCode([[0, 1]]).get_distance() is np.nan
+    assert np.isnan(codes.QuditCode([[0, 1]]).get_distance())
 
     # fallback pythonic brute-force distance calculation
     code = codes.QuditCode(codes.SurfaceCode(2, field=3).matrix)
@@ -570,7 +570,7 @@ def test_qudit_to_css() -> None:
     code = codes.SteaneCode()
     assert code.is_equiv_to(codes.QuditCode(code.matrix).to_css())
 
-    with pytest.raises(ValueError, match="both X and Z support"):
+    with pytest.raises(TypeError, match="both X and Z support"):
         codes.FiveQubitCode().to_css()
 
 
@@ -589,7 +589,7 @@ def test_qudit_to_swel() -> None:
 
     # a non-CSS code cannot be converted to SWEL
     assert codes.FiveQubitCode().maybe_to_swel() == codes.FiveQubitCode()
-    with pytest.raises(ValueError, match="both X and Z support"):
+    with pytest.raises(TypeError, match="both X and Z support"):
         codes.FiveQubitCode().to_swel()
 
     # a CSS code that is not SWEL cannot be converted to SWEL
@@ -767,8 +767,8 @@ def test_distance_css() -> None:
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     code = codes.HGPCode(trivial_code)
     assert code.dimension == 0
-    assert code.get_distance(bound=True) is np.nan
-    assert code.get_distance(bound=False) is np.nan
+    assert np.isnan(code.get_distance(bound=True))
+    assert np.isnan(code.get_distance(bound=False))
 
 
 def test_css_deformations() -> None:

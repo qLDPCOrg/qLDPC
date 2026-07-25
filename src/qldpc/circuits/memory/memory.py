@@ -248,7 +248,7 @@ def _get_basis_memory_experiment_parts(
             f" not {basis}"
         )
     if not isinstance(code, codes.CSSCode):
-        raise ValueError("Memory experiments in a fixed basis only support CSS codes")
+        raise TypeError("Memory experiments in a fixed basis only support CSS codes")
 
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)

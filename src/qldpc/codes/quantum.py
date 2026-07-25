@@ -62,7 +62,7 @@ class TrivialCode(CSSCode):
         gauge_dimension: int = 0,
         self_dual: bool = False,
         field: int | type[galois.FieldArray] | None = None,
-    ):
+    ) -> None:
         """Initialize a trivial code with the given code parameters.
 
         If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers.
@@ -1219,7 +1219,7 @@ class HGPCode(CSSCode):
             dist_a = self.code_a.get_distance()
             dist_b = ClassicalCode(self.code_b.matrix.T).get_distance()
 
-        return dist_a if dist_b is np.nan else dist_b if dist_a is np.nan else min(dist_a, dist_b)
+        return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
 
 
 class CHGPCode(HGPCode):

@@ -41,7 +41,7 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     assert alpha_syndrome_is_valid(codes.HGPCode(code_a, code_b))
 
     # AlphaSyndrome does not support non-CSS codes
-    with pytest.raises(ValueError, match="only supports CSS codes"):
+    with pytest.raises(TypeError, match="only supports CSS codes"):
         strategy = circuits.AlphaSyndrome(circuits.DepolarizingNoiseModel(0.001), "decoder_name")
         strategy.get_circuit(codes.FiveQubitCode())
 
