@@ -341,8 +341,8 @@ class AbstractPauliChannel(abc.ABC):
         return self._probabilities
 
     def _resolve_targets(
-        self, append_to: stim.Circuit | None, qubits: Iterable[int] | None
-    ) -> tuple[stim.Circuit, list[int]]:
+        self, append_to: stim_or_tsim_Circuit | None, qubits: Iterable[int] | None
+    ) -> tuple[stim_or_tsim_Circuit, list[int]]:
         """Resolve the ``(circuit, qubit_targets)`` pair shared by every variant of ``to_circuit``.
 
         Creates a fresh circuit when ``append_to`` is ``None``, defaults ``qubits`` to
@@ -360,10 +360,10 @@ class AbstractPauliChannel(abc.ABC):
     def to_circuit(
         self,
         *,
-        append_to: stim.Circuit | None = None,
+        append_to: stim_or_tsim_Circuit | None = None,
         qubits: Iterable[int] | None = None,
         tag: str = "",
-    ) -> stim.Circuit:
+    ) -> stim_or_tsim_Circuit:
         """Convert this channel into a circuit."""
 
 
@@ -463,11 +463,11 @@ class PauliChannel(AbstractPauliChannel):
     def to_circuit(
         self,
         *,
-        append_to: stim.Circuit | None = None,
+        append_to: stim_or_tsim_Circuit | None = None,
         qubits: Iterable[int] | None = None,
         simplify: bool = True,
         tag: str = "",
-    ) -> stim.Circuit:
+    ) -> stim_or_tsim_Circuit:
         """Convert this PauliChannel into a circuit.
 
         If provided a circuit, append to that circuit in-place and return it.
@@ -559,10 +559,10 @@ class PauliChannelSequence(AbstractPauliChannel):
     def to_circuit(
         self,
         *,
-        append_to: stim.Circuit | None = None,
+        append_to: stim_or_tsim_Circuit | None = None,
         qubits: Iterable[int] | None = None,
         tag: str = "",
-    ) -> stim.Circuit:
+    ) -> stim_or_tsim_Circuit:
         """Emit each entry of this channel as an independent ``CORRELATED_ERROR``.
 
         If provided a circuit, append to that circuit in-place and return it.
@@ -713,7 +713,7 @@ class NoiseRule:
         return noisy_op, noise_after
 
     def emit_after(
-        self, circuit: stim.Circuit, qubit_targets: list[int], *, context: str = "operation"
+        self, circuit: stim_or_tsim_Circuit, qubit_targets: list[int], *, context: str = "operation"
     ) -> None:
         """Append this rule's ``after`` noise in-place to the provided circuit.
 
