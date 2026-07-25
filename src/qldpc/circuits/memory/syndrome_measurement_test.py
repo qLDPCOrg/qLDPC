@@ -25,6 +25,9 @@ import sympy
 from qldpc import circuits, codes, math
 from qldpc.objects import Pauli
 
+# default strategy used by the validity-checking helper below
+DEFAULT_STRATEGY = circuits.EdgeColoring()
+
 
 def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     """Verify that syndromes are read out correctly."""
@@ -68,7 +71,7 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
 
 
 def syndrome_measurement_is_valid(
-    code: codes.QuditCode, strategy: circuits.SyndromeMeasurementStrategy = circuits.EdgeColoring()
+    code: codes.QuditCode, strategy: circuits.SyndromeMeasurementStrategy = DEFAULT_STRATEGY
 ) -> bool:
     """Check the validity of syndrome measurement in a given code."""
     # prepare a logical |0> state

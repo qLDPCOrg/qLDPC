@@ -305,14 +305,14 @@ def test_deprecations() -> None:
     vector = ring.field.Random(ring.group.order)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         ring_member = abstract.RingMember.from_vector(ring, vector)  # type:ignore[arg-type]
-        assert np.array_equal(ring_member.to_vector(), vector)
+    assert np.array_equal(ring_member.to_vector(), vector)
 
     vector = ring.field.Random(2 * ring.group.order)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         ring_array = abstract.RingArray.from_field_vector(ring, vector)  # type:ignore[arg-type]
-        assert np.array_equal(ring_array.to_field_vector(), vector)
+    assert np.array_equal(ring_array.to_field_vector(), vector)
 
     matrix = ring.field.Random((1, 2, ring.group.order))
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]
-        assert np.array_equal(ring_array.to_field_array(), matrix)
+    assert np.array_equal(ring_array.to_field_array(), matrix)

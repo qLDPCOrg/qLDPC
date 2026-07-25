@@ -197,7 +197,8 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         codes.RepetitionCode(2).get_automorphism_group()
 
     # otherwise, check that automorphisms do indeed preserve the code space
-    with (
+    # this pytest.warns block intentionally wraps a loop of warning-emitting calls
+    with (  # noqa: PT031
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         pytest.warns(UserWarning, match="with_magma=True"),
     ):
@@ -372,6 +373,7 @@ def test_distance_qudit() -> None:
     code = codes.QuditCode(codes.SurfaceCode(2, field=3).matrix)
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact(cutoff=len(code)) <= len(code)
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
 
 
@@ -761,6 +763,7 @@ def test_distance_css() -> None:
         assert code.get_distance(bound=True) == -1
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact(cutoff=len(code)) <= len(code)
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
 
     # the distance of a dimension-0 quantum code is undefined
