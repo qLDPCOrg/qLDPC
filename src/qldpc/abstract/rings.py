@@ -37,6 +37,7 @@ import numpy as np
 import numpy.typing as npt
 import sympy.abc
 import sympy.core
+from typing_extensions import Self
 
 import qldpc
 from qldpc import external
@@ -528,7 +529,7 @@ class RingArray(npt.NDArray[np.object_]):
         cls,
         data: npt.NDArray[np.object_] | NestedSequence,
         ring: GroupRing | Group | None = None,
-    ) -> RingArray:
+    ) -> Self:
         array = np.asarray(data, dtype=object).view(cls)
         ring = GroupRing(ring) if isinstance(ring, Group) else ring
 
