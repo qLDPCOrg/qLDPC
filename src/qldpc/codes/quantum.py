@@ -62,7 +62,7 @@ class TrivialCode(CSSCode):
         gauge_dimension: int = 0,
         self_dual: bool = False,
         field: int | type[galois.FieldArray] | None = None,
-    ):
+    ) -> None:
         """Initialize a trivial code with the given code parameters.
 
         If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers.
@@ -882,7 +882,7 @@ class BBCode(QCCode):
         """
         order_a = self.get_order(vec_a)
         order_b = self.get_order(vec_b)
-        if not order_a * order_b == len(self) // 2:
+        if order_a * order_b != len(self) // 2:
             return False
 
         # brute-force determine whether every plaquette can be reached by the basis vectors
@@ -1219,7 +1219,7 @@ class HGPCode(CSSCode):
             dist_a = self.code_a.get_distance()
             dist_b = ClassicalCode(self.code_b.matrix.T).get_distance()
 
-        return dist_a if dist_b is np.nan else dist_b if dist_a is np.nan else min(dist_a, dist_b)
+        return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
 
 
 class CHGPCode(HGPCode):
@@ -1757,7 +1757,7 @@ class QTCode(CSSCode):
         identity = member * ~member
 
         # identify the set of nodes for which we still need to add faces
-        nodes_to_add = set([identity])
+        nodes_to_add = {identity}
 
         # build the subgraphs one node at a time
         subgraph_x = nx.DiGraph()
@@ -1817,8 +1817,7 @@ class QTCode(CSSCode):
         with open(path, "w") as file:
             # write provided headers
             for header in headers:
-                for line in header.splitlines():
-                    file.write(f"# {line}\n")
+                file.writelines(f"# {line}\n" for line in header.splitlines())
 
             # write subsets
             file.write("# subset_a:\n")
@@ -1860,8 +1859,8 @@ class QTCode(CSSCode):
                 last_index = index
 
         # construct subsets and generating codes
-        subset_a = set(abstract.GroupMember(gen) for gen in arrays[0])
-        subset_b = set(abstract.GroupMember(gen) for gen in arrays[1])
+        subset_a = {abstract.GroupMember(gen) for gen in arrays[0]}
+        subset_b = {abstract.GroupMember(gen) for gen in arrays[1]}
         code_a = ClassicalCode(arrays[2], field)
         code_b = ClassicalCode(arrays[3], field)
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
@@ -1973,9 +1972,9 @@ class SurfaceCode(CSSCode):
             row_indices = [row - 1, row, row - 1, row]
             col_indices = [col - 1, col - 1, col, col]
             check = np.zeros((rows, cols), dtype=int)
-            for row, col in zip(row_indices, col_indices):
-                if 0 <= row < rows and 0 <= col < cols:
-                    check[row, col] = 1
+            for check_row, check_col in zip(row_indices, col_indices):
+                if 0 <= check_row < rows and 0 <= check_col < cols:
+                    check[check_row, check_col] = 1
             return check.ravel()
 
         checks_x = []
@@ -2159,8 +2158,8 @@ class ToricCode(CSSCode):
             row_indices = np.array([row - 1, row, row - 1, row]) % rows
             col_indices = np.array([col - 1, col - 1, col, col]) % cols
             check = np.zeros((rows, cols), dtype=int)
-            for row, col in zip(row_indices, col_indices):
-                check[row, col] = 1
+            for check_row, check_col in zip(row_indices, col_indices):
+                check[check_row, check_col] = 1
             return check.ravel()
 
         checks_x = []

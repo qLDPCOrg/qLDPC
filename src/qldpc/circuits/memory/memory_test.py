@@ -63,7 +63,7 @@ def test_memory_experiment() -> None:
     # non-CSS and subsystem codes are not always supported
     with pytest.raises(ValueError, match=r"only support stabilizer \(non-subsystem\) codes"):
         circuits.get_memory_experiment(codes.BaconShorCode(2))
-    with pytest.raises(ValueError, match=r"only support CSS codes"):
+    with pytest.raises(TypeError, match=r"only support CSS codes"):
         circuits.get_memory_experiment(codes.FiveQubitCode())
 
 

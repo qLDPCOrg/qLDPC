@@ -49,7 +49,7 @@ for pp, path in enumerate(paths):
     parts = path.split("_")
     group_order, group_index = map(int, parts[-3].split("-")[-2:])
     code_name, code_param = parts[-2].split("-")
-    seed = int(parts[-1].strip(".txt")[1:])
+    seed = int(parts[-1].removesuffix(".txt")[1:])
 
     group_id = f"SmallGroup-{group_order}-{group_index}"
     base_code_id = parts[-2]

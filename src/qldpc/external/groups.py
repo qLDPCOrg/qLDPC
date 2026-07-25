@@ -183,7 +183,7 @@ def maybe_get_generators_from_gap(
     except FileNotFoundError as error:
         if re.search("GAP 4 .* is not installed", str(error)):
             return None
-        raise error  # pragma: no cover
+        raise  # pragma: no cover
 
     # if provided a warning to raise before calling GAP, raise it now
     if warning is not None:

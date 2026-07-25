@@ -24,8 +24,8 @@ import functools
 import itertools
 import random
 import warnings
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
-from typing import Any, Iterator, TypeVar, cast
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
+from typing import Any, TypeVar, cast
 
 import galois
 import networkx as nx
@@ -78,6 +78,7 @@ def get_random_array(
 class AbstractCode(abc.ABC):
     """Base class for error-correcting codes."""
 
+    _name: str
     _matrix: galois.FieldArray
     _field: type[galois.FieldArray]
     _dimension: int | None = None
@@ -310,9 +311,7 @@ class ClassicalCode(AbstractCode):
             node_c = Node(index=int(row), is_data=False)
             node_d = Node(index=int(col), is_data=True)
             graph.add_edge(node_c, node_d, val=matrix[row][col])
-        setattr(
-            graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
-        )
+        graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         return graph
 
     @staticmethod
@@ -405,13 +404,13 @@ class ClassicalCode(AbstractCode):
     def get_code_params(
         self, *, bound: int | bool | None = None, **bound_kwargs: Any
     ) -> tuple[int, int, int | float]:
-        f"""Compute the parameters of this code: [n,k,d].
+        """Compute the parameters of this code: [n,k,d].
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds; see help({type(self)}.get_distance_bound).
-            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
+                randomized upper bounds; see help(get_distance_bound).
+            **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             A tuple of integers, (n, k, d), where:
@@ -430,15 +429,15 @@ class ClassicalCode(AbstractCode):
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         **bound_kwargs: Any,
     ) -> int | float:
-        f"""Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
+        """Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds; see help({type(self)}.get_distance_bound).
+                randomized upper bounds; see help(get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
+            **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
@@ -611,7 +610,7 @@ class ClassicalCode(AbstractCode):
         standardized_name = name.strip().replace(" ", "")  # strip whitespace
         matrix, field = external.codes.get_classical_code(standardized_name)
         code = ClassicalCode(matrix, field)
-        setattr(code, "_name", name)
+        code._name = name
         return code
 
     def get_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
@@ -912,9 +911,7 @@ class QuditCode(AbstractCode):
 
         # initialize graph with nodes
         graph = nx.DiGraph()
-        setattr(
-            graph, "field", type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
-        )
+        graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         for qudit in range(matrix.shape[-1]):
             graph.add_node(Node(index=qudit, is_data=True))
 
@@ -960,7 +957,7 @@ class QuditCode(AbstractCode):
         """Try to convert this QuditCode into a CSSCode.  Throw an error if we fail."""
         code = self.maybe_to_css()
         if not isinstance(code, CSSCode):
-            raise ValueError(
+            raise TypeError(
                 "Failed to convert a QuditCode into a CSSCode."
                 "\nSome parity checks have both X and Z support:"
                 f"\n{self}"
@@ -1050,7 +1047,7 @@ class QuditCode(AbstractCode):
         for "X(a)*Z(a)", and strings such as "Z(1) _ X(1)*Z(3) X(2)" are also valid.
         """
         field = abstract.resolve_field(field)
-        operator: type[Pauli] | type[QuditPauli] = Pauli if field is galois.GF2 else QuditPauli
+        operator: type[Pauli | QuditPauli] = Pauli if field is galois.GF2 else QuditPauli
 
         def parse_check(check: str) -> list[str]:
             check = check.replace("_", "I")
@@ -1154,7 +1151,7 @@ class QuditCode(AbstractCode):
             matrix,
             qudit_locs,
             (rows_sx, rows_gx, rows_sz, rows_gz),
-            (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
+            (cols_sx, cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
         ) = self.get_standard_form_data()
         matrix_x = matrix[:, 0, :]
         matrix_z = matrix[:, 1, :]
@@ -1674,13 +1671,13 @@ class QuditCode(AbstractCode):
     def get_code_params(
         self, *, bound: int | bool | None = None, **bound_kwargs: Any
     ) -> tuple[int, int, int | float]:
-        f"""Compute the parameters of this code: [n,k,d].
+        """Compute the parameters of this code: [n,k,d].
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds; see help({type(self)}.get_distance_bound).
-            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
+                randomized upper bounds; see help(get_distance_bound).
+            **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             A tuple of integers, (n, k, d), where:
@@ -1693,13 +1690,13 @@ class QuditCode(AbstractCode):
         return len(self), dimension, distance
 
     def get_distance(self, *, bound: int | bool | None = None, **bound_kwargs: Any) -> int | float:
-        f"""Compute (or upper bound) the minimum weight of nontrivial logical operators.
+        """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds; see help({type(self)}.get_distance_bound).
-            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
+                randomized upper bounds; see help(get_distance_bound).
+            **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
@@ -2446,7 +2443,7 @@ class CSSCode(QuditCode):
             matrix_z,
             qudit_locs,
             (rows_sx, rows_gx, rows_sz, rows_gz),
-            (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
+            (cols_sx, cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
         ) = self.get_standard_form_data_xz()
 
         # X/Z support of X/Z logical operators, as column vectors
@@ -2751,7 +2748,7 @@ class CSSCode(QuditCode):
     def get_distance(
         self, pauli: PauliXZ | None = None, *, bound: int | bool | None = None, **bound_kwargs: Any
     ) -> int | float:
-        f"""Compute (or upper bound) the minimum weight of nontrivial logical operators.
+        """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -2759,8 +2756,8 @@ class CSSCode(QuditCode):
                 If None (the default), minimize over X and Z.
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
-                randomized upper bounds; see help({type(self)}.get_distance_bound).
-            **bound_kwargs: Keyword arguments to pass to {type(self)}.get_distance_bound.
+                randomized upper bounds; see help(get_distance_bound).
+            **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.

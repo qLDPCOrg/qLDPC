@@ -41,6 +41,9 @@ from .syndrome_measurement import SyndromeMeasurementStrategy
 # For the purposes of this schedule, a "gate" is just an ordered pair of target qubits.
 GateSchedule = list[list[tuple[int, int]]]
 
+# default decoder used to estimate logical error rates while searching for a measurement schedule
+DEFAULT_SINTER_DECODER = decoders.SinterDecoder()
+
 
 class AlphaSyndrome(SyndromeMeasurementStrategy):
     """AlphaSyndrome strategy for constructing a syndrome measurement circuit.
@@ -55,7 +58,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def __init__(
         self,
         noise_model: NoiseModel,
-        decoder: sinter.Decoder | str = decoders.SinterDecoder(),
+        decoder: sinter.Decoder | str = DEFAULT_SINTER_DECODER,
         iters_per_step: int = 1000,
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),
@@ -90,11 +93,12 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         # keyword arguments passed to sinter.predict_observables
         self.sinter_decoding_kwargs: dict[str, str | dict[str, sinter.Decoder]]
         if isinstance(decoder, str):
-            self.sinter_decoding_kwargs = dict(decoder=decoder)
+            self.sinter_decoding_kwargs = {"decoder": decoder}
         else:
-            self.sinter_decoding_kwargs = dict(
-                decoder="custom", custom_decoders=dict(custom=decoder)
-            )
+            self.sinter_decoding_kwargs = {
+                "decoder": "custom",
+                "custom_decoders": {"custom": decoder},
+            }
 
     @restrict_to_qubits
     def get_circuit(
@@ -112,7 +116,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
         if not isinstance(code, codes.CSSCode):
-            raise ValueError(
+            raise TypeError(
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
@@ -252,7 +256,7 @@ class TreeNode:
     - https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
     """
 
-    def __init__(self, state: TreeState, parent: TreeNode | None = None):
+    def __init__(self, state: TreeState, parent: TreeNode | None = None) -> None:
         self.state = state
         self.parent = parent
 

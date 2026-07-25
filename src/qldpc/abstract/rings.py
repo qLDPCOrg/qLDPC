@@ -30,13 +30,14 @@ import itertools
 import operator
 import warnings
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import sympy.abc
 import sympy.core
+from typing_extensions import Self
 
 import qldpc
 from qldpc import external
@@ -516,7 +517,7 @@ class Element(RingMember):  # pragma: no cover
 ################################################################################
 # RingArray: RingMember-valued array
 
-NestedSequence = Sequence[Union[object, Sequence["NestedSequence"]]]
+NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
 
 class RingArray(npt.NDArray[np.object_]):
@@ -528,14 +529,14 @@ class RingArray(npt.NDArray[np.object_]):
         cls,
         data: npt.NDArray[np.object_] | NestedSequence,
         ring: GroupRing | Group | None = None,
-    ) -> RingArray:
+    ) -> Self:
         array = np.asarray(data, dtype=object).view(cls)
         ring = GroupRing(ring) if isinstance(ring, Group) else ring
 
         # identify the base group for this RingArray
         for value in array.ravel():
             if not isinstance(value, RingMember):
-                raise ValueError(
+                raise TypeError(
                     "Requirement failed: all entries of a RingArray must be RingMember-valued."
                     "\nTry building an array with RingArray.build(...)"
                 )
@@ -552,7 +553,8 @@ class RingArray(npt.NDArray[np.object_]):
 
     def __array_finalize__(self, obj: npt.NDArray[np.object_] | None) -> None:
         """Propagate metadata to newly constructed arrays."""
-        setattr(self, "_ring", getattr(obj, "_ring", None))
+        # obj may be None or lack _ring during numpy view construction; _ring is set before use
+        self._ring = getattr(obj, "_ring", None)  # type:ignore[assignment]
 
     def __array_function__(
         self,
@@ -569,7 +571,7 @@ class RingArray(npt.NDArray[np.object_]):
         result = super().__array_function__(func, types, args, kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            setattr(result, "_ring", next(iter(rings), None))
+            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
         return result
 
     def __array_ufunc__(
@@ -587,7 +589,7 @@ class RingArray(npt.NDArray[np.object_]):
         result = super().__array_ufunc__(ufunc, method, *inputs, **kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            setattr(result, "_ring", next(iter(rings), None))
+            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
         return result
 
     def __str__(self) -> str:
@@ -927,7 +929,7 @@ class RingArray(npt.NDArray[np.object_]):
         """
         assert self.ndim == 2
         if not isinstance(self.group, CyclicGroup):
-            raise ValueError(
+            raise TypeError(
                 "The Howell normal form induced by polynomial division requires an underlying"
                 f" CyclicGroup, not {self.group}"
             )

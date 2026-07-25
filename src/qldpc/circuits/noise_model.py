@@ -116,6 +116,8 @@ from typing import TypeAlias
 
 import stim
 
+from qldpc._util import format_docstring
+
 from .common import stim_or_tsim_Circuit, tsim, with_remapped_qubits
 
 ####################################################################################################
@@ -249,7 +251,9 @@ class AbstractPauliChannel(abc.ABC):
     Subclasses of ``AbstractPauliChannel`` are required to define a ``.to_circuit`` method.
     """
 
-    def __init__(self, probabilities: Mapping[str, float], *, num_qubits: int | None = None):
+    def __init__(
+        self, probabilities: Mapping[str, float], *, num_qubits: int | None = None
+    ) -> None:
         """Validate and store a sparse Pauli-string -> probability mapping.
 
         Performs only *per-entry* validation (string shape / alphabet, not-identity, each
@@ -372,7 +376,9 @@ class PauliChannel(AbstractPauliChannel):
     listed probabilities must sum to at most 1.
     """
 
-    def __init__(self, probabilities: Mapping[str, float], *, num_qubits: int | None = None):
+    def __init__(
+        self, probabilities: Mapping[str, float], *, num_qubits: int | None = None
+    ) -> None:
         """Instantiate a Pauli channel.
 
         Args:
@@ -593,7 +599,7 @@ class NoiseRule:
         after: AbstractPauliChannel | Mapping[str, float] | stim.Circuit | None = None,
         readout_error: float | None = None,
         reset_error: float | None = None,
-    ):
+    ) -> None:
         """Initializes a noise rule with specified error channels.
 
         Args:
@@ -776,7 +782,7 @@ class NoiseModel:
         additional_error_waiting_for_m_or_r: ErrorSpec | None = None,
         rules: Mapping[str, NoiseRule] | None = None,
         rule_func: Callable[[stim.CircuitInstruction], NoiseRule | None] | None = None,
-    ):
+    ) -> None:
         """Initializes a noise model with specified parameters.
 
         Args:
@@ -992,6 +998,7 @@ class NoiseModel:
 
         return None
 
+    @format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
     def noisy_circuit(
         self,
         circuit: stim_or_tsim_Circuit,
@@ -1002,7 +1009,7 @@ class NoiseModel:
         immunize_gates: bool = True,
         insert_ticks: bool = True,
     ) -> stim_or_tsim_Circuit:
-        f"""Construct a noisy version of the given circuit.
+        """Construct a noisy version of the given circuit.
 
         This method first uses TICKs to split the input circuit into moments of operations that can
         be applied in parallel, thereby preventing qubit reuse conflicts.  Noise is then applied to
@@ -1345,7 +1352,7 @@ def _validate_after_circuit(after_circuit: stim.Circuit) -> None:
     """
     for op in after_circuit:
         if not isinstance(op, stim.CircuitInstruction):
-            raise ValueError(
+            raise TypeError(
                 f"after (stim.Circuit form) may contain only noise instructions, not "
                 f"{type(op).__name__}"
             )

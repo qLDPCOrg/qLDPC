@@ -62,7 +62,7 @@ def get_mittal_code(length: int) -> codes.ClassicalCode:
         code = full_code.shortened([3])
     else:
         raise ValueError(f"Unrecognized length for {name}: {length}")
-    setattr(code, "_name", name)
+    code._name = name
     return code
 
 
@@ -99,7 +99,7 @@ def run_and_save(
     if group_order < base_code.num_bits:
         # No subset of this group can be large enough to have as many elements as there are bits in
         # the base code, so random quantum Tanner codes with the given input data do not exist.
-        return None
+        return
 
     group_id = f"SmallGroup-{group_order}-{group_index}"
     seed = get_deterministic_hash(group_order, group_index, base_code.matrix.tobytes(), sample)
@@ -108,7 +108,7 @@ def run_and_save(
 
     if os.path.isfile(path) and not override_existing_data:
         # we already have the data for this code, so there is nothing to do
-        return None
+        return
 
     if not silent:
         job_id = f"{group_id} {base_code_id} {sample}/{num_samples}"
