@@ -339,6 +339,28 @@ class DetectorErrorModelArrays:
         """Simplify this DetectorErrorModelArrays object by merging errors."""
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
+    def without_dead_detectors(self) -> DetectorErrorModelArrays:
+        """Drop all detectors that are not triggered by any error mechanism.
+
+        Such detectors are deterministically 0, so removing them changes no sampling outcome -- it
+        only shrinks the DEM.  Error mechanisms and observables are left untouched.
+        """
+        keep = self.detector_flip_matrix.getnnz(axis=1) > 0
+        if keep.all():
+            return self
+        old_to_new = np.cumsum(keep) - 1
+        suggested_decompositions = {
+            error_index: _remap_decomposition_detectors(components, keep, old_to_new)
+            for error_index, components in self.suggested_decompositions.items()
+        }
+        return DetectorErrorModelArrays.from_arrays(
+            self.detector_flip_matrix[keep],
+            self.observable_flip_matrix,
+            self.error_probs,
+            suggested_decompositions,
+            simplify=False,
+        )
+
     def with_decomposed_errors(self, *, simplify: bool = True) -> DetectorErrorModelArrays:
         """Split error mechanisms according to their suggested decompositions.
 
@@ -378,15 +400,9 @@ class DetectorErrorModelArrays:
             for old_err_idx, components in self.suggested_decompositions.items():
                 if errors_to_keep[old_err_idx]:
                     new_err_idx = int(old_to_new_err[old_err_idx])
-                    new_components = set()
-                    for targets in components:
-                        new_dets = frozenset(
-                            int(old_to_new_det[dd])
-                            for dd in targets.detectors
-                            if detectors_to_keep[dd]
-                        )
-                        new_components.add(FlipPattern.from_data(new_dets, targets.observables))
-                    suggested_decompositions[new_err_idx] = frozenset(new_components)
+                    suggested_decompositions[new_err_idx] = _remap_decomposition_detectors(
+                        components, detectors_to_keep, old_to_new_det
+                    )
 
         # build the post-selected arrays
         detector_flip_matrix = self.detector_flip_matrix[detectors_to_keep][:, errors_to_keep]
@@ -445,6 +461,25 @@ class DetectorErrorModelArrays:
 def _xor_reduce(items: Iterable[HashableType]) -> frozenset[HashableType]:
     """Subset of items that occur an odd number of times."""
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
+
+
+def _remap_decomposition_detectors(
+    components: frozenset[FlipPattern],
+    detectors_to_keep: npt.NDArray[np.bool_],
+    old_to_new_det: npt.NDArray[np.int_],
+) -> frozenset[FlipPattern]:
+    """Remap detector indices within decomposition components, dropping removed detectors.
+
+    Detectors not in detectors_to_keep are omitted rather than remapped, since old_to_new_det has no
+    valid new index for them.
+    """
+    return frozenset(
+        FlipPattern.from_data(
+            frozenset(int(old_to_new_det[dd]) for dd in targets.detectors if detectors_to_keep[dd]),
+            targets.observables,
+        )
+        for targets in components
+    )
 
 
 def _canonicalize_mod2(matrix: scipy.sparse.csc_matrix) -> scipy.sparse.csc_matrix:

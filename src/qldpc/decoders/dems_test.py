@@ -246,6 +246,25 @@ def test_post_selection() -> None:
         decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=0)
 
 
+def test_without_dead_detectors() -> None:
+    """Drop detectors that no error mechanism triggers."""
+    # with no dead detectors, the object is returned unchanged
+    dem_arrays = decoders.DetectorErrorModelArrays(stim.DetectorErrorModel("error(0.1) D0"))
+    assert dem_arrays.without_dead_detectors() is dem_arrays
+
+    # D1 is dead but appears in the decomposition D0 D1 ^ D2 D1, where it cancels; it must be
+    # filtered out rather than remapped to a stale index (live detectors: D0 -> 0, D2 -> 1)
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 D1 ^ D2 D1
+        error(0.2) D0
+    """)
+    pruned = decoders.DetectorErrorModelArrays(dem).without_dead_detectors()
+    assert pruned.num_detectors == 2
+    assert pruned.suggested_decompositions[0] == frozenset(
+        [decoders.FlipPattern([0]), decoders.FlipPattern([1])]
+    )
+
+
 def test_to_circuit() -> None:
     """Round-trip a DEM through DetectorErrorModelArrays and to_circuit."""
     dem = stim.DetectorErrorModel("""
