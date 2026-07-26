@@ -339,7 +339,7 @@ class DetectorErrorModelArrays:
         """Simplify this DetectorErrorModelArrays object by merging errors."""
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
-    def without_dead_detectors(self) -> DetectorErrorModelArrays:
+    def without_untriggered_detectors(self) -> DetectorErrorModelArrays:
         """Drop all detectors that are not triggered by any error mechanism.
 
         Such detectors are deterministically 0, so removing them changes no sampling outcome -- it
