@@ -57,7 +57,7 @@ class BatchDecoder(Protocol):
         """Decode a batch of error syndromes and return inferred errors."""
 
 
-class RelayBPDecoder(BatchDecoder):
+class RelayBPDecoder:
     """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
     Requires relay_bp to be installed, for example via "pip install 'qldpc[relay-bp]'".
@@ -212,7 +212,7 @@ class RelayBPDecoder(BatchDecoder):
         return outer_func
 
 
-class LookupDecoder(Decoder):
+class LookupDecoder:
     """Decoder based on a lookup table that maps syndromes to errors.
 
     Accepts a parity check matrix (PCM) or detector error model (DEM) for ``pcm_or_dem``.  If
@@ -586,7 +586,7 @@ class WeightedLookupDecoder(LookupDecoder):
         return output.copy()
 
 
-class ILPDecoder(Decoder):
+class ILPDecoder:
     """Decoder based on solving an integer linear program (ILP).
 
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
@@ -673,7 +673,7 @@ class ILPDecoder(Decoder):
         return constraints
 
 
-class GUFDecoder(Decoder):
+class GUFDecoder:
     """The generalized Union-Find (GUF) decoder in https://arxiv.org/abs/2103.08049.
 
     If passed a max_weight argument, this decoder tries to find an error with weight <= max_weight,
@@ -814,7 +814,7 @@ class GUFDecoder(Decoder):
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
 
 
-class CompositeDecoder(Decoder):
+class CompositeDecoder:
     """Decoder for a composite syndrome from multiple independent code blocks.
 
     A CompositeDecoder is instantiated from a sequence of tuples, where each tuple contains
@@ -862,7 +862,7 @@ class CompositeDecoder(Decoder):
         )
 
 
-class DirectDecoder(Decoder):
+class DirectDecoder:
     """Decoder that maps corrupted code words to corrected code words.
 
     In contrast, an "indirect" decoder maps a syndrome to an error.
