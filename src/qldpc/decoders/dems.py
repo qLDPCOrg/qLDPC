@@ -339,13 +339,13 @@ class DetectorErrorModelArrays:
         """Simplify this DetectorErrorModelArrays object by merging errors."""
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
-    def without_untriggered_detectors(self) -> DetectorErrorModelArrays:
-        """Drop all detectors that are not triggered by any error mechanism.
+    def without_detectors(self, detectors: Collection[int]) -> DetectorErrorModelArrays:
+        """Drop the given detectors, keeping all error mechanisms and observables.
 
-        Such detectors are deterministically 0, so removing them changes no sampling outcome -- it
-        only shrinks the DEM.  Error mechanisms and observables are left untouched.
+        Remaining detectors get re-indexed to range(self.num_detectors).
         """
-        keep = self.detector_flip_matrix.getnnz(axis=1) > 0
+        keep = np.ones(self.num_detectors, dtype=bool)
+        keep[list(detectors)] = False
         if keep.all():
             return self
         old_to_new = np.cumsum(keep) - 1
@@ -360,6 +360,14 @@ class DetectorErrorModelArrays:
             suggested_decompositions,
             simplify=False,
         )
+
+    def without_untriggered_detectors(self):
+        """Drop all detectors that are not triggered by any error mechanism.
+
+        Such detectors are deterministically 0, so removing them changes no sampling outcome -- it
+        only shrinks the DEM.  Error mechanisms and observables are left untouched.
+        """
+        return self.without_detectors(np.flatnonzero(self.detector_flip_matrix.getnnz(axis=1) == 0))
 
     def with_decomposed_errors(self, *, simplify: bool = True) -> DetectorErrorModelArrays:
         """Split error mechanisms according to their suggested decompositions.
