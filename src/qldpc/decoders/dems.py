@@ -361,7 +361,7 @@ class DetectorErrorModelArrays:
             simplify=False,
         )
 
-    def without_untriggered_detectors(self):
+    def without_untriggered_detectors(self) -> DetectorErrorModelArrays:
         """Drop all detectors that are not triggered by any error mechanism.
 
         Such detectors are deterministically 0, so removing them changes no sampling outcome -- it
