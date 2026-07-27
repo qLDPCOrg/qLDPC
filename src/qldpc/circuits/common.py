@@ -31,9 +31,7 @@ from qldpc import codes, math
 
 ####################################################################################################
 # define a circuit type that may be either a stim.Circuit or an (optional) tsim.Circuit
-#
-# tsim is imported lazily via _load_tsim_if_installed() so that `import qldpc` does not pull in the heavy tsim
-# dependency (and its jax/equinox stack) unless tsim circuits are actually used.
+
 if TYPE_CHECKING:
     import tsim
 
