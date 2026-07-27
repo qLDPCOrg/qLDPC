@@ -171,6 +171,15 @@ class DetectorErrorModelArrays:
         dem_arrays.suggested_decompositions = suggested_decompositions or {}
         return dem_arrays.simplified() if simplify else dem_arrays
 
+    def copy(self) -> DetectorErrorModelArrays:
+        """Return an independent copy of this DetectorErrorModelArrays."""
+        dem_arrays = object.__new__(DetectorErrorModelArrays)
+        dem_arrays.detector_flip_matrix = self.detector_flip_matrix.copy()
+        dem_arrays.observable_flip_matrix = self.observable_flip_matrix.copy()
+        dem_arrays.error_probs = self.error_probs.copy()
+        dem_arrays.suggested_decompositions = dict(self.suggested_decompositions)
+        return dem_arrays
+
     @property
     def num_errors(self) -> int:
         """The number of distinct circuit errors."""
@@ -308,7 +317,9 @@ class DetectorErrorModelArrays:
                 obs_targets = [stim.DemTarget.logical_observable_id(oo) for oo in observables]
                 targets = det_targets + obs_targets
 
-            dem.append("error", prob, targets)
+            # use DemInstruction (rather than dem.append("error", prob, targets)) so that error
+            # mechanisms with no targets -- valid, deterministically silent errors -- can be emitted
+            dem.append(stim.DemInstruction("error", [prob], targets))
 
         return dem
 
@@ -340,14 +351,14 @@ class DetectorErrorModelArrays:
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
     def without_detectors(self, detectors: Collection[int]) -> DetectorErrorModelArrays:
-        """Drop the given detectors, keeping all error mechanisms and observables.
+        """Drop the given detectors.  Drop or merge error mechanisms that re empty or redundant.
 
-        Remaining detectors get re-indexed to range(self.num_detectors).
+        Remaining detectors get re-indexed to range(num_remaining_detectors).
         """
         keep = np.ones(self.num_detectors, dtype=bool)
         keep[list(detectors)] = False
         if keep.all():
-            return self
+            return self.copy()
         old_to_new = np.cumsum(keep) - 1
         suggested_decompositions = {
             error_index: _remap_decomposition_detectors(components, keep, old_to_new)
@@ -358,7 +369,7 @@ class DetectorErrorModelArrays:
             self.observable_flip_matrix,
             self.error_probs,
             suggested_decompositions,
-            simplify=False,
+            simplify=True,
         )
 
     def without_untriggered_detectors(self) -> DetectorErrorModelArrays:

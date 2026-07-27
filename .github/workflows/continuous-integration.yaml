@@ -94,4 +94,5 @@ jobs:
       - name: Install package and dependencies
         run: uv sync --extra dev
       - name: Run coverage
-        run: uv run python checks/coverage_.py
+        # `-j $(nproc)` runs one modular coverage job per vCPU
+        run: uv run python checks/coverage_.py -j $(nproc)

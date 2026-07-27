@@ -248,9 +248,11 @@ def test_post_selection() -> None:
 
 def test_without_untriggered_detectors() -> None:
     """Drop detectors that no error mechanism triggers."""
-    # with no dead detectors, the object is returned unchanged
+    # with no dead detectors, an equivalent (independent) copy is returned
     dem_arrays = decoders.DetectorErrorModelArrays(stim.DetectorErrorModel("error(0.1) D0"))
-    assert dem_arrays.without_untriggered_detectors() is dem_arrays
+    result = dem_arrays.without_untriggered_detectors()
+    assert result is not dem_arrays
+    assert result.to_dem() == dem_arrays.to_dem()
 
     # D1 is dead but appears in the decomposition D0 D1 ^ D2 D1, where it cancels; it must be
     # filtered out rather than remapped to a stale index (live detectors: D0 -> 0, D2 -> 1)
