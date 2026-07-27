@@ -25,11 +25,11 @@ from collections.abc import Collection, Iterator, Sequence
 from typing import Literal
 
 import galois
-import networkx as nx
 import numpy as np
 import numpy.typing as npt
 
 from qldpc import abstract
+from qldpc._util import networkx as nx
 
 
 class Pauli(enum.Enum):
