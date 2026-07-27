@@ -22,9 +22,8 @@ import functools
 import itertools
 import warnings
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-import cvxpy
 import galois
 import numpy as np
 import numpy.typing as npt
@@ -36,6 +35,9 @@ from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
 from .dems import DetectorErrorModelArrays
+
+if TYPE_CHECKING:
+    import cvxpy
 
 PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
@@ -593,6 +595,8 @@ class ILPDecoder:
     """
 
     def __init__(self, matrix: IntegerArray, **decoder_args: object) -> None:
+        import cvxpy
+
         self.modulus = type(matrix).order if isinstance(matrix, galois.FieldArray) else 2
         if not galois.is_prime(self.modulus):
             raise ValueError("ILP decoding only supports prime number fields")
@@ -623,6 +627,7 @@ class ILPDecoder:
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
+        import cvxpy
 
         # identify all constraints
         constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
@@ -649,6 +654,8 @@ class ILPDecoder:
         to
         `expression = val + sum_j q^j s_j`.
         """
+        import cvxpy
+
         syndrome = np.asarray(syndrome, dtype=int) % self.modulus
 
         constraints = []

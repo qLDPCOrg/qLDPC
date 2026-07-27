@@ -22,10 +22,8 @@ import sys
 from collections.abc import Sequence
 
 import galois
-import ldpc
 import numpy as np
 import numpy.typing as npt
-import pymatching
 import scipy.sparse
 import stim
 
@@ -123,6 +121,8 @@ def get_decoder_BP_OSD(
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2005.07016
     """
+    import ldpc
+
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
     return ldpc.BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
@@ -155,6 +155,8 @@ def get_decoder_BP_LSD(
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2406.18655
     """
+    import ldpc
+
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
     return ldpc.bplsd_decoder.BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
@@ -190,6 +192,8 @@ def get_decoder_BF(
       - https://arxiv.org/abs/2103.08049
       - https://arxiv.org/abs/2209.01180
     """
+    import ldpc
+
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
     return ldpc.BeliefFindDecoder(pcm, error_channel=error_channel, **decoder_args)
 
@@ -265,6 +269,8 @@ def get_decoder_MWPM(
         )
 
     # retrieve a matching decoder from pymatching
+    import pymatching
+
     return pymatching.Matching.from_check_matrix(pcm, **decoder_args)
 
 

@@ -28,7 +28,6 @@ from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, S
 from typing import Any, TypeVar, cast
 
 import galois
-import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import scipy.linalg
@@ -37,6 +36,7 @@ import stim
 from typing_extensions import Self
 
 from qldpc import abstract, decoders, external, math
+from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 

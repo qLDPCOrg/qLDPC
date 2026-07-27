@@ -21,12 +21,12 @@ import itertools
 from collections.abc import Sequence
 
 import galois
-import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import sympy
 
 from qldpc import abstract
+from qldpc._util import networkx as nx
 
 from .common import ClassicalCode
 

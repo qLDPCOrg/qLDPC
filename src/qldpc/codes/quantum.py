@@ -27,7 +27,6 @@ from collections.abc import Collection, Iterable, Iterator, Sequence
 from typing import TypeVar
 
 import galois
-import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import scipy
@@ -36,6 +35,7 @@ from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
 from qldpc import abstract
+from qldpc._util import networkx as nx
 from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditPauli
 
 from .classical import (

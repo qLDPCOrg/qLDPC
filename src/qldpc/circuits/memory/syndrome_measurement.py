@@ -20,10 +20,10 @@ from __future__ import annotations
 import abc
 import collections
 
-import networkx as nx
 import stim
 
 from qldpc import codes
+from qldpc._util import networkx as nx
 from qldpc.objects import Pauli
 
 from ..bookkeeping import MeasurementRecord, QubitIDs

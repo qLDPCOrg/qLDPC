@@ -15,7 +15,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from qldpc._util import format_docstring
+import sys
+from types import ModuleType
+
+from qldpc._util import format_docstring, lazy_import
+
+
+def test_lazy_import() -> None:
+    """A lazily imported module is only executed on first attribute access."""
+    name = "colorsys"  # a small stdlib module not otherwise imported by the test suite
+    sys.modules.pop(name, None)
+
+    module = lazy_import(name)  # uncached path
+    assert isinstance(module, ModuleType)
+    assert callable(module.rgb_to_hls)  # force the deferred execution
+
+    assert lazy_import(name) is module  # cached path returns the same module
 
 
 def test_format_docstring() -> None:

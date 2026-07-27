@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Mapping, Sequence
+from types import ModuleType
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 import galois
@@ -29,15 +30,26 @@ import stim
 from qldpc import codes, math
 
 ####################################################################################################
-# try to import tsim and define a circuit type that may be either of stim.Circuit or tsim.Circuit
-try:
+# define a circuit type that may be either a stim.Circuit or an (optional) tsim.Circuit
+
+if TYPE_CHECKING:
     import tsim
 
     stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
-except ImportError:  # pragma: no cover
-    if not TYPE_CHECKING:
-        tsim = None
-        stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
+else:
+    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
+
+
+def _load_tsim_if_installed() -> ModuleType | None:
+    """Lazily import the optional tsim package, returning None if it is not installed."""
+    try:
+        import tsim
+
+        return tsim
+    except ImportError:  # pragma: no cover
+        return None
+
+
 ####################################################################################################
 
 
@@ -78,9 +90,14 @@ def with_remapped_qubits(
     Returns:
         The input circuit with remapped qubits.
     """
+    tsim = _load_tsim_if_installed()
     if tsim is not None and isinstance(circuit, tsim.Circuit):
         output = with_remapped_qubits(circuit.stim_circuit, qubit_map, inverse=inverse)
         return tsim.Circuit.from_stim_program(output)
+
+    # tsim loads lazily, so `tsim.Circuit` above is untyped and does not narrow `circuit`; having
+    # ruled out a tsim circuit, the remaining possibility for the type variable is a stim.Circuit
+    assert isinstance(circuit, stim.Circuit)
 
     qubit_map = (
         qubit_map
