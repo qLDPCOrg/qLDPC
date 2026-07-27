@@ -118,7 +118,7 @@ import stim
 
 from qldpc._util import format_docstring
 
-from .common import stim_or_tsim_Circuit, tsim, with_remapped_qubits
+from .common import _load_tsim_if_installed, stim_or_tsim_Circuit, with_remapped_qubits
 
 ####################################################################################################
 # global constants
@@ -232,6 +232,7 @@ CORRELATED_ERROR_NAMES = frozenset({"CORRELATED_ERROR", "E", "ELSE_CORRELATED_ER
 
 def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
     """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
+    tsim = _load_tsim_if_installed()
     if tsim is not None and isinstance(circuit, tsim.Circuit):
         output = as_noiseless_circuit(circuit.stim_circuit)
         return tsim.Circuit.from_stim_program(output)
@@ -1031,6 +1032,7 @@ class NoiseModel:
         Returns:
             The input circuit with added noise.
         """
+        tsim = _load_tsim_if_installed()
         if tsim is not None and isinstance(circuit, tsim.Circuit):
             output = self.noisy_circuit(
                 circuit.stim_circuit,
