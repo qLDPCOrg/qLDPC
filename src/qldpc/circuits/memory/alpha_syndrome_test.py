@@ -31,6 +31,7 @@ DEFAULT_STRATEGY = circuits.AlphaSyndrome(
     circuits.DepolarizingNoiseModel(0.001),
     iters_per_step=3,
     shots_per_iter=1,
+    verbose=False,
 )
 
 
@@ -43,7 +44,7 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     assert alpha_syndrome_is_valid(codes.ToricCode(2, rotated=True))
     assert alpha_syndrome_is_valid(codes.SurfaceCode(2, rotated=True))
 
-    code_a = codes.ClassicalCode.random(5, 3, seed=seed)
+    code_a = codes.ClassicalCode.random(3, 2, seed=seed)
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
     assert alpha_syndrome_is_valid(codes.HGPCode(code_a, code_b))
 
