@@ -288,7 +288,7 @@ class LookupDecoder:
         observable_flip_matrix: IntegerArray | None = None,
         predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
-        add_erasure_bit: bool | None = None,
+        add_erasure_bit: bool | None = None,  # falsy by default
         confidence_ratio: float | None = None,
         symplectic: bool = False,
     ) -> None:
