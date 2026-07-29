@@ -268,10 +268,7 @@ class LookupDecoder:
     ``confidence_ratio`` times as likely as the rest, i.e. ``prob_top >= confidence_ratio *
     prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
     erasure, identically to a syndrome that was never enumerated.  A positive ``confidence_ratio``
-    therefore auto-enables the erasure bit (see ``add_erasure_bit``).  ``confidence_ratio=0`` (or
-    its default ``None``) is a requirement-free no-op; larger values demand a wider margin before
-    committing -- e.g. ``confidence_ratio=10`` erases unless the top flip is at least 10 times as
-    likely as all others combined.
+    therefore auto-enables the erasure bit, setting ``add_erasure_bit=True``.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
