@@ -24,6 +24,7 @@ import unittest.mock
 
 import galois
 import numpy as np
+import numpy.typing as npt
 import pytest
 import scipy.sparse
 import stim
@@ -177,6 +178,54 @@ def test_observable_lookup_decoding() -> None:
     assert np.array_equal(obs_matrix @ decoder.decode(np.array([0, 1], dtype=int)), [1])  # E4
     weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, post_select=[0])
     assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
+
+
+def test_confidence_ratio() -> None:
+    """A confidence_ratio declares erasure when no observable flip is clearly most likely."""
+    # a confidence_ratio requires a non-negative value, an erasure bit, and observable flips
+    pcm = np.eye(1, dtype=int)
+    with pytest.raises(ValueError, match="non-negative"):
+        decoders.LookupDecoder(
+            pcm, 1, error_channel=[0.1], add_erasure_bit=True, confidence_ratio=-1
+        )
+    with pytest.raises(ValueError, match="requires add_erasure_bit"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=2)
+    with pytest.raises(ValueError, match="observable flip"):
+        decoders.LookupDecoder(
+            pcm, 1, error_channel=[0.1], add_erasure_bit=True, confidence_ratio=2
+        )
+
+    # In this DEM, syndrome (1, 1)'s most likely observable flip (obs_flip=1) is only ~1.067 times
+    # as likely as the alternative; see test_observable_lookup_decoding for the enumeration.
+    dem = stim.DetectorErrorModel("""
+        error(0.04) D0 D1
+        error(0.25) D0
+        error(0.10) D1
+        error(0.10) D0 L0
+        error(0.25) D1 L0
+    """)
+
+    def decode(confidence_ratio: float) -> npt.NDArray[np.int_]:
+        decoder = decoders.LookupDecoder(
+            dem,
+            max_weight=2,
+            predict_observable_flips=True,
+            add_erasure_bit=True,
+            confidence_ratio=confidence_ratio,
+        )
+        return decoder.decode(np.array([1, 1], dtype=int))
+
+    # confidence_ratio=0 (the graceful limit) assigns the most likely flip with no erasure; a ratio
+    # above the ~1.067 threshold instead declares erasure, keeping the most likely flip as a guess
+    assert np.array_equal(decode(0), [1, 0])
+    assert np.array_equal(decode(1.5), [1, 1])
+
+    # a syndrome with a single consistent observable flip is always confident, never erased
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=1, predict_observable_flips=True, add_erasure_bit=True, confidence_ratio=1e6
+    )
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0])
 
 
 def test_ilp_decoder() -> None:
