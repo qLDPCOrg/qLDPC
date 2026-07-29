@@ -260,16 +260,18 @@ class LookupDecoder:
     erasure bit is set to 1.  The erasure bit is set to 0 otherwise.
 
     If initialized with a positive ``confidence_ratio`` (which then requires an
-    ``observable_flip_matrix`` and ``add_erasure_bit=True``), this decoder declares erasure for any
-    syndrome whose most likely observable flip is not sufficiently more likely than the rest.
+    ``observable_flip_matrix``), this decoder handles ambiguous syndromes -- those consistent with
+    more than one observable flip -- by declining to guess unless one flip is clearly dominant.
     Letting ``prob_top`` and ``prob_rest`` be the net probabilities of the most likely observable
     flip and of all other flips combined (summed over the enumerated weight <= ``max_weight``
-    errors, grouped as above), erasure is declared -- by setting the erasure bit to 1 -- whenever
-    ``prob_top < confidence_ratio * prob_rest``.  The decoded output still carries the most likely
-    flip (or its representative error) as a best guess, so ignoring the erasure bit recovers the
-    default behavior.  ``confidence_ratio=0`` (or its default ``None``) is a requirement-free no-op;
-    larger values erase more aggressively -- e.g. ``confidence_ratio=10`` erases unless the top flip
-    is at least 10 times as likely as all others combined.
+    errors, grouped as above), the decoder assigns the most likely flip iff it is at least
+    ``confidence_ratio`` times as likely as the rest, i.e. ``prob_top >= confidence_ratio *
+    prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
+    erasure, identically to a syndrome that was never enumerated.  A positive ``confidence_ratio``
+    therefore auto-enables the erasure bit (see ``add_erasure_bit``).  ``confidence_ratio=0`` (or
+    its default ``None``) is a requirement-free no-op; larger values demand a wider margin before
+    committing -- e.g. ``confidence_ratio=10`` erases unless the top flip is at least 10 times as
+    likely as all others combined.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
@@ -286,10 +288,21 @@ class LookupDecoder:
         observable_flip_matrix: IntegerArray | None = None,
         predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
-        add_erasure_bit: bool = False,
+        add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
         symplectic: bool = False,
     ) -> None:
+        if confidence_ratio is not None and not confidence_ratio >= 0:  # also rejects NaN
+            raise ValueError("A LookupDecoder confidence_ratio must be a non-negative number")
+        if confidence_ratio:  # a positive confidence_ratio signals erasure via the erasure bit
+            if add_erasure_bit is False:
+                raise ValueError(
+                    "A positive confidence_ratio signals erasure with the erasure bit, so it cannot"
+                    " be combined with add_erasure_bit=False"
+                )
+            add_erasure_bit = True  # auto-enable the erasure bit used to signal erasure
+        add_erasure_bit = bool(add_erasure_bit)  # a default of None is treated as False
+
         pcm, observable_flip_matrix, penalty_func, syndrome_mask, default_correction = (
             self._organize_lookup_table_initialization_data(
                 pcm_or_dem,
@@ -306,20 +319,12 @@ class LookupDecoder:
                 "Grouping errors by observable flip with a LookupDecoder requires providing a"
                 " stim.DetectorErrorModel, error_channel, or penalty_func"
             )
-        if confidence_ratio is not None and not confidence_ratio >= 0:  # also rejects NaN
-            raise ValueError("A LookupDecoder confidence_ratio must be a non-negative number")
-        if confidence_ratio:  # a positive confidence_ratio can actually declare erasure
-            if not add_erasure_bit:
-                raise ValueError(
-                    "Using a positive confidence_ratio with a LookupDecoder requires"
-                    " add_erasure_bit=True, which provides the erasure bit used to declare erasure"
-                )
-            if observable_flip_matrix is None:
-                raise ValueError(
-                    "Using a positive confidence_ratio with a LookupDecoder requires grouping"
-                    " errors by observable flip, which requires a stim.DetectorErrorModel with"
-                    " observables or an observable_flip_matrix"
-                )
+        if confidence_ratio and observable_flip_matrix is None:
+            raise ValueError(
+                "Using a positive confidence_ratio with a LookupDecoder requires grouping errors by"
+                " observable flip, which requires a stim.DetectorErrorModel with observables or an"
+                " observable_flip_matrix"
+            )
 
         # save attributes
         self.predict_observable_flips = predict_observable_flips
@@ -423,17 +428,12 @@ class LookupDecoder:
 
         # Identify the most likely observable_flip for each syndrome, and map the syndrome to the
         # most likely error with that (syndrome, observable_flip) combination.  If a
-        # confidence_ratio is set, we instead declare erasure (flip the erasure bit) for any
-        # syndrome whose most likely observable flip is not confidence_ratio times as likely as the
-        # rest.
+        # confidence_ratio is set, we instead omit any syndrome whose most likely observable flip is
+        # not confidence_ratio times as likely as the rest, so that it decodes to erasure (via
+        # default_correction) just like a syndrome that was never enumerated.
         log_confidence_ratio = float(np.log(confidence_ratio)) if confidence_ratio else -np.inf
         for syndrome, obs_flip_to_log_prob in net_log_probs.items():
             most_likely_obs_flip = max(obs_flip_to_log_prob, key=obs_flip_to_log_prob.__getitem__)
-            if predict_observable_flips:
-                prediction = np.asarray(most_likely_obs_flip, dtype=pcm.dtype)
-            else:
-                prediction = most_likely_errors[syndrome, most_likely_obs_flip]
-            correction = self._maybe_add_erasure_bit(prediction)
             if confidence_ratio:
                 log_prob_top = obs_flip_to_log_prob[most_likely_obs_flip]
                 other_log_probs = [
@@ -446,8 +446,12 @@ class LookupDecoder:
                 )
                 # confident iff prob_top >= confidence_ratio * prob_rest (compared in log-space)
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
-                    correction[-1] = 1  # declare erasure
-            self.syndrome_to_error[syndrome] = correction
+                    continue  # omit the ambiguous syndrome, leaving it to decode as erasure
+            if predict_observable_flips:
+                prediction = np.asarray(most_likely_obs_flip, dtype=pcm.dtype)
+            else:
+                prediction = most_likely_errors[syndrome, most_likely_obs_flip]
+            self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(prediction)
 
     @staticmethod
     def _organize_lookup_table_initialization_data(

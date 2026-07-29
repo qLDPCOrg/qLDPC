@@ -24,7 +24,6 @@ import unittest.mock
 
 import galois
 import numpy as np
-import numpy.typing as npt
 import pytest
 import scipy.sparse
 import stim
@@ -185,24 +184,26 @@ def test_observable_lookup_decoding() -> None:
 
 
 def test_confidence_ratio() -> None:
-    """A confidence_ratio declares erasure when no observable flip is clearly most likely."""
-    # a positive confidence_ratio must be a non-negative number, with an erasure bit and obs flips
+    """A confidence_ratio omits ambiguous syndromes so they decode to erasure."""
     pcm = np.eye(1, dtype=int)
+
+    # a confidence_ratio must be a non-negative number
     with pytest.raises(ValueError, match="non-negative"):
-        decoders.LookupDecoder(
-            pcm, 1, error_channel=[0.1], add_erasure_bit=True, confidence_ratio=-1
-        )
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=-1)
     with pytest.raises(ValueError, match="non-negative"):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=float("nan"))
-    with pytest.raises(ValueError, match="requires add_erasure_bit"):
-        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=2)
-    with pytest.raises(ValueError, match="observable flip"):
+    # a positive confidence_ratio signals erasure, so it conflicts with add_erasure_bit=False
+    with pytest.raises(ValueError, match="add_erasure_bit=False"):
         decoders.LookupDecoder(
-            pcm, 1, error_channel=[0.1], add_erasure_bit=True, confidence_ratio=2
+            pcm, 1, error_channel=[0.1], add_erasure_bit=False, confidence_ratio=2
         )
+    # ... and it requires grouping errors by observable flip
+    with pytest.raises(ValueError, match="observable flip"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=2)
 
     # confidence_ratio=0 is a requirement-free no-op: it needs neither an erasure bit nor obs flips
     decoder = decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=0)
+    assert not decoder.has_erasure_bit
     assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
 
     # a zero-probability error mechanism does not crash a syndrome that only it can explain: here
@@ -225,26 +226,27 @@ def test_confidence_ratio() -> None:
         error(0.10) D0 L0
         error(0.25) D1 L0
     """)
+    syndrome = np.array([1, 1], dtype=int)
 
-    def decode(confidence_ratio: float) -> npt.NDArray[np.int_]:
-        decoder = decoders.LookupDecoder(
-            dem,
-            max_weight=2,
-            predict_observable_flips=True,
-            add_erasure_bit=True,
-            confidence_ratio=confidence_ratio,
-        )
-        return decoder.decode(np.array([1, 1], dtype=int))
+    # confidence_ratio=0 assigns the most likely flip (obs_flip=1) and adds no erasure bit
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=2, predict_observable_flips=True, confidence_ratio=0
+    )
+    assert np.array_equal(decoder.decode(syndrome), [1])
 
-    # confidence_ratio=0 (the graceful limit) assigns the most likely flip with no erasure; a ratio
-    # above the ~1.067 threshold instead declares erasure, keeping the most likely flip as a guess
-    assert np.array_equal(decode(0), [1, 0])
-    assert np.array_equal(decode(1.5), [1, 1])
+    # a confidence_ratio above the ~1.067 threshold omits the syndrome and auto-enables the erasure
+    # bit, so the syndrome decodes to erasure: an all-zero flip with the erasure bit set
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=2, predict_observable_flips=True, confidence_ratio=1.5
+    )
+    assert decoder.has_erasure_bit
+    assert np.array_equal(decoder.decode(syndrome), [0, 1])
 
-    # a syndrome with a single consistent observable flip is always confident, never erased
+    # a syndrome with a single consistent observable flip is always confident, so it is kept and
+    # decodes to that flip with the auto-enabled erasure bit left clear
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     decoder = decoders.LookupDecoder(
-        dem, max_weight=1, predict_observable_flips=True, add_erasure_bit=True, confidence_ratio=1e6
+        dem, max_weight=1, predict_observable_flips=True, confidence_ratio=1e6
     )
     assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0])
 
