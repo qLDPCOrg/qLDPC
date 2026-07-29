@@ -179,21 +179,42 @@ def test_observable_lookup_decoding() -> None:
     weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, post_select=[0])
     assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
 
+    # grouping errors by observable flip requires a way to weigh errors against each other
+    with pytest.raises(ValueError, match="error_channel, or penalty_func"):
+        decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
+
 
 def test_confidence_ratio() -> None:
     """A confidence_ratio declares erasure when no observable flip is clearly most likely."""
-    # a confidence_ratio requires a non-negative value, an erasure bit, and observable flips
+    # a positive confidence_ratio must be a non-negative number, with an erasure bit and obs flips
     pcm = np.eye(1, dtype=int)
     with pytest.raises(ValueError, match="non-negative"):
         decoders.LookupDecoder(
             pcm, 1, error_channel=[0.1], add_erasure_bit=True, confidence_ratio=-1
         )
+    with pytest.raises(ValueError, match="non-negative"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=float("nan"))
     with pytest.raises(ValueError, match="requires add_erasure_bit"):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=2)
     with pytest.raises(ValueError, match="observable flip"):
         decoders.LookupDecoder(
             pcm, 1, error_channel=[0.1], add_erasure_bit=True, confidence_ratio=2
         )
+
+    # confidence_ratio=0 is a requirement-free no-op: it needs neither an erasure bit nor obs flips
+    decoder = decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=0)
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
+
+    # a zero-probability error mechanism does not crash a syndrome that only it can explain: here
+    # syndrome (1, 0) is reachable only via the probability-0 mechanism, so its group has no
+    # finite-probability representative, but the decoder still returns that mechanism's error
+    decoder = decoders.LookupDecoder(
+        np.array([[1, 0], [0, 1]], dtype=int),
+        max_weight=1,
+        error_channel=[0.0, 0.1],
+        observable_flip_matrix=np.array([[1, 0]], dtype=int),
+    )
+    assert np.array_equal(decoder.decode(np.array([1, 0], dtype=int)), [1, 0])
 
     # In this DEM, syndrome (1, 1)'s most likely observable flip (obs_flip=1) is only ~1.067 times
     # as likely as the alternative; see test_observable_lookup_decoding for the enumeration.
