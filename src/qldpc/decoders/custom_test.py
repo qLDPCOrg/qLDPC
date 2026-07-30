@@ -178,6 +178,78 @@ def test_observable_lookup_decoding() -> None:
     weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, post_select=[0])
     assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
 
+    # grouping errors by observable flip requires a way to weigh errors against each other
+    with pytest.raises(ValueError, match="error_channel, or penalty_func"):
+        decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
+
+
+def test_confidence_ratio() -> None:
+    """A confidence_ratio omits ambiguous syndromes so they decode to erasure."""
+    pcm = np.eye(1, dtype=int)
+
+    # a confidence_ratio must be a non-negative number
+    with pytest.raises(ValueError, match="non-negative"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=-1)
+    with pytest.raises(ValueError, match="non-negative"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=float("nan"))
+    # a positive confidence_ratio signals erasure, so it conflicts with add_erasure_bit=False
+    with pytest.raises(ValueError, match="add_erasure_bit=False"):
+        decoders.LookupDecoder(
+            pcm, 1, error_channel=[0.1], add_erasure_bit=False, confidence_ratio=2
+        )
+    # ... and it requires grouping errors by observable flip
+    with pytest.raises(ValueError, match="observable flip"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=2)
+
+    # confidence_ratio=0 is a requirement-free no-op: it needs neither an erasure bit nor obs flips
+    decoder = decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=0)
+    assert not decoder.has_erasure_bit
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
+
+    # a zero-probability error mechanism does not crash a syndrome that only it can explain: here
+    # syndrome (1, 0) is reachable only via the probability-0 mechanism, so its group has no
+    # finite-probability representative, but the decoder still returns that mechanism's error
+    decoder = decoders.LookupDecoder(
+        np.array([[1, 0], [0, 1]], dtype=int),
+        max_weight=1,
+        error_channel=[0.0, 0.1],
+        observable_flip_matrix=np.array([[1, 0]], dtype=int),
+    )
+    assert np.array_equal(decoder.decode(np.array([1, 0], dtype=int)), [1, 0])
+
+    # In this DEM, syndrome (1, 1)'s most likely observable flip (obs_flip=1) is only ~1.067 times
+    # as likely as the alternative; see test_observable_lookup_decoding for the enumeration.
+    dem = stim.DetectorErrorModel("""
+        error(0.04) D0 D1
+        error(0.25) D0
+        error(0.10) D1
+        error(0.10) D0 L0
+        error(0.25) D1 L0
+    """)
+    syndrome = np.array([1, 1], dtype=int)
+
+    # confidence_ratio=0 assigns the most likely flip (obs_flip=1) and adds no erasure bit
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=2, predict_observable_flips=True, confidence_ratio=0
+    )
+    assert np.array_equal(decoder.decode(syndrome), [1])
+
+    # a confidence_ratio above the ~1.067 threshold omits the syndrome and auto-enables the erasure
+    # bit, so the syndrome decodes to erasure: an all-zero flip with the erasure bit set
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=2, predict_observable_flips=True, confidence_ratio=1.5
+    )
+    assert decoder.has_erasure_bit
+    assert np.array_equal(decoder.decode(syndrome), [0, 1])
+
+    # a syndrome with a single consistent observable flip is always confident, so it is kept and
+    # decodes to that flip with the auto-enabled erasure bit left clear
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=1, predict_observable_flips=True, confidence_ratio=1e6
+    )
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0])
+
 
 def test_ilp_decoder() -> None:
     """Decode using an integer linear program."""
