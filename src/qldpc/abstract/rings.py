@@ -520,7 +520,7 @@ class Element(RingMember):  # pragma: no cover
 NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
 
-class RingArray(npt.NDArray[np.object_]):
+class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     """Array whose entries are members of a GroupRing."""
 
     _ring: GroupRing
