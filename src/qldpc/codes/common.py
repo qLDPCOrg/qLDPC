@@ -3035,9 +3035,8 @@ class CSSCode(QuditCode):
             logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
 
         assert self._logical_ops is not None
-        self._logical_ops.shape = (2, self.dimension, 2, len(self))
-        self._logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
-        self._logical_ops.shape = (2 * self.dimension, 2 * len(self))
+        logical_ops = np.reshape(self._logical_ops, (2, self.dimension, 2, len(self)), copy=False)
+        logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
         return self
 
     def reduce_logical_ops(self, pauli: PauliXZ | None = None, **decoder_kwargs: Any) -> Self:
