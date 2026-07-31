@@ -1723,11 +1723,11 @@ class QTCode(CSSCode):
     def __eq__(self, other: object) -> bool:
         return (
             isinstance(other, QTCode)
-            and other.code_a == other.code_a
-            and other.code_b == other.code_b
-            and other.complex.subset_a == other.complex.subset_a
-            and other.complex.subset_b == other.complex.subset_b
-            and other.complex.bipartite == other.complex.bipartite
+            and self.code_a == other.code_a
+            and self.code_b == other.code_b
+            and self.complex.subset_a == other.complex.subset_a
+            and self.complex.subset_b == other.complex.subset_b
+            and self.complex.bipartite == other.complex.bipartite
         )
 
     @staticmethod
