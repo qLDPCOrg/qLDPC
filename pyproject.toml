@@ -1,108 +1,110 @@
+[build-system]
+build-backend = "uv_build"
+requires = [ "uv-build>=0.9.18,<0.10" ]
+
 [project]
-name = "qLDPC"
+name = "qldpc"
 version = "0.3.2"
 description = "Tools for constructing and analyzing quantum low density parity check (qLDPC) codes."
 readme = "README.md"
-license = "Apache-2.0"
-authors = [{ name = "Michael A. Perlin", email = "mika.perlin@gmail.com" }]
 keywords = [
+  "LDPC",
+  "low density parity check codes",
   "quantum computing",
   "quantum error correction",
-  "low density parity check codes",
-  "LDPC",
 ]
+license = "Apache-2.0"
+authors = [ { name = "Michael A. Perlin", email = "mika.perlin@gmail.com" } ]
+requires-python = ">=3.10"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "Natural Language :: English",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Mathematics",
   "Topic :: Scientific/Engineering :: Physics",
 ]
-requires-python = ">=3.10"
-
 dependencies = [
   "cvxpy>=1.3.2",
-  "diskcache>=5.0.0",
+  "diskcache>=5",
   "galois>=0.4.2",
   "ldpc>=2.4.1",
   "networkx>=2.6.2",
-  "numpy>=1.24.0",
-  "platformdirs>=4.0.0",
-  "pymatching>=2.1.0",
-  "pyperclip>=1.11.0",
+  "numpy>=1.24",
+  "platformdirs>=4",
+  "pymatching>=2.1",
+  "pyperclip>=1.11",
   "scipy>=1.14.1",
-  "sinter>=1.16.0",
-  "stim>=1.16.0",
+  "sinter>=1.16",
+  "stim>=1.16",
   "sympy>=1.12",
 ]
-
-[project.optional-dependencies]
-dev = [
+optional-dependencies.dev = [
   "checks-superstaq>=0.5.62",
-  "docformatter>=1.5.0",            # docstring formatting, run by checks/format_.py
+  "docformatter>=1.5",            # docstring formatting, run by checks/format_.py
   "jupyter>=1.1.1",
-  "pypandoc-binary>=1.13",          # bundles pandoc for building the notebook docs locally
-  "pyproject-fmt",                  # pyproject.toml formatting, run by checks/format_.py
-  "python-lsp-server[all]>=1.14.0",
+  "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
+  "pyproject-fmt>=2",             # pyproject.toml formatting, run by checks/format_.py
+  "python-lsp-server[all]>=1.14",
   "qldpc[docs,relay-bp,tsim]",
 ]
-docs = [
-  "ipython>=8.0",          # for nbsphinx's IPython.sphinxext.ipython_console_highlighting extension
+optional-dependencies.docs = [
+  "ipython>=8",          # for nbsphinx's IPython.sphinxext.ipython_console_highlighting extension
   "nbsphinx>=0.9",
   "sphinx>=7",
-  "sphinx-autoapi>=3.0",
-  "sphinx-rtd-theme>=2.0",
+  "sphinx-autoapi>=3",
+  "sphinx-rtd-theme>=2",
 ]
-relay-bp = ["relay-bp[stim]==0.2.1"]
-tsim = ["bloqade-tsim>=0.1.4"]
-
-[project.urls]
-Repository = "https://github.com/qLDPCOrg/qLDPC"
-
-[build-system]
-requires = ["uv_build>=0.9.18,<0.10.0"]
-build-backend = "uv_build"
-
-# Check script configuration:
+optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.1" ]
+optional-dependencies.tsim = [ "bloqade-tsim>=0.1.4" ]
+urls.Repository = "https://github.com/qLDPCOrg/qLDPC"
 
 [tool.ruff]
 line-length = 100
 lint.extend-select = [
-  "I",      # sorted / grouped imports (isort)
-  "W505",   # docstring & comment line length (see max-doc-length below)
   "ANN204", # return-type annotations on special methods (e.g. __init__)
-  "RUF022", # sorted __all__ in __init__.py files
   "D205",   # blank line between a docstring's summary and its body
   "D212",   # multi-line docstring summary starts on the first line
   "D415",   # docstring summary ends with punctuation (. ? !)
   "D417",   # a documented function documents all of its arguments
+  "I",      # sorted / grouped imports (isort)
+  "RUF022", # sorted __all__ in __init__.py files
+  "W505",   # docstring & comment line length (see max-doc-length below)
 ]
 lint.pycodestyle.max-doc-length = 100
 lint.pydocstyle.convention = "google"
 
-[tool.mypy]
-pretty = true
-ignore_missing_imports = true
-show_error_codes = true
-disallow_any_generics = true
-disallow_incomplete_defs = true
-disallow_untyped_defs = true
-warn_unused_ignores = true
-install_types = true
-non_interactive = true
-no_implicit_optional = true
+# Check script configuration:
+[tool.pyproject-fmt]
+# Cap the auto-generated "Programming Language :: Python" classifiers at the highest supported/tested
+# Python, so the set stays accurate and stable across pyproject-fmt versions.
+max_supported_python = "3.13"
 
-[tool.pytest.ini_options]
-addopts = "--disable-socket" # forbid tests from making network calls
-filterwarnings = [
-  'ignore:(?s).*The problem is either infeasible or unbounded.*:UserWarning', # from cvxpy
+[tool.mypy]
+ignore_missing_imports = true
+disallow_any_generics = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_unused_ignores = true
+pretty = true
+install_types = true
+no_implicit_optional = true
+non_interactive = true
+show_error_codes = true
+
+[tool.pytest]
+ini_options.addopts = "--disable-socket"  # forbid tests from making network calls
+ini_options.filterwarnings = [
+  "ignore:(?s).*The problem is either infeasible or unbounded.*:UserWarning", # from cvxpy
 ]
 
-[tool.coverage.report]
-fail_under = 100
-show_missing = true
-skip_covered = true
-exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
-
-[tool.coverage.run]
-include = ["./*"]
+[tool.coverage]
+run.include = [ "./*" ]
+report.exclude_lines = [ "if TYPE_CHECKING:", "pragma: no cover" ]
+report.fail_under = 100
+report.show_missing = true
+report.skip_covered = true
