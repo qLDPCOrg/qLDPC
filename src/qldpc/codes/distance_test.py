@@ -1,4 +1,4 @@
-"""Unit tests for distance.py
+"""Unit tests for distance.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

@@ -1,4 +1,4 @@
-"""Unit tests for math.py
+"""Unit tests for math.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

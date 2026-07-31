@@ -1,4 +1,4 @@
-"""Unit tests for alpha_syndrome.py
+"""Unit tests for alpha_syndrome.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

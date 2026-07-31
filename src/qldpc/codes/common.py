@@ -1,4 +1,4 @@
-"""General error-correcting code classes and methods
+"""General error-correcting code classes and methods.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

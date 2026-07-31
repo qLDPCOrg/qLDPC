@@ -1,4 +1,4 @@
-"""Methods for computing the (exact) distance of error-correcting codes
+"""Methods for computing the (exact) distance of error-correcting codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

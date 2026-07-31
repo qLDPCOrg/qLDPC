@@ -1,4 +1,4 @@
-"""Alternative representations of a Stim detector error model
+"""Alternative representations of a Stim detector error model.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -150,6 +150,8 @@ class DetectorErrorModelArrays:
             error_probs: per-error probabilities, or a single float broadcast to all errors.
             suggested_decompositions (optional): dictionary that maps an error (by index) into
                 a frozenset of FlipPattern, one per suggested decomposition component.
+            simplify: If True, return a simplified model with equivalent error mechanisms merged
+                (see DetectorErrorModelArrays.simplified).  Defaults to False.
         """
         dem_arrays = object.__new__(DetectorErrorModelArrays)
         dem_arrays.detector_flip_matrix = _canonicalize_mod2(

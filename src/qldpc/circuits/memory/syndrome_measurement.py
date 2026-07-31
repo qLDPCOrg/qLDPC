@@ -1,4 +1,4 @@
-"""Classes to define syndrome measurement strategies
+"""Classes to define syndrome measurement strategies.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

@@ -1,4 +1,4 @@
-"""Module for linear algebra with matrices over rings and bimodules
+"""Module for linear algebra with matrices over rings and bimodules.
 
 !!! WARNINGS !!!
 

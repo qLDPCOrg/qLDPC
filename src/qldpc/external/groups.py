@@ -1,4 +1,4 @@
-"""Module for loading groups from GroupNames or the GAP computer algebra system
+"""Module for loading groups from GroupNames or the GAP computer algebra system.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

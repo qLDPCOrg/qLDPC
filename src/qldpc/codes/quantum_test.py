@@ -1,4 +1,4 @@
-"""Unit tests for quantum.py
+"""Unit tests for quantum.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

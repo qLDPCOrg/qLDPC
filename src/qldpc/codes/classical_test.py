@@ -1,4 +1,4 @@
-"""Unit tests for classical.py
+"""Unit tests for classical.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

@@ -1,4 +1,4 @@
-"""Unit tests for transversal.py
+"""Unit tests for transversal.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

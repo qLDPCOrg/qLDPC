@@ -1,4 +1,4 @@
-"""Unit tests for benchmarking.py
+"""Unit tests for benchmarking.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

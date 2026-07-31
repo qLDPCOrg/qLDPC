@@ -1,4 +1,4 @@
-"""Unit tests for noise_model.py
+"""Unit tests for noise_model.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

@@ -1,4 +1,4 @@
-"""Classical error-correcting codes
+"""Classical error-correcting codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

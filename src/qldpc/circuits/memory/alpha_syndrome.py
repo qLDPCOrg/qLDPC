@@ -1,4 +1,4 @@
-"""Classes to define the AlphaSyndrome syndrome measurement strategies
+"""Classes to define the AlphaSyndrome syndrome measurement strategies.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

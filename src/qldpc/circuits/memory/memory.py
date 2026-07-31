@@ -1,4 +1,4 @@
-"""Circuit construction utilities for quantum error-corrected memory experiments
+"""Circuit construction utilities for quantum error-corrected memory experiments.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

@@ -1,4 +1,4 @@
-"""Unit tests for sinter.py
+"""Unit tests for sinter.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

@@ -1,4 +1,4 @@
-"""Instrumental objects used to construct error-correcting codes
+"""Instrumental objects used to construct error-correcting codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

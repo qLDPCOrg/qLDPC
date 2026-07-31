@@ -1,4 +1,4 @@
-"""Helper function(s) for caching results
+"""Helper function(s) for caching results.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

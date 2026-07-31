@@ -1,4 +1,4 @@
-"""Helper objects to keep track of qubits, measurements, and detectors
+"""Helper objects to keep track of qubits, measurements, and detectors.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

@@ -1,4 +1,4 @@
-"""Implementation of noise models for Stim (and tsim) circuits
+"""Implementation of noise models for Stim (and tsim) circuits.
 
 The main components of this module are:
 
@@ -1232,7 +1232,7 @@ class DepolarizingNoiseModel(NoiseModel):
 
 
 class SI1000NoiseModel(NoiseModel):
-    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory"
+    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory".
 
     This noise model is defined by a two-qubit gate infidelity that determines all error rates.
 

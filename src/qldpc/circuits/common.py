@@ -1,4 +1,4 @@
-"""Miscellaneous circuit utilities
+"""Miscellaneous circuit utilities.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

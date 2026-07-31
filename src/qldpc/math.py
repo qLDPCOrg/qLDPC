@@ -1,4 +1,4 @@
-"""Miscellaneous mathematical and linear algebra methods
+"""Miscellaneous mathematical and linear algebra methods.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

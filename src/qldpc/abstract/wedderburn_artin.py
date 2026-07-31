@@ -1,4 +1,4 @@
-"""Wedderburn-Artin decomposition for semisimple group algebras
+"""Wedderburn-Artin decomposition for semisimple group algebras.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -699,8 +699,9 @@ class WedderburnArtinComponentTransformer:
     def _get_off_diagonal_basis_vecs(
         self, basis_ij: galois.FieldArray, basis_ji: galois.FieldArray, seed: np.random.Generator
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Construct standard-basis matrix elements ``|i><j|`` and ``|j><i|``
-        of S ≅ GF(q^d)^{n × n}.
+        """Construct standard-basis matrix elements ``|i><j|`` and ``|j><i|`` of S.
+
+        Here S ≅ GF(q^d)^{n × n}.
 
         The strategy is as follows:
 

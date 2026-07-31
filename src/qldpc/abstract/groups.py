@@ -1,4 +1,4 @@
-"""Module for abstract algebra: groups and representations thereof
+"""Module for abstract algebra: groups and representations thereof.
 
 All groups in this module are finite, and represented under the hood as a SymPy PermutationGroup, or
 a subgroup of the symmetric group.  Group members subclass the SymPy Permutation class.
@@ -571,7 +571,7 @@ class TrivialGroup(Group):
 
     @staticmethod
     def to_ring_array(data: npt.NDArray[np.int_] | NestedSequence) -> None:
-        """DEFUNCT alias for qldpc.abstract.RingArray.build(data)"""
+        """DEFUNCT alias for qldpc.abstract.RingArray.build(data)."""
         raise ValueError(
             "TrivialGroup.to_ring_array(data) is DEFUNCT; use"
             " qldpc.abstract.RingArray.build(data) instead"

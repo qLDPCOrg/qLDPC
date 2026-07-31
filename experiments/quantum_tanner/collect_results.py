@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to collect search results into a local database
+"""Script to collect search results into a local database.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

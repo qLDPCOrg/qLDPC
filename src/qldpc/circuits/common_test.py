@@ -1,4 +1,4 @@
-"""Unit tests for common.py
+"""Unit tests for common.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

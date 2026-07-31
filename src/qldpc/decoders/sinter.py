@@ -1,4 +1,4 @@
-"""Decoders for sinter to sample quantum error correction circuits
+"""Decoders for sinter to sample quantum error correction circuits.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

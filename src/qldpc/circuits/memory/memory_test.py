@@ -1,4 +1,4 @@
-"""Unit tests for memory.py
+"""Unit tests for memory.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

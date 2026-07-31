@@ -1,4 +1,4 @@
-"""Methods for benchmarking circuits
+"""Methods for benchmarking circuits.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -227,6 +227,8 @@ def get_state_prep_diagnostic_tasks(
             state_prep_circuit.
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
             logical state of the provided code.
+        metadata: Extra key-value pairs to attach to the json_metadata of every returned task
+            (merged with the per-task error rate "p").
 
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an

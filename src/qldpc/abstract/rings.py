@@ -1,4 +1,4 @@
-"""Module for abstract algebra: rings and ring-valued numpy arrays
+"""Module for abstract algebra: rings and ring-valued numpy arrays.
 
 !!! WARNINGS !!!
 

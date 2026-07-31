@@ -64,8 +64,18 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 100
-lint.extend-select = ["I", "W505", "ANN204", "RUF022"]
+lint.extend-select = [
+  "I",      # sorted / grouped imports (isort)
+  "W505",   # docstring & comment line length (see max-doc-length below)
+  "ANN204", # return-type annotations on special methods (e.g. __init__)
+  "RUF022", # sorted __all__ in __init__.py files
+  "D205",   # blank line between a docstring's summary and its body
+  "D212",   # multi-line docstring summary starts on the first line
+  "D415",   # docstring summary ends with punctuation (. ? !)
+  "D417",   # a documented function documents all of its arguments
+]
 lint.pycodestyle.max-doc-length = 100
+lint.pydocstyle.convention = "google"
 
 [tool.mypy]
 pretty = true

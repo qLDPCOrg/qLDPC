@@ -1,4 +1,4 @@
-"""Encoding circuits, logical tableaus, and analysis of logical states
+"""Encoding circuits, logical tableaus, and analysis of logical states.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

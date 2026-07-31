@@ -1,4 +1,4 @@
-"""Unit tests for codes.py
+"""Unit tests for codes.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

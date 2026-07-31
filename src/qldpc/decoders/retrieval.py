@@ -1,4 +1,4 @@
-"""Methods to decode, or retrieve various decoders
+"""Methods to decode, or retrieve various decoders.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

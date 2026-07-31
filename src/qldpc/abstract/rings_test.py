@@ -1,4 +1,4 @@
-"""Unit tests for rings.py
+"""Unit tests for rings.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
