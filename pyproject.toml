@@ -38,17 +38,20 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "bloqade-tsim>=0.1.4",
   "checks-superstaq>=0.5.62",
+  "docformatter>=1.5.0",            # docstring formatting, run by checks/format_.py
   "jupyter>=1.1.1",
+  "pypandoc-binary>=1.13",          # bundles pandoc for building the notebook docs locally
+  "pyproject-fmt",                  # pyproject.toml formatting, run by checks/format_.py
   "python-lsp-server[all]>=1.14.0",
-  "relay-bp[stim]==0.2.1",
-  # documentation toolchain (mirrored in docs/requirements.txt, which Read the Docs uses)
+  "qldpc[docs,relay-bp,tsim]",
+]
+docs = [
+  "ipython>=8.0",          # for nbsphinx's IPython.sphinxext.ipython_console_highlighting extension
+  "nbsphinx>=0.9",
   "sphinx>=7",
   "sphinx-autoapi>=3.0",
-  "nbsphinx>=0.9",
   "sphinx-rtd-theme>=2.0",
-  "pypandoc-binary>=1.13",  # bundles pandoc, which nbsphinx needs to render the example notebooks
 ]
 relay-bp = ["relay-bp[stim]==0.2.1"]
 tsim = ["bloqade-tsim>=0.1.4"]

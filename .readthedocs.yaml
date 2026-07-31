@@ -17,10 +17,10 @@ sphinx:
 
 python:
   install:
-    # Install the documentation toolchain (Sphinx, extensions, theme).
-    - requirements: docs/requirements.txt
-    # Install qLDPC itself so importlib.metadata can resolve its version and so
-    # any autodoc imports succeed.  AutoAPI parses the source statically, so the
-    # heavy optional "dev" extras are intentionally omitted here.
+    # Install qLDPC together with its "docs" extra (the Sphinx toolchain).  Installing the
+    # package makes importlib.metadata resolve its version and lets any autodoc imports succeed;
+    # the heavier "dev" extras are intentionally omitted.
     - method: pip
       path: .
+      extra_requirements:
+        - docs
