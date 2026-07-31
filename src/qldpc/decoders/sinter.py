@@ -391,11 +391,13 @@ class SequentialWindowDecoder(SinterDecoder):
     (induced) set of error mechanisms that trigger those detectors.
 
     Windows are decoded sequentially, one by one.  To decode a window, we first decode the syndrome
-    in its its detection region.  We then "commit" to the decoded circuit error in the commit
+    in its detection region.  We then "commit" to the decoded circuit error in the commit
     region, which entails
+
     (a) removing the error mechanisms in the commit region from all subsequent windows, and
     (b) emulating the active correction of committed errors by appropriately updating the syndromes
         in subsequent windows.
+
     The net circuit error inferred by decoding all windows is used to predict observable flips.
 
     A SequentialWindowDecoder initialized without specifying commit regions sets the commit region
@@ -486,7 +488,7 @@ class SequentialWindowDecoder(SinterDecoder):
             # Restricting the DEM to this window may result in several error mechanisms that are
             # equivalent, which the window_decoder will merge into one error mechanism.  In this
             # case, wrap the decoder into an _ExpandingDecoder that maps decoded errors in the
-            # simflified DEM to errors in the full DEM.
+            # simplified DEM to errors in the full DEM.
             test_error = window_decoder.decode(np.zeros(window_dem.num_detectors, dtype=int))
             if len(test_error) < window_dem.num_errors:
                 window_decoder = _ExpandedWindowDecoder(window_decoder, window_dem)
@@ -658,7 +660,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
     indicates adjacent windows will overlap on w - s rounds.  The "commit region" for each window
     therefore corresponds to the first s rounds in the window.
 
-    Visually:
+    Visually::
 
       Time:      |------------------------------------------------------------>
 

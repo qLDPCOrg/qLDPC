@@ -40,6 +40,7 @@ def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Cir
     a logical S gate on every logical qubit of the code.
 
     This construction only supports self-dual codes with equivalent logicals (SWEL):
+
     1. Self dual = CSS code with identical X and Z stabilizers.
     2. Equivalent logicals = applying a Hadamard to every physical qubit enacts a logical Hadamard
         on every logical qubit.  This property depends on the choice of logical operator basis.
@@ -93,7 +94,7 @@ def get_transversal_ops(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+    ``code.deform(physical_circuit, preserve_logicals=True)``.
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
@@ -137,7 +138,7 @@ def get_transversal_automorphism_group(
     corresponds to a physical_circuit that has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+    ``code.deform(physical_circuit, preserve_logicals=True)``.
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
@@ -256,7 +257,7 @@ def get_transversal_circuits(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+    ``code.deform(physical_circuit, preserve_logicals=True)``.
 
     Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
     and thereby generally has exponential runtime.
@@ -329,7 +330,7 @@ def get_transversal_circuit(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+    ``code.deform(physical_circuit, preserve_logicals=True)``.
 
     Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
     and thereby generally has exponential runtime.

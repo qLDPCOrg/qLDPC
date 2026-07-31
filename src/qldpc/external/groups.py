@@ -142,7 +142,7 @@ def get_small_group_number(order: int) -> int:
     # get the HTML for the page with all groups
     page_html = maybe_get_webpage(order)
     if page_html is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         raise ValueError("Cannot determine the number of small groups")
 
     matches = re.findall(rf"<td>{order},([0-9]+)</td>", page_html)
@@ -215,7 +215,7 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
     # load web page for the specified group
     group_url = get_group_url(order, index)
     if group_url is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
     group_page = urllib.request.urlopen(group_url)
     group_page_html = group_page.read().decode("utf-8")
@@ -261,7 +261,7 @@ def get_group_url(order: int, index: int) -> str | None:
     # get the HTML for the page with all groups
     page_html = maybe_get_webpage(order)
     if page_html is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
 
     # extract section with the specified group
@@ -289,7 +289,7 @@ def maybe_get_webpage(order: int) -> str | None:
         page = urllib.request.urlopen(url)
         return page.read().decode("utf-8")
     except (urllib.error.URLError, urllib.error.HTTPError):
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
 
 
@@ -301,10 +301,12 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
     """Get the primitive central idempotents of a group algebra over a finite field.
 
     Primitive central idempotents of a ring are nonzero elements that:
+
     - square to themselves (they are idempotent)
     - commute with all other elements of the ring (they lie in the ring's center), and
     - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
-    Two idempotents g, h are orthogonal if g * h = h * g 0.
+
+    Two idempotents g, h are orthogonal if g * h = h * g = 0.
 
     Intuitively, primitive central idempotents act like projectors onto orthogonal components of a
     ring.
@@ -321,7 +323,7 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
 
     qldpc.external.gap.require_package("Wedderga")
 
-    gap_ouptut = qldpc.external.gap.get_output(
+    gap_output = qldpc.external.gap.get_output(
         'LoadPackage("wedderga", false);;',
         f"group := {group};;",
         f"ring := GroupRing(GF({field}), group);;",
@@ -342,7 +344,7 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
     re_coefficient_components = re.compile(r"\(Z\((\d+)(?:\^(\d+))?\)(?:\^(\d+))?\)")
 
     idempotents = []
-    for ring_member_match in re_ring_member.finditer(gap_ouptut):
+    for ring_member_match in re_ring_member.finditer(gap_output):
         idempotent = []
         for ring_term_match in re_ring_term.finditer(ring_member_match.group()):
             coefficient_string, cycles_string = ring_term_match.group().split("*")

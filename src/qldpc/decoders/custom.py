@@ -66,12 +66,13 @@ class RelayBPDecoder:
 
     This class first constructs a relay_bp.decoder.DynDecoder decoder by class name, such as
     "RelayDecoderF32"; see help(relay_bp) for more options.  To enable parallelized decoding, which
-    which as of relay-bp==0.2.1 is only implemented for the relay_bp.ObservableDecoderRunner class,
+    as of relay-bp==0.2.1 is only implemented for the relay_bp.ObservableDecoderRunner class,
     RelayBPDecoder wraps the relay_bp.decoder.DynDecoder in a relay_bp.ObservableDecoderRunner at
     initialization time.
 
     IMPORTANT POINTS TO NOTE:
     -------------------------
+
     1. relay_bp.ObservableDecoderRunner expects to be passed an observable_error_matrix when
         initialized.  If a RelayBPDecoder is initialized without an observable_error_matrix, this
         matrix is set to np.empty((0, 0), dtype=np.uint8).  All observable-related methods of the
@@ -87,6 +88,7 @@ class RelayBPDecoder:
         See help(relay_bp.ObservableDecoderRunner) for a list of all RelayBPDecoder methods.
 
     For details about Relay-BP decoders, see:
+
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """
@@ -105,7 +107,7 @@ class RelayBPDecoder:
 
         Args:
             pcm_or_dem: A parity check matrix or detector error model (DEM).
-            error_priors: Priors probabilities for each error, or None.  If error_priors is None and
+            error_priors: Prior probabilities for each error, or None.  If error_priors is None and
                 pcm_or_dem is a DEM, these are set to the error probabilities in the DEM by default.
             name: The name of the RelayBP decoder to instantiate.  Must be one of the classes listed
                 under help(relay_bp.bp).
@@ -115,7 +117,7 @@ class RelayBPDecoder:
                 constructed RelayBPDecoder will not be able to predict observable flips (or logical
                 error rates).
             include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
-            **decoder_kwargs: Arguments passed to the "inner" (syndrome -> error) decoder from
+            **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
                 relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
                 for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
         """
@@ -274,7 +276,8 @@ class LookupDecoder:
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
-    [X|Z] support of a stabilizer.  Decoded errors are likewise vectors that indicate [X|Z] support.
+    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
+    ``[X|Z]`` support.
     """
 
     def __init__(
@@ -792,7 +795,7 @@ class GUFDecoder:
 
     Warning: this implementation of the generalized Union-Find decoder is highly unoptimized.  For
     one, it is written entirely in Python.  Moreover, this implementation does not factor an error
-    set into connected componenents.
+    set into connected components.
     """
 
     def __init__(
@@ -922,8 +925,10 @@ class CompositeDecoder:
     """Decoder for a composite syndrome from multiple independent code blocks.
 
     A CompositeDecoder is instantiated from a sequence of tuples, where each tuple contains
+
     (a) the decoder for a one code block
     (b) the length of a syndrome vector for that code block.
+
     When asked to decode a syndrome, a CompositeDecoder splits the syndrome into segments of
     appropriate lengths, and decodes these segments independently with their corresponding decoders.
     """
@@ -972,8 +977,10 @@ class DirectDecoder:
     In contrast, an "indirect" decoder maps a syndrome to an error.
 
     A DirectDecoder can be instantiated from:
+
     - an indirect decoder, and
     - a parity check matrix.
+
     When asked to decode a candidate code word, a DirectDecoder first computes a syndrome, decodes
     the syndrome with an indirect decoder to infer an error, and then subtracts the error from the
     candidate word.

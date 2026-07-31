@@ -84,16 +84,17 @@ def get_distance_quantum(
         The minimum weight of a nontrivial logical operator in logical_ops modulo stabilizers, or
         some logical operator weight that is <= a cutoff, whichever is larger.
 
-    More specifically, if homogeneous is True, then...
-    (a) each Pauli string is represented by a binary vector of length equal to the number of data
-        qubits in a code, indicating the nontrivial support of the Pauli string on these qubits; and
-    (b) the weight of a Pauli string is the Hamming weight of the corresponding bitstring.
+    More specifically, if homogeneous is True, then::
 
-    If homogeneous is False, then...
-    (a) each Pauli string is represented by a binary vector of length equal to twice the number of
-        data qubits in a code, with the first and second half of the vector indicating,
-        respectively, the nontrivial support of X and Z Pauli operators; and
-    (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
+        (a) each Pauli string is represented by a binary vector of length equal to the number of
+            data qubits in a code, indicating the nontrivial support of the Pauli string; and
+        (b) the weight of a Pauli string is the Hamming weight of the corresponding bitstring.
+
+    If homogeneous is False, then::
+
+        (a) each Pauli string is represented by a symplectic binary vector (of length 2 * data
+            qubits) with the first and second halves indicating the X and Z Pauli support; and
+        (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
     """
     num_bits = np.shape(logical_ops)[-1]
 
@@ -306,7 +307,7 @@ def _count_trailing_zeros(val: int) -> int:
 
 
 def _inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
-    """Destructively compute ``arr.sum(-1)``, placing the result in the first column or `arr`.
+    """Destructively compute ``arr.sum(-1)``, placing the result in the first column of ``arr``.
 
     When complete, the returned sum will be stored in ``arr[..., 0]``, while other entries in
     ``arr[..., 1:]`` will be left in indeterminate states. This permits a faster sum implementation.

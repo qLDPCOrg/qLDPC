@@ -237,7 +237,7 @@ class DetectorRecord(Record):
     """An organized record of detectors in a Stim circuit."""
 
     def get_detector(self, key: Hashable, detection_index: int = -1) -> int:
-        """Retrieve a Stim detector (by index) assoiated with the given key.
+        """Retrieve a Stim detector (by index) associated with the given key.
 
         Args:
             key: The name associated with a sequence of detectors in the record.
@@ -260,10 +260,14 @@ class DetectorRecord(Record):
         """A record of the detectors remaining after post-selecting on the detectors of a key.
 
         If "detector_record" is the record of the detectors in circuit whose detector error model is
-        represented by the qldpc.decoders.DetectorErrorModelArrays object "dem_arrays", the record
+        represented by the qldpc.decoders.DetectorErrorModelArrays object "dem_arrays", the record::
+
             new_detector_record = detector_record.after_post_selection(key)
-        is the record of the detectors in
+
+        is the record of the detectors in::
+
             new_dem_arrays = dem_arrays.post_selected_on(detector_record.get_events(key))
+
         See help(qldpc.decoders.DetectorErrorModelArrays).
         """
         # identify the indices of all detectors, and the detectors to remove

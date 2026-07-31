@@ -58,10 +58,11 @@ def get_decoder(
     """Retrieve a decoder.
 
     This method looks for a keyword "with_<DECODER_NAME>: bool" argument, and returns
-    "get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)".
+    ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.
 
     This method also recognizes the following keyword arguments for injecting a custom decoder:
-    - decoder_constructor: return decoder_constructor(pcm_or_dem, **decoder_args).
+
+    - decoder_constructor: return ``decoder_constructor(pcm_or_dem, **decoder_args)``.
     - static_decoder: ignore all other arguments and return static_decoder.
 
     If no decoder is specified, this method defaults to generalized union-find (GUF) for non-binary
@@ -117,6 +118,7 @@ def get_decoder_BP_OSD(
         A decoder constructed by the ldpc package.
 
     For details about the BD-OSD decoder and its arguments, see:
+
     - help(ldpc.BpOsdDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2005.07016
@@ -151,6 +153,7 @@ def get_decoder_BP_LSD(
         A decoder constructed by the ldpc package.
 
     For details about the BD-LSD decoder and its arguments, see:
+
     - help(ldpc.bplsd_decoder.BpLsdDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2406.18655
@@ -185,6 +188,7 @@ def get_decoder_BF(
         A decoder constructed by the ldpc package.
 
     For details about the BF decoder and its arguments, see:
+
     - help(ldpc.BeliefFindDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - References:
@@ -225,8 +229,8 @@ def get_decoder_MWPM(
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
-        decompose_errors: Whether apply suggested decompositions of error mechanisms.
-        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors (after
+        decompose_errors: Whether to apply suggested decompositions of error mechanisms.
+        ignore_non_graphlike_errors: Whether to ignore errors that trigger > 2 detectors (after
             decomposition, if applicable).
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
 
@@ -282,6 +286,7 @@ def get_decoder_RBP(
     """Relay-BP decoders.
 
     For details about Relay-BP decoders, see:
+
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """

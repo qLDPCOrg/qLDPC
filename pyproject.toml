@@ -43,6 +43,12 @@ dev = [
   "jupyter>=1.1.1",
   "python-lsp-server[all]>=1.14.0",
   "relay-bp[stim]==0.2.1",
+  # documentation toolchain (mirrored in docs/requirements.txt, which Read the Docs uses)
+  "sphinx>=7",
+  "sphinx-autoapi>=3.0",
+  "nbsphinx>=0.9",
+  "sphinx-rtd-theme>=2.0",
+  "pypandoc-binary>=1.13",  # bundles pandoc, which nbsphinx needs to render the example notebooks
 ]
 relay-bp = ["relay-bp[stim]==0.2.1"]
 tsim = ["bloqade-tsim>=0.1.4"]
@@ -58,7 +64,7 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 100
-lint.extend-select = ["I", "W505", "ANN204"]
+lint.extend-select = ["I", "W505", "ANN204", "RUF022"]
 lint.pycodestyle.max-doc-length = 100
 
 [tool.mypy]

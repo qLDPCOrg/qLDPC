@@ -110,7 +110,8 @@ def get_logical_tableau(
 
     If deform_code is True, then the physical circuit is required to have two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
-    (b) changing the code that encodes the logical state to
+    (b) changing the code that encodes the logical state to::
+
         code.deformed(physical_circuit, preserve_logicals=True)
     """
     physical_circuit = (
@@ -143,12 +144,17 @@ def get_state_stabilizers(
     """Identify stabilizers of the prepared state that are supported on specified qubits.
 
     The strategy in this method is as follows.  If we prepend reset operations to make an initial
-    |0...0⟩ initial state explicit, then all stabilizer flows of the circuit should have the form
+    ``|0...0⟩`` initial state explicit, then all stabilizer flows of the circuit should have the
+    form
+
         1 -> output_generator,
+
     where each output_generator is an XOR of
+
         (a) a Pauli string,
         (b) measurements, and
         (c) observables.
+
     That is, the circuit prepares a state for which, after identifying {+1,-1} <-> {0,1} as
     necessary, the XOR of (a), (b), and (c) for each output_generator is 0.
 

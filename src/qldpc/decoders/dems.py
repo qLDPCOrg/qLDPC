@@ -73,6 +73,7 @@ class DetectorErrorModelArrays:
     """Representation of a stim.DetectorErrorModel by a collection of arrays.
 
     A DetectorErrorModelArrays object organizes the data in a stim.DetectorErrorModel into:
+
         1. detector_flip_matrix: a binary matrix that maps circuit errors to detector flips,
         2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
         3. error_probs: an array of probabilities of occurrence for each circuit error.
@@ -82,6 +83,7 @@ class DetectorErrorModelArrays:
 
     A DetectorErrorModelArrays is _almost_ one-to-one with a stim.DetectorErrorModel instance.  The
     primary differences are that a DetectorErrorModelArrays object
+
         (a) merges equivalent circuit errors (which can be disabled with simplify=False), and
         (b) does not preserve detector coordinate data.
     """
@@ -202,14 +204,18 @@ class DetectorErrorModelArrays:
         """Collect all circuit errors in a stim.DetectorErrorModel into a list.
 
         Each circuit error is nominally identified by:
+
             - a probability of occurrence,
             - a set of detectors that are flipped,
             - a set of observables that are flipped.
+
         In addition, a stim.DetectorErrorModel can come equipped with suggested decompositions of
-        errors, which splits the detector/observable targets of an error into groups.  To accomodate
-        decomposition suggestions, a circuit error is identified by
+        errors, which splits the detector/observable targets of an error into groups.  To
+        accommodate decomposition suggestions, a circuit error is identified by
+
             - a probability of occurrence,
             - a set of (detector_set, observable_set) tuples, one per suggested component.
+
         Errors with no suggested decompositions have a single component.
 
         If decompose_errors is True, all errors are decomposed into single-component errors.

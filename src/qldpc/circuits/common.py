@@ -153,8 +153,8 @@ def get_pauli_product_measurements(
     """Construct a circuit of MPP instructions that measure the given Pauli strings.
 
     In addition to a list of Pauli strings, this method accepts a symplectic matrix in which each
-    row indicates the [X|Z] support of a Pauli string.  If "code" is a QuditCode, for example, then
-    passing "pauli_strings=code.get_stabilizer_ops()" will measure the stabilizers of "code".
+    row indicates the ``[X|Z]`` support of a Pauli string.  If "code" is a QuditCode, for example,
+    then passing "pauli_strings=code.get_stabilizer_ops()" will measure the stabilizers of "code".
     """
     if isinstance(pauli_strings, np.ndarray):
         pauli_strings = [math.op_to_string(op) for op in np.atleast_2d(pauli_strings)]

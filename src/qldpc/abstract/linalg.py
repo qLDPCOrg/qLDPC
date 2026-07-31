@@ -100,8 +100,10 @@ def kron(
 def get_bimodule(ring: GroupRing) -> GroupRing:
     """Map a group algebra F[G] to its induced bimodule F[G ⨂ G].
 
-    Elements r ⨂ s ∈ F[G ⨂ G] of the bimodule act on elements of the base ring as
+    Elements r ⨂ s ∈ F[G ⨂ G] of the bimodule act on elements of the base ring as::
+
         (r ⨂ s)(t) = r·t·s.
+
     When lifting a RingArray matrix over a bimodule, the "left" entries of G ⨂ G get lifted to an
     ordinary representation, while the "right" entries get lifted to an anti-representation.
     """
@@ -134,18 +136,25 @@ def get_howell_dual(
     """Build the "dual" of a matrix in Howell normal form.
 
     The dual matrix provides a pseudoinverse of matrix_hnf in the following sense: if
+
         D = matrix_hnf @ dual_matrix.T,
+
     then
+
     1. D is diagonal,
     2. D @ matrix_hnf = matrix_hnf,
     3. D.T @ dual_matrix = dual_matrix, and
     4. D = transformer.transpose_array(D).
 
     Note that we have two different notions of a transpose at play:
+
     1. D.T...
+
         (a) swaps the matrix indices of D, and
         (b) takes group members g -> ~g = g**-1, which transposes their regular representation.
+
     2. transformer.transpose_array(D)...
+
         (a) swaps the matrix indices of D (identically to D.T), and
         (b) for each entry of D, transposes its matrix representation within each Wedderburn-Artin
             component of the ring.

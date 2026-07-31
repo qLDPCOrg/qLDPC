@@ -105,7 +105,7 @@ class GroupMember(comb.Permutation):
 
         For consistency with how SymPy composes permutations, the permutation matrix constructed
         here is right-acting, meaning that it acts on a vector v as v --> v @ p.to_matrix().  This
-        convension ensures that this lift is a homomorphism on SymPy Permutation objects, which is
+        convention ensures that this lift is a homomorphism on SymPy Permutation objects, which is
         to say that (p * q).to_matrix() = p.to_matrix() @ q.to_matrix().
         """
         matrix = np.zeros([self.size] * 2, dtype=int)
@@ -283,18 +283,24 @@ class Group:
         """Lift a group member to its regular representation.
 
         By default, this method lifts a group member to its left-regular representation.
-        Specifically, if Vec : G -> F_2^{|G|} maps group members to standard basis vectors and
+        Specifically, if Vec : G -> F_2^{``|G|``} maps group members to standard basis vectors and
         g,h ∈ G, then
+
             G.regular_lift(g) @ Vec(h) = Vec(g·h).
 
         If right is True, this method lifts a group member to its right-regular anti-representation,
         defined by
+
             G.regular_lift(g, right=True) @ Vec(h) = Vec(h·g).
+
         The right-regular representation of group member is then
+
             G.regular_lift(g, right=True).T = G.regular_lift(~g, right=True),
+
         where ~g = g**-1 is the inverse of g.
 
         See:
+
         - https://en.wikipedia.org/wiki/Regular_representation
         """
         if (member, right) not in self._regular_lift_cache:
@@ -314,8 +320,10 @@ class Group:
         r"""Lift a group member to its adjoint representation.
 
         The adjoint representation captures how group members get transformed by conjugation.
-        If Vec : G -> F_2^{|G|} lifts group members to standard basis vectors and g,h ∈ G, then
+        If Vec : G -> F_2^{``|G|``} lifts group members to standard basis vectors and g,h ∈ G, then
+
             adjoint_lift(g) @ Vec(h) = Vec(g·h·~g),
+
         where ~g = g**-1 is the inverse of g.
 
         If the group is abelian, the adjoint lift of every group member is the identity matrix.
@@ -335,8 +343,10 @@ class Group:
     def inversion_matrix(self) -> npt.NDArray[np.int_]:
         """The matrix that maps any group member g ∈ G to its inverse ~g = g**-1.
 
-        If Vec : G -> F_2^{|G|} lifts group members to standard basis vectors and g ∈ G, then
+        If Vec : G -> F_2^{``|G|``} lifts group members to standard basis vectors and g ∈ G, then
+
             G.inversion_matrix @ Vec(g) = Vec(~g),
+
         where ~g = g**-1 is the inverse of g.
         """
         matrix = np.zeros([self.order] * 2, dtype=int)
@@ -348,8 +358,11 @@ class Group:
         """Lift a group member to a representation by an orthogonal matrix.
 
         A representation satisfies
+
             self.lift(g·h) = self.lift(g) @ self.lift(h).
+
         If right=True, lift to an anti-representation, for which
+
             self.lift(g·h) = self.lift(h) @ self.lift(g).
         """
         if self._lift is None:
@@ -613,7 +626,7 @@ class CyclicGroup(AbelianGroup):
     written as g^p for an integer power p in {0, 1, ..., R-1}.  The member g^p can be represented by
     (that is, lifted to) an R×R "shift matrix", or the identity matrix with all rows shifted down
     (equivalently, all columns shifted right) by p.  That is, the lift L(g^p) acts on a standard
-    basis vector <i| as <i| L(g^p) = < i + p mod R |.
+    basis vector ``<i|`` as ``<i|`` L(g^p) = ``< i + p mod R |``.
     """
 
     def __init__(self, order: int) -> None:

@@ -77,8 +77,9 @@ def symplectic_conjugate(vectors: DenseIntegerArrayType) -> DenseIntegerArrayTyp
     """Take symplectic vectors to their duals.
 
     The symplectic conjugate of a Pauli string swaps its X and Z support, and multiplies its Z
-    sector by -1, taking Q = [Q_x|Q_z] -> [Q_z|-Q_x], such that the symplectic inner product between
-    Pauli strings P and Q is ⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @ symplectic_conjugate(Q).
+    sector by -1, taking Q = ``[Q_x|Q_z]`` -> ``[Q_z|-Q_x]``, such that the symplectic inner
+    product between Pauli strings P and Q is ⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @
+    symplectic_conjugate(Q).
     """
     assert vectors.shape[-1] % 2 == 0
     conjugated_vectors = vectors.copy().reshape(-1, 2, vectors.shape[-1] // 2)[:, ::-1, :]
@@ -202,6 +203,7 @@ def get_orthonormal_basis(
 
     An orthonormal basis for V exists if and only if (a) V is nondegenerate, meaning no nonzero
     vector of V is orthogonal to all of V, and (b), according to the field's characteristic:
+
     - over a field of characteristic 2, some vector of V has nonzero self-overlap v @ v;
     - over a field of odd characteristic, an even number of the vectors in any mutually orthogonal
       basis of V have a self-overlap with no square root in GF(q).
@@ -294,7 +296,7 @@ def _orthonormalize_odd(
             index = _combine_null_vectors(words)
             if index is None:
                 return None  # every overlap vanishes on the remaining space; no basis exists
-        # extract a vector with nonzero overlap, and otrhogonalize the remaining vectors against it
+        # extract a vector with nonzero overlap, and orthogonalize the remaining vectors against it
         pivot = words.pop(index)
         overlap = pivot @ pivot
         words = [word - (word @ pivot) / overlap * pivot for word in words]

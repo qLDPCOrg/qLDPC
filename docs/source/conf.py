@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath("../../qldpc"))
+sys.path.insert(0, os.path.abspath("../../src"))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -48,16 +48,21 @@ templates_path = ["_templates"]
 exclude_patterns = ["modules.rst"]
 
 autoapi_dirs = [
-    "../../qldpc",
+    "../../src/qldpc",
 ]
 autoapi_type = "python"
 
+# Note: "imported-members" is intentionally omitted.  Including it re-documents
+# every object on each parent package's page (e.g. classes defined in
+# qldpc/codes/quantum.py would also appear on the qldpc.codes page), which both
+# roughly doubles the number of pages/warnings and produces ambiguous
+# cross-references.  Each object is instead documented once, on the page of the
+# module that defines it.
 autoapi_options = [
     "members",
     "undoc-members",
     "show-inheritance",
     "show-module-summary",
-    "imported-members",
 ]
 
 autoapi_ignore = ["*_test.py", "*/checks/*.py", "*conftest.py"]
@@ -68,3 +73,4 @@ autoapi_member_order = "groupwise"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "sphinx_rtd_theme"
+

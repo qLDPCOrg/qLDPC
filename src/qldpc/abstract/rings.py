@@ -144,8 +144,11 @@ class GroupRing:
         """Lift a group member to a representation by an orthogonal matrix.
 
         A representation satisfies
+
             self.lift(g·h) = self.lift(g) @ self.lift(h).
+
         If right=True, lift to an anti-representation, for which
+
             self.lift(g·h) = self.lift(h) @ self.lift(g).
         """
         return self.group.lift(member, right=right).view(self.field)
@@ -432,8 +435,11 @@ class RingMember:
         """Lift this ring member to a representation by an orthogonal matrix.
 
         A representation satisfies
+
             self.lift(g·h) = self.lift(g) @ self.lift(h).
+
         If right=True, lift to an anti-representation, for which
+
             self.lift(g·h) = self.lift(h) @ self.lift(g).
         """
         return sum(
@@ -445,13 +451,16 @@ class RingMember:
         """Lift a ring member to its regular representation.
 
         By default, this method lifts a ring member to the regular representation induced by
-        multiplication from the left.  Specifically, if r and s are ring members, then
+        multiplication from the left.  Specifically, if r and s are ring members, then::
+
             r.regular_lift() @ s.to_vector() = (r * s).to_vector().
 
         If right is True, this method lifts a ring member to its regular representation in the
         opposite ring, such that matrix multiplication corresponds to ring multiplication from the
-        right:
+        right::
+
             r.regular_lift(right=True) @ s.to_vector() = (s * r).to_vector().
+
         See https://en.wikipedia.org/wiki/Opposite_ring.
         """
         terms = (val * self.ring.regular_lift(member, right=right) for val, member in self if val)
@@ -671,11 +680,15 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Construct a RingArray.
 
         The constructed array is built from:
+
         1. An array populated by
+
             (a) ring members,
             (b) group members, or
             (c) integers.
+
         2. A ring (or group, inducing a group algebra over GF(2)).
+
         Integers and group members are cast into members of the ring.
         """
         array = np.asanyarray(data)
@@ -767,7 +780,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Construct a matrix of null-space row vectors for this RingArray.
 
         The transpose of the null-space matrix is annihilated by this RingArray, such that
-        np.any(self @ self.null_space().T) is np.False_.
+        np.any(self @ self.null_space().T) is ``np.False_``.
 
         If right is True, this method constructs a null space over the opposite ring, in which the
         order of multiplication is reversed.
@@ -791,6 +804,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Compute a generalized reduced row echelon form of a RingArray over a semisimple ring.
 
         This method relies on the Wedderburn-Artin decomposition:
+
         1. Decompose the matrix over a ring into matrices over simple components.
         2. Put the matrices over simple components into RREF.
         3. Re-combine the simple components into a matrix over the original ring.
@@ -814,6 +828,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         Alias for:
             - RingArray.howell_normal_form_semisimple (if poly is False, the default), or
             - RingArray.howell_normal_form_poly (if poly is True).
+
         See the documentation of those methods for additional information.
         """
         if poly:
@@ -828,21 +843,28 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         This method first puts a RingArray into a generalized reduced row echelon form (see
         RingArray.row_reduce), then further post-processes the rows to satisfy the Howell property,
         whereby an element v that is...
+
             - in the row span of the matrix, and
             - has j leading zeros, meaning = (0_1, 0_2, ..., 0_j, v_{j+1}, ...),
+
         can be written as a linear combinations of rows whose pivots are at position k >= j.
 
-        The Howell property is enforecd as follows: if a row r has a pivot p with a nontrivial left
-        annihilator α, meaning
+        The Howell property is enforced as follows: if a row r has a pivot p with a nontrivial left
+        annihilator α, meaning::
+
               α != 0,
             α·p  = 0,
             α·r != 0,
+
         then the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
 
-        If right is True, the Howell property is instead enforced for nontrivial right annihilators:
+        If right is True, the Howell property is instead enforced for nontrivial right
+        annihilators::
+
               α != 0,
             p·α  = 0,
             r·α != 0,
+
         for which the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
         The ordinary HNF and right-HNF are equal for a RingArray over a commutative ring.
 
@@ -850,6 +872,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         HNF is only unique up to a choice of matrix basis for simple components of the ring.
 
         References:
+
         - https://en.wikipedia.org/wiki/Howell_normal_form
         - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
@@ -934,6 +957,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         reduction with polynomial division.
 
         References:
+
         - https://en.wikipedia.org/wiki/Howell_normal_form
         - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
