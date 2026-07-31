@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 import itertools
 import unittest.mock
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
 import galois
 import networkx as nx
@@ -416,7 +416,20 @@ def test_qudit_deformations() -> None:
     code.get_stabilizer_ops()
     code.get_gauge_ops()
     assert code == code.conjugated([]) == code.deformed("")
-    assert code.conjugate() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+    assert code.conjugated() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+
+    # conjugation transforms all known operators, not just the parity check matrix
+    def swap_xz(ops: galois.FieldArray) -> galois.FieldArray:
+        swapped = ops.reshape(-1, 2, len(code))[:, ::-1, :].reshape(-1, 2 * len(code))
+        return swapped.view(code.field)
+
+    # conjugated() with no arguments transforms all qudits
+    assert code.conjugated() == code.conjugated(range(len(code)))
+
+    conjugate = code.conjugated()
+    assert np.array_equal(conjugate.get_logical_ops(), swap_xz(code.get_logical_ops()))
+    assert np.array_equal(conjugate.get_stabilizer_ops(), swap_xz(code.get_stabilizer_ops()))
+    assert np.array_equal(conjugate.get_gauge_ops(), swap_xz(code.get_gauge_ops()))
 
     with pytest.raises(ValueError, match="only supported for qubit codes"):
         codes.QuditCode(code.matrix, field=3).deformed("")
@@ -786,7 +799,22 @@ def test_css_deformations() -> None:
     code.get_logical_ops()
     code.get_stabilizer_ops()
     code.get_gauge_ops()
-    assert code.conjugate() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+    assert code.conjugated() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+
+    # conjugating all qudits swaps the X and Z distances, however they are specified
+    code._distance_x = 3
+    code._distance_z = 5
+    all_qudits: slice | Sequence[int] | None
+    for all_qudits in [None, range(len(code)), slice(None), list(range(len(code)))]:
+        conjugate = code.conjugated(all_qudits)
+        assert isinstance(conjugate, codes.CSSCode)
+        assert conjugate.get_distance_if_known(Pauli.X) == 5
+        assert conjugate.get_distance_if_known(Pauli.Z) == 3
+
+    # conjugating a strict subset of qudits does not swap the X and Z distances
+    subset_conjugate = code.conjugated([])
+    assert isinstance(subset_conjugate, codes.CSSCode)
+    assert subset_conjugate.get_distance_if_known(Pauli.X) is None
 
 
 def test_stacking_css_codes() -> None:
