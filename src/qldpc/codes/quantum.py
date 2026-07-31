@@ -527,24 +527,24 @@ class QCCode(TBCode):
         )
 
     def get_canonical_form(
-        self, poly: sympy.Poly, orders: tuple[int, ...] | None = None
-    ) -> tuple[sympy.Poly, sympy.Poly]:
+        self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
+    ) -> sympy.Expr:
         """Canonicalize the given polynomial, shifting exponents to (-order/2, order/2]."""
         orders = orders or self.orders
         assert len(orders) == len(self.symbols)
 
-        # canonicalize and add one term at a time
-        new_poly = sympy.core.numbers.Zero()
-        for term in poly.args:
+        # canonicalize and add one monomial term at a time
+        new_poly: sympy.Expr = sympy.Integer(0)
+        for term in abstract.iter_monomial_terms(poly):
             coeff, _exponents = abstract.get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
-            new_term = sympy.core.numbers.One()
+            new_term = sympy.Integer(coeff)
             for symbol, order in zip(self.symbols, orders):
                 new_exponent = exponents.get(symbol, 0) % order
                 if new_exponent > order / 2:
                     new_exponent -= order
-                new_term *= coeff * symbol**new_exponent
+                new_term *= symbol**new_exponent
 
             new_poly += new_term
 
@@ -584,8 +584,8 @@ class QCCode(TBCode):
         )
 
         # build matrices for each term in A and B
-        terms_a = sympy.Add.make_args(self.poly_a.as_expr())
-        terms_b = sympy.Add.make_args(self.poly_b.as_expr())
+        terms_a = abstract.iter_monomial_terms(self.poly_a)
+        terms_b = abstract.iter_monomial_terms(self.poly_b)
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
         matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
 
@@ -815,8 +815,8 @@ class BBCode(QCCode):
             return []
 
         # identify individual monomials (terms without their coefficients) in the polynomials
-        monomials_a = [term.as_coeff_Mul()[1] for term in self.poly_a.as_expr().args]
-        monomials_b = [term.as_coeff_Mul()[1] for term in self.poly_b.as_expr().args]
+        monomials_a = [term.as_coeff_Mul()[1] for term in abstract.iter_monomial_terms(self.poly_a)]
+        monomials_b = [term.as_coeff_Mul()[1] for term in abstract.iter_monomial_terms(self.poly_b)]
 
         # identify collections of monomials that can be combined to obtain a toric layout
         toric_params = []

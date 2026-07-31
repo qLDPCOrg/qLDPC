@@ -1820,16 +1820,18 @@ class QuditCode(AbstractCode):
             raise ValueError(f"Arguments not recognized for distance bounding: {bound_kwargs}")
         return external.codes.get_distance_bound(self, num_trials, cutoff=cutoff, maxav=maxav)
 
-    def conjugated(self, qudits: slice | Sequence[int]) -> QuditCode:
+    def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
         """Apply local Fourier transforms, swapping X-type and Z-type operators.
 
         Args:
-            qudits: The qudits to transform.
+            qudits: The qudits to transform.  If None, transform all qudits.
         """
+        if qudits is None:
+            qudits = range(len(self))
 
         def transform_ops(ops: galois.FieldArray) -> galois.FieldArray:
             """Fourier-transform the given Pauli strings."""
-            ops_reshaped = self.matrix.copy().reshape(-1, 2, len(self))
+            ops_reshaped = ops.copy().reshape(-1, 2, len(self))
             ops_reshaped[:, :, qudits] = ops_reshaped[:, ::-1, qudits]
             return ops_reshaped.reshape(-1, 2 * len(self)).view(self.field)
 
@@ -1845,9 +1847,14 @@ class QuditCode(AbstractCode):
         code._distance = self._distance
         return code
 
-    def conjugate(self) -> QuditCode:
+    def conjugate(self) -> QuditCode:  # pragma: no cover
         """The same code with all X-type and Z-type operators swapped."""
-        return self.conjugated(range(len(self)))
+        warnings.warn(
+            f"{type(self)}.conjugate is DEPRECATED; use {type(self)}.conjugated instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.conjugated()
 
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
@@ -3067,9 +3074,8 @@ class CSSCode(QuditCode):
             logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
 
         assert self._logical_ops is not None
-        self._logical_ops.shape = (2, self.dimension, 2, len(self))
-        self._logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
-        self._logical_ops.shape = (2 * self.dimension, 2 * len(self))
+        logical_ops = np.reshape(self._logical_ops, (2, self.dimension, 2, len(self)), copy=False)
+        logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
         return self
 
     def reduce_logical_ops(self, pauli: PauliXZ | None = None, **decoder_kwargs: Any) -> Self:
@@ -3083,34 +3089,24 @@ class CSSCode(QuditCode):
                 self.reduce_logical_op(pauli, logical_index, **decoder_kwargs)
         return self
 
-    def conjugated(self, qudits: slice | Sequence[int]) -> QuditCode:
+    def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
         """Apply local Fourier transforms, swapping X-type and Z-type operators.
 
         Args:
-            qudits: The qudits to transform.
+            qudits: The qudits to transform.  If None, transform all qudits.
         """
-        return super().conjugated(qudits).maybe_to_css()
-
-    def conjugate(self) -> CSSCode:
-        """The same code with all X-type and Z-type operators swapped."""
-        code = CSSCode(self.code_z, self.code_x, is_subsystem_code=self._is_subsystem_code)
-        if self._logical_ops is not None:
-            code.set_logical_ops_xz(self.get_logical_ops(Pauli.Z), self.get_logical_ops(Pauli.X))
-        if self._stabilizer_ops is not None:
-            code._stabilizer_ops = (
-                self._stabilizer_ops.reshape(-1, 2, len(self))[:, ::-1, :]
-                .reshape(-1, 2 * len(self))
-                .view(self.field)
-            )
-        if self._gauge_ops is not None:
-            code._gauge_ops = scipy.linalg.block_diag(
-                self.get_gauge_ops(Pauli.Z), self.get_gauge_ops(Pauli.X)
-            ).view(self.field)
-        code._dimension = self._dimension
-        code._distance = self._distance
-        code._distance_x = self._distance_z
-        code._distance_z = self._distance_x
+        code = super().conjugated(qudits).maybe_to_css()
+        if isinstance(code, CSSCode):
+            conjugated = np.zeros(len(self), dtype=bool)
+            conjugated[slice(None) if qudits is None else qudits] = True
+            # conjugating all qudits swaps the roles of X-type and Z-type operators
+            if conjugated.all():
+                code._distance_x, code._distance_z = self._distance_z, self._distance_x
         return code
+
+    def conjugate(self) -> CSSCode:  # pragma: no cover
+        """The same code with all X-type and Z-type operators swapped."""
+        return self.conjugated().to_css()
 
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
