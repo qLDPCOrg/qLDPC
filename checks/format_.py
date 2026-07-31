@@ -24,6 +24,9 @@ if __name__ == "__main__":
     docformatter = subprocess.run(
         [
             sys.executable,
+            # docformatter 1.5.0 imports the deprecated lib2to3; silence its DeprecationWarning.
+            "-W",
+            "ignore::DeprecationWarning",
             "-m",
             "docformatter",
             "--recursive",
