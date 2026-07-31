@@ -63,6 +63,7 @@ optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.1" ]
 optional-dependencies.tsim = [ "bloqade-tsim>=0.1.4" ]
 urls.Repository = "https://github.com/qLDPCOrg/qLDPC"
 
+# Check script configuration:
 [tool.ruff]
 line-length = 100
 lint.extend-select = [
@@ -78,7 +79,6 @@ lint.extend-select = [
 lint.pycodestyle.max-doc-length = 100
 lint.pydocstyle.convention = "google"
 
-# Check script configuration:
 [tool.pyproject-fmt]
 # Cap the auto-generated "Programming Language :: Python" classifiers at the highest supported/tested
 # Python, so the set stays accurate and stable across pyproject-fmt versions.
