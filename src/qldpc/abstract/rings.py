@@ -200,12 +200,22 @@ class GroupRing:
         self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
     ) -> RingMember:
         """Convert a SymPy expression (such as a polynomial) into a member of this ring."""
+        if isinstance(expression, sympy.Expr):
+            # distribute products of sums, such as (1 + x) * (1 + y), into a sum of monomials
+            expression = expression.expand()
+
         if isinstance(expression, (sympy.Poly, sympy.Add)):
-            # evaluate this polynomial one monomial term at time
+            # evaluate the (now-expanded) polynomial one monomial term at a time
             terms = sympy.Add.make_args(expression.as_expr())
-            evaluated_terms = [self.eval(term, symbols) for term in terms]
+            evaluated_terms = (self._eval_monomial(term, symbols) for term in terms)
             return functools.reduce(operator.add, evaluated_terms)
 
+        return self._eval_monomial(expression, symbols)
+
+    def _eval_monomial(
+        self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
+    ) -> RingMember:
+        """Convert a single SymPy monomial into a member of this ring."""
         # helpful error message for invalid symbols
         if any(not isinstance(value, GroupMember) for value in symbols.values()):
             raise ValueError("The symbols passed to Ring.eval must be GroupMember-valued")

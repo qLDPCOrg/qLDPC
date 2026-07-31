@@ -84,6 +84,33 @@ class CyclicCode(ClassicalCode):
         super().__init__(matrix, field)
 
 
+class GolayCode(CyclicCode):
+    """Classical binary [23, 12, 7] Golay code.
+
+    A famous "perfect" cyclic code: every 23-bit word lies within distance 3 of a unique codeword,
+    so it corrects any 3 bit-flip errors.  As a cyclic code, its codewords are the multiples (mod
+    x^23 - 1) of the Golay generator polynomial g(x), a degree-11 factor of x^23 - 1.
+
+    The parity checks are the cyclic shifts of the weight-8 polynomial h(x) = (x + 1) g(x), which
+    generates the dual code G^perp = [23, 11, 8].
+
+    References:
+    - https://errorcorrectionzoo.org/c/golay
+    """
+
+    def __init__(self) -> None:
+        """Construct the [23, 12, 7] Golay code."""
+        # the Golay generator polynomial g(x), a degree-11 factor of x^23 - 1
+        x = sympy.Symbol("x")
+        generator = x**11 + x**9 + x**7 + x**6 + x**5 + x + 1
+
+        # use the cyclic shifts of the weight-8 polynomial (x + 1) g(x) as parity checks
+        super().__init__(23, (x + 1) * generator, field=2)
+
+        self._dimension = 12
+        self._distance = 7
+
+
 class HammingCode(ClassicalCode):
     """Classical Hamming code.
 

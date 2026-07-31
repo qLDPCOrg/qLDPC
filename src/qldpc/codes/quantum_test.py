@@ -68,6 +68,13 @@ def test_small_codes() -> None:
     assert codes.CSSCode.equiv(codes.C4Code(), codes.IcebergCode(4))
     assert codes.C6Code().get_code_params() == (6, 2, 2)
 
+    # the quantum Golay code is a [[23, 1, 7]] CSS code with weight-8 stabilizers
+    golay_code = codes.QuantumGolayCode()
+    golay_code._dimension = None
+    golay_code.forget_distance()
+    assert golay_code.get_code_params() == (23, 1, 7)
+    assert set(golay_code.matrix_x.view(np.ndarray).sum(axis=1)) == {8}
+
 
 def test_hamming_and_tetrahedral_codes() -> None:
     """Quantum Hamming and tetrahedral codes."""
