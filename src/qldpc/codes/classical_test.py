@@ -99,6 +99,13 @@ def test_special_codes() -> None:
         code.forget_distance()
         assert code.get_code_params() == params
 
+    # the Golay code is a [23, 12, 7] code with minimum-weight (weight-8) parity checks
+    code = codes.GolayCode()
+    code._dimension = None
+    code.forget_distance()
+    assert code.get_code_params() == (23, 12, 7)
+    assert set(code.matrix.view(np.ndarray).sum(axis=1)) == {8}
+
 
 def test_tanner_code() -> None:
     """Classical Tanner codes on random regular graphs."""

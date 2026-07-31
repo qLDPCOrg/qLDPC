@@ -40,6 +40,7 @@ from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, Qud
 
 from .classical import (
     CyclicCode,
+    GolayCode,
     HammingCode,
     ReedMullerCode,
     RepetitionCode,
@@ -313,6 +314,20 @@ class TetrahedralCode(CSSCode):
             [[1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]],
             [[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
         )
+
+
+class QuantumGolayCode(CSSCode):
+    """Quantum [[23, 1, 7]] Golay code, built from the classical [23, 12, 7] Golay code.
+
+    References:
+    - https://errorcorrectionzoo.org/c/qubit_golay
+    """
+
+    def __init__(self) -> None:
+        # by convention, keep only the first 11 of the classical code's (redundant) 23 parity checks
+        checks = GolayCode().matrix[:11]
+        super().__init__(checks, checks, is_subsystem_code=False)
+        self._distance_x = self._distance_z = 7
 
 
 class IcebergCode(CSSCode):
