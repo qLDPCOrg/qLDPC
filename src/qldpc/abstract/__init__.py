@@ -14,6 +14,7 @@ from .groups import (
     SymmetricGroup,
     TrivialGroup,
     get_coefficient_and_exponents,
+    iter_monomial_terms,
     resolve_field,
 )
 from .linalg import (
@@ -60,6 +61,7 @@ __all__ = [
     "block_diag",
     "get_coefficient_and_exponents",
     "get_howell_dual",
+    "iter_monomial_terms",
     "kron",
     "matmul",
     "resolve_field",

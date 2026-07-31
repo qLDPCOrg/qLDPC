@@ -965,6 +965,19 @@ PSL = ProjectiveSpecialLinearGroup
 # miscellaneous helper methods that don't quite belong in qldpc.math
 
 
+def iter_monomial_terms(polynomial: sympy.Basic | int | np.int_) -> tuple[sympy.Expr, ...]:
+    """Split a SymPy polynomial into its monomial terms, distributing any products of sums.
+
+    Accepts a sympy.Expr, a sympy.Poly, or a (Python or NumPy) integer, and always returns a tuple
+    of single-term monomials.  For example, (1 + x) * (1 + y) becomes (1, x, y, x*y), while a lone
+    monomial or constant such as 2 * x or 5 becomes a one-element tuple.
+    """
+    if isinstance(polynomial, sympy.Poly):
+        polynomial = polynomial.as_expr()
+    # sympify integers into SymPy objects, then expand so that make_args sees a sum of monomials
+    return sympy.Add.make_args(sympy.sympify(polynomial).expand())
+
+
 def get_coefficient_and_exponents(
     monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
 ) -> tuple[int, list[tuple[sympy.Symbol, int]]]:
