@@ -42,7 +42,15 @@ from typing_extensions import Self
 import qldpc
 from qldpc import external
 
-from .groups import AbelianGroup, CyclicGroup, Group, GroupMember, TrivialGroup, resolve_field
+from .groups import (
+    AbelianGroup,
+    CyclicGroup,
+    Group,
+    GroupMember,
+    TrivialGroup,
+    iter_monomial_terms,
+    resolve_field,
+)
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
@@ -200,36 +208,22 @@ class GroupRing:
         self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
     ) -> RingMember:
         """Convert a SymPy expression (such as a polynomial) into a member of this ring."""
-        if isinstance(expression, sympy.Expr):
-            # distribute products of sums, such as (1 + x) * (1 + y), into a sum of monomials
-            expression = expression.expand()
-
-        if isinstance(expression, (sympy.Poly, sympy.Add)):
-            # evaluate the (now-expanded) polynomial one monomial term at a time
-            terms = sympy.Add.make_args(expression.as_expr())
-            evaluated_terms = (self._eval_monomial(term, symbols) for term in terms)
-            return functools.reduce(operator.add, evaluated_terms)
-
-        return self._eval_monomial(expression, symbols)
-
-    def _eval_monomial(
-        self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
-    ) -> RingMember:
-        """Convert a single SymPy monomial into a member of this ring."""
         # helpful error message for invalid symbols
         if any(not isinstance(value, GroupMember) for value in symbols.values()):
             raise ValueError("The symbols passed to Ring.eval must be GroupMember-valued")
 
-        # if applicable, convert python integers into SymPy integers
-        if isinstance(expression, (int, np.int_)):
-            expression = sympy.Integer(expression)
+        # sum the ring members obtained by evaluating each monomial term of the polynomial
+        terms = (self._eval_monomial(term, symbols) for term in iter_monomial_terms(expression))
+        return functools.reduce(operator.add, terms, self.zero)
 
-        # factor this term into its coefficient and variable content
-        _coeff, monomial = expression.as_coeff_Mul()
+    def _eval_monomial(
+        self, monomial: sympy.Expr, symbols: dict[sympy.Symbol, GroupMember]
+    ) -> RingMember:
+        """Convert a single SymPy monomial into a member of this ring."""
+        # split the monomial into its integer coefficient and its group-element content
+        _coeff, group_content = monomial.as_coeff_Mul()
         coeff = self._eval_int(int(_coeff))
-
-        # construct and return a member of this ring
-        group_member = self.group.eval(monomial, symbols)
+        group_member = self.group.eval(group_content, symbols)
         return RingMember(self, (coeff, group_member))
 
     def _eval_int(self, value: int) -> galois.FieldArray:
