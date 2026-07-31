@@ -45,7 +45,7 @@ dependencies = [
 ]
 optional-dependencies.dev = [
   "checks-superstaq>=0.5.62",
-  "docformatter>=1.5",            # docstring formatting, run by checks/format_.py
+  "docformatter>=1.7.8",          # docstring formatting, run by checks/format_.py
   "jupyter>=1.1.1",
   "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
   "pyproject-fmt>=2",             # pyproject.toml formatting, run by checks/format_.py
