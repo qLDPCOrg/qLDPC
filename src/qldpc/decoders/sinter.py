@@ -163,7 +163,10 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
         )
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Alias for CompiledSinterDecoder.decode_shots.  Predicts observable flips."""
+        """Alias for CompiledSinterDecoder.decode_shots.
+
+        Predicts observable flips.
+        """
         syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
         return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
@@ -218,12 +221,12 @@ class SubgraphDecoder(SinterDecoder):
     A SubgraphDecoder splits the Tanner graph of a detector error model into subgraphs, and decodes
     these subgraphs independently.  Each subgraph is defined by a subset of detectors, S.  When
     compiling a SubgraphDecoder for a specific detector error model D, this decoder constructs, for
-    each subgraph S, a smaller detector error model D_S that restricts D to the detectors in S and
-    the error mechanisms that flip the detectors in S.
+    each subgraph S, a smaller detector error model ``D_S`` that restricts D to the detectors in S
+    and the error mechanisms that flip the detectors in S.
 
-    A SubgraphDecoder may optionally assign each subgraph S a set of observables, O_S, in which case
-    the subgraph detector error model D_S only considers (and predicts corrections for) the
-    observables in O_S.
+    A SubgraphDecoder may optionally assign each subgraph S a set of observables, ``O_S``, in which
+    case the subgraph detector error model ``D_S`` only considers (and predicts corrections for) the
+    observables in ``O_S``.
 
     As an example, a SubgraphDecoder is useful for independently decoding the X and Z sectors of a
     CSS code.
@@ -516,9 +519,9 @@ class _ExpandedWindowDecoder(Decoder):
 
     The SequentialWindowDecoder restricts a DEM to a "window" before passing the DEM to a decoder
     for that window.  Restricting a DEM may result in equivalent error mechanisms that end up
-    getting merged, which causes the restricted + simplified DEM to have fewer errors in the
-    window than the un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM
-    to equivalent errors in the original DEM.
+    getting merged, which causes the restricted + simplified DEM to have fewer errors in the window
+    than the un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM to
+    equivalent errors in the original DEM.
     """
 
     def __init__(self, decoder: Decoder, window_dem: stim.DetectorErrorModel) -> None:
@@ -657,8 +660,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
     A SlidingWindowDecoder is a SequentialWindowDecoder whose windows are constructed by grouping
     detectors based on a time coordinate.  The amount of overlapping rounds between adjacent windows
     is determined by the window size and stride.  For example, a window size of w and a stride of s
-    indicates adjacent windows will overlap on w - s rounds.  The "commit region" for each window
-    therefore corresponds to the first s rounds in the window.
+    indicates adjacent windows will overlap on ``w - s`` rounds.  The "commit region" for each
+    window therefore corresponds to the first s rounds in the window.
 
     Visually::
 

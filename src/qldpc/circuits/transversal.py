@@ -34,7 +34,7 @@ from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decod
 
 @restrict_to_qubits
 def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Circuit:
-    """Get a physical circuit for a transversal logical S = diag(1, i) gate of the code.
+    """Get a physical circuit for a transversal logical ``S = diag(1, i)`` gate of the code.
 
     The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts
     a logical S gate on every logical qubit of the code.

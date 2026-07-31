@@ -41,7 +41,7 @@ DenseIntegerArrayType = TypeVar("DenseIntegerArrayType", galois.FieldArray, npt.
 
 @functools.cache
 def log_choose(n: int, k: int) -> float:
-    """Natural logarithm of (n choose k) = n! / ( k! * (n-k)! )."""
+    """Natural logarithm of ``(n choose k) = n! / ( k! * (n-k)! )``."""
     return (
         scipy.special.gammaln(n + 1)
         - scipy.special.gammaln(k + 1)
@@ -77,9 +77,9 @@ def symplectic_conjugate(vectors: DenseIntegerArrayType) -> DenseIntegerArrayTyp
     """Take symplectic vectors to their duals.
 
     The symplectic conjugate of a Pauli string swaps its X and Z support, and multiplies its Z
-    sector by -1, taking Q = ``[Q_x|Q_z]`` -> ``[Q_z|-Q_x]``, such that the symplectic inner
-    product between Pauli strings P and Q is ⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @
-    symplectic_conjugate(Q).
+    sector by -1, taking ``Q = [Q_x|Q_z] -> [Q_z|-Q_x]``, such that the symplectic inner product
+    between Pauli strings P and Q is
+    ``⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @ symplectic_conjugate(Q)``.
     """
     assert vectors.shape[-1] % 2 == 0
     conjugated_vectors = vectors.copy().reshape(-1, 2, vectors.shape[-1] // 2)[:, ::-1, :]
@@ -176,7 +176,7 @@ def block_matrix(
 
 
 def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois.FieldArray:
-    """Construct a dual basis, for which dual_basis @ basis.T = identity_matrix."""
+    """Construct a dual basis, for which ``dual_basis @ basis.T = identity_matrix``."""
     if validate and (
         basis.shape[0] > basis.shape[1] or np.linalg.matrix_rank(basis) != basis.shape[0]
     ):
@@ -193,9 +193,9 @@ def get_orthonormal_basis(
 ) -> galois.FieldArray | None:
     """An orthonormal basis for the row space of a matrix over a finite field.
 
-    Given a matrix whose rows span a subspace V of GF(q)^n, return a matrix L whose rows are a
-    basis for V with L @ L.T = identity -- that is, a basis of V whose vectors each have
-    self-overlap v @ v = 1 and are pairwise orthogonal under the dot product.  If V has no such
+    Given a matrix whose rows span a subspace V of ``GF(q)^n``, return a matrix L whose rows are a
+    basis for V with ``L @ L.T = identity`` -- that is, a basis of V whose vectors each have
+    self-overlap ``v @ v = 1`` and are pairwise orthogonal under the dot product.  If V has no such
     basis, return None.
 
     The rows of the matrix may be linearly dependent; they are first reduced to a basis of V.  Pass
@@ -204,9 +204,9 @@ def get_orthonormal_basis(
     An orthonormal basis for V exists if and only if (a) V is nondegenerate, meaning no nonzero
     vector of V is orthogonal to all of V, and (b), according to the field's characteristic:
 
-    - over a field of characteristic 2, some vector of V has nonzero self-overlap v @ v;
+    - over a field of characteristic 2, some vector of V has nonzero self-overlap ``v @ v``;
     - over a field of odd characteristic, an even number of the vectors in any mutually orthogonal
-      basis of V have a self-overlap with no square root in GF(q).
+      basis of V have a self-overlap with no square root in ``GF(q)``.
 
     The construction is a variant of Gram-Schmidt orthogonalization; the characteristic-2 case
     follows Algorithm 1 and Lemma 2 of arXiv:2503.19790.
@@ -229,11 +229,12 @@ def get_orthonormal_basis(
 def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldArray] | None:
     """Try to orthonormalize linearly independent vectors over a field of characteristic 2.
 
-    Reduce the row space to mutually orthogonal "unit" vectors u with u @ u = 1 and "hyperbolic
-    pairs" (b, c) with b @ b = c @ c = 0 and b @ c = 1 (Algorithm 1 of arXiv:2503.19790).  Every
-    element of a characteristic-2 field is a square, so any vector with nonzero self-overlap can be
-    rescaled to a unit vector.  Lemma 2 of arXiv:2503.19790 then rewrites one unit vector and one
-    hyperbolic pair into three unit vectors, eliminating every hyperbolic pair.
+    Reduce the row space to mutually orthogonal "unit" vectors u with ``u @ u = 1`` and "hyperbolic
+    pairs" (b, c) with ``b @ b = c @ c = 0`` and ``b @ c = 1``
+    (Algorithm 1 of arXiv:2503.19790).  Every element of a characteristic-2 field is a square, so
+    any vector with nonzero self-overlap can be rescaled to a unit vector.  Lemma 2 of
+    arXiv:2503.19790 then rewrites one unit vector and one hyperbolic pair into three unit vectors,
+    eliminating every hyperbolic pair.
     """
     units: list[galois.FieldArray] = []  # vectors u with u @ u = 1
     pairs: list[tuple[galois.FieldArray, galois.FieldArray]] = []  # (b, c) with b @ c = 1
@@ -274,18 +275,18 @@ def _orthonormalize_odd(
     """Try to orthonormalize linearly independent vectors over a field of odd characteristic.
 
     First, find an orthogonal basis in which each vector has nonzero self-overlap (with Gram-Schmidt
-    orthogonalization): at each step, pick a vector with nonzero self-overlap v @ v and subtract
+    orthogonalization): at each step, pick a vector with nonzero self-overlap ``v @ v`` and subtract
     its projection from the others.  Out of the remaining null vectors (with zero self-overlap), if
-    a pair (u, v) have nonzero overlap u @ v, then their sum has nonzero self-overlap (in a field
-    with odd characteristic), (u + v) @ (u + v) = 2 * u @ v, so replace u <- u + v, and
-    orthogonalize remaining vectors against u.  If no remaining null vectors have nonzero overlap,
-    no orthonormal basis exists.
+    a pair (u, v) have nonzero overlap ``u @ v``, then their sum has nonzero self-overlap
+    (in a field with odd characteristic), ``(u + v) @ (u + v) = 2 * u @ v``, so replace
+    ``u <- u + v``, and orthogonalize remaining vectors against u.  If no remaining null vectors
+    have nonzero overlap, no orthonormal basis exists.
 
     A vector with nonzero self-overlap can be rescaled to a unit vector (self-overlap 1) exactly
-    when its self-overlap has a square root in the field, by taking v -> v / sqrt(v @ v).  Vectors
-    with non-square self-overlaps cannot be rescaled on their own, but a pair of them may be
-    combined into two unit vectors, allowing an orthonormal basis when the number of such vectors
-    is even.
+    when its self-overlap has a square root in the field, by taking ``v -> v / sqrt(v @ v)``.
+    Vectors with non-square self-overlaps cannot be rescaled on their own, but a pair of them may
+    be combined into two unit vectors, allowing an orthonormal basis when the number of such
+    vectors is even.
     """
     # diagonalize: build an orthogonal basis of vectors with nonzero self-overlap
     diagonal: list[tuple[galois.FieldArray, galois.FieldArray]] = []
@@ -345,7 +346,7 @@ def _combine_null_vectors(words: list[galois.FieldArray]) -> int | None:
 def _sum_of_two_squares(
     field: type[galois.FieldArray], target: galois.FieldArray
 ) -> tuple[galois.FieldArray, galois.FieldArray]:
-    """Field elements (a, b) with a**2 + b**2 == target; these exist in odd characteristic."""
+    """Field elements (a, b) with ``a**2 + b**2 == target``; these exist in odd characteristic."""
     for alpha in field.elements:  # roughly half of all "alpha" succeed, so this exits quickly
         remainder = target - alpha * alpha
         if field.is_square(remainder):
@@ -356,7 +357,7 @@ def _sum_of_two_squares(
 def _sqrt(value: galois.FieldArray) -> galois.FieldArray:
     """A square root of a (0-dimensional) field element that is known to be a square.
 
-    Delegates to np.sqrt, which computes finite-field square roots but must be given an array
-    rather than a 0-dimensional scalar (which it rejects over some extension fields).
+    Delegates to np.sqrt, which computes finite-field square roots but must be given an array rather
+    than a 0-dimensional scalar (which it rejects over some extension fields).
     """
     return np.sqrt(np.atleast_1d(value))[0]

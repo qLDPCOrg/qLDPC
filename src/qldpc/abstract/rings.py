@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 class GroupRing:
     """A finite group algebra over a finite field.
 
-    The base field is GF(2) by default.
+    The base field is ``GF(2)`` by default.
     """
 
     _group: Group
@@ -132,7 +132,7 @@ class GroupRing:
 
     @functools.cached_property
     def group_trace_matrix(self) -> galois.FieldArray:
-        """Construct the matrix for a trace over the group: r -> sum_{g in G} g r g^{-1}."""
+        """Construct the matrix for a trace over the group: ``r -> sum_{g in G} g r g^{-1}``."""
         adjoints = [self.group.adjoint_lift(gg).view(self.field) for gg in self.group.generate()]
         return functools.reduce(operator.add, adjoints).view(self.field)
 
@@ -153,11 +153,11 @@ class GroupRing:
 
         A representation satisfies
 
-            self.lift(g·h) = self.lift(g) @ self.lift(h).
+            ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
 
         If right=True, lift to an anti-representation, for which
 
-            self.lift(g·h) = self.lift(h) @ self.lift(g).
+            ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
         return self.group.lift(member, right=right).view(self.field)
 
@@ -178,7 +178,7 @@ class GroupRing:
         - square to themselves (they are idempotent),
         - commute with all other elements of the ring (they lie in the ring's center), and
         - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
-        Two idempotents g, h are orthogonal if g * h = h * g = 0.
+        Two idempotents g, h are orthogonal if ``g * h = h * g = 0``.
 
         Intuitively, primitive central idempotents idempotents act like projectors onto orthogonal
         simple components of a ring.
@@ -249,10 +249,10 @@ class GroupRing:
 
 
 class RingMember:
-    """An element of the algebra of a group G over a finite field F_q.
+    """An element of the algebra of a group G over a finite field ``F_q``.
 
     Each RingMember x is a sum of group members with coefficients in the field:
-    x = sum_{g in G} x_g g, with each x_g in F_q.
+    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.
     """
 
     _ring: GroupRing
@@ -430,11 +430,11 @@ class RingMember:
 
         A representation satisfies
 
-            self.lift(g·h) = self.lift(g) @ self.lift(h).
+            ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
 
         If right=True, lift to an anti-representation, for which
 
-            self.lift(g·h) = self.lift(h) @ self.lift(g).
+            ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
         return sum(
             (val * self.ring.lift(member, right=right) for val, member in self if val),
@@ -468,9 +468,9 @@ class RingMember:
     def T(self) -> RingMember:
         """Transpose of this element.
 
-        If this element is x = sum_{g in G) x_g g, return x.T = sum_{g in G} x_g g.T, where g.T is
-        the group member for which the lift L(g.T) = L(g).T.  The fact that group members get lifted
-        to orthogonal matrices implies that g.T = ~g = g**-1.
+        If this element is ``x = sum_{g in G) x_g g``, return ``x.T = sum_{g in G} x_g g.T``,
+        where g.T is the group member for which the lift ``L(g.T) = L(g).T``.  The fact that
+        group members get lifted to orthogonal matrices implies that ``g.T = ~g = g**-1``.
         """
         new_element = self.ring.zero
         for val, member in self:
@@ -494,7 +494,7 @@ class RingMember:
 
     @classmethod
     def from_vector(cls, vector: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingMember:
-        """Construct a group algebra element from vector of coefficients, (x_g : g in G)."""
+        """Construct a group algebra element from vector of coefficients, ``(x_g : g in G)``."""
         if isinstance(vector, (GroupRing, Group)):
             warnings.warn(
                 "Check argument order: it should be RingMember.from_vector(vector, ring)."
@@ -508,7 +508,7 @@ class RingMember:
         return RingMember(ring, *terms)
 
     def to_vector(self) -> galois.FieldArray:
-        """Convert this group algebra element into a vector of coefficients, (x_g : g in G)."""
+        """Convert this group algebra element into a vector of coefficients, ``(x_g : g in G)``."""
         vector = self.field.Zeros(self.group.order)
         for val, member in self:
             vector[self.group.index(member)] = val
@@ -662,7 +662,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Conjugate-transpose of a matrix over a ring.
 
         In addition to transposing the first two indices of the array, this method "conjugates" or
-        "transposes" each array element, which takes group members g -> ~g = g**-1.
+        "transposes" each array element, which takes group members ``g -> ~g = g**-1``.
         """
         return (~self).transpose(1, 0, *np.arange(2, self.ndim))
 
@@ -718,9 +718,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def to_field_array(self) -> galois.FieldArray:
         """Convert a RingArray into an array of coefficients (in a finite field) for each entry.
 
-        This method expands every entry of a RingArray into a vector of length ring.group.order.
-        If ring_array is two-dimensional, for example, then ring_array.to_field_array()[a, b, :] is
-        the vector of coefficients for the RingMember at ring_array[a, b].
+        This method expands every entry of a RingArray into a vector of length ring.group.order. If
+        ring_array is two-dimensional, for example, then ring_array.to_field_array()[a, b, :] is the
+        vector of coefficients for the RingMember at ring_array[a, b].
         """
         vals = [val.to_vector() for val in self.ravel()]
         return np.asarray(vals, dtype=int).reshape(*self.shape, self.group.order).view(self.field)
@@ -839,9 +839,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         whereby an element v that is...
 
             - in the row span of the matrix, and
-            - has j leading zeros, meaning = (0_1, 0_2, ..., 0_j, v_{j+1}, ...),
+            - has j leading zeros, meaning ``= (0_1, 0_2, ..., 0_j, v_{j+1}, ...)``,
 
-        can be written as a linear combinations of rows whose pivots are at position k >= j.
+        can be written as a linear combinations of rows whose pivots are at position ``k >= j``.
 
         The Howell property is enforced as follows: if a row r has a pivot p with a nontrivial left
         annihilator α, meaning::
@@ -850,7 +850,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             α·p  = 0,
             α·r != 0,
 
-        then the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
+        then the row r is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the matrix.
 
         If right is True, the Howell property is instead enforced for nontrivial right
         annihilators::
@@ -859,7 +859,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             p·α  = 0,
             r·α != 0,
 
-        for which the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
+        for which the row r is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the
+        matrix.
         The ordinary HNF and right-HNF are equal for a RingArray over a commutative ring.
 
         The HNF of a RingArray over a commutative ring is unique.  For non-commutative rings, the
@@ -973,8 +974,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             """Multiply a member of a polynomial ring into a ring-valued matrix.
 
             The first argument represents a ring member by a polynomial, while the second argument
-            represents a (vecs.ndim-1)-dimensional array of polynomials, such that
-            vecs[*entry, c] is the coefficient of x^c in the given entry of vec.
+            represents a (vecs.ndim-1)-dimensional array of polynomials, such that vecs[*entry, c]
+            is the coefficient of x^c in the given entry of vec.
             """
             new_vecs = vecs.Zeros(vecs.shape)
             for coeff, degree in zip(poly.nonzero_coeffs, poly.nonzero_degrees):
@@ -1099,9 +1100,9 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     """Compute a block-Howell normal form of the provided block matrix.
 
     The provided matrix should be 4-dimensional, with matrix[i, j] storing a square block at (i, j).
-    The block-Howell form is essentially the same as the row-reduced echelon form when the matrix
-    is expanded into a 2-dimensional array, except zero rows are inserted to shift pivots down so
-    that they always lie on the diagonal of a block.
+    The block-Howell form is essentially the same as the row-reduced echelon form when the matrix is
+    expanded into a 2-dimensional array, except zero rows are inserted to shift pivots down so that
+    they always lie on the diagonal of a block.
     """
     shape: tuple[int, ...]
 

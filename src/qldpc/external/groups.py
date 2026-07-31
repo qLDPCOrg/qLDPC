@@ -237,8 +237,8 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
 def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GeneratorsList:
     """Parse newline-separated GAP permutations.
 
-    As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)].
-    This function returns a list of permutations; one for each line in the input string.
+    As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)]. This function returns a
+    list of permutations; one for each line in the input string.
     """
     parsed_permutations = []
     for line in permutations.strip().splitlines():
@@ -306,7 +306,7 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
     - commute with all other elements of the ring (they lie in the ring's center), and
     - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
 
-    Two idempotents g, h are orthogonal if g * h = h * g = 0.
+    Two idempotents g, h are orthogonal if ``g * h = h * g = 0``.
 
     Intuitively, primitive central idempotents act like projectors onto orthogonal components of a
     ring.

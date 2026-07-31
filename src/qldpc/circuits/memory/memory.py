@@ -92,7 +92,7 @@ def get_memory_experiment(
     1. Prepare a logical all-``|0>`` state of the code.
     2. For each logical qubit of the code, prepare an ancilla qubit in ``|+>``, and apply an
         ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
-        ``|00>`` + ``|11>`` of logical qubits with their respective ancillas.
+        ``|00> + |11>`` of logical qubits with their respective ancillas.
     3. Perform a logical QEC cycle as before, but now adding detectors for all stabilizers.
     4. Measure all stabilizers (with MPP gates).
 

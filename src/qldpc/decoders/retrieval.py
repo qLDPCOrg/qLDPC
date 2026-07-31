@@ -47,7 +47,10 @@ def decode(
     syndrome: npt.NDArray[np.int_],
     **decoder_args: object,
 ) -> npt.NDArray[np.int_]:
-    """Construct a decoder and decode a syndrome.  Return the result of decoding."""
+    """Construct a decoder and decode a syndrome.
+
+    Return the result of decoding.
+    """
     decoder = get_decoder(pcm_or_dem, **decoder_args)
     return decoder.decode(syndrome)
 
@@ -109,7 +112,7 @@ def get_decoder_BP_OSD(
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
         error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
-            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a matrix, the error_channel defaults to ``[error_rate] * num_errors``.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
         **decoder_args: Additional keyword arguments passed to ldpc.BpOsdDecoder.
@@ -144,7 +147,7 @@ def get_decoder_BP_LSD(
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
         error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
-            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a matrix, the error_channel defaults to ``[error_rate] * num_errors``.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
         **decoder_args: Additional keyword arguments passed to ldpc.bplsd_decoder.BpLsdDecoder.
@@ -179,7 +182,7 @@ def get_decoder_BF(
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
         error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
-            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a matrix, the error_channel defaults to ``[error_rate] * num_errors``.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.

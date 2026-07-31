@@ -224,7 +224,7 @@ class LookupDecoder:
     from the DEM, which are used as described below.
 
     In addition to a PCM, this decoder needs to be initialized with some choice of ``max_weight``.
-    The decoder enumerates all errors with weight <= ``max_weight`` in order of decreasing weight.
+    The decoder enumerates all errors with ``weight <= max_weight`` in order of decreasing weight.
     For each ``error``, the decoder computes the corresponding ``syndrome``, and nominally adds an
     ``syndrome -> error`` entry to the lookup table, overriding any past entry for ``syndrome``.
 
@@ -242,7 +242,7 @@ class LookupDecoder:
     that syndrome, which may be different from the single most likely error.  Concretely: errors
     consistent with a given syndrome are grouped by their observable flip value; the total
     probability of each group is the sum of the probabilities of its member errors, restricted to
-    the errors of weight <= ``max_weight`` that this decoder enumerates.  This decoder then assigns
+    the errors of ``weight <= max_weight`` that this decoder enumerates.  This decoder then assigns
     each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
     total probability.
 
@@ -265,7 +265,7 @@ class LookupDecoder:
     ``observable_flip_matrix``), this decoder handles ambiguous syndromes -- those consistent with
     more than one observable flip -- by declining to guess unless one flip is clearly dominant.
     Letting ``prob_top`` and ``prob_rest`` be the net probabilities of the most likely observable
-    flip and of all other flips combined (summed over the enumerated weight <= ``max_weight``
+    flip and of all other flips combined (summed over the enumerated ``weight <= max_weight``
     errors, grouped as above), the decoder assigns the most likely flip iff it is at least
     ``confidence_ratio`` times as likely as the rest, i.e. ``prob_top >= confidence_ratio *
     prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
@@ -747,12 +747,12 @@ class ILPDecoder:
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]
     ) -> list[cvxpy.Constraint]:
-        """Build cvxpy constraints of the form `matrix @ variables == syndrome (mod q)`.
+        """Build cvxpy constraints of the form ``matrix @ variables == syndrome (mod q)``.
 
         This method uses boolean slack variables {s_j} to relax each constraint of the form
-        `expression = val mod q`
+        ``expression = val mod q``
         to
-        `expression = val + sum_j q^j s_j`.
+        ``expression = val + sum_j q^j s_j``.
         """
         import cvxpy
 
@@ -783,12 +783,12 @@ class ILPDecoder:
 class GUFDecoder:
     """The generalized Union-Find (GUF) decoder in https://arxiv.org/abs/2103.08049.
 
-    If passed a max_weight argument, this decoder tries to find an error with weight <= max_weight,
-    and returns the first such error that it finds.  If no such error is found, this decoder returns
-    the minimum-weight error that it found while trying.  Be warned that passing a max_weight makes
-    this decoder have worst-case exponential runtime.
+    If passed a max_weight argument, this decoder tries to find an error with
+    ``weight <= max_weight``, and returns the first such error that it finds.  If no such error is
+    found, this decoder returns the minimum-weight error that it found while trying.  Be warned that
+    passing a max_weight makes this decoder have worst-case exponential runtime.
 
-    If initialized with symplectic=True, this decoder treats the provided parity check matrix as
+    If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a QuditCode, with the first and last half of the columns denoting, respectively, the X
     and Z support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
     support by the first and second half of their entries.

@@ -66,10 +66,9 @@ class TrivialCode(CSSCode):
     ) -> None:
         """Initialize a trivial code with the given code parameters.
 
-        If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers.
-        If num_stabs_z is None and...
-            self_dual is False, then num_stabs is the number of Z-type stabilizers.
-            self_dual is True, then num_stabs is the total number of stabilizers.
+        If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers. If
+        num_stabs_z is None and...     self_dual is False, then num_stabs is the number of Z-type
+        stabilizers.     self_dual is True, then num_stabs is the total number of stabilizers.
         """
         field = abstract.resolve_field(field)
         dimension = size - gauge_dimension - num_stabs - num_stabs - (num_stabs_z or 0)
@@ -174,10 +173,10 @@ class QuantumHammingCode(CSSCode):
         self._distance_x = self._distance_z = 3
 
         if size == 4 and set_logicals and self.field is galois.GF2:
-            """
-            Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
-            Pinning all but the last logical qubit to |0> results in the TetrahedralCode.
-            See the docstring of the TetrahedralCode for an explanation of the comments below.
+            """Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
+
+            Pinning all but the last logical qubit to |0> results in the TetrahedralCode. See the
+            docstring of the TetrahedralCode for an explanation of the comments below.
             """
             support_x = [
                 # red / green / blue 2-cells in the middle
@@ -341,7 +340,7 @@ class QuantumGolayCode(CSSCode):
 
 
 class IcebergCode(CSSCode):
-    """A quantum error detecting code: [n, n - 2, 2].
+    """A quantum error detecting code: ``[n, n - 2, 2]``.
 
     References:
 
@@ -395,11 +394,11 @@ class TBCode(CSSCode):
 
     A TBCode code is built out of two commuting matrices A and B, which are combined to define
 
-    (a) matrix_x = [A, B], and
-    (b) matrix_z = [B.T, -A.T].
+    (a) ``matrix_x = [A, B]``, and
+    (b) ``matrix_z = [B.T, -A.T]``.
 
-    Commutativity of A and B ensures that matrix_x @ matrix_z.T = AB - BA = 0, which makes matrix_x
-    and matrix_z a valid choice of parity check matrices of a CSSCode.
+    Commutativity of A and B ensures that ``matrix_x @ matrix_z.T = AB - BA = 0``, which makes
+    matrix_x and matrix_z a valid choice of parity check matrices of a CSSCode.
 
     Two-block codes constructed out of circulant matrices (i.e., matrices chosen from a ring over an
     abelian group) are known as quasi-cyclic codes (QCCodes).
@@ -442,14 +441,15 @@ class QCCode(TBCode):
     over an abelian group to ensure that A and B commute.  More specifically, a QCCode is a CSS code
     with subcode parity check matrices
 
-    - matrix_x = [A, B], and
-    - matrix_z = [B.T, -A.T].
+    - ``matrix_x = [A, B]``, and
+    - ``matrix_z = [B.T, -A.T]``.
 
-    Here A and B are polynomials of the form A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ..., where
+    Here A and B are polynomials of the form
+    ``A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ...``, where
 
     - A_{ijk...} is a scalar coefficient (over some finite field),
-    - x, y, z, ... are generators of cyclic groups of orders R_x, R_y, R_z, ...
-    - the monomial x^i y^j z^k ... represents a tensor product of cyclic shift matrices.
+    - x, y, z, ... are generators of cyclic groups of orders ``R_x``, ``R_y``, ``R_z``, ...
+    - the monomial ``x^i y^j z^k ...`` represents a tensor product of cyclic shift matrices.
 
     A quasi-cyclic code is defined by...
     [1] a sequence of cyclic group orders, and
@@ -628,14 +628,14 @@ class BBCode(QCCode):
 
     A bivariate bicycle code is a CSS code with subcode parity check matrices
 
-    - matrix_x = [A, B], and
-    - matrix_z = [B.T, -A.T].
+    - ``matrix_x = [A, B]``, and
+    - ``matrix_z = [B.T, -A.T]``.
 
-    Here A and B are polynomials of the form A = sum_{i,j} A_{ij} x^i y^j, where
+    Here A and B are polynomials of the form ``A = sum_{i,j} A_{ij} x^i y^j``, where
 
     - A_{ij} is a scalar coefficient (over some finite field),
-    - x and y are, respectively, generators of cyclic groups of orders R_x and R_y, and
-    - the monomial x^i y^j represents a tensor product of cyclic shift matrices.
+    - x and y are, respectively, generators of cyclic groups of orders ``R_x`` and ``R_y``, and
+    - the monomial ``x^i y^j`` represents a tensor product of cyclic shift matrices.
 
     A bivariate bicycle code is defined by...
     [1] two cyclic group orders, and
@@ -657,25 +657,27 @@ class BBCode(QCCode):
     - X are check qubits measure X-type parity checks, and are associated with rows of matrix_x.
     - Z are check qubits measure Z-type parity checks, and are associated with rows of matrix_z.
 
-    These four-qubit plaquettes are arranged into a rectangular grid that is R_x plaquettes wide and
-    R_y plaquettes tall, where R_x and R_y are the orders of the cyclic groups generated by x and y.
+    These four-qubit plaquettes are arranged into a rectangular grid that is ``R_x`` plaquettes
+    wide and ``R_y`` plaquettes tall, where ``R_x`` and ``R_y`` are the orders of the cyclic
+    groups generated by x and y.
     Each qubit can then be labeled by coordinates (a, b) of a plaquette, corresponding to a row
     and column in the grid of plaquettes, and a "sector" (L, R, X, or Z) within a plaquette.
 
-    If we associate (L, R) ~ (0, 1), then the data qubit addressed by column qq of matrix_x (or
-    matrix_z) has the label (sector, a, b) = numpy.unravel_index(qq, [2, R_x, R_y]).  The integer
-    index of a data qubit its label are thereby related to each other by array reshaping.  The label
-    of a check qubit, whose numerical index is the index of a corresponding row in the full parity
-    check matrix of a BBCode, is similarly obtained by associating (X, Z) ~ (0, 1).
+    If we associate ``(L, R) ~ (0, 1)``, then the data qubit addressed by column qq of matrix_x
+    (or matrix_z) has the label (sector, a, b) = numpy.unravel_index(qq, [2, ``R_x``, ``R_y``]).
+    The integer index of a data qubit its label are thereby related to each other by array
+    reshaping.  The label of a check qubit, whose numerical index is the index of a corresponding
+    row in the full parity check matrix of a BBCode, is similarly obtained by associating
+    ``(X, Z) ~ (0, 1)``.
 
     The connections between data and check qubits can be read directly from the polynomials A and B:
 
-    - If A_{ij} != 0, then...
+    - If ``A_{ij} != 0``, then...
 
       - every X qubit addresses an L qubit that is (i, j) plaquettes (right, up), and
       - every Z qubit addresses an R qubit that is (i, j) plaquettes (left, down).
 
-    - If B_{ij} != 0, then...
+    - If ``B_{ij} != 0``, then...
 
       - every X qubit addresses an R qubit that is (i, j) plaquettes (right, up), and
       - every Z qubit addresses an L qubit that is (i, j) plaquettes (left, down).
@@ -784,31 +786,31 @@ class BBCode(QCCode):
     ) -> Sequence[tuple[tuple[int, int], sympy.Poly, sympy.Poly]]:
         """Get the generating data for equivalent BBCodes with "manifestly toric" layouts.
 
-        For simplicity, we consider BBCodes for qubits (with base field F_2) in the text below.
+        For simplicity, we consider BBCodes for qubits (with base field ``F_2``) in the text below.
 
         A BBCode has a manifestly toric layout if it is generated by polynomials that look like
 
-            poly_a = 1 + x + ..., and
-            poly_b = 1 + y + ...,
+            ``poly_a = 1 + x + ...``, and
+            ``poly_b = 1 + y + ...``,
 
         We say that two BBCodes are "equivalent" if they can be obtained from one another by a
         permutation of data and check qubits.
 
         To find an equivalent BBCode with a manifestly toric layout, we take
 
-            poly_a = sum_j A_j --> poly_a / A_k = 1 + sum_{j != k} A_j/A_k, and
-            poly_b = sum_j B_j --> poly_b / B_l = 1 + sum_{j != l} B_j/B_l.
+            ``poly_a = sum_j A_j --> poly_a / A_k = 1 + sum_{j != k} A_j/A_k``, and
+            ``poly_b = sum_j B_j --> poly_b / B_l = 1 + sum_{j != l} B_j/B_l``.
 
-        Each pair of terms (A_j/A_k, B_j/B_l) is then a candidate for cyclic group generators (g, h)
-        for an equivalent BBCode.
+        Each pair of terms ``(A_j/A_k, B_j/B_l)`` is then a candidate for cyclic group generators
+        (g, h) for an equivalent BBCode.
 
         This modification of polynomials and change-of-basis from the original generators (x, y)
         to (g, h) produces an equivalent BBCode so long as g and h satisfy the conditions in Lemma 4
         of arXiv:2308.07915, which boils down to the requirement that
 
-            order(g) * order(h) = order(<g, h>) = order(<x, y>),
+            ``order(g) * order(h) = order(<g, h>) = order(<x, y>)``,
 
-        where (for example) <x, y> is the abelian group generated by x and y.
+        where (for example) ``<x, y>`` is the abelian group generated by x and y.
         """
         if not nx.is_weakly_connected(self.graph):
             # a connected tanner graph is required for a toric layout to exist
@@ -864,7 +866,7 @@ class BBCode(QCCode):
         return toric_layout_generating_data
 
     def as_exponent_vector(self, monomial: sympy.Mul) -> tuple[int, int]:
-        """Express the given monomial as a vector of exponents, as in x**3/y**2 -> (3, -2)."""
+        """Express the given monomial as a vector of exponents, as in ``x**3/y**2 -> (3, -2)``."""
         _, _exponents = abstract.get_coefficient_and_exponents(monomial)
         exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
         return (exponents.get(self.symbols[0], 0), exponents.get(self.symbols[1], 0))
@@ -906,7 +908,9 @@ class BBCode(QCCode):
     def modular_inverse(
         self, basis: tuple[tuple[int, int], tuple[int, int]], aa: int, bb: int
     ) -> tuple[int, int]:
-        """Brute force: solve xx * basis[0] + yy * basis[1] == (aa, bb) % self.orders for xx, yy.
+        """Brute-force solve for the basis coefficients ``xx, yy`` of a target vector.
+
+        Solves ``xx * basis[0] + yy * basis[1] == (aa, bb) % self.orders`` for ``xx, yy``.
 
         If provided orders, treat them as the orders of the basis vectors.
         """
@@ -1036,11 +1040,11 @@ class HGPCode(CSSCode):
 
         The parity check matrices of the hypergraph product code are:
 
-        matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]
-        matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]
+        ``matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]``
+        ``matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]``
 
-        Here (H1, H2) == (matrix_a, matrix_b), and I[m/n][1/2] are identity matrices,
-        with (m1, n1) = H1.shape and (m2, n2) = H2.shape.
+        Here ``(H1, H2) == (matrix_a, matrix_b)``, and ``I[m/n][1/2]`` are identity matrices,
+        with ``(m1, n1) = H1.shape`` and ``(m2, n2) = H2.shape``.
 
         A minus sign in one sector of matrix_x or matrix_z is necessary to satisfy CSS code
         requirements with nonbinary fields.  The placement of this sign is chosen for consistency
@@ -1349,8 +1353,8 @@ class SHPCode(CSSCode):
     is built from; in particular, an SHPCode does not depend on the choice of parity check matrices
     for the underlying classical codes.
 
-    If the classical generating codes of an SHPCode have code parameters [n1, k1, d1], [n2, k2, d2],
-    the SHPCode has parameters [n1 n2, k1 k2, min(d1, d2)].
+    If the classical generating codes of an SHPCode have code parameters ``[n1, k1, d1]`` and
+    ``[n2, k2, d2]``, the SHPCode has parameters ``[n1 n2, k1 k2, min(d1, d2)]``.
 
     References:
 
@@ -1441,9 +1445,9 @@ class LPCode(CSSCode):
 
     A lifted product code is essentially the same as a hypergraph product code, except that the
     parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
-    over a finite field F_q.  Each of these entries can be "lifted" to a representation as
-    orthogonal matrices over F_q, in which case the RingArray is interpreted as a block matrix; this
-    is called "lifting" the RingArray.
+    over a finite field ``F_q``.  Each of these entries can be "lifted" to a representation as
+    orthogonal matrices over ``F_q``, in which case the RingArray is interpreted as a block
+    matrix; this is called "lifting" the RingArray.
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
@@ -1472,14 +1476,15 @@ class LPCode(CSSCode):
 
     Notes:
 
-    - A lifted product code with RingArrays of size 1×1 is a two-block code (more specifically, a
-        two-block group-algebra code).  If the base group of the RingArrays is a cyclic group, the
-        resulting lifted product code is a generalized bicycle code.
-    - A lifted product code with RingArrays whose entries get lifted to 1×1 matrices is a
+    - A lifted product code with RingArrays of size ``1×1`` is a two-block code (more
+        specifically, a two-block group-algebra code).  If the base group of the RingArrays is a
+        cyclic group, the resulting lifted product code is a generalized bicycle code.
+    - A lifted product code with RingArrays whose entries get lifted to ``1×1`` matrices is a
         hypergraph product code built from the lifted RingArrays.
     - One way to get an LPCode: take a classical code with parity check matrix H and multiply it by
-        a diagonal matrix D = diag(a_1, a_2, ... a_n), where all {a_j} are elements of a group
-        algebra.  The RingArray P = H @ D can then be used for one of the RingArrays of an LPCode.
+        a diagonal matrix ``D = diag(a_1, a_2, ... a_n)``, where all ``{a_j}`` are elements of a
+        group algebra.  The RingArray ``P = H @ D`` can then be used for one of the RingArrays of
+        an LPCode.
 
     References:
 
@@ -1715,7 +1720,7 @@ class QTCode(CSSCode):
     Altogether, a quantum Tanner code is defined by:
 
     - two symmetric (self-inverse) subsets A and B of a group G, and
-    - two classical codes C_A and C_B, respectively with block lengths ``|A|`` and ``|B|``.
+    - two classical codes ``C_A`` and ``C_B``, respectively with block lengths ``|A|`` and ``|B|``.
 
     The qudits of a quantum Tanner code live on the faces of a Cayley complex built out of A and B.
     Each face of the Cayley complex looks like:
@@ -1726,15 +1731,16 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-    where (g,a,b) is an element of (G,A,B), and f(g,a,b) = {g, ab, gb, agb}.  We define two
+    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ab, gb, agb}``.  We define two
     (directed) subgraphs on the Cayley complex:
 
-    - subgraph_x with edges ( g, f(g,a,b)), and
-    - subgraph_z with edges (ag, f(g,a,b)).
+    - subgraph_x with edges ``( g, f(g,a,b))``, and
+    - subgraph_z with edges ``(ag, f(g,a,b))``.
 
     The X-type parity checks of a quantum Tanner code are then given by the classical Tanner code on
-    subgraph_x with subcode ~(C_A ⨂ C_B), where ~C is the dual code to C.  Z-type parity checks are
-    similarly given by the classical Tanner code on subgraph_z with subcode ~(~C_A ⨂ ~C_B).
+    subgraph_x with subcode ``~(C_A ⨂ C_B)``, where ``~C`` is the dual code to C.  Z-type parity
+    checks are similarly given by the classical Tanner code on subgraph_z with subcode
+    ``~(~C_A ⨂ ~C_B)``.
 
     Notes:
 
@@ -1812,19 +1818,19 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-        where f(g,a,b) = {g, ab, gb, agb}.  Specifically, the (directed) subgraphs are:
+        where ``f(g,a,b) = {g, ab, gb, agb}``.  Specifically, the (directed) subgraphs are:
 
-        - subgraph_x with edges ( g, f(g,a,b)), and
-        - subgraph_z with edges (ag, f(g,a,b)).
+        - subgraph_x with edges ``( g, f(g,a,b))``, and
+        - subgraph_z with edges ``(ag, f(g,a,b))``.
 
         Classical Tanner codes on these subgraphs are used to construct a quantum Tanner code.
 
         As a matter of practice, defining classical Tanner codes on subgraph_x and subgraph_z
         requires choosing an ordering on the edges incident to every source node of these graphs.
         If the group G is equipped with a total order, a natural ordering of edges incident to every
-        source node is induced by assigning the label (a, b) to edge (g, f(g,a,b)).  Consistency
-        then requires that edge (ag, f(g,a,b)) has label (a^-1, b), as verified by defining g' = ag
-        and checking that f(g,a,b) = f(g',a^-1,b).
+        source node is induced by assigning the label (a, b) to edge ``(g, f(g,a,b))``.  Consistency
+        then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by
+        defining ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
         """
         subset_a = cayplex.cover_subset_a
         subset_b = cayplex.cover_subset_b
@@ -2341,16 +2347,16 @@ class T4Code(CSSCode):
 
     A T4Code depends on a four-dimensional integer lattice.
     The lattice acts on Euclidean four-space by translations.
-    The quotient manifold is a four-dimensional torus T^4.
+    The quotient manifold is a four-dimensional torus ``T^4``.
     The number of physical qudits is 6 times the volume of the lattice.
-    The number of logical qudits is the dimension of the 2nd homology group of T^4, which is 6.
+    The number of logical qudits is the dimension of the 2nd homology group of ``T^4``, which is 6.
 
     Homologically, a T4Code is the topological CSS code attached to the 3-term sub-complex in the
     middle of the 5-term chain-complex
 
-        F[vertices] <- F[edges] <- F[faces] <- F[cubes] <- F[tesseracts]
+        ``F[vertices] <- F[edges] <- F[faces] <- F[cubes] <- F[tesseracts]``
 
-    of T^4 tiled by integer unit tesseracts.  Cubes have 6 faces on the boundary, and edges are
+    of ``T^4`` tiled by integer unit tesseracts.  Cubes have 6 faces on the boundary, and edges are
     incident to 6 faces, so stabilizers have weight 6.
 
     References:
@@ -2454,7 +2460,7 @@ class T4Code(CSSCode):
 
 
 class ManyHypercubeCode(CSSCode):
-    """The [6**r, 4**r, 2**r] concatenated many-hypercubes code of arXiv:2403.16054.
+    """The ``[6**r, 4**r, 2**r]`` concatenated many-hypercubes code of arXiv:2403.16054.
 
     References:
 

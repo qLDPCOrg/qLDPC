@@ -40,7 +40,7 @@ def get_distance_classical(
     Args:
         generators: The generator matrix of the classical code whose distance we want to compute.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Vectorize distance calculations over batches of size 2**block_size.
+        block_size: Vectorize distance calculations over batches of size ``2**block_size``.
         use_numba: Use numba to (maybe) speed up calculations.
 
     Returns:
@@ -74,7 +74,7 @@ def get_distance_quantum(
         logical_ops: A matrix whose rows represent logical operators of the code.
         stabilizers: A matrix whose rows represent stabilizers of the code.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Vectorize distance calculations over batches of size 2**block_size.
+        block_size: Vectorize distance calculations over batches of size ``2**block_size``.
         use_numba: Use numba to (maybe) speed up calculations.
         homogeneous: If True, all Pauli strings (represented by rows of logical_ops and stabilizers)
             are assumed to have the same homogeneous (X or Z) type.  If False, Pauli strings may

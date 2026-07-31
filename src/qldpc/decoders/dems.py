@@ -334,8 +334,8 @@ class DetectorErrorModelArrays:
     def to_circuit(self) -> stim.Circuit:
         """Convert this DEM to a synthetic stim.Circuit with the same detector error model.
 
-        Each error mechanism becomes a noisy measurement M(p) on a dedicated qubit.
-        DETECTOR and OBSERVABLE_INCLUDE instructions then reference those measurements.
+        Each error mechanism becomes a noisy measurement ``M(p)`` on a dedicated qubit. DETECTOR and
+        OBSERVABLE_INCLUDE instructions then reference those measurements.
         """
         circuit = stim.Circuit()
 
@@ -599,9 +599,8 @@ def _get_removed_det_to_removed_errors(
 ) -> list[list[int]]:
     """Map each post-selected detector to removed errors that trigger it.
 
-    More specifically, for each detector, identify errors that:
-    (1) trigger that detector, and
-    (2) do not trigger any preceding detectors.
+    More specifically, for each detector, identify errors that: (1) trigger that detector, and (2)
+    do not trigger any preceding detectors.
     """
     seen_errors: set[int] = set()
     removed_det_to_removed_errors = []

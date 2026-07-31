@@ -177,9 +177,9 @@ class Record(Mapping[Hashable, list[int]]):
         """Append the given record to this one.
 
         All event numbers in the appended record are increased by the number of events in the
-        current record.  That is, if the current record holds n events numbered from 0 to n - 1,
+        current record.  That is, if the current record holds n events numbered from 0 to ``n - 1``,
         then events (0, 1, ...) in the appended record are added to the current record as
-        (n, n+1, ...).
+        ``(n, n+1, ...)``.
         """
         assert repeat >= 0
         _record = {  # convert input record into dict[Hashable, list[int]]
@@ -198,7 +198,10 @@ class Record(Mapping[Hashable, list[int]]):
         self.num_events += num_events_in_record * repeat
 
     def __iadd__(self, other: Mapping[Hashable, Iterable[int] | int]) -> Self:
-        """Append the given record to this one.  See help(qldpc.circuits.Record.append)."""
+        """Append the given record to this one.
+
+        See help(qldpc.circuits.Record.append).
+        """
         self.append(other)
         return self
 

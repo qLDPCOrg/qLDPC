@@ -559,8 +559,8 @@ class PauliChannelSequence(AbstractPauliChannel):
     """A sequence of independent Pauli-string error mechanisms.
 
     Like :class:`PauliChannel`, this maps non-identity Pauli strings to probabilities, but the
-    entries are *independent* events rather than mutually-exclusive outcomes: each fires (or not)
-    on its own, and several may fire together.
+    entries are *independent* events rather than mutually-exclusive outcomes: each fires (or not) on
+    its own, and several may fire together.
     """
 
     def to_circuit(
@@ -1270,12 +1270,12 @@ def _is_approx_in_unit_interval(value: float, *, atol: float = _ABSOLUTE_ERROR_T
 def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
     """Return the names by which ``op`` can be matched in ``rules`` and ``rule_func``.
 
-    For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for
-    ``MPP X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than
-    the raw ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases.
-    For every other gate, this is just stim's alias list, which begins with the canonical name
-    (so ``M`` / ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield
-    ``("CNOT", "CX", "ZCX")``, etc.).
+    For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for ``MPP
+    X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than the raw
+    ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases. For every
+    other gate, this is just stim's alias list, which begins with the canonical name (so ``M`` /
+    ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield ``("CNOT", "CX",
+    "ZCX")``, etc.).
     """
     aliases = _stim_aliases(op.name)
     if op.name not in ("MPP", "SPP", "SPP_DAG"):
@@ -1326,8 +1326,8 @@ def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
 def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
     """Return the compact stim ``(name, args)`` for a 2-qubit Pauli-channel probability vector.
 
-    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls
-    back to ``PAULI_CHANNEL_2``.
+    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls back
+    to ``PAULI_CHANNEL_2``.
     """
     if _is_uniform_depolarizing(args):
         return "DEPOLARIZE2", [sum(args)]
@@ -1388,7 +1388,7 @@ def _rule_with_immunity(
     - **None immune**: apply ``rule`` unchanged.
     - **All immune**: skip noise entirely (return ``None``); the op still appears in the output
       circuit, but no ``after``, ``readout_error``, or ``reset_error`` is applied.
-    - **Mixed** (only possible for atomic k>=2 ops the splitter cannot decompose further —
+    - **Mixed** (only possible for atomic ``k>=2`` ops the splitter cannot decompose further —
       2-qubit Clifford pairs, ``MXX``/``MYY``/``MZZ``, and MPP/SPP Pauli products):
         - ``immunize_gates=True`` (default): dead simple — drop everything (``after``,
           ``readout_error``, ``reset_error``).  The gate touches an immune qubit, so no noise

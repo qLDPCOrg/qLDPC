@@ -95,8 +95,9 @@ class GroupMember(comb.Permutation):
     def __matmul__(self, other: GroupMember) -> GroupMember:
         """Take the "tensor product" of two group members.
 
-        If group members g_1 and g_2 are, respectively, elements of the groups G_1 and G_2, then the
-        "tensor product" g_1 @ g_2 is an element of the direct product of G_1 and G_2.
+        If group members ``g_1`` and ``g_2`` are, respectively, elements of the groups ``G_1`` and
+        ``G_2``, then the "tensor product" ``g_1 @ g_2`` is an element of the direct product of
+        ``G_1`` and ``G_2``.
         """
         return GroupMember(self.array_form + [val + self.size for val in other.array_form])
 
@@ -104,9 +105,9 @@ class GroupMember(comb.Permutation):
         """Lift this permutation object to a permutation matrix.
 
         For consistency with how SymPy composes permutations, the permutation matrix constructed
-        here is right-acting, meaning that it acts on a vector v as v --> v @ p.to_matrix().  This
-        convention ensures that this lift is a homomorphism on SymPy Permutation objects, which is
-        to say that (p * q).to_matrix() = p.to_matrix() @ q.to_matrix().
+        here is right-acting, meaning that it acts on a vector v as ``v --> v @ p.to_matrix()``.
+        This convention ensures that this lift is a homomorphism on SymPy Permutation objects,
+        which is to say that ``(p * q).to_matrix() = p.to_matrix() @ q.to_matrix()``.
         """
         matrix = np.zeros([self.size] * 2, dtype=int)
         for ii in range(self.size):
@@ -220,7 +221,10 @@ class Group:
 
     @property
     def is_abelian(self) -> bool:
-        """Is this group abelian?  Alias for Group.is_commutative."""
+        """Is this group abelian?
+
+        Alias for Group.is_commutative.
+        """
         return self.is_commutative
 
     @property
@@ -283,21 +287,21 @@ class Group:
         """Lift a group member to its regular representation.
 
         By default, this method lifts a group member to its left-regular representation.
-        Specifically, if Vec : G -> F_2^{``|G|``} maps group members to standard basis vectors and
-        g,h ∈ G, then
+        Specifically, if ``Vec : G -> F_2^{|G|}`` maps group members to standard basis vectors and
+        ``g,h ∈ G``, then
 
-            G.regular_lift(g) @ Vec(h) = Vec(g·h).
+            ``G.regular_lift(g) @ Vec(h) = Vec(g·h)``.
 
         If right is True, this method lifts a group member to its right-regular anti-representation,
         defined by
 
-            G.regular_lift(g, right=True) @ Vec(h) = Vec(h·g).
+            ``G.regular_lift(g, right=True) @ Vec(h) = Vec(h·g)``.
 
         The right-regular representation of group member is then
 
-            G.regular_lift(g, right=True).T = G.regular_lift(~g, right=True),
+            ``G.regular_lift(g, right=True).T = G.regular_lift(~g, right=True)``,
 
-        where ~g = g**-1 is the inverse of g.
+        where ``~g = g**-1`` is the inverse of g.
 
         See:
 
@@ -320,11 +324,12 @@ class Group:
         r"""Lift a group member to its adjoint representation.
 
         The adjoint representation captures how group members get transformed by conjugation.
-        If Vec : G -> F_2^{``|G|``} lifts group members to standard basis vectors and g,h ∈ G, then
+        If ``Vec : G -> F_2^{|G|}`` lifts group members to standard basis vectors and
+        ``g,h ∈ G``, then
 
-            adjoint_lift(g) @ Vec(h) = Vec(g·h·~g),
+            ``adjoint_lift(g) @ Vec(h) = Vec(g·h·~g)``,
 
-        where ~g = g**-1 is the inverse of g.
+        where ``~g = g**-1`` is the inverse of g.
 
         If the group is abelian, the adjoint lift of every group member is the identity matrix.
         """
@@ -341,13 +346,14 @@ class Group:
 
     @functools.cached_property
     def inversion_matrix(self) -> npt.NDArray[np.int_]:
-        """The matrix that maps any group member g ∈ G to its inverse ~g = g**-1.
+        """The matrix that maps any group member ``g ∈ G`` to its inverse ``~g = g**-1``.
 
-        If Vec : G -> F_2^{``|G|``} lifts group members to standard basis vectors and g ∈ G, then
+        If ``Vec : G -> F_2^{|G|}`` lifts group members to standard basis vectors and ``g ∈ G``,
+        then
 
-            G.inversion_matrix @ Vec(g) = Vec(~g),
+            ``G.inversion_matrix @ Vec(g) = Vec(~g)``,
 
-        where ~g = g**-1 is the inverse of g.
+        where ``~g = g**-1`` is the inverse of g.
         """
         matrix = np.zeros([self.order] * 2, dtype=int)
         for ii, gg in enumerate(self.generate()):
@@ -359,11 +365,11 @@ class Group:
 
         A representation satisfies
 
-            self.lift(g·h) = self.lift(g) @ self.lift(h).
+            ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
 
         If right=True, lift to an anti-representation, for which
 
-            self.lift(g·h) = self.lift(h) @ self.lift(g).
+            ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
         if self._lift is None:
             return self.regular_lift(member, right=right)
@@ -581,9 +587,10 @@ class TrivialGroup(Group):
 class AbelianGroup(Group):
     """Direct product of cyclic groups of the specified orders.  See CyclicGroup for more info.
 
-    By default, an AbelianGroup member of the form ∏_i g_i^{a_i}, where {g_i} are the generators of
-    the group, gets lifted to a Kronecker product ⨂_i L(g_i)^{a_i}.  If an AbelianGroup is
-    initialized with direct_sum=True, the group members get lifted to a direct sum ⨁_i L(g_i)^{a_i}.
+    By default, an AbelianGroup member of the form ``∏_i g_i^{a_i}``, where ``{g_i}`` are the
+    generators of the group, gets lifted to a Kronecker product ``⨂_i L(g_i)^{a_i}``.  If an
+    AbelianGroup is initialized with direct_sum=True, the group members get lifted to a direct sum
+    ``⨁_i L(g_i)^{a_i}``.
     """
 
     orders: tuple[int, ...]
@@ -623,10 +630,10 @@ class CyclicGroup(AbelianGroup):
     """Cyclic group of a specified order.
 
     The cyclic group has one generator, g.  All members of the cyclic group of order R can be
-    written as g^p for an integer power p in {0, 1, ..., R-1}.  The member g^p can be represented by
-    (that is, lifted to) an R×R "shift matrix", or the identity matrix with all rows shifted down
-    (equivalently, all columns shifted right) by p.  That is, the lift L(g^p) acts on a standard
-    basis vector ``<i|`` as ``<i|`` L(g^p) = ``< i + p mod R |``.
+    written as ``g^p`` for an integer power p in ``{0, 1, ..., R-1}``.  The member ``g^p`` can be
+    represented by (that is, lifted to) an ``R×R`` "shift matrix", or the identity matrix with all
+    rows shifted down (equivalently, all columns shifted right) by p.  That is, the lift ``L(g^p)``
+    acts on a standard basis vector ``<i|`` as ``<i| L(g^p) = < i + p mod R |``.
     """
 
     def __init__(self, order: int) -> None:
@@ -856,10 +863,11 @@ class ProjectiveSpecialLinearGroup(Group):
 
     Here "center" is the subgroup of SL that commutes with all elements of SL.  Specifically, every
     element in the center of SL is a scalar multiple of the identity matrix I.  In the case of
-    SL(d,q) (d×d matrices over F_q with determinant 1), the determinant of scalar*I is scalar**d,
-    which is only contained in SL(d,q) if scalar**d == 1.
+    ``SL(d,q)`` (``d×d`` matrices over ``F_q`` with determinant 1), the determinant of
+    ``scalar*I`` is ``scalar**d``, which is only contained in ``SL(d,q)`` if
+    ``scalar**d == 1``.
 
-    Altogether, we construct PSL(d,q) by SL(d,q) mod [d-th roots of unity over F_q].
+    Altogether, we construct ``PSL(d,q)`` by ``SL(d,q)`` mod [d-th roots of unity over ``F_q``].
     """
 
     _dimension: int
