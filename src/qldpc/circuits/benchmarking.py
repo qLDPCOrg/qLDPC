@@ -66,6 +66,15 @@ def get_state_prep_diagnostic_circuit(
     However, the details of decoding and the option to post-select on some detectors are left up
     to the user.
 
+    The second returned value is a DetectorRecord whose get_events method maps keys to detector
+    indices:
+
+    - get_events("prep") returns the indices of detectors already present in the provided
+        state_prep_circuit.
+    - get_events("flags") returns the indices of the flag detectors.
+    - get_events(stab_index)[0] is the index of the detector for the stabilizer
+        code.get_stabilizer_ops()[stab_index].
+
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
@@ -85,7 +94,7 @@ def get_state_prep_diagnostic_circuit(
 
     Returns:
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
-        circuits.DetectorRecord: Record of detectors. Use get_events(key) for access by key.
+        circuits.DetectorRecord: A record of the circuit's detectors (keys described above).
     """
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
     if not skip_validation:

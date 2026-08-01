@@ -585,12 +585,12 @@ class TrivialGroup(Group):
 
 
 class AbelianGroup(Group):
-    """Direct product of cyclic groups of the specified orders.  See CyclicGroup for more info.
+    """Direct product of cyclic groups of the specified orders.
 
-    By default, an AbelianGroup member of the form ``∏_i g_i^{a_i}``, where ``{g_i}`` are the
-    generators of the group, gets lifted to a Kronecker product ``⨂_i L(g_i)^{a_i}``.  If an
-    AbelianGroup is initialized with direct_sum=True, the group members get lifted to a direct sum
-    ``⨁_i L(g_i)^{a_i}``.
+    See CyclicGroup for more info.  By default, an AbelianGroup member of the form
+    ``∏_i g_i^{a_i}``, where ``{g_i}`` are the generators of the group, gets lifted to a Kronecker
+    product ``⨂_i L(g_i)^{a_i}``.  If an AbelianGroup is initialized with direct_sum=True, the group
+    members get lifted to a direct sum ``⨁_i L(g_i)^{a_i}``.
     """
 
     orders: tuple[int, ...]

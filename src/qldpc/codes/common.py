@@ -508,7 +508,7 @@ class ClassicalCode(AbstractCode):
     def get_distance_if_known(
         self, vector: Sequence[int] | npt.NDArray[np.int_] | None = None
     ) -> int | float | None:
-        """Retrieve a distance, if known.  Otherwise, return None.
+        """Retrieve a distance, or None if it is not known.
 
         Args:
             vector: If None (the default) retrieve the code distance.  Otherwise, retrieve the

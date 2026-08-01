@@ -67,8 +67,10 @@ class TrivialCode(CSSCode):
         """Initialize a trivial code with the given code parameters.
 
         If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers. If
-        num_stabs_z is None and...     self_dual is False, then num_stabs is the number of Z-type
-        stabilizers.     self_dual is True, then num_stabs is the total number of stabilizers.
+        num_stabs_z is None, then num_stabs is:
+
+        - the number of Z-type stabilizers, if self_dual is False; or
+        - the total number of stabilizers, if self_dual is True.
         """
         field = abstract.resolve_field(field)
         dimension = size - gauge_dimension - num_stabs - num_stabs - (num_stabs_z or 0)
@@ -664,8 +666,8 @@ class BBCode(QCCode):
     and column in the grid of plaquettes, and a "sector" (L, R, X, or Z) within a plaquette.
 
     If we associate ``(L, R) ~ (0, 1)``, then the data qubit addressed by column qq of matrix_x
-    (or matrix_z) has the label (sector, a, b) = numpy.unravel_index(qq, [2, ``R_x``, ``R_y``]).
-    The integer index of a data qubit its label are thereby related to each other by array
+    (or matrix_z) has the label ``(sector, a, b) = numpy.unravel_index(qq, [2, R_x, R_y])``.
+    The integer index of a data qubit and its label are thereby related to each other by array
     reshaping.  The label of a check qubit, whose numerical index is the index of a corresponding
     row in the full parity check matrix of a BBCode, is similarly obtained by associating
     ``(X, Z) ~ (0, 1)``.

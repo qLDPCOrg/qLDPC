@@ -165,10 +165,11 @@ def _hamming_weight(
     buf: npt.NDArray[np.uint64] | None = None,
     out: npt.NDArray[np.uint64] | None = None,
 ) -> npt.NDArray[np.uint64]:
-    """Somewhat efficient (vectorized) Hamming weight calculation. Assumes 64-bit uints.
+    """Somewhat efficient (vectorized) Hamming weight calculation.
 
-    For `numpy >= 2.0.0`, it's generally better to use `np.bitwise_count` (which uses processors'
-    builtin `popcnt` instruction). Unfortunately this isn't available for numpy < 2.0.0.
+    Assumes 64-bit uints.  For `numpy >= 2.0.0`, it's generally better to use `np.bitwise_count`
+    (which uses processors' builtin `popcnt` instruction). Unfortunately this isn't available for
+    numpy < 2.0.0.
     """
     out = np.right_shift(arr, 1, out=out)
     out &= _MASK55
@@ -194,10 +195,10 @@ def _symplectic_weight(
     buf: npt.NDArray[np.uint64] | None = None,
     out: npt.NDArray[np.uint64] | None = None,
 ) -> npt.NDArray[np.uint64]:
-    """Somewhat efficient (vectorized) symplectic weight calculation. Assumes 64-bit uints.
+    """Somewhat efficient (vectorized) symplectic weight calculation.
 
-    This function is equivalent to (but slightly more efficient than) the expression
-    ``_hamming_weight((arr | (arr >> 1)) & 0x5555555555555555, buf=buf, out=out)``.
+    Assumes 64-bit uints.  This function is equivalent to (but slightly more efficient than) the
+    expression ``_hamming_weight((arr | (arr >> 1)) & 0x5555555555555555, buf=buf, out=out)``.
     """
     out = np.right_shift(arr, 1, out=out)
     out |= arr

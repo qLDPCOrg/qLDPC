@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Format the code base.
 
-Runs the standard checks-superstaq formatter (ruff format + import sorting), then docformatter
-(which wraps docstring summaries and descriptions to the 100-column limit), then pyproject-fmt
+Runs the standard checks-superstaq formatter (ruff format + import sorting), then pyproject-fmt
 (which normalizes and sorts pyproject.toml).
 """
 
@@ -11,35 +10,23 @@ import sys
 
 import checks_superstaq
 
-# docformatter targets and options (docstring formatting / wrapping).
-DOCFORMATTER_PATHS = ["src/qldpc"]
-DOCFORMATTER_OPTIONS = ["--wrap-summaries", "100", "--wrap-descriptions", "100"]
-
 if __name__ == "__main__":
     args = sys.argv[1:]
+    # "--check" puts every formatter into report-only mode: each one reports what it would reformat
+    # and exits non-zero if anything needs changing, but no files are modified.  This is the mode CI
+    # uses to verify that the tree is already formatted.  Without "--check", the formatters apply
+    # their fixes in place.
     check = "--check" in args
     returncode = checks_superstaq.format_.run(*args)
 
-    # In "--check" mode, report without modifying files; otherwise apply fixes in place.
-    docformatter = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "docformatter",
-            "--recursive",
-            "--check" if check else "--in-place",
-            *DOCFORMATTER_OPTIONS,
-            *DOCFORMATTER_PATHS,
-        ],
-        check=False,
-    )
+    # pyproject-fmt normalizes and sorts pyproject.toml.
     pyproject_fmt = subprocess.run(
         ["pyproject-fmt", *(["--check"] if check else []), "pyproject.toml"],
         check=False,
     )
 
-    # Both tools exit non-zero when files need reformatting; surface that in "--check" mode.
+    # pyproject-fmt exits non-zero when the file needs reformatting; surface that in "--check" mode.
     if check:
-        returncode = returncode or docformatter.returncode or pyproject_fmt.returncode
+        returncode = returncode or pyproject_fmt.returncode
 
     sys.exit(returncode)

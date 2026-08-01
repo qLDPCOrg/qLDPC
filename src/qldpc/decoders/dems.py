@@ -359,9 +359,10 @@ class DetectorErrorModelArrays:
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
     def without_detectors(self, detectors: Collection[int]) -> DetectorErrorModelArrays:
-        """Drop the given detectors.  Drop or merge error mechanisms that re empty or redundant.
+        """Drop the given detectors.
 
-        Remaining detectors get re-indexed to range(num_remaining_detectors).
+        Also drop or merge error mechanisms that are empty or redundant.  Remaining detectors get
+        re-indexed to range(num_remaining_detectors).
         """
         keep = np.ones(self.num_detectors, dtype=bool)
         keep[list(detectors)] = False
