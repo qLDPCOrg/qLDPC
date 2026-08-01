@@ -66,11 +66,12 @@ class TrivialCode(CSSCode):
     ) -> None:
         """Initialize a trivial code with the given code parameters.
 
-        If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers. If
-        num_stabs_z is None, then num_stabs is:
+        If num_stabs_z is an integer (as opposed to None), then num_stabs is the number of X-type
+        stabilizers. If num_stabs_z is None, then the meaning of num_stabs depends on the value of
+        self_dual:
 
-        - the number of Z-type stabilizers, if self_dual is False; or
-        - the total number of stabilizers, if self_dual is True.
+        - If self_dual is False, then num_stabs is the number of Z-type stabilizers.
+        - If self_dual is True, then num_stabs is the total number of stabilizers.
         """
         field = abstract.resolve_field(field)
 
