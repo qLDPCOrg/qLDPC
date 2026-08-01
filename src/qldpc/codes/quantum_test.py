@@ -35,7 +35,7 @@ from .common_test import assert_valid_subgraphs
 
 def test_trivial_code() -> None:
     """The trivial code is, well, trivial."""
-    code = codes.TrivialCode(3, 2)
+    code = codes.TrivialCode(3, num_stabs_z=2)
     assert code.num_checks_x == 0
     assert code.num_checks_z == 2
     assert code.get_distance() == 1
@@ -45,7 +45,8 @@ def test_trivial_code() -> None:
     assert code.num_checks_z == 1
     assert code.get_distance() == 1
 
-    code = codes.TrivialCode(6, 2, gauge_dimension=1, self_dual=True)
+    # A single stabilizer count is enough for a self-dual code; num_stabs_z mirrors num_stabs_x.
+    code = codes.TrivialCode(6, 1, gauge_dimension=1, self_dual=True)
     assert np.array_equal(code.get_stabilizer_ops(Pauli.X), code.get_stabilizer_ops(Pauli.Z))
     assert code.gauge_dimension == 1
     assert code.get_distance() == 1
@@ -58,8 +59,11 @@ def test_trivial_code() -> None:
     assert np.array_equal(code.matrix_x, expected_checks)
     assert np.array_equal(code.matrix_z, expected_checks)
 
-    with pytest.raises(ValueError, match="equal number of X and Z stabilizers"):
-        code = codes.TrivialCode(4, 2, 1, self_dual=True)
+    with pytest.raises(ValueError, match="equal number"):
+        codes.TrivialCode(4, 2, 1, self_dual=True)
+
+    with pytest.raises(ValueError, match="too small"):
+        codes.TrivialCode(1, num_stabs_z=2)
 
 
 def test_small_codes() -> None:
