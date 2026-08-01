@@ -1,4 +1,4 @@
-"""Module for loading groups from GroupNames or the GAP computer algebra system
+"""Module for loading groups from GroupNames or the GAP computer algebra system.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -142,7 +142,7 @@ def get_small_group_number(order: int) -> int:
     # get the HTML for the page with all groups
     page_html = maybe_get_webpage(order)
     if page_html is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         raise ValueError("Cannot determine the number of small groups")
 
     matches = re.findall(rf"<td>{order},([0-9]+)</td>", page_html)
@@ -215,7 +215,7 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
     # load web page for the specified group
     group_url = get_group_url(order, index)
     if group_url is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
     group_page = urllib.request.urlopen(group_url)
     group_page_html = group_page.read().decode("utf-8")
@@ -237,8 +237,8 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
 def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GeneratorsList:
     """Parse newline-separated GAP permutations.
 
-    As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)].
-    This function returns a list of permutations; one for each line in the input string.
+    As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)]. This function returns a
+    list of permutations; one for each line in the input string.
     """
     parsed_permutations = []
     for line in permutations.strip().splitlines():
@@ -261,7 +261,7 @@ def get_group_url(order: int, index: int) -> str | None:
     # get the HTML for the page with all groups
     page_html = maybe_get_webpage(order)
     if page_html is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
 
     # extract section with the specified group
@@ -289,7 +289,7 @@ def maybe_get_webpage(order: int) -> str | None:
         page = urllib.request.urlopen(url)
         return page.read().decode("utf-8")
     except (urllib.error.URLError, urllib.error.HTTPError):
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
 
 
@@ -301,10 +301,12 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
     """Get the primitive central idempotents of a group algebra over a finite field.
 
     Primitive central idempotents of a ring are nonzero elements that:
+
     - square to themselves (they are idempotent)
     - commute with all other elements of the ring (they lie in the ring's center), and
     - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
-    Two idempotents g, h are orthogonal if g * h = h * g 0.
+
+    Two idempotents g, h are orthogonal if ``g * h = h * g = 0``.
 
     Intuitively, primitive central idempotents act like projectors onto orthogonal components of a
     ring.

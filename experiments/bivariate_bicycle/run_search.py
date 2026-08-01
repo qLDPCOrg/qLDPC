@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to perform a brute-force search for bivariate bicycle codes
+"""Script to perform a brute-force search for bivariate bicycle codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

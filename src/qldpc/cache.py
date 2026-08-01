@@ -1,4 +1,4 @@
-"""Helper function(s) for caching results
+"""Helper function(s) for caching results.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -82,7 +82,7 @@ def use_disk_cache(
 
 
 def running_with_pytest() -> bool:
-    """Are we currently running  with pytest?"""
+    """Are we currently running with pytest?"""
     return "pytest" in sys.modules
 
 

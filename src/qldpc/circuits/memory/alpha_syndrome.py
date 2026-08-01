@@ -1,4 +1,4 @@
-"""Classes to define the AlphaSyndrome syndrome measurement strategies
+"""Classes to define the AlphaSyndrome syndrome measurement strategies.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -67,17 +67,18 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     ) -> None:
         """Initialize an AlphaSyndrome syndrome measurement strategy, based on arXiv:2601.12509.
 
-        This strategy uses a Monte Carlo tree serch (MCTS) to construct a syndrome measurement
+        This strategy uses a Monte Carlo tree search (MCTS) to construct a syndrome measurement
         circuit that minimizes logical error rates.
 
         The MCTS requires building and simulating noisy evaluation circuits, which naturally
         requires defining a noise model.  Computing a logical error rate, in turn, requires
-        specifying a decoder.  The "decoder' and "custom_decoders" arguments to AlphaSyndrome are
+        specifying a decoder.  These are provided by the ``noise_model`` and ``decoder``
+        arguments described below.
 
         Args:
-            noise_model: The noise model append to the syndrome measurement circuit.
+            noise_model: The noise model to append to the syndrome measurement circuit.
             decoder: The decoder that Sinter will use to compute logical error rates.  If this
-                argument is a string, it must must be a decoder name recognized by Sinter, such as
+                argument is a string, it must be a decoder name recognized by Sinter, such as
                 "pymatching" or "fusion_blossom".
             iters_per_step: Iterations per MCTS step (default: 100).
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
@@ -107,8 +108,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
-            codes.QuditCode: The code whose syndromes we want to measure.
-            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+            code: The code whose syndromes we want to measure.
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
                 Defaults to QubitIDs.from_code(code).
 
         Returns:

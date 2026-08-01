@@ -1,4 +1,4 @@
-"""Unit tests for _util.py
+"""Unit tests for _util.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

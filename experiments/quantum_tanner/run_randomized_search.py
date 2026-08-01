@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to perform a randomized search for quantum Tanner codes
+"""Script to perform a randomized search for quantum Tanner codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

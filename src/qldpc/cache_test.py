@@ -1,4 +1,4 @@
-"""Unit tests for cache.py
+"""Unit tests for cache.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

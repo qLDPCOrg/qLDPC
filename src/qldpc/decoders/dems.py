@@ -1,4 +1,4 @@
-"""Alternative representations of a Stim detector error model
+"""Alternative representations of a Stim detector error model.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -73,6 +73,7 @@ class DetectorErrorModelArrays:
     """Representation of a stim.DetectorErrorModel by a collection of arrays.
 
     A DetectorErrorModelArrays object organizes the data in a stim.DetectorErrorModel into:
+
         1. detector_flip_matrix: a binary matrix that maps circuit errors to detector flips,
         2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
         3. error_probs: an array of probabilities of occurrence for each circuit error.
@@ -82,6 +83,7 @@ class DetectorErrorModelArrays:
 
     A DetectorErrorModelArrays is _almost_ one-to-one with a stim.DetectorErrorModel instance.  The
     primary differences are that a DetectorErrorModelArrays object
+
         (a) merges equivalent circuit errors (which can be disabled with simplify=False), and
         (b) does not preserve detector coordinate data.
     """
@@ -148,6 +150,8 @@ class DetectorErrorModelArrays:
             error_probs: per-error probabilities, or a single float broadcast to all errors.
             suggested_decompositions (optional): dictionary that maps an error (by index) into
                 a frozenset of FlipPattern, one per suggested decomposition component.
+            simplify: If True, return a simplified model with equivalent error mechanisms merged
+                (see DetectorErrorModelArrays.simplified).  Defaults to False.
         """
         dem_arrays = object.__new__(DetectorErrorModelArrays)
         dem_arrays.detector_flip_matrix = _canonicalize_mod2(
@@ -202,14 +206,18 @@ class DetectorErrorModelArrays:
         """Collect all circuit errors in a stim.DetectorErrorModel into a list.
 
         Each circuit error is nominally identified by:
+
             - a probability of occurrence,
             - a set of detectors that are flipped,
             - a set of observables that are flipped.
+
         In addition, a stim.DetectorErrorModel can come equipped with suggested decompositions of
-        errors, which splits the detector/observable targets of an error into groups.  To accomodate
-        decomposition suggestions, a circuit error is identified by
+        errors, which splits the detector/observable targets of an error into groups.  To
+        accommodate decomposition suggestions, a circuit error is identified by
+
             - a probability of occurrence,
             - a set of (detector_set, observable_set) tuples, one per suggested component.
+
         Errors with no suggested decompositions have a single component.
 
         If decompose_errors is True, all errors are decomposed into single-component errors.
@@ -326,8 +334,8 @@ class DetectorErrorModelArrays:
     def to_circuit(self) -> stim.Circuit:
         """Convert this DEM to a synthetic stim.Circuit with the same detector error model.
 
-        Each error mechanism becomes a noisy measurement M(p) on a dedicated qubit.
-        DETECTOR and OBSERVABLE_INCLUDE instructions then reference those measurements.
+        Each error mechanism becomes a noisy measurement ``M(p)`` on a dedicated qubit. DETECTOR and
+        OBSERVABLE_INCLUDE instructions then reference those measurements.
         """
         circuit = stim.Circuit()
 
@@ -351,9 +359,10 @@ class DetectorErrorModelArrays:
         return DetectorErrorModelArrays(self.to_detector_error_model(), simplify=True)
 
     def without_detectors(self, detectors: Collection[int]) -> DetectorErrorModelArrays:
-        """Drop the given detectors.  Drop or merge error mechanisms that re empty or redundant.
+        """Drop the given detectors.
 
-        Remaining detectors get re-indexed to range(num_remaining_detectors).
+        Also drop or merge error mechanisms that are empty or redundant.  Remaining detectors get
+        re-indexed to range(num_remaining_detectors).
         """
         keep = np.ones(self.num_detectors, dtype=bool)
         keep[list(detectors)] = False
@@ -591,9 +600,8 @@ def _get_removed_det_to_removed_errors(
 ) -> list[list[int]]:
     """Map each post-selected detector to removed errors that trigger it.
 
-    More specifically, for each detector, identify errors that:
-    (1) trigger that detector, and
-    (2) do not trigger any preceding detectors.
+    More specifically, for each detector, identify errors that: (1) trigger that detector, and (2)
+    do not trigger any preceding detectors.
     """
     seen_errors: set[int] = set()
     removed_det_to_removed_errors = []

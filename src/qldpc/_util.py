@@ -1,4 +1,4 @@
-"""Miscellaneous internal utilities
+"""Miscellaneous internal utilities.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

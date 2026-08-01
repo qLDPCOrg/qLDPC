@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to save bivariate bicycle code search results to data files
+"""Script to save bivariate bicycle code search results to data files.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

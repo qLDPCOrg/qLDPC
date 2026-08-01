@@ -23,7 +23,7 @@ jobs:
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.12
+          python-version: 3.13
           enable-cache: true
           cache-dependency-glob: |
             **/pyproject.toml
@@ -41,7 +41,7 @@ jobs:
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.12
+          python-version: 3.13
           enable-cache: true
           cache-dependency-glob: |
             **/pyproject.toml
@@ -49,7 +49,7 @@ jobs:
         run: uv sync --extra dev
       - name: Run ruff format
         id: ruff-format
-        run: uv run python checks/format_.py
+        run: uv run python checks/format_.py --check
         continue-on-error: true
       - name: Run ruff check
         id: ruff-check
@@ -87,7 +87,7 @@ jobs:
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.12
+          python-version: 3.13
           enable-cache: true
           cache-dependency-glob: |
             **/pyproject.toml

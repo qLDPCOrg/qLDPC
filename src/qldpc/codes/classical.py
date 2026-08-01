@@ -1,4 +1,4 @@
-"""Classical error-correcting codes
+"""Classical error-correcting codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -68,7 +68,7 @@ class CyclicCode(ClassicalCode):
     identity and the generator of the group correspond, respectively, to the identity and shift
     matrices.
 
-    The CyclicCode with polynomial 1 - x is a RingCode.
+    The CyclicCode with polynomial ``1 - x`` is a RingCode.
     """
 
     def __init__(
@@ -88,13 +88,15 @@ class GolayCode(CyclicCode):
     """Classical binary [23, 12, 7] Golay code.
 
     A famous "perfect" cyclic code: every 23-bit word lies within distance 3 of a unique codeword,
-    so it corrects any 3 bit-flip errors.  As a cyclic code, its codewords are the multiples (mod
-    x^23 - 1) of the Golay generator polynomial g(x), a degree-11 factor of x^23 - 1.
+    so it corrects any 3 bit-flip errors.  As a cyclic code, its codewords are the multiples
+    (mod ``x^23 - 1``) of the Golay generator polynomial ``g(x)``, a degree-11 factor of
+    ``x^23 - 1``.
 
-    The parity checks are the cyclic shifts of the weight-8 polynomial h(x) = (x + 1) g(x), which
-    generates the dual code G^perp = [23, 11, 8].
+    The parity checks are the cyclic shifts of the weight-8 polynomial
+    ``h(x) = (x + 1) g(x)``, which generates the dual code ``G^perp = [23, 11, 8]``.
 
     References:
+
     - https://errorcorrectionzoo.org/c/golay
     """
 
@@ -114,7 +116,7 @@ class GolayCode(CyclicCode):
 class HammingCode(ClassicalCode):
     """Classical Hamming code.
 
-    When working over the binary field (0s an 1s), the parity check matrix of the HammingCode is
+    When working over the binary field (0s and 1s), the parity check matrix of the HammingCode is
     built by stacking together (as columns) all nonzero bitstrings.  More generally, the parity
     check matrix is built from a maximal set of linearly independent nonzero vectors over a finite
     field; equivalently, from all vectors whose first nonzero element is a 1.
@@ -145,7 +147,7 @@ class HammingCode(ClassicalCode):
 class ExtendedHammingCode(ClassicalCode):
     """Classical extended Hamming code: the ordinary Hamming code with an extra parity bit.
 
-    The extended Hamming code of size m is also equal to ReedMullerCode(m - 2, m).
+    The extended Hamming code of size m is also equal to ``ReedMullerCode(m - 2, m)``.
     """
 
     def __init__(self, size: int) -> None:
@@ -163,12 +165,16 @@ class ExtendedHammingCode(ClassicalCode):
 class ReedMullerCode(ClassicalCode):
     """Classical Reed-Muller code.
 
-    A Reed-Muller code with order r and size m, denoted RM(r, m), has code parameters
-        [2**m, k, 2**(m-r)]
+    A Reed-Muller code with order r and size m, denoted ``RM(r, m)``, has code parameters
+
+        ``[2**m, k, 2**(m-r)]``
+
     where
-        k = sum_(k = 0)^r (m choose j).
+
+        ``k = sum_(j = 0)^r (m choose j)``.
 
     References:
+
     - https://errorcorrectionzoo.org/c/reed_muller
     - https://feog.github.io/10-coding.pdf
     """
@@ -225,7 +231,9 @@ class ReedSolomonCode(ClassicalCode):
     """Classical Reed-Solomon code.
 
     Source: https://mhostetter.github.io/galois/latest/api/galois.ReedSolomon
+
     References:
+
     - https://errorcorrectionzoo.org/c/reed_solomon
     - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
     """
@@ -239,7 +247,9 @@ class BCHCode(ClassicalCode):
     """Classical BCH (Bose-Chaudhuri-Hocquenghem) code.
 
     Source: https://mhostetter.github.io/galois/latest/api/galois.BCH
+
     References:
+
     - https://errorcorrectionzoo.org/c/bch
     - https://www.cs.cmu.edu/~venkatg/teaching/codingtheory/notes/notes6.pdf
     """
@@ -261,10 +271,11 @@ class BCHCode(ClassicalCode):
 class SimplexCode(ClassicalCode):
     """Classical simplex code.
 
-    A binary simplex code with dimension k has code parameters [2**k - 1, k, 2 ** (k - 1)].
-    The automorphism of this code is the general linear group GL(k, 2).
+    A binary simplex code with dimension k has code parameters ``[2**k - 1, k, 2 ** (k - 1)]``.
+    The automorphism of this code is the general linear group ``GL(k, 2)``.
 
     References:
+
     - https://errorcorrectionzoo.org/c/simplex
     - https://arxiv.org/abs/2502.07150
     """
@@ -285,10 +296,11 @@ class SimplexCode(ClassicalCode):
     ) -> galois.Poly:
         """The polynomial that defines a SimplexCode of a given dimension and base field.
 
-        Returns a three-term polynomial of the form h(x) = 1 + a * x**c + b * x**d, where
+        Returns a three-term polynomial of the form ``h(x) = 1 + a * x**c + b * x**d``, where
+
         - the coefficients a and b are elements of a finite field,
         - the exponents c and d are integers, and
-        - gcd(h(x), x ** (field**dim - 1) - 1) is a primitive polynomial of degree dim.
+        - ``gcd(h(x), x ** (field**dim - 1) - 1)`` is a primitive polynomial of degree dim.
         """
         field = abstract.resolve_field(field)
 
@@ -326,28 +338,31 @@ class SimplexCode(ClassicalCode):
 class TannerCode(ClassicalCode):
     """Classical Tanner code, as described in DOI:10.1109/TIT.1981.1056404.
 
-    A Tanner code T(G,C) is constructed from:
+    A Tanner code ``T(G,C)`` is constructed from:
     [1] A bipartite "half-regular" graph G.  That is, a graph...
+
         ... with two sets of nodes, V and W.
         ... in which all nodes in V have degree n.
+
     [2] A classical code C on n bits.
 
     For convenience, we make G directed, with edges directed from V to W.  The node sets V and W can
     then be identified, respectively, by the sources and sinks of G.
 
-    The Tanner code T(G,C) is defined on |W| bits.  A |W|-bit string x is a code word of T(G,C) iff,
-    for every node v in V, the bits of x incident to v are a code word of C.
+    The Tanner code ``T(G,C)`` is defined on ``|W|`` bits.  A ``|W|``-bit string x is a code word
+    of ``T(G,C)`` iff, for every node v in V, the bits of x incident to v are a code word of C.
 
-    This construction requires an ordering the edges E(v) adjacent to each vertex v.  This class
+    This construction requires an ordering of the edges E(v) adjacent to each vertex v.  This class
     sorts E(v) by the value of the "sort" attribute attached to each edge.  If there is no "sort"
-    attribute, its value is treated as corresponding neighbor of v.
+    attribute, its value is treated as the corresponding neighbor of v.
 
-    Tanner codes can similarly be defined on regular (undirected) graphs G' = (V',E') by placing
-    checks on V' and bits on E'.
+    Tanner codes can similarly be defined on regular (undirected) graphs ``G' = (V',E')`` by
+    placing checks on V' and bits on E'.
 
     Notes:
-    - If the subcode C has m checks, its parity matrix has shape (m,n).
-    - The code T(G,C) has |W| bits and |V|m checks.
+
+    - If the subcode C has m checks, its parity matrix has shape ``(m,n)``.
+    - The code ``T(G,C)`` has ``|W|`` bits and ``|V|m`` checks.
     """
 
     subgraph: nx.DiGraph

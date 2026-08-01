@@ -1,4 +1,4 @@
-"""Custom decoder classes
+"""Custom decoder classes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -66,12 +66,13 @@ class RelayBPDecoder:
 
     This class first constructs a relay_bp.decoder.DynDecoder decoder by class name, such as
     "RelayDecoderF32"; see help(relay_bp) for more options.  To enable parallelized decoding, which
-    which as of relay-bp==0.2.1 is only implemented for the relay_bp.ObservableDecoderRunner class,
+    as of relay-bp==0.2.1 is only implemented for the relay_bp.ObservableDecoderRunner class,
     RelayBPDecoder wraps the relay_bp.decoder.DynDecoder in a relay_bp.ObservableDecoderRunner at
     initialization time.
 
     IMPORTANT POINTS TO NOTE:
     -------------------------
+
     1. relay_bp.ObservableDecoderRunner expects to be passed an observable_error_matrix when
         initialized.  If a RelayBPDecoder is initialized without an observable_error_matrix, this
         matrix is set to np.empty((0, 0), dtype=np.uint8).  All observable-related methods of the
@@ -87,6 +88,7 @@ class RelayBPDecoder:
         See help(relay_bp.ObservableDecoderRunner) for a list of all RelayBPDecoder methods.
 
     For details about Relay-BP decoders, see:
+
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """
@@ -105,7 +107,7 @@ class RelayBPDecoder:
 
         Args:
             pcm_or_dem: A parity check matrix or detector error model (DEM).
-            error_priors: Priors probabilities for each error, or None.  If error_priors is None and
+            error_priors: Prior probabilities for each error, or None.  If error_priors is None and
                 pcm_or_dem is a DEM, these are set to the error probabilities in the DEM by default.
             name: The name of the RelayBP decoder to instantiate.  Must be one of the classes listed
                 under help(relay_bp.bp).
@@ -115,7 +117,7 @@ class RelayBPDecoder:
                 constructed RelayBPDecoder will not be able to predict observable flips (or logical
                 error rates).
             include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
-            **decoder_kwargs: Arguments passed to the "inner" (syndrome -> error) decoder from
+            **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
                 relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
                 for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
         """
@@ -222,7 +224,7 @@ class LookupDecoder:
     from the DEM, which are used as described below.
 
     In addition to a PCM, this decoder needs to be initialized with some choice of ``max_weight``.
-    The decoder enumerates all errors with weight <= ``max_weight`` in order of decreasing weight.
+    The decoder enumerates all errors with ``weight <= max_weight`` in order of decreasing weight.
     For each ``error``, the decoder computes the corresponding ``syndrome``, and nominally adds an
     ``syndrome -> error`` entry to the lookup table, overriding any past entry for ``syndrome``.
 
@@ -240,7 +242,7 @@ class LookupDecoder:
     that syndrome, which may be different from the single most likely error.  Concretely: errors
     consistent with a given syndrome are grouped by their observable flip value; the total
     probability of each group is the sum of the probabilities of its member errors, restricted to
-    the errors of weight <= ``max_weight`` that this decoder enumerates.  This decoder then assigns
+    the errors of ``weight <= max_weight`` that this decoder enumerates.  This decoder then assigns
     each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
     total probability.
 
@@ -263,7 +265,7 @@ class LookupDecoder:
     ``observable_flip_matrix``), this decoder handles ambiguous syndromes -- those consistent with
     more than one observable flip -- by declining to guess unless one flip is clearly dominant.
     Letting ``prob_top`` and ``prob_rest`` be the net probabilities of the most likely observable
-    flip and of all other flips combined (summed over the enumerated weight <= ``max_weight``
+    flip and of all other flips combined (summed over the enumerated ``weight <= max_weight``
     errors, grouped as above), the decoder assigns the most likely flip iff it is at least
     ``confidence_ratio`` times as likely as the rest, i.e. ``prob_top >= confidence_ratio *
     prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
@@ -274,7 +276,8 @@ class LookupDecoder:
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
-    [X|Z] support of a stabilizer.  Decoded errors are likewise vectors that indicate [X|Z] support.
+    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
+    ``[X|Z]`` support.
     """
 
     def __init__(
@@ -744,12 +747,12 @@ class ILPDecoder:
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]
     ) -> list[cvxpy.Constraint]:
-        """Build cvxpy constraints of the form `matrix @ variables == syndrome (mod q)`.
+        """Build cvxpy constraints of the form ``matrix @ variables == syndrome (mod q)``.
 
         This method uses boolean slack variables {s_j} to relax each constraint of the form
-        `expression = val mod q`
+        ``expression = val mod q``
         to
-        `expression = val + sum_j q^j s_j`.
+        ``expression = val + sum_j q^j s_j``.
         """
         import cvxpy
 
@@ -780,19 +783,19 @@ class ILPDecoder:
 class GUFDecoder:
     """The generalized Union-Find (GUF) decoder in https://arxiv.org/abs/2103.08049.
 
-    If passed a max_weight argument, this decoder tries to find an error with weight <= max_weight,
-    and returns the first such error that it finds.  If no such error is found, this decoder returns
-    the minimum-weight error that it found while trying.  Be warned that passing a max_weight makes
-    this decoder have worst-case exponential runtime.
+    If passed a max_weight argument, this decoder tries to find an error with
+    ``weight <= max_weight``, and returns the first such error that it finds.  If no such error is
+    found, this decoder returns the minimum-weight error that it found while trying.  Be warned that
+    passing a max_weight makes this decoder have worst-case exponential runtime.
 
-    If initialized with symplectic=True, this decoder treats the provided parity check matrix as
+    If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a QuditCode, with the first and last half of the columns denoting, respectively, the X
     and Z support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
     support by the first and second half of their entries.
 
     Warning: this implementation of the generalized Union-Find decoder is highly unoptimized.  For
     one, it is written entirely in Python.  Moreover, this implementation does not factor an error
-    set into connected componenents.
+    set into connected components.
     """
 
     def __init__(
@@ -922,8 +925,10 @@ class CompositeDecoder:
     """Decoder for a composite syndrome from multiple independent code blocks.
 
     A CompositeDecoder is instantiated from a sequence of tuples, where each tuple contains
+
     (a) the decoder for a one code block
     (b) the length of a syndrome vector for that code block.
+
     When asked to decode a syndrome, a CompositeDecoder splits the syndrome into segments of
     appropriate lengths, and decodes these segments independently with their corresponding decoders.
     """
@@ -972,8 +977,10 @@ class DirectDecoder:
     In contrast, an "indirect" decoder maps a syndrome to an error.
 
     A DirectDecoder can be instantiated from:
+
     - an indirect decoder, and
     - a parity check matrix.
+
     When asked to decode a candidate code word, a DirectDecoder first computes a syndrome, decodes
     the syndrome with an indirect decoder to infer an error, and then subtracts the error from the
     candidate word.

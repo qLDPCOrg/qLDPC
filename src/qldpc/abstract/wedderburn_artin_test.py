@@ -1,4 +1,4 @@
-"""Unit tests for wedderburn_artin.py
+"""Unit tests for wedderburn_artin.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

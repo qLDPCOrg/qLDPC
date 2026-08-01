@@ -1,4 +1,4 @@
-"""Encoding circuits, logical tableaus, and analysis of logical states
+"""Encoding circuits, logical tableaus, and analysis of logical states.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -39,11 +39,11 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     """Tableau to encode physical states at its input into logical states of the given code.
 
     If only_zero is True, this tableau maps an all-0 physical state at its input to an all-0 logical
-    state at its output.  Otherwise, for all j in {0, 1, ..., code.dimension - 1}, this tableau maps
-    weight-one X_j and Z_j operators at its input to the logical X and Z operators of the j-th
-    logical qubit of the code.  Weight-one Z_j operators for j >= code.dimension get mapped to
-    "Z-type" gauge operators and stabilizers, and their conjugate X_j get mapped to "X-type" gauge
-    operators and destabilizers.
+    state at its output.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this tableau
+    maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
+    the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
+    ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
+    conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
     """
     if only_zero:
         return stim.Tableau.from_stabilizers(
@@ -76,11 +76,11 @@ def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> s
     """Circuit to encode physical states at its input into logical states of the given code.
 
     If only_zero is True, this circuit maps an all-0 physical state at its input to an all-0 logical
-    state at its output.  Otherwise, for all j in {0, 1, ..., code.dimension - 1}, this circuit maps
-    weight-one X_j and Z_j operators at its input to the logical X and Z operators of the j-th
-    logical qubit of the code.  Weight-one Z_j operators for j >= code.dimension get mapped to
-    "Z-type" gauge operators and stabilizers, and their conjugate X_j get mapped to "X-type" gauge
-    operators and destabilizers.
+    state at its output.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this circuit
+    maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
+    the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
+    ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
+    conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
     """
     return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
 
@@ -110,7 +110,8 @@ def get_logical_tableau(
 
     If deform_code is True, then the physical circuit is required to have two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
-    (b) changing the code that encodes the logical state to
+    (b) changing the code that encodes the logical state to::
+
         code.deformed(physical_circuit, preserve_logicals=True)
     """
     physical_circuit = (
@@ -143,13 +144,18 @@ def get_state_stabilizers(
     """Identify stabilizers of the prepared state that are supported on specified qubits.
 
     The strategy in this method is as follows.  If we prepend reset operations to make an initial
-    |0...0⟩ initial state explicit, then all stabilizer flows of the circuit should have the form
-        1 -> output_generator,
+    ``|0...0⟩`` initial state explicit, then all stabilizer flows of the circuit should have the
+    form
+
+        ``1 -> output_generator``,
+
     where each output_generator is an XOR of
+
         (a) a Pauli string,
         (b) measurements, and
         (c) observables.
-    That is, the circuit prepares a state for which, after identifying {+1,-1} <-> {0,1} as
+
+    That is, the circuit prepares a state for which, after identifying ``{+1,-1} <-> {0,1}`` as
     necessary, the XOR of (a), (b), and (c) for each output_generator is 0.
 
     To identify a basis of output generators (in this case, Pauli strings) that are supported only

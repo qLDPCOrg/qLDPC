@@ -1,12 +1,13 @@
-"""Implementation of noise models for Stim (and tsim) circuits
+"""Implementation of noise models for Stim (and tsim) circuits.
 
 The main components of this module are:
+
 - PauliChannel: A sparse multi-qubit Pauli channel used to specify multi-qubit noise.
 - NoiseRule: Defines how to add noise to individual operations.
 - NoiseModel: Defines how noise is added to circuits.
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 
-Examples of basic usage with a predefined noise model:
+Examples of basic usage with a predefined noise model::
 
     import stim
     from qldpc.circuits.noise_model import DepolarizingNoiseModel, NoiseModel, SI1000NoiseModel
@@ -33,7 +34,7 @@ Examples of basic usage with a predefined noise model:
     noisy_circuit = custom_model.noisy_circuit(circuit)
 
 
-Noise on multi-qubit Clifford gates (SPP / MPP):
+Noise on multi-qubit Clifford gates (SPP / MPP)::
 
     from qldpc.circuits.noise_model import NoiseModel, NoiseRule, PauliChannel
 
@@ -66,7 +67,7 @@ Noise on multi-qubit Clifford gates (SPP / MPP):
     )
 
 
-Per-gate-application noise via a callback (`rule_func`):
+Per-gate-application noise via a callback (``rule_func``)::
 
     from qldpc.circuits.noise_model import NoiseModel, NoiseRule
 
@@ -92,13 +93,18 @@ Per-gate-application noise via a callback (`rule_func`):
 Important note:
 ---------------
 
-This file was originally taken and modified from
+This file was originally taken and modified from::
+
     https://github.com/tqec/tqec/blob/main/src/tqec/utils/noise_model.py
-which itself was taken from
+
+which itself was taken from::
+
     https://zenodo.org/records/7487893
+
 and licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/legalcode).
 
-The original code was written for the paper at "Inplace Access to the Surface Code Y Basis", at
+The original code was written for the paper at "Inplace Access to the Surface Code Y Basis", at::
+
     https://quantum-journal.org/papers/q-2024-04-08-1310.
 """
 
@@ -231,7 +237,7 @@ CORRELATED_ERROR_NAMES = frozenset({"CORRELATED_ERROR", "E", "ELSE_CORRELATED_ER
 
 
 def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
-    """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
+    """Wrap a circuit in a noiseless, one-repetition stim.CircuitRepeatBlock."""
     tsim = _load_tsim_if_installed()
     if tsim is not None and isinstance(circuit, tsim.Circuit):
         output = as_noiseless_circuit(circuit.stim_circuit)
@@ -553,8 +559,8 @@ class PauliChannelSequence(AbstractPauliChannel):
     """A sequence of independent Pauli-string error mechanisms.
 
     Like :class:`PauliChannel`, this maps non-identity Pauli strings to probabilities, but the
-    entries are *independent* events rather than mutually-exclusive outcomes: each fires (or not)
-    on its own, and several may fire together.
+    entries are *independent* events rather than mutually-exclusive outcomes: each fires (or not) on
+    its own, and several may fire together.
     """
 
     def to_circuit(
@@ -606,6 +612,7 @@ class NoiseRule:
         Args:
             after: Noise applied after each matching operation.  The noise is broadcast across
                 all of the instruction's qubit targets.  May be any of the following:
+
                 - ``PauliChannel``: a joint Pauli channel of some definite arity ``k``.  Emitted
                     natively via ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` when ``k ≤ 2`` or
                     as a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain per ``k``-qubit
@@ -621,6 +628,7 @@ class NoiseRule:
                     (``op_type(name) == NOISE``); repeat blocks are rejected.  ``PauliChannel`` and
                     ``Mapping`` arguments are preferred when they suffice, as the ``stim.Circuit``
                     form skips native broadcasting.
+
             readout_error: The probability that a measurement result is reported incorrectly.  Only
                 allowed for operations that produce measurement results.  ``None`` (the default)
                 means the field is unset (validation ignores it); ``0.0`` is an explicit no-op flip
@@ -1109,7 +1117,7 @@ class NoiseModel:
         immune_op_tag: str,
         immunize_gates: bool,
     ) -> None:
-        """Apps noise to a moment and appends it to a circuit (in-place).
+        """Applies noise to a moment and appends it to a circuit (in-place).
 
         This method processes all operations in a moment, applies their respective noise rules, and
         adds the resulting noisy operations to the output circuit.
@@ -1198,11 +1206,12 @@ class NoiseModel:
 class DepolarizingNoiseModel(NoiseModel):
     """Creates a near-standard circuit depolarizing noise model.
 
-    All operations has the same error parameter p:
+    All operations have the same error parameter p:
+
     - One-qubit Clifford gates get one-qubit depolarization.
     - Two-qubit Clifford gates get two-qubit depolarization.
     - Measurements have their outcomes probabilistically flipped.
-    - Reset gates probabalistically reset qubits to the wrong (orthogonal) state.
+    - Reset gates probabilistically reset qubits to the wrong (orthogonal) state.
     - If applicable, every idling qubit in a given moment gets depolarized.
 
     Multi-qubit Cliffords can also be depolarized by increasing the max_gate_size.
@@ -1223,7 +1232,7 @@ class DepolarizingNoiseModel(NoiseModel):
 
 
 class SI1000NoiseModel(NoiseModel):
-    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory"
+    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory".
 
     This noise model is defined by a two-qubit gate infidelity that determines all error rates.
 
@@ -1261,12 +1270,12 @@ def _is_approx_in_unit_interval(value: float, *, atol: float = _ABSOLUTE_ERROR_T
 def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
     """Return the names by which ``op`` can be matched in ``rules`` and ``rule_func``.
 
-    For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for
-    ``MPP X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than
-    the raw ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases.
-    For every other gate, this is just stim's alias list, which begins with the canonical name
-    (so ``M`` / ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield
-    ``("CNOT", "CX", "ZCX")``, etc.).
+    For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for ``MPP
+    X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than the raw
+    ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases. For every
+    other gate, this is just stim's alias list, which begins with the canonical name (so ``M`` /
+    ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield ``("CNOT", "CX",
+    "ZCX")``, etc.).
     """
     aliases = _stim_aliases(op.name)
     if op.name not in ("MPP", "SPP", "SPP_DAG"):
@@ -1317,8 +1326,8 @@ def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
 def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
     """Return the compact stim ``(name, args)`` for a 2-qubit Pauli-channel probability vector.
 
-    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls
-    back to ``PAULI_CHANNEL_2``.
+    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls back
+    to ``PAULI_CHANNEL_2``.
     """
     if _is_uniform_depolarizing(args):
         return "DEPOLARIZE2", [sum(args)]
@@ -1379,7 +1388,7 @@ def _rule_with_immunity(
     - **None immune**: apply ``rule`` unchanged.
     - **All immune**: skip noise entirely (return ``None``); the op still appears in the output
       circuit, but no ``after``, ``readout_error``, or ``reset_error`` is applied.
-    - **Mixed** (only possible for atomic k>=2 ops the splitter cannot decompose further —
+    - **Mixed** (only possible for atomic ``k>=2`` ops the splitter cannot decompose further —
       2-qubit Clifford pairs, ``MXX``/``MYY``/``MZZ``, and MPP/SPP Pauli products):
         - ``immunize_gates=True`` (default): dead simple — drop everything (``after``,
           ``readout_error``, ``reset_error``).  The gate touches an immune qubit, so no noise

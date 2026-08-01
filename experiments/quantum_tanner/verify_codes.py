@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to verify the reproducibility of saved quantum Tanner codes
+"""Script to verify the reproducibility of saved quantum Tanner codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

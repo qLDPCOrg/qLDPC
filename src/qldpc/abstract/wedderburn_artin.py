@@ -1,4 +1,4 @@
-"""Wedderburn-Artin decomposition for semisimple group algebras
+"""Wedderburn-Artin decomposition for semisimple group algebras.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -38,18 +38,26 @@ class WedderburnArtinTransformer:
 
     The Wedderburn-Artin theorem states that every semisimple ring R is isomorphic to a direct
     product of matrix algebras over division rings:
-        R ≅ ⨂_i R_i
-    where
-        R_i = D_i^{n_i × n_i},
-    and D^{n × n} denotes the space of n × n matrices over the division ring D.  By Wedderburn's
-    little theorem, every finite division ring is a finite field, so if R is a group algebra over a
-    finite field F then every division ring D_i is a field extension of F.  If R is a commutative
-    ring, then all n_i = 1, so
-        R = ⨂_i D_i  (if R is commutative).
 
-    This class is an instrument for decomposing elements of r ∈ R into simple components, taking
+        ``R ≅ ⨂_i R_i``
+
+    where
+
+        ``R_i = D_i^{n_i × n_i}``,
+
+    and ``D^{n × n}`` denotes the space of ``n × n`` matrices over the division ring D.
+    By Wedderburn's little theorem, every finite division ring is a finite field, so if R is a
+    group algebra over a finite field F then every division ring ``D_i`` is a field extension of F.
+    If R is a commutative ring, then all ``n_i = 1``, so
+
+        ``R = ⨂_i D_i``  (if R is commutative).
+
+    This class is an instrument for decomposing elements of ``r ∈ R`` into simple
+    components, taking::
+
         r -> (r_1, r_2, ...) ∈ ⨂_i R_i,
-    and and embedding elements of ⨂_i R_i back into R.
+
+    and embedding elements of ``⨂_i R_i`` back into R.
 
     References:
     - https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
@@ -85,8 +93,11 @@ class WedderburnArtinTransformer:
 
         If merge_blocks is True, this method treats each projected element as a block matrix in the
         last two axes of the provided array, such that a projection with shape
+
             (..., r, c, rb, cb)
+
             is transposed and reshaped into an array with shape
+
             (..., r * rb, c * cb).
         """
         return [
@@ -144,20 +155,28 @@ class WedderburnArtinTransformer:
 class WedderburnArtinComponentTransformer:
     r"""Transformer to map between a semisimple ring R and a simple component S of R.
 
-    Let R = GF(q)[G] ≅ GF(q)^{|G|} be a finite group algebra, whose elements can be formally written
-    as a GF(q)-linear combination of group members in G.  That is, if r ∈ R, then
-        r = sum_{g in G} r_g g.
-    By the Wedderburn-Artin theorem and Wedderburn's little theorem, every
-    simple component S of R is isomorphic to the space of matrices over a field extension of GF(q):
-        S ≅ GF(q^d)^{n × n}.
-    We refer to d as the "degree" of S, and n as the "size" of S.
-    If G is abelian, then its size is n = 1, so S ≅ GF(q^d).
+    Let ``R = GF(q)[G] ≅ GF(q)^{|G|}`` be a finite group algebra, whose elements can be formally
+    written as a ``GF(q)``-linear combination of group members in G.  That is, if ``r ∈ R``, then
 
-    The simple component S can be identified by a primitive central idempotent (PCI) e ∈ R, where
-        1. "Idempotent" means that e is a projector: e·e = e.
+        ``r = sum_{g in G} r_g g``.
+
+    By the Wedderburn-Artin theorem and Wedderburn's little theorem, every
+    simple component S of R is isomorphic to the space of matrices over a field extension
+    of ``GF(q)``:
+
+        ``S ≅ GF(q^d)^{n × n}``.
+
+    We refer to d as the "degree" of S, and n as the "size" of S.
+    If G is abelian, then its size is ``n = 1``, so ``S ≅ GF(q^d)``.
+
+    The simple component S can be identified by a primitive central idempotent (PCI)
+    ``e ∈ R``, where
+
+        1. "Idempotent" means that e is a projector: ``e·e = e``.
         2. "Central" means that e commutes with all of R.
         3. "Primitive" means that e cannot be decomposed into a sum of central idempotents in R.
-    Given a PCI e of R, the corresponding simple component is S = R·e = { r·e : r ∈ R }.
+
+    Given a PCI e of R, the corresponding simple component is ``S = R·e = { r·e : r ∈ R }``.
 
     This class is an instrument for projecting elements of R onto a simple component S corresponding
     to a provided PCI e, and embedding elements of S back into R.
@@ -208,7 +227,7 @@ class WedderburnArtinComponentTransformer:
         Args:
             pci: A primitive central idempotent of a ring.
             seed: Random number generator seed.
-            galois_compile: The ufunc calculation mode for the galois field extension GF(q^d).
+            galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``.
                 Default: 'python-calculate', which is empirically faster for small field arrays.
                 See help(galois.GF), and the 'compile' argument in particular.
         """
@@ -247,19 +266,23 @@ class WedderburnArtinComponentTransformer:
         r"""Identify a basis for the center Z(S) of S.
 
         The center Z(S) is the subspace of "scalars" in S that commute with all elements of S:
-            Z(S) = { z ∈ S : z·s = s·z for all s ∈ S }.
+            ``Z(S) = { z ∈ S : z·s = s·z for all s ∈ S }``.
 
-        We can decompose Z(S) = S ⋂ Z(R), where Z(R) is the center of R.  Letting L(r) and A(g)
-        denote, respectively, the regular and adjoint representations of r ∈ R and g ∈ G, we then
-        note that
-            S ≅ ker(L(e) - 1)
+        We can decompose ``Z(S) = S ⋂ Z(R)``, where Z(R) is the center of R.  Letting L(r) and A(g)
+        denote, respectively, the regular and adjoint representations of ``r ∈ R`` and ``g ∈ G``,
+        we then note that
+
+            ``S ≅ ker(L(e) - 1)``
+
         and
-            Z(R) ≅ ⋂_{generators g of G} ker(A(g) - 1).
+
+            ``Z(R) ≅ ⋂_{generators g of G} ker(A(g) - 1)``.
+
         We can therefore find a basis for Z(S) by intersecting the null space of L(e) - 1 with the
         null spaces of A(g) - 1 for the generators g of G.
 
         Returns:
-            - A matrix in GF(q)^{d × |G|} whose rows form a basis for Z(S).
+            - A matrix in ``GF(q)^{d × |G|}`` whose rows form a basis for Z(S).
         """
         # identify the null space of L(e) - 1, which spans S
         center = self.pci_reg.column_space()  # equal to the null space of L(e) - 1
@@ -280,30 +303,31 @@ class WedderburnArtinComponentTransformer:
         r"""Construct a power basis for Z(S), used for the field extension GF(q) -> GF(q^d).
 
         Mathematically,
-            GF(q^d) ≅ GF(q)[x] / f(x),
+            ``GF(q^d) ≅ GF(q)[x] / f(x)``,
         where
-        - GF(q)[x] is the set of univariate polynomials with coefficients in GF(q).
-        - f(x) ∈ GF(q)[x] is an irreducible polynomial with degree d.  Here "irreducible"
+        - ``GF(q)[x]`` is the set of univariate polynomials with coefficients in ``GF(q)``.
+        - ``f(x) ∈ GF(q)[x]`` is an irreducible polynomial with degree d.  Here "irreducible"
             essentially means "prime": f(x) has no nontrivial factors of degree <= d.
-        The monomial x is called the primitive element of GF(q)[x] / f(x), and its powers,
-            (x^0, x^1, x^2, ..., x^{d-1}),
-        form a "power basis" for GF(q)[x] / f(x).
+        The monomial x is called the primitive element of ``GF(q)[x] / f(x)``, and its powers,
+            ``(x^0, x^1, x^2, ..., x^{d-1})``,
+        form a "power basis" for ``GF(q)[x] / f(x)``.
 
-        We need to find elements of Z(S) that act as GF(q^d) scalars when embedding S into
-        GF(q^d)^{n × n}.  To this end, we identify a suitable generator b ∈ Z(S) that can serve as
-        the primitive element of a field extension GF(q)[x] / f(x).  Crucially, the powers of this
-        generator, collected into the power basis
-            B = (b^0, b^1, b^2, ..., b^{d-1}),
-        must be linearly independent.  Here b^0 = e is the identity element of S.
+        We need to find elements of Z(S) that act as ``GF(q^d)`` scalars when embedding S into
+        ``GF(q^d)^{n × n}``.  To this end, we identify a suitable generator ``b ∈ Z(S)`` that can
+        serve as the primitive element of a field extension ``GF(q)[x] / f(x)``.  Crucially, the
+        powers of this generator, collected into the power basis
+            ``B = (b^0, b^1, b^2, ..., b^{d-1})``,
+        must be linearly independent.  Here ``b^0 = e`` is the identity element of S.
 
         To find a suitable power basis B, we...
-            1. Pick a random element b ∈ Z(S).
-            2. Collect powers of b into rows of the matrix B = (b^0, b^1, b^2, ..., b^{d-1}).
-            3. Check whether the elements of B span GF(q)-linear vector space of dimension d.
+
+            1. Pick a random element ``b ∈ Z(S)``.
+            2. Collect powers of b into rows of the matrix ``B = (b^0, b^1, b^2, ..., b^{d-1})``.
+            3. Check whether the elements of B span ``GF(q)``-linear vector space of dimension d.
                 If so, return B.  Otherwise, go back to step 1.
 
         Returns:
-            - A matrix in GF(q)^{d × |G|} whose j-th row is b^j ∈ Z(S).
+            - A matrix in ``GF(q)^{d × |G|}`` whose j-th row is ``b^j ∈ Z(S)``.
         """
         if self.degree == 1:
             return self.pci_vec.reshape(1, -1).view(self.field)
@@ -328,15 +352,16 @@ class WedderburnArtinComponentTransformer:
         return vector
 
     def _get_center_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
-        r"""Construct embeddings of elements in the center Z(S) into GF(p^{kd}) ≅ GF(q^d).
+        r"""Construct embeddings of elements in the center Z(S) into ``GF(p^{kd}) ≅ GF(q^d)``.
 
         There are two parts to this embedding:
-        1. Embedding GF(q) scalars into GF(p^{kd}).
-        2. Embedding the power basis B = (b^0, b^1, b^2, ..., b^{d-1}) for GF(q^d) into GF(p^{kd}).
+        1. Embedding ``GF(q)`` scalars into ``GF(p^{kd})``.
+        2. Embedding the power basis ``B = (b^0, b^1, b^2, ..., b^{d-1})`` for ``GF(q^d)``
+           into ``GF(p^{kd})``.
 
         Returns:
-            - A vector in GF(p^{kd})^d whose j-th element is the embedding of GF(q)(j).
-            - A vector in GF(p^{kd})^d whose j-th element is the embedding of b^j.
+            - A vector in ``GF(p^{kd})^d`` whose j-th element is the embedding of ``GF(q)(j)``.
+            - A vector in ``GF(p^{kd})^d`` whose j-th element is the embedding of ``b^j``.
         """
         if self.degree == 1:
             return self.field.elements, self.field.Ones([1])
@@ -403,29 +428,40 @@ class WedderburnArtinComponentTransformer:
         return self.extended_field(embedded_scalars), self.extended_field(embedded_power_basis)
 
     def _regular_lift(self, vector: galois.FieldArray, *, right: bool = False) -> galois.FieldArray:
-        """Lift a member of S from GF(q)^{|G|} to a matrix that encodes ring multiplication."""
+        """Lift a member of S from ``GF(q)^{|G|}`` to a matrix that encodes ring multiplication."""
         return RingMember.from_vector(vector, self.ring).regular_lift(right=right)
 
     def _get_embedded_power_basis_dual(self) -> galois.FieldArray:
         r"""Construct the dual of the embedded power basis E[B].
 
-        Let E : GF(q)^{|G|} -> GF(p^{kd}) be the embedding of the center Z(S) into GF(p^{kd}).
+        Let ``E : GF(q)^{|G|} -> GF(p^{kd})`` be the embedding of the center Z(S) into
+        ``GF(p^{kd})``.
 
-        For an embedded power basis E[B] = (E[b^0], E[b^1], E[b^2], ..., E[b^{d-1}]) ∈ GF(p^{kd})^d,
+        For an embedded power basis
+        ``E[B] = (E[b^0], E[b^1], E[b^2], ..., E[b^{d-1}]) ∈ GF(p^{kd})^d``,
         the dual basis
-            E[A] = (E[a_0], E[a_1], E[a_2], ..., E[a_{d-1}])
+
+            ``E[A] = (E[a_0], E[a_1], E[a_2], ..., E[a_{d-1}])``
+
         satisfies
-            Tr_{GF(q^d)/GF(q)}[E[a_i] E[b^j]] = delta_{ij},
-        where Tr_{GF(q^d)/GF(q)} denotes a field trace from GF(q^d) to GF(q); see self.field_trace.
+
+            ``Tr_{GF(q^d)/GF(q)}[E[a_i] E[b^j]] = delta_{ij}``,
+
+        where ``Tr_{GF(q^d)/GF(q)}`` denotes a field trace from ``GF(q^d)`` to ``GF(q)``; see
+        self.field_trace.
 
         The dual basis allows us to "pick off" the coefficients of a polynomial in the center
-            Z(S) ≅ GF(q^d) ≅ GF(q)[x] / f(x)
-        that has been embedded into GF(p^{kd}), which is useful for mapping back into Z(S) by:
-            1. Mapping z ∈ GF(p^{kd}) to (z_0, z_1, ..., z_{d-1}) ∈ GF(q)^d with z_j = Tr[E[a_j] z].
-            2. Combining these coefficients to recover sum_j z_j b^j ∈ Z(S).
+
+            ``Z(S) ≅ GF(q^d) ≅ GF(q)[x] / f(x)``
+
+        that has been embedded into ``GF(p^{kd})``, which is useful for mapping back into Z(S) by:
+
+            1. Mapping ``z ∈ GF(p^{kd})`` to ``(z_0, z_1, ..., z_{d-1}) ∈ GF(q)^d``
+               with ``z_j = Tr[E[a_j] z]``.
+            2. Combining these coefficients to recover ``sum_j z_j b^j ∈ Z(S)``.
 
         Returns:
-            - A vector in GF(p^{kd}) whose j-th entry is the embedding E[a_j].
+            - A vector in ``GF(p^{kd})`` whose j-th entry is the embedding ``E[a_j]``.
         """
         if self.degree == 1:
             return self.extended_field.Ones([1])
@@ -441,7 +477,8 @@ class WedderburnArtinComponentTransformer:
         """Compute the field trace from GF(q^d) to GF(q).
 
         The field trace of z from GF(q^d) to GF(q) is defined by
-            Tr_{GF(q^d)/GF(q)}[z] = sum_{i=0}^{d-1} z^{q^i}.
+
+            ``Tr_{GF(q^d)/GF(q)}[z] = sum_{i=0}^{d-1} z^{q^i}``.
 
         See:
         - https://en.wikipedia.org/wiki/Field_trace
@@ -451,15 +488,15 @@ class WedderburnArtinComponentTransformer:
         return values.reshape(value.shape).view(self.extended_field)
 
     def _get_matrix_basis(self, seed: np.random.Generator) -> galois.FieldArray:
-        """Construct standard basis of matrix elements |i><j| ∈ S ≅ GF(q^d)^{n × n}.
+        """Construct standard basis of matrix elements ``|i><j|`` ∈ ``S ≅ GF(q^d)^{n × n}``.
 
         This method first decomposes the PCI e of S into primitive (possibly non-central)
-        idempotents e_i that sum to the PCI: e = sum_i e_i.  The primitive idempotents e_i are the
-        "diagonal" matrix elements |i><i|.  These idempotents are, in turn, used to construct
-        off-diagonal matrix elements e_ij = |i><j| ∈ e_i S e_j.
+        idempotents ``e_i`` that sum to the PCI: ``e = sum_i e_i``.  The primitive idempotents
+        ``e_i`` are the "diagonal" matrix elements ``|i><i|``.  These idempotents are, in turn,
+        used to construct off-diagonal matrix elements ``e_ij = |i><j| ∈ e_i S e_j``.
 
         Returns:
-            - A matrix in GF(q)^{n^2 × |G|} whose (ij, :) entry is |i><j| = e_ij ∈ S.
+            - A matrix in ``GF(q)^{n^2 × |G|}`` whose (ij, :) entry is ``|i><j| = e_ij ∈ S``.
         """
         if self.ring.is_commutative:
             return self.pci_vec.reshape(1, -1).view(self.field)
@@ -506,22 +543,27 @@ class WedderburnArtinComponentTransformer:
     ) -> galois.FieldArray:
         """Decompose an idempotent of S into primitive idempotents.
 
-        Recall that S ≅ GF(q^d)^{n × n}.  The PCI of S is the identity matrix of GF(q^d)^{n × n}.
-        If n = 1 (or: when R is commutative), then the multiplicative identity in GF(q^d) is the
-        only element of GF(q^d) that squares to itself, so the PCI of S is the only idempotent in S.
-        If n > 1, however, then the PCI can be decomoposed into primitive (non-central) idempotents,
-            e = sum_{i=1}^n e_i,
-        where e_i is essentially the |i><i| matrix element of GF(q^d)^{n × n}.
+        Recall that ``S ≅ GF(q^d)^{n × n}``.  The PCI of S is the identity matrix of
+        ``GF(q^d)^{n × n}``.  If ``n = 1`` (or: when R is commutative), then the multiplicative
+        identity in ``GF(q^d)`` is the only element of ``GF(q^d)`` that squares to itself, so the
+        PCI of S is the only idempotent in S.
+        If ``n > 1``, however, then the PCI can be decomposed into primitive (non-central)
+        idempotents,
+
+            ``e = sum_{i=1}^n e_i``,
+
+        where ``e_i`` is essentially the ``|i><i|`` matrix element of ``GF(q^d)^{n × n}``.
 
         This method decomposes an idempotent of S into primitive idempotent recursively.  Given an
         idempotent e_start, this method proceeds as follows:
+
             1. Determine whether e_start is primitive.  If so, return {e_start}.
             2. Find two or more idempotents that sum to e_start.
             3. Decompose each of the idempotents found at step 2 by a recursive call to this method.
             4. Return the combined set of all idempotents found from decomposition at step 3.
 
         Returns:
-            - A matrix in GF(q)^{n × |G|} whose j-th row the primitive idempotent e_i ∈ S.
+            - A matrix in ``GF(q)^{n × |G|}`` whose j-th row the primitive idempotent ``e_i ∈ S``.
         """
         assert not self.ring.is_commutative  # this method should not have been called
         if idempotent_vec is None:
@@ -614,18 +656,21 @@ class WedderburnArtinComponentTransformer:
     ) -> tuple[galois.Poly, galois.FieldArray]:
         """Find the minimal polynomial an element within a sub-algebra stabilized by an idempotent.
 
-        The minimal polynomial of α is the lowest-degree monic polynomial m(x) with m(α) = 0.
+        The minimal polynomial of α is the lowest-degree monic polynomial m(x) with ``m(α) = 0``.
         Here "monic" means that the m(x) has a leading coefficient of one:
-            m(x) = x^a + sum_{j=0}^{a-1} m_j x^j,
-        where all coefficients m_j ∈ GF(q), and we define x^0 to be the idempotent.
+
+            ``m(x) = x^a + sum_{j=0}^{a-1} m_j x^j``,
+
+        where all coefficients ``m_j ∈ GF(q)``, and we define ``x^0`` to be the idempotent.
 
         This method assumes--and does not verify---that:
+
             1. The provided idempotent is an idempotent of R.
             2. The provided element lives in the sub-algebra of R stabilized by the idempotent.
 
         Returns:
             - The minimal polynomial of RingMember(element, self.ring).
-            - A matrix in GF(q)^{d × |G|} whose j-th row is element^j ∈ S.
+            - A matrix in ``GF(q)^{d × |G|}`` whose j-th row is ``element^j ∈ S``.
         """
 
         """
@@ -664,25 +709,30 @@ class WedderburnArtinComponentTransformer:
     def _get_off_diagonal_basis_vecs(
         self, basis_ij: galois.FieldArray, basis_ji: galois.FieldArray, seed: np.random.Generator
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Construct standard-basis matrix elements |i><j| and |j><i| of S ≅ GF(q^d)^{n × n}.
+        """Construct standard-basis matrix elements ``|i><j|`` and ``|j><i|`` of S.
+
+        Here ``S ≅ GF(q^d)^{n × n}``.
 
         The strategy is as follows:
-        1. Sample random vectors x_ij ∈ e_i R e_j and x_ji ∈ e_j R e_i.
-        2. Construct y_i = x_ij x_ji = α e_i for some α ∈ GF(q^d).
-        3. Compute z = n/|G| Tr_G[y_i] = α e, where Tr_G[y] = sum_{g in G} g y g^{-1}.
-        3. Return e_ij = x_ij and e_ji = x_ji / α.
+
+        1. Sample random vectors ``x_ij ∈ e_i R e_j`` and ``x_ji ∈ e_j R e_i``.
+        2. Construct ``y_i = x_ij x_ji = α e_i`` for some ``α ∈ GF(q^d)``.
+        3. Compute ``z = n/|G| Tr_G[y_i] = α e``, where ``Tr_G[y] = sum_{g in G} g y g^{-1}``.
+        4. Return ``e_ij = x_ij`` and ``e_ji = x_ji / α``.
 
         A cautionary note: for representation-theoretic reasons, e_ji is the "dual" of e_ij in the
         sense that
-            e_ij e_ji = e_i,
-            e_ji e_ij = e_j,
-        but it may not be the case that e_ji = e_ij.T in the sense of RingMember.T, because
+
+            ``e_ij e_ji = e_i``,
+            ``e_ji e_ij = e_j``,
+
+        but it may not be the case that ``e_ji = e_ij.T`` in the sense of RingMember.T, because
         RingMember.T is an involution that inverts group members, which need not have anything to do
-        with matrix transposition in GF(q^d)^{n × n}.
+        with matrix transposition in ``GF(q^d)^{n × n}``.
 
         Returns:
-            - A vector in GF(q)^{|G|} representing e_ij ∈ S.
-            - A vector in GF(q)^{|G|} representing e_ji ∈ S.
+            - A vector in ``GF(q)^{|G|}`` representing ``e_ij ∈ S``.
+            - A vector in ``GF(q)^{|G|}`` representing ``e_ji ∈ S``.
         """
         # sample x_ij ∈ e_i R e_j and x_ji ∈ e_j R e_i
         vec_ij = self._random_nonzero_vec(len(basis_ij), seed) @ basis_ij
@@ -699,28 +749,41 @@ class WedderburnArtinComponentTransformer:
         return vec_ij, scalar_inv_as_mat @ vec_ji
 
     def _center_to_scalar(self, vec_in_center: galois.FieldArray) -> galois.FieldArray:
-        """Convert a "scalar' s ∈ Z(S) ≅ GF(q}^{|G|} into an element of GF(p^{kd}) ≅ GF(q^d)."""
+        """Convert a center "scalar" into an element of the extension field.
+
+        Maps ``s ∈ Z(S) ≅ GF(q)^{|G|}`` to ``GF(p^{kd}) ≅ GF(q^d)``.
+        """
         power_basis_coeffs = self.power_basis_dual @ vec_in_center
         embedded_power_basis_coeffs = self.embedded_scalars[power_basis_coeffs.view(np.ndarray)]
         return embedded_power_basis_coeffs @ self.embedded_power_basis
 
     def _scalar_to_center(self, scalar: galois.FieldArray) -> galois.FieldArray:
-        """Embed a scalar in GF(p^{kd}) ≅ GF(q^d) back into the center Z(S) ≅ GF(q}^{|G|}."""
+        """Embed an extension-field scalar back into the center of S.
+
+        Maps ``GF(p^{kd}) ≅ GF(q^d)`` back into ``Z(S) ≅ GF(q)^{|G|}``.
+        """
         embedded_coefficients = self.extended_field_trace(self.embedded_power_basis_dual * scalar)
         coefficients = self.embedded_scalars_inverse[embedded_coefficients.view(np.ndarray)]
         return coefficients @ self.power_basis
 
     def _get_decomposition_coefficient_extractor(self) -> galois.FieldArray:
-        """Build a matrix that maps elements of S to their GF(q) coefficients in GF(q^d)^{n × n}.
+        """Build a matrix mapping elements of S to their ``GF(q)`` coefficients.
 
-        Consider a ring member r ∈ R ≅ GF(q)^{|G|} whose projection s = r·e ∈ S has the expansion
-            s = sum_{i,j,k} s_ijk b^i e_jk ∈ GF(q)^{|G|},
-        where each coefficient s_ijk ∈ GF(q).  This method constructs the linear map
-            GF(q)^{|G|} -> GF(q)^{n × n × d}
+        The coefficients are taken in ``GF(q^d)^{n × n}``.
+
+        Consider a ring member ``r ∈ R ≅ GF(q)^{|G|}`` whose projection ``s = r·e ∈ S`` has the
+        expansion
+
+            ``s = sum_{i,j,k} s_ijk b^i e_jk ∈ GF(q)^{|G|}``,
+
+        where each coefficient ``s_ijk ∈ GF(q)``.  This method constructs the linear map
+
+            ``GF(q)^{|G|} -> GF(q)^{n × n × d}``
+
         that takes a ring member r to the coefficients s_ijk.
 
         Returns:
-            - A matrix in GF(q)^{n^2·d × |G|} that maps a ring member r to [s_ijk]_ijk.
+            - A matrix in ``GF(q)^{n^2·d × |G|}`` that maps a ring member r to ``[s_ijk]_ijk``.
         """
         # matrices representing the action of e_ij from multiplication on the left and right
         matrix_basis_as_mats_l = self.field(
@@ -749,13 +812,14 @@ class WedderburnArtinComponentTransformer:
         return tensor.reshape(self.size**2 * self.degree, self.ring.group.order).view(self.field)
 
     def _get_decomposition_coefficient_recombiner(self) -> galois.FieldArray:
-        """Build a matrix that embeds GF(q) coefficients of GF(q^d)^{n × n} into S.
+        """Build a matrix that embeds ``GF(q)`` coefficients of ``GF(q^d)^{n × n}`` into S.
 
         The matrix built here is a left pseudo-inverse of that built in
         _get_decomposition_coefficient_extractor.
 
         Returns:
-            - A matrix in GF(q)^{|G| × n^2·d} that maps [s_ijk]_ijk to s ∈ S ≅ GF(q)^{|G|}.
+            - A matrix in ``GF(q)^{|G| × n^2·d}`` that maps ``[s_ijk]_ijk`` to
+              ``s ∈ S ≅ GF(q)^{|G|}``.
         """
         power_basis_mats = [self._regular_lift(bb) for bb in self.power_basis]
         return self.field(
@@ -785,8 +849,11 @@ class WedderburnArtinComponentTransformer:
 
         If merge_blocks is True, this method treats each projected element as a block matrix in the
         last two axes of the provided array, such that a projection with shape
+
             (..., r, c, self.size, self.size)
+
             is transposed and reshaped into an array with shape
+
             (..., r * self.size, c * self.size).
         """
         if array.ring is not self.ring:

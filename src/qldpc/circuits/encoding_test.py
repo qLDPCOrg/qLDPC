@@ -1,4 +1,4 @@
-"""Unit tests for encoding.py
+"""Unit tests for encoding.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
