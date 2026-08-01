@@ -1271,11 +1271,11 @@ class QuditCode(AbstractCode):
             ⌊                 |  ·       I   ·  ⌋ G_Z --> rows_gz (Z-type gauge ops)
               S_X S_Z G_X L_X   S_X S_Z G_Z L_Z
                |   |   |   |     |   |   |   |
-               |   |   |   |     |   |   |   └----------> cols_lz (= number of logical qudits)
+               |   |   |   |     |   |   |   └----------> cols_lz (~ number of logical qudits)
                |   |   |   |     |   |   └--------------> cols_gz (Z-type gauge pivots)
                |   |   |   |     |   └------------------> cols_sz (Z-type stabilizer pivots)
                |   |   |   |     └----------------------> cols_sx (X-type stabilizer pivots)
-               |   |   |   └----------------------------> cols_lx (= number of logical qudits)
+               |   |   |   └----------------------------> cols_lx (~ number of logical qudits)
                |   |   └--------------------------------> cols_gx (X-type gauge pivots)
                |   └------------------------------------> cols_sz (Z-type stabilizer pivots)
                └----------------------------------------> cols_sx (X-type stabilizer pivots)
