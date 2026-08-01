@@ -15,8 +15,20 @@ if __name__ == "__main__":
     check = ["--check"] if "--check" in args else []
 
     returncode = checks_superstaq.format_.run(*args)
+
+    # Silence only runpy's benign RuntimeWarning (pyproject-fmt imports its own __main__, which -m
+    # then re-executes); pyproject-fmt's own warnings, if any, are left visible.
     returncode |= subprocess.run(
-        [sys.executable, "-m", "pyproject_fmt", *check, "pyproject.toml"], check=False
+        [
+            sys.executable,
+            "-W",
+            "ignore::RuntimeWarning:runpy",
+            "-m",
+            "pyproject_fmt",
+            *check,
+            "pyproject.toml",
+        ],
+        check=False,
     ).returncode
 
     sys.exit(returncode)

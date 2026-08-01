@@ -67,6 +67,12 @@ autoapi_options = [
 
 autoapi_ignore = ["*_test.py", "*conftest.py"]
 
+# Keep AutoAPI's generated .rst files on disk through the whole build.  With the default (False),
+# AutoAPI removes them before the HTML writer copies page sources (html_copy_source), which makes
+# the build fail intermittently with "autoapi/.../index.rst does not exist" under recent Sphinx.
+# (These files land in docs/source/autoapi, which is gitignored.)
+autoapi_keep_files = True
+
 autoapi_member_order = "groupwise"
 
 # -- Options for HTML output -------------------------------------------------
