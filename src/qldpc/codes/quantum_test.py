@@ -50,6 +50,14 @@ def test_trivial_code() -> None:
     assert code.gauge_dimension == 1
     assert code.get_distance() == 1
 
+    # Qubits are laid out as [logical | gauge | X-stabilizer | Z-stabilizer].  With n=6, k=3, one
+    # gauge qubit, and one stabilizer of each type, the gauge qubit must land at index 3 (after the
+    # three logical qubits), not inside the logical block.
+    assert code.dimension == 3
+    expected_checks = [[0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 1]]
+    assert np.array_equal(code.matrix_x, expected_checks)
+    assert np.array_equal(code.matrix_z, expected_checks)
+
     with pytest.raises(ValueError, match="equal number of X and Z stabilizers"):
         code = codes.TrivialCode(4, 2, 1, self_dual=True)
 

@@ -73,7 +73,6 @@ class TrivialCode(CSSCode):
         - the total number of stabilizers, if self_dual is True.
         """
         field = abstract.resolve_field(field)
-        dimension = size - gauge_dimension - num_stabs - num_stabs - (num_stabs_z or 0)
 
         if self_dual:
             if num_stabs_z is None:
@@ -91,6 +90,7 @@ class TrivialCode(CSSCode):
             else:
                 num_stabs_x = num_stabs
 
+        dimension = size - gauge_dimension - num_stabs_x - num_stabs_z
         num_checks_x = gauge_dimension + num_stabs_x
         num_checks_z = gauge_dimension + num_stabs_z
         matrix_x = field.Zeros((num_checks_x, size))
