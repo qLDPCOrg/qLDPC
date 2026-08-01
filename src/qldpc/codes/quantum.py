@@ -913,8 +913,6 @@ class BBCode(QCCode):
         """Brute-force solve for the basis coefficients ``xx, yy`` of a target vector.
 
         Solves ``xx * basis[0] + yy * basis[1] == (aa, bb) % self.orders`` for ``xx, yy``.
-
-        If provided orders, treat them as the orders of the basis vectors.
         """
         aa = aa % self.orders[0]
         bb = bb % self.orders[1]

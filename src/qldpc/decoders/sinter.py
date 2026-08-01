@@ -490,7 +490,7 @@ class SequentialWindowDecoder(SinterDecoder):
 
             # Restricting the DEM to this window may result in several error mechanisms that are
             # equivalent, which the window_decoder will merge into one error mechanism.  In this
-            # case, wrap the decoder into an _ExpandingDecoder that maps decoded errors in the
+            # case, wrap the decoder into an _ExpandedWindowDecoder that maps decoded errors in the
             # simplified DEM to errors in the full DEM.
             test_error = window_decoder.decode(np.zeros(window_dem.num_detectors, dtype=int))
             if len(test_error) < window_dem.num_errors:
