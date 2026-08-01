@@ -65,7 +65,7 @@ autoapi_options = [
     "show-module-summary",
 ]
 
-autoapi_ignore = ["*_test.py", "*/checks/*.py", "*conftest.py"]
+autoapi_ignore = ["*_test.py", "*conftest.py"]
 
 autoapi_member_order = "groupwise"
 

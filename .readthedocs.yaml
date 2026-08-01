@@ -6,7 +6,6 @@ version: 2
 build:
   os: ubuntu-22.04
   tools:
-    # Python 3.11+ is required by recent Sphinx releases (>= 9).
     python: "3.12"
   apt_packages:
     # nbsphinx renders the example notebooks via pandoc.
