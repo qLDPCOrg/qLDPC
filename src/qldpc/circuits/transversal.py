@@ -94,7 +94,7 @@ def get_transversal_ops(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-    ``code.deform(physical_circuit, preserve_logicals=True)``.
+    ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
@@ -138,7 +138,7 @@ def get_transversal_automorphism_group(
     corresponds to a physical_circuit that has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-    ``code.deform(physical_circuit, preserve_logicals=True)``.
+    ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
@@ -257,7 +257,7 @@ def get_transversal_circuits(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-    ``code.deform(physical_circuit, preserve_logicals=True)``.
+    ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
     and thereby generally has exponential runtime.
@@ -330,7 +330,7 @@ def get_transversal_circuit(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-    ``code.deform(physical_circuit, preserve_logicals=True)``.
+    ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
     and thereby generally has exponential runtime.
