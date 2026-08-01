@@ -31,6 +31,15 @@ circuit-level simulations with Sinter.
    logical_error_rates/3_quantum_memory_combined
    logical_error_rates/4_sliding_window_decoding
    logical_error_rates/5_state_preparation
-   logical_error_rates/6_alpha_syndrome
-   logical_error_rates/7_knill_qec
-   logical_error_rates/8_decoding_tqec_circuits
+   logical_error_rates/6_knill_qec
+
+Miscellaneous
+-------------
+
+Further logical-error-rate examples that fall outside the progressive series above.
+
+.. toctree::
+   :maxdepth: 1
+
+   logical_error_rates/misc/alpha_syndrome
+   logical_error_rates/misc/decoding_tqec_circuits
