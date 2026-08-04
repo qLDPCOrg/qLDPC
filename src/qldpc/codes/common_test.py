@@ -66,6 +66,12 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     with pytest.raises(ValueError, match="inconsistent"):
         codes.ClassicalCode(codes.ClassicalCode.random(2, 2), field=3)
 
+    # boolean arrays are treated as 0/1 integers
+    bool_matrix = [[True, False, True], [False, True, True]]
+    code = codes.ClassicalCode(bool_matrix)
+    assert np.array_equal(code.matrix, np.array(bool_matrix, dtype=int))
+    assert np.array_equal(codes.ClassicalCode(np.array(bool_matrix)).matrix, code.matrix)
+
     # construct a code from its generator matrix
     code = codes.ClassicalCode.random(6, 4, field=3)
     assert code.is_equiv_to(codes.ClassicalCode.from_generator(code.generator))
