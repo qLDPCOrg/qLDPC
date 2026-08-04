@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to perform a brute-force search for bivariate bicycle codes
+"""Script to perform a brute-force search for bivariate bicycle codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -87,7 +87,7 @@ def run_and_save(
         nn, kk, dd = cache[key]
         # if we know the distance or the encoding rate is too low, there's nothing more to do
         if dd is not None or kk < nn * min_rate:
-            return None
+            return
 
     # compute and save code parameters
     params = get_quasi_cyclic_code_params(dims, exponents, min_rate, num_trials, silent=silent)

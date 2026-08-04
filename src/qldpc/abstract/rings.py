@@ -1,4 +1,4 @@
-"""Module for abstract algebra: rings and ring-valued numpy arrays
+"""Module for abstract algebra: rings and ring-valued numpy arrays.
 
 !!! WARNINGS !!!
 
@@ -30,18 +30,27 @@ import itertools
 import operator
 import warnings
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import sympy.abc
 import sympy.core
+from typing_extensions import Self
 
 import qldpc
 from qldpc import external
 
-from .groups import AbelianGroup, CyclicGroup, Group, GroupMember, TrivialGroup, resolve_field
+from .groups import (
+    AbelianGroup,
+    CyclicGroup,
+    Group,
+    GroupMember,
+    TrivialGroup,
+    iter_monomial_terms,
+    resolve_field,
+)
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
@@ -53,7 +62,7 @@ if TYPE_CHECKING:
 class GroupRing:
     """A finite group algebra over a finite field.
 
-    The base field is GF(2) by default.
+    The base field is ``GF(2)`` by default.
     """
 
     _group: Group
@@ -123,7 +132,7 @@ class GroupRing:
 
     @functools.cached_property
     def group_trace_matrix(self) -> galois.FieldArray:
-        """Construct the matrix for a trace over the group: r -> sum_{g in G} g r g^{-1}."""
+        """Construct the matrix for a trace over the group: ``r -> sum_{g in G} g r g^{-1}``."""
         adjoints = [self.group.adjoint_lift(gg).view(self.field) for gg in self.group.generate()]
         return functools.reduce(operator.add, adjoints).view(self.field)
 
@@ -143,9 +152,12 @@ class GroupRing:
         """Lift a group member to a representation by an orthogonal matrix.
 
         A representation satisfies
-            self.lift(g·h) = self.lift(g) @ self.lift(h).
+
+            ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
+
         If right=True, lift to an anti-representation, for which
-            self.lift(g·h) = self.lift(h) @ self.lift(g).
+
+            ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
         return self.group.lift(member, right=right).view(self.field)
 
@@ -166,7 +178,7 @@ class GroupRing:
         - square to themselves (they are idempotent),
         - commute with all other elements of the ring (they lie in the ring's center), and
         - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
-        Two idempotents g, h are orthogonal if g * h = h * g = 0.
+        Two idempotents g, h are orthogonal if ``g * h = h * g = 0``.
 
         Intuitively, primitive central idempotents idempotents act like projectors onto orthogonal
         simple components of a ring.
@@ -199,26 +211,22 @@ class GroupRing:
         self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
     ) -> RingMember:
         """Convert a SymPy expression (such as a polynomial) into a member of this ring."""
-        if isinstance(expression, (sympy.Poly, sympy.Add)):
-            # evaluate this polynomial one monomial term at time
-            terms = sympy.Add.make_args(expression.as_expr())
-            evaluated_terms = [self.eval(term, symbols) for term in terms]
-            return functools.reduce(operator.add, evaluated_terms)
-
         # helpful error message for invalid symbols
         if any(not isinstance(value, GroupMember) for value in symbols.values()):
             raise ValueError("The symbols passed to Ring.eval must be GroupMember-valued")
 
-        # if applicable, convert python integers into SymPy integers
-        if isinstance(expression, (int, np.int_)):
-            expression = sympy.Integer(expression)
+        # sum the ring members obtained by evaluating each monomial term of the polynomial
+        terms = (self._eval_monomial(term, symbols) for term in iter_monomial_terms(expression))
+        return functools.reduce(operator.add, terms, self.zero)
 
-        # factor this term into its coefficient and variable content
-        _coeff, monomial = expression.as_coeff_Mul()
+    def _eval_monomial(
+        self, monomial: sympy.Expr, symbols: dict[sympy.Symbol, GroupMember]
+    ) -> RingMember:
+        """Convert a single SymPy monomial into a member of this ring."""
+        # split the monomial into its integer coefficient and its group-element content
+        _coeff, group_content = monomial.as_coeff_Mul()
         coeff = self._eval_int(int(_coeff))
-
-        # construct and return a member of this ring
-        group_member = self.group.eval(monomial, symbols)
+        group_member = self.group.eval(group_content, symbols)
         return RingMember(self, (coeff, group_member))
 
     def _eval_int(self, value: int) -> galois.FieldArray:
@@ -241,10 +249,10 @@ class GroupRing:
 
 
 class RingMember:
-    """An element of the algebra of a group G over a finite field F_q.
+    """An element of the algebra of a group G over a finite field ``F_q``.
 
     Each RingMember x is a sum of group members with coefficients in the field:
-    x = sum_{g in G} x_g g, with each x_g in F_q.
+    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.
     """
 
     _ring: GroupRing
@@ -421,9 +429,12 @@ class RingMember:
         """Lift this ring member to a representation by an orthogonal matrix.
 
         A representation satisfies
-            self.lift(g·h) = self.lift(g) @ self.lift(h).
+
+            ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
+
         If right=True, lift to an anti-representation, for which
-            self.lift(g·h) = self.lift(h) @ self.lift(g).
+
+            ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
         return sum(
             (val * self.ring.lift(member, right=right) for val, member in self if val),
@@ -434,13 +445,16 @@ class RingMember:
         """Lift a ring member to its regular representation.
 
         By default, this method lifts a ring member to the regular representation induced by
-        multiplication from the left.  Specifically, if r and s are ring members, then
+        multiplication from the left.  Specifically, if r and s are ring members, then::
+
             r.regular_lift() @ s.to_vector() = (r * s).to_vector().
 
         If right is True, this method lifts a ring member to its regular representation in the
         opposite ring, such that matrix multiplication corresponds to ring multiplication from the
-        right:
+        right::
+
             r.regular_lift(right=True) @ s.to_vector() = (s * r).to_vector().
+
         See https://en.wikipedia.org/wiki/Opposite_ring.
         """
         terms = (val * self.ring.regular_lift(member, right=right) for val, member in self if val)
@@ -454,9 +468,9 @@ class RingMember:
     def T(self) -> RingMember:
         """Transpose of this element.
 
-        If this element is x = sum_{g in G) x_g g, return x.T = sum_{g in G} x_g g.T, where g.T is
-        the group member for which the lift L(g.T) = L(g).T.  The fact that group members get lifted
-        to orthogonal matrices implies that g.T = ~g = g**-1.
+        If this element is ``x = sum_{g in G) x_g g``, return ``x.T = sum_{g in G} x_g g.T``,
+        where g.T is the group member for which the lift ``L(g.T) = L(g).T``.  The fact that
+        group members get lifted to orthogonal matrices implies that ``g.T = ~g = g**-1``.
         """
         new_element = self.ring.zero
         for val, member in self:
@@ -480,7 +494,7 @@ class RingMember:
 
     @classmethod
     def from_vector(cls, vector: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingMember:
-        """Construct a group algebra element from vector of coefficients, (x_g : g in G)."""
+        """Construct a group algebra element from vector of coefficients, ``(x_g : g in G)``."""
         if isinstance(vector, (GroupRing, Group)):
             warnings.warn(
                 "Check argument order: it should be RingMember.from_vector(vector, ring)."
@@ -494,7 +508,7 @@ class RingMember:
         return RingMember(ring, *terms)
 
     def to_vector(self) -> galois.FieldArray:
-        """Convert this group algebra element into a vector of coefficients, (x_g : g in G)."""
+        """Convert this group algebra element into a vector of coefficients, ``(x_g : g in G)``."""
         vector = self.field.Zeros(self.group.order)
         for val, member in self:
             vector[self.group.index(member)] = val
@@ -516,10 +530,10 @@ class Element(RingMember):  # pragma: no cover
 ################################################################################
 # RingArray: RingMember-valued array
 
-NestedSequence = Sequence[Union[object, Sequence["NestedSequence"]]]
+NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
 
-class RingArray(npt.NDArray[np.object_]):
+class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     """Array whose entries are members of a GroupRing."""
 
     _ring: GroupRing
@@ -528,14 +542,14 @@ class RingArray(npt.NDArray[np.object_]):
         cls,
         data: npt.NDArray[np.object_] | NestedSequence,
         ring: GroupRing | Group | None = None,
-    ) -> RingArray:
+    ) -> Self:
         array = np.asarray(data, dtype=object).view(cls)
         ring = GroupRing(ring) if isinstance(ring, Group) else ring
 
         # identify the base group for this RingArray
         for value in array.ravel():
             if not isinstance(value, RingMember):
-                raise ValueError(
+                raise TypeError(
                     "Requirement failed: all entries of a RingArray must be RingMember-valued."
                     "\nTry building an array with RingArray.build(...)"
                 )
@@ -552,7 +566,8 @@ class RingArray(npt.NDArray[np.object_]):
 
     def __array_finalize__(self, obj: npt.NDArray[np.object_] | None) -> None:
         """Propagate metadata to newly constructed arrays."""
-        setattr(self, "_ring", getattr(obj, "_ring", None))
+        # obj may be None or lack _ring during numpy view construction; _ring is set before use
+        self._ring = getattr(obj, "_ring", None)  # type:ignore[assignment]
 
     def __array_function__(
         self,
@@ -569,7 +584,7 @@ class RingArray(npt.NDArray[np.object_]):
         result = super().__array_function__(func, types, args, kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            setattr(result, "_ring", next(iter(rings), None))
+            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
         return result
 
     def __array_ufunc__(
@@ -587,7 +602,7 @@ class RingArray(npt.NDArray[np.object_]):
         result = super().__array_ufunc__(ufunc, method, *inputs, **kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            setattr(result, "_ring", next(iter(rings), None))
+            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
         return result
 
     def __str__(self) -> str:
@@ -647,7 +662,7 @@ class RingArray(npt.NDArray[np.object_]):
         """Conjugate-transpose of a matrix over a ring.
 
         In addition to transposing the first two indices of the array, this method "conjugates" or
-        "transposes" each array element, which takes group members g -> ~g = g**-1.
+        "transposes" each array element, which takes group members ``g -> ~g = g**-1``.
         """
         return (~self).transpose(1, 0, *np.arange(2, self.ndim))
 
@@ -659,11 +674,15 @@ class RingArray(npt.NDArray[np.object_]):
         """Construct a RingArray.
 
         The constructed array is built from:
+
         1. An array populated by
+
             (a) ring members,
             (b) group members, or
             (c) integers.
+
         2. A ring (or group, inducing a group algebra over GF(2)).
+
         Integers and group members are cast into members of the ring.
         """
         array = np.asanyarray(data)
@@ -699,9 +718,9 @@ class RingArray(npt.NDArray[np.object_]):
     def to_field_array(self) -> galois.FieldArray:
         """Convert a RingArray into an array of coefficients (in a finite field) for each entry.
 
-        This method expands every entry of a RingArray into a vector of length ring.group.order.
-        If ring_array is two-dimensional, for example, then ring_array.to_field_array()[a, b, :] is
-        the vector of coefficients for the RingMember at ring_array[a, b].
+        This method expands every entry of a RingArray into a vector of length ring.group.order. If
+        ring_array is two-dimensional, for example, then ring_array.to_field_array()[a, b, :] is the
+        vector of coefficients for the RingMember at ring_array[a, b].
         """
         vals = [val.to_vector() for val in self.ravel()]
         return np.asarray(vals, dtype=int).reshape(*self.shape, self.group.order).view(self.field)
@@ -755,7 +774,7 @@ class RingArray(npt.NDArray[np.object_]):
         """Construct a matrix of null-space row vectors for this RingArray.
 
         The transpose of the null-space matrix is annihilated by this RingArray, such that
-        np.any(self @ self.null_space().T) is np.False_.
+        np.any(self @ self.null_space().T) is ``np.False_``.
 
         If right is True, this method constructs a null space over the opposite ring, in which the
         order of multiplication is reversed.
@@ -779,6 +798,7 @@ class RingArray(npt.NDArray[np.object_]):
         """Compute a generalized reduced row echelon form of a RingArray over a semisimple ring.
 
         This method relies on the Wedderburn-Artin decomposition:
+
         1. Decompose the matrix over a ring into matrices over simple components.
         2. Put the matrices over simple components into RREF.
         3. Re-combine the simple components into a matrix over the original ring.
@@ -802,6 +822,7 @@ class RingArray(npt.NDArray[np.object_]):
         Alias for:
             - RingArray.howell_normal_form_semisimple (if poly is False, the default), or
             - RingArray.howell_normal_form_poly (if poly is True).
+
         See the documentation of those methods for additional information.
         """
         if poly:
@@ -816,28 +837,37 @@ class RingArray(npt.NDArray[np.object_]):
         This method first puts a RingArray into a generalized reduced row echelon form (see
         RingArray.row_reduce), then further post-processes the rows to satisfy the Howell property,
         whereby an element v that is...
-            - in the row span of the matrix, and
-            - has j leading zeros, meaning = (0_1, 0_2, ..., 0_j, v_{j+1}, ...),
-        can be written as a linear combinations of rows whose pivots are at position k >= j.
 
-        The Howell property is enforecd as follows: if a row r has a pivot p with a nontrivial left
-        annihilator α, meaning
+            - in the row span of the matrix, and
+            - has j leading zeros, meaning ``= (0_1, 0_2, ..., 0_j, v_{j+1}, ...)``,
+
+        can be written as a linear combinations of rows whose pivots are at position ``k >= j``.
+
+        The Howell property is enforced as follows: if a row r has a pivot p with a nontrivial left
+        annihilator α, meaning::
+
               α != 0,
             α·p  = 0,
             α·r != 0,
-        then the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
 
-        If right is True, the Howell property is instead enforced for nontrivial right annihilators:
+        then the row r is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the matrix.
+
+        If right is True, the Howell property is instead enforced for nontrivial right
+        annihilators::
+
               α != 0,
             p·α  = 0,
             r·α != 0,
-        for which the row r is replaced by (1-α)·r, and the row α·r is appended to the matrix.
+
+        for which the row r is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the
+        matrix.
         The ordinary HNF and right-HNF are equal for a RingArray over a commutative ring.
 
         The HNF of a RingArray over a commutative ring is unique.  For non-commutative rings, the
         HNF is only unique up to a choice of matrix basis for simple components of the ring.
 
         References:
+
         - https://en.wikipedia.org/wiki/Howell_normal_form
         - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
@@ -922,12 +952,13 @@ class RingArray(npt.NDArray[np.object_]):
         reduction with polynomial division.
 
         References:
+
         - https://en.wikipedia.org/wiki/Howell_normal_form
         - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
         assert self.ndim == 2
         if not isinstance(self.group, CyclicGroup):
-            raise ValueError(
+            raise TypeError(
                 "The Howell normal form induced by polynomial division requires an underlying"
                 f" CyclicGroup, not {self.group}"
             )
@@ -943,8 +974,8 @@ class RingArray(npt.NDArray[np.object_]):
             """Multiply a member of a polynomial ring into a ring-valued matrix.
 
             The first argument represents a ring member by a polynomial, while the second argument
-            represents a (vecs.ndim-1)-dimensional array of polynomials, such that
-            vecs[*entry, c] is the coefficient of x^c in the given entry of vec.
+            represents a (vecs.ndim-1)-dimensional array of polynomials, such that vecs[*entry, c]
+            is the coefficient of x^c in the given entry of vec.
             """
             new_vecs = vecs.Zeros(vecs.shape)
             for coeff, degree in zip(poly.nonzero_coeffs, poly.nonzero_degrees):
@@ -1069,9 +1100,9 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     """Compute a block-Howell normal form of the provided block matrix.
 
     The provided matrix should be 4-dimensional, with matrix[i, j] storing a square block at (i, j).
-    The block-Howell form is essentially the same as the row-reduced echelon form when the matrix
-    is expanded into a 2-dimensional array, except zero rows are inserted to shift pivots down so
-    that they always lie on the diagonal of a block.
+    The block-Howell form is essentially the same as the row-reduced echelon form when the matrix is
+    expanded into a 2-dimensional array, except zero rows are inserted to shift pivots down so that
+    they always lie on the diagonal of a block.
     """
     shape: tuple[int, ...]
 
@@ -1082,10 +1113,9 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     if right and size > 1:
         matrix = matrix.transpose(0, 1, 3, 2)
 
-    # row-reduce as an expanded 2-D matrix and remove all-zero rows
+    # row-reduce as an expanded 2-D matrix, keeping a basis of the row space (no all-zero rows)
     shape = (num_block_rows * size, num_block_cols * size)
-    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_reduce()
-    matrix = matrix[qldpc.math.first_nonzero_cols(matrix) < matrix.shape[1]].view(field)
+    matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_space()
 
     if size > 1:
         # insert zero rows to shift pivots down so that they always lie on the diagonal of a block

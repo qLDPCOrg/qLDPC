@@ -1,4 +1,4 @@
-"""Unit tests for common.py
+"""Unit tests for common.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 import itertools
 import unittest.mock
-from typing import Iterator
+from collections.abc import Iterator, Sequence
 
 import galois
 import networkx as nx
@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from qldpc import abstract, codes, external, math
-from qldpc.objects import Pauli
+from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
 # classical code tests
@@ -65,6 +65,12 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     # invalid classical code construction
     with pytest.raises(ValueError, match="inconsistent"):
         codes.ClassicalCode(codes.ClassicalCode.random(2, 2), field=3)
+
+    # boolean arrays are treated as 0/1 integers
+    bool_matrix = [[True, False, True], [False, True, True]]
+    code = codes.ClassicalCode(bool_matrix)
+    assert np.array_equal(code.matrix, np.array(bool_matrix, dtype=int))
+    assert np.array_equal(codes.ClassicalCode(np.array(bool_matrix)).matrix, code.matrix)
 
     # construct a code from its generator matrix
     code = codes.ClassicalCode.random(6, 4, field=3)
@@ -163,8 +169,8 @@ def test_distance_classical(bits: int = 3) -> None:
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     random_vector = np.random.randint(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
-    assert trivial_code.get_distance_exact() is np.nan
-    assert trivial_code.get_distance_bound() is np.nan
+    assert np.isnan(trivial_code.get_distance_exact())
+    assert np.isnan(trivial_code.get_distance_bound())
     assert (
         np.count_nonzero(random_vector)
         == trivial_code.get_distance_exact(vector=random_vector)
@@ -197,7 +203,8 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         codes.RepetitionCode(2).get_automorphism_group()
 
     # otherwise, check that automorphisms do indeed preserve the code space
-    with (
+    # this pytest.warns block intentionally wraps a loop of warning-emitting calls
+    with (  # noqa: PT031
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         pytest.warns(UserWarning, match="with_magma=True"),
     ):
@@ -366,12 +373,13 @@ def test_distance_qudit() -> None:
         assert code.get_distance(bound=True) == -1
 
     # the distance of dimension-0 codes is undefined
-    assert codes.QuditCode([[0, 1]]).get_distance() is np.nan
+    assert np.isnan(codes.QuditCode([[0, 1]]).get_distance())
 
     # fallback pythonic brute-force distance calculation
     code = codes.QuditCode(codes.SurfaceCode(2, field=3).matrix)
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact(cutoff=len(code)) <= len(code)
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
 
 
@@ -414,7 +422,20 @@ def test_qudit_deformations() -> None:
     code.get_stabilizer_ops()
     code.get_gauge_ops()
     assert code == code.conjugated([]) == code.deformed("")
-    assert code.conjugate() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+    assert code.conjugated() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+
+    # conjugation transforms all known operators, not just the parity check matrix
+    def swap_xz(ops: galois.FieldArray) -> galois.FieldArray:
+        swapped = ops.reshape(-1, 2, len(code))[:, ::-1, :].reshape(-1, 2 * len(code))
+        return swapped.view(code.field)
+
+    # conjugated() with no arguments transforms all qudits
+    assert code.conjugated() == code.conjugated(range(len(code)))
+
+    conjugate = code.conjugated()
+    assert np.array_equal(conjugate.get_logical_ops(), swap_xz(code.get_logical_ops()))
+    assert np.array_equal(conjugate.get_stabilizer_ops(), swap_xz(code.get_stabilizer_ops()))
+    assert np.array_equal(conjugate.get_gauge_ops(), swap_xz(code.get_gauge_ops()))
 
     with pytest.raises(ValueError, match="only supported for qubit codes"):
         codes.QuditCode(code.matrix, field=3).deformed("")
@@ -473,6 +494,24 @@ def test_qudit_ops(pytestconfig: pytest.Config) -> None:
         logical_ops = code.get_logical_ops()
         gauge_ops = code.get_gauge_ops()
         assert not np.any(stabilizer_ops @ math.symplectic_conjugate(stabilizer_ops).T)
+
+        # destabilizers anticommute with their paired stabilizer, commute with everything else
+        destabilizer_ops = code.get_destabilizer_ops()
+        minimal_stabilizer_ops = code.get_stabilizer_ops()
+        if len(minimal_stabilizer_ops) != len(code) - code.dimension - code.gauge_dimension:
+            minimal_stabilizer_ops = code.get_stabilizer_ops(canonicalized=True)
+        assert np.array_equal(
+            destabilizer_ops @ math.symplectic_conjugate(minimal_stabilizer_ops).T,
+            code.field.Identity(len(minimal_stabilizer_ops)),
+        )
+        assert not np.any(destabilizer_ops @ math.symplectic_conjugate(destabilizer_ops).T)
+        assert not np.any(destabilizer_ops @ math.symplectic_conjugate(logical_ops).T)
+        assert not np.any(destabilizer_ops @ math.symplectic_conjugate(gauge_ops).T)
+
+        # destabilizers can be retrieved by Pauli type, partitioning the full destabilizer matrix
+        pivots_x = math.first_nonzero_cols(destabilizer_ops) < len(code)
+        assert np.array_equal(code.get_destabilizer_ops(Pauli.X), destabilizer_ops[pivots_x])
+        assert np.array_equal(code.get_destabilizer_ops(Pauli.Z), destabilizer_ops[~pivots_x])
         assert np.array_equal(
             gauge_ops @ math.symplectic_conjugate(gauge_ops).T,
             get_symplectic_form(code.gauge_dimension, code.field),
@@ -552,8 +591,35 @@ def test_qudit_to_css() -> None:
     code = codes.SteaneCode()
     assert code.is_equiv_to(codes.QuditCode(code.matrix).to_css())
 
-    with pytest.raises(ValueError, match="both X and Z support"):
+    with pytest.raises(TypeError, match="both X and Z support"):
         codes.FiveQubitCode().to_css()
+
+
+def test_qudit_to_swel() -> None:
+    """Convert a QuditCode to a CSSCode with SWEL logical operators."""
+    steane_code = codes.SteaneCode()
+    code = codes.QuditCode(steane_code.matrix).to_swel()
+    assert isinstance(code, codes.CSSCode)
+    assert np.array_equal(code.get_logical_ops(Pauli.X), code.get_logical_ops(Pauli.Z))
+    assert code.is_equiv_to(steane_code)
+
+    # maybe_to_swel returns an equivalent CSSCode with SWEL logical operators
+    maybe_code = codes.QuditCode(steane_code.matrix).maybe_to_swel()
+    assert isinstance(maybe_code, codes.CSSCode)
+    assert np.array_equal(maybe_code.get_logical_ops(Pauli.X), maybe_code.get_logical_ops(Pauli.Z))
+
+    # a non-CSS code cannot be converted to SWEL
+    assert codes.FiveQubitCode().maybe_to_swel() == codes.FiveQubitCode()
+    with pytest.raises(TypeError, match="both X and Z support"):
+        codes.FiveQubitCode().to_swel()
+
+    # a CSS code that is not SWEL cannot be converted to SWEL
+    surface_code = codes.SurfaceCode(3)
+    assert codes.QuditCode(surface_code.matrix).maybe_to_swel() == codes.QuditCode(
+        surface_code.matrix
+    )
+    with pytest.raises(ValueError, match="no self-dual logical operator basis"):
+        codes.QuditCode(surface_code.matrix).to_swel()
 
 
 ####################################################################################################
@@ -600,6 +666,47 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert nx.utils.graphs_equal(subgraphs[1], code.get_graph(Pauli.Z))
 
 
+def test_css_from_strings() -> None:
+    """Construct a CSSCode from parity check strings."""
+    code = codes.CSSCode.from_strings(["XXXX", "ZZZZ"])
+    assert isinstance(code, codes.CSSCode)
+    assert code.is_equiv_to(codes.C4Code())
+
+
+def test_css_from_qecdb_id() -> None:
+    """Retrieve a CSS code from qecdb.org."""
+    strings = ["XXXX", "ZZZZ"]
+    distance = 2
+    is_css = True
+    code_data = (strings, distance, is_css)
+    with unittest.mock.patch("qldpc.external.codes.get_quantum_code", return_value=code_data):
+        code = codes.CSSCode.from_qecdb_id("")
+        assert isinstance(code, codes.CSSCode)
+        assert code.is_equiv_to(codes.C4Code())
+
+
+def test_swel_codes() -> None:
+    """Identify and construct SWEL logical operator bases (see CSSCode.is_swel)."""
+    steane_code = codes.SteaneCode()
+    surface_code = codes.SurfaceCode(3)
+    even_code = codes.CSSCode([[1, 1, 1, 1]], [[1, 1, 1, 1]])
+    assert steane_code.is_swel
+    assert not surface_code.is_swel  # not self-dual
+    assert not even_code.is_swel  # self-dual but not SWEL
+
+    # a self-dual code over GF(3) reaches the general orthonormal-basis test (odd characteristic)
+    qutrit_matrix = [[0, 0, 1, 1, 1], [0, 1, 0, 1, 2]]
+    assert codes.CSSCode(qutrit_matrix, qutrit_matrix, field=3).is_swel
+
+    # we automatically find a self-dual logical operator basis, if it exists
+    code = steane_code.set_swel_logical_ops()
+    assert np.array_equal(code.get_logical_ops(Pauli.X), code.get_logical_ops(Pauli.Z))
+    with pytest.raises(ValueError, match="no self-dual logical operator basis"):
+        surface_code.get_swel_logical_ops()
+    with pytest.raises(ValueError, match="no self-dual logical operator basis"):
+        even_code.get_swel_logical_ops()
+
+
 def test_css_ops(pytestconfig: pytest.Config) -> None:
     """Logical and stabilizer operator construction for CSS codes."""
     seed = pytestconfig.getoption("randomly_seed")
@@ -625,6 +732,13 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
         code.get_stabilizer_ops() @ math.symplectic_conjugate(code.get_logical_ops()).T
     )
     assert not np.any(code.get_stabilizer_ops() @ math.symplectic_conjugate(code.get_gauge_ops()).T)
+
+    # destabilizers of one Pauli type are dual to the stabilizers of the opposite type
+    for code in get_codes_for_testing_ops():
+        for pauli in PAULIS_XZ:
+            destabs = code.get_destabilizer_ops(pauli)
+            stabs = code.get_stabilizer_ops(pauli.swap_xz())
+            assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
     # successfully construct and reduce logical operators in a code with "over-complete" checks
     dist = 4
@@ -668,14 +782,15 @@ def test_distance_css() -> None:
         assert code.get_distance(bound=True) == -1
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact(cutoff=len(code)) <= len(code)
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
 
     # the distance of a dimension-0 quantum code is undefined
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     code = codes.HGPCode(trivial_code)
     assert code.dimension == 0
-    assert code.get_distance(bound=True) is np.nan
-    assert code.get_distance(bound=False) is np.nan
+    assert np.isnan(code.get_distance(bound=True))
+    assert np.isnan(code.get_distance(bound=False))
 
 
 def test_css_deformations() -> None:
@@ -690,7 +805,22 @@ def test_css_deformations() -> None:
     code.get_logical_ops()
     code.get_stabilizer_ops()
     code.get_gauge_ops()
-    assert code.conjugate() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+    assert code.conjugated() == code.deformed("H " + " ".join(map(str, range(len(code)))))
+
+    # conjugating all qudits swaps the X and Z distances, however they are specified
+    code._distance_x = 3
+    code._distance_z = 5
+    all_qudits: slice | Sequence[int] | None
+    for all_qudits in [None, range(len(code)), slice(None), list(range(len(code)))]:
+        conjugate = code.conjugated(all_qudits)
+        assert isinstance(conjugate, codes.CSSCode)
+        assert conjugate.get_distance_if_known(Pauli.X) == 5
+        assert conjugate.get_distance_if_known(Pauli.Z) == 3
+
+    # conjugating a strict subset of qudits does not swap the X and Z distances
+    subset_conjugate = code.conjugated([])
+    assert isinstance(subset_conjugate, codes.CSSCode)
+    assert subset_conjugate.get_distance_if_known(Pauli.X) is None
 
 
 def test_stacking_css_codes() -> None:

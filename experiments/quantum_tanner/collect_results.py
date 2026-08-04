@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to collect search results into a local database
+"""Script to collect search results into a local database.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -42,7 +42,7 @@ for group_order, group_index in search.get_small_groups(search.MAX_ORDER):
         # collect all data for into a list
         data = []
         for path in glob.glob(paths):
-            seed = path.split("_")[-1].strip(".txt")[1:]
+            seed = path.split("_")[-1].removesuffix(".txt")[1:]
             with open(path, "r") as file:
                 num_trials = ast.literal_eval(file.readline().split(":")[-1])
                 param_text = file.readline().split(":")[-1]

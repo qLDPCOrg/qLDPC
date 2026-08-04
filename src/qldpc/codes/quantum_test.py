@@ -1,4 +1,4 @@
-"""Unit tests for quantum.py
+"""Unit tests for quantum.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -34,8 +34,8 @@ from .common_test import assert_valid_subgraphs
 
 
 def test_trivial_code() -> None:
-    """The trivial code is... trivial."""
-    code = codes.TrivialCode(3, 2)
+    """The trivial code is, well, trivial."""
+    code = codes.TrivialCode(3, num_stabs_z=2)
     assert code.num_checks_x == 0
     assert code.num_checks_z == 2
     assert code.get_distance() == 1
@@ -45,13 +45,25 @@ def test_trivial_code() -> None:
     assert code.num_checks_z == 1
     assert code.get_distance() == 1
 
-    code = codes.TrivialCode(6, 2, gauge_dimension=1, self_dual=True)
+    # A single stabilizer count is enough for a self-dual code; num_stabs_z mirrors num_stabs_x.
+    code = codes.TrivialCode(6, 1, gauge_dimension=1, self_dual=True)
     assert np.array_equal(code.get_stabilizer_ops(Pauli.X), code.get_stabilizer_ops(Pauli.Z))
     assert code.gauge_dimension == 1
     assert code.get_distance() == 1
 
-    with pytest.raises(ValueError, match="equal number of X and Z stabilizers"):
-        code = codes.TrivialCode(4, 2, 1, self_dual=True)
+    # Qubits are laid out as [logical | gauge | X-stabilizer | Z-stabilizer].  With n=6, k=3, one
+    # gauge qubit, and one stabilizer of each type, the gauge qubit must land at index 3 (after the
+    # three logical qubits), not inside the logical block.
+    assert code.dimension == 3
+    expected_checks = [[0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 1]]
+    assert np.array_equal(code.matrix_x, expected_checks)
+    assert np.array_equal(code.matrix_z, expected_checks)
+
+    with pytest.raises(ValueError, match="equal number"):
+        codes.TrivialCode(4, 2, 1, self_dual=True)
+
+    with pytest.raises(ValueError, match="too small"):
+        codes.TrivialCode(1, num_stabs_z=2)
 
 
 def test_small_codes() -> None:
@@ -67,6 +79,13 @@ def test_small_codes() -> None:
 
     assert codes.CSSCode.equiv(codes.C4Code(), codes.IcebergCode(4))
     assert codes.C6Code().get_code_params() == (6, 2, 2)
+
+    # the quantum Golay code is a [[23, 1, 7]] CSS code with weight-8 stabilizers
+    golay_code = codes.QuantumGolayCode()
+    golay_code._dimension = None
+    golay_code.forget_distance()
+    assert golay_code.get_code_params() == (23, 1, 7)
+    assert set(golay_code.matrix_x.view(np.ndarray).sum(axis=1)) == {8}
 
 
 def test_hamming_and_tetrahedral_codes() -> None:
@@ -361,7 +380,7 @@ def test_trivial_lift(
 
 
 def test_lift(ring_cyclic3_gf2: abstract.GroupRing) -> None:
-    """Verify lifting in Eqs. (8) and (10) of arXiv:2202.01702v3."""
+    """Verify lifting in Equations (8) and (10) of arXiv:2202.01702v3."""
     ring = ring_cyclic3_gf2
     zero = abstract.RingMember(ring.group)
     x0, x1, x2 = [abstract.RingMember(ring, member) for member in ring.group.generate()]
@@ -442,7 +461,7 @@ def test_twisted_xzzx(width: int = 3) -> None:
 
 
 def test_lifted_product_codes() -> None:
-    """Lifted product codes in Eq. (5) of arXiv:2308.08648."""
+    """Lifted product codes in Equation (5) of arXiv:2308.08648."""
     for lift_dim, exponents in [
         (16, [[0, 0, 0, 0, 0], [0, 2, 4, 7, 11], [0, 3, 10, 14, 15]]),
         (21, [[0, 0, 0, 0, 0], [0, 4, 5, 7, 17], [0, 14, 18, 12, 11]]),

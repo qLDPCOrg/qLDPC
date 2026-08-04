@@ -1,4 +1,4 @@
-"""Unit tests for groups.py
+"""Unit tests for groups.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -70,10 +70,11 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
 
     assert abstract.Group.from_generating_mats([[1]]) == abstract.CyclicGroup(1)
 
-    with pytest.raises(ValueError, match="not in group"):
+    with pytest.raises(TypeError, match="not in group"):
         abstract.CyclicGroup(1).index(abstract.GroupMember(2, 1))
 
     assert isinstance(hash(group.hashable_generators()), int)
+    assert isinstance(hash(group), int)
 
 
 def test_trivial_group() -> None:
@@ -132,8 +133,8 @@ def assert_valid_lifts(group: abstract.Group) -> None:
     # invert elements: g -> g**(-1)
     assert all(
         np.array_equal(
-            np.where(group.inversion_matrix[:, group.index(gg)]),
-            [[group.index(~gg)]],
+            np.flatnonzero(group.inversion_matrix[:, group.index(gg)]),
+            [group.index(~gg)],
         )
         for gg in group_members
     )
@@ -156,8 +157,8 @@ def assert_valid_lifts(group: abstract.Group) -> None:
     else:
         assert all(
             np.array_equal(
-                np.where(group.adjoint_lift(aa)[:, group.index(bb)]),
-                [[group.index(aa * bb * ~aa)]],
+                np.flatnonzero(group.adjoint_lift(aa)[:, group.index(bb)]),
+                [group.index(aa * bb * ~aa)],
             )
             for aa, bb in itertools.product(group_members, repeat=2)
         )
@@ -295,3 +296,19 @@ def test_sympy_parsing() -> None:
     assert abstract.get_coefficient_and_exponents(x) == (1, [(x, 1)])
     assert abstract.get_coefficient_and_exponents(x**2) == (1, [(x, 2)])
     assert abstract.get_coefficient_and_exponents(3 * x * y**2) == (3, [(x, 1), (y, 2)])
+
+
+def test_iter_monomial_terms() -> None:
+    """Split SymPy polynomials into their monomial terms, distributing products of sums."""
+    x = sympy.abc.x
+    y = sympy.abc.y
+
+    # a sum, a product of sums, a lone monomial, a bare integer, and zero
+    assert set(abstract.iter_monomial_terms(x**2 + y)) == {x**2, y}
+    assert set(abstract.iter_monomial_terms((1 + x) * (1 + y))) == {sympy.Integer(1), x, y, x * y}
+    assert abstract.iter_monomial_terms(2 * x * y) == (2 * x * y,)
+    assert abstract.iter_monomial_terms(5) == (sympy.Integer(5),)
+    assert abstract.iter_monomial_terms(0) == (sympy.Integer(0),)
+
+    # a sympy.Poly is accepted and treated the same as its expression
+    assert set(abstract.iter_monomial_terms(sympy.Poly(x**2 + y, x, y))) == {x**2, y}

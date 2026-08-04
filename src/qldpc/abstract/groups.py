@@ -1,4 +1,4 @@
-"""Module for abstract algebra: groups and representations thereof
+"""Module for abstract algebra: groups and representations thereof.
 
 All groups in this module are finite, and represented under the hood as a SymPy PermutationGroup, or
 a subgroup of the symmetric group.  Group members subclass the SymPy Permutation class.
@@ -36,7 +36,7 @@ import itertools
 import math
 import operator
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any, Union
+from typing import Any, ClassVar
 
 import galois
 import numpy as np
@@ -48,21 +48,19 @@ import sympy.core
 
 from qldpc import external
 
-GF2: type[galois.FieldArray] = galois.GF(2)
-
 
 def resolve_field(
     field: int | type[galois.FieldArray] | None,
 ) -> type[galois.FieldArray]:  # pragma: no cover
     """Parse a finite field argument to obtain an actual finite field."""
     if field is None:
-        return GF2
+        return galois.GF2
     if isinstance(field, int):
         return galois.GF(field)
     return field
 
 
-NestedSequence = Sequence[Union[object, Sequence["NestedSequence"]]]
+NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
 ################################################################################
 # groups and group members
@@ -97,8 +95,9 @@ class GroupMember(comb.Permutation):
     def __matmul__(self, other: GroupMember) -> GroupMember:
         """Take the "tensor product" of two group members.
 
-        If group members g_1 and g_2 are, respectively, elements of the groups G_1 and G_2, then the
-        "tensor product" g_1 @ g_2 is an element of the direct product of G_1 and G_2.
+        If group members ``g_1`` and ``g_2`` are, respectively, elements of the groups ``G_1`` and
+        ``G_2``, then the "tensor product" ``g_1 @ g_2`` is an element of the direct product of
+        ``G_1`` and ``G_2``.
         """
         return GroupMember(self.array_form + [val + self.size for val in other.array_form])
 
@@ -106,9 +105,9 @@ class GroupMember(comb.Permutation):
         """Lift this permutation object to a permutation matrix.
 
         For consistency with how SymPy composes permutations, the permutation matrix constructed
-        here is right-acting, meaning that it acts on a vector v as v --> v @ p.to_matrix().  This
-        convension ensures that this lift is a homomorphism on SymPy Permutation objects, which is
-        to say that (p * q).to_matrix() = p.to_matrix() @ q.to_matrix().
+        here is right-acting, meaning that it acts on a vector v as ``v --> v @ p.to_matrix()``.
+        This convention ensures that this lift is a homomorphism on SymPy Permutation objects,
+        which is to say that ``(p * q).to_matrix() = p.to_matrix() @ q.to_matrix()``.
         """
         matrix = np.zeros([self.size] * 2, dtype=int)
         for ii in range(self.size):
@@ -222,7 +221,10 @@ class Group:
 
     @property
     def is_abelian(self) -> bool:
-        """Is this group abelian?  Alias for Group.is_commutative."""
+        """Is this group abelian?
+
+        Alias for Group.is_commutative.
+        """
         return self.is_commutative
 
     @property
@@ -253,7 +255,7 @@ class Group:
         """The index of a GroupMember in this group."""
         index = self._members.get(member)
         if not isinstance(index, int):
-            raise ValueError(f"Member {member} not in group {self}")
+            raise TypeError(f"Member {member} not in group {self}")
         return index
 
     def __mul__(self, other: Group) -> Group:
@@ -281,51 +283,77 @@ class Group:
 
         return GroupMember.from_sympy(self._group.random())
 
-    @functools.cache
     def regular_lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
         """Lift a group member to its regular representation.
 
         By default, this method lifts a group member to its left-regular representation.
-        Specifically, if Vec : G -> F_2^{|G|} maps group members to standard basis vectors and
-        g,h ∈ G, then
-            G.regular_lift(g) @ Vec(h) = Vec(g·h).
+        Specifically, if ``Vec : G -> F_2^{|G|}`` maps group members to standard basis vectors and
+        ``g,h ∈ G``, then
+
+            ``G.regular_lift(g) @ Vec(h) = Vec(g·h)``.
 
         If right is True, this method lifts a group member to its right-regular anti-representation,
         defined by
-            G.regular_lift(g, right=True) @ Vec(h) = Vec(h·g).
+
+            ``G.regular_lift(g, right=True) @ Vec(h) = Vec(h·g)``.
+
         The right-regular representation of group member is then
-            G.regular_lift(g, right=True).T = G.regular_lift(~g, right=True),
-        where ~g = g**-1 is the inverse of g.
+
+            ``G.regular_lift(g, right=True).T = G.regular_lift(~g, right=True)``,
+
+        where ``~g = g**-1`` is the inverse of g.
 
         See:
+
         - https://en.wikipedia.org/wiki/Regular_representation
         """
-        matrix = np.zeros([self.order] * 2, dtype=int)
-        for ii, hh in enumerate(self.generate()):
-            jj = self.index(hh * member) if right else self.index(member * hh)
-            matrix[jj, ii] = 1
-        return matrix
+        if (member, right) not in self._regular_lift_cache:
+            matrix = np.zeros([self.order] * 2, dtype=int)
+            for ii, hh in enumerate(self.generate()):
+                jj = self.index(hh * member) if right else self.index(member * hh)
+                matrix[jj, ii] = 1
+            self._regular_lift_cache[member, right] = matrix
+        return self._regular_lift_cache[member, right]
 
-    @functools.cache
+    @functools.cached_property
+    def _regular_lift_cache(self) -> dict[tuple[GroupMember, bool], npt.NDArray[np.int_]]:
+        """Per-instance cache for regular_lift (avoids the memory leak of caching on methods)."""
+        return {}
+
     def adjoint_lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
         r"""Lift a group member to its adjoint representation.
 
         The adjoint representation captures how group members get transformed by conjugation.
-        If Vec : G -> F_2^{|G|} lifts group members to standard basis vectors and g,h ∈ G, then
-            adjoint_lift(g) @ Vec(h) = Vec(g·h·~g),
-        where ~g = g**-1 is the inverse of g.
+        If ``Vec : G -> F_2^{|G|}`` lifts group members to standard basis vectors and
+        ``g,h ∈ G``, then
+
+            ``adjoint_lift(g) @ Vec(h) = Vec(g·h·~g)``,
+
+        where ``~g = g**-1`` is the inverse of g.
 
         If the group is abelian, the adjoint lift of every group member is the identity matrix.
         """
-        return self.regular_lift(member) @ self.regular_lift(member, right=True).T
+        if member not in self._adjoint_lift_cache:
+            self._adjoint_lift_cache[member] = (
+                self.regular_lift(member) @ self.regular_lift(member, right=True).T
+            )
+        return self._adjoint_lift_cache[member]
+
+    @functools.cached_property
+    def _adjoint_lift_cache(self) -> dict[GroupMember, npt.NDArray[np.int_]]:
+        """Per-instance cache for adjoint_lift (avoids the memory leak of caching on methods)."""
+        return {}
 
     @functools.cached_property
     def inversion_matrix(self) -> npt.NDArray[np.int_]:
-        """The matrix that maps any group member g ∈ G to its inverse ~g = g**-1.
+        """The matrix that maps any group member ``g ∈ G`` to its inverse ``~g = g**-1``.
 
-        If Vec : G -> F_2^{|G|} lifts group members to standard basis vectors and g ∈ G, then
-            G.inversion_matrix @ Vec(g) = Vec(~g),
-        where ~g = g**-1 is the inverse of g.
+        If ``Vec : G -> F_2^{|G|}`` lifts group members to standard basis vectors and ``g ∈ G``,
+        then
+
+            ``G.inversion_matrix @ Vec(g) = Vec(~g)``,
+
+        where ``~g = g**-1`` is the inverse of g.
         """
         matrix = np.zeros([self.order] * 2, dtype=int)
         for ii, gg in enumerate(self.generate()):
@@ -336,9 +364,12 @@ class Group:
         """Lift a group member to a representation by an orthogonal matrix.
 
         A representation satisfies
-            self.lift(g·h) = self.lift(g) @ self.lift(h).
+
+            ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
+
         If right=True, lift to an anti-representation, for which
-            self.lift(g·h) = self.lift(h) @ self.lift(g).
+
+            ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
         if self._lift is None:
             return self.regular_lift(member, right=right)
@@ -546,7 +577,7 @@ class TrivialGroup(Group):
 
     @staticmethod
     def to_ring_array(data: npt.NDArray[np.int_] | NestedSequence) -> None:
-        """DEFUNCT alias for qldpc.abstract.RingArray.build(data)"""
+        """DEFUNCT alias for qldpc.abstract.RingArray.build(data)."""
         raise ValueError(
             "TrivialGroup.to_ring_array(data) is DEFUNCT; use"
             " qldpc.abstract.RingArray.build(data) instead"
@@ -554,11 +585,12 @@ class TrivialGroup(Group):
 
 
 class AbelianGroup(Group):
-    """Direct product of cyclic groups of the specified orders.  See CyclicGroup for more info.
+    """Direct product of cyclic groups of the specified orders.
 
-    By default, an AbelianGroup member of the form ∏_i g_i^{a_i}, where {g_i} are the generators of
-    the group, gets lifted to a Kronecker product ⨂_i L(g_i)^{a_i}.  If an AbelianGroup is
-    initialized with direct_sum=True, the group members get lifted to a direct sum ⨁_i L(g_i)^{a_i}.
+    See CyclicGroup for more info.  By default, an AbelianGroup member of the form
+    ``∏_i g_i^{a_i}``, where ``{g_i}`` are the generators of the group, gets lifted to a Kronecker
+    product ``⨂_i L(g_i)^{a_i}``.  If an AbelianGroup is initialized with direct_sum=True, the group
+    members get lifted to a direct sum ``⨁_i L(g_i)^{a_i}``.
     """
 
     orders: tuple[int, ...]
@@ -598,10 +630,10 @@ class CyclicGroup(AbelianGroup):
     """Cyclic group of a specified order.
 
     The cyclic group has one generator, g.  All members of the cyclic group of order R can be
-    written as g^p for an integer power p in {0, 1, ..., R-1}.  The member g^p can be represented by
-    (that is, lifted to) an R×R "shift matrix", or the identity matrix with all rows shifted down
-    (equivalently, all columns shifted right) by p.  That is, the lift L(g^p) acts on a standard
-    basis vector <i| as <i| L(g^p) = < i + p mod R |.
+    written as ``g^p`` for an integer power p in ``{0, 1, ..., R-1}``.  The member ``g^p`` can be
+    represented by (that is, lifted to) an ``R×R`` "shift matrix", or the identity matrix with all
+    rows shifted down (equivalently, all columns shifted right) by p.  That is, the lift ``L(g^p)``
+    acts on a standard basis vector ``<i|`` as ``<i| L(g^p) = < i + p mod R |``.
     """
 
     def __init__(self, order: int) -> None:
@@ -641,7 +673,7 @@ class QuaternionGroup(Group):
 
     # multiplication table for this group
 
-    _table = [
+    _table: ClassVar = [
         [0, 1, 2, 3, 4, 5, 6, 7],
         [1, 4, 3, 6, 5, 0, 7, 2],
         [2, 7, 4, 1, 6, 3, 0, 5],
@@ -831,10 +863,11 @@ class ProjectiveSpecialLinearGroup(Group):
 
     Here "center" is the subgroup of SL that commutes with all elements of SL.  Specifically, every
     element in the center of SL is a scalar multiple of the identity matrix I.  In the case of
-    SL(d,q) (d×d matrices over F_q with determinant 1), the determinant of scalar*I is scalar**d,
-    which is only contained in SL(d,q) if scalar**d == 1.
+    ``SL(d,q)`` (``d×d`` matrices over ``F_q`` with determinant 1), the determinant of
+    ``scalar*I`` is ``scalar**d``, which is only contained in ``SL(d,q)`` if
+    ``scalar**d == 1``.
 
-    Altogether, we construct PSL(d,q) by SL(d,q) mod [d-th roots of unity over F_q].
+    Altogether, we construct ``PSL(d,q)`` by ``SL(d,q)`` mod [d-th roots of unity over ``F_q``].
     """
 
     _dimension: int
@@ -875,7 +908,7 @@ class ProjectiveSpecialLinearGroup(Group):
                 for index, vec_bytes in enumerate(target_space):
                     vec = np.frombuffer(vec_bytes, dtype=np.uint8).view(self.field)
                     next_orbit = [root * member @ vec for root in roots]
-                    next_vec = next((vec for vec in next_orbit if vec.tobytes() in target_space))
+                    next_vec = next(vec for vec in next_orbit if vec.tobytes() in target_space)
                     next_index = target_space.index(next_vec.tobytes())
                     perm[index] = next_index
                 generators.append(GroupMember(perm))
@@ -921,7 +954,7 @@ class ProjectiveSpecialLinearGroup(Group):
         """Generating matrices of PSL, constructed out of the generating matrices of SL."""
         field = resolve_field(field)
         gen_x, gen_w = SpecialLinearGroup.get_generating_mats(dimension, field)
-        if field is GF2:
+        if field is galois.GF2:
             return gen_x, gen_w
         return (
             np.kron(np.linalg.inv(gen_x), gen_x).view(field),
@@ -951,6 +984,19 @@ PSL = ProjectiveSpecialLinearGroup
 
 ################################################################################
 # miscellaneous helper methods that don't quite belong in qldpc.math
+
+
+def iter_monomial_terms(polynomial: sympy.Basic | int | np.int_) -> tuple[sympy.Expr, ...]:
+    """Split a SymPy polynomial into its monomial terms, distributing any products of sums.
+
+    Accepts a sympy.Expr, a sympy.Poly, or a (Python or NumPy) integer, and always returns a tuple
+    of single-term monomials.  For example, (1 + x) * (1 + y) becomes (1, x, y, x*y), while a lone
+    monomial or constant such as 2 * x or 5 becomes a one-element tuple.
+    """
+    if isinstance(polynomial, sympy.Poly):
+        polynomial = polynomial.as_expr()
+    # sympify integers into SymPy objects, then expand so that make_args sees a sum of monomials
+    return sympy.Add.make_args(sympy.sympify(polynomial).expand())
 
 
 def get_coefficient_and_exponents(

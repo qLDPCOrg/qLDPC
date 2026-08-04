@@ -1,11 +1,13 @@
-"""Implementation of noise models for Stim circuits
+"""Implementation of noise models for Stim (and tsim) circuits.
 
 The main components of this module are:
+
+- PauliChannel: A sparse multi-qubit Pauli channel used to specify multi-qubit noise.
 - NoiseRule: Defines how to add noise to individual operations.
 - NoiseModel: Defines how noise is added to circuits.
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 
-Examples of basic usage with a predefined noise model:
+Examples of basic usage with a predefined noise model::
 
     import stim
     from qldpc.circuits.noise_model import DepolarizingNoiseModel, NoiseModel, SI1000NoiseModel
@@ -32,25 +34,102 @@ Examples of basic usage with a predefined noise model:
     noisy_circuit = custom_model.noisy_circuit(circuit)
 
 
+Noise on multi-qubit Clifford gates (SPP / MPP)::
+
+    from qldpc.circuits.noise_model import NoiseModel, NoiseRule, PauliChannel
+
+    # `clifford_nq_error` maps a qubit count ``k`` to the noise applied after each ``k``-qubit
+    # unitary Clifford gate (namely, the Pauli-product Cliffords SPP and SPP_DAG, which are stim's
+    # multi-qubit unitary Clifford primitives).  Values may be a float (uniform ``k``-qubit
+    # depolarizing channel), a Mapping[str, float] (auto-wrapped as PauliChannel), a PauliChannel,
+    # or a full NoiseRule.
+    noise_model = NoiseModel(
+        clifford_nq_error={
+            1: 1e-4,                                 # DEPOLARIZE1(1e-4) after each 1-qubit gate
+            2: 1e-3,                                 # DEPOLARIZE2(1e-3) after each 2-qubit gate
+            3: PauliChannel.depolarizing(3, 5e-3),   # 3-qubit depolarizing channel, emitted as
+                                                     # a chain of CORRELATED_ERROR /
+                                                     # ELSE_CORRELATED_ERROR instructions
+            4: {"XXXX": 1e-4, "ZZZZ": 2e-4},         # sparse 4-qubit channel (raw dict)
+        }
+    )
+
+    # Multi-qubit MPP / SPP gates receive ordinary readout_error / clifford_nq_error.  To assign
+    # per-basis rules, use "M<paulis>" for MPP (e.g. "MXYZ" for `MPP X*Y*Z`, "MXX" for `MPP X*X`)
+    # and "S<paulis>" / "S<paulis>_DAG" for SPP / SPP_DAG (e.g. "SXYZ" for `SPP X*Y*Z`, "SXY_DAG"
+    # for `SPP_DAG X*Y`).
+    noise_model = NoiseModel(
+        readout_error=1e-3,                                # default readout flip probability
+        rules={
+            "MXYZ": NoiseRule(readout_error=5e-3),         # override for MPP X*Y*Z specifically
+            "SXYZ": NoiseRule(after=PauliChannel.depolarizing(3, 1e-2)),  # SPP X*Y*Z override
+        },
+    )
+
+
+Per-gate-application noise via a callback (``rule_func``)::
+
+    from qldpc.circuits.noise_model import NoiseModel, NoiseRule
+
+    # `rule_func` takes top priority over every other rule in a `NoiseModel`.  Broadcast gates such
+    # as `H 0 1 2` and `CX 0 1 2 3` are decomposed into individual gates before being passed to
+    # `rule_func`, so the `op` argument is always a stim.CircuitInstruction holding exactly one gate
+    # application's worth of targets (e.g. two targets for a two-qubit gate, one Pauli product for
+    # an SPP/MPP).  Returning `None` falls back to the ordinary `NoiseModel` rules.
+    def bad_qubit_noise(op: stim.CircuitInstruction) -> NoiseRule | None:
+        # Give any gate touching qubit 7 a heavier depolarizing kick; leave everything else alone.
+        targets = [t for t in op.targets_copy() if not t.is_combiner]
+        if any(t.qubit_value == 7 for t in targets):
+            return NoiseRule(after=PauliChannel.depolarizing(len(targets), 1e-2))
+        return None
+
+    noise_model = NoiseModel(
+        clifford_1q_error=1e-4,
+        clifford_2q_error=1e-3,
+        rule_func=bad_qubit_noise,
+    )
+    noisy_circuit = noise_model.noisy_circuit(circuit)
+
 Important note:
 ---------------
 
-This file was taken and modified from
+This file was originally taken and modified from::
+
     https://github.com/tqec/tqec/blob/main/src/tqec/utils/noise_model.py
-which itself was taken from
+
+which itself was taken from::
+
     https://zenodo.org/records/7487893
+
 and licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/legalcode).
 
-The original code was written for the paper at "Inplace Access to the Surface Code Y Basis", at
+The original code was written for the paper at "Inplace Access to the Surface Code Y Basis", at::
+
     https://quantum-journal.org/papers/q-2024-04-08-1310.
 """
 
 from __future__ import annotations
 
+import abc
 import collections
-from collections.abc import Collection, Iterable, Iterator
+import copy
+import functools
+import itertools
+import math
+import re
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+from typing import TypeAlias
 
 import stim
+
+from qldpc._util import format_docstring
+
+from .common import _load_tsim_if_installed, stim_or_tsim_Circuit, with_remapped_qubits
+
+####################################################################################################
+# global constants
+
+DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
 
 CLIFFORD_1Q = "C1"
 CLIFFORD_2Q = "C2"
@@ -62,127 +141,456 @@ JUST_RESET_1Q = "R1"
 MEASURE_RESET_1Q = "MR1"
 ANNOTATION = "info"
 NOISE = "!?"
+UNSUPPORTED = "unsupported"
 
-OP_TYPES = {
-    # one-qubit Cliffords
-    "I": CLIFFORD_1Q,
-    "X": CLIFFORD_1Q,
-    "Y": CLIFFORD_1Q,
-    "Z": CLIFFORD_1Q,
-    "C_NXYZ": CLIFFORD_1Q,
-    "C_NZYX": CLIFFORD_1Q,
-    "C_XNYZ": CLIFFORD_1Q,
-    "C_XYNZ": CLIFFORD_1Q,
-    "C_XYZ": CLIFFORD_1Q,
-    "C_ZNYX": CLIFFORD_1Q,
-    "C_ZYNX": CLIFFORD_1Q,
-    "C_ZYX": CLIFFORD_1Q,
-    "H": CLIFFORD_1Q,
-    "H_NXY": CLIFFORD_1Q,
-    "H_NXZ": CLIFFORD_1Q,
-    "H_NYZ": CLIFFORD_1Q,
-    "H_XY": CLIFFORD_1Q,
-    "H_XZ": CLIFFORD_1Q,
-    "H_YZ": CLIFFORD_1Q,
-    "S": CLIFFORD_1Q,
-    "SQRT_X": CLIFFORD_1Q,
-    "SQRT_X_DAG": CLIFFORD_1Q,
-    "SQRT_Y": CLIFFORD_1Q,
-    "SQRT_Y_DAG": CLIFFORD_1Q,
-    "SQRT_Z": CLIFFORD_1Q,
-    "SQRT_Z_DAG": CLIFFORD_1Q,
-    "S_DAG": CLIFFORD_1Q,
-    # two-qubit Cliffords
-    "CNOT": CLIFFORD_2Q,
-    "CX": CLIFFORD_2Q,
-    "CXSWAP": CLIFFORD_2Q,
-    "CY": CLIFFORD_2Q,
-    "CZ": CLIFFORD_2Q,
-    "CZSWAP": CLIFFORD_2Q,
-    "II": CLIFFORD_2Q,
-    "ISWAP": CLIFFORD_2Q,
-    "ISWAP_DAG": CLIFFORD_2Q,
-    "SQRT_XX": CLIFFORD_2Q,
-    "SQRT_XX_DAG": CLIFFORD_2Q,
-    "SQRT_YY": CLIFFORD_2Q,
-    "SQRT_YY_DAG": CLIFFORD_2Q,
-    "SQRT_ZZ": CLIFFORD_2Q,
-    "SQRT_ZZ_DAG": CLIFFORD_2Q,
-    "SWAP": CLIFFORD_2Q,
-    "SWAPCX": CLIFFORD_2Q,
-    "SWAPCZ": CLIFFORD_2Q,
-    "XCX": CLIFFORD_2Q,
-    "XCY": CLIFFORD_2Q,
-    "XCZ": CLIFFORD_2Q,
-    "YCX": CLIFFORD_2Q,
-    "YCY": CLIFFORD_2Q,
-    "YCZ": CLIFFORD_2Q,
-    "ZCX": CLIFFORD_2Q,
-    "ZCY": CLIFFORD_2Q,
-    "ZCZ": CLIFFORD_2Q,
-    # noise channels
-    "CORRELATED_ERROR": NOISE,
-    "DEPOLARIZE1": NOISE,
-    "DEPOLARIZE2": NOISE,
-    "E": NOISE,
-    "ELSE_CORRELATED_ERROR": NOISE,
-    "HERALDED_ERASE": NOISE,
-    "HERALDED_PAULI_CHANNEL_1": NOISE,
-    "II_ERROR": NOISE,
-    "I_ERROR": NOISE,
-    "PAULI_CHANNEL_1": NOISE,
-    "PAULI_CHANNEL_2": NOISE,
-    "X_ERROR": NOISE,
-    "Y_ERROR": NOISE,
-    "Z_ERROR": NOISE,
-    # collapsing gates
-    "M": JUST_MEASURE_1Q,
-    "MX": JUST_MEASURE_1Q,
-    "MY": JUST_MEASURE_1Q,
-    "MZ": JUST_MEASURE_1Q,
-    "R": JUST_RESET_1Q,
-    "RX": JUST_RESET_1Q,
-    "RY": JUST_RESET_1Q,
-    "RZ": JUST_RESET_1Q,
-    "MR": MEASURE_RESET_1Q,
-    "MRX": MEASURE_RESET_1Q,
-    "MRY": MEASURE_RESET_1Q,
-    "MRZ": MEASURE_RESET_1Q,
-    "MXX": JUST_MEASURE_2Q,
-    "MYY": JUST_MEASURE_2Q,
-    "MZZ": JUST_MEASURE_2Q,
-    "MPP": JUST_MEASURE_PP,
-    # Pauli product gates
-    "SPP": CLIFFORD_PP,
-    "SPP_DAG": CLIFFORD_PP,
-    # "REPEAT": ...,  # UNSUPPORTED
-    # annotations
-    "DETECTOR": ANNOTATION,
-    "MPAD": ANNOTATION,
-    "OBSERVABLE_INCLUDE": ANNOTATION,
-    "QUBIT_COORDS": ANNOTATION,
-    "SHIFT_COORDS": ANNOTATION,
-    "TICK": ANNOTATION,
-}
-JUST_MEASURE_OPS = {
-    op
-    for op, op_type in OP_TYPES.items()
-    if op_type == JUST_MEASURE_1Q or op_type == JUST_MEASURE_2Q or op_type == JUST_MEASURE_PP
-}
-JUST_RESET_OPS = {op for op, op_type in OP_TYPES.items() if op_type == JUST_RESET_1Q}
-MEASURE_AND_RESET_OPS = {op for op, op_type in OP_TYPES.items() if op_type == MEASURE_RESET_1Q}
+# The op-type categories that name a genuine noisy gate (as opposed to pure-noise, annotation, or
+# unsupported instructions).  These are the operations a user-provided ``rule_func`` is
+# consulted for, once decomposed into individual gate applications.
+GATE_OP_TYPES = frozenset(
+    {
+        CLIFFORD_1Q,
+        CLIFFORD_2Q,
+        CLIFFORD_PP,
+        JUST_MEASURE_1Q,
+        JUST_MEASURE_2Q,
+        JUST_MEASURE_PP,
+        JUST_RESET_1Q,
+        MEASURE_RESET_1Q,
+    }
+)
+
+# Gates that stim knows about but qLDPC does not support (e.g., REPEAT is a block, not a gate,
+# and cannot appear as an ordinary CircuitInstruction).
+UNSUPPORTED_GATES = frozenset({"REPEAT"})
+
+
+@functools.cache
+def op_type(op_name: str) -> str:
+    """Return the qLDPC op-type category for a gate name (canonical or alias)."""
+    try:
+        data = stim.gate_data(op_name)
+    except IndexError:
+        return UNSUPPORTED
+    if any(alias in UNSUPPORTED_GATES for alias in data.aliases):
+        return UNSUPPORTED
+    if data.flows is None:
+        # Pure noise (X_ERROR, DEPOLARIZE1, HERALDED_ERASE, ...) or annotation (TICK, DETECTOR,
+        # MPAD, QUBIT_COORDS, SHIFT_COORDS, OBSERVABLE_INCLUDE).  These are the gates that lack a
+        # tableau-based flow specification.
+        return NOISE if data.is_noisy_gate else ANNOTATION
+    if data.is_reset:
+        assert data.is_single_qubit_gate
+        if data.produces_measurements:
+            return MEASURE_RESET_1Q
+        return JUST_RESET_1Q
+    if data.produces_measurements:
+        if data.is_single_qubit_gate:
+            return JUST_MEASURE_1Q
+        if data.is_two_qubit_gate:
+            return JUST_MEASURE_2Q
+        assert data.takes_pauli_targets
+        return JUST_MEASURE_PP
+    if data.is_unitary:
+        if data.is_single_qubit_gate:
+            return CLIFFORD_1Q
+        if data.is_two_qubit_gate:
+            return CLIFFORD_2Q
+        assert data.takes_pauli_targets
+        return CLIFFORD_PP
+    raise NotImplementedError(  # pragma: no cover
+        f"qLDPC does not know how to classify the gate {op_name!r}."
+        f"  Please open an issue at https://github.com/qLDPCOrg/qLDPC/issues."
+    )
+
+
+# All canonical + alias names stim knows about, plus their aliases (so lookups by any name work).
+ALL_STIM_GATE_NAMES = frozenset(alias for gd in stim.gate_data().values() for alias in gd.aliases)
+
+JUST_MEASURE_OPS = frozenset(
+    name
+    for name in ALL_STIM_GATE_NAMES
+    if op_type(name) in (JUST_MEASURE_1Q, JUST_MEASURE_2Q, JUST_MEASURE_PP)
+)
+JUST_RESET_OPS = frozenset(name for name in ALL_STIM_GATE_NAMES if op_type(name) == JUST_RESET_1Q)
+MEASURE_AND_RESET_OPS = frozenset(
+    name for name in ALL_STIM_GATE_NAMES if op_type(name) == MEASURE_RESET_1Q
+)
 COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
+# Noise instructions that stim broadcasts independently per qubit (any number of targets).
+BROADCAST_1Q_NOISE = frozenset(
+    name
+    for name in ALL_STIM_GATE_NAMES
+    if op_type(name) == NOISE and stim.gate_data(name).is_single_qubit_gate
+)
+# Noise instructions that stim broadcasts per (fixed-size) pair; require an even number of targets.
+BROADCAST_2Q_NOISE = frozenset(
+    name
+    for name in ALL_STIM_GATE_NAMES
+    if op_type(name) == NOISE and stim.gate_data(name).is_two_qubit_gate
+)
 
-DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
+CORRELATED_ERROR_NAMES = frozenset({"CORRELATED_ERROR", "E", "ELSE_CORRELATED_ERROR"})
+
+####################################################################################################
+# primary methods and classes: as_noiseless_circuit, PauliChannel, NoiseRule, NoiseModel
 
 
-def as_noiseless_circuit(circuit: stim.Circuit) -> stim.Circuit:
-    """Wrap a circuit in a noiseless, one-repitition stim.CircuitRepeatBlock."""
+def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
+    """Wrap a circuit in a noiseless, one-repetition stim.CircuitRepeatBlock."""
+    tsim = _load_tsim_if_installed()
+    if tsim is not None and isinstance(circuit, tsim.Circuit):
+        output = as_noiseless_circuit(circuit.stim_circuit)
+        return tsim.Circuit.from_stim_program(output)
     block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
     noiseless_circuit = stim.Circuit()
     noiseless_circuit.append(block)
     return noiseless_circuit
+
+
+class AbstractPauliChannel(abc.ABC):
+    """Base class for sparse Pauli channels.
+
+     Every ``AbstractPauliChannel`` maps non-identity Pauli strings (over the alphabet
+     ``{I, X, Y, Z}``) to their probabilities.  The interpretation of those probabilities generally
+     depends on the ``AbstractPauliChannel`` subclass.
+
+    Subclasses of ``AbstractPauliChannel`` are required to define a ``.to_circuit`` method.
+    """
+
+    def __init__(
+        self, probabilities: Mapping[str, float], *, num_qubits: int | None = None
+    ) -> None:
+        """Validate and store a sparse Pauli-string -> probability mapping.
+
+        Performs only *per-entry* validation (string shape / alphabet, not-identity, each
+        probability in [0, 1]).  Any aggregate constraint (such as normalization) is left to the
+        subclass.
+
+        Args:
+            probabilities: Mapping from non-identity Pauli strings to their probabilities.  All
+                strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
+                ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
+                probability zero are silently dropped.
+            num_qubits: The arity of the channel.  Required only for an empty ``probabilities``
+                on a nontrivial number of qubits — otherwise defaults to the length of the Pauli
+                strings when ``probabilities`` is non-empty, or ``0`` when empty.  If both are
+                supplied and inconsistent, a ``ValueError`` is raised.
+
+        Raises:
+            ValueError: If the input contains an invalid Pauli string, contains the identity
+                string, any probability is not in [0, 1], or ``num_qubits`` disagrees with the
+                length of the Pauli strings.
+        """
+        if num_qubits is not None and num_qubits < 0:
+            raise ValueError(f"num_qubits={num_qubits} must be >= 0")
+        if not probabilities:
+            self._num_qubits = num_qubits if num_qubits is not None else 0
+            self._probabilities: dict[str, float] = {}
+            return
+
+        first_key = next(iter(probabilities))
+        derived_num_qubits = len(first_key)
+        if num_qubits is not None and num_qubits != derived_num_qubits:
+            raise ValueError(
+                f"num_qubits={num_qubits} disagrees with Pauli string length {derived_num_qubits}"
+            )
+
+        identity = "I" * derived_num_qubits
+        for string, prob in probabilities.items():
+            if len(string) != derived_num_qubits:
+                raise ValueError(
+                    f"All Pauli strings must have length {derived_num_qubits}; got {string!r}"
+                )
+            if any(pauli not in "IXYZ" for pauli in string):
+                raise ValueError(
+                    f"Pauli string {string!r} contains invalid characters (allowed: I, X, Y, Z)"
+                )
+            if string == identity:
+                raise ValueError(f"Identity string {string!r} is implicit and must not be listed")
+            if not (0 <= prob <= 1):
+                raise ValueError(f"Probability {prob} for {string!r} is not in [0, 1]")
+
+        nonzero = {
+            string: probabilities[string]
+            for string in sorted(probabilities)
+            if probabilities[string] > 0
+        }
+        self._num_qubits = derived_num_qubits
+        self._probabilities = nonzero
+
+    def __repr__(self) -> str:
+        class_name = type(self).__name__
+        if not self._probabilities and self._num_qubits:
+            return f"{class_name}({{}}, num_qubits={self._num_qubits})"
+        return f"{class_name}({dict(self._probabilities)!r})"
+
+    def __hash__(self) -> int:
+        return hash((type(self), self._num_qubits, tuple(self._probabilities.items())))
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, AbstractPauliChannel) or type(other) is not type(self):
+            return NotImplemented
+        return self._num_qubits == other._num_qubits and self._probabilities == other._probabilities
+
+    def __bool__(self) -> bool:
+        """Is this channel nontrivial?"""
+        return bool(self._probabilities)
+
+    @property
+    def num_qubits(self) -> int:
+        """Number of qubits the channel acts on."""
+        return self._num_qubits
+
+    @property
+    def probabilities(self) -> Mapping[str, float]:
+        """Non-identity Pauli-string → probability mapping."""
+        return self._probabilities
+
+    def _resolve_targets(
+        self, append_to: stim_or_tsim_Circuit | None, qubits: Iterable[int] | None
+    ) -> tuple[stim_or_tsim_Circuit, list[int]]:
+        """Resolve the ``(circuit, qubit_targets)`` pair shared by every variant of ``to_circuit``.
+
+        Creates a fresh circuit when ``append_to`` is ``None``, defaults ``qubits`` to
+        ``range(num_qubits)``, and validates that the number of qubits matches the channel arity.
+        """
+        circuit = stim.Circuit() if append_to is None else append_to
+        qubit_targets = list(range(self._num_qubits)) if qubits is None else list(qubits)
+        if len(qubit_targets) != self.num_qubits:
+            raise ValueError(
+                f"Provided {len(qubit_targets)} qubits for a {self.num_qubits}-qubit channel"
+            )
+        return circuit, qubit_targets
+
+    @abc.abstractmethod
+    def to_circuit(
+        self,
+        *,
+        append_to: stim_or_tsim_Circuit | None = None,
+        qubits: Iterable[int] | None = None,
+        tag: str = "",
+    ) -> stim_or_tsim_Circuit:
+        """Convert this channel into a circuit."""
+
+
+class PauliChannel(AbstractPauliChannel):
+    """A sparse multi-qubit Pauli channel.
+
+    Maps non-identity Pauli strings (over the alphabet ``{I, X, Y, Z}``) to their probabilities.
+    The strings name mutually-exclusive outcomes: exactly one Pauli (possibly the identity) is
+    applied.  The all-identity string is implicit; its probability is ``1 - sum(others)``, so the
+    listed probabilities must sum to at most 1.
+    """
+
+    def __init__(
+        self, probabilities: Mapping[str, float], *, num_qubits: int | None = None
+    ) -> None:
+        """Instantiate a Pauli channel.
+
+        Args:
+            probabilities: Mapping from non-identity Pauli strings to their probabilities.  All
+                strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
+                ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
+                probability zero are silently dropped.
+            num_qubits: The arity of the channel.  Required only for an empty ``probabilities``
+                on a nontrivial number of qubits — otherwise defaults to the length of the Pauli
+                strings when ``probabilities`` is non-empty, or ``0`` when empty.  If both are
+                supplied and inconsistent, a ``ValueError`` is raised.
+
+        Raises:
+            ValueError: If the input contains an invalid Pauli string, contains the identity
+                string, any probability is not in [0, 1], the sum of probabilities is not in
+                [0, 1], or ``num_qubits`` disagrees with the length of the Pauli strings.
+        """
+        super().__init__(probabilities, num_qubits=num_qubits)
+
+        # Ensure the sum of all probabilities does not exceed 1.  Use math.fsum for a precise sum,
+        # and allow a small tolerance so a mathematically- normalized input isn't rejected due to
+        # per-value rounding (e.g., ``[p_i / sum(p_i) for p_i in ...]`` can accumulate to
+        # ~1 + O(n * eps)).
+        total = math.fsum(self._probabilities.values())
+        if not _is_approx_in_unit_interval(total):
+            raise ValueError(f"Sum of Pauli channel probabilities {total} is not in [0, 1]")
+
+    @staticmethod
+    def depolarizing(num_qubits: int, probability: float) -> PauliChannel:
+        """Uniform ``num_qubits``-qubit depolarizing channel with total error ``probability``.
+
+        Each of the ``4**num_qubits - 1`` non-identity Pauli strings is assigned probability
+        ``probability / (4**num_qubits - 1)``.  Strings are inserted in lexicographic order.
+        """
+        if num_qubits < 1:
+            raise ValueError(f"num_qubits={num_qubits} must be >= 1")
+        if not (0 <= probability <= 1):
+            raise ValueError(f"probability={probability} is not in [0, 1]")
+        num_terms = 4**num_qubits - 1
+        weight = probability / num_terms
+        identity = "I" * num_qubits
+        probs: dict[str, float] = {}
+        for tup in itertools.product("IXYZ", repeat=num_qubits):
+            string = "".join(tup)
+            if string != identity:
+                probs[string] = weight
+        return PauliChannel(probs)
+
+    def conditioned_on(self, immune_qubits: Iterable[int]) -> PauliChannel:
+        """Return the sub-channel of error mechanisms that act as identity on the given qubits.
+
+        Keeps only Pauli strings whose positions in ``immune_qubits`` are all ``I``, with their
+        original probabilities.  The returned channel has the same ``num_qubits`` as ``self`` —
+        surviving strings retain their length; the immune positions are still present, always as
+        ``I``.  Total probability is in general reduced (the dropped weight represents error events
+        that would have acted nontrivially on an immune qubit, which are assumed to not occur).
+
+        Args:
+            immune_qubits: Positions in ``[0, num_qubits)`` to constrain to identity.  Repeats
+                are ignored.
+
+        Returns:
+            A ``PauliChannel`` on the same qubits as ``self``.  If no strings survive, the returned
+            channel is empty but still reports ``num_qubits == self.num_qubits``.
+
+        Raises:
+            ValueError: If any index is outside ``[0, num_qubits)``.
+        """
+        immune_qubits = frozenset(immune_qubits)
+        for qubit in immune_qubits:
+            if not 0 <= qubit < self._num_qubits:
+                raise ValueError(f"index {qubit} not in [0, {self._num_qubits})")
+        result = copy.deepcopy(self)
+        if immune_qubits:
+            result._probabilities = {
+                string: prob
+                for string, prob in result._probabilities.items()
+                if all(string[i] == "I" for i in immune_qubits)
+            }
+        return result
+
+    def to_circuit(
+        self,
+        *,
+        append_to: stim_or_tsim_Circuit | None = None,
+        qubits: Iterable[int] | None = None,
+        simplify: bool = True,
+        tag: str = "",
+    ) -> stim_or_tsim_Circuit:
+        """Convert this PauliChannel into a circuit.
+
+        If provided a circuit, append to that circuit in-place and return it.
+
+        By default (with ``simplify=True``), the channel is emitted in the simplest form its
+        probabilities permit: channels that address only one or two qubits nontrivially become
+        ``PAULI_CHANNEL_[12]`` / ``DEPOLARIZE[12]`` / ``[XYZ]_ERROR``.
+
+        With ``simplify=False`` the channel is always emitted as a ``CORRELATED_ERROR`` followed by
+        one ``ELSE_CORRELATED_ERROR`` per remaining Pauli string, with conditional probabilities
+        renormalized so each string's unconditional firing probability matches this channel.
+
+        Args:
+            append_to: The circuit to append to; if ``None`` (default), create a new circuit.
+            qubits: The qubit targets, one per position of the channel; if ``None`` (default),
+                set to ``range(self.num_qubits)``.
+            simplify: If True (the default), emit the channel in the simplest equivalent form.  If
+                False, always emit a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain.
+            tag: An optional tag applied to every emitted instruction.
+
+        Returns:
+            The circuit that the noise instructions were appended to.
+
+        Raises:
+            ValueError: If the number of ``qubits`` does not match the arity of the channel.
+        """
+        circuit, qubits = self._resolve_targets(append_to, qubits)
+        if not self.probabilities:
+            return circuit
+
+        if simplify:
+            # restrict to the qubits addressed nontrivially by this PauliChannel
+            positions = sorted(
+                {i for string in self.probabilities for i, p in enumerate(string) if p != "I"}
+            )
+            target_qubits = [qubits[i] for i in positions]
+
+            # Single-qubit channel: PAULI_CHANNEL_1 / DEPOLARIZE1 / [XYZ]_ERROR
+            if len(positions) == 1:
+                probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+                for string, prob in self.probabilities.items():
+                    probs_1q[string[positions[0]]] = prob
+                args = [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
+                name, name_args = _pauli_channel_1_shortcut(args)
+                circuit.append(name, target_qubits, name_args, tag=tag)
+                return circuit
+
+            # Two-qubit channel: PAULI_CHANNEL_2 / DEPOLARIZE2
+            if len(positions) == 2:
+                pos0, pos1 = positions
+                probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
+                for string, prob in self.probabilities.items():
+                    probs_2q[string[pos0] + string[pos1]] = prob
+                args = [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
+                name, name_args = _pauli_channel_2_shortcut(args)
+                circuit.append(name, target_qubits, name_args, tag=tag)
+                return circuit
+
+        # Emit a CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain
+        remaining = 1.0
+        first = True
+        for string, prob in self.probabilities.items():
+            pauli_targets = _pauli_string_to_targets(string, qubits)
+            if first:
+                circuit.append("CORRELATED_ERROR", pauli_targets, [prob], tag=tag)
+                first = False
+            else:
+                # `remaining` is `1 - sum_of_prior` in exact arithmetic and is guaranteed >= prob
+                # because the constructor rejects total > 1.  If floating-point subtraction leaves
+                # `remaining` a hair smaller than prob (or zero), emit an ELSE_CORRELATED_ERROR(1)
+                # that absorbs the rest of the probability mass and stop — any subsequent
+                # ELSE_CORRELATED_ERROR would never fire.
+                if remaining <= prob:
+                    circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [1.0], tag=tag)
+                    break
+                circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [prob / remaining], tag=tag)
+            remaining -= prob
+        return circuit
+
+
+class PauliChannelSequence(AbstractPauliChannel):
+    """A sequence of independent Pauli-string error mechanisms.
+
+    Like :class:`PauliChannel`, this maps non-identity Pauli strings to probabilities, but the
+    entries are *independent* events rather than mutually-exclusive outcomes: each fires (or not) on
+    its own, and several may fire together.
+    """
+
+    def to_circuit(
+        self,
+        *,
+        append_to: stim_or_tsim_Circuit | None = None,
+        qubits: Iterable[int] | None = None,
+        tag: str = "",
+    ) -> stim_or_tsim_Circuit:
+        """Emit each entry of this channel as an independent ``CORRELATED_ERROR``.
+
+        If provided a circuit, append to that circuit in-place and return it.
+
+        Args:
+            append_to: The circuit to append to; if ``None`` (default), create a new circuit.
+            qubits: The qubit targets, one per position of the channel; if ``None`` (default),
+                set to ``range(self.num_qubits)``.
+            tag: An optional tag applied to every emitted instruction.
+
+        Returns:
+            The circuit that the noise instructions were appended to.
+
+        Raises:
+            ValueError: If the number of ``qubits`` does not match the arity of the channel.
+        """
+        circuit, qubits = self._resolve_targets(append_to, qubits)
+        for string, prob in self.probabilities.items():
+            pauli_targets = _pauli_string_to_targets(string, qubits)
+            circuit.append("CORRELATED_ERROR", pauli_targets, [prob], tag=tag)
+        return circuit
 
 
 class NoiseRule:
@@ -195,53 +603,86 @@ class NoiseRule:
     def __init__(
         self,
         *,
-        after: dict[str, float | Iterable[float]] = {},
-        readout_error: float = 0,
-        reset_error: float = 0,
-    ):
+        after: AbstractPauliChannel | Mapping[str, float] | stim.Circuit | None = None,
+        readout_error: float | None = None,
+        reset_error: float | None = None,
+    ) -> None:
         """Initializes a noise rule with specified error channels.
 
         Args:
-            after: A dictionary mapping noise channel names to their probability arguments.  For
-                example, {"DEPOLARIZE2": 0.01, "PAULI_CHANNEL_1": [0.02, 0, 0]} will add two-qubit
-                depolarization with parameter 0.01, followed by 2% bit-flip noise.  These noise
-                channels occur after all other operations in the moment and are applied to the same
-                targets as the relevant operation.
+            after: Noise applied after each matching operation.  The noise is broadcast across
+                all of the instruction's qubit targets.  May be any of the following:
+
+                - ``PauliChannel``: a joint Pauli channel of some definite arity ``k``.  Emitted
+                    natively via ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` when ``k ≤ 2`` or
+                    as a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain per ``k``-qubit
+                    block for ``k ≥ 3``.
+                - ``PauliChannelSequence``: a sequence of independent Pauli-string error mechanisms.
+                - ``Mapping[str, float]``: syntactic sugar for a ``PauliChannel``.  Keys are
+                    non-identity Pauli strings (e.g., ``"X"``, ``"IZ"``, ``"XYZ"``); values are
+                    probabilities.  Passed directly to ``PauliChannel(mapping)``.
+                - ``stim.Circuit``: a fragment of noise instructions emitted verbatim after each
+                    ``k``-qubit block, with qubit indices remapped from ``[0, k)`` in the fragment
+                    to the corresponding block's targets.  The fragment's arity is inferred from
+                    ``circuit.num_qubits``.  Every instruction must be a noise instruction
+                    (``op_type(name) == NOISE``); repeat blocks are rejected.  ``PauliChannel`` and
+                    ``Mapping`` arguments are preferred when they suffice, as the ``stim.Circuit``
+                    form skips native broadcasting.
+
             readout_error: The probability that a measurement result is reported incorrectly.  Only
-                allowed for operations that produce measurement results.
+                allowed for operations that produce measurement results.  ``None`` (the default)
+                means the field is unset (validation ignores it); ``0.0`` is an explicit no-op flip
+                probability that is still validated against the gate type.
             reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
-                operations that reset qubits.
+                operations that reset qubits.  Same ``None`` vs. ``0.0`` distinction as
+                ``readout_error``.
 
         Raises:
-            ValueError: If any noise channel name is not recognized or if any net probability of an
-                error is not between 0 and 1 (inclusive).
+            ValueError: If any Pauli string is invalid, any probability is not in [0, 1], or the
+                ``stim.Circuit`` form contains a non-noise instruction.
         """
         self.readout_error = readout_error
-        if not (0 <= readout_error <= 1):
+        if readout_error is not None and not (0 <= readout_error <= 1):
             raise ValueError(f"{readout_error=} is not between 0 and 1")
 
         self.reset_error = reset_error
-        if not (0 <= reset_error <= 1):
+        if reset_error is not None and not (0 <= reset_error <= 1):
             raise ValueError(f"{reset_error=} is not between 0 and 1")
 
-        self.after = {
-            op: tuple(prob_or_probs) if isinstance(prob_or_probs, Iterable) else (prob_or_probs,)
-            for op, prob_or_probs in after.items()
-        }
-        for op, probs in self.after.items():
-            if OP_TYPES[op] != NOISE:
-                raise ValueError(f"Invalid or unrecognized noise channel {op} in {after=}")
-            if not (0 <= sum(probs) <= 1):
-                raise ValueError(
-                    f"The net probability of an error is not between 0 and 1 in {after=}"
-                )
+        self.after: AbstractPauliChannel | stim.Circuit | None
+        if after is None:
+            self.after = None
+        elif isinstance(after, AbstractPauliChannel):
+            self.after = after
+        elif isinstance(after, stim.Circuit):
+            _validate_after_circuit(after)
+            self.after = after
+        else:
+            self.after = PauliChannel(after) or None
+
+        if (readout_error is not None or reset_error is not None) and self.after is not None:
+            raise ValueError(
+                "NoiseRule cannot combine `after`-noise with readout_error / reset_error.  If you"
+                " need this capability, please open an issue at"
+                " https://github.com/qLDPCOrg/qLDPC/issues"
+            )
 
     def __bool__(self) -> bool:
         """Is this noise rule nontrivial?"""
         return bool(self.after) or bool(self.readout_error) or bool(self.reset_error)
 
+    def __repr__(self) -> str:
+        args = []
+        if self.after is not None:
+            args.append(f"after={self.after!r}")
+        if self.readout_error is not None:
+            args.append(f"readout_error={self.readout_error!r}")
+        if self.reset_error is not None:
+            args.append(f"reset_error={self.reset_error!r}")
+        return f"NoiseRule({', '.join(args)})"
+
     def noisy_operation(
-        self, op: stim.CircuitInstruction, *, immune_qubits: set[int] = set()
+        self, op: stim.CircuitInstruction
     ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
         """Apply this noise rule to the given operation.
 
@@ -253,19 +694,9 @@ class NoiseRule:
             stim.Circuit: Noise operations that should follow the given operation.
         """
         targets = op.targets_copy()
-        if immune_qubits and any(
-            (
-                target.is_qubit_target
-                or target.is_x_target
-                or target.is_y_target
-                or target.is_z_target
-            )
-            and target.value in immune_qubits
-            for target in targets
-        ):
-            return op, stim.Circuit()
-
         args = op.gate_args_copy()
+        qubit_targets = [target.value for target in targets if not target.is_combiner]
+
         if self.readout_error:
             assert op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS
             if not args:
@@ -278,18 +709,66 @@ class NoiseRule:
         noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
         noise_after = stim.Circuit()
 
-        qubit_targets = [target.value for target in targets if not target.is_combiner]
         if self.reset_error:
             assert op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS
-            error_name = ("X" if _get_standardized_name(op)[-1] != "X" else "Z") + "_ERROR"
+            # Reset gate `RB` (or `MRB`) prepares/resets in Pauli basis B ∈ {X, Y, Z}; a "wrong"
+            # reset is modeled by an error that anticommutes with B.  Z-basis (canonical `R`/`MR`)
+            # and Y-basis (`RY`/`MRY`) resets get X_ERROR; X-basis (`RX`/`MRX`) gets Z_ERROR.
+            error_name = "Z_ERROR" if op.name.endswith("X") else "X_ERROR"
             error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
             noise_after.append(error_op)
 
-        for op_name, args in self.after.items():
-            error_op = stim.CircuitInstruction(op_name, qubit_targets, args)
-            noise_after.append(error_op)
-
+        self.emit_after(noise_after, qubit_targets, context=f"operation {op.name!r}")
         return noisy_op, noise_after
+
+    def emit_after(
+        self, circuit: stim_or_tsim_Circuit, qubit_targets: list[int], *, context: str = "operation"
+    ) -> None:
+        """Append this rule's ``after`` noise in-place to the provided circuit.
+
+        If the operation packages multiple independent gates (e.g., ``H 0 1 2`` — three ``H``
+        gates in one instruction), the noise is applied per gate.  For broadcast forms
+        (``PauliChannel`` of arity 1 or 2), this is achieved by a single emission on all targets,
+        since stim's ``PAULI_CHANNEL_1``/``PAULI_CHANNEL_2`` broadcast natively.  For higher-arity
+        ``PauliChannel`` and for the ``stim.Circuit`` form, the fragment is emitted once per gate.
+
+        Args:
+            circuit: The circuit to append the noise instructions to.
+            qubit_targets: The qubits the noise applies to (in the operation's target order).
+            context: A short description of the operation, used only in error messages.
+
+        Raises:
+            ValueError: If ``len(qubit_targets)`` is not a multiple of the ``after`` rule's arity
+                (i.e. the operation cannot be split into an integer number of individual gates
+                matching the rule).
+        """
+        n_targets = len(qubit_targets)
+        if not self.after:
+            return
+        num_qubits = self.after.num_qubits
+        if n_targets % num_qubits != 0:
+            raise ValueError(
+                f"This NoiseRule expects a multiple of {num_qubits} qubits but {context} has "
+                f"{n_targets} qubit targets"
+            )
+
+        if isinstance(self.after, AbstractPauliChannel):
+            # Emit once per k-qubit chunk.
+            for i in range(0, n_targets, num_qubits):
+                self.after.to_circuit(append_to=circuit, qubits=qubit_targets[i : i + num_qubits])
+        else:
+            # stim.Circuit escape hatch: apply the fragment verbatim to each k-qubit block, with
+            # qubit indices remapped from [0, k) to the block's targets.
+            assert isinstance(self.after, stim.Circuit)
+            for i in range(0, n_targets, num_qubits):
+                circuit += with_remapped_qubits(self.after, qubit_targets[i : i + num_qubits])
+
+
+# The accepted forms for a single noise-error specification (as used by `NoiseModel`'s
+# clifford / idle error arguments).  Each is normalized to a `NoiseRule` by `_as_noise_rule`:
+# a float is a uniform depolarizing channel, a Mapping is auto-wrapped as a `PauliChannel`, and
+# an `AbstractPauliChannel` / `NoiseRule` is used directly.
+ErrorSpec: TypeAlias = float | Mapping[str, float] | AbstractPauliChannel | NoiseRule
 
 
 class NoiseModel:
@@ -302,57 +781,190 @@ class NoiseModel:
 
     def __init__(
         self,
-        clifford_1q_error: NoiseRule | float | None = None,
-        clifford_2q_error: NoiseRule | float | None = None,
+        clifford_1q_error: ErrorSpec | None = None,
+        clifford_2q_error: ErrorSpec | None = None,
         readout_error: float | None = None,
         reset_error: float | None = None,
         *,
-        idle_error: float | None = None,
-        additional_error_waiting_for_m_or_r: float | None = None,
-        rules: dict[str, NoiseRule] | None = None,
-    ):
+        clifford_nq_error: Mapping[int, ErrorSpec] | None = None,
+        idle_error: ErrorSpec | None = None,
+        additional_error_waiting_for_m_or_r: ErrorSpec | None = None,
+        rules: Mapping[str, NoiseRule] | None = None,
+        rule_func: Callable[[stim.CircuitInstruction], NoiseRule | None] | None = None,
+    ) -> None:
         """Initializes a noise model with specified parameters.
 
         Args:
-            clifford_1q_error: Default noise rule or depolarization probability for one-qubit unitary
-                Clifford gates.
-            clifford_2q_error: Default noise rule or depolarization probability for two-qubit unitary
-                Clifford gates.
+            clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.
+                A float ``p`` is a uniform 1-qubit depolarizing channel of total error probability
+                ``p``.  Also accepts a ``Mapping[str, float]`` from one-qubit non-identity
+                Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
+            clifford_2q_error: Default noise applied after each two-qubit unitary Clifford gate.
+                A float ``p`` is a uniform 1-qubit depolarizing channel of total error probability
+                ``p``.  Also accepts a ``Mapping[str, float]`` from two-qubit non-identity
+                Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of resetting qubits to the wrong state.
-            idle_error: Probability of depolarization for each idling qubit in any given moment.
-            additional_error_waiting_for_m_or_r: Additional depolarization probability applied to
-                qubits that are waiting while other qubits undergo measurement or reset operations.
-            rules: Dictionary mapping specific gate names to their noise rules.  Overrides all other
-                rules for unitary, measurement, and reset gates.
+            clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied
+                after each ``k``-qubit unitary Clifford gate, similarly to ``clifford_?q_error``.
+                Specifying both ``clifford_nq_error[1]`` and ``clifford_1q_error`` raises an
+                ambiguity error; likewise with ``clifford_nq_error[2]`` and ``clifford_2q_error``.
+            idle_error: Noise rule or depolarization probability applied to each idling qubit in any
+                given moment.  If a NoiseRule is provided, its `after` channels are appended to the
+                idle qubits (its readout_error/reset_error fields are ignored).
+            additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
+                applied to qubits that are waiting while other qubits undergo measurement or reset
+                operations.  Same NoiseRule semantics as `idle_error`.
+            rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
+                arity-based defaults for unitary, measurement, and reset gates.
+            rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
+                ``NoiseRule``.  Takes priority over all other noise rules above.  Any gate that stim
+                broadcasts across multiple independent applications (e.g. ``H 0 1 2``,
+                ``CX 0 1 2 3``, or ``SPP X1*Y2 Z3*Y4*X5``) is decomposed into its individual
+                gate applications before being passed to ``rule_func``, its input ``op``
+                always holds exactly one application's worth of targets: one for a one-qubit gate,
+                two for a two-qubit gate, and one Pauli product's targets for an SPP/MPP.  The
+                callback is consulted only for genuine noisy gates (unitary Cliffords, measurements,
+                and resets) that are not classically controlled; it does not affect annotations,
+                pure-noise instructions, or idling errors.
         """
-        if not (isinstance(clifford_1q_error, NoiseRule) or clifford_1q_error is None):
-            clifford_1q_error = NoiseRule(after={"DEPOLARIZE1": clifford_1q_error})
-        if not (isinstance(clifford_2q_error, NoiseRule) or clifford_2q_error is None):
-            clifford_2q_error = NoiseRule(after={"DEPOLARIZE2": clifford_2q_error})
-
         self.rules = rules
-        self.clifford_1q_error = clifford_1q_error
-        self.clifford_2q_error = clifford_2q_error
+        self.rule_func = rule_func
+        if rules is not None:
+            # Validate rules whose (arity, can_measure, can_reset) is known — fixed-arity stim
+            # gates and basis-suffixed rule keys (``"MXYZ"`` for MPP X*Y*Z, ``"SXY_DAG"`` for
+            # SPP_DAG X*Y).  Bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` are variable-arity and
+            # deferred to emission-time checks via ``emit_after``.
+            for op_name, rule in rules.items():
+                shape = _known_gate_shape(op_name)
+                if shape is not None:
+                    arity, can_measure, can_reset = shape
+                    _validate_rule_for_arity(
+                        rule,
+                        arity,
+                        f"rules[{op_name!r}]",
+                        can_measure=can_measure,
+                        can_reset=can_reset,
+                    )
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
-        self.idle_error = idle_error
-        self.additional_error_waiting_for_m_or_r = additional_error_waiting_for_m_or_r
+
+        # `clifford_1q_error` / `clifford_2q_error` are syntactic sugar for `clifford_nq_error[1]`
+        # / `clifford_nq_error[2]`; internally we normalize everything into a single
+        # `clifford_nq_error` dict.  Ambiguity detection is symmetric on RAW inputs — an argument
+        # counts as "user-specified" if the user passed anything other than None (including a
+        # zero float, an empty NoiseRule, etc.), even if it normalizes to a no-op.
+        for size, param, name in (
+            (1, clifford_1q_error, "clifford_1q_error"),
+            (2, clifford_2q_error, "clifford_2q_error"),
+        ):
+            if clifford_nq_error is not None and size in clifford_nq_error and param is not None:
+                raise ValueError(
+                    f"Ambiguous noise specification: both `clifford_nq_error[{size}]` and"
+                    f"`{name}` are set.  Specify one or the other."
+                )
+        merged_nq_input: dict[int, ErrorSpec] = dict(clifford_nq_error) if clifford_nq_error else {}
+        rule_1q = _as_noise_rule(clifford_1q_error, 1)
+        rule_2q = _as_noise_rule(clifford_2q_error, 2)
+        if rule_1q is not None:
+            merged_nq_input[1] = rule_1q
+        if rule_2q is not None:
+            merged_nq_input[2] = rule_2q
+        self.clifford_nq_error = _normalize_clifford_nq_error(merged_nq_input)
+
+        self.idle_error = _as_noise_rule(idle_error, 1)
+        self.additional_error_waiting_for_m_or_r = _as_noise_rule(
+            additional_error_waiting_for_m_or_r, 1
+        )
+        # Idle noise is applied per-qubit, so anything with a declared arity != 1 has no natural
+        # interpretation here.  Validate the declared arity BEFORE trivializing so a user typo like
+        # ``PauliChannel({}, num_qubits=3)`` — trivial but wrongly-shaped — is surfaced.
+        for field_name, idle_rule in (
+            ("idle_error", self.idle_error),
+            ("additional_error_waiting_for_m_or_r", self.additional_error_waiting_for_m_or_r),
+        ):
+            if idle_rule is None:
+                continue
+            if idle_rule.after is not None and idle_rule.after.num_qubits != 1:
+                raise ValueError(
+                    f"`{field_name}` does not support a multi-qubit `after` rule "
+                    f"(arity={idle_rule.after.num_qubits})."
+                )
+        # Guards done — now trivialize.
+        self.idle_error = self.idle_error or None
+        self.additional_error_waiting_for_m_or_r = self.additional_error_waiting_for_m_or_r or None
+
+    @property
+    def clifford_1q_error(self) -> NoiseRule | None:
+        """Convenience view: ``clifford_nq_error[1]`` if set, else None."""
+        return self.clifford_nq_error.get(1)
+
+    @property
+    def clifford_2q_error(self) -> NoiseRule | None:
+        """Convenience view: ``clifford_nq_error[2]`` if set, else None."""
+        return self.clifford_nq_error.get(2)
 
     def __bool__(self) -> bool:
         """Is this noise model nontrivial?"""
         return (
             bool(self.rules)
-            or bool(self.clifford_1q_error)
-            or bool(self.clifford_2q_error)
+            or self.rule_func is not None
+            or bool(self.clifford_nq_error)
             or bool(self.readout_error)
             or bool(self.reset_error)
             or bool(self.idle_error)
             or bool(self.additional_error_waiting_for_m_or_r)
         )
 
+    def __str__(self) -> str:
+        """A constructor-like description listing only the set fields.
+
+        When ``rule_func`` is ``None`` this reads like a faithful ``repr`` — an eval-able
+        ``NoiseModel(...)`` call.  A ``rule_func`` cannot be reproduced faithfully, so it is instead
+        described by its qualified name and module (falling back to its type name for callables
+        without a ``__qualname__``, e.g. a callable object or ``functools.partial``), which makes
+        the result non-eval-able.
+        """
+        args = []
+        if self.clifford_nq_error:
+            args.append(f"clifford_nq_error={self.clifford_nq_error!r}")
+        if self.readout_error:
+            args.append(f"readout_error={self.readout_error!r}")
+        if self.reset_error:
+            args.append(f"reset_error={self.reset_error!r}")
+        if self.idle_error is not None:
+            args.append(f"idle_error={self.idle_error!r}")
+        if self.additional_error_waiting_for_m_or_r is not None:
+            args.append(
+                f"additional_error_waiting_for_m_or_r={self.additional_error_waiting_for_m_or_r!r}"
+            )
+        if self.rules:
+            args.append(f"rules={dict(self.rules)!r}")
+        if self.rule_func is not None:
+            func = self.rule_func
+            name = getattr(func, "__qualname__", None) or type(func).__name__
+            args.append(f"rule_func=<{getattr(func, '__module__', '?')}.{name}>")
+        return f"NoiseModel({', '.join(args)})"
+
+    def __repr__(self) -> str:
+        if self.rule_func is None:
+            return str(self)
+        return super().__repr__()
+
     def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
         """Determines the noise rule to apply to a specific operation.
+
+        Noise rules are consulted in the following order of precedence:
+        1. ``rule_func`` (stim.CircuitInstruction -> NoiseRule factory).
+        2. ``rules`` (name-based NoiseRules).
+        3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
+        4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
+
+        Note: MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one
+        Pauli product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product
+        instructions are decomposed upstream by ``_split_targets_pp`` before this method is
+        invoked; hand-calling with an unsplit multi-product op raises ``ValueError`` from
+        ``_get_gate_aliases``.
 
         Args:
             op: The circuit instruction to find a noise rule for.
@@ -360,21 +972,31 @@ class NoiseModel:
         Returns:
             The NoiseRule to apply for the given operation, or None for no noise.
         """
-        if OP_TYPES[op.name] == ANNOTATION or _involves_classical_bits(op):
+        if op_type(op.name) == ANNOTATION or _involves_classical_bits(op):
             return None
 
-        if self.rules is not None:
-            rule = self.rules.get(_get_standardized_name(op)) or self.rules.get(
-                op.name
-            )  # allows for an MPP rule, but first checks for rules such as MXY
+        if self.rule_func is not None and op_type(op.name) in GATE_OP_TYPES:
+            rule = self.rule_func(op)
             if rule is not None:
+                _validate_custom_rule(rule, op)
                 return rule
 
-        op_type = OP_TYPES[op.name]
-        if self.clifford_1q_error is not None and op_type == CLIFFORD_1Q:
-            return self.clifford_1q_error
-        if self.clifford_2q_error is not None and op_type == CLIFFORD_2Q:
-            return self.clifford_2q_error
+        if self.rules is not None:
+            for name in _get_gate_aliases(op):
+                rule = self.rules.get(name)
+                if rule is not None:
+                    return rule
+
+        this_op_type = op_type(op.name)
+        if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
+            if this_op_type == CLIFFORD_1Q:
+                num_qubits = 1
+            elif this_op_type == CLIFFORD_2Q:
+                num_qubits = 2
+            else:
+                num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
+            if num_qubits in self.clifford_nq_error:
+                return self.clifford_nq_error[num_qubits]
 
         if self.readout_error and op.name in JUST_MEASURE_OPS:
             return NoiseRule(readout_error=self.readout_error)
@@ -385,16 +1007,18 @@ class NoiseModel:
 
         return None
 
+    @format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
     def noisy_circuit(
         self,
-        circuit: stim.Circuit,
+        circuit: stim_or_tsim_Circuit,
         *,
-        system_qubits: Collection[int] | None = None,
-        immune_qubits: Collection[int] | None = None,
+        system_qubits: Iterable[int] | None = None,
+        immune_qubits: Iterable[int] = (),
         immune_op_tag: str = DEFAULT_IMMUNE_OP_TAG,
+        immunize_gates: bool = True,
         insert_ticks: bool = True,
-    ) -> stim.Circuit:
-        f"""Construct a noisy version of the given circuit.
+    ) -> stim_or_tsim_Circuit:
+        """Construct a noisy version of the given circuit.
 
         This method first uses TICKs to split the input circuit into moments of operations that can
         be applied in parallel, thereby preventing qubit reuse conflicts.  Noise is then applied to
@@ -404,30 +1028,46 @@ class NoiseModel:
             circuit: The circuit to apply noise to.
             system_qubits: All qubits that are used by the circuit or are otherwise allowed to
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
-            immune_qubits: All qubits that are declared immune to noise, even if they are operated
-                on.  If None, defaults to the empty set.
+            immune_qubits: Qubits that are declared to be immune to noise.  Defaults to none.
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
+            immunize_gates: If True (the default), a gate that touches an immune qubit is treated
+                as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
+                noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
             insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
                 conflicts.  If False, assumes that this preprocessing is not necessary.
 
         Returns:
-            stim.Circuit: A noisy version of the input circuit.
+            The input circuit with added noise.
         """
-        system_qubits = set(system_qubits or range(circuit.num_qubits))
-        immune_qubits = set(immune_qubits or [])
+        tsim = _load_tsim_if_installed()
+        if tsim is not None and isinstance(circuit, tsim.Circuit):
+            output = self.noisy_circuit(
+                circuit.stim_circuit,
+                system_qubits=system_qubits,
+                immune_qubits=immune_qubits,
+                immune_op_tag=immune_op_tag,
+                immunize_gates=immunize_gates,
+                insert_ticks=insert_ticks,
+            )
+            return tsim.Circuit.from_stim_program(output)
+
+        system_qubits = frozenset(
+            range(circuit.num_qubits) if system_qubits is None else system_qubits
+        )
+        immune_qubits = frozenset(immune_qubits)
 
         if insert_ticks:
-            # split moments with TICKs to prevent qubit reuse conflicts
-            if immune_qubits:
-                raise ValueError("Automatic TICK insertion does not support immune qubits.")
+            # split moments with TICKs to prevent qubit reuse conflicts.  The preprocessing
+            # operates purely on gate-level qubit reuse and ignores ``immune_qubits`` (it uses a
+            # sentinel to force per-target splitting), so it composes cleanly with immunity.
             circuit = _split_moments_with_ticks(circuit, immune_op_tag)
 
         noisy_circuit = stim.Circuit()
 
         first_moment = True
         for moment_or_repeat_block in _iter_moments_and_repeat_blocks(
-            circuit, immune_qubits, immune_op_tag
+            circuit, immune_qubits, immune_op_tag, force_split=self.rule_func is not None
         ):
             if first_moment:
                 first_moment = False
@@ -442,8 +1082,12 @@ class NoiseModel:
                         moment_or_repeat_block.body_copy(),
                         system_qubits=system_qubits,
                         immune_qubits=immune_qubits,
+                        immune_op_tag=immune_op_tag,
+                        immunize_gates=immunize_gates,
+                        insert_ticks=insert_ticks,
                     )
-                    noisy_body.append("TICK")
+                    if insert_ticks:
+                        noisy_body.append("TICK")
                     noisy_circuit.append(
                         stim.CircuitRepeatBlock(
                             repeat_count=moment_or_repeat_block.repeat_count,
@@ -458,6 +1102,7 @@ class NoiseModel:
                     system_qubits=system_qubits,
                     immune_qubits=immune_qubits,
                     immune_op_tag=immune_op_tag,
+                    immunize_gates=immunize_gates,
                 )
 
         return noisy_circuit
@@ -467,11 +1112,12 @@ class NoiseModel:
         *,
         circuit: stim.Circuit,
         moment: Collection[stim.CircuitInstruction],
-        system_qubits: set[int],
-        immune_qubits: set[int],
+        system_qubits: frozenset[int],
+        immune_qubits: frozenset[int],
         immune_op_tag: str,
+        immunize_gates: bool,
     ) -> None:
-        """Apps noise to a moment and appends it to a circuit (in-place).
+        """Applies noise to a moment and appends it to a circuit (in-place).
 
         This method processes all operations in a moment, applies their respective noise rules, and
         adds the resulting noisy operations to the output circuit.
@@ -480,26 +1126,42 @@ class NoiseModel:
             circuit: The circuit to append the noisy operations to.
             moment: Collection of operations happening during the moment in question.
             system_qubits: Set of all qubits in the system that may experience idle errors.
-            immune_qubits: Set of all qubits that should not have noise applied to them.
+            immune_qubits: Qubits that are declared to be immune to noise.
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.
+            immunize_gates: If True (the default), a gate that touches an immune qubit is treated
+                as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
+                noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
+
+        Raises:
+            ValueError: If qubits are operated on multiple times within the same moment without a
+                TICK in between (violating the "each qubit at most once per moment" invariant that
+                noise application relies on).
         """
+        collapsed_qubits, operation_qubits = _categorize_moment_qubits(moment)
+
         noise_after_moment = stim.Circuit()
         for op in moment:
             if immune_op_tag in op.tag or (rule := self.get_noise_rule(op)) is None:
                 circuit.append(op)
-            else:
-                noisy_op, after = rule.noisy_operation(op, immune_qubits=immune_qubits)
-                circuit.append(noisy_op)
-                noise_after_moment += after
-
+                continue
+            effective_rule = _rule_with_immunity(
+                rule, op, immune_qubits, immunize_gates=immunize_gates
+            )
+            if effective_rule is None:
+                circuit.append(op)
+                continue
+            noisy_op, after = effective_rule.noisy_operation(op)
+            circuit.append(noisy_op)
+            noise_after_moment += after
         circuit += noise_after_moment
 
         moment_was_noisy = any(immune_op_tag not in op.tag for op in moment)
-        if moment_was_noisy and self.idle_error or self.additional_error_waiting_for_m_or_r:
+        if moment_was_noisy and (self.idle_error or self.additional_error_waiting_for_m_or_r):
             self._inplace_append_idle_errors(
                 circuit=circuit,
-                moment=moment,
+                collapsed_qubits=collapsed_qubits,
+                operation_qubits=operation_qubits,
                 system_qubits=system_qubits,
                 immune_qubits=immune_qubits,
             )
@@ -508,84 +1170,61 @@ class NoiseModel:
         self,
         *,
         circuit: stim.Circuit,
-        moment: Collection[stim.CircuitInstruction],
-        system_qubits: set[int],
-        immune_qubits: set[int],
+        collapsed_qubits: list[int],
+        operation_qubits: list[int],
+        system_qubits: frozenset[int],
+        immune_qubits: frozenset[int],
     ) -> None:
         """Append idling errors from the given moment to the given circuit.
 
-        This method identifies which qubits are idle during a moment and applies depolarization noise
-        to them according to the noise model parameters.
+        This method identifies which qubits are idle during a moment and applies depolarization
+        noise to them according to the noise model parameters.  The qubit categorization is
+        precomputed by ``_categorize_moment_qubits`` and passed in.
 
         Args:
             circuit: The circuit to append idle error operations to.
-            moment: The collection of operations happening in the final moment of the circuit.
+            collapsed_qubits: Qubits acted on by measurement / reset ops in this moment.
+            operation_qubits: Qubits acted on by non-collapsing (unitary) ops in this moment.
             system_qubits: Set of all qubits in the system that can experience idle errors.
-            immune_qubits: Set of qubit indices that should not have noise applied to them.
-
-        Raises:
-            ValueError: If qubits are operated on multiple times within the same moment without a
-                TICK in between.
+            immune_qubits: Qubits that are declared to be immune to noise.
         """
-        collapsed_qubits: list[int] = []
-        operation_qubits: list[int] = []
-        classically_controlled_qubits: list[int] = []
-        for op in moment:
-            if OP_TYPES[op.name] == ANNOTATION:
-                continue
-
-            target_qubits = [
-                target.qubit_value for target in op.targets_copy() if target.qubit_value is not None
-            ]
-            if op.name in COLLAPSING_OPS:
-                qubits = collapsed_qubits
-            elif _involves_classical_bits(op):
-                qubits = classically_controlled_qubits
-            else:
-                qubits = operation_qubits
-            qubits.extend(target_qubits)
-
-        # Safety check for operation collisions.
-        usage_counts = collections.Counter(
-            collapsed_qubits + operation_qubits + classically_controlled_qubits
-        )
-        qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
-        if qubits_used_multiple_times:
-            raise ValueError(
-                f"Qubits were operated on multiple times without a TICK in between:\n"
-                f"multiple uses: {sorted(qubits_used_multiple_times)}\n"
-                f"moment:\n{moment}"
-            )
-
         non_collapse_qubits = system_qubits - immune_qubits - set(collapsed_qubits)
         idle_qubits = sorted(non_collapse_qubits - set(operation_qubits))
 
         if self.idle_error and idle_qubits:
-            circuit.append("DEPOLARIZE1", idle_qubits, self.idle_error)
+            self.idle_error.emit_after(circuit, idle_qubits, context="idle qubits")
         if self.additional_error_waiting_for_m_or_r and collapsed_qubits and non_collapse_qubits:
-            circuit.append(
-                "DEPOLARIZE1", non_collapse_qubits, self.additional_error_waiting_for_m_or_r
+            self.additional_error_waiting_for_m_or_r.emit_after(
+                circuit, sorted(non_collapse_qubits), context="qubits waiting for m/r"
             )
+
+
+####################################################################################################
+# custom noise models
 
 
 class DepolarizingNoiseModel(NoiseModel):
     """Creates a near-standard circuit depolarizing noise model.
 
-    All operations has the same error parameter p:
+    All operations have the same error parameter p:
+
     - One-qubit Clifford gates get one-qubit depolarization.
     - Two-qubit Clifford gates get two-qubit depolarization.
     - Measurements have their outcomes probabilistically flipped.
-    - Reset gates probabalistically reset qubits to the wrong (orthogonal) state.
+    - Reset gates probabilistically reset qubits to the wrong (orthogonal) state.
     - If applicable, every idling qubit in a given moment gets depolarized.
+
+    Multi-qubit Cliffords can also be depolarized by increasing the max_gate_size.
     """
 
-    def __init__(self, p: float, *, include_idling_error: bool = False) -> None:
+    def __init__(
+        self, p: float, *, include_idling_error: bool = False, max_gate_size: int = 2
+    ) -> None:
         """Instantiate a depolarizing noise model."""
         self.p = p
         self.include_idling_error = include_idling_error
         super().__init__(
-            clifford_1q_error=p,
-            clifford_2q_error=p,
+            clifford_nq_error={size: p for size in range(1, max_gate_size + 1)},
             readout_error=p,
             reset_error=p,
             idle_error=p if include_idling_error else False,
@@ -593,7 +1232,7 @@ class DepolarizingNoiseModel(NoiseModel):
 
 
 class SI1000NoiseModel(NoiseModel):
-    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory"
+    """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory".
 
     This noise model is defined by a two-qubit gate infidelity that determines all error rates.
 
@@ -613,34 +1252,386 @@ class SI1000NoiseModel(NoiseModel):
         )
 
 
-def _get_standardized_name(op: stim.CircuitInstruction) -> str:
-    """Stardardized name of a circuit instruction.
+####################################################################################################
+# helper methods, roughly in order of use above in the file (sub-helpers grouped with their caller)
 
-    The primary function of this method is to disambiguate the basis of measurement and reset gates.
+
+# Floating-point tolerance used for probability comparisons throughout this module.  Small enough
+# to catch real bugs, large enough to absorb the ~O(n * eps) drift that accumulates when summing
+# or renormalizing many probabilities.
+_ABSOLUTE_ERROR_TOLERANCE = 1e-9
+
+
+def _is_approx_in_unit_interval(value: float, *, atol: float = _ABSOLUTE_ERROR_TOLERANCE) -> bool:
+    """Return True if ``value`` is in [0, 1], up to floating-point tolerance ``tol``."""
+    return -atol <= value <= 1 + atol
+
+
+def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
+    """Return the names by which ``op`` can be matched in ``rules`` and ``rule_func``.
+
+    For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for ``MPP
+    X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than the raw
+    ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases. For every
+    other gate, this is just stim's alias list, which begins with the canonical name (so ``M`` /
+    ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield ``("CNOT", "CX",
+    "ZCX")``, etc.).
+    """
+    aliases = _stim_aliases(op.name)
+    if op.name not in ("MPP", "SPP", "SPP_DAG"):
+        return aliases
+    prefix, suffix = ("S", "_DAG") if op.name == "SPP_DAG" else (op.name[0], "")
+    targets = op.targets_copy()
+    if not all(target.is_combiner for target in targets[1::2]):
+        raise ValueError(
+            f"{op.name} must be split into a single Pauli product before alias enumeration"
+        )
+    basis = ""
+    for target in targets[::2]:
+        if target.is_x_target:
+            basis += "X"
+        elif target.is_y_target:
+            basis += "Y"
+        else:
+            assert target.is_z_target
+            basis += "Z"
+    return (prefix + basis + suffix, *aliases)
+
+
+@functools.cache
+def _stim_aliases(op_name: str) -> tuple[str, ...]:
+    """Cached stim aliases of a gate name."""
+    return tuple(stim.gate_data(op_name).aliases)
+
+
+_PAULI_CHANNEL_1_ORDER = ("X", "Y", "Z")
+_PAULI_CHANNEL_2_ORDER = tuple(a + b for a in "IXYZ" for b in "IXYZ" if (a, b) != ("I", "I"))
+
+
+def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
+    """Return the compact stim ``(name, args)`` for a 1-qubit Pauli-channel probability vector.
+
+    Emits ``DEPOLARIZE1(p)`` when the three probabilities are equal and non-zero, or
+    ``{X,Y,Z}_ERROR(p)`` when exactly one is non-zero, else falls back to ``PAULI_CHANNEL_1``.
+    """
+    if _is_uniform_depolarizing(args):
+        return "DEPOLARIZE1", [sum(args)]
+    nonzero_positions = [i for i, x in enumerate(args) if x > 0]
+    if len(nonzero_positions) == 1:
+        (i,) = nonzero_positions
+        return f"{_PAULI_CHANNEL_1_ORDER[i]}_ERROR", [args[i]]
+    return "PAULI_CHANNEL_1", args
+
+
+def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
+    """Return the compact stim ``(name, args)`` for a 2-qubit Pauli-channel probability vector.
+
+    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls back
+    to ``PAULI_CHANNEL_2``.
+    """
+    if _is_uniform_depolarizing(args):
+        return "DEPOLARIZE2", [sum(args)]
+    return "PAULI_CHANNEL_2", args
+
+
+def _is_uniform_depolarizing(args: list[float], *, atol: float = _ABSOLUTE_ERROR_TOLERANCE) -> bool:
+    """Return True if all ``args`` are equal (up to ``atol``) and non-zero.
+
+    Detects a ``PauliChannel.depolarizing(k, p)`` shape at emit time so it can be written as
+    ``DEPOLARIZE{k}(p)`` instead of ``PAULI_CHANNEL_{k}(p/n, ..., p/n)``.
+    """
+    return bool(args) and args[0] > 0 and all(abs(x - args[0]) <= atol for x in args[1:])
+
+
+def _pauli_string_to_targets(string: str, qubit_targets: list[int]) -> list[stim.GateTarget]:
+    """Convert a Pauli string over the given qubits to a list of Pauli-typed stim targets."""
+    return [
+        stim.target_pauli(qubit, pauli)
+        for pauli, qubit in zip(string, qubit_targets, strict=True)
+        if pauli != "I"
+    ]
+
+
+def _validate_after_circuit(after_circuit: stim.Circuit) -> None:
+    """Validate that ``after_circuit`` contains only noise instructions.
 
     Args:
-        op:_name The name of the circuit instruction that we need to standardize.
+        after_circuit: The fragment to validate.
+
+    Raises:
+        ValueError: If ``after_circuit`` contains a non-noise instruction or a repeat block.
+    """
+    for op in after_circuit:
+        if not isinstance(op, stim.CircuitInstruction):
+            raise TypeError(
+                f"after (stim.Circuit form) may contain only noise instructions, not "
+                f"{type(op).__name__}"
+            )
+        if op_type(op.name) != NOISE:
+            raise ValueError(
+                f"after (stim.Circuit form) contains non-noise instruction {op.name!r}; only "
+                "NOISE instructions are permitted"
+            )
+
+
+def _rule_with_immunity(
+    rule: NoiseRule,
+    op: stim.CircuitInstruction,
+    immune_qubits: frozenset[int],
+    *,
+    immunize_gates: bool,
+) -> NoiseRule | None:
+    """Return the ``NoiseRule`` to apply to ``op`` given ``immune_qubits``, or ``None`` to skip.
+
+    Policy — ``op``'s qubits fall into three immunity states:
+
+    - **None immune**: apply ``rule`` unchanged.
+    - **All immune**: skip noise entirely (return ``None``); the op still appears in the output
+      circuit, but no ``after``, ``readout_error``, or ``reset_error`` is applied.
+    - **Mixed** (only possible for atomic ``k>=2`` ops the splitter cannot decompose further —
+      2-qubit Clifford pairs, ``MXX``/``MYY``/``MZZ``, and MPP/SPP Pauli products):
+        - ``immunize_gates=True`` (default): dead simple — drop everything (``after``,
+          ``readout_error``, ``reset_error``).  The gate touches an immune qubit, so no noise
+          is applied.
+        - ``immunize_gates=False``: only ``PauliChannel`` ``after``-noise supports proper
+          conditioning via ``PauliChannel.conditioned_on``.  Anything else (a ``stim.Circuit``
+          ``after``, ``readout_error``, or ``reset_error``) has no defined projection on the
+          identity-on-immune subspace and raises.
+    """
+    if not immune_qubits:
+        return rule
+    qubits = [t.qubit_value for t in op.targets_copy() if t.qubit_value is not None]
+    immune_flags = [q in immune_qubits for q in qubits]
+    if not any(immune_flags):
+        return rule
+    if all(immune_flags):
+        return None
+    # Partial immunity: the atom touches both immune and non-immune qubits.
+    if immunize_gates:
+        return None  # dead simple: no noise on gates that touch immune qubits.
+    # immunize_gates=False: only PauliChannel `after` supports proper conditioning.
+    if isinstance(rule.after, PauliChannel) and rule.after:
+        immune_positions = [i for i, immune in enumerate(immune_flags) if immune]
+        return NoiseRule(after=rule.after.conditioned_on(immune_positions))
+    raise ValueError(
+        f"Cannot apply a rule to {op.name!r} with partial immunity (immune qubits: "
+        f"{sorted(q for q in qubits if q in immune_qubits)}) under immunize_gates=False.  Only "
+        "PauliChannel `after`-noise supports conditioning; set immunize_gates=True to drop noise "
+        "on gates that touch immune qubits.  If this edge case matters for your use case, please "
+        "open an issue at https://github.com/qLDPCOrg/qLDPC/issues."
+    )
+
+
+_BASIS_SUFFIXED_RULE_KEY = re.compile(r"([MS])([XYZ]+)(_DAG)?")
+
+
+def _known_gate_shape(op_name: str) -> tuple[int, bool, bool] | None:
+    """Return ``(arity, can_measure, can_reset)`` for a rule key with statically-known shape.
+
+    Applies to fixed-arity stim gates (e.g. ``"H"``, ``"CX"``, ``"M"``, ``"R"``, ``"MR"``) and to
+    basis-suffixed rule keys (``"MXYZ"`` for ``MPP X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``).
+    Returns ``None`` for variable-arity names (bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"``) or for
+    names not recognized as either kind.
+    """
+    this_op_type = op_type(op_name)
+    if this_op_type in (CLIFFORD_1Q, JUST_MEASURE_1Q, JUST_RESET_1Q, MEASURE_RESET_1Q):
+        gate_data = stim.gate_data(op_name)
+        return 1, gate_data.produces_measurements, gate_data.is_reset
+    if this_op_type in (CLIFFORD_2Q, JUST_MEASURE_2Q):
+        gate_data = stim.gate_data(op_name)
+        return 2, gate_data.produces_measurements, gate_data.is_reset
+    # Basis-suffixed rule keys parse as `[MS](XYZ)+(_DAG)?` — look up the underlying PP gate
+    # (``MPP`` / ``SPP`` / ``SPP_DAG``) for the measurement/reset flags.
+    match = _BASIS_SUFFIXED_RULE_KEY.fullmatch(op_name)
+    if match is None:
+        return None
+    prefix, basis, dag = match.groups()
+    gate_data = stim.gate_data(f"{prefix}PP{dag or ''}")
+    return len(basis), gate_data.produces_measurements, gate_data.is_reset
+
+
+def _validate_rule_for_arity(
+    rule: NoiseRule,
+    num_qubits: int,
+    context: str,
+    *,
+    can_measure: bool = False,
+    can_reset: bool = False,
+) -> None:
+    """Reject a NoiseRule whose channels are ambiguous / incompatible on ``num_qubits`` qubits.
+
+    - The rule's ``after`` arity must equal ``num_qubits`` unless ``after`` is ``None`` (the
+      trivial default).  An explicitly-declared arity — even on an empty PauliChannel like
+      ``PauliChannel({}, num_qubits=3)`` — is honored so callers can flag user typos.
+    - ``readout_error`` is only meaningful if ``can_measure`` is True.
+    - ``reset_error`` is only meaningful if ``can_reset`` is True.
+    """
+    if rule.after is not None and rule.after.num_qubits != num_qubits:
+        raise ValueError(
+            f"{context}: `after` has arity {rule.after.num_qubits}; expected {num_qubits}"
+        )
+    if rule.readout_error is not None and not can_measure:
+        raise ValueError(f"{context}: `readout_error` is only valid on measurement gates")
+    if rule.reset_error is not None and not can_reset:
+        raise ValueError(f"{context}: `reset_error` is only valid on reset gates")
+
+
+def _validate_custom_rule(rule: NoiseRule, op: stim.CircuitInstruction) -> None:
+    """Reject a ``rule_func`` result that is incompatible with the gate application ``op``."""
+    num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
+    _validate_rule_for_arity(
+        rule,
+        num_qubits,
+        context=f"rule_func returned a rule for {op.name!r}",
+        can_measure=op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS,
+        can_reset=op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS,
+    )
+
+
+def _as_noise_rule(error: ErrorSpec | None, default_arity: int) -> NoiseRule | None:
+    """Normalize a noise-error argument to a NoiseRule (or None if the input is ``None``).
+
+    A float scalar is interpreted as a uniform depolarizing channel of the given ``default_arity``.
+    A ``PauliChannel`` / ``PauliChannelSequence`` — or a raw ``Mapping[str, float]`` of Pauli-string
+    probabilities, which is auto-wrapped as a ``PauliChannel`` — is used as the rule's ``after``.
+    Storing the depolarizing shape as a ``PauliChannel`` (rather than a Mapping-form
+    ``DEPOLARIZE{n}`` fragment) preserves the Pauli-channel structure so downstream
+    ``PauliChannel.conditioned_on`` can project it under partial immunity.
+
+    Does NOT trivialize an empty NoiseRule to ``None`` — callers must run their guard checks on
+    the declared shape (e.g. arity) BEFORE trivializing, so that user typos like
+    ``PauliChannel({}, num_qubits=3)`` in a 1-qubit-only slot are surfaced.  Trivialize via
+    ``rule or None`` after the guard checks.
+    """
+    if isinstance(error, NoiseRule):
+        return error
+    if isinstance(error, AbstractPauliChannel):
+        return NoiseRule(after=error)
+    if isinstance(error, Mapping):
+        return NoiseRule(after=PauliChannel(error))
+    if error is None:
+        return None
+    if not isinstance(error, (int, float)):
+        raise TypeError(
+            f"expected a float, PauliChannel, PauliChannelSequence, Mapping[str, float], or "
+            f"NoiseRule; got {type(error).__name__!r}"
+        )
+    return NoiseRule(after=PauliChannel.depolarizing(default_arity, float(error)))
+
+
+def _normalize_clifford_nq_error(
+    error: Mapping[int, ErrorSpec] | None,
+) -> dict[int, NoiseRule]:
+    """Normalize the ``clifford_nq_error`` argument to a ``dict[int, NoiseRule]``.
+
+    - Floats become uniform ``k``-qubit depolarizing noise: ``DEPOLARIZE1`` for ``k == 1``,
+      ``DEPOLARIZE2`` for ``k == 2``, and ``PauliChannel.depolarizing`` otherwise.
+    - ``PauliChannel`` / ``PauliChannelSequence`` values (or raw Pauli-string
+      ``Mapping[str, float]`` dicts, auto-wrapped as a ``PauliChannel``) become a
+      ``NoiseRule(after=<channel>)``.
+    - ``NoiseRule`` values are used directly.
+    - Falsy entries (0.0, empty NoiseRule, empty channel) are dropped.
+    - Entries are rejected if their joint Pauli channel's ``num_qubits`` disagrees with the key,
+      if their ``after`` broadcast channels are incompatible with ``k`` qubits, or if they set
+      ``readout_error`` / ``reset_error`` (Pauli-product Cliffords are neither).
+    """
+    if not error:
+        return {}
+    result: dict[int, NoiseRule] = {}
+    for weight, entry in error.items():
+        if weight < 1:
+            raise ValueError(f"clifford_nq_error key {weight} must be >= 1")
+        if isinstance(entry, NoiseRule):
+            rule = entry
+        elif isinstance(entry, AbstractPauliChannel):
+            rule = NoiseRule(after=entry)
+        elif isinstance(entry, Mapping):
+            rule = NoiseRule(after=PauliChannel(entry))
+        elif isinstance(entry, bool) or not isinstance(entry, (int, float)):
+            raise TypeError(
+                f"clifford_nq_error[{weight}] has unsupported type {type(entry).__name__}; "
+                "expected NoiseRule, PauliChannel, PauliChannelSequence, Mapping[str, float], int, "
+                "or float"
+            )
+        else:
+            if not (0 <= entry <= 1):
+                raise ValueError(f"clifford_nq_error[{weight}]={entry} is not in [0, 1]")
+            if entry == 0:
+                continue
+            rule = NoiseRule(after=PauliChannel.depolarizing(weight, entry))
+        _validate_rule_for_arity(rule, weight, f"clifford_nq_error[{weight}]")
+        if rule:
+            result[weight] = rule
+    return result
+
+
+def _involves_classical_bits(op: stim.CircuitInstruction) -> bool:
+    """Determines if an operation involves classical bits.
+
+    Args:
+        op: The circuit instruction to check.
 
     Returns:
-        str: The standardized name.
+        True if the operation involves classical control bits.  False otherwise.
     """
-    op_name = op.name
-    if op_name == "M" or op_name == "R" or op_name == "MR":
-        return op_name + "Z"
+    return any(
+        target.is_measurement_record_target or target.is_sweep_bit_target
+        for target in op.targets_copy()
+    )
 
-    if op_name == "MPP":
-        name = "M"
-        for target in op.targets_copy()[::2]:
-            if target.is_x_target:
-                name += "X"
-            elif target.is_y_target:
-                name += "Y"
-            else:
-                assert target.is_z_target
-                name += "Z"
-        return name
 
-    return op_name
+def _categorize_moment_qubits(
+    moment: Collection[stim.CircuitInstruction],
+) -> tuple[list[int], list[int]]:
+    """Categorize a moment's qubit targets and check for reuse.
+
+    Iterates every non-annotation instruction and buckets its qubit targets into three lists —
+    collapsed (measurement / reset), classically-controlled, and everything else ("operation").
+    Raises if any qubit is used more than once across the three buckets, since noise application
+    relies on the "each qubit at most once per moment" invariant that ``_split_moments_with_ticks``
+    enforces when ``insert_ticks=True``.  The classically-controlled bucket contributes only to
+    the reuse check.
+
+    Args:
+        moment: The moment's operations.
+
+    Returns:
+        A tuple ``(collapsed_qubits, operation_qubits)``, each in the order the moment referenced
+        them.  Consumers use these for idle-error emission (see
+        ``NoiseModel._inplace_append_idle_errors``).
+
+    Raises:
+        ValueError: If any qubit is operated on multiple times within the moment without a TICK
+            in between.
+    """
+    collapsed_qubits: list[int] = []
+    operation_qubits: list[int] = []
+    classically_controlled_qubits: list[int] = []
+    for op in moment:
+        if op_type(op.name) == ANNOTATION:
+            continue
+        target_qubits = [
+            target.qubit_value for target in op.targets_copy() if target.qubit_value is not None
+        ]
+        if op.name in COLLAPSING_OPS:
+            qubits = collapsed_qubits
+        elif _involves_classical_bits(op):
+            qubits = classically_controlled_qubits
+        else:
+            qubits = operation_qubits
+        qubits.extend(target_qubits)
+
+    usage_counts = collections.Counter(
+        collapsed_qubits + operation_qubits + classically_controlled_qubits
+    )
+    qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
+    if qubits_used_multiple_times:
+        raise ValueError(
+            f"Qubits were operated on multiple times without a TICK in between:\n"
+            f"multiple uses: {sorted(qubits_used_multiple_times)}\n"
+            f"moment:\n{moment}"
+        )
+    return collapsed_qubits, operation_qubits
 
 
 def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim.Circuit:
@@ -688,12 +1679,12 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
         reuse properly.  Use a dummy immune_qubits set with -1 to force splitting of 2-qubit
         operations.
         """
-        split_ops = list(_split_targets_if_needed(op, {-1}, immune_op_tag))
+        split_ops = list(_split_targets_if_needed(op, frozenset({-1}), immune_op_tag))
 
         for split_op in split_ops:
             # Check if this split operation would reuse any qubits
             op_qubits = set()
-            if OP_TYPES[split_op.name] != ANNOTATION:
+            if op_type(split_op.name) != ANNOTATION:
                 for target in split_op.targets_copy():
                     if not target.is_combiner:
                         op_qubits.add(target.value)
@@ -710,124 +1701,12 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
     return result
 
 
-def _involves_classical_bits(op: stim.CircuitInstruction) -> bool:
-    """Determines if an operation involves classical bits.
-
-    Args:
-        op: The circuit instruction to check.
-
-    Returns:
-        True if the operation involves classical control bits.  False otherwise.
-    """
-    return any(
-        target.is_measurement_record_target or target.is_sweep_bit_target
-        for target in op.targets_copy()
-    )
-
-
-def _split_targets_if_needed(
-    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
-) -> Iterator[stim.CircuitInstruction]:
-    """Splits operations into pieces as needed.
-
-    This function splits operations like SPP and MPP into each Pauli product, and separates
-    classical control operations from quantum operations.
-
-    Args:
-        op: The circuit instruction to potentially split.
-        immune_qubits: Set of qubits that are immune to noise.
-        immune_op_tag: Don't split operations with this tag.
-
-    Yields:
-        Circuit instructions, potentially split into smaller pieces.
-    """
-    op_type = OP_TYPES[op.name]
-    if op_type == CLIFFORD_2Q:
-        yield from _split_targets_clifford_2q(op, immune_qubits, immune_op_tag)
-    elif op_type == CLIFFORD_PP or op_type == JUST_MEASURE_PP:
-        yield from _split_targets_pp(op)
-    elif op_type in [NOISE, ANNOTATION]:
-        yield op
-    else:
-        yield from _split_targets_clifford_1q(op, immune_qubits, immune_op_tag)
-
-
-def _split_targets_clifford_1q(
-    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
-) -> Iterator[stim.CircuitInstruction]:
-    """Splits single-qubit Clifford operations when immune qubits are present.
-
-    Args:
-        op: The single-qubit Clifford operation to split.
-        immune_qubits: Set of qubits that are immune to noise.
-        immune_op_tag: Don't split operations with this tag.
-
-    Yields:
-        Circuit instructions split into individual single-target operations.
-    """
-    if immune_qubits or immune_op_tag in op.tag:
-        args = op.gate_args_copy()
-        for target in op.targets_copy():
-            yield stim.CircuitInstruction(op.name, [target], args, tag=op.tag)
-    else:
-        yield op
-
-
-def _split_targets_clifford_2q(
-    op: stim.CircuitInstruction, immune_qubits: set[int], immune_op_tag: str
-) -> Iterator[stim.CircuitInstruction]:
-    """Splits two-qubit Clifford operations into individual gate pairs.
-
-    This function separates classical control system operations from quantum operations happening on
-    the quantum computer.
-
-    Args:
-        op: The two-qubit Clifford operation to split.
-        immune_qubits: Set of qubits that are immune to noise.
-        immune_op_tag: Don't split operations with this tag.
-
-    Yields:
-        Circuit instructions split into individual two-qubit gate operations.
-    """
-    assert OP_TYPES[op.name] == CLIFFORD_2Q
-    targets = op.targets_copy()
-    if (
-        immune_qubits
-        or immune_op_tag in op.tag
-        or any(target.is_measurement_record_target for target in targets)
-    ):
-        args = op.gate_args_copy()
-        for k in range(0, len(targets), 2):
-            yield stim.CircuitInstruction(op.name, targets[k : k + 2], args, tag=op.tag)
-    else:
-        yield op
-
-
-def _split_targets_pp(op: stim.CircuitInstruction) -> Iterator[stim.CircuitInstruction]:
-    """Splits a Pauli product operation into one operation for each Pauli product.
-
-    Args:
-        op: The Pauli product operation to split.
-
-    Yields:
-        Circuit instructions, one for each Pauli product.
-    """
-    assert OP_TYPES[op.name] == CLIFFORD_PP or OP_TYPES[op.name] == JUST_MEASURE_PP
-    targets = op.targets_copy()
-    args = op.gate_args_copy()
-    start = end = 0
-    while end < len(targets):
-        if end + 1 == len(targets) or not targets[end + 1].is_combiner:
-            yield stim.CircuitInstruction(op.name, targets[start : end + 1], args, tag=op.tag)
-            end += 1
-            start = end
-        else:
-            end += 2
-    assert end == len(targets)
-
-
 def _iter_moments_and_repeat_blocks(
-    circuit: stim.Circuit, immune_qubits: set[int], immune_op_tag: str
+    circuit: stim.Circuit,
+    immune_qubits: frozenset[int],
+    immune_op_tag: str,
+    *,
+    force_split: bool = False,
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
     """Splits a circuit into moments and some operations into pieces.
 
@@ -836,8 +1715,12 @@ def _iter_moments_and_repeat_blocks(
 
     Args:
         circuit: The circuit to split into moments.
-        immune_qubits: Set of qubits that are immune to noise.
+        immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
+        force_split: If True, decompose every broadcast gate into its individual applications
+            (one target for one-qubit gates, one pair for two-qubit gates) even when no qubit is
+            immune.  Used when a ``rule_func`` is present so the callback is consulted once
+            per gate application.
 
     Yields:
         Lists of operations corresponding to one moment in the circuit, with any problematic
@@ -859,6 +1742,132 @@ def _iter_moments_and_repeat_blocks(
                 yield current_moment
                 current_moment = []
         else:
-            current_moment.extend(_split_targets_if_needed(op, immune_qubits, immune_op_tag))
+            current_moment.extend(
+                _split_targets_if_needed(op, immune_qubits, immune_op_tag, force_split=force_split)
+            )
     if current_moment:
         yield current_moment
+
+
+def _split_targets_if_needed(
+    op: stim.CircuitInstruction,
+    immune_qubits: frozenset[int],
+    immune_op_tag: str,
+    *,
+    force_split: bool = False,
+) -> Iterator[stim.CircuitInstruction]:
+    """Splits operations into pieces as needed.
+
+    This function splits operations like SPP and MPP into each Pauli product, and separates
+    classical control operations from quantum operations.
+
+    Args:
+        op: The circuit instruction to potentially split.
+        immune_qubits: Qubits that are declared to be immune to noise.
+        immune_op_tag: Don't split operations with this tag.
+        force_split: If True, always decompose broadcast one- and two-qubit gates into individual
+            applications, regardless of immunity.
+
+    Yields:
+        Circuit instructions, potentially split into smaller pieces.
+    """
+    this_op_type = op_type(op.name)
+    # Two-qubit ops (both Clifford CX/CZ/... and joint measurements MXX/MYY/MZZ) split per-pair
+    # via _split_targets_clifford_2q so partial-immunity decisions happen at the pair level.
+    if this_op_type in (CLIFFORD_2Q, JUST_MEASURE_2Q):
+        yield from _split_targets_clifford_2q(
+            op, immune_qubits, immune_op_tag, force_split=force_split
+        )
+    elif this_op_type == CLIFFORD_PP or this_op_type == JUST_MEASURE_PP:
+        yield from _split_targets_pp(op)
+    elif this_op_type in (NOISE, ANNOTATION):
+        yield op
+    else:
+        yield from _split_targets_clifford_1q(
+            op, immune_qubits, immune_op_tag, force_split=force_split
+        )
+
+
+def _split_targets_clifford_1q(
+    op: stim.CircuitInstruction,
+    immune_qubits: frozenset[int],
+    immune_op_tag: str,
+    *,
+    force_split: bool = False,
+) -> Iterator[stim.CircuitInstruction]:
+    """Splits single-qubit Clifford operations when immune qubits are present.
+
+    Args:
+        op: The single-qubit Clifford operation to split.
+        immune_qubits: Qubits that are declared to be immune to noise.
+        immune_op_tag: Don't split operations with this tag.
+        force_split: If True, split into individual single-target operations unconditionally.
+
+    Yields:
+        Circuit instructions split into individual single-target operations.
+    """
+    if force_split or immune_qubits or immune_op_tag in op.tag:
+        args = op.gate_args_copy()
+        for target in op.targets_copy():
+            yield stim.CircuitInstruction(op.name, [target], args, tag=op.tag)
+    else:
+        yield op
+
+
+def _split_targets_clifford_2q(
+    op: stim.CircuitInstruction,
+    immune_qubits: frozenset[int],
+    immune_op_tag: str,
+    *,
+    force_split: bool = False,
+) -> Iterator[stim.CircuitInstruction]:
+    """Splits two-qubit operations into individual gate pairs.
+
+    Handles both two-qubit Cliffords (CX/CZ/...) and joint two-qubit measurements
+    (MXX/MYY/MZZ), separating classical-control from quantum-only gates.
+
+    Args:
+        op: The two-qubit operation to split.
+        immune_qubits: Qubits that are declared to be immune to noise.
+        immune_op_tag: Don't split operations with this tag.
+        force_split: If True, split into individual two-qubit gate pairs unconditionally.
+
+    Yields:
+        Circuit instructions split into individual two-qubit gate operations.
+    """
+    assert op_type(op.name) in (CLIFFORD_2Q, JUST_MEASURE_2Q)
+    targets = op.targets_copy()
+    if (
+        force_split
+        or immune_qubits
+        or immune_op_tag in op.tag
+        or any(target.is_measurement_record_target for target in targets)
+    ):
+        args = op.gate_args_copy()
+        for k in range(0, len(targets), 2):
+            yield stim.CircuitInstruction(op.name, targets[k : k + 2], args, tag=op.tag)
+    else:
+        yield op
+
+
+def _split_targets_pp(op: stim.CircuitInstruction) -> Iterator[stim.CircuitInstruction]:
+    """Splits a Pauli product operation into one operation for each Pauli product.
+
+    Args:
+        op: The Pauli product operation to split.
+
+    Yields:
+        Circuit instructions, one for each Pauli product.
+    """
+    assert op_type(op.name) in (CLIFFORD_PP, JUST_MEASURE_PP)
+    targets = op.targets_copy()
+    args = op.gate_args_copy()
+    start = end = 0
+    while end < len(targets):
+        if end + 1 == len(targets) or not targets[end + 1].is_combiner:
+            yield stim.CircuitInstruction(op.name, targets[start : end + 1], args, tag=op.tag)
+            end += 1
+            start = end
+        else:
+            end += 2
+    assert end == len(targets)

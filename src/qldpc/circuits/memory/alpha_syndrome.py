@@ -1,4 +1,4 @@
-"""Classes to define the AlphaSyndrome syndrome measurement strategies
+"""Classes to define the AlphaSyndrome syndrome measurement strategies.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -41,6 +41,9 @@ from .syndrome_measurement import SyndromeMeasurementStrategy
 # For the purposes of this schedule, a "gate" is just an ordered pair of target qubits.
 GateSchedule = list[list[tuple[int, int]]]
 
+# default decoder used to estimate logical error rates while searching for a measurement schedule
+DEFAULT_SINTER_DECODER = decoders.SinterDecoder()
+
 
 class AlphaSyndrome(SyndromeMeasurementStrategy):
     """AlphaSyndrome strategy for constructing a syndrome measurement circuit.
@@ -55,7 +58,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def __init__(
         self,
         noise_model: NoiseModel,
-        decoder: sinter.Decoder | str = decoders.SinterDecoder(),
+        decoder: sinter.Decoder | str = DEFAULT_SINTER_DECODER,
         iters_per_step: int = 1000,
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),
@@ -64,17 +67,18 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     ) -> None:
         """Initialize an AlphaSyndrome syndrome measurement strategy, based on arXiv:2601.12509.
 
-        This strategy uses a Monte Carlo tree serch (MCTS) to construct a syndrome measurement
+        This strategy uses a Monte Carlo tree search (MCTS) to construct a syndrome measurement
         circuit that minimizes logical error rates.
 
-        The MCTS requires building and simulating noisy evaluation circuits, which naturally requires
-        defining a noise model.  Computing a logical error rate, in turn, requires specifying a
-        decoder.  The "decoder' and "custom_decoders" arguments to AlphaSyndrome are
+        The MCTS requires building and simulating noisy evaluation circuits, which naturally
+        requires defining a noise model.  Computing a logical error rate, in turn, requires
+        specifying a decoder.  These are provided by the ``noise_model`` and ``decoder``
+        arguments described below.
 
         Args:
-            noise_model: The noise model append to the syndrome measurement circuit.
+            noise_model: The noise model to append to the syndrome measurement circuit.
             decoder: The decoder that Sinter will use to compute logical error rates.  If this
-                argument is a string, it must must be a decoder name recognized by Sinter, such as
+                argument is a string, it must be a decoder name recognized by Sinter, such as
                 "pymatching" or "fusion_blossom".
             iters_per_step: Iterations per MCTS step (default: 100).
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
@@ -90,11 +94,12 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         # keyword arguments passed to sinter.predict_observables
         self.sinter_decoding_kwargs: dict[str, str | dict[str, sinter.Decoder]]
         if isinstance(decoder, str):
-            self.sinter_decoding_kwargs = dict(decoder=decoder)
+            self.sinter_decoding_kwargs = {"decoder": decoder}
         else:
-            self.sinter_decoding_kwargs = dict(
-                decoder="custom", custom_decoders=dict(custom=decoder)
-            )
+            self.sinter_decoding_kwargs = {
+                "decoder": "custom",
+                "custom_decoders": {"custom": decoder},
+            }
 
     @restrict_to_qubits
     def get_circuit(
@@ -103,8 +108,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
-            codes.QuditCode: The code whose syndromes we want to measure.
-            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+            code: The code whose syndromes we want to measure.
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
                 Defaults to QubitIDs.from_code(code).
 
         Returns:
@@ -112,7 +117,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
         if not isinstance(code, codes.CSSCode):
-            raise ValueError(
+            raise TypeError(
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
         qubit_ids = qubit_ids or QubitIDs.from_code(code)
@@ -252,7 +257,7 @@ class TreeNode:
     - https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
     """
 
-    def __init__(self, state: TreeState, parent: TreeNode | None = None):
+    def __init__(self, state: TreeState, parent: TreeNode | None = None) -> None:
         self.state = state
         self.parent = parent
 

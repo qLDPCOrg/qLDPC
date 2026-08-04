@@ -1,4 +1,4 @@
-"""Unit tests for transversal.py
+"""Unit tests for transversal.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -24,6 +24,24 @@ import pytest
 import stim
 
 from qldpc import circuits, codes, external
+
+
+def test_transversal_s() -> None:
+    """Build a physical circuit for the transversal logical S gate of a SWEL code."""
+    # the Steane code is SWEL, so its logical S gate is transversal
+    code = codes.SteaneCode()
+    circuit = circuits.get_transversal_s(code)
+
+    # the circuit is built entirely from single-qubit S and S_DAG gates (no Pauli corrections)
+    assert {instruction.name for instruction in circuit} <= {"S", "S_DAG"}
+
+    # the circuit implements a logical S gate
+    logical_tableau = circuits.get_logical_tableau(code, circuit)
+    assert logical_tableau == stim.Circuit("S 0").to_tableau()
+
+    # non-SWEL codes are rejected
+    with pytest.raises(ValueError, match="SWEL"):
+        circuits.get_transversal_s(codes.ToricCode(2))
 
 
 def test_transversal_ops() -> None:
@@ -99,7 +117,7 @@ def test_finding_circuit(
         assert physical_circuit is not None
 
         # there are no logical two-qubit gates in this code
-        circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
+        assert circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
 
     # check that the physical circuit has the correct logical tableau
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)

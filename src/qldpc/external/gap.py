@@ -1,4 +1,4 @@
-"""Module for communicating with the GAP computer algebra system
+"""Module for communicating with the GAP computer algebra system.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -35,7 +35,7 @@ def is_callable() -> bool:
     """Can we call GAP 4 from the command line?"""
     commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
     try:
-        result = subprocess.run(commands, capture_output=True, text=True)
+        result = subprocess.run(commands, capture_output=True, text=True, check=False)
         version = result.stdout.strip()
         return bool(version) and bool(re.match(r"4\.\d+\.\d+", version))
     except FileNotFoundError:
@@ -91,6 +91,7 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
             input=pipe_input,
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.stderr:
             raise ValueError(
@@ -181,7 +182,7 @@ def require_package(name: str, repo: str | None = None) -> bool:
         if not response or response == "y":
             commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
             print(" ".join(commands))
-            install_result = subprocess.run(commands, capture_output=True, text=True)
+            install_result = subprocess.run(commands, capture_output=True, text=True, check=False)
             if install_result.returncode:
                 raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
         else:

@@ -1,4 +1,4 @@
-"""Unit tests for distance.py
+"""Unit tests for distance.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -116,13 +116,16 @@ def test_get_hamming_weight_fn() -> None:
         assert weights is out
 
     weight_fn, nbuf = qldpc.codes.distance._get_hamming_weight_fn(use_numba=True)
-    assert isinstance(weight_fn, numba.np.ufunc.dufunc.DUFunc)
     assert nbuf == 0
 
     out = np.empty_like(generators)
     weights = weight_fn(generators, out=out)
     np.testing.assert_array_equal(weights, weights_default)
     assert weights is out
+
+    # checked after the call above: isinstance narrows weight_fn to a numba DUFunc, whose __call__
+    # mypy cannot type-check (numba >= 0.67), so we keep weight_fn as its declared Callable here
+    assert isinstance(weight_fn, numba.np.ufunc.dufunc.DUFunc)
 
 
 def test_get_symplectic_weight_fn() -> None:
@@ -169,13 +172,16 @@ def test_get_symplectic_weight_fn() -> None:
 
     # Using numba:
     weight_fn, nbuf = qldpc.codes.distance._get_symplectic_weight_fn(use_numba=True)
-    assert isinstance(weight_fn, numba.np.ufunc.dufunc.DUFunc)
     assert nbuf == 0
 
     out = np.empty_like(generators)
     weights = weight_fn(generators, out=out)
     assert weights is out
     np.testing.assert_array_equal(weights, weights_default)
+
+    # checked after the call above: isinstance narrows weight_fn to a numba DUFunc, whose __call__
+    # mypy cannot type-check (numba >= 0.67), so we keep weight_fn as its declared Callable here
+    assert isinstance(weight_fn, numba.np.ufunc.dufunc.DUFunc)
 
 
 @pytest.mark.parametrize(

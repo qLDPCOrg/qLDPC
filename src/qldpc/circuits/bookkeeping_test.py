@@ -1,4 +1,4 @@
-"""Unit tests for bookkeeping.py
+"""Unit tests for bookkeeping.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

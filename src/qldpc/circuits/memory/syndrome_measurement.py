@@ -1,4 +1,4 @@
-"""Classes to define syndrome measurement strategies
+"""Classes to define syndrome measurement strategies.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -20,10 +20,10 @@ from __future__ import annotations
 import abc
 import collections
 
-import networkx as nx
 import stim
 
 from qldpc import codes
+from qldpc._util import networkx as nx
 from qldpc.objects import Pauli
 
 from ..bookkeeping import MeasurementRecord, QubitIDs
@@ -41,8 +41,8 @@ class SyndromeMeasurementStrategy(abc.ABC):
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
-            codes.QuditCode: The code whose syndromes we want to measure.
-            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+            code: The code whose syndromes we want to measure.
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
                 Defaults to QubitIDs.from_code(code).
 
         Returns:
@@ -70,8 +70,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         Args:
             strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
                 Defaults to "smallest_last".
-            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs when retrieving
-                the Tanner subgraphs of a code.
+            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs when
+                retrieving the Tanner subgraphs of a code.
         """
         self.strategy = strategy
         self.subgraph_kwargs = subgraph_kwargs
@@ -83,8 +83,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
-            codes.QuditCode: The code whose syndromes we want to measure.
-            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+            code: The code whose syndromes we want to measure.
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
                 Defaults to QubitIDs.from_code(code).
 
         Returns:
@@ -114,8 +114,9 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         the corresponding gates one color at a time.
 
         Assumptions:
+
         - All two-qubit gates associated with edges in the graph commute.
-        - Check qubits are initialized |+>.
+        - Check qubits are initialized ``|+>``.
         """
         # color the edges of the Tanner graph
         coloring = nx.greedy_color(nx.line_graph(graph.to_undirected()), strategy)
@@ -142,6 +143,7 @@ class EdgeColoringXZ(EdgeColoring):
     """Edge coloration syndrome measurement strategy in Algorithm 1 of arXiv:2109.14609.
 
     For a CSS code with Tanner graph T, this strategy is as follows:
+
     1. Construct the subgraphs T_X and T_Z of T restricted, respectively, to X and Z stabilizers.
     2. For each T_P in (T_X, T_Z), color the edges of T_P, and then apply all corresponding gates
         one color at a time.
@@ -165,8 +167,8 @@ class EdgeColoringXZ(EdgeColoring):
         """Construct a circuit to measure the syndromes of a quantum error-correcting code.
 
         Args:
-            codes.QuditCode: The code whose syndromes we want to measure.
-            circuits.QubitIDs: Integer indices for the data and check (syndrome readout) qubits.
+            code: The code whose syndromes we want to measure.
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
                 Defaults to QubitIDs.from_code(code).
 
         Returns:
@@ -174,7 +176,7 @@ class EdgeColoringXZ(EdgeColoring):
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
         if not isinstance(code, codes.CSSCode):
-            raise ValueError(
+            raise TypeError(
                 "The EdgeColoringXZ strategy for syndrome measurement only supports CSS codes"
             )
 

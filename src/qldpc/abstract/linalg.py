@@ -1,4 +1,4 @@
-"""Module for linear algebra with matrices over rings and bimodules
+"""Module for linear algebra with matrices over rings and bimodules.
 
 !!! WARNINGS !!!
 
@@ -78,9 +78,9 @@ def kron(
 ) -> RingArray:
     """Take the Kronecker product of two matrices over a ring.
 
-    If the base ring R is commutative, this is the ordinary Kronecker product.
-    Otherwise, matrix entries of the Kronecker product live in the bimodule of R.
-    See get_bimodule for additional information.
+    If the base ring R is commutative, this is the ordinary Kronecker product. Otherwise, matrix
+    entries of the Kronecker product live in the bimodule of R. See get_bimodule for additional
+    information.
     """
     ring = _get_ring(matrix_a, matrix_b)
 
@@ -98,12 +98,14 @@ def kron(
 
 @functools.cache
 def get_bimodule(ring: GroupRing) -> GroupRing:
-    """Map a group algebra F[G] to its induced bimodule F[G ⨂ G].
+    """Map a group algebra ``F[G]`` to its induced bimodule ``F[G ⨂ G]``.
 
-    Elements r ⨂ s ∈ F[G ⨂ G] of the bimodule act on elements of the base ring as
+    Elements ``r ⨂ s ∈ F[G ⨂ G]`` of the bimodule act on elements of the base ring as::
+
         (r ⨂ s)(t) = r·t·s.
-    When lifting a RingArray matrix over a bimodule, the "left" entries of G ⨂ G get lifted to an
-    ordinary representation, while the "right" entries get lifted to an anti-representation.
+
+    When lifting a RingArray matrix over a bimodule, the "left" entries of ``G ⨂ G`` get lifted to
+    an ordinary representation, while the "right" entries get lifted to an anti-representation.
     """
     size = ring.group.identity.size
 
@@ -134,18 +136,25 @@ def get_howell_dual(
     """Build the "dual" of a matrix in Howell normal form.
 
     The dual matrix provides a pseudoinverse of matrix_hnf in the following sense: if
-        D = matrix_hnf @ dual_matrix.T,
+
+        ``D = matrix_hnf @ dual_matrix.T``,
+
     then
+
     1. D is diagonal,
-    2. D @ matrix_hnf = matrix_hnf,
-    3. D.T @ dual_matrix = dual_matrix, and
-    4. D = transformer.transpose_array(D).
+    2. ``D @ matrix_hnf = matrix_hnf``,
+    3. ``D.T @ dual_matrix = dual_matrix``, and
+    4. ``D = transformer.transpose_array(D)``.
 
     Note that we have two different notions of a transpose at play:
+
     1. D.T...
+
         (a) swaps the matrix indices of D, and
-        (b) takes group members g -> ~g = g**-1, which transposes their regular representation.
+        (b) takes group members ``g -> ~g = g**-1``, which transposes their regular representation.
+
     2. transformer.transpose_array(D)...
+
         (a) swaps the matrix indices of D (identically to D.T), and
         (b) for each entry of D, transposes its matrix representation within each Wedderburn-Artin
             component of the ring.
@@ -153,7 +162,7 @@ def get_howell_dual(
     WARNING: This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
     """
     ring = matrix_hnf.ring
-    transformer = transformer = transformer or ring.get_transformer()
+    transformer = transformer or ring.get_transformer()
     dual_matrix = np.zeros(matrix_hnf.shape, dtype=object)
     for row, col in enumerate(math.first_nonzero_cols(matrix_hnf)):
         pivot = matrix_hnf[row, col].copy()

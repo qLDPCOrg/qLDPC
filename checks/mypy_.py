@@ -9,4 +9,4 @@ EXCLUDE = (
 )
 
 if __name__ == "__main__":
-    exit(checks_superstaq.mypy_.run(*sys.argv[1:], exclude=EXCLUDE))
+    sys.exit(checks_superstaq.mypy_.run(*sys.argv[1:], exclude=EXCLUDE))

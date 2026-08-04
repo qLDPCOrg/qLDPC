@@ -1,4 +1,4 @@
-"""Unit tests for gap.py
+"""Unit tests for gap.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

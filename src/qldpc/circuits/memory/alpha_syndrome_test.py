@@ -1,4 +1,4 @@
-"""Unit tests for alpha_syndrome.py
+"""Unit tests for alpha_syndrome.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -26,6 +26,14 @@ import stim
 from qldpc import circuits, codes, math
 from qldpc.objects import Pauli
 
+# default (fast, low-fidelity) strategy used by the validity-checking helper below
+DEFAULT_STRATEGY = circuits.AlphaSyndrome(
+    circuits.DepolarizingNoiseModel(0.001),
+    iters_per_step=3,
+    shots_per_iter=1,
+    verbose=False,
+)
+
 
 def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     """Verify that syndromes are read out correctly."""
@@ -36,23 +44,19 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     assert alpha_syndrome_is_valid(codes.ToricCode(2, rotated=True))
     assert alpha_syndrome_is_valid(codes.SurfaceCode(2, rotated=True))
 
-    code_a = codes.ClassicalCode.random(5, 3, seed=seed)
+    code_a = codes.ClassicalCode.random(3, 2, seed=seed)
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
     assert alpha_syndrome_is_valid(codes.HGPCode(code_a, code_b))
 
     # AlphaSyndrome does not support non-CSS codes
-    with pytest.raises(ValueError, match="only supports CSS codes"):
+    with pytest.raises(TypeError, match="only supports CSS codes"):
         strategy = circuits.AlphaSyndrome(circuits.DepolarizingNoiseModel(0.001), "decoder_name")
         strategy.get_circuit(codes.FiveQubitCode())
 
 
 def alpha_syndrome_is_valid(
     code: codes.QuditCode,
-    strategy: circuits.AlphaSyndrome = circuits.AlphaSyndrome(
-        circuits.DepolarizingNoiseModel(0.001),
-        iters_per_step=3,
-        shots_per_iter=1,
-    ),
+    strategy: circuits.AlphaSyndrome = DEFAULT_STRATEGY,
 ) -> bool:
     """Check that an AlphaSyndrome circuit correctly reads out stabilizers."""
     # prepare a logical |0> state

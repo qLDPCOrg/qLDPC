@@ -1,4 +1,4 @@
-"""Unit tests for dems.py
+"""Unit tests for dems.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -246,6 +246,27 @@ def test_post_selection() -> None:
         decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=0)
 
 
+def test_without_untriggered_detectors() -> None:
+    """Drop detectors that no error mechanism triggers."""
+    # with no dead detectors, an equivalent (independent) copy is returned
+    dem_arrays = decoders.DetectorErrorModelArrays(stim.DetectorErrorModel("error(0.1) D0"))
+    result = dem_arrays.without_untriggered_detectors()
+    assert result is not dem_arrays
+    assert result.to_dem() == dem_arrays.to_dem()
+
+    # D1 is dead but appears in the decomposition D0 D1 ^ D2 D1, where it cancels; it must be
+    # filtered out rather than remapped to a stale index (live detectors: D0 -> 0, D2 -> 1)
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 D1 ^ D2 D1
+        error(0.2) D0
+    """)
+    pruned = decoders.DetectorErrorModelArrays(dem).without_untriggered_detectors()
+    assert pruned.num_detectors == 2
+    assert pruned.suggested_decompositions[0] == frozenset(
+        [decoders.FlipPattern([0]), decoders.FlipPattern([1])]
+    )
+
+
 def test_to_circuit() -> None:
     """Round-trip a DEM through DetectorErrorModelArrays and to_circuit."""
     dem = stim.DetectorErrorModel("""
@@ -280,3 +301,14 @@ def test_decomposing_errors() -> None:
         error(0.001) D2
     """)
     assert dem_arrays.with_decomposed_errors(simplify=False).to_dem() == split_dem
+
+
+def test_error_targets_dem_targets() -> None:
+    """FlipPattern.dem_targets returns sorted DemTarget lists for detectors and observables."""
+    targets = decoders.FlipPattern([2, 0, 1], [3, 1, 2, 2])
+    det_targets, obs_targets = targets.dem_targets()
+    assert det_targets == [stim.DemTarget.relative_detector_id(dd) for dd in (0, 1, 2)]
+    assert obs_targets == [stim.DemTarget.logical_observable_id(oo) for oo in (1, 3)]
+
+    empty_det, empty_obs = decoders.FlipPattern().dem_targets()
+    assert empty_det == [] and empty_obs == []

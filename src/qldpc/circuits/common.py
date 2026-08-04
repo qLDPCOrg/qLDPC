@@ -1,4 +1,4 @@
-"""Miscellaneous circuit utilities
+"""Miscellaneous circuit utilities.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -18,15 +18,40 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
-from collections.abc import Mapping, Sequence
-from typing import Callable, ParamSpec, TypeVar
+from collections.abc import Callable, Mapping, Sequence
+from types import ModuleType
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
-from qldpc.abstract import GF2
+
+####################################################################################################
+# define a circuit type that may be either a stim.Circuit or an (optional) tsim.Circuit
+
+if TYPE_CHECKING:
+    import tsim
+
+    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
+else:
+    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
+
+
+def _load_tsim_if_installed() -> ModuleType | None:
+    """Lazily import the optional tsim package, returning None if it is not installed."""
+    try:
+        import tsim
+
+        return tsim
+    except ImportError:  # pragma: no cover
+        return None
+
+
+####################################################################################################
+
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
@@ -39,7 +64,7 @@ def restrict_to_qubits(
 
     @functools.wraps(func)
     def qubit_func(*args: Params.args, **kwargs: Params.kwargs) -> stim.Circuit:
-        if any(isinstance(arg, codes.QuditCode) and arg.field is not GF2 for arg in args):
+        if any(isinstance(arg, codes.QuditCode) and arg.field is not galois.GF2 for arg in args):
             raise ValueError("Circuit methods are only supported for qubit codes")
         return func(*args, **kwargs)
 
@@ -47,8 +72,11 @@ def restrict_to_qubits(
 
 
 def with_remapped_qubits(
-    circuit: stim.Circuit, qubit_map: Mapping[int, int] | Sequence[int], *, inverse: bool = False
-) -> stim.Circuit:
+    circuit: stim_or_tsim_Circuit,
+    qubit_map: Mapping[int, int] | Sequence[int],
+    *,
+    inverse: bool = False,
+) -> stim_or_tsim_Circuit:
     """The same circuit, but with relabeled qubits.
 
     Qubits not in qubit_map get mapped to themselves.
@@ -60,8 +88,17 @@ def with_remapped_qubits(
         inverse: If True, invert the provided qubit_map.  Default: False.
 
     Returns:
-        stim.Circuit: A remapped circuit.
+        The input circuit with remapped qubits.
     """
+    tsim = _load_tsim_if_installed()
+    if tsim is not None and isinstance(circuit, tsim.Circuit):
+        output = with_remapped_qubits(circuit.stim_circuit, qubit_map, inverse=inverse)
+        return tsim.Circuit.from_stim_program(output)
+
+    # tsim loads lazily, so `tsim.Circuit` above is untyped and does not narrow `circuit`; having
+    # ruled out a tsim circuit, the remaining possibility for the type variable is a stim.Circuit
+    assert isinstance(circuit, stim.Circuit)
+
     qubit_map = (
         qubit_map
         if isinstance(qubit_map, Mapping)
@@ -81,13 +118,32 @@ def with_remapped_qubits(
             new_circuit.append(block)
 
         else:
-            new_targets = [_remap_target(target, qubit_map) for target in op.targets_copy()]
+            new_targets = [remap_qubit_target(target, qubit_map) for target in op.targets_copy()]
             new_op = stim.CircuitInstruction(
                 name=op.name, targets=new_targets, gate_args=op.gate_args_copy(), tag=op.tag
             )
             new_circuit.append(new_op)
 
     return new_circuit
+
+
+def remap_qubit_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
+    """Remap the qubit addressed by a stim.GateTarget, if any."""
+    if target.qubit_value is None:
+        return target
+
+    new_qubit_value = qubit_map.get(target.qubit_value, target.qubit_value)
+    if target.is_x_target or target.is_z_target or target.is_y_target:
+        return stim.target_pauli(
+            new_qubit_value,
+            target.pauli_type,
+            invert=target.is_inverted_result_target,
+        )
+
+    if target.is_inverted_result_target:
+        return stim.target_inv(new_qubit_value)
+
+    return stim.GateTarget(new_qubit_value)
 
 
 def get_pauli_product_measurements(
@@ -97,8 +153,8 @@ def get_pauli_product_measurements(
     """Construct a circuit of MPP instructions that measure the given Pauli strings.
 
     In addition to a list of Pauli strings, this method accepts a symplectic matrix in which each
-    row indicates the [X|Z] support of a Pauli string.  If "code" is a QuditCode, for example, then
-    passing "pauli_strings=code.get_stabilizer_ops()" will measure the stabilizers of "code".
+    row indicates the ``[X|Z]`` support of a Pauli string.  If "code" is a QuditCode, for example,
+    then passing "pauli_strings=code.get_stabilizer_ops()" will measure the stabilizers of "code".
     """
     if isinstance(pauli_strings, np.ndarray):
         pauli_strings = [math.op_to_string(op) for op in np.atleast_2d(pauli_strings)]
@@ -123,22 +179,3 @@ def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
                 measurements[target.value] for target in instruction.targets_copy()
             }
     return sorted(set(measurements) - addressed_measurements)
-
-
-def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
-    """Remap the qubit addressed by a stim.GateTarget, if any."""
-    if target.qubit_value is None:
-        return target
-
-    new_qubit_value = qubit_map.get(target.qubit_value, target.qubit_value)
-    if target.is_x_target or target.is_z_target or target.is_y_target:
-        return stim.target_pauli(
-            new_qubit_value,
-            target.pauli_type,
-            invert=target.is_inverted_result_target,
-        )
-
-    if target.is_inverted_result_target:
-        return stim.target_inv(new_qubit_value)
-
-    return stim.GateTarget(new_qubit_value)

@@ -1,4 +1,4 @@
-"""Unit tests for objects.py
+"""Unit tests for objects.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

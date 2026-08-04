@@ -1,4 +1,4 @@
-"""Methods for computing the (exact) distance of error-correcting codes
+"""Methods for computing the (exact) distance of error-correcting codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -40,7 +40,7 @@ def get_distance_classical(
     Args:
         generators: The generator matrix of the classical code whose distance we want to compute.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Vectorize distance calculations over batches of size 2**block_size.
+        block_size: Vectorize distance calculations over batches of size ``2**block_size``.
         use_numba: Use numba to (maybe) speed up calculations.
 
     Returns:
@@ -74,7 +74,7 @@ def get_distance_quantum(
         logical_ops: A matrix whose rows represent logical operators of the code.
         stabilizers: A matrix whose rows represent stabilizers of the code.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Vectorize distance calculations over batches of size 2**block_size.
+        block_size: Vectorize distance calculations over batches of size ``2**block_size``.
         use_numba: Use numba to (maybe) speed up calculations.
         homogeneous: If True, all Pauli strings (represented by rows of logical_ops and stabilizers)
             are assumed to have the same homogeneous (X or Z) type.  If False, Pauli strings may
@@ -84,16 +84,17 @@ def get_distance_quantum(
         The minimum weight of a nontrivial logical operator in logical_ops modulo stabilizers, or
         some logical operator weight that is <= a cutoff, whichever is larger.
 
-    More specifically, if homogeneous is True, then...
-    (a) each Pauli string is represented by a binary vector of length equal to the number of data
-        qubits in a code, indicating the nontrivial support of the Pauli string on these qubits; and
-    (b) the weight of a Pauli string is the Hamming weight of the corresponding bitstring.
+    More specifically, if homogeneous is True, then::
 
-    If homogeneous is False, then...
-    (a) each Pauli string is represented by a binary vector of length equal to twice the number of
-        data qubits in a code, with the first and second half of the vector indicating,
-        respectively, the nontrivial support of X and Z Pauli operators; and
-    (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
+        (a) each Pauli string is represented by a binary vector of length equal to the number of
+            data qubits in a code, indicating the nontrivial support of the Pauli string; and
+        (b) the weight of a Pauli string is the Hamming weight of the corresponding bitstring.
+
+    If homogeneous is False, then::
+
+        (a) each Pauli string is represented by a symplectic binary vector (of length 2 * data
+            qubits) with the first and second halves indicating the X and Z Pauli support; and
+        (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
     """
     num_bits = np.shape(logical_ops)[-1]
 
@@ -164,10 +165,11 @@ def _hamming_weight(
     buf: npt.NDArray[np.uint64] | None = None,
     out: npt.NDArray[np.uint64] | None = None,
 ) -> npt.NDArray[np.uint64]:
-    """Somewhat efficient (vectorized) Hamming weight calculation. Assumes 64-bit uints.
+    """Somewhat efficient (vectorized) Hamming weight calculation.
 
-    For `numpy >= 2.0.0`, it's generally better to use `np.bitwise_count` (which uses processors'
-    builtin `popcnt` instruction). Unfortunately this isn't available for numpy < 2.0.0.
+    Assumes 64-bit uints.  For `numpy >= 2.0.0`, it's generally better to use `np.bitwise_count`
+    (which uses processors' builtin `popcnt` instruction). Unfortunately this isn't available for
+    numpy < 2.0.0.
     """
     out = np.right_shift(arr, 1, out=out)
     out &= _MASK55
@@ -193,10 +195,10 @@ def _symplectic_weight(
     buf: npt.NDArray[np.uint64] | None = None,
     out: npt.NDArray[np.uint64] | None = None,
 ) -> npt.NDArray[np.uint64]:
-    """Somewhat efficient (vectorized) symplectic weight calculation. Assumes 64-bit uints.
+    """Somewhat efficient (vectorized) symplectic weight calculation.
 
-    This function is equivalent to (but slightly more efficient than) the expression
-    ``_hamming_weight((arr | (arr >> 1)) & 0x5555555555555555, buf=buf, out=out)``.
+    Assumes 64-bit uints.  This function is equivalent to (but slightly more efficient than) the
+    expression ``_hamming_weight((arr | (arr >> 1)) & 0x5555555555555555, buf=buf, out=out)``.
     """
     out = np.right_shift(arr, 1, out=out)
     out |= arr
@@ -266,7 +268,7 @@ def _get_hamming_weight_fn(
         return weight_fn, 0
 
     if getattr(np, "bitwise_count", None) is not None:
-        weight_fn = getattr(np, "bitwise_count")
+        weight_fn = np.bitwise_count
         return weight_fn, 0
 
     return _hamming_weight, 1
@@ -282,7 +284,7 @@ def _get_symplectic_weight_fn(
         return weight_fn, 0
 
     if getattr(np, "bitwise_count", None) is not None:
-        np_bitwise_count = getattr(np, "bitwise_count")
+        np_bitwise_count = np.bitwise_count
 
         def weight_fn(
             arr: npt.NDArray[np.uint64],
@@ -306,7 +308,7 @@ def _count_trailing_zeros(val: int) -> int:
 
 
 def _inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
-    """Destructively compute ``arr.sum(-1)``, placing the result in the first column or `arr`.
+    """Destructively compute ``arr.sum(-1)``, placing the result in the first column of ``arr``.
 
     When complete, the returned sum will be stored in ``arr[..., 0]``, while other entries in
     ``arr[..., 1:]`` will be left in indeterminate states. This permits a faster sum implementation.
@@ -343,7 +345,7 @@ def _rows_to_ints(
 
 
 def _riffle(array: npt.ArrayLike) -> npt.ArrayLike:
-    """'Riffle' Pauli strings, putting the X and Z support bits for each qubit next to each other."""
+    """'Riffle' Pauli strings, putting X and Z support bits for each qubit next to each other."""
     num_bits = np.shape(array)[-1]
     assert num_bits % 2 == 0
     return np.reshape(array, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)

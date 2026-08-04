@@ -1,4 +1,4 @@
-"""Encoding circuits, logical tableaus, and analysis of logical states
+"""Encoding circuits, logical tableaus, and analysis of logical states.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -20,11 +20,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import ParamSpec, TypeVar
 
+import galois
 import numpy as np
 import stim
 
 from qldpc import codes, math
-from qldpc.abstract import GF2
 from qldpc.objects import Pauli
 
 from .bookkeeping import QubitIDs
@@ -39,11 +39,11 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     """Tableau to encode physical states at its input into logical states of the given code.
 
     If only_zero is True, this tableau maps an all-0 physical state at its input to an all-0 logical
-    state at its output.  Otherwise, for all j in {0, 1, ..., code.dimension - 1}, this tableau maps
-    weight-one X_j and Z_j operators at its input to the logical X and Z operators of the j-th
-    logical qubit of the code.  Weight-one Z_j operators for j >= code.dimension get mapped to
-    "Z-type" gauge operators and stabilizers, and their conjugate X_j get mapped to "X-type" gauge
-    operators and destabilizers.
+    state at its output.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this tableau
+    maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
+    the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
+    ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
+    conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
     """
     if only_zero:
         return stim.Tableau.from_stabilizers(
@@ -53,30 +53,15 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
             allow_underconstrained=True,
         )
 
-    # identify logical and gauge operators operators
+    # identify logical and gauge operators
     logical_ops = code.get_logical_ops()
     gauge_ops = code.get_gauge_ops()
 
-    # Identify:
-    # (1) A minimal generating set of stabilizers.
-    # (2) "Candidate" destabilizers that have correct pair-wise (anti-)commutation relations
-    #     with the stabilizers, but may contain extra stabilizer, logical, or gauge factors.
+    # identify a minimal generating set of stabilizers and the dual destabilizers
     stab_ops = code.get_stabilizer_ops()
-    if len(stab_ops) != len(code) - code.dimension - code.gauge_dimension:  # pragma: no cover
+    if len(stab_ops) != len(code) - code.dimension - code.gauge_dimension:
         stab_ops = code.get_stabilizer_ops(canonicalized=True)
-    destab_ops = math.get_dual_basis(math.symplectic_conjugate(stab_ops))
-
-    # remove logical and gauge operator components
-    dual_logical_ops = logical_ops.reshape(2, -1)[::-1, :].reshape(logical_ops.shape)
-    dual_gauge_ops = gauge_ops.reshape(2, -1)[::-1, :].reshape(gauge_ops.shape)
-    destab_ops -= destab_ops @ math.symplectic_conjugate(dual_logical_ops).T @ logical_ops
-    destab_ops -= destab_ops @ math.symplectic_conjugate(dual_gauge_ops).T @ gauge_ops
-
-    # enforce that destabilizers commute with each other by removing stabilizer factors
-    for dd in range(len(destab_ops)):
-        for ss in range(dd, len(destab_ops)):
-            if destab_ops[dd] @ math.symplectic_conjugate(destab_ops[ss]):  # pragma: no cover
-                destab_ops[dd] -= stab_ops[ss]
+    destab_ops = code.get_destabilizer_ops()
 
     # construct Pauli strings to hand over to Stim
     matrices_x = [logical_ops[: code.dimension], gauge_ops[: code.gauge_dimension], destab_ops]
@@ -91,11 +76,11 @@ def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> s
     """Circuit to encode physical states at its input into logical states of the given code.
 
     If only_zero is True, this circuit maps an all-0 physical state at its input to an all-0 logical
-    state at its output.  Otherwise, for all j in {0, 1, ..., code.dimension - 1}, this circuit maps
-    weight-one X_j and Z_j operators at its input to the logical X and Z operators of the j-th
-    logical qubit of the code.  Weight-one Z_j operators for j >= code.dimension get mapped to
-    "Z-type" gauge operators and stabilizers, and their conjugate X_j get mapped to "X-type" gauge
-    operators and destabilizers.
+    state at its output.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this circuit
+    maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
+    the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
+    ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
+    conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
     """
     return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
 
@@ -125,7 +110,8 @@ def get_logical_tableau(
 
     If deform_code is True, then the physical circuit is required to have two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
-    (b) changing the code that encodes the logical state to
+    (b) changing the code that encodes the logical state to::
+
         code.deformed(physical_circuit, preserve_logicals=True)
     """
     physical_circuit = (
@@ -158,13 +144,18 @@ def get_state_stabilizers(
     """Identify stabilizers of the prepared state that are supported on specified qubits.
 
     The strategy in this method is as follows.  If we prepend reset operations to make an initial
-    |0...0⟩ initial state explicit, then all stabilizer flows of the circuit should have the form
-        1 -> output_generator,
+    ``|0...0⟩`` initial state explicit, then all stabilizer flows of the circuit should have the
+    form
+
+        ``1 -> output_generator``,
+
     where each output_generator is an XOR of
+
         (a) a Pauli string,
         (b) measurements, and
         (c) observables.
-    That is, the circuit prepares a state for which, after identifying {+1,-1} <-> {0,1} as
+
+    That is, the circuit prepares a state for which, after identifying ``{+1,-1} <-> {0,1}`` as
     necessary, the XOR of (a), (b), and (c) for each output_generator is 0.
 
     To identify a basis of output generators (in this case, Pauli strings) that are supported only
@@ -198,7 +189,7 @@ def get_state_stabilizers(
     cols_other_z = other_qubits + num_qubits
 
     # build a matrix of stabilizers for the entire circuit output, determined by the flows
-    matrix = GF2.Zeros((num_rows, num_columns))
+    matrix = galois.GF2.Zeros((num_rows, num_columns))
     for gg, flow in enumerate(flow_generators):
         pauli_string = flow.output_copy()
         if pauli_string:
@@ -226,7 +217,7 @@ def get_state_stabilizers(
 
     # identify stabilizers that are supported entirely on the data qubits of the code
     stabilizers = []
-    for row in matrix.row_reduce():
+    for row in matrix.row_space():
         state_xs = row[cols_state_x]
         state_zs = row[cols_state_z]
         other_xs = row[cols_other_x]
@@ -241,7 +232,7 @@ def get_state_stabilizers(
     simulator = stim.TableauSimulator()
     simulator.do(state_prep_circuit)
     for ss, stabilizer in enumerate(stabilizers):
-        if simulator.peek_observable_expectation(stabilizers[ss]) == -1:  # pragma: no cover
+        if simulator.peek_observable_expectation(stabilizer) == -1:  # pragma: no cover
             stabilizers[ss] = -stabilizer
 
     return stabilizers
@@ -294,17 +285,27 @@ def _get_logical_tableau_from_code_data(
         sector_l = slice(dimension)
         sector_g = slice(dimension, dimension + gauge_dimension)
         sector_s = slice(dimension + gauge_dimension, len(encoder))
-        x2x, x2z, z2x, z2z, *_ = decoded_tableau.to_numpy()
+        x2x, x2z, z2x, z2z, _, z_signs = decoded_tableau.to_numpy()
 
         # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
-        assert not np.any(z2x[:, sector_s])
-        assert not np.any(x2x[sector_l, sector_s])
-        assert not np.any(x2x[sector_g, sector_s])
+        ops_acquired_destabilizers = (
+            np.any(z2x[:, sector_s])
+            or np.any(x2x[sector_l, sector_s])
+            or np.any(x2x[sector_g, sector_s])
+        )
 
         # sanity check: gauge operators should not pick up logical factors
-        assert not np.any(x2x[sector_g, sector_l])
-        assert not np.any(x2z[sector_g, sector_l])
-        assert not np.any(z2x[sector_g, sector_l])
-        assert not np.any(z2z[sector_g, sector_l])
+        gauges_acquired_logicals = (
+            np.any(x2x[sector_g, sector_l])
+            or np.any(x2z[sector_g, sector_l])
+            or np.any(z2x[sector_g, sector_l])
+            or np.any(z2z[sector_g, sector_l])
+        )
+
+        # sanity check: no stabilizers get flipped
+        stabilizers_flipped = np.any(z_signs[sector_s])
+
+        if ops_acquired_destabilizers or gauges_acquired_logicals or stabilizers_flipped:
+            raise ValueError("The provided physical circuit does not implement a logical operation")
 
     return logical_tableau

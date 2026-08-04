@@ -1,4 +1,4 @@
-"""Methods for benchmarking circuits
+"""Methods for benchmarking circuits.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -53,17 +53,27 @@ def get_state_prep_diagnostic_circuit(
 
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
+
     - If 'add_flags is True', a detector for each measurement that is not addressed by an existing
         detector in the provided circuit.  The added detectors are called "flag detectors".
     - Noiseless measurements of all stabilizers of the code.
     - A detector for each of the noiseless stabilizer measurements.
-    - Noisless measurements of observables that stabilize the state prepared by state_prep_circuit.
+    - Noiseless measurements of observables that stabilize the state prepared by state_prep_circuit.
     - Annotations of the measured observables (with OBSERVABLE_INCLUDE).
 
     The logical error rate of the diagnostic circuit is nominally the probability with which any of
     the annotated observables are flipped after decoding flag and stabilizer measurement outcomes.
     However, the details of decoding and the option to post-select on some detectors are left up
     to the user.
+
+    The second returned value is a DetectorRecord whose get_events method maps keys to detector
+    indices:
+
+    - get_events("prep") returns the indices of detectors already present in the provided
+        state_prep_circuit.
+    - get_events("flags") returns the indices of the flag detectors.
+    - get_events(stab_index)[0] is the index of the detector for the stabilizer
+        code.get_stabilizer_ops()[stab_index].
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
@@ -74,7 +84,7 @@ def get_state_prep_diagnostic_circuit(
         qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
             If None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
-            If not None, the observables should be either a a matrix of symplectic row vectors, with
+            If not None, the observables should be either a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
             data qubits of the code.  If None, observables are determined automatically by finding
             all logical Pauli operators of the code that stabilize the state prepared by
@@ -84,12 +94,7 @@ def get_state_prep_diagnostic_circuit(
 
     Returns:
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
-        circuits.DetectorRecord: A record of the detectors in the circuit, for which
-            - DetectorRecord.get_events("prep") is a list of indices for detectors that were already
-                present in the provided state_prep_circuit.
-            - DetectorRecord.get_events("flags") is a list of indices for the flag detectors.
-            - DetectorRecord.get_events(stab_index)[0] is the index of the detector for the
-                stabilizer represented by code.get_stabilizer_ops()[stab_index].
+        circuits.DetectorRecord: A record of the circuit's detectors (keys described above).
     """
     qubit_ids = qubit_ids or QubitIDs.from_code(code)
     if not skip_validation:
@@ -173,7 +178,7 @@ def get_state_prep_diagnostic_tasks(
         tasks = get_state_prep_diagnostic_tasks(...)
         decoder = qldpc.decoders.SinterDecoder(...)
 
-    then we can collect statistics with
+    then we can collect statistics with::
 
         stats = sinter.collect(
             tasks=tasks,
@@ -184,7 +189,7 @@ def get_state_prep_diagnostic_tasks(
             max_errors=100,
         )
 
-    and plot the results with
+    and plot the results with::
 
         import matplotlib.pyplot as plt
 
@@ -224,13 +229,15 @@ def get_state_prep_diagnostic_tasks(
         qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
             If None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
-            If not None, the observables should be either a a matrix of symplectic row vectors, with
+            If not None, the observables should be either a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
             data qubits of the code.  If None, observables are determined automatically by finding
             all logical Pauli operators of the code that stabilize the state prepared by
             state_prep_circuit.
         skip_validation: If True, skip the check to assert that the provided circuit prepares a
             logical state of the provided code.
+        metadata: Extra key-value pairs to attach to the json_metadata of every returned task
+            (merged with the per-task error rate "p").
 
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
@@ -275,7 +282,8 @@ def get_logical_error_and_discard_rate(
 
     This method is provided for convenience, but if you are doing heavy numerics you should probably
     build a sinter.Task and call sinter.collect.  In this case, circuit_or_dem should just be a
-    circuit, and the sinter.Task would be built as follows:
+    circuit, and the sinter.Task would be built as follows::
+
         postselection_mask = np.zeros(circuit.num_detectors, dtype=int)
         postselection_mask[post_select] = 1
         task = sinter.Task(
@@ -283,7 +291,9 @@ def get_logical_error_and_discard_rate(
             detector_error_model=dem_to_decode,
             postselection_mask=np.packbits(postselection_mask, bitorder="little"),
         )
-    Sampling data would then be collected with:
+
+    Sampling data would then be collected with::
+
         stats = sinter.collect(
             tasks=[task],  # or more maybe more tasks
             decoders=["custom"],
@@ -295,18 +305,17 @@ def get_logical_error_and_discard_rate(
     Args:
         circuit_or_dem: The circuit or detector error model we wish to sample.
         sinter_decoder: The circuit-level decoder used to predict observable flips.
-        num_samples: The number of times to the circuit_or_dem.
+        num_samples: The number of times to sample the circuit_or_dem.
 
     Keyword args:
         post_select: The detectors in circuit_or_dem to post-select on.
         post_select_observables: The observables to post-select on.  Any time the decoder's
             prediction for these observable flips do not agree with the actual observable flips, the
             shot is discarded rather than counting as an error.
-        dem_to_decode: The detector error model to decode.  If post-selecting, this DEM should _not_
-            include any of the the detectors that are post-selected on.  If dem_to_decode is None,
-            this method builds
-                dem_arrays = decoders.DetectorErrorModelArrays(dem)
-                dem_to_decode = dem_arrays.post_selected_on(post_select).simplified().to_dem()
+        dem_to_decode: The detector error model to decode.  This DEM should include _all_ detectors,
+            including any that are post-selected on: the decoder receives every detector bit, for
+            consistency with how sinter works.  If dem_to_decode is None, this method decodes with
+            the (simplified) DEM sampled from circuit_or_dem.
 
     Returns:
         A fraction of samples in which at least one observable was decoded incorrectly.
@@ -318,12 +327,12 @@ def get_logical_error_and_discard_rate(
 
     if dem_to_decode is not None:
         same_num_observables = dem_to_decode.num_observables == dem.num_observables
-        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors - len(post_select)
+        same_num_detectors = dem_to_decode.num_detectors == dem.num_detectors
         if not same_num_observables or not same_num_detectors:
             raise ValueError(
                 f"Incompatible detector error models."
-                "\n(num_detectors, num_observables) in the DEM to sample (after post-selection):"
-                f" {(dem.num_detectors - len(post_select), dem.num_observables)}"
+                "\n(num_detectors, num_observables) in the DEM to sample:"
+                f" {(dem.num_detectors, dem.num_observables)}"
                 "\n(num_detectors, num_observables) in the DEM to decode:"
                 f" {(dem_to_decode.num_detectors, dem_to_decode.num_observables)}"
             )
@@ -341,31 +350,13 @@ def get_logical_error_and_discard_rate(
 
     # if applicable, post-select on flag detectors
     if postselection_mask is not None:
-        # remove shots in which post-selection detectors fired
         shot_mask = ~np.any(det_data & postselection_mask, axis=1)
         det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
-
-        # remove post-selected detectors from the detector sample data
-        detector_mask = np.ones(dem.num_detectors, dtype=bool)
-        detector_mask[list(post_select)] = False
-        det_data_unpacked = np.unpackbits(
-            det_data, count=dem.num_detectors, bitorder="little", axis=1
-        )
-        det_data = np.packbits(det_data_unpacked[:, detector_mask], bitorder="little", axis=1)
-
-        # record the fraction of shots that were discarded
         discard_rate += np.sum(~shot_mask) / num_samples
 
-        if dem_to_decode is None:
-            # remove the post-selected detectors from the DEM
-            dem_arrays = dem_arrays.post_selected_on(post_select).simplified()
-            dem = dem_arrays.to_dem()
-
-    # compile a decoder for this detector error model
-    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
-
     # decode and identify incorrectly predicted observable flips
+    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
     predicted_flips = compiled_sinter_decoder.decode_shots_bit_packed(det_data)
     incorrectly_predicted_flips = obs_data ^ predicted_flips
 

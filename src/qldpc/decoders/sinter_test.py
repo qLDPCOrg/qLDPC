@@ -1,4 +1,4 @@
-"""Unit tests for sinter.py
+"""Unit tests for sinter.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -78,7 +78,7 @@ def test_subgraph_decoding() -> None:
         error(0.1) D2 L2
     """)
     sampler = dem.compile_sampler()
-    det_data, obs_data, err_data = sampler.sample(100)
+    det_data, obs_data, _err_data = sampler.sample(100)
 
     # build a monolithic lookup-table decoder, compile, and predict observable flips
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
@@ -113,7 +113,7 @@ def test_sequential_decoding() -> None:
         error(0.1) D2 L2
     """)
     sampler = dem.compile_sampler()
-    det_data, obs_data, err_data = sampler.sample(100)
+    det_data, obs_data, _err_data = sampler.sample(100)
 
     # build a monolithic lookup-table decoder, compile, and predict observable flips
     decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
@@ -151,9 +151,9 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
         E1: flips D0, L0.
     A window decoder may therefore merge these errors into one:
         E0': flips D0, L0.
-     In this case, after decoding the window decoder has to map the error E0' back to E0 or E1 after
-     decoding.  Note that E0 and E1 flip the same observable (L0), so the choice of E0 or E1 does not
-     affect observable predictions.
+     In this case, after decoding the window decoder has to map the error E0' back to E0 or E1
+     after decoding.  Note that E0 and E1 flip the same observable (L0), so the choice of E0 or E1
+     does not affect observable predictions.
     """
 
     dem = stim.DetectorErrorModel("""

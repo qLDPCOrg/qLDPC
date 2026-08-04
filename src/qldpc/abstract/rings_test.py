@@ -1,4 +1,4 @@
-"""Unit tests for rings.py
+"""Unit tests for rings.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -155,7 +155,7 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
 
     # fail to construct a valid ring array
     rings = [abstract.GroupRing(abstract.TrivialGroup(), field) for field in [2, 3]]
-    with pytest.raises(ValueError, match="must be RingMember-valued"):
+    with pytest.raises(TypeError, match="must be RingMember-valued"):
         abstract.RingArray([[0]])
     with pytest.raises(ValueError, match="Cannot determine the underlying ring"):
         abstract.RingArray([])
@@ -272,7 +272,7 @@ def test_ring_row_reduction(
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
     # the "polynomial" Howell normal form requires an underlying cyclic group
-    with pytest.raises(ValueError, match="requires an underlying CyclicGroup"):
+    with pytest.raises(TypeError, match="requires an underlying CyclicGroup"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form(poly=True)
 
     # computing a reduced Groebner basis is the final boss
@@ -305,14 +305,14 @@ def test_deprecations() -> None:
     vector = ring.field.Random(ring.group.order)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         ring_member = abstract.RingMember.from_vector(ring, vector)  # type:ignore[arg-type]
-        assert np.array_equal(ring_member.to_vector(), vector)
+    assert np.array_equal(ring_member.to_vector(), vector)
 
     vector = ring.field.Random(2 * ring.group.order)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         ring_array = abstract.RingArray.from_field_vector(ring, vector)  # type:ignore[arg-type]
-        assert np.array_equal(ring_array.to_field_vector(), vector)
+    assert np.array_equal(ring_array.to_field_vector(), vector)
 
     matrix = ring.field.Random((1, 2, ring.group.order))
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]
-        assert np.array_equal(ring_array.to_field_array(), matrix)
+    assert np.array_equal(ring_array.to_field_array(), matrix)

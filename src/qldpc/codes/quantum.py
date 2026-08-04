@@ -1,4 +1,4 @@
-"""Quantum error-correcting codes
+"""Quantum error-correcting codes.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -27,7 +27,6 @@ from collections.abc import Collection, Iterable, Iterator, Sequence
 from typing import TypeVar
 
 import galois
-import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import scipy
@@ -36,11 +35,12 @@ from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
 from qldpc import abstract
-from qldpc.abstract import GF2, resolve_field
+from qldpc._util import networkx as nx
 from qldpc.objects import CayleyComplex, ChainComplex, Node, Pauli, PauliXZ, QuditPauli
 
 from .classical import (
     CyclicCode,
+    GolayCode,
     HammingCode,
     ReedMullerCode,
     RepetitionCode,
@@ -57,54 +57,64 @@ class TrivialCode(CSSCode):
     def __init__(
         self,
         size: int,
-        num_stabs: int = 0,
-        num_stabs_z: int | None = None,
+        num_stabs_x: int = 0,
+        num_stabs_z: int = 0,
         *,
         gauge_dimension: int = 0,
         self_dual: bool = False,
         field: int | type[galois.FieldArray] | None = None,
-    ):
-        """Initialize a trivial code with the given code parameters.
+    ) -> None:
+        """Initialize a trivial code from single-qubit stabilizers and gauge operators.
 
-        If num_stabs_z is not None, then num_stabs is the number of X-type stabilizers.
-        If num_stabs_z is None and...
-            self_dual is False, then num_stabs is the number of Z-type stabilizers.
-            self_dual is True, then num_stabs is the total number of stabilizers.
+        The code is a direct sum whose ``size`` qubits are laid out, in order, as
+
+        - ``dimension = size - gauge_dimension - num_stabs_x - num_stabs_z`` logical qubits,
+        - ``gauge_dimension`` gauge qubits (each carrying a weight-one X and Z gauge operator),
+        - ``num_stabs_x`` qubits each stabilized by a single-qubit X-type operator, and
+        - ``num_stabs_z`` qubits each stabilized by a single-qubit Z-type operator.
+
+        If self_dual is True, then num_stabs_x and num_stabs_z must be equal, and the X-type and
+        Z-type stabilizers are paired into weight-two XX and ZZ operators on shared qubits, so that
+        matrix_x == matrix_z.  It is enough to specify just one of num_stabs_x and num_stabs_z in
+        this case; the other defaults to the same value.
         """
-        field = resolve_field(field)
-        dimension = size - gauge_dimension - num_stabs - num_stabs - (num_stabs_z or 0)
+        field = abstract.resolve_field(field)
 
         if self_dual:
-            if num_stabs_z is None:
-                num_stabs_x = num_stabs_z = num_stabs // 2
-            else:
-                num_stabs_x = num_stabs
-            if num_stabs % 2 or num_stabs_x != num_stabs_z:
+            if num_stabs_x and num_stabs_z and num_stabs_x != num_stabs_z:
                 raise ValueError(
-                    "Self-dual trivial codes must have an equal number of X and Z stabilizers"
+                    "Self-dual trivial codes must have an equal number of X-type and Z-type"
+                    " stabilizers"
                 )
-        else:
-            if num_stabs_z is None:
-                num_stabs_x = 0
-                num_stabs_z = num_stabs
-            else:
-                num_stabs_x = num_stabs
+            num_stabs_x = num_stabs_z = num_stabs_x or num_stabs_z
+
+        dimension = size - gauge_dimension - num_stabs_x - num_stabs_z
+        if dimension < 0:
+            raise ValueError(
+                f"size ({size}) is too small for gauge_dimension + num_stabs_x + num_stabs_z"
+                f" ({gauge_dimension + num_stabs_x + num_stabs_z})"
+            )
 
         num_checks_x = gauge_dimension + num_stabs_x
         num_checks_z = gauge_dimension + num_stabs_z
         matrix_x = field.Zeros((num_checks_x, size))
         matrix_z = field.Zeros((num_checks_z, size))
 
-        gauge_qubits = np.arange(dimension, dimension + gauge_dimension)
+        # Qubit layout: [logical | gauge | X-stabilizer | Z-stabilizer].
+        gauge_qubits = range(dimension, dimension + gauge_dimension)
+        stab_x_qubits = range(size - num_stabs_x - num_stabs_z, size - num_stabs_z)
+        stab_z_qubits = range(size - num_stabs_z, size)
+
+        # Each gauge qubit carries a weight-one X and Z gauge operator.
         matrix_x[range(gauge_dimension), gauge_qubits] = 1
         matrix_z[range(gauge_dimension), gauge_qubits] = 1
 
-        stab_x_qubits = range(size - num_stabs_z - num_stabs_x, size - num_stabs_z)
-        stab_z_qubits = range(size - num_stabs_z, size)
-
+        # Each stabilizer is a weight-one Pauli on its own qubit...
         matrix_x[range(gauge_dimension, num_checks_x), stab_x_qubits] = 1
         matrix_z[range(gauge_dimension, num_checks_z), stab_z_qubits] = 1
         if self_dual:
+            # ...except when self-dual, where the i-th X and Z stabilizers are paired into
+            # weight-two XX and ZZ operators on the same qubits, making matrix_x == matrix_z.
             matrix_x[range(gauge_dimension, num_checks_x), stab_z_qubits] = 1
             matrix_z[range(gauge_dimension, num_checks_z), stab_x_qubits] = 1
 
@@ -122,11 +132,12 @@ class FiveQuditCode(QuditCode):
     Generalizes the better-known FiveQubitCode.
 
     References:
+
     - https://errorcorrectionzoo.org/c/galois_5_1_3
     """
 
     def __init__(self, field: int | type[galois.FieldArray] | None = None) -> None:
-        field = resolve_field(field)
+        field = abstract.resolve_field(field)
         matrix = [
             [1, 0, 0, -1, 0, 0, 1, -1, 0, 0],
             [0, 1, 0, 0, -1, 0, 0, 1, -1, 0],
@@ -145,6 +156,7 @@ class FiveQubitCode(FiveQuditCode):
     """Smallest quantum error-correcting code.
 
     References:
+
     - https://errorcorrectionzoo.org/c/stab_5_1_3
     """
 
@@ -156,6 +168,7 @@ class QuantumHammingCode(CSSCode):
     """Quantum Hamming code, whose parity check matrices are classical Hamming codes.
 
     References:
+
     - https://errorcorrectionzoo.org/c/quantum_hamming_css
     """
 
@@ -170,11 +183,11 @@ class QuantumHammingCode(CSSCode):
         super().__init__(code, code, is_subsystem_code=False)
         self._distance_x = self._distance_z = 3
 
-        if size == 4 and set_logicals and self.field is GF2:
-            """
-            Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
-            Pinning all but the last logical qubit to |0> results in the TetrahedralCode.
-            See the docstring of the TetrahedralCode for an explanation of the comments below.
+        if size == 4 and set_logicals and self.field is galois.GF2:
+            """Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
+
+            Pinning all but the last logical qubit to |0> results in the TetrahedralCode. See the
+            docstring of the TetrahedralCode for an explanation of the comments below.
             """
             support_x = [
                 # red / green / blue 2-cells in the middle
@@ -214,6 +227,7 @@ class SteaneCode(QuantumHammingCode):
     Also the smallest error-correcting color code.
 
     References:
+
     - https://errorcorrectionzoo.org/c/steane
     """
 
@@ -225,6 +239,7 @@ class TetrahedralCode(CSSCode):
     r"""Smallest quantum error-correcting CSS code with a transversal non-Clifford (T) gate.
 
     Also:
+
     - The smallest quantum error-correcting 3-D color code.
     - Often referred to as the [15, 1, 3] quantum Reed-Muller code.
 
@@ -235,11 +250,12 @@ class TetrahedralCode(CSSCode):
     polyhedron is the convex hull of (a) a vertex of the tetrahedron, (b) the centers of the edges
     and faces incident to that vertex, and (c) the centroid of the tetrahedron.  Qubits live on the
     vertices of these polyhedra.  The stabilizers of the TetrahedralCode can be defined as follows:
+
     - Every 3-cell (polyhedron) is associated with an X-type stabilizer.
     - Every 2-cell (face of a polyhedron) is associated with a Z-type stabilizer.
 
     Coloring the polyhedra red, green, blue, and yellow, the qubit layout for the TetrahedralCode
-    can be visualized as follows:
+    can be visualized as follows::
 
                             red
                              0                           8
@@ -258,16 +274,19 @@ class TetrahedralCode(CSSCode):
     constructions of the TetrahedralCode.
 
     See also Figure 2b of https://arxiv.org/pdf/2409.13465v2 for a nice picture, but note that
+
     (a) The tetrahedral code in arXiv:2409.13465 swaps all X and Z operators.
     (b) The TetrahedralCode defined here has a different qubit order.  Specifically, qubit jj of the
         code defined here gets mapped to qubit kk = qubit_map[jj] of the code in 2409.13465, where
         qubit_map = [0, 10, 3, 14, 7, 13, 6, 8, 1, 9, 2, 12, 4, 11, 5].
 
     A TetrahedralCode encodes one logical qubit.
+
     - The logical X operator can be defined on any _face_ of the tetrahedron.
     - The logical Z operator can be defined on any _edge_ of the tetrahedron.
 
     References:
+
     - https://arxiv.org/abs/1403.2734
     - https://arxiv.org/abs/2409.13465
     - https://errorcorrectionzoo.org/c/stab_15_1_3
@@ -316,10 +335,26 @@ class TetrahedralCode(CSSCode):
         )
 
 
-class IcebergCode(CSSCode):
-    """A quantum error detecting code: [n, n - 2, 2].
+class QuantumGolayCode(CSSCode):
+    """Quantum [[23, 1, 7]] Golay code, built from the classical [23, 12, 7] Golay code.
 
     References:
+
+    - https://errorcorrectionzoo.org/c/qubit_golay
+    """
+
+    def __init__(self) -> None:
+        # by convention, keep only the first 11 of the classical code's (redundant) 23 parity checks
+        checks = GolayCode().matrix[:11]
+        super().__init__(checks, checks, is_subsystem_code=False)
+        self._distance_x = self._distance_z = 7
+
+
+class IcebergCode(CSSCode):
+    """A quantum error detecting code: ``[n, n - 2, 2]``.
+
+    References:
+
     - https://errorcorrectionzoo.org/c/iceberg
     """
 
@@ -338,6 +373,7 @@ class C4Code(IcebergCode):
     """A [4, 2, 2] code, commonly known as the "C4" code.
 
     References:
+
     - https://errorcorrectionzoo.org/c/stab_4_2_2
     """
 
@@ -349,6 +385,7 @@ class C6Code(CSSCode):
     """A [6, 2, 2] code, commonly known as the "C6" code.
 
     References:
+
     - https://errorcorrectionzoo.org/c/stab_6_2_2
     """
 
@@ -367,15 +404,18 @@ class TBCode(CSSCode):
     """Two-block code.
 
     A TBCode code is built out of two commuting matrices A and B, which are combined to define
-    (a) matrix_x = [A, B], and
-    (b) matrix_z = [B.T, -A.T].
-    Commutativity of A and B ensures that matrix_x @ matrix_z.T = AB - BA = 0, which makes matrix_x
-    and matrix_z a valid choice of parity check matrices of a CSSCode.
+
+    (a) ``matrix_x = [A, B]``, and
+    (b) ``matrix_z = [B.T, -A.T]``.
+
+    Commutativity of A and B ensures that ``matrix_x @ matrix_z.T = AB - BA = 0``, which makes
+    matrix_x and matrix_z a valid choice of parity check matrices of a CSSCode.
 
     Two-block codes constructed out of circulant matrices (i.e., matrices chosen from a ring over an
     abelian group) are known as quasi-cyclic codes (QCCodes).
 
     References:
+
     - https://errorcorrectionzoo.org/c/two_block_quantum
     """
 
@@ -411,14 +451,18 @@ class QCCode(TBCode):
     A QCCode is a two block code (TBCode) built out of matrices A and B that are chosen from a ring
     over an abelian group to ensure that A and B commute.  More specifically, a QCCode is a CSS code
     with subcode parity check matrices
-    - matrix_x = [A, B], and
-    - matrix_z = [B.T, -A.T].
-    Here A and B are polynomials of the form A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ..., where
-    - A_{ijk...} is a scalar coefficient (over some finite field),
-    - x, y, z, ... are generators of cyclic groups of orders R_x, R_y, R_z, ...
-    - the monomial x^i y^j z^k ... represents a tensor product of cyclic shift matrices.
 
-    A quasi-cyclic code code is defined by...
+    - ``matrix_x = [A, B]``, and
+    - ``matrix_z = [B.T, -A.T]``.
+
+    Here A and B are polynomials of the form
+    ``A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ...``, where
+
+    - A_{ijk...} is a scalar coefficient (over some finite field),
+    - x, y, z, ... are generators of cyclic groups of orders ``R_x``, ``R_y``, ``R_z``, ...
+    - the monomial ``x^i y^j z^k ...`` represents a tensor product of cyclic shift matrices.
+
+    A quasi-cyclic code is defined by...
     [1] a sequence of cyclic group orders, and
     [2] two multivariate polynomials.
     The polynomials should be sympy expressions such as 1 + x + x * y**2 with sympy.abc variables x
@@ -427,9 +471,11 @@ class QCCode(TBCode):
     dictionary, as in {x: 12, y: 6}.
 
     References:
+
     - https://errorcorrectionzoo.org/c/quantum_quasi_cyclic
 
     Univariate quasi-cyclic codes are generalized bicycle codes:
+
     - https://errorcorrectionzoo.org/c/generalized_bicycle
     - https://arxiv.org/abs/2203.17216
 
@@ -492,24 +538,24 @@ class QCCode(TBCode):
         )
 
     def get_canonical_form(
-        self, poly: sympy.Poly, orders: tuple[int, ...] | None = None
-    ) -> tuple[sympy.Poly, sympy.Poly]:
+        self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
+    ) -> sympy.Expr:
         """Canonicalize the given polynomial, shifting exponents to (-order/2, order/2]."""
         orders = orders or self.orders
         assert len(orders) == len(self.symbols)
 
-        # canonialize and add one term ata time
-        new_poly = sympy.core.numbers.Zero()
-        for term in poly.args:
+        # canonicalize and add one monomial term at a time
+        new_poly: sympy.Expr = sympy.Integer(0)
+        for term in abstract.iter_monomial_terms(poly):
             coeff, _exponents = abstract.get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
-            new_term = sympy.core.numbers.One()
+            new_term = sympy.Integer(coeff)
             for symbol, order in zip(self.symbols, orders):
                 new_exponent = exponents.get(symbol, 0) % order
                 if new_exponent > order / 2:
                     new_exponent -= order
-                new_term *= coeff * symbol**new_exponent
+                new_term *= symbol**new_exponent
 
             new_poly += new_term
 
@@ -527,14 +573,16 @@ class QCCode(TBCode):
         Let L and R denote, respectively, the data qubits addressed by the left and right half of
         the parity check matrix for X-type stabilizers (self.matrix_x).  The sequence of subgraphs
         constructed here is as follows:
+
         1. Group together edges of the Tanner graph by XLA, XRB, ZLB, and ZRA type, where XLA, for
             example, refers to the edges associated for X-type parity checks that address data
             qubits in L, whose connections are determined by the polynomial A.  The sequence of
             subgraphs (XLA, XRB, ZLB, ZRA) corresponds to a valid syndrome measurement circuit.
-        2. Split A in into two terms, A = A_1 + A_2, and correspondingly split the graphs XLA and
+        2. Split A into two terms, A = A_1 + A_2, and correspondingly split the graphs XLA and
             ZRA into the pairs of graphs (XLA_1, XLA_2) and (ZRA_1, ZRA_2).  Push XLA_1 to the end
             of the subgraph sequence for syndrome measurement, and push ZRA_1 to the beginning,
             thereby arriving at the final subgraph sequence (ZRA_1, XLA_2, XRB, ZLB, ZRA_2, XLA_1).
+
         Pushing XLA_1 to the end of the subgraph sequence corresponds to commuting associated gates
         to the right of the syndrome measurement circuit.  Similarly to the situation in Figure 2c
         of arXiv:2109.14609v1, commuting XLA_1 to the right of ZLB introduces CNOT gates between X
@@ -547,8 +595,8 @@ class QCCode(TBCode):
         )
 
         # build matrices for each term in A and B
-        terms_a = sympy.Add.make_args(self.poly_a.as_expr())
-        terms_b = sympy.Add.make_args(self.poly_b.as_expr())
+        terms_a = abstract.iter_monomial_terms(self.poly_a)
+        terms_b = abstract.iter_monomial_terms(self.poly_b)
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
         matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
 
@@ -590,12 +638,15 @@ class BBCode(QCCode):
     """Bivariate bicycle code, or a quasi-cyclic code with polynomials in two variables.
 
     A bivariate bicycle code is a CSS code with subcode parity check matrices
-    - matrix_x = [A, B], and
-    - matrix_z = [B.T, -A.T].
-    Here A and B are polynomials of the form A = sum_{i,j} A_{ij} x^i y^j, where
+
+    - ``matrix_x = [A, B]``, and
+    - ``matrix_z = [B.T, -A.T]``.
+
+    Here A and B are polynomials of the form ``A = sum_{i,j} A_{ij} x^i y^j``, where
+
     - A_{ij} is a scalar coefficient (over some finite field),
-    - x and y are, respectively, generators of cyclic groups of orders R_x and R_y, and
-    - the monomial x^i y^j represents a tensor product of cyclic shift matrices.
+    - x and y are, respectively, generators of cyclic groups of orders ``R_x`` and ``R_y``, and
+    - the monomial ``x^i y^j`` represents a tensor product of cyclic shift matrices.
 
     A bivariate bicycle code is defined by...
     [1] two cyclic group orders, and
@@ -607,34 +658,46 @@ class BBCode(QCCode):
 
     The polynomials A and B induce a "canonical" layout of the data and check qubits of a BBCode.
     In the canonical layout, qubits are organized into plaquettes of four qubits that look like
+
         L X
         Z R
+
     where L and R are data qubits, and X and Z are check qubits.  More specifically:
+
     - L and R data qubits are addressed by the left and right halves of matrix_x (or matrix_z).
     - X are check qubits measure X-type parity checks, and are associated with rows of matrix_x.
     - Z are check qubits measure Z-type parity checks, and are associated with rows of matrix_z.
-    These four-qubit plaquettes are arranged into a rectangular grid that is R_x plaquettes wide and
-    R_y plaquettes tall, where R_x and R_y are the orders of the cyclic groups generated by x and y.
+
+    These four-qubit plaquettes are arranged into a rectangular grid that is ``R_x`` plaquettes
+    wide and ``R_y`` plaquettes tall, where ``R_x`` and ``R_y`` are the orders of the cyclic
+    groups generated by x and y.
     Each qubit can then be labeled by coordinates (a, b) of a plaquette, corresponding to a row
     and column in the grid of plaquettes, and a "sector" (L, R, X, or Z) within a plaquette.
 
-    If we associate (L, R) ~ (0, 1), then the data qubit addressed by column qq of matrix_x (or
-    matrix_z) has the label (sector, a, b) = numpy.unravel_index(qq, [2, R_x, R_y]).  The integer
-    index of a data qubit its label are thereby related to each other by array reshaping.  The label
-    of a check qubit, whose numerical index is the index of a corresponding row in the full parity
-    check matrix of a BBCode, is similarly obtained by associating (X, Z) ~ (0, 1).
+    If we associate ``(L, R) ~ (0, 1)``, then the data qubit addressed by column qq of matrix_x
+    (or matrix_z) has the label ``(sector, a, b) = numpy.unravel_index(qq, [2, R_x, R_y])``.
+    The integer index of a data qubit and its label are thereby related to each other by array
+    reshaping.  The label of a check qubit, whose numerical index is the index of a corresponding
+    row in the full parity check matrix of a BBCode, is similarly obtained by associating
+    ``(X, Z) ~ (0, 1)``.
 
     The connections between data and check qubits can be read directly from the polynomials A and B:
-    - If A_{ij} != 0, then...
+
+    - If ``A_{ij} != 0``, then...
+
       - every X qubit addresses an L qubit that is (i, j) plaquettes (right, up), and
       - every Z qubit addresses an R qubit that is (i, j) plaquettes (left, down).
-    - If B_{ij} != 0, then...
+
+    - If ``B_{ij} != 0``, then...
+
       - every X qubit addresses an R qubit that is (i, j) plaquettes (right, up), and
       - every Z qubit addresses an L qubit that is (i, j) plaquettes (left, down).
+
     Here the grid of plaquettes is assumed to have periodic boundary conditions, so going one
     plaquette "up" from the top row of the grid gets you to the bottom row of the grid.
 
     References:
+
     - https://errorcorrectionzoo.org/c/qcga
     - https://arxiv.org/abs/2308.07915
     - https://arxiv.org/abs/2408.10001
@@ -663,7 +726,7 @@ class BBCode(QCCode):
     def __str__(self) -> str:
         """Human-readable representation of this code."""
         text = ""
-        if self.field is GF2:
+        if self.field is galois.GF2:
             text += f"{self.name} on {self.num_qubits} qubits"
         else:
             text += f"{self.name} on {self.num_qudits} qudits over {self.field_name}"
@@ -734,33 +797,39 @@ class BBCode(QCCode):
     ) -> Sequence[tuple[tuple[int, int], sympy.Poly, sympy.Poly]]:
         """Get the generating data for equivalent BBCodes with "manifestly toric" layouts.
 
-        For simplicity, we consider BBCodes for qubits (with base field F_2) in the text below.
+        For simplicity, we consider BBCodes for qubits (with base field ``F_2``) in the text below.
 
         A BBCode has a manifestly toric layout if it is generated by polynomials that look like
-            poly_a = 1 + x + ..., and
-            poly_b = 1 + y + ...,
+
+            ``poly_a = 1 + x + ...``, and
+            ``poly_b = 1 + y + ...``,
+
         We say that two BBCodes are "equivalent" if they can be obtained from one another by a
         permutation of data and check qubits.
 
-        To an find equivalent BBCode with a manifestly toric layout, we take
-            poly_a = sum_j A_j --> poly_a / A_k = 1 + sum_{j != k} A_j/A_k, and
-            poly_b = sum_j B_j --> poly_b / B_l = 1 + sum_{j != l} B_j/B_l.
-        Each pair of terms (A_j/A_k, B_j/B_l) is then a candidate for cyclic group generators (g, h)
-        for an equivalent BBCode.
+        To find an equivalent BBCode with a manifestly toric layout, we take
+
+            ``poly_a = sum_j A_j --> poly_a / A_k = 1 + sum_{j != k} A_j/A_k``, and
+            ``poly_b = sum_j B_j --> poly_b / B_l = 1 + sum_{j != l} B_j/B_l``.
+
+        Each pair of terms ``(A_j/A_k, B_j/B_l)`` is then a candidate for cyclic group generators
+        (g, h) for an equivalent BBCode.
 
         This modification of polynomials and change-of-basis from the original generators (x, y)
         to (g, h) produces an equivalent BBCode so long as g and h satisfy the conditions in Lemma 4
         of arXiv:2308.07915, which boils down to the requirement that
-            order(g) * order(h) = order(<g, h>) = order(<x, y>),
-        where (for example) <x, y> is the abelian group generated by x and y.
+
+            ``order(g) * order(h) = order(<g, h>) = order(<x, y>)``,
+
+        where (for example) ``<x, y>`` is the abelian group generated by x and y.
         """
         if not nx.is_weakly_connected(self.graph):
             # a connected tanner graph is required for a toric layout to exist
             return []
 
         # identify individual monomials (terms without their coefficients) in the polynomials
-        monomials_a = [term.as_coeff_Mul()[1] for term in self.poly_a.as_expr().args]
-        monomials_b = [term.as_coeff_Mul()[1] for term in self.poly_b.as_expr().args]
+        monomials_a = [term.as_coeff_Mul()[1] for term in abstract.iter_monomial_terms(self.poly_a)]
+        monomials_b = [term.as_coeff_Mul()[1] for term in abstract.iter_monomial_terms(self.poly_b)]
 
         # identify collections of monomials that can be combined to obtain a toric layout
         toric_params = []
@@ -778,7 +847,7 @@ class BBCode(QCCode):
 
         toric_layout_generating_data = []
         for a_1, a_2, b_1, b_2 in toric_params:
-            # new generators and their their cyclic group orders
+            # new generators and their cyclic group orders
             gen_g = a_2 / a_1
             gen_h = b_2 / b_1
             vec_g = self.as_exponent_vector(gen_g)
@@ -808,7 +877,7 @@ class BBCode(QCCode):
         return toric_layout_generating_data
 
     def as_exponent_vector(self, monomial: sympy.Mul) -> tuple[int, int]:
-        """Express the given monomial as a vector of exponents, as in x**3/y**2 -> (3, -2)."""
+        """Express the given monomial as a vector of exponents, as in ``x**3/y**2 -> (3, -2)``."""
         _, _exponents = abstract.get_coefficient_and_exponents(monomial)
         exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
         return (exponents.get(self.symbols[0], 0), exponents.get(self.symbols[1], 0))
@@ -850,9 +919,9 @@ class BBCode(QCCode):
     def modular_inverse(
         self, basis: tuple[tuple[int, int], tuple[int, int]], aa: int, bb: int
     ) -> tuple[int, int]:
-        """Brute force: solve xx * basis[0] + yy * basis[1] == (aa, bb) % self.orders for xx, yy.
+        """Brute-force solve for the basis coefficients ``xx, yy`` of a target vector.
 
-        If provided orders, treat them as the orders of the basis vectors.
+        Solves ``xx * basis[0] + yy * basis[1] == (aa, bb) % self.orders`` for ``xx, yy``.
         """
         aa = aa % self.orders[0]
         bb = bb % self.orders[1]
@@ -883,7 +952,7 @@ class BBCode(QCCode):
         """
         order_a = self.get_order(vec_a)
         order_b = self.get_order(vec_b)
-        if not order_a * order_b == len(self) // 2:
+        if order_a * order_b != len(self) // 2:
             return False
 
         # brute-force determine whether every plaquette can be reached by the basis vectors
@@ -910,28 +979,31 @@ class HGPCode(CSSCode):
     codes, A and B.
 
     Consider the following:
+
     - Code A has 3 data and 2 check bits.
     - Code B has 4 data and 3 check bits.
+
     We represent data bits/qudits by circles (○) and check bits/qudits by squares (□).
 
-    Denode the Tanner graph of code C by G_C.  The nodes of G_AB can be arranged into a matrix.  The
+    Denote the Tanner graph of code C by G_C.  The nodes of G_AB can be arranged into a matrix.  The
     rows of this matrix are labeled by nodes of G_A, and columns by nodes of G_B.  The matrix of
-    nodes in G_AB can thus be organized into four sectors:
+    nodes in G_AB can thus be organized into four sectors::
 
-    ――――――――――――――――――――――――――――――――――
-      | ○ ○ ○ ○ | □ □ □ ← nodes of G_B
-    ――+―――――――――+――――――
-    ○ | ○ ○ ○ ○ | □ □ □
-    ○ | ○ ○ ○ ○ | □ □ □
-    ○ | ○ ○ ○ ○ | □ □ □
-    ――+―――――――――+――――――
-    □ | □ □ □ □ | ○ ○ ○
-    □ | □ □ □ □ | ○ ○ ○
-    ↑ nodes of G_A
-    ――――――――――――――――――――――――――――――――――
+        ――――――――――――――――――――――――――――――――――
+          | ○ ○ ○ ○ | □ □ □ ← nodes of G_B
+        ――+―――――――――+――――――
+        ○ | ○ ○ ○ ○ | □ □ □
+        ○ | ○ ○ ○ ○ | □ □ □
+        ○ | ○ ○ ○ ○ | □ □ □
+        ――+―――――――――+――――――
+        □ | □ □ □ □ | ○ ○ ○
+        □ | □ □ □ □ | ○ ○ ○
+        ↑ nodes of G_A
+        ――――――――――――――――――――――――――――――――――
 
     We identify each sector by two bits.
     In the example above:
+
     - sector (0, 0) has 3×4=12 data qudits
     - sector (0, 1) has 3×3=9 check qudits
     - sector (1, 0) has 2×4=8 check qudits
@@ -941,15 +1013,19 @@ class HGPCode(CSSCode):
     r_2 share an edge in G_A, then the same is true in every column of G_AB.
 
     By default, the check qudits in sectors...
+
     - (1, 0) of G_AB measure X-type operators, and
     - (0, 1) of G_AB measure Z-type operators.
 
     This class contains two equivalent constructions of an HGPCode:
+
     - A construction based on Tanner graphs (as discussed above).
     - A construction based on check matrices, as originally introduced in arXiv:0903.0566.
+
     The latter construction is less intuitive, but more efficient.
 
     References:
+
     - https://errorcorrectionzoo.org/c/hypergraph_product
     - https://arxiv.org/abs/0903.0566
     - https://arxiv.org/abs/1202.0928
@@ -973,11 +1049,11 @@ class HGPCode(CSSCode):
 
         The parity check matrices of the hypergraph product code are:
 
-        matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]
-        matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]
+        ``matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]``
+        ``matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]``
 
-        Here (H1, H2) == (matrix_a, matrix_b), and I[m/n][1/2] are identity matrices,
-        with (m1, n1) = H1.shape and (m2, n2) = H2.shape.
+        Here ``(H1, H2) == (matrix_a, matrix_b)``, and ``I[m/n][1/2]`` are identity matrices,
+        with ``(m1, n1) = H1.shape`` and ``(m2, n2) = H2.shape``.
 
         A minus sign in one sector of matrix_x or matrix_z is necessary to satisfy CSS code
         requirements with nonbinary fields.  The placement of this sign is chosen for consistency
@@ -1023,6 +1099,7 @@ class HGPCode(CSSCode):
         graph vertices.
 
         More specifically, this method constructs Tanner subgraphs as follows:
+
         1. For the classical seed code that defines vertical edges of this HGPCode (self.code_a),
             color the edges of its Tanner graph, and number these colors starting from zero.
         2. Even edges get assigned a "north" or "south" direction if they are associated,
@@ -1089,8 +1166,8 @@ class HGPCode(CSSCode):
     def get_graph_product(graph_a: nx.DiGraph, graph_b: nx.DiGraph) -> nx.DiGraph:
         """Hypergraph product of two Tanner graphs."""
         graph = nx.DiGraph()
-        field = getattr(graph_a, "field", GF2)
-        _Pauli = Pauli if field is GF2 else QuditPauli
+        field = getattr(graph_a, "field", galois.GF2)
+        _Pauli = Pauli if field is galois.GF2 else QuditPauli
 
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
@@ -1139,7 +1216,7 @@ class HGPCode(CSSCode):
         nodes_a: Collection[Node], nodes_b: Collection[Node]
     ) -> dict[tuple[Node, Node], Node]:
         """Map (dictionary) that re-labels nodes in the hypergraph product of two codes."""
-        # identify the number of data/check nodes, and the total numer of X/Z checks
+        # identify the number of data/check nodes, and the total number of X/Z checks
         num_data_a = sum(node.is_data for node in nodes_a)
         num_data_b = sum(node.is_data for node in nodes_b)
         num_checks_a = len(nodes_a) - num_data_a
@@ -1220,7 +1297,7 @@ class HGPCode(CSSCode):
             dist_a = self.code_a.get_distance()
             dist_b = ClassicalCode(self.code_b.matrix.T).get_distance()
 
-        return dist_a if dist_b is np.nan else dist_b if dist_a is np.nan else min(dist_a, dist_b)
+        return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
 
 
 class CHGPCode(HGPCode):
@@ -1229,6 +1306,7 @@ class CHGPCode(HGPCode):
     A CHGPCode is a hypergraph product of classical CyclicCodes.
 
     References:
+
     - https://arxiv.org/pdf/2511.09683v2 (Definition 1)
     """
 
@@ -1258,6 +1336,7 @@ class CRCode(HGPCode):
     A CRCode is a hypergraph product of a CyclicCode and a RingCode.
 
     References:
+
     - https://arxiv.org/pdf/2511.09683v2 (Definition 3)
     """
 
@@ -1283,10 +1362,11 @@ class SHPCode(CSSCode):
     is built from; in particular, an SHPCode does not depend on the choice of parity check matrices
     for the underlying classical codes.
 
-    If the classical generating codes of an SHPCode have code parameters [n1, k1, d1], [n2, k2, d2],
-    the SHPCode has parameters [n1 n2, k1 k2, min(d1, d2)].
+    If the classical generating codes of an SHPCode have code parameters ``[n1, k1, d1]`` and
+    ``[n2, k2, d2]``, the SHPCode has parameters ``[n1 n2, k1 k2, min(d1, d2)]``.
 
     References:
+
     - https://errorcorrectionzoo.org/c/subsystem_quantum_parity
     - https://arxiv.org/abs/2002.06257
     - https://arxiv.org/abs/2502.07150
@@ -1374,12 +1454,12 @@ class LPCode(CSSCode):
 
     A lifted product code is essentially the same as a hypergraph product code, except that the
     parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
-    over a finite field F_q.  Each of these entries can be "lifted" to a representation as
-    orthogonal matrices over F_q, in which case the RingArray is interpreted as a block matrix; this
-    is called "lifting" the RingArray.
+    over a finite field ``F_q``.  Each of these entries can be "lifted" to a representation as
+    orthogonal matrices over ``F_q``, in which case the RingArray is interpreted as a block
+    matrix; this is called "lifting" the RingArray.
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
-    can be constructed by
+    can be constructed by::
 
         import numpy as np
         from qldpc.abstract import CyclicGroup, GroupRing, RingArray, RingMember
@@ -1404,16 +1484,19 @@ class LPCode(CSSCode):
         code = LPCode(rep_matrix + int_matrix)
 
     Notes:
-    - A lifted product code with RingArrays of size 1×1 is a two-block code (more specifically, a
-        two-block group-algebra code).  If the base group of the RingArrays is a cyclic group, the
-        resulting lifted product code is a generalized bicycle code.
-    - A lifted product code with RingArrays whose entries get lifted to 1×1 matrices is a
+
+    - A lifted product code with RingArrays of size ``1×1`` is a two-block code (more
+        specifically, a two-block group-algebra code).  If the base group of the RingArrays is a
+        cyclic group, the resulting lifted product code is a generalized bicycle code.
+    - A lifted product code with RingArrays whose entries get lifted to ``1×1`` matrices is a
         hypergraph product code built from the lifted RingArrays.
     - One way to get an LPCode: take a classical code with parity check matrix H and multiply it by
-        a diagonal matrix D = diag(a_1, a_2, ... a_n), where all {a_j} are elements of a group
-        algebra.  The RingArray P = H @ D can then be used for one of the RingArrays of an LPCode.
+        a diagonal matrix ``D = diag(a_1, a_2, ... a_n)``, where all ``{a_j}`` are elements of a
+        group algebra.  The RingArray ``P = H @ D`` can then be used for one of the RingArrays of
+        an LPCode.
 
     References:
+
     - https://errorcorrectionzoo.org/c/lifted_product
     - https://arxiv.org/abs/2202.01702
     - https://arxiv.org/abs/2012.04068
@@ -1564,6 +1647,7 @@ class SLPCode(CSSCode):
         assert code.get_code_params() == (27, 12, 2)
 
     References:
+
     - https://errorcorrectionzoo.org/c/subsystem_lifted_product
     - https://arxiv.org/abs/2404.18302
     """
@@ -1643,8 +1727,9 @@ class QTCode(CSSCode):
     """Quantum Tanner code: a CSS code for qudits defined on the faces of a Cayley complex.
 
     Altogether, a quantum Tanner code is defined by:
+
     - two symmetric (self-inverse) subsets A and B of a group G, and
-    - two classical codes C_A and C_B, respectively with block lengths |A| and |B|.
+    - two classical codes ``C_A`` and ``C_B``, respectively with block lengths ``|A|`` and ``|B|``.
 
     The qudits of a quantum Tanner code live on the faces of a Cayley complex built out of A and B.
     Each face of the Cayley complex looks like:
@@ -1655,19 +1740,23 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-    where (g,a,b) is an element of (G,A,B), and f(g,a,b) = {g, ab, gb, agb}.  We define two
+    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ab, gb, agb}``.  We define two
     (directed) subgraphs on the Cayley complex:
-    - subgraph_x with edges ( g, f(g,a,b)), and
-    - subgraph_z with edges (ag, f(g,a,b)).
+
+    - subgraph_x with edges ``( g, f(g,a,b))``, and
+    - subgraph_z with edges ``(ag, f(g,a,b))``.
 
     The X-type parity checks of a quantum Tanner code are then given by the classical Tanner code on
-    subgraph_x with subcode ~(C_A ⨂ C_B), where ~C is the dual code to C.  Z-type parity checks are
-    similarly given by the classical Tanner code on subgraph_z with subcode ~(~C_A ⨂ ~C_B).
+    subgraph_x with subcode ``~(C_A ⨂ C_B)``, where ``~C`` is the dual code to C.  Z-type parity
+    checks are similarly given by the classical Tanner code on subgraph_z with subcode
+    ``~(~C_A ⨂ ~C_B)``.
 
     Notes:
+
     - "Good" quantum Tanner code: projective special linear group and random classical codes.
 
     References:
+
     - https://errorcorrectionzoo.org/c/quantum_tanner
     - https://arxiv.org/abs/2206.07571
     - https://arxiv.org/abs/2202.13641
@@ -1709,11 +1798,11 @@ class QTCode(CSSCode):
     def __eq__(self, other: object) -> bool:
         return (
             isinstance(other, QTCode)
-            and other.code_a == other.code_a
-            and other.code_b == other.code_b
-            and other.complex.subset_a == other.complex.subset_a
-            and other.complex.subset_b == other.complex.subset_b
-            and other.complex.bipartite == other.complex.bipartite
+            and self.code_a == other.code_a
+            and self.code_b == other.code_b
+            and self.complex.subset_a == other.complex.subset_a
+            and self.complex.subset_b == other.complex.subset_b
+            and self.complex.bipartite == other.complex.bipartite
         )
 
     @staticmethod
@@ -1738,17 +1827,19 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-        where f(g,a,b) = {g, ab, gb, agb}.  Specifically, the (directed) subgraphs are:
-        - subgraph_x with edges ( g, f(g,a,b)), and
-        - subgraph_z with edges (ag, f(g,a,b)).
-        Classical Tanner codes on these subgraphs are used as to construct quantum Tanner code.
+        where ``f(g,a,b) = {g, ab, gb, agb}``.  Specifically, the (directed) subgraphs are:
+
+        - subgraph_x with edges ``( g, f(g,a,b))``, and
+        - subgraph_z with edges ``(ag, f(g,a,b))``.
+
+        Classical Tanner codes on these subgraphs are used to construct a quantum Tanner code.
 
         As a matter of practice, defining classical Tanner codes on subgraph_x and subgraph_z
         requires choosing an ordering on the edges incident to every source node of these graphs.
         If the group G is equipped with a total order, a natural ordering of edges incident to every
-        source node is induced by assigning the label (a, b) to edge (g, f(g,a,b)).  Consistency
-        then requires that edge (ag, f(g,a,b)) has label (a^-1, b), as verified by defining g' = ag
-        and checking that f(g,a,b) = f(g',a^-1,b).
+        source node is induced by assigning the label (a, b) to edge ``(g, f(g,a,b))``.  Consistency
+        then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by
+        defining ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
         """
         subset_a = cayplex.cover_subset_a
         subset_b = cayplex.cover_subset_b
@@ -1758,7 +1849,7 @@ class QTCode(CSSCode):
         identity = member * ~member
 
         # identify the set of nodes for which we still need to add faces
-        nodes_to_add = set([identity])
+        nodes_to_add = {identity}
 
         # build the subgraphs one node at a time
         subgraph_x = nx.DiGraph()
@@ -1818,8 +1909,7 @@ class QTCode(CSSCode):
         with open(path, "w") as file:
             # write provided headers
             for header in headers:
-                for line in header.splitlines():
-                    file.write(f"# {line}\n")
+                file.writelines(f"# {line}\n" for line in header.splitlines())
 
             # write subsets
             file.write("# subset_a:\n")
@@ -1861,8 +1951,8 @@ class QTCode(CSSCode):
                 last_index = index
 
         # construct subsets and generating codes
-        subset_a = set(abstract.GroupMember(gen) for gen in arrays[0])
-        subset_b = set(abstract.GroupMember(gen) for gen in arrays[1])
+        subset_a = {abstract.GroupMember(gen) for gen in arrays[0]}
+        subset_b = {abstract.GroupMember(gen) for gen in arrays[1]}
         code_a = ClassicalCode(arrays[2], field)
         code_b = ClassicalCode(arrays[3], field)
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
@@ -1879,6 +1969,7 @@ class SurfaceCode(CSSCode):
     The rotated code is more qubit-efficient.
 
     References:
+
     - https://errorcorrectionzoo.org/c/toric
     - https://errorcorrectionzoo.org/c/surface
     - https://errorcorrectionzoo.org/c/rotated_surface
@@ -1922,8 +2013,8 @@ class SurfaceCode(CSSCode):
             ]
 
             # invert Z-type Pauli on every other qubit
-            field = resolve_field(field)
-            if field is not GF2:
+            field = abstract.resolve_field(field)
+            if field is not galois.GF2:
                 matrix_z = matrix_z.view(field)
                 matrix_z[:, self.bias_tailoring_qubits] *= -1
 
@@ -1935,23 +2026,24 @@ class SurfaceCode(CSSCode):
     ) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]:
         """Build X-sector and Z-sector parity check matrices.
 
-        Example 5x5 rotated surface code layout:
+        Example 5x5 rotated surface code layout::
 
-             ―――     ―――
-            | ⋅ |   | ⋅ |
-            ○―――○―――○―――○―――○―――
-            | × | ⋅ | × | ⋅ | × |
-         ―――○―――○―――○―――○―――○―――
-        | × | ⋅ | × | ⋅ | × |
-         ―――○―――○―――○―――○―――○―――
-            | × | ⋅ | × | ⋅ | × |
-         ―――○―――○―――○―――○―――○―――
-        | × | ⋅ | × | ⋅ | × |
-         ―――○―――○―――○―――○―――○
-                | ⋅ |   | ⋅ |
-                 ―――     ―――
+              ―――     ―――
+             | ⋅ |   | ⋅ |
+             ○―――○―――○―――○―――○―――
+             | × | ⋅ | × | ⋅ | × |
+          ―――○―――○―――○―――○―――○―――
+         | × | ⋅ | × | ⋅ | × |
+          ―――○―――○―――○―――○―――○―――
+             | × | ⋅ | × | ⋅ | × |
+          ―――○―――○―――○―――○―――○―――
+         | × | ⋅ | × | ⋅ | × |
+          ―――○―――○―――○―――○―――○
+                 | ⋅ |   | ⋅ |
+                  ―――     ―――
 
         Here:
+
         - Circles (○) denote data qubits (of which there are 5×5 = 25 total).
         - Tiles with a cross (×) denote X-type parity checks (12 total).
         - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
@@ -1974,9 +2066,9 @@ class SurfaceCode(CSSCode):
             row_indices = [row - 1, row, row - 1, row]
             col_indices = [col - 1, col - 1, col, col]
             check = np.zeros((rows, cols), dtype=int)
-            for row, col in zip(row_indices, col_indices):
-                if 0 <= row < rows and 0 <= col < cols:
-                    check[row, col] = 1
+            for check_row, check_col in zip(row_indices, col_indices):
+                if 0 <= check_row < rows and 0 <= check_col < cols:
+                    check[check_row, check_col] = 1
             return check.ravel()
 
         checks_x = []
@@ -2079,6 +2171,7 @@ class ToricCode(CSSCode):
     """Surface code with periodic boundary conditions, encoding two logical qudits.
 
     References:
+
     - https://errorcorrectionzoo.org/c/toric
     - https://errorcorrectionzoo.org/c/surface
     - https://errorcorrectionzoo.org/c/rotated_surface
@@ -2128,8 +2221,8 @@ class ToricCode(CSSCode):
             ]
 
             # invert Z-type Pauli on every other qubit
-            field = resolve_field(field)
-            if field is not GF2:
+            field = abstract.resolve_field(field)
+            if field is not galois.GF2:
                 matrix_z = matrix_z.view(field)
                 matrix_z[:, self.bias_tailoring_qubits] *= -1
 
@@ -2160,8 +2253,8 @@ class ToricCode(CSSCode):
             row_indices = np.array([row - 1, row, row - 1, row]) % rows
             col_indices = np.array([col - 1, col - 1, col, col]) % cols
             check = np.zeros((rows, cols), dtype=int)
-            for row, col in zip(row_indices, col_indices):
-                check[row, col] = 1
+            for check_row, check_col in zip(row_indices, col_indices):
+                check[check_row, check_col] = 1
             return check.ravel()
 
         checks_x = []
@@ -2220,6 +2313,7 @@ class GeneralizedSurfaceCode(CSSCode):
     """Surface or toric code defined on a multi-dimensional hypercubic lattice.
 
     References:
+
     - https://errorcorrectionzoo.org/c/higher_dimensional_surface
     """
 
@@ -2262,19 +2356,20 @@ class T4Code(CSSCode):
 
     A T4Code depends on a four-dimensional integer lattice.
     The lattice acts on Euclidean four-space by translations.
-    The quotient manifold is a four-dimensional torus T^4.
+    The quotient manifold is a four-dimensional torus ``T^4``.
     The number of physical qudits is 6 times the volume of the lattice.
-    The number of logical qudits is the dimension of the 2nd homology group of T^4, which is 6.
+    The number of logical qudits is the dimension of the 2nd homology group of ``T^4``, which is 6.
 
     Homologically, a T4Code is the topological CSS code attached to the 3-term sub-complex in the
     middle of the 5-term chain-complex
 
-        F[vertices] <- F[edges] <- F[faces] <- F[cubes] <- F[tesseracts]
+        ``F[vertices] <- F[edges] <- F[faces] <- F[cubes] <- F[tesseracts]``
 
-    of T^4 tiled by integer unit tesseracts.  Cubes have 6 faces on the boundary, and edges are
+    of ``T^4`` tiled by integer unit tesseracts.  Cubes have 6 faces on the boundary, and edges are
     incident to 6 faces, so stabilizers have weight 6.
 
     References:
+
     - https://arxiv.org/pdf/2506.15130v1
     - https://arxiv.org/pdf/2505.10403
     """
@@ -2287,7 +2382,7 @@ class T4Code(CSSCode):
         skip_validation: bool = False,
     ) -> None:
         """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
-        self._field = resolve_field(field)
+        self._field = abstract.resolve_field(field)
 
         self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
         self.num_vertices = self.lattice_basis.det()
@@ -2374,9 +2469,10 @@ class T4Code(CSSCode):
 
 
 class ManyHypercubeCode(CSSCode):
-    """The [6**r, 4**r, 2**r] concatenated many-hypercubes code of arXiv:2403.16054.
+    """The ``[6**r, 4**r, 2**r]`` concatenated many-hypercubes code of arXiv:2403.16054.
 
     References:
+
     - https://arxiv.org/abs/2403.16054
     - https://errorcorrectionzoo.org/c/stab_6_4_2
     """
@@ -2411,6 +2507,7 @@ class BaconShorCode(SHPCode):
     """Bacon-Shor code on a square grid, implemented as a subsystem hypergraph product code.
 
     References:
+
     - https://errorcorrectionzoo.org/c/bacon_shor
     """
 
@@ -2439,6 +2536,7 @@ class SHYPSCode(SHPCode):
     SWAP-transversal Clifford operations.
 
     References:
+
     - https://errorcorrectionzoo.org/c/shyps
     - https://arxiv.org/abs/2502.07150
     """

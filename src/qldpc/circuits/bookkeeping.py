@@ -1,4 +1,4 @@
-"""Helper objects to keep track of qubits, measurements, and detectors
+"""Helper objects to keep track of qubits, measurements, and detectors.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -43,11 +43,22 @@ class QubitIDs:
     checks_z: tuple[int, ...] = ()
 
     def __init__(
-        self, data: Sequence[int], check: Sequence[int] = (), ancilla: Sequence[int] = ()
+        self,
+        data: int | Sequence[int],
+        check: int | Sequence[int] = (),
+        ancilla: int | Sequence[int] = (),
     ) -> None:
-        self.data = tuple(data)
-        self.check = tuple(check)
-        self.ancilla = tuple(ancilla)
+        self.data = tuple(data if isinstance(data, Sequence) else range(data))
+        check_start = self.data[-1] + 1 if self.data else 0
+        self.check = tuple(
+            check if isinstance(check, Sequence) else range(check_start, check_start + check)
+        )
+        ancilla_start = self.check[-1] + 1 if self.check else check_start
+        self.ancilla = tuple(
+            ancilla
+            if isinstance(ancilla, Sequence)
+            else range(ancilla_start, ancilla_start + ancilla)
+        )
 
     def __iter__(self) -> Iterator[tuple[int, ...]]:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
@@ -111,8 +122,8 @@ class Record(Mapping[Hashable, list[int]]):
     """An organized record of events in a Stim circuit.
 
     A record is essentially a dictionary that maps some key (such as a qubit index) to an ordered
-    list of the events (such as measurements or detectors) associated with that key.  The events that
-    a Record keeps track of are assumed to be indexed from zero.
+    list of the events (such as measurements or detectors) associated with that key.  The events
+    that a Record keeps track of are assumed to be indexed from zero.
 
     Record is subclassed by MeasurementRecord to keep track of measurements in a circuit, and
     by DetectorRecord to keep track of the detectors in a circuit.
@@ -135,9 +146,6 @@ class Record(Mapping[Hashable, list[int]]):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({dict(self.key_to_events)})"
-
-    def __str__(self) -> str:
-        return repr(self)
 
     def __len__(self) -> int:
         """The number of keys associated with events in this record."""
@@ -168,9 +176,10 @@ class Record(Mapping[Hashable, list[int]]):
     def append(self, record: Mapping[Hashable, Iterable[int] | int], repeat: int = 1) -> None:
         """Append the given record to this one.
 
-        All event numbers in the appended record are increased by the number of events in the current
-        record.  That is, if the current record holds n events numbered from 0 to n - 1, then events
-        (0, 1, ...) in the appended record are added to the current record as (n, n+1, ...).
+        All event numbers in the appended record are increased by the number of events in the
+        current record.  That is, if the current record holds n events numbered from 0 to ``n - 1``,
+        then events (0, 1, ...) in the appended record are added to the current record as
+        ``(n, n+1, ...)``.
         """
         assert repeat >= 0
         _record = {  # convert input record into dict[Hashable, list[int]]
@@ -189,7 +198,10 @@ class Record(Mapping[Hashable, list[int]]):
         self.num_events += num_events_in_record * repeat
 
     def __iadd__(self, other: Mapping[Hashable, Iterable[int] | int]) -> Self:
-        """Append the given record to this one.  See help(qldpc.circuits.Record.append)."""
+        """Append the given record to this one.
+
+        See help(qldpc.circuits.Record.append).
+        """
         self.append(other)
         return self
 
@@ -228,7 +240,7 @@ class DetectorRecord(Record):
     """An organized record of detectors in a Stim circuit."""
 
     def get_detector(self, key: Hashable, detection_index: int = -1) -> int:
-        """Retrieve a Stim detector (by index) assoiated with the given key.
+        """Retrieve a Stim detector (by index) associated with the given key.
 
         Args:
             key: The name associated with a sequence of detectors in the record.
@@ -251,10 +263,14 @@ class DetectorRecord(Record):
         """A record of the detectors remaining after post-selecting on the detectors of a key.
 
         If "detector_record" is the record of the detectors in circuit whose detector error model is
-        represented by the qldpc.decoders.DetectorErrorModelArrays object "dem_arrays", the record
+        represented by the qldpc.decoders.DetectorErrorModelArrays object "dem_arrays", the record::
+
             new_detector_record = detector_record.after_post_selection(key)
-        is the record of the detectors in
+
+        is the record of the detectors in::
+
             new_dem_arrays = dem_arrays.post_selected_on(detector_record.get_events(key))
+
         See help(qldpc.decoders.DetectorErrorModelArrays).
         """
         # identify the indices of all detectors, and the detectors to remove
