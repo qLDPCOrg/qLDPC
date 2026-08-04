@@ -115,9 +115,13 @@ class AbstractCode(abc.ABC):
 
         else:
             self._field = abstract.resolve_field(field)
-            self._matrix = np.asanyarray(
+            array = np.asanyarray(
                 matrix.todense() if scipy.sparse.issparse(matrix) else matrix,  # type:ignore[union-attr]
-            ).view(self.field)
+            )
+            if array.dtype == bool:
+                # galois rejects bool dtypes, so treat booleans as 0/1 integers
+                array = array.astype(np.uint8)
+            self._matrix = array.view(self.field)
 
     @property
     def name(self) -> str:
