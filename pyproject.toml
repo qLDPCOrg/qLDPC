@@ -58,8 +58,8 @@ optional-dependencies.docs = [
   "sphinx-autoapi>=3",
   "sphinx-rtd-theme>=2",
 ]
-optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.1" ]
-optional-dependencies.tsim = [ "bloqade-tsim>=0.1.4" ]
+optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
+optional-dependencies.tsim = [ "bloqade-tsim>=0.1.5" ]
 urls.Repository = "https://github.com/qLDPCOrg/qLDPC"
 
 # Check script configuration:
