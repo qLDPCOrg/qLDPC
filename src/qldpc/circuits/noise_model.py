@@ -1092,8 +1092,7 @@ class NoiseModel:
             The input circuit with added noise.
         """
         if not isinstance(circuit, stim.Circuit):
-            # a stim-wrapping circuit: read its operations into a stim.Circuit, add noise, and
-            # rebuild a circuit of the same type
+            # convert to stim, add noise, convert back
             stim_input = stim.Circuit()
             for index in range(len(circuit)):
                 stim_input.append(circuit[index])
