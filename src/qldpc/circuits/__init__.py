@@ -10,6 +10,8 @@ from .bookkeeping import (
     Record,
 )
 from .common import (
+    StimCircuitLike,
+    StimCircuitProtocol,
     get_pauli_product_measurements,
     get_unaddressed_measurements,
     remap_qubit_target,
@@ -71,6 +73,8 @@ __all__ = [
     "QubitIDs",
     "Record",
     "SI1000NoiseModel",
+    "StimCircuitLike",
+    "StimCircuitProtocol",
     "SyndromeMeasurementStrategy",
     "as_noiseless_circuit",
     "get_encoder_and_decoder",

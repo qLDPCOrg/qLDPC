@@ -18,43 +18,65 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable, Mapping, Sequence
-from types import ModuleType
-from typing import TYPE_CHECKING, ParamSpec, TypeVar
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import ParamSpec, Protocol, TypeVar
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import stim
+from typing_extensions import Self
 
 from qldpc import codes, math
 
-####################################################################################################
-# define a circuit type that may be either a stim.Circuit or an (optional) tsim.Circuit
-
-if TYPE_CHECKING:
-    import tsim
-
-    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
-else:
-    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
-
-
-def _load_tsim_if_installed() -> ModuleType | None:
-    """Lazily import the optional tsim package, returning None if it is not installed."""
-    try:
-        import tsim
-
-        return tsim
-    except ImportError:  # pragma: no cover
-        return None
-
-
-####################################################################################################
-
-
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
+
+
+class StimCircuitProtocol(Protocol):
+    """Structural type for circuit objects that behave like a ``stim.Circuit``.
+
+    A ``stim.Circuit`` satisfies this protocol, as do stim-wrapping circuit classes such as
+    ``tsim.Circuit``.  qLDPC's circuit-polymorphic functions (e.g. ``noisy_circuit``,
+    ``with_remapped_qubits``) are generic over the ``StimCircuitLike`` type variable (bound to this
+    protocol) so that they preserve the concrete circuit type of their input.  Those functions read
+    a circuit as a sequence of ``stim`` operations (via ``range(len(circuit))`` and indexing), do
+    their work on a ``stim.Circuit``, and rebuild a circuit of the original type by constructing an
+    empty instance (``type(circuit)()``) and populating it via ``append`` / in-place concatenation.
+    A conforming circuit must therefore be default-constructible in addition to supporting the
+    methods declared here.  This lets qLDPC support such circuits structurally, without depending on
+    the packages that define them.
+    """
+
+    def append(
+        self,
+        name: str | stim.CircuitInstruction | stim.CircuitRepeatBlock | stim.Circuit,
+        targets: (
+            int
+            | stim.GateTarget
+            | stim.PauliString
+            | Iterable[int | stim.GateTarget | stim.PauliString]
+        ) = (),
+        arg: float | Iterable[float] | None = None,
+        *,
+        tag: str = "",
+    ) -> None:
+        """Append an operation to this circuit in place."""
+
+    def __iadd__(self, other: stim.Circuit) -> Self:
+        """Append another circuit to this circuit in place."""
+
+    def __getitem__(self, index: int) -> stim.CircuitInstruction | stim.CircuitRepeatBlock:
+        """The operation at the given index."""
+
+    def __len__(self) -> int:
+        """The number of operations in this circuit."""
+
+
+# A type variable for a circuit that behaves like a stim.Circuit (see StimCircuitProtocol).  Used to
+# type functions that are generic over stim.Circuit and stim-wrapping circuits while preserving the
+# concrete circuit type of their input.
+StimCircuitLike = TypeVar("StimCircuitLike", bound=StimCircuitProtocol)
 
 
 def restrict_to_qubits(
@@ -72,11 +94,11 @@ def restrict_to_qubits(
 
 
 def with_remapped_qubits(
-    circuit: stim_or_tsim_Circuit,
+    circuit: StimCircuitLike,
     qubit_map: Mapping[int, int] | Sequence[int],
     *,
     inverse: bool = False,
-) -> stim_or_tsim_Circuit:
+) -> StimCircuitLike:
     """The same circuit, but with relabeled qubits.
 
     Qubits not in qubit_map get mapped to themselves.
@@ -90,15 +112,6 @@ def with_remapped_qubits(
     Returns:
         The input circuit with remapped qubits.
     """
-    tsim = _load_tsim_if_installed()
-    if tsim is not None and isinstance(circuit, tsim.Circuit):
-        output = with_remapped_qubits(circuit.stim_circuit, qubit_map, inverse=inverse)
-        return tsim.Circuit.from_stim_program(output)
-
-    # tsim loads lazily, so `tsim.Circuit` above is untyped and does not narrow `circuit`; having
-    # ruled out a tsim circuit, the remaining possibility for the type variable is a stim.Circuit
-    assert isinstance(circuit, stim.Circuit)
-
     qubit_map = (
         qubit_map
         if isinstance(qubit_map, Mapping)
@@ -107,8 +120,9 @@ def with_remapped_qubits(
     if inverse:
         qubit_map = {val: key for key, val in qubit_map.items()}
 
-    new_circuit = stim.Circuit()
-    for op in circuit:
+    new_circuit = type(circuit)()  # same type as input circuit
+    for index in range(len(circuit)):
+        op = circuit[index]
         if isinstance(op, stim.CircuitRepeatBlock):
             block = stim.CircuitRepeatBlock(
                 repeat_count=op.repeat_count,

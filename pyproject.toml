@@ -42,14 +42,15 @@ dependencies = [
   "sinter>=1.16",
   "stim>=1.16",
   "sympy>=1.12",
+  "typing-extensions>=4",
 ]
 optional-dependencies.dev = [
-  "checks-superstaq>=0.5.62",
+  "checks-superstaq>=0.5.67",
   "jupyter>=1.1.1",
   "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
   "pyproject-fmt>=2",             # pyproject.toml formatting, run by checks/format_.py
   "python-lsp-server[all]>=1.14",
-  "qldpc[docs,relay-bp,tsim]",
+  "qldpc[docs,relay-bp]",
 ]
 optional-dependencies.docs = [
   "ipython>=8",          # for nbsphinx's IPython.sphinxext.ipython_console_highlighting extension
@@ -58,8 +59,7 @@ optional-dependencies.docs = [
   "sphinx-autoapi>=3",
   "sphinx-rtd-theme>=2",
 ]
-optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.1" ]
-optional-dependencies.tsim = [ "bloqade-tsim>=0.1.4" ]
+optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
 urls.Repository = "https://github.com/qLDPCOrg/qLDPC"
 
 # Check script configuration:
