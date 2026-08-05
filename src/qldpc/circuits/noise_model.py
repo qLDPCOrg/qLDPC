@@ -125,7 +125,7 @@ import stim
 from qldpc._util import format_docstring
 from qldpc.objects import StimCircuitLike
 
-from .common import _rebuilt_as, with_remapped_qubits
+from .common import with_remapped_qubits
 
 ####################################################################################################
 # global constants
@@ -1097,7 +1097,7 @@ class NoiseModel:
             stim_input = stim.Circuit()
             for index in range(len(circuit)):
                 stim_input.append(circuit[index])
-            output = self.noisy_circuit(
+            stim_output = self.noisy_circuit(
                 stim_input,
                 system_qubits=system_qubits,
                 immune_qubits=immune_qubits,
@@ -1105,7 +1105,9 @@ class NoiseModel:
                 immunize_gates=immunize_gates,
                 insert_ticks=insert_ticks,
             )
-            return _rebuilt_as(circuit, output)
+            output = type(circuit)()
+            output += stim_output
+            return output
 
         system_qubits = frozenset(
             range(circuit.num_qubits) if system_qubits is None else system_qubits
