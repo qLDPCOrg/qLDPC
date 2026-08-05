@@ -17,10 +17,10 @@ limitations under the License.
 
 import copy
 import pickle
+from typing import Self
 
 import pytest
 import stim
-import tsim
 
 from qldpc import circuits
 
@@ -1071,23 +1071,42 @@ def test_trivial_noise() -> None:
     assert bool(circuits.NoiseModel(rule_func=lambda op: None))
 
 
-def test_tsim_circuits() -> None:
-    """noisy_circuit and as_noiseless_circuit accept and return tsim.Circuit."""
+class _WrappingCircuit:
+    """A minimal stim-wrapping circuit (like tsim.Circuit) exercising StimWrappingCircuit."""
+
+    def __init__(self, stim_circuit: stim.Circuit) -> None:
+        self.stim_circuit = stim_circuit
+
+    @classmethod
+    def from_stim_program(cls, stim_circuit: stim.Circuit) -> Self:
+        return cls(stim_circuit.copy())
+
+    def append(self, *args: object, **kwargs: object) -> None:  # pragma: no cover
+        self.stim_circuit.append(*args, **kwargs)
+
+    def __iadd__(self, other: stim.Circuit) -> Self:  # pragma: no cover
+        self.stim_circuit += other
+        return self
+
+
+def test_wrapping_circuits() -> None:
+    """noisy_circuit and as_noiseless_circuit accept and return stim-wrapping circuits."""
     noise_model = circuits.DepolarizingNoiseModel(0.01)
 
-    tsim_circuit = tsim.Circuit("H 0\nCX 0 1\nM 0 1")
-    stim_circuit = tsim_circuit.stim_circuit
+    stim_circuit = stim.Circuit("H 0\nCX 0 1\nM 0 1")
+    wrapped_circuit = _WrappingCircuit(stim_circuit)
 
     stim_noisy = noise_model.noisy_circuit(stim_circuit)
-    tsim_noisy = noise_model.noisy_circuit(tsim_circuit)
+    wrapped_noisy = noise_model.noisy_circuit(wrapped_circuit)
     assert isinstance(stim_noisy, stim.Circuit)
-    assert isinstance(tsim_noisy, tsim.Circuit)
-    assert stim_noisy == tsim_noisy.stim_circuit
+    assert isinstance(wrapped_noisy, _WrappingCircuit)
+    assert stim_noisy == wrapped_noisy.stim_circuit
 
     stim_noiseless = circuits.as_noiseless_circuit(stim_circuit)
-    tsim_noiseless = circuits.as_noiseless_circuit(tsim_circuit)
+    wrapped_noiseless = circuits.as_noiseless_circuit(wrapped_circuit)
     assert isinstance(stim_noiseless, stim.Circuit)
-    assert isinstance(tsim_noiseless, tsim.Circuit)
+    assert isinstance(wrapped_noiseless, _WrappingCircuit)
+    assert stim_noiseless == wrapped_noiseless.stim_circuit
 
 
 ####################################################################################################

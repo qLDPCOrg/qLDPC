@@ -19,8 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Mapping, Sequence
-from types import ModuleType
-from typing import TYPE_CHECKING, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 import galois
 import numpy as np
@@ -28,30 +27,7 @@ import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
-
-####################################################################################################
-# define a circuit type that may be either a stim.Circuit or an (optional) tsim.Circuit
-
-if TYPE_CHECKING:
-    import tsim
-
-    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", stim.Circuit, tsim.Circuit)
-else:
-    stim_or_tsim_Circuit = TypeVar("stim_or_tsim_Circuit", bound=stim.Circuit)
-
-
-def _load_tsim_if_installed() -> ModuleType | None:
-    """Lazily import the optional tsim package, returning None if it is not installed."""
-    try:
-        import tsim
-
-        return tsim
-    except ImportError:  # pragma: no cover
-        return None
-
-
-####################################################################################################
-
+from qldpc.objects import StimCircuitLike, StimWrappingCircuit
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
@@ -72,11 +48,11 @@ def restrict_to_qubits(
 
 
 def with_remapped_qubits(
-    circuit: stim_or_tsim_Circuit,
+    circuit: StimCircuitLike,
     qubit_map: Mapping[int, int] | Sequence[int],
     *,
     inverse: bool = False,
-) -> stim_or_tsim_Circuit:
+) -> StimCircuitLike:
     """The same circuit, but with relabeled qubits.
 
     Qubits not in qubit_map get mapped to themselves.
@@ -90,14 +66,11 @@ def with_remapped_qubits(
     Returns:
         The input circuit with remapped qubits.
     """
-    tsim = _load_tsim_if_installed()
-    if tsim is not None and isinstance(circuit, tsim.Circuit):
+    if not isinstance(circuit, stim.Circuit):
+        # a stim-wrapping circuit: unwrap to its stim.Circuit, remap that, and rebuild its type
+        assert isinstance(circuit, StimWrappingCircuit)
         output = with_remapped_qubits(circuit.stim_circuit, qubit_map, inverse=inverse)
-        return tsim.Circuit.from_stim_program(output)
-
-    # tsim loads lazily, so `tsim.Circuit` above is untyped and does not narrow `circuit`; having
-    # ruled out a tsim circuit, the remaining possibility for the type variable is a stim.Circuit
-    assert isinstance(circuit, stim.Circuit)
+        return type(circuit).from_stim_program(output)
 
     qubit_map = (
         qubit_map

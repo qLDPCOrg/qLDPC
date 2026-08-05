@@ -1,4 +1,4 @@
-"""Implementation of noise models for Stim (and tsim) circuits.
+"""Implementation of noise models for stim circuits (and stim-wrapping circuits such as tsim's).
 
 The main components of this module are:
 
@@ -118,13 +118,14 @@ import itertools
 import math
 import re
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
-from typing import TypeAlias
+from typing import TypeAlias, overload
 
 import stim
 
 from qldpc._util import format_docstring
+from qldpc.objects import StimCircuitLike, StimWrappingCircuit
 
-from .common import _load_tsim_if_installed, stim_or_tsim_Circuit, with_remapped_qubits
+from .common import with_remapped_qubits
 
 ####################################################################################################
 # global constants
@@ -236,12 +237,14 @@ CORRELATED_ERROR_NAMES = frozenset({"CORRELATED_ERROR", "E", "ELSE_CORRELATED_ER
 # primary methods and classes: as_noiseless_circuit, PauliChannel, NoiseRule, NoiseModel
 
 
-def as_noiseless_circuit(circuit: stim_or_tsim_Circuit) -> stim_or_tsim_Circuit:
+def as_noiseless_circuit(circuit: StimCircuitLike) -> StimCircuitLike:
     """Wrap a circuit in a noiseless, one-repetition stim.CircuitRepeatBlock."""
-    tsim = _load_tsim_if_installed()
-    if tsim is not None and isinstance(circuit, tsim.Circuit):
+    if not isinstance(circuit, stim.Circuit):
+        # a stim-wrapping circuit: unwrap to its stim.Circuit, process that, and rebuild its type
+        assert isinstance(circuit, StimWrappingCircuit)
         output = as_noiseless_circuit(circuit.stim_circuit)
-        return tsim.Circuit.from_stim_program(output)
+        return type(circuit).from_stim_program(output)
+
     block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
     noiseless_circuit = stim.Circuit()
     noiseless_circuit.append(block)
@@ -348,8 +351,8 @@ class AbstractPauliChannel(abc.ABC):
         return self._probabilities
 
     def _resolve_targets(
-        self, append_to: stim_or_tsim_Circuit | None, qubits: Iterable[int] | None
-    ) -> tuple[stim_or_tsim_Circuit, list[int]]:
+        self, append_to: StimCircuitLike | None, qubits: Iterable[int] | None
+    ) -> tuple[StimCircuitLike, list[int]]:
         """Resolve the ``(circuit, qubit_targets)`` pair shared by every variant of ``to_circuit``.
 
         Creates a fresh circuit when ``append_to`` is ``None``, defaults ``qubits`` to
@@ -363,14 +366,28 @@ class AbstractPauliChannel(abc.ABC):
             )
         return circuit, qubit_targets
 
+    @overload
+    def to_circuit(
+        self, *, append_to: None = None, qubits: Iterable[int] | None = None, tag: str = ""
+    ) -> stim.Circuit: ...
+
+    @overload
+    def to_circuit(
+        self,
+        *,
+        append_to: StimCircuitLike,
+        qubits: Iterable[int] | None = None,
+        tag: str = "",
+    ) -> StimCircuitLike: ...
+
     @abc.abstractmethod
     def to_circuit(
         self,
         *,
-        append_to: stim_or_tsim_Circuit | None = None,
+        append_to: StimCircuitLike | None = None,
         qubits: Iterable[int] | None = None,
         tag: str = "",
-    ) -> stim_or_tsim_Circuit:
+    ) -> StimCircuitLike:
         """Convert this channel into a circuit."""
 
 
@@ -467,14 +484,34 @@ class PauliChannel(AbstractPauliChannel):
             }
         return result
 
+    @overload
     def to_circuit(
         self,
         *,
-        append_to: stim_or_tsim_Circuit | None = None,
+        append_to: None = None,
         qubits: Iterable[int] | None = None,
         simplify: bool = True,
         tag: str = "",
-    ) -> stim_or_tsim_Circuit:
+    ) -> stim.Circuit: ...
+
+    @overload
+    def to_circuit(
+        self,
+        *,
+        append_to: StimCircuitLike,
+        qubits: Iterable[int] | None = None,
+        simplify: bool = True,
+        tag: str = "",
+    ) -> StimCircuitLike: ...
+
+    def to_circuit(
+        self,
+        *,
+        append_to: StimCircuitLike | None = None,
+        qubits: Iterable[int] | None = None,
+        simplify: bool = True,
+        tag: str = "",
+    ) -> StimCircuitLike:
         """Convert this PauliChannel into a circuit.
 
         If provided a circuit, append to that circuit in-place and return it.
@@ -563,13 +600,27 @@ class PauliChannelSequence(AbstractPauliChannel):
     its own, and several may fire together.
     """
 
+    @overload
+    def to_circuit(
+        self, *, append_to: None = None, qubits: Iterable[int] | None = None, tag: str = ""
+    ) -> stim.Circuit: ...
+
+    @overload
     def to_circuit(
         self,
         *,
-        append_to: stim_or_tsim_Circuit | None = None,
+        append_to: StimCircuitLike,
         qubits: Iterable[int] | None = None,
         tag: str = "",
-    ) -> stim_or_tsim_Circuit:
+    ) -> StimCircuitLike: ...
+
+    def to_circuit(
+        self,
+        *,
+        append_to: StimCircuitLike | None = None,
+        qubits: Iterable[int] | None = None,
+        tag: str = "",
+    ) -> StimCircuitLike:
         """Emit each entry of this channel as an independent ``CORRELATED_ERROR``.
 
         If provided a circuit, append to that circuit in-place and return it.
@@ -722,7 +773,7 @@ class NoiseRule:
         return noisy_op, noise_after
 
     def emit_after(
-        self, circuit: stim_or_tsim_Circuit, qubit_targets: list[int], *, context: str = "operation"
+        self, circuit: StimCircuitLike, qubit_targets: list[int], *, context: str = "operation"
     ) -> None:
         """Append this rule's ``after`` noise in-place to the provided circuit.
 
@@ -1010,14 +1061,14 @@ class NoiseModel:
     @format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
     def noisy_circuit(
         self,
-        circuit: stim_or_tsim_Circuit,
+        circuit: StimCircuitLike,
         *,
         system_qubits: Iterable[int] | None = None,
         immune_qubits: Iterable[int] = (),
         immune_op_tag: str = DEFAULT_IMMUNE_OP_TAG,
         immunize_gates: bool = True,
         insert_ticks: bool = True,
-    ) -> stim_or_tsim_Circuit:
+    ) -> StimCircuitLike:
         """Construct a noisy version of the given circuit.
 
         This method first uses TICKs to split the input circuit into moments of operations that can
@@ -1040,8 +1091,9 @@ class NoiseModel:
         Returns:
             The input circuit with added noise.
         """
-        tsim = _load_tsim_if_installed()
-        if tsim is not None and isinstance(circuit, tsim.Circuit):
+        if not isinstance(circuit, stim.Circuit):
+            # a stim-wrapping circuit: unwrap to its stim.Circuit, add noise, and rebuild its type
+            assert isinstance(circuit, StimWrappingCircuit)
             output = self.noisy_circuit(
                 circuit.stim_circuit,
                 system_qubits=system_qubits,
@@ -1050,7 +1102,7 @@ class NoiseModel:
                 immunize_gates=immunize_gates,
                 insert_ticks=insert_ticks,
             )
-            return tsim.Circuit.from_stim_program(output)
+            return type(circuit).from_stim_program(output)
 
         system_qubits = frozenset(
             range(circuit.num_qubits) if system_qubits is None else system_qubits

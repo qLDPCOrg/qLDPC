@@ -18,16 +18,34 @@ limitations under the License.
 from __future__ import annotations
 
 import random
+from typing import Self
 
 import numpy as np
 import pytest
 import stim
 import sympy.combinatorics as comb
-import tsim
 
 from qldpc import circuits, codes
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
+
+
+class _WrappingCircuit:
+    """A minimal stim-wrapping circuit (like tsim.Circuit) exercising StimWrappingCircuit."""
+
+    def __init__(self, stim_circuit: stim.Circuit) -> None:
+        self.stim_circuit = stim_circuit
+
+    @classmethod
+    def from_stim_program(cls, stim_circuit: stim.Circuit) -> Self:
+        return cls(stim_circuit.copy())
+
+    def append(self, *args: object, **kwargs: object) -> None:  # pragma: no cover
+        self.stim_circuit.append(*args, **kwargs)
+
+    def __iadd__(self, other: stim.Circuit) -> Self:  # pragma: no cover
+        self.stim_circuit += other
+        return self
 
 
 def test_restriction() -> None:
@@ -96,12 +114,10 @@ def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
     circuit_b = stim.Circuit("MPP X1*!Y3 \n M !4")
     assert circuit_a == circuit_b
 
-    # a tsim.Circuit input is remapped and returned as a tsim.Circuit
-    tsim_remapped = circuits.with_remapped_qubits(
-        tsim.Circuit.from_stim_program(circuit), qubit_map
-    )
-    assert isinstance(tsim_remapped, tsim.Circuit)
-    assert tsim_remapped.stim_circuit == circuits.with_remapped_qubits(circuit, qubit_map)
+    # a stim-wrapping circuit input is remapped and returned as the same wrapping type
+    wrapped_remapped = circuits.with_remapped_qubits(_WrappingCircuit(circuit), qubit_map)
+    assert isinstance(wrapped_remapped, _WrappingCircuit)
+    assert wrapped_remapped.stim_circuit == circuits.with_remapped_qubits(circuit, qubit_map)
 
 
 def test_finding_unaddressed_measurements() -> None:
