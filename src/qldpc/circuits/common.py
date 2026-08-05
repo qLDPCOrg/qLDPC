@@ -120,9 +120,6 @@ def with_remapped_qubits(
     if inverse:
         qubit_map = {val: key for key, val in qubit_map.items()}
 
-    # Build the remapped circuit as the same concrete type as the input, reading the input's
-    # operations by index.  This works uniformly for a stim.Circuit and for any stim-wrapping
-    # circuit (which iterates as, and accepts appends of, stim operations) without unwrapping.
     new_circuit = type(circuit)()
     for index in range(len(circuit)):
         op = circuit[index]
