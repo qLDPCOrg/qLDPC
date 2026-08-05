@@ -23,9 +23,9 @@ import numpy as np
 import pytest
 import stim
 import sympy.combinatorics as comb
-import tsim
 
 from qldpc import circuits, codes
+from qldpc.circuits.conftest import StimCircuitWrapper
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
 
@@ -96,12 +96,10 @@ def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
     circuit_b = stim.Circuit("MPP X1*!Y3 \n M !4")
     assert circuit_a == circuit_b
 
-    # a tsim.Circuit input is remapped and returned as a tsim.Circuit
-    tsim_remapped = circuits.with_remapped_qubits(
-        tsim.Circuit.from_stim_program(circuit), qubit_map
-    )
-    assert isinstance(tsim_remapped, tsim.Circuit)
-    assert tsim_remapped.stim_circuit == circuits.with_remapped_qubits(circuit, qubit_map)
+    # a stim-wrapping circuit input is remapped and returned as the same wrapping type
+    wrapped_remapped = circuits.with_remapped_qubits(StimCircuitWrapper(circuit), qubit_map)
+    assert isinstance(wrapped_remapped, StimCircuitWrapper)
+    assert wrapped_remapped.stim_circuit == circuits.with_remapped_qubits(circuit, qubit_map)
 
 
 def test_finding_unaddressed_measurements() -> None:
