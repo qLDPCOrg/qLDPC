@@ -21,7 +21,7 @@ import stim
 from typing_extensions import Self
 
 
-class StimWrappingCircuit:
+class StimCircuitWrapper:
     """A minimal stim-wrapping circuit (like tsim.Circuit) for exercising StimCircuitProtocol.
 
     It satisfies StimCircuitProtocol (append / __iadd__ / indexing / len) and is

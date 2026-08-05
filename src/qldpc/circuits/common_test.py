@@ -25,7 +25,7 @@ import stim
 import sympy.combinatorics as comb
 
 from qldpc import circuits, codes
-from qldpc.circuits.conftest import StimWrappingCircuit
+from qldpc.circuits.conftest import StimCircuitWrapper
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
 
@@ -97,8 +97,8 @@ def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
     assert circuit_a == circuit_b
 
     # a stim-wrapping circuit input is remapped and returned as the same wrapping type
-    wrapped_remapped = circuits.with_remapped_qubits(StimWrappingCircuit(circuit), qubit_map)
-    assert isinstance(wrapped_remapped, StimWrappingCircuit)
+    wrapped_remapped = circuits.with_remapped_qubits(StimCircuitWrapper(circuit), qubit_map)
+    assert isinstance(wrapped_remapped, StimCircuitWrapper)
     assert wrapped_remapped.stim_circuit == circuits.with_remapped_qubits(circuit, qubit_map)
 
 

@@ -22,7 +22,7 @@ import pytest
 import stim
 
 from qldpc import circuits
-from qldpc.circuits.conftest import StimWrappingCircuit
+from qldpc.circuits.conftest import StimCircuitWrapper
 
 
 def _circuits_are_equivalent(
@@ -1076,18 +1076,18 @@ def test_wrapping_circuits() -> None:
     noise_model = circuits.DepolarizingNoiseModel(0.01)
 
     stim_circuit = stim.Circuit("H 0\nCX 0 1\nM 0 1")
-    wrapped_circuit = StimWrappingCircuit(stim_circuit)
+    wrapped_circuit = StimCircuitWrapper(stim_circuit)
 
     stim_noisy = noise_model.noisy_circuit(stim_circuit)
     wrapped_noisy = noise_model.noisy_circuit(wrapped_circuit)
     assert isinstance(stim_noisy, stim.Circuit)
-    assert isinstance(wrapped_noisy, StimWrappingCircuit)
+    assert isinstance(wrapped_noisy, StimCircuitWrapper)
     assert stim_noisy == wrapped_noisy.stim_circuit
 
     stim_noiseless = circuits.as_noiseless_circuit(stim_circuit)
     wrapped_noiseless = circuits.as_noiseless_circuit(wrapped_circuit)
     assert isinstance(stim_noiseless, stim.Circuit)
-    assert isinstance(wrapped_noiseless, StimWrappingCircuit)
+    assert isinstance(wrapped_noiseless, StimCircuitWrapper)
     assert stim_noiseless == wrapped_noiseless.stim_circuit
 
 
