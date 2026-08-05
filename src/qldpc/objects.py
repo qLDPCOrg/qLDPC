@@ -22,12 +22,13 @@ import enum
 import functools
 import itertools
 from collections.abc import Collection, Iterable, Iterator, Sequence
-from typing import Literal, Protocol, Self, TypeVar, runtime_checkable
+from typing import Literal, Protocol, TypeVar, runtime_checkable
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import stim
+from typing_extensions import Self
 
 from qldpc import abstract
 from qldpc._util import networkx as nx

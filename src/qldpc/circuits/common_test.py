@@ -18,12 +18,12 @@ limitations under the License.
 from __future__ import annotations
 
 import random
-from typing import Self
 
 import numpy as np
 import pytest
 import stim
 import sympy.combinatorics as comb
+from typing_extensions import Self
 
 from qldpc import circuits, codes
 from qldpc.math import symplectic_conjugate

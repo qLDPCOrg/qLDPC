@@ -17,10 +17,10 @@ limitations under the License.
 
 import copy
 import pickle
-from typing import Self
 
 import pytest
 import stim
+from typing_extensions import Self
 
 from qldpc import circuits
 
