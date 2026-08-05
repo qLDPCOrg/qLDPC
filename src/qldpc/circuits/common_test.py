@@ -23,25 +23,11 @@ import numpy as np
 import pytest
 import stim
 import sympy.combinatorics as comb
-from typing_extensions import Self
 
 from qldpc import circuits, codes
+from qldpc.circuits.conftest import StimWrappingCircuit
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
-
-
-class _WrappingCircuit:
-    """A minimal stim-wrapping circuit (like tsim.Circuit) exercising StimWrappingCircuit."""
-
-    def __init__(self, stim_circuit: stim.Circuit | None = None) -> None:
-        self.stim_circuit = stim.Circuit() if stim_circuit is None else stim_circuit
-
-    def append(self, *args: object, **kwargs: object) -> None:  # pragma: no cover
-        self.stim_circuit.append(*args, **kwargs)
-
-    def __iadd__(self, other: stim.Circuit) -> Self:
-        self.stim_circuit += other
-        return self
 
 
 def test_restriction() -> None:
@@ -111,8 +97,8 @@ def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
     assert circuit_a == circuit_b
 
     # a stim-wrapping circuit input is remapped and returned as the same wrapping type
-    wrapped_remapped = circuits.with_remapped_qubits(_WrappingCircuit(circuit), qubit_map)
-    assert isinstance(wrapped_remapped, _WrappingCircuit)
+    wrapped_remapped = circuits.with_remapped_qubits(StimWrappingCircuit(circuit), qubit_map)
+    assert isinstance(wrapped_remapped, StimWrappingCircuit)
     assert wrapped_remapped.stim_circuit == circuits.with_remapped_qubits(circuit, qubit_map)
 
 

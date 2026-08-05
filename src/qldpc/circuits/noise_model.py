@@ -123,7 +123,7 @@ from typing import TypeAlias, overload
 import stim
 
 from qldpc._util import format_docstring
-from qldpc.objects import StimCircuitLike, StimWrappingCircuit
+from qldpc.objects import StimCircuitLike
 
 from .common import _rebuilt_as, with_remapped_qubits
 
@@ -239,14 +239,14 @@ CORRELATED_ERROR_NAMES = frozenset({"CORRELATED_ERROR", "E", "ELSE_CORRELATED_ER
 
 def as_noiseless_circuit(circuit: StimCircuitLike) -> StimCircuitLike:
     """Wrap a circuit in a noiseless, one-repetition stim.CircuitRepeatBlock."""
-    if not isinstance(circuit, stim.Circuit):
-        # a stim-wrapping circuit: unwrap to its stim.Circuit, process that, and rebuild its type
-        assert isinstance(circuit, StimWrappingCircuit)
-        output = as_noiseless_circuit(circuit.stim_circuit)
-        return _rebuilt_as(circuit, output)
+    # Read the circuit's operations into a stim.Circuit body (the repeat block requires a
+    # stim.Circuit).  Iterating by index works for a stim.Circuit and any stim-wrapping circuit.
+    body = stim.Circuit()
+    for index in range(len(circuit)):
+        body.append(circuit[index])
 
-    block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
-    noiseless_circuit = stim.Circuit()
+    block = stim.CircuitRepeatBlock(repeat_count=1, body=body, tag=DEFAULT_IMMUNE_OP_TAG)
+    noiseless_circuit = type(circuit)()
     noiseless_circuit.append(block)
     return noiseless_circuit
 
@@ -1092,10 +1092,13 @@ class NoiseModel:
             The input circuit with added noise.
         """
         if not isinstance(circuit, stim.Circuit):
-            # a stim-wrapping circuit: unwrap to its stim.Circuit, add noise, and rebuild its type
-            assert isinstance(circuit, StimWrappingCircuit)
+            # a stim-wrapping circuit: read its operations into a stim.Circuit, add noise, and
+            # rebuild a circuit of the same type
+            stim_input = stim.Circuit()
+            for index in range(len(circuit)):
+                stim_input.append(circuit[index])
             output = self.noisy_circuit(
-                circuit.stim_circuit,
+                stim_input,
                 system_qubits=system_qubits,
                 immune_qubits=immune_qubits,
                 immune_op_tag=immune_op_tag,

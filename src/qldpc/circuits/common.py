@@ -27,7 +27,7 @@ import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
-from qldpc.objects import StimCircuitLike, StimWrappingCircuit
+from qldpc.objects import StimCircuitLike
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
@@ -79,12 +79,6 @@ def with_remapped_qubits(
     Returns:
         The input circuit with remapped qubits.
     """
-    if not isinstance(circuit, stim.Circuit):
-        # a stim-wrapping circuit: unwrap to its stim.Circuit, remap that, and rebuild its type
-        assert isinstance(circuit, StimWrappingCircuit)
-        output = with_remapped_qubits(circuit.stim_circuit, qubit_map, inverse=inverse)
-        return _rebuilt_as(circuit, output)
-
     qubit_map = (
         qubit_map
         if isinstance(qubit_map, Mapping)
@@ -93,8 +87,12 @@ def with_remapped_qubits(
     if inverse:
         qubit_map = {val: key for key, val in qubit_map.items()}
 
-    new_circuit = stim.Circuit()
-    for op in circuit:
+    # Build the remapped circuit as the same concrete type as the input, reading the input's
+    # operations by index.  This works uniformly for a stim.Circuit and for any stim-wrapping
+    # circuit (which iterates as, and accepts appends of, stim operations) without unwrapping.
+    new_circuit = type(circuit)()
+    for index in range(len(circuit)):
+        op = circuit[index]
         if isinstance(op, stim.CircuitRepeatBlock):
             block = stim.CircuitRepeatBlock(
                 repeat_count=op.repeat_count,

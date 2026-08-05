@@ -20,9 +20,9 @@ import pickle
 
 import pytest
 import stim
-from typing_extensions import Self
 
 from qldpc import circuits
+from qldpc.circuits.conftest import StimWrappingCircuit
 
 
 def _circuits_are_equivalent(
@@ -1071,37 +1071,23 @@ def test_trivial_noise() -> None:
     assert bool(circuits.NoiseModel(rule_func=lambda op: None))
 
 
-class _WrappingCircuit:
-    """A minimal stim-wrapping circuit (like tsim.Circuit) exercising StimWrappingCircuit."""
-
-    def __init__(self, stim_circuit: stim.Circuit | None = None) -> None:
-        self.stim_circuit = stim.Circuit() if stim_circuit is None else stim_circuit
-
-    def append(self, *args: object, **kwargs: object) -> None:  # pragma: no cover
-        self.stim_circuit.append(*args, **kwargs)
-
-    def __iadd__(self, other: stim.Circuit) -> Self:
-        self.stim_circuit += other
-        return self
-
-
 def test_wrapping_circuits() -> None:
     """noisy_circuit and as_noiseless_circuit accept and return stim-wrapping circuits."""
     noise_model = circuits.DepolarizingNoiseModel(0.01)
 
     stim_circuit = stim.Circuit("H 0\nCX 0 1\nM 0 1")
-    wrapped_circuit = _WrappingCircuit(stim_circuit)
+    wrapped_circuit = StimWrappingCircuit(stim_circuit)
 
     stim_noisy = noise_model.noisy_circuit(stim_circuit)
     wrapped_noisy = noise_model.noisy_circuit(wrapped_circuit)
     assert isinstance(stim_noisy, stim.Circuit)
-    assert isinstance(wrapped_noisy, _WrappingCircuit)
+    assert isinstance(wrapped_noisy, StimWrappingCircuit)
     assert stim_noisy == wrapped_noisy.stim_circuit
 
     stim_noiseless = circuits.as_noiseless_circuit(stim_circuit)
     wrapped_noiseless = circuits.as_noiseless_circuit(wrapped_circuit)
     assert isinstance(stim_noiseless, stim.Circuit)
-    assert isinstance(wrapped_noiseless, _WrappingCircuit)
+    assert isinstance(wrapped_noiseless, StimWrappingCircuit)
     assert stim_noiseless == wrapped_noiseless.stim_circuit
 
 
