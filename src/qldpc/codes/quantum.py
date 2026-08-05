@@ -966,6 +966,212 @@ class BBCode(QCCode):
 
 
 ####################################################################################################
+# pair-partition code
+
+
+class PairPartitionCode(CSSCode):
+    """Pair-partition code: a CSS code built from two monomial arrays of circulant permutations.
+
+    A pair-partition code is a binary (qubit) CSS code whose X-type and Z-type parity check matrices
+    are the lifts of two ``J x L`` monomial ``RingArray``s over the group algebra ``F_2[Z_P]`` of a
+    cyclic group of order ``P``.  That is, the parity check matrices are ``J x L`` arrays of ``P x
+    P`` blocks,
+
+    - ``matrix_x = [[C(e_{il})]]``, and
+    - ``matrix_z = [[C(d_{jl})]]``,
+
+    where ``C(s)`` is the circulant permutation matrix that lifts the monomial ``x**s`` (for ``x`` a
+    generator of ``Z_P``), and ``e_{il}`` and ``d_{jl}`` are the entries of the integer exponent
+    arrays ``exponents_x`` and ``exponents_z``.  Here ``J`` and ``L`` are the numbers of rows and
+    columns of the exponent arrays, and ``P`` is ``lift_size``.  The resulting code has ``L * P``
+    qubits and ``J * P`` parity checks of each type, so qubits and checks are organized into ``L``
+    and ``J`` blocks of ``P``, respectively.  Every parity check has weight ``L``, and every qubit
+    has degree ``J``.
+
+    A pair-partition code is the natural multi-block generalization of a generalized bicycle code (a
+    two-block group-algebra code over a cyclic group; see TBCode and QCCode), which arises as the
+    ``1 x 2`` case.  Unlike a generalized bicycle code, whose two blocks are related by a fixed
+    transpose, the X- and Z-check arrays here are independent.  CSS orthogonality is instead
+    arranged by "pair-partition" constraints on the exponents: the block of ``matrix_x @
+    matrix_z.T`` indexed by X-block-row ``i`` and Z-block-row ``j`` is
+    ``sum_l C(e_{il} - d_{jl})``, which vanishes over ``F_2`` when the ``L`` columns can be matched
+    into pairs ``(u, v)`` with ``e_{iu} - d_{ju} = e_{iv} - d_{jv}`` (so the two circulant
+    permutations coincide and cancel).  The array of matchings that specifies these pairings is
+    called a pair-partition array; to build a code directly from such an array (rather than from
+    exponents worked out by hand), see PairPartitionCode.from_pair_partition_array.
+
+    References:
+
+    - https://arxiv.org/abs/2607.14091
+    - https://github.com/kasaikenta/pair-partition-cpm-css-codes
+
+    Example: the ``[[56, 18, 6]]`` code of arXiv:2607.14091 is constructed by::
+
+        exponents_x = [[3, 6, 0, 4, 6, 0, 1, 0], [4, 3, 4, 6, 2, 6, 3, 0], [1, 5, 2, 4, 1, 0, 2, 3]]
+        exponents_z = [[4, 4, 6, 2, 4, 6, 6, 1], [5, 3, 2, 5, 1, 4, 3, 1], [2, 3, 1, 3, 0, 6, 0, 4]]
+        code = PairPartitionCode(exponents_x, exponents_z, lift_size=7)
+        assert (code.num_qubits, code.dimension) == (56, 18)
+    """
+
+    exponents_x: npt.NDArray[np.int_]
+    exponents_z: npt.NDArray[np.int_]
+    lift_size: int
+
+    ring_array_x: abstract.RingArray
+    ring_array_z: abstract.RingArray
+
+    def __init__(
+        self,
+        exponents_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        exponents_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        lift_size: int,
+        *,
+        promise_equal_distance_xz: bool = False,
+        skip_validation: bool = False,
+    ) -> None:
+        """Construct a pair-partition code from two exponent arrays and a cyclic lift size."""
+        self.exponents_x = np.array(exponents_x, dtype=int)
+        self.exponents_z = np.array(exponents_z, dtype=int)
+        if self.exponents_x.ndim != 2 or self.exponents_x.shape != self.exponents_z.shape:
+            raise ValueError(
+                "The X-type and Z-type exponent arrays of a PairPartitionCode must be"
+                " two-dimensional arrays of the same shape (got shapes"
+                f" {self.exponents_x.shape} and {self.exponents_z.shape})"
+            )
+        self.lift_size = int(lift_size)
+
+        # build the monomial RingArrays over F_2[Z_P] whose lifts are the CSS parity check matrices
+        ring = abstract.GroupRing(abstract.CyclicGroup(self.lift_size))
+        generator = ring.group.generators[0]
+        self.ring_array_x = abstract.RingArray.build(
+            [[generator ** int(exp) for exp in row] for row in self.exponents_x], ring
+        )
+        self.ring_array_z = abstract.RingArray.build(
+            [[generator ** int(exp) for exp in row] for row in self.exponents_z], ring
+        )
+        matrix_x = self.ring_array_x.lift()
+        matrix_z = self.ring_array_z.lift()
+
+        # arbitrary exponents need not be CSS-orthogonal: that holds only when they satisfy the
+        # pair-partition constraints.  Check this (unless skip_validation promises it) the same way
+        # that TBCode checks that its input matrices commute.  When the check passes,
+        # matrix_x @ matrix_z.T == 0 and the code is a genuine (non-subsystem) CSS code.
+        if not skip_validation and np.any(matrix_x @ matrix_z.T):
+            raise ValueError(
+                "The exponent arrays provided for this PairPartitionCode violate CSS orthogonality"
+                " (matrix_x @ matrix_z.T != 0); see the pair-partition constraints in"
+                " help(qldpc.codes.PairPartitionCode)"
+            )
+
+        super().__init__(
+            matrix_x,
+            matrix_z,
+            is_subsystem_code=False,
+            promise_equal_distance_xz=promise_equal_distance_xz,
+        )
+
+    def __str__(self) -> str:
+        """Human-readable representation of this code."""
+        text = f"{self.name} on {self.num_qubits} qubits"
+        text += f", with cyclic lift size {self.lift_size} and exponent arrays"
+        text += f"\n  X: {self.exponents_x.tolist()}"
+        text += f"\n  Z: {self.exponents_z.tolist()}"
+        return text
+
+    @staticmethod
+    def solve_pair_partition_array(
+        matchings: Sequence[Sequence[Sequence[Sequence[int]]]], lift_size: int
+    ) -> galois.FieldArray:
+        """Solve the paired-difference equations induced by a pair-partition array.
+
+        A pair-partition array is a ``J x J`` array whose entry ``matchings[i][j]`` is a perfect
+        matching of ``range(L)``: a sequence of ``L / 2`` disjoint index pairs ``(u, v)`` that
+        together cover every column ``0, 1, ..., L - 1``.  Each pair imposes the linear equation
+        ``d_{j,u} - e_{i,u} = d_{j,v} - e_{i,v}`` over ``F_P`` on the exponents, and together these
+        are exactly the constraints that make a pair-partition code CSS-orthogonal (see
+        help(qldpc.codes.PairPartitionCode)).  Here ``lift_size`` is ``P``, which must be prime.
+
+        Returns the null space of this homogeneous system as a basis over ``F_P``, one basis vector
+        per row.  Each row is a flattened ``(vec(exponents_x), vec(exponents_z))`` of length ``2 * J
+        * L``, and any ``F_P``-combination of the rows is a valid choice of exponents; the array
+        thereby parametrizes the whole linear family of pair-partition codes sharing this array.
+        """
+        if not sympy.isprime(lift_size):
+            raise ValueError(
+                f"The lift size of a pair-partition array must be prime (got {lift_size})"
+            )
+        num_rows = len(matchings)  # J
+        if any(len(matching_row) != num_rows for matching_row in matchings):
+            raise ValueError(f"A pair-partition array must be square (got {num_rows} rows)")
+        num_cols = 2 * len(matchings[0][0])  # L = 2 * (number of pairs per matching)
+        field = galois.GF(lift_size)
+
+        def index_x(row: int, col: int) -> int:
+            return row * num_cols + col
+
+        def index_z(row: int, col: int) -> int:
+            return num_rows * num_cols + row * num_cols + col
+
+        # one equation per pair: -e_{i,u} + e_{i,v} + d_{j,u} - d_{j,v} = 0
+        equations = []
+        for i, matching_row in enumerate(matchings):
+            for j, matching in enumerate(matching_row):
+                if sorted(col for pair in matching for col in pair) != list(range(num_cols)):
+                    raise ValueError(
+                        f"matchings[{i}][{j}] is not a perfect matching of range({num_cols})"
+                    )
+                for uu, vv in matching:
+                    equation = [0] * (2 * num_rows * num_cols)
+                    equation[index_x(i, uu)] -= 1
+                    equation[index_x(i, vv)] += 1
+                    equation[index_z(j, uu)] += 1
+                    equation[index_z(j, vv)] -= 1
+                    equations.append(equation)
+
+        return field(np.array(equations) % lift_size).null_space()
+
+    @classmethod
+    def from_pair_partition_array(
+        cls,
+        matchings: Sequence[Sequence[Sequence[Sequence[int]]]],
+        lift_size: int,
+        coefficients: Sequence[int] | None = None,
+        *,
+        seed: int | None = None,
+    ) -> PairPartitionCode:
+        """Construct a pair-partition code from a pair-partition array.
+
+        The array determines only a linear family of valid codes (the null space returned by
+        solve_pair_partition_array); this method selects one member of that family and builds it.
+        The member is the ``F_P``-combination of the null-space basis given by ``coefficients``, or,
+        if ``coefficients`` is None, a random combination seeded by ``seed``.  The resulting
+        exponents satisfy the paired-difference equations by construction, so the code is
+        CSS-orthogonal and no validation is needed.
+
+        Note that a pair-partition array fixes CSS orthogonality but not code quality: the girth and
+        distance depend on which member of the family is chosen, so most combinations give a valid
+        but unremarkable code.
+        """
+        basis = cls.solve_pair_partition_array(matchings, lift_size)
+        field = galois.GF(lift_size)
+        if coefficients is None:
+            combination = field(np.random.default_rng(seed).integers(lift_size, size=len(basis)))
+        else:
+            if len(coefficients) != len(basis):
+                raise ValueError(
+                    f"Expected {len(basis)} coefficients for this pair-partition array, got"
+                    f" {len(coefficients)}"
+                )
+            combination = field(np.array(coefficients) % lift_size)
+        exponents = np.array(combination @ basis, dtype=int)
+
+        num_rows = len(matchings)
+        num_cols = 2 * len(matchings[0][0])
+        exponents_x, exponents_z = exponents.reshape(2, num_rows, num_cols)
+        return cls(exponents_x, exponents_z, lift_size, skip_validation=True)
+
+
+####################################################################################################
 # hypergraph product code, lifted product code, and their subsystem variants
 
 

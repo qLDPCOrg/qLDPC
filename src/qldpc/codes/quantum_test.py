@@ -266,6 +266,96 @@ def test_quasi_cyclic_codes() -> None:
     assert_valid_subgraphs(code)
 
 
+def test_pair_partition_codes() -> None:
+    """Pair-partition CSS codes from circulant permutation matrices, as in arXiv:2607.14091."""
+    # the [[56, 18, 6]] code (J = 3, L = 8, P = 7) of Table I
+    exponents_x = [[3, 6, 0, 4, 6, 0, 1, 0], [4, 3, 4, 6, 2, 6, 3, 0], [1, 5, 2, 4, 1, 0, 2, 3]]
+    exponents_z = [[4, 4, 6, 2, 4, 6, 6, 1], [5, 3, 2, 5, 1, 4, 3, 1], [2, 3, 1, 3, 0, 6, 0, 4]]
+    code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7)
+    assert code.num_qubits == 56
+    assert code.dimension == 18
+    assert code.get_weight() == 8  # every parity check has weight L = 8
+    assert not code.is_subsystem_code
+    assert code.get_distance(bound=10) == 6  # an upper bound matching the paper's distance of 6
+
+    # the parity check matrices are the lifts of the two monomial RingArrays
+    assert np.array_equal(code.matrix_x, code.ring_array_x.lift())
+    assert np.array_equal(code.matrix_z, code.ring_array_z.lift())
+
+    # the exponent arrays are stored as arrays, and appear in the human-readable representation
+    assert np.array_equal(code.exponents_x, exponents_x)
+    assert "lift size 7" in str(code)
+
+    # a J = 4 example: the [[84, 34, 6]] code (J = 4, L = 12, P = 7) of Table I
+    exponents_x = [
+        [1, 4, 6, 6, 6, 0, 2, 0, 3, 6, 3, 3],
+        [5, 3, 6, 1, 0, 4, 3, 0, 6, 3, 4, 4],
+        [6, 5, 3, 5, 6, 4, 3, 3, 4, 6, 2, 5],
+        [4, 6, 3, 0, 2, 2, 4, 4, 2, 5, 4, 6],
+    ]
+    exponents_z = [
+        [6, 5, 0, 5, 5, 2, 0, 1, 4, 5, 2, 5],
+        [6, 0, 2, 1, 6, 6, 5, 6, 6, 6, 1, 5],
+        [0, 3, 2, 0, 2, 4, 3, 6, 6, 5, 0, 6],
+        [5, 4, 1, 0, 2, 6, 5, 2, 0, 5, 4, 3],
+    ]
+    code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7)
+    assert (code.num_qubits, code.dimension) == (84, 34)
+    assert code.get_distance(bound=10) == 6
+
+    # exponent arrays of mismatched shape are rejected
+    with pytest.raises(ValueError, match="same shape"):
+        codes.PairPartitionCode([[0, 0]], [[0, 0], [0, 0]], lift_size=3)
+
+    # exponent arrays that violate CSS orthogonality are rejected
+    with pytest.raises(ValueError, match="CSS orthogonality"):
+        codes.PairPartitionCode([[0, 0]], [[0, 1]], lift_size=3)
+
+    # skip_validation only skips the orthogonality check: on a valid code, the result is identical
+    skipped = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7, skip_validation=True)
+    assert skipped == code
+
+
+def test_pair_partition_from_array() -> None:
+    """Building a pair-partition code from a pair-partition array by solving its constraints."""
+    # a pair-partition array with J = 2, L = 4: each entry is a perfect matching of range(4)
+    matchings = [
+        [[[0, 1], [2, 3]], [[0, 2], [1, 3]]],
+        [[[0, 3], [1, 2]], [[0, 1], [2, 3]]],
+    ]
+
+    # the array parametrizes a linear family of valid codes (the null space of its constraints)
+    basis = codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size=5)
+    assert basis.shape[1] == 2 * 2 * 4  # each basis vector is (vec(exponents_x), vec(exponents_z))
+
+    # every member of the family is CSS-orthogonal by construction (no validation needed)
+    for code in [
+        codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size=5, seed=1),
+        codes.PairPartitionCode.from_pair_partition_array(
+            matchings, lift_size=5, coefficients=[1] * len(basis)
+        ),
+    ]:
+        assert code.num_qubits == 4 * 5  # L * P
+        assert not code.is_subsystem_code
+        assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    # the lift size must be prime
+    with pytest.raises(ValueError, match="must be prime"):
+        codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size=4)
+
+    # the array must be square
+    with pytest.raises(ValueError, match="must be square"):
+        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 1]]], [[[0, 1]]]], lift_size=5)
+
+    # each entry must be a perfect matching of range(L)
+    with pytest.raises(ValueError, match="perfect matching"):
+        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 2]]]], lift_size=5)
+
+    # the number of coefficients must match the dimension of the family
+    with pytest.raises(ValueError, match="coefficients"):
+        codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size=5, coefficients=[1])
+
+
 @pytest.mark.parametrize("field", [2, 3])
 def test_hypergraph_product(
     pytestconfig: pytest.Config,
