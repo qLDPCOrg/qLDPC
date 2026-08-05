@@ -120,7 +120,7 @@ def with_remapped_qubits(
     if inverse:
         qubit_map = {val: key for key, val in qubit_map.items()}
 
-    new_circuit = type(circuit)()
+    new_circuit = type(circuit)()  # same type as input circuit
     for index in range(len(circuit)):
         op = circuit[index]
         if isinstance(op, stim.CircuitRepeatBlock):
