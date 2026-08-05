@@ -1074,17 +1074,13 @@ def test_trivial_noise() -> None:
 class _WrappingCircuit:
     """A minimal stim-wrapping circuit (like tsim.Circuit) exercising StimWrappingCircuit."""
 
-    def __init__(self, stim_circuit: stim.Circuit) -> None:
-        self.stim_circuit = stim_circuit
-
-    @classmethod
-    def from_stim_program(cls, stim_circuit: stim.Circuit) -> Self:
-        return cls(stim_circuit.copy())
+    def __init__(self, stim_circuit: stim.Circuit | None = None) -> None:
+        self.stim_circuit = stim.Circuit() if stim_circuit is None else stim_circuit
 
     def append(self, *args: object, **kwargs: object) -> None:  # pragma: no cover
         self.stim_circuit.append(*args, **kwargs)
 
-    def __iadd__(self, other: stim.Circuit) -> Self:  # pragma: no cover
+    def __iadd__(self, other: stim.Circuit) -> Self:
         self.stim_circuit += other
         return self
 

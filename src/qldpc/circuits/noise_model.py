@@ -125,7 +125,7 @@ import stim
 from qldpc._util import format_docstring
 from qldpc.objects import StimCircuitLike, StimWrappingCircuit
 
-from .common import with_remapped_qubits
+from .common import _rebuilt_as, with_remapped_qubits
 
 ####################################################################################################
 # global constants
@@ -243,7 +243,7 @@ def as_noiseless_circuit(circuit: StimCircuitLike) -> StimCircuitLike:
         # a stim-wrapping circuit: unwrap to its stim.Circuit, process that, and rebuild its type
         assert isinstance(circuit, StimWrappingCircuit)
         output = as_noiseless_circuit(circuit.stim_circuit)
-        return type(circuit).from_stim_program(output)
+        return _rebuilt_as(circuit, output)
 
     block = stim.CircuitRepeatBlock(repeat_count=1, body=circuit.copy(), tag=DEFAULT_IMMUNE_OP_TAG)
     noiseless_circuit = stim.Circuit()
@@ -1102,7 +1102,7 @@ class NoiseModel:
                 immunize_gates=immunize_gates,
                 insert_ticks=insert_ticks,
             )
-            return type(circuit).from_stim_program(output)
+            return _rebuilt_as(circuit, output)
 
         system_qubits = frozenset(
             range(circuit.num_qubits) if system_qubits is None else system_qubits

@@ -33,6 +33,19 @@ CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
 
 
+def _rebuilt_as(template: StimCircuitLike, circuit: stim.Circuit) -> StimCircuitLike:
+    """Return the contents of a ``stim.Circuit`` as a circuit of the same type as ``template``.
+
+    Used by circuit-polymorphic functions to convert a freshly-built ``stim.Circuit`` back into the
+    concrete type of their input: this constructs an empty circuit of that type and appends the
+    ``stim.Circuit`` to it, relying only on ``StimCircuitProtocol`` (empty construction and
+    in-place concatenation).  When ``template`` is itself a ``stim.Circuit``, this returns a copy.
+    """
+    output = type(template)()
+    output += circuit
+    return output
+
+
 def restrict_to_qubits(
     func: Callable[Params, CircuitOrTableau],
 ) -> Callable[Params, CircuitOrTableau]:
@@ -70,7 +83,7 @@ def with_remapped_qubits(
         # a stim-wrapping circuit: unwrap to its stim.Circuit, remap that, and rebuild its type
         assert isinstance(circuit, StimWrappingCircuit)
         output = with_remapped_qubits(circuit.stim_circuit, qubit_map, inverse=inverse)
-        return type(circuit).from_stim_program(output)
+        return _rebuilt_as(circuit, output)
 
     qubit_map = (
         qubit_map

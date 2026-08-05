@@ -34,63 +34,6 @@ from qldpc import abstract
 from qldpc._util import networkx as nx
 
 
-class StimCircuitProtocol(Protocol):
-    """Structural type for circuit objects that behave like a ``stim.Circuit``.
-
-    A ``stim.Circuit`` satisfies this protocol, as do stim-wrapping circuit classes such as
-    ``tsim.Circuit`` (see :class:`StimWrappingCircuit`).  qLDPC's circuit-polymorphic functions
-    (e.g. ``noisy_circuit``, ``with_remapped_qubits``) are generic over the ``StimCircuitLike`` type
-    variable (bound to this protocol), so that they preserve the concrete circuit type of their
-    input.  The protocol declares only the operations those functions invoke directly on a circuit
-    whose concrete type has not yet been narrowed to ``stim.Circuit`` or a wrapping circuit:
-    appending an operation, and in-place concatenation.
-    """
-
-    def append(
-        self,
-        name: str | stim.CircuitInstruction | stim.CircuitRepeatBlock | stim.Circuit,
-        targets: (
-            int
-            | stim.GateTarget
-            | stim.PauliString
-            | Iterable[int | stim.GateTarget | stim.PauliString]
-        ) = (),
-        arg: float | Iterable[float] | None = None,
-        *,
-        tag: str = "",
-    ) -> None:
-        """Append an operation to this circuit in place."""
-
-    def __iadd__(self, other: stim.Circuit) -> Self:
-        """Append another circuit to this circuit in place."""
-
-
-@runtime_checkable
-class StimWrappingCircuit(StimCircuitProtocol, Protocol):
-    """A circuit backed by a ``stim.Circuit`` (e.g. ``tsim.Circuit``), exposing a conversion bridge.
-
-    Circuits that are not themselves ``stim.Circuit`` instances participate in qLDPC's
-    circuit-polymorphic functions by satisfying this protocol: the function unwraps the circuit to
-    its underlying ``stim.Circuit`` via :attr:`stim_circuit`, does its work on that, and rebuilds a
-    circuit of the original type via :meth:`from_stim_program`.  This lets qLDPC support such
-    circuits structurally, without depending on the packages that define them.
-    """
-
-    @property
-    def stim_circuit(self) -> stim.Circuit:
-        """The underlying ``stim.Circuit`` that this circuit wraps."""
-
-    @classmethod
-    def from_stim_program(cls, stim_circuit: stim.Circuit) -> Self:
-        """Build a circuit of this type from a ``stim.Circuit``."""
-
-
-# A type variable for a circuit that behaves like a stim.Circuit (see StimCircuitProtocol).  Used to
-# type functions that are generic over stim.Circuit and stim-wrapping circuits while preserving the
-# concrete circuit type of their input.
-StimCircuitLike = TypeVar("StimCircuitLike", bound=StimCircuitProtocol)
-
-
 class Pauli(enum.Enum):
     """Pauli operators."""
 
@@ -242,6 +185,60 @@ class Node:
     def __str__(self) -> str:
         tag = "d" if self.is_data else "c"
         return f"{tag}_{self.index}"
+
+
+class StimCircuitProtocol(Protocol):
+    """Structural type for circuit objects that behave like a ``stim.Circuit``.
+
+    A ``stim.Circuit`` satisfies this protocol, as do stim-wrapping circuit classes such as
+    ``tsim.Circuit`` (see :class:`StimWrappingCircuit`).  qLDPC's circuit-polymorphic functions
+    (e.g. ``noisy_circuit``, ``with_remapped_qubits``) are generic over the ``StimCircuitLike`` type
+    variable (bound to this protocol), so that they preserve the concrete circuit type of their
+    input.  The protocol declares only the operations those functions invoke directly on a circuit
+    whose concrete type has not yet been narrowed to ``stim.Circuit`` or a wrapping circuit:
+    appending an operation, and in-place concatenation.
+    """
+
+    def append(
+        self,
+        name: str | stim.CircuitInstruction | stim.CircuitRepeatBlock | stim.Circuit,
+        targets: (
+            int
+            | stim.GateTarget
+            | stim.PauliString
+            | Iterable[int | stim.GateTarget | stim.PauliString]
+        ) = (),
+        arg: float | Iterable[float] | None = None,
+        *,
+        tag: str = "",
+    ) -> None:
+        """Append an operation to this circuit in place."""
+
+    def __iadd__(self, other: stim.Circuit) -> Self:
+        """Append another circuit to this circuit in place."""
+
+
+@runtime_checkable
+class StimWrappingCircuit(StimCircuitProtocol, Protocol):
+    """A circuit backed by a ``stim.Circuit`` (e.g. ``tsim.Circuit``), exposing its wrapped circuit.
+
+    Circuits that are not themselves ``stim.Circuit`` instances participate in qLDPC's
+    circuit-polymorphic functions by satisfying this protocol: the function reads the underlying
+    ``stim.Circuit`` via :attr:`stim_circuit`, does its work on that, and rebuilds a circuit of the
+    original type by constructing an empty instance (``type(circuit)()``) and appending the result
+    to it (via ``__iadd__``).  This lets qLDPC support such circuits structurally, without depending
+    on the packages that define them.
+    """
+
+    @property
+    def stim_circuit(self) -> stim.Circuit:
+        """The underlying ``stim.Circuit`` that this circuit wraps."""
+
+
+# A type variable for a circuit that behaves like a stim.Circuit (see StimCircuitProtocol).  Used to
+# type functions that are generic over stim.Circuit and stim-wrapping circuits while preserving the
+# concrete circuit type of their input.
+StimCircuitLike = TypeVar("StimCircuitLike", bound=StimCircuitProtocol)
 
 
 class CayleyComplex:
