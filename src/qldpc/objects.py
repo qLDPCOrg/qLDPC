@@ -187,52 +187,6 @@ class Node:
         return f"{tag}_{self.index}"
 
 
-class StimCircuitProtocol(Protocol):
-    """Structural type for circuit objects that behave like a ``stim.Circuit``.
-
-    A ``stim.Circuit`` satisfies this protocol, as do stim-wrapping circuit classes such as
-    ``tsim.Circuit``.  qLDPC's circuit-polymorphic functions (e.g. ``noisy_circuit``,
-    ``with_remapped_qubits``) are generic over the ``StimCircuitLike`` type variable (bound to this
-    protocol) so that they preserve the concrete circuit type of their input.  Those functions read
-    a circuit as a sequence of ``stim`` operations (via ``range(len(circuit))`` and indexing), do
-    their work on a ``stim.Circuit``, and rebuild a circuit of the original type by constructing an
-    empty instance (``type(circuit)()``) and populating it via ``append`` / in-place concatenation.
-    A conforming circuit must therefore be default-constructible in addition to supporting the
-    methods declared here.  This lets qLDPC support such circuits structurally, without depending on
-    the packages that define them.
-    """
-
-    def append(
-        self,
-        name: str | stim.CircuitInstruction | stim.CircuitRepeatBlock | stim.Circuit,
-        targets: (
-            int
-            | stim.GateTarget
-            | stim.PauliString
-            | Iterable[int | stim.GateTarget | stim.PauliString]
-        ) = (),
-        arg: float | Iterable[float] | None = None,
-        *,
-        tag: str = "",
-    ) -> None:
-        """Append an operation to this circuit in place."""
-
-    def __iadd__(self, other: stim.Circuit) -> Self:
-        """Append another circuit to this circuit in place."""
-
-    def __getitem__(self, index: int) -> stim.CircuitInstruction | stim.CircuitRepeatBlock:
-        """The operation at the given index."""
-
-    def __len__(self) -> int:
-        """The number of operations in this circuit."""
-
-
-# A type variable for a circuit that behaves like a stim.Circuit (see StimCircuitProtocol).  Used to
-# type functions that are generic over stim.Circuit and stim-wrapping circuits while preserving the
-# concrete circuit type of their input.
-StimCircuitLike = TypeVar("StimCircuitLike", bound=StimCircuitProtocol)
-
-
 class CayleyComplex:
     """Left-right Cayley complex, used for constructing quantum Tanner codes.
 

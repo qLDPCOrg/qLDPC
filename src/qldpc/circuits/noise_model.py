@@ -123,9 +123,8 @@ from typing import TypeAlias, overload
 import stim
 
 from qldpc._util import format_docstring
-from qldpc.objects import StimCircuitLike
 
-from .common import with_remapped_qubits
+from .common import StimCircuitLike, with_remapped_qubits
 
 ####################################################################################################
 # global constants
