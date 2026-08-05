@@ -42,6 +42,7 @@ dependencies = [
   "sinter>=1.16",
   "stim>=1.16",
   "sympy>=1.12",
+  "typing-extensions>=4",
 ]
 optional-dependencies.dev = [
   "checks-superstaq>=0.5.67",
