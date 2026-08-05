@@ -7,6 +7,7 @@ Handles both intra-code (g1.code is g2.code) and inter-code joints.
 from __future__ import annotations
 
 import dataclasses
+import itertools
 
 import networkx as nx
 import numpy as np
@@ -85,7 +86,7 @@ def _skip_tree(
     T = np.zeros((n - 1, len(edge_index_verts)), dtype=np.int_)
     for l_idx in range(n - 1):
         path = nx.shortest_path(S, source=label[l_idx], target=label[(l_idx + 1) % n])
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in itertools.pairwise(path):
             e = tuple(sorted((u, v)))
             T[l_idx, edge_index_verts[e]] = 1
     return T, P
@@ -139,7 +140,7 @@ def _skip_tree_fullrank(
     T = np.zeros((n - 1, len(edge_index_verts)), dtype=np.int_)
     for l_idx in range(n - 1):
         path = nx.shortest_path(S, source=label[l_idx], target=label[l_idx + 1])
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in itertools.pairwise(path):
             e = tuple(sorted((u, v)))
             T[l_idx, edge_index_verts[e]] ^= 1  # XOR cancels back-and-forth
     return T.astype(np.int_), P.astype(np.int_)

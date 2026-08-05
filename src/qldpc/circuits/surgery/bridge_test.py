@@ -50,7 +50,7 @@ def test_build_aux_graph_weight2_rows_become_edges() -> None:
     incidence = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=np.uint8)
     G_nx, edge_idx = _build_aux_graph_strict(incidence)
     assert set(G_nx.nodes) == {0, 1, 2, 3}
-    assert set(tuple(sorted(e)) for e in G_nx.edges) == {(0, 1), (1, 2), (2, 3)}
+    assert {tuple(sorted(e)) for e in G_nx.edges} == {(0, 1), (1, 2), (2, 3)}
     assert edge_idx[(0, 1)] == 0
     assert edge_idx[(1, 2)] == 1
     assert edge_idx[(2, 3)] == 2
@@ -101,7 +101,7 @@ def test_connect_induced_subgraph_no_op_when_connected() -> None:
     G_aux = nx.path_graph(4)  # 0-1-2-3
     extra = _connect_induced_subgraph(G_aux, ports=(0, 1, 2, 3))
     assert extra == []
-    assert set(tuple(sorted(e)) for e in G_aux.edges) == {(0, 1), (1, 2), (2, 3)}
+    assert {tuple(sorted(e)) for e in G_aux.edges} == {(0, 1), (1, 2), (2, 3)}
 
 
 def test_connect_induced_subgraph_adds_edges_to_disconnected_components() -> None:
@@ -490,12 +490,8 @@ def test_build_bridge_skiptree_invariant_holds_after_boost() -> None:
     z = np.asarray(_bb_72_12().get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
     g_l_raw = build_gadget(_bb_72_12(), z, basis=Pauli.Z)
     g_r_raw = build_gadget(_bb_72_12(), z, basis=Pauli.Z)
-    g_l = boost_gadget(
-        g_l_raw, method="combinatorial", target=1.0, max_extra_qubits=20, seed=3
-    )
-    g_r = boost_gadget(
-        g_r_raw, method="combinatorial", target=1.0, max_extra_qubits=20, seed=3
-    )
+    g_l = boost_gadget(g_l_raw, method="combinatorial", target=1.0, max_extra_qubits=20, seed=3)
+    g_r = boost_gadget(g_r_raw, method="combinatorial", target=1.0, max_extra_qubits=20, seed=3)
     assert g_l.incidence.shape[0] > g_l_raw.incidence.shape[0], "boost should add κ' rows"
     bridge = build_bridge(g_l, g_r)
 

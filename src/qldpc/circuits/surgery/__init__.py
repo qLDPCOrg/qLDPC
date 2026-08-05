@@ -21,14 +21,14 @@ from .circuit import (
 from .gadget import GadgetLayout, build_gadget
 
 __all__ = [
-    "GadgetLayout",
     "Bridge",
-    "build_gadget",
+    "GadgetLayout",
+    "boost_gadget",
     "build_bridge",
-    "build_single_ppm_circuit",
+    "build_gadget",
     "build_joint_ppm_circuit",
+    "build_single_ppm_circuit",
+    "cheeger_constant",
     "keep_only_observable",
     "logical_state_init",
-    "boost_gadget",
-    "cheeger_constant",
 ]

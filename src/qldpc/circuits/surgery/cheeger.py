@@ -53,7 +53,7 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
         ValueError: if |V| > 26 (exhaustive enumeration is infeasible).
     """
     incidence_arr = np.asarray(incidence).astype(np.int8)
-    n_C, n_V = incidence_arr.shape
+    _n_C, n_V = incidence_arr.shape
     if n_V < 2:
         return float("inf"), np.zeros(n_V, dtype=np.int8)
     if n_V > 26:

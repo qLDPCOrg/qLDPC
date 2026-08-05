@@ -196,7 +196,7 @@ def test_surgery_qec_cycle_round_1_detectors_classified() -> None:
     qubit_ids = QubitIDs.from_code(merged)
     reliable = _classify_reliable_round1_checks(g, qubit_ids)
 
-    circuit, meas_rec, det_rec = _surgery_qec_cycle(
+    circuit, _meas_rec, _det_rec = _surgery_qec_cycle(
         g,
         merged,
         num_rounds=2,
@@ -725,7 +725,7 @@ def test_build_joint_ppm_circuit_meas_check_ids_no_UB() -> None:
     g_l = build_gadget(code, x, basis=Pauli.X)
     g_r = build_gadget(codes.SteaneCode(), x, basis=Pauli.X)
     bridge = build_bridge(g_l, g_r)
-    circuit, merged = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=2)
+    circuit, _merged = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=2)
     # noiseless: all detectors must NOT fire on first sample
     sampler = circuit.compile_detector_sampler()
     dets, _ = sampler.sample(8, separate_observables=True)
@@ -1342,7 +1342,7 @@ def test_logical_state_init_one_flips_x_bar_support() -> None:
     x_bar = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     s = logical_state_init(code, "1", log_idx=0)
     assert len(s) == n
-    expected_ones = set(int(i) for i in np.where(x_bar)[0])
+    expected_ones = {int(i) for i in np.where(x_bar)[0]}
     actual_ones = {i for i, c in enumerate(s) if c == "1"}
     actual_zeros = {i for i, c in enumerate(s) if c == "0"}
     assert actual_ones == expected_ones
@@ -1358,7 +1358,7 @@ def test_logical_state_init_minus_flips_z_bar_support() -> None:
     z_bar = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
     s = logical_state_init(code, "-", log_idx=0)
     assert len(s) == n
-    expected_minus = set(int(i) for i in np.where(z_bar)[0])
+    expected_minus = {int(i) for i in np.where(z_bar)[0]}
     actual_minus = {i for i, c in enumerate(s) if c == "-"}
     actual_plus = {i for i, c in enumerate(s) if c == "+"}
     assert actual_minus == expected_minus
@@ -1661,7 +1661,7 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
     )
 
     # Steane Z-stabs touching error_qubit (row indices)
-    z_stabs_touching = set(int(j) for j in np.where(HZ[:, error_qubit] == 1)[0])
+    z_stabs_touching = {int(j) for j in np.where(HZ[:, error_qubit] == 1)[0]}
     # Map each round-1 deterministic-zero detector position (sorted by
     # emission order) to its corresponding Z-stab row index. The fired
     # set is the set of row indices whose detector fired.

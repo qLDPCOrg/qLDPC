@@ -52,9 +52,8 @@ def keep_only_observable(circuit: stim.Circuit, keep_idx: int) -> stim.Circuit:
                 )
             )
             continue
-        if op.name == "OBSERVABLE_INCLUDE":
-            if int(op.gate_args_copy()[0]) != keep_idx:
-                continue
+        if op.name == "OBSERVABLE_INCLUDE" and int(op.gate_args_copy()[0]) != keep_idx:
+            continue
         out.append(op)
     return out
 
@@ -297,7 +296,7 @@ def _check_lane_index_map(
         n_meas_total = len(gadget.support)
         n_gauge_total = gadget.gauge.shape[0]
     else:
-        g_r, bridge, intercode = joint
+        g_r, _bridge, intercode = joint
         m_X_total = gadget.code.matrix_x.shape[0]
         m_Z_total = gadget.code.matrix_z.shape[0]
         if intercode:
