@@ -530,6 +530,24 @@ def test_lifted_product_line_logicals(
         np.eye(code.dimension),
     )
 
+    # Rich (multi-term) entries exercise the pivot.T dual path end-to-end (the buggy pivot dual
+    # misreports this construction as unsupported).  Scoped to commutative rings; see
+    # test_howell_dual for the rationale and the non-commutative caveat.
+    if ring.is_commutative:
+        field = ring.field
+        rich = abstract.RingArray.build(
+            [
+                [abstract.RingMember.from_vector(field(coeffs), ring) for coeffs in row]
+                for row in ([[0, 2, 1], [2, 1, 0], [1, 0, 1]], [[0, 0, 1], [1, 1, 0], [1, 0, 0]])
+            ],
+            ring,
+        )
+        for code in (codes.LPCode(rich, set_logicals=True), codes.SLPCode(rich, set_logicals=True)):
+            assert np.array_equal(
+                code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
+                np.eye(code.dimension),
+            )
+
 
 def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
     """We do not support line operators in lifted product codes with non-semisimple rings."""

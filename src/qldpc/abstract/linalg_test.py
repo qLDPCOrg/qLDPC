@@ -106,17 +106,33 @@ def test_matmul_and_kron_interplay(ring: abstract.GroupRing, rows: int = 2, cols
 def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols: int = 3) -> None:
     """Matrices in Howell normal form have a "dual" that acts like a pseudoinverse."""
     transformer = ring.get_transformer()
+
+    def check_pseudoinverse(matrix: abstract.RingArray) -> None:
+        # find a null-space matrix in Howell normal form
+        generator = matrix.null_space(right=right).howell_normal_form_semisimple(right=right)
+        assert not np.any(abstract.matmul(matrix, generator.T, right=right))
+
+        # find the "dual" of the null-space matrix, which acts like a pseudoinverse
+        dual = abstract.get_howell_dual(generator)
+        diag = abstract.matmul(generator, dual.T, right=right)
+        assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
+        assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
+        assert np.array_equal(abstract.matmul(diag.T, dual, right=right), dual)
+        assert np.array_equal(diag, transformer.transpose_array(diag))
+
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    matrix = abstract.RingArray.build(values, ring)
+    check_pseudoinverse(abstract.RingArray.build(values, ring))
 
-    # find a null-space matrix in Howell normal form
-    generator = matrix.null_space(right=right).howell_normal_form_semisimple(right=right)
-    assert not np.any(abstract.matmul(matrix, generator.T, right=right))
-
-    # find the "dual" of the null-space matrix, which acts like a pseudoinverse
-    dual = abstract.get_howell_dual(generator)
-    diag = abstract.matmul(generator, dual.T, right=right)
-    assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
-    assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
-    assert np.array_equal(abstract.matmul(diag.T, dual, right=right), dual)
-    assert np.array_equal(diag, transformer.transpose_array(diag))
+    # Multi-term entries make the null-space pivots non-self-transpose idempotents, which is what
+    # distinguishes the dual entry pivot.T from pivot.  Scoped to commutative rings: rich entries
+    # over a non-commutative ring can hit an as-yet-unsupported augmented Howell form.
+    if ring.is_commutative:
+        field = ring.field
+        rich = abstract.RingArray.build(
+            [
+                [abstract.RingMember.from_vector(field(coeffs), ring) for coeffs in row]
+                for row in ([[0, 2, 1], [2, 1, 0], [1, 0, 1]], [[0, 0, 1], [1, 1, 0], [1, 0, 0]])
+            ],
+            ring,
+        )
+        check_pseudoinverse(rich)

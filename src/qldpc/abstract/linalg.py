@@ -167,7 +167,9 @@ def get_howell_dual(
     for row, col in enumerate(math.first_nonzero_cols(matrix_hnf)):
         pivot = matrix_hnf[row, col].copy()
         if ring.is_commutative:
-            new_matrix_entry = pivot
+            # Every simple component of a commutative ring is 1x1, so the general branch below
+            # reduces to pivot.T (the group transpose g -> g**-1).
+            new_matrix_entry = pivot.T
         else:
             new_matrix_entry = ring.zero
             for component_transformer in transformer.transformers:
