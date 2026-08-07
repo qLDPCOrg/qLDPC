@@ -112,8 +112,9 @@ def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols:
         generator = matrix.null_space(right=right).howell_normal_form_semisimple(right=right)
         assert not np.any(abstract.matmul(matrix, generator.T, right=right))
 
-        # find the "dual" of the null-space matrix, which acts like a pseudoinverse
-        dual = abstract.get_howell_dual(generator)
+        # find the "dual" of the null-space matrix, which acts like a pseudoinverse.  `right` must
+        # match the orientation used to build the Howell form.
+        dual = abstract.get_howell_dual(generator, right=right)
         diag = abstract.matmul(generator, dual.T, right=right)
         assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
         assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
@@ -123,9 +124,8 @@ def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols:
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     check_pseudoinverse(abstract.RingArray.build(values, ring))
 
-    # Multi-term entries make the null-space pivots non-self-transpose idempotents, which is what
-    # distinguishes the dual entry pivot.T from pivot.  Scoped to commutative rings: rich entries
-    # over a non-commutative ring can hit an as-yet-unsupported augmented Howell form.
+    # Multi-term entries make the null-space pivots non-self-transpose idempotents, distinguishing
+    # pivot.T from pivot.  These GF(4)[C3] coefficients are specific to the commutative fixture.
     if ring.is_commutative:
         field = ring.field
         rich = abstract.RingArray.build(
@@ -136,3 +136,39 @@ def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols:
             ring,
         )
         check_pseudoinverse(rich)
+
+
+def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.GroupRing) -> None:
+    """The dual of a non-commutative Howell form is orientation-specific.
+
+    On an augmented Howell form (repeated pivot columns), a row can lead in different columns across
+    Wedderburn components, so the dual entry belongs at each component's own leading column.  The
+    ``right`` passed to ``get_howell_dual`` must match the one used to build the Howell form; the
+    wrong orientation has no symmetric idempotent projector and is rejected.  A₄ over GF(5) has a
+    size-3 component; the fixed transformer seed makes the case below deterministic.
+    """
+    ring = ring_alternating4_gf5
+    transformer = ring.get_transformer(seed=0)
+    coeffs = np.random.default_rng(2).integers(0, ring.field.order, size=(2, 5, ring.group.order))
+    matrix = abstract.RingArray.build(
+        [
+            [abstract.RingMember.from_vector(ring.field(coeffs[i, j]), ring) for j in range(5)]
+            for i in range(2)
+        ],
+        ring,
+    )
+    generator = matrix.null_space(right=True).howell_normal_form_semisimple(
+        transformer=transformer, right=True
+    )
+
+    # with the matching orientation, the dual satisfies the pseudoinverse contract
+    dual = abstract.get_howell_dual(generator, transformer=transformer, right=True)
+    diag = abstract.matmul(generator, dual.T, right=True)
+    assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
+    assert np.array_equal(abstract.matmul(diag, generator, right=True), generator)
+    assert np.array_equal(abstract.matmul(diag.T, dual, right=True), dual)
+    assert np.array_equal(diag, transformer.transpose_array(diag))
+
+    # the wrong orientation is rejected with a clear error
+    with pytest.raises(ValueError, match="Cannot build a Howell dual"):
+        abstract.get_howell_dual(generator, transformer=transformer, right=False)
