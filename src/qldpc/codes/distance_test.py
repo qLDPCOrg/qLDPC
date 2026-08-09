@@ -435,6 +435,75 @@ def test_get_distance_classical_methods() -> None:
         assert distance == distance_default
 
 
+def test_get_distance_large_n() -> None:
+    """Regression (F1): exact distance must not overflow uint8 popcount for >= 256 columns.
+
+    On numpy >= 2 the default weight function is np.bitwise_count, which returns uint8; the
+    pre-loop weight reduction in get_distance_quantum previously overflowed uint8 (raising
+    OverflowError) once the number of columns reached 256.
+    """
+    num_bits = 300  # >= 256 triggers the uint8 overflow on the default (np.bitwise_count) path
+    generators = np.zeros((2, num_bits), dtype=np.uint64)
+    generators[0] = 1  # weight num_bits
+    generators[1, : num_bits // 2] = 1  # weight num_bits // 2
+    expected = num_bits // 2  # min nonzero codeword weight
+
+    # default path (np.bitwise_count -> uint8 on numpy >= 2):
+    assert qldpc.codes.distance.get_distance_classical(generators) == expected
+    # numpy < 2.0 SWAR fallback:
+    with mock.patch("numpy.bitwise_count", None, create=True):
+        assert qldpc.codes.distance.get_distance_classical(generators) == expected
+    # numba:
+    assert qldpc.codes.distance.get_distance_classical(generators, use_numba=True) == expected
+
+
+def test_get_distance_empty_stabilizers_symplectic() -> None:
+    """Regression (F11): symplectic distance with no stabilizers must not crash in _riffle.
+
+    An empty ``stabilizers`` list has no columns, so the size-0 reshape in _riffle used to raise.
+    """
+    # symplectic vector [1, 0 | 0, 0] is an X on qubit 0, of symplectic weight 1
+    distance = qldpc.codes.distance.get_distance_quantum([[1, 0, 0, 0]], [], homogeneous=False)
+    assert distance == 1
+
+
+def test_get_distance_small_block_size() -> None:
+    """Regression (F2): a block_size smaller than the packed word count is clamped, not negative.
+
+    With >64*(block_size+1) columns the vectorized-op count would go negative (a negative slice and
+    an uncapped allocation); it must instead clamp to 0 and still return the correct distance.
+    """
+    generators = np.zeros((2, 200), dtype=np.uint64)
+    generators[0] = 1  # weight 200
+    generators[1, :100] = 1  # weight 100
+    assert qldpc.codes.distance.get_distance_classical(generators, block_size=1) == 100
+
+
+def test_cutoff_early_exit() -> None:
+    """cutoff makes get_distance_* return early once an operator of weight <= cutoff is found.
+
+    Exercises all three early-exit return paths: the pre-loop vectorized block, the logical-op
+    sweep, and the nested stabilizer sweep.
+    """
+    # pre-loop block: a weight-1 codeword sits in the vectorized block (default block_size)
+    assert qldpc.codes.distance.get_distance_classical([[1, 0, 0, 0]], cutoff=1) == 1
+
+    # logical-op sweep: block_size=1 spills logical ops into the sequential Gray-code loop, where a
+    # combination of weight <= cutoff (here the weight-1 generator) is found.  These rows are
+    # linearly independent, as the documented precondition requires.
+    generators = [[1, 1, 1, 0], [0, 0, 0, 1], [1, 0, 0, 1]]
+    assert qldpc.codes.distance.get_distance_classical(generators, block_size=1, cutoff=1) == 1
+
+    # stabilizer sweep: the weight-1 operator only appears after XORing a swept stabilizer, so the
+    # early exit fires in the inner (stabilizer) loop rather than the pre-loop or logical-op sweep
+    logical_ops = [[0, 1, 1, 1, 1]]
+    stabilizers = [[1, 1, 0, 0, 0], [0, 0, 1, 1, 1]]
+    distance = qldpc.codes.distance.get_distance_quantum(
+        logical_ops, stabilizers, block_size=1, cutoff=1, homogeneous=True
+    )
+    assert distance == 1
+
+
 def test_get_distance_quantum_methods() -> None:
     """get_distance_quantum (homogeneous) dispatches to numpy bitcount, fallback, or numba."""
     stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint64)

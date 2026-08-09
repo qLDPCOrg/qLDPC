@@ -69,6 +69,7 @@ def string_to_op(string: stim.PauliString, num_qubits: int | None = None) -> npt
     The (first, second) half the array indicates the support of (X, Z) Paulis.
     """
     num_qubits = num_qubits or len(string)
+    string = stim.PauliString(string)  # copy: avoid mutating the caller's input via *=
     string *= stim.PauliString(f"I{num_qubits - 1}")
     return np.hstack(string.to_numpy()).astype(int)
 
@@ -87,10 +88,11 @@ def symplectic_conjugate(vectors: DenseIntegerArrayType) -> DenseIntegerArrayTyp
     return conjugated_vectors.reshape(vectors.shape).view(type(vectors))
 
 
-def symplectic_weight(vectors: npt.NDArray[np.int_]) -> int:
+def symplectic_weight(vectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
     """The symplectic weight of vectors.
 
     The symplectic weight of a Pauli string is the number of qudits that it addresses nontrivially.
+    Returns one weight per input vector (a 0-dimensional array for a single vector).
     """
     assert vectors.shape[-1] % 2 == 0
     vectors_xz = vectors.reshape(-1, 2, vectors.shape[-1] // 2)
@@ -116,8 +118,9 @@ def first_nonzero_cols(
     ``not np.any(matrix[r])``).
     """
     _matrix = np.atleast_2d(np.asarray(matrix))
-    if _matrix.size == 0:
-        return np.array([], dtype=int)
+    if _matrix.shape[1] == 0:
+        # no columns: every row is all-zero, so its first-nonzero column is the column count (0)
+        return np.zeros(_matrix.shape[0], dtype=int)
     nonzero_mask = np.any(_matrix.view(np.ndarray).astype(bool), axis=tuple(range(2, _matrix.ndim)))
     has_any_nonzero_in_row = np.any(nonzero_mask, axis=1)
     first_nonzero_col_index = np.argmax(nonzero_mask, axis=1)
@@ -166,8 +169,9 @@ def block_matrix(
                 matrix[row_slice, col_slice] = block
             elif block == 1:
                 matrix[row_slice, col_slice] = np.eye(row_nums[rr], col_nums[cc], dtype=dtype)
-            else:
-                assert block == 0, f"Unrecognized block: {block}"
+            elif block != 0:
+                # a literal 0 leaves the already-zero block; any other literal is an error
+                raise ValueError(f"Unrecognized block: {block}")
     return matrix
 
 
@@ -176,7 +180,17 @@ def block_matrix(
 
 
 def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois.FieldArray:
-    """Construct a dual basis, for which ``dual_basis @ basis.T = identity_matrix``."""
+    """Construct a dual basis, for which ``dual_basis @ basis.T = identity_matrix``.
+
+    The rows of ``basis`` must be linearly independent, and it must have at least as many columns
+    as rows; a dual basis exists only in that case.
+
+    Args:
+        basis: A full-row-rank matrix with at least as many columns as rows, whose rows form the
+            basis to dualize.
+        validate: If True (default), check the precondition above and raise a ``ValueError`` when
+            it fails.  Pass False to skip the check when the precondition is already guaranteed.
+    """
     if validate and (
         basis.shape[0] > basis.shape[1] or np.linalg.matrix_rank(basis) != basis.shape[0]
     ):
@@ -209,7 +223,7 @@ def get_orthonormal_basis(
       basis of V have a self-overlap with no square root in ``GF(q)``.
 
     The construction is a variant of Gram-Schmidt orthogonalization; the characteristic-2 case
-    follows Algorithm 1 and Lemma 2 of arXiv:2503.19790.
+    follows Algorithm 1 and Lemma 2 of https://arxiv.org/abs/2503.19790.
     """
     field = type(matrix)
     dimension = matrix.shape[1]
@@ -230,11 +244,11 @@ def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldA
     """Try to orthonormalize linearly independent vectors over a field of characteristic 2.
 
     Reduce the row space to mutually orthogonal "unit" vectors u with ``u @ u = 1`` and "hyperbolic
-    pairs" (b, c) with ``b @ b = c @ c = 0`` and ``b @ c = 1``
-    (Algorithm 1 of arXiv:2503.19790).  Every element of a characteristic-2 field is a square, so
+    pairs" (b, c) with ``b @ b = c @ c = 0`` and ``b @ c = 1`` (Algorithm 1 of
+    https://arxiv.org/abs/2503.19790).  Every element of a characteristic-2 field is a square, so
     any vector with nonzero self-overlap can be rescaled to a unit vector.  Lemma 2 of
-    arXiv:2503.19790 then rewrites one unit vector and one hyperbolic pair into three unit vectors,
-    eliminating every hyperbolic pair.
+    https://arxiv.org/abs/2503.19790 then rewrites one unit vector and one hyperbolic pair into
+    three unit vectors, eliminating every hyperbolic pair.
     """
     units: list[galois.FieldArray] = []  # vectors u with u @ u = 1
     pairs: list[tuple[galois.FieldArray, galois.FieldArray]] = []  # (b, c) with b @ c = 1
