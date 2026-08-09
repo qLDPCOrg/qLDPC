@@ -213,9 +213,9 @@ def boost_gadget_cheeger_combinatorial(
     max_extra_qubits: int = 50,
     seed: int | None = None,
 ) -> GadgetLayout:
-    """Greedy combinatorial Cheeger boost — deterministic distance guarantee.
+    """Greedy combinatorial Cheeger boost toward a target h(F).
 
-    Cain mapping: F → incidence; V_0 → support; κ → ancilla.
+    gadget notation: F → incidence; V_0 → support; κ → ancilla.
 
     Computes the exact boundary Cheeger constant h(F) via subset enumeration
     (Webster Def 1 / Cross Def 3). When h < target_h, identifies the worst
@@ -223,9 +223,12 @@ def boost_gadget_cheeger_combinatorial(
     and one outside, which monotonically increases |∂v*| by 1 without
     decreasing any other |∂v|.
 
-    By Cross §III Thm 6, h(F) >= 1 implies d_merged >= d_data, so reaching
-    target_h = 1.0 GUARANTEES distance preservation. Tractable for
-    |V_0| <= 26 (Webster's family up to l=255).
+    By Cross et al. arXiv:2407.18393 Thm 6, h(F) >= 1 implies d_merged >=
+    d_data, so reaching target_h = 1.0 guarantees distance preservation. The
+    guarantee is enforced: if the qubit budget is exhausted before target_h is
+    reached, this raises RuntimeError rather than silently returning an
+    under-target (distance-degraded) gadget. Tractable for |V_0| <= 26
+    (Webster's family up to l=255).
 
     Args:
         g: input gadget produced by build_gadget.
@@ -234,11 +237,12 @@ def boost_gadget_cheeger_combinatorial(
         seed: RNG seed for tie-breaking in edge selection.
 
     Returns:
-        A new GadgetLayout with F augmented to reach target_h, rebuilt via
+        A new GadgetLayout with F augmented until h(F) >= target_h, rebuilt via
         build_gadget_augmented (basis=X/Z handled symmetrically).
 
     Raises:
         ValueError: |V_0| > 26 (enumeration infeasible) or target_h <= 0.
+        RuntimeError: target_h could not be reached within max_extra_qubits.
     """
     from .gadget import build_gadget_augmented
 
@@ -345,6 +349,12 @@ def boost_gadget_cheeger_combinatorial(
         bit_j = ((masks >> chosen[1]) & np.uint64(1)).astype(np.int32)
         cuts += bit_i ^ bit_j
 
+    if h < target_h:
+        raise RuntimeError(
+            f"combinatorial boost could not reach target_h={target_h} within "
+            f"max_extra_qubits={max_extra_qubits} (reached h={h}). Increase "
+            f"max_extra_qubits or lower target_h."
+        )
     incidence_extra = incidence[n_orig_rows:].astype(np.uint8)
     return build_gadget_augmented(g.code, g.x, incidence_extra, basis=g.basis)
 

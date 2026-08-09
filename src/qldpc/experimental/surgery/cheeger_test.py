@@ -353,10 +353,11 @@ def test_boost_combinatorial_rejects_synthetic_n_V_above_26() -> None:
         boost_gadget_cheeger_combinatorial(g_wide, target_h=1.0)
 
 
-def test_boost_combinatorial_max_extra_qubits_saturation_returns_partial_augment() -> None:
-    """When boost can't reach target_h within max_extra_qubits, it stops early
-    and returns a partially-augmented gadget. Webster0 (h0=1) with target=10
-    saturates at max_extra=2."""
+def test_boost_combinatorial_raises_when_target_unreachable_in_budget() -> None:
+    """When boost can't reach target_h within max_extra_qubits, it raises
+    RuntimeError rather than silently returning an under-target (distance-
+    degraded) gadget. Webster0 (h0=1) with target=10 cannot be reached in
+    max_extra=2."""
     from qldpc.experimental.surgery import build_gadget
     from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
 
@@ -364,6 +365,5 @@ def test_boost_combinatorial_max_extra_qubits_saturation_returns_partial_augment
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
     x = _webster_x_bar_operator(data)
     g = build_gadget(code, x, basis=Pauli.X)
-    boosted = boost_gadget_cheeger_combinatorial(g, target_h=10.0, max_extra_qubits=2, seed=0)
-    n_added = boosted.incidence.shape[0] - g.incidence.shape[0]
-    assert n_added <= 2, f"expected at most 2 added rows, got {n_added}"
+    with pytest.raises(RuntimeError, match="could not reach target_h"):
+        boost_gadget_cheeger_combinatorial(g, target_h=10.0, max_extra_qubits=2, seed=0)
