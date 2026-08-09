@@ -354,8 +354,10 @@ def build_single_ppm_circuit(
       * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout (Webster, Smith,
         Cohen arXiv:2511.15989 §II.A, gadget Eq. 1). XOR of the **last** QEC
         round's meas-check outcomes. The repeated rounds give FT distance
-        via the detector layer; following Cain et al. arXiv:2603.28627 §B.1
-        we read the logical eigenvalue from the final round.
+        via the detector layer. Reading the eigenvalue at the final round is
+        decoding-equivalent to Cain et al.'s first-cycle readout
+        (arXiv:2603.28627 §B.1): the interface detectors telescope, so the
+        observable's fault distance is unchanged.
       * obs1 — Direct destructive M on ``support`` qubits; noiseless
         cross-check, not a physical protocol.
 
@@ -675,8 +677,10 @@ def build_joint_ppm_circuit(
         ∏_{v ∈ support_l ∪ support_r} A_v = X̄_l ⊗ X̄_r (or Z̄_l ⊗ Z̄_r for
         basis=Z). See Webster, Smith, Cohen arXiv:2511.15989 §II.A. XOR of
         the **last** QEC round's meas-check outcomes on both patches.
-        Detectors carry the FT load; following Cain et al.
-        arXiv:2603.28627 §B.1 the final round is the readout point.
+        Detectors carry the FT load. Reading at the final round is decoding-
+        equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627
+        §B.1) because the interface detectors telescope, so the observable's
+        fault distance is unchanged.
       * obs1 — Direct destructive M on ``support_l ∪ support_r``; noiseless
         cross-check, not a physical protocol.
 
@@ -1095,9 +1099,10 @@ def _surgery_observable(
         Smith, Cohen arXiv:2511.15989 §II.A, gadget Eq. 1). We point
         ``OBSERVABLE_INCLUDE`` at the **last** QEC round's meas-check (S'_meas)
         outcomes — their XOR is the eigenvalue bit of Z̄ (or X̄ for basis=X).
-        Detectors carry the FT load via round-to-round consistency; following
-        Cain et al. arXiv:2603.28627 §B.1 the final round is the natural
-        readout point.
+        Detectors carry the FT load via round-to-round consistency. Reading at
+        the final round is decoding-equivalent to Cain et al.'s first-cycle
+        readout (arXiv:2603.28627 §B.1) because the interface detectors
+        telescope, so the observable's fault distance is unchanged.
 
     obs1 — Direct stim measurement of the data qubits on ``support``. NOT a
         physical protocol — destructively projects the data — but a useful
