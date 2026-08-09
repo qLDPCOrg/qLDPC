@@ -127,7 +127,7 @@ def _surgery_qubit_coordinates(
 ) -> stim.Circuit:
     """Emit QUBIT_COORDS in surgery's 6/7-lane semantic layout.
 
-    Cain mapping: V_0 → support; κ ancillas → ancilla qubits (Q');
+    gadget notation: V_0 → support; κ ancillas → ancilla qubits (Q');
     χ ancillas → S'_meas ancillas (= χ rows); G ancillas → S'_comp ancillas (= G rows).
 
     Lanes:
@@ -346,7 +346,7 @@ def build_single_ppm_circuit(
     noise_model: NoiseModel | None = None,
     data_init: str | None = None,
 ) -> stim.Circuit:
-    """Cain §III.A single-PPM measurement circuit for `gadget`.
+    """Single-PPM measurement circuit for `gadget`, assembled per Cain et al. arXiv:2603.28627.
 
     Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for
     full semantics):

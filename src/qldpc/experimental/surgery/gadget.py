@@ -4,6 +4,15 @@ Three explicit named steps that map 1:1 to the paper:
     _step1_restriction  — Webster §II.A step 1 (restriction)
     _step2_gauge_fix    — Webster §II.A step 2 (gauge fix)
     _step3_assemble     — Webster §II.A step 3 (block assembly)
+
+Notation (used throughout the surgery package; the symbols follow
+Webster/Cohen/Cross, not Cain). For a logical measured on support V_0:
+    V_0  — logical support (measured qubits)                 → ``support``
+    C_0  — data-code checks touching V_0                     → ``data_checks``
+    F    — restriction (incidence) matrix on (C_0, V_0)      → ``incidence``
+    κ    — gadget ancilla qubits (one per touched check)     → ``ancilla_qubits``
+    χ    — added meas-basis checks (one per support qubit)
+    G    — a basis of ker(F^T); the gadget gauge checks      → ``gauge``
 """
 
 from __future__ import annotations
@@ -41,7 +50,7 @@ def _step1_restriction(
 ) -> tuple[tuple[int, ...], tuple[int, ...], np.ndarray]:
     """Webster §II.A step 1 — V_0 = supp(x); C_0 = checks touching V_0; F = H_complement[C_0, V_0].
 
-    Cain mapping: V_0 → support; C_0 → data_checks; F → incidence.
+    gadget notation: V_0 → support; C_0 → data_checks; F → incidence.
 
     For basis=Pauli.X: incidence = H_Z[data_checks, support] (the complementary
     basis to the measured logical). For basis=Pauli.Z: incidence = H_X[data_checks, support].
@@ -70,7 +79,7 @@ def _step1_restriction(
 def _step2_gauge_fix(incidence: np.ndarray) -> np.ndarray:
     """Webster §II.A step 2 — G whose rows form a canonical basis of ker(F.T) over GF(2).
 
-    Cain mapping: F → incidence; G → gauge.
+    gadget notation: F → incidence; G → gauge.
 
     Uses galois ``left_null_space`` (row-reduced) so the basis is deterministic.
     """
@@ -87,7 +96,7 @@ def _assemble_HX_L1(
 ) -> np.ndarray:
     """L=1 HX-side block assembly: [[HX_data, 0], [E_V0, F^T]] over GF(2).
 
-    Cain mapping: V_0 → support; F → incidence.
+    gadget notation: V_0 → support; F → incidence.
 
     Used by _step3_assemble (initial gadget assembly) and
     build_gadget_augmented (post-boost rebuild). The Z-side
@@ -123,7 +132,7 @@ def _step3_assemble(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Webster §II.A step 3 — block assembly of HX_merged, HZ_merged.
 
-    Cain mapping: χ → S'_meas (meas-basis ancilla rows); G → gauge.
+    gadget notation: χ → S'_meas (meas-basis ancilla rows); G → gauge.
 
     basis=X (default): χ rows added to HX_merged, G to HZ_merged.
     basis=Z: χ rows added to HZ_merged, G to HX_merged (basis-symmetric dual).
@@ -177,7 +186,7 @@ def build_gadget(
 ) -> GadgetLayout:
     """Webster L=1 gadget = steps 1+2+3 composed. Deterministic in (code, x, basis).
 
-    Cain mapping: κ qubits → ancilla_qubits; G → gauge.
+    gadget notation: κ qubits → ancilla_qubits; G → gauge.
 
     basis=Pauli.X: measures a logical X (PPM of X̄). Validates H_Z @ x == 0.
     basis=Pauli.Z: measures a logical Z (PPM of Z̄). Validates H_X @ x == 0.
@@ -221,7 +230,7 @@ def build_gadget_augmented(
 ) -> GadgetLayout:
     """Rebuild a GadgetLayout with incidence augmented by extra weight-2 rows.
 
-    Cain mapping: F → incidence; F_extra → incidence_extra; κ → ancilla qubits.
+    gadget notation: F → incidence; F_extra → incidence_extra; κ → ancilla qubits.
 
     Each row of ``incidence_extra`` has weight 2 and corresponds to a new κ qubit not
     backed by any original Z-check (basis=X) or X-check (basis=Z). The function:

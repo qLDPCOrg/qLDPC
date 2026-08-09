@@ -24,7 +24,7 @@ from .gadget import GadgetLayout
 def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.ndarray]:
     """Exact boundary Cheeger constant of F per Webster §II.A Definition 1.
 
-    Cain mapping: V → support; C → data_checks; F → incidence.
+    gadget notation: V → support; C → data_checks; F → incidence.
 
     Helper / sanity-check tool. Used by ``boost_gadget_cheeger_combinatorial``
     (which follows Williamson & Yoder / Webster, Smith, Cohen: random edge addition + distance
@@ -371,7 +371,7 @@ def boost_gadget_distance(
     """Distance-verifying gadget boost (Williamson & Yoder arXiv:2410.02213 /
     Webster, Smith, Cohen arXiv:2511.15989).
 
-    Cain mapping: F → incidence; κ' → new ancilla qubits.
+    gadget notation: F → incidence; κ' → new ancilla qubits.
 
     Iteratively add small random batches of degree-2 edges to F, use BP+OSD
     upper bound on merged code distance to fast-reject any augmentation whose
