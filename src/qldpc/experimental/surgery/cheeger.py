@@ -351,8 +351,9 @@ def boost_gadget_cheeger_combinatorial(
 
     if h < target_h:
         raise RuntimeError(
-            f"combinatorial boost could not reach target_h={target_h} within "
-            f"max_extra_qubits={max_extra_qubits} (reached h={h}). Increase "
+            f"combinatorial boost could not reach target_h={target_h} "
+            f"(reached h={h}) within max_extra_qubits={max_extra_qubits}, or no "
+            f"further distance-increasing edge was available. Increase "
             f"max_extra_qubits or lower target_h."
         )
     incidence_extra = incidence[n_orig_rows:].astype(np.uint8)

@@ -263,8 +263,7 @@ def test_spectral_cheeger_screen_degenerate_returns_zero() -> None:
 
 
 def test_cheeger_constant_raises_for_n_V_above_26() -> None:
-    """cheeger_constant raises for |V_0| > 26 rather than returning an unsound
-    (non-certifying) spectral value."""
+    """cheeger_constant raises for |V_0| > 26 instead of returning an unsound value."""
     import dataclasses
 
     from qldpc.experimental.surgery import build_gadget, cheeger_constant

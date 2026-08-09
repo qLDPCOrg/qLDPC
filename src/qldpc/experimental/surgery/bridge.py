@@ -362,9 +362,9 @@ def build_bridge(
 
     gadget notation: V_0^(l) → support^(l); F → incidence; extra_kappa → extra_ancilla.
 
-    Implements the SkipTree universal-adapter recipe of Swaroop et al.
-    arXiv:2410.03628 §IV. ``spanning_tree_root_s`` is the index INTO the port
-    tuple of the SkipTree root vertex on side s.
+    Implements the repetition-code adapter of Swaroop et al. arXiv:2410.03628
+    §IV, built on their SkipTree basis transform (§III). ``spanning_tree_root_s``
+    is the index INTO the port tuple of the SkipTree root vertex on side s.
     """
     if g_l.basis is not g_r.basis:
         raise ValueError(
