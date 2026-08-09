@@ -435,6 +435,54 @@ def test_get_distance_classical_methods() -> None:
         assert distance == distance_default
 
 
+def test_get_distance_empty_stabilizers_symplectic() -> None:
+    """A symplectic-weight distance with no stabilizers returns the min logical operator weight.
+
+    With an empty ``stabilizers`` argument there is nothing to interleave, and the X/Z riffling
+    still handles the empty input.
+    """
+    # symplectic vector [1, 0 | 0, 0] is an X on qubit 0, of symplectic weight 1
+    distance = qldpc.codes.distance.get_distance_quantum([[1, 0, 0, 0]], [], homogeneous=False)
+    assert distance == 1
+
+
+def test_get_distance_small_block_size() -> None:
+    """A block_size smaller than the packed word count still yields the correct distance.
+
+    When the columns span more than ``64 * (block_size + 1)`` bits, no operators are vectorized and
+    the calculation proceeds by the sequential sweep alone.
+    """
+    generators = np.zeros((2, 200), dtype=np.uint64)
+    generators[0] = 1  # weight 200
+    generators[1, :100] = 1  # weight 100
+    assert qldpc.codes.distance.get_distance_classical(generators, block_size=1) == 100
+
+
+def test_cutoff_early_exit() -> None:
+    """cutoff makes get_distance_* return early once an operator of weight <= cutoff is found.
+
+    Exercises all three early-exit return paths: the pre-loop vectorized block, the logical-op
+    sweep, and the nested stabilizer sweep.
+    """
+    # pre-loop block: a weight-1 codeword sits in the vectorized block (default block_size)
+    assert qldpc.codes.distance.get_distance_classical([[1, 0, 0, 0]], cutoff=1) == 1
+
+    # logical-op sweep: block_size=1 spills logical ops into the sequential Gray-code loop, where a
+    # combination of weight <= cutoff (here the weight-1 generator) is found.  These rows are
+    # linearly independent, as the documented precondition requires.
+    generators = [[1, 1, 1, 0], [0, 0, 0, 1], [1, 0, 0, 1]]
+    assert qldpc.codes.distance.get_distance_classical(generators, block_size=1, cutoff=1) == 1
+
+    # stabilizer sweep: the weight-1 operator only appears after XORing a swept stabilizer, so the
+    # early exit fires in the inner (stabilizer) loop rather than the pre-loop or logical-op sweep
+    logical_ops = [[0, 1, 1, 1, 1]]
+    stabilizers = [[1, 1, 0, 0, 0], [0, 0, 1, 1, 1]]
+    distance = qldpc.codes.distance.get_distance_quantum(
+        logical_ops, stabilizers, block_size=1, cutoff=1, homogeneous=True
+    )
+    assert distance == 1
+
+
 def test_get_distance_quantum_methods() -> None:
     """get_distance_quantum (homogeneous) dispatches to numpy bitcount, fallback, or numba."""
     stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint64)

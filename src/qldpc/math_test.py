@@ -37,6 +37,11 @@ def test_pauli_strings() -> None:
     sign = string.sign
     assert string == sign * qldpc.math.op_to_string(qldpc.math.string_to_op(string))
 
+    # string_to_op must not mutate its input, even when num_qubits exceeds len(string)
+    unpadded = stim.PauliString("XZ")
+    qldpc.math.string_to_op(unpadded, num_qubits=5)
+    assert len(unpadded) == 2
+
 
 def test_vectors() -> None:
     """Methods that act on vectors."""
@@ -48,10 +53,32 @@ def test_vectors() -> None:
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors_conj), [0, 0])
 
 
+def test_symplectic_conjugate_identity() -> None:
+    """The symplectic inner product satisfies ``<P, Q>_s = P @ symplectic_conjugate(Q)``.
+
+    Anchors the identity documented on ``symplectic_conjugate``, including the ``-1`` on the Z
+    sector that only matters in odd characteristic.
+    """
+    num_qubits = 6
+    # GF(3)/GF(5) exercise the -1 on the Z sector, which is invisible over GF(2) (where -1 == 1).
+    for field in [galois.GF(2), galois.GF(3), galois.GF(5)]:
+        vectors_p = field(np.random.randint(field.order, size=(4, 2 * num_qubits)))
+        vectors_q = field(np.random.randint(field.order, size=(7, 2 * num_qubits)))
+        p_x, p_z = vectors_p[:, :num_qubits], vectors_p[:, num_qubits:]
+        q_x, q_z = vectors_q[:, :num_qubits], vectors_q[:, num_qubits:]
+        expected = p_x @ q_z.T - p_z @ q_x.T
+        actual = vectors_p @ qldpc.math.symplectic_conjugate(vectors_q).T
+        assert np.array_equal(actual, expected)
+
+
 def test_nonzero_cols() -> None:
     """Edge cases in finding the pivot columns."""
-    empty_matrix = np.array([], ndmin=2, dtype=int)
-    assert qldpc.math.first_nonzero_cols(empty_matrix).size == 0
+    # a matrix with no columns: every row is all-zero, so its pivot is the column count (0)
+    assert np.array_equal(qldpc.math.first_nonzero_cols(np.zeros((3, 0), dtype=int)), [0, 0, 0])
+    assert np.array_equal(qldpc.math.first_nonzero_cols(np.array([], ndmin=2, dtype=int)), [0])
+
+    # a matrix with no rows has no pivots
+    assert qldpc.math.first_nonzero_cols(np.zeros((0, 4), dtype=int)).size == 0
 
     zero_matrix = np.zeros((1, 1), dtype=int)
     assert np.array_equal(qldpc.math.first_nonzero_cols(zero_matrix), [1])
@@ -125,6 +152,10 @@ def test_block_matrix() -> None:
         qldpc.math.block_matrix([[np.eye(1)], [np.eye(2)]])
     with pytest.raises(ValueError, match="Inconsistent block data types"):
         qldpc.math.block_matrix([[np.eye(1, dtype=int), np.eye(1, dtype=float)]])
+    # a literal other than 0 or 1 is rejected (and does so under `python -O`, unlike an assert)
+    with pytest.raises(ValueError, match="Unrecognized block: 2"):
+        zero = np.zeros((2, 2), dtype=int)
+        qldpc.math.block_matrix([[np.eye(2, dtype=int), zero], [zero, 2]])
 
 
 def test_log() -> None:

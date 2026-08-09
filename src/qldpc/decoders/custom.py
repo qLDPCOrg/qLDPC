@@ -810,7 +810,10 @@ class GUFDecoder:
         self.default_max_weight = max_weight
         self.symplectic = symplectic
 
-        self.get_weight: Callable[[npt.NDArray[np.int_]], int]
+        # get_weight returns the weight of one error vector; the concrete type depends on the
+        # backend: np.count_nonzero yields a scalar np.intp, while math.symplectic_weight yields an
+        # ndarray (0-dimensional for a single vector).
+        self.get_weight: Callable[[npt.NDArray[np.int_]], np.intp | npt.NDArray[np.int_]]
         self.code: codes.AbstractCode
         if not symplectic:
             # "ordinary" decoding of a classical code

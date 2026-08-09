@@ -28,6 +28,10 @@ _MASK0F = np.uint64(0x0F0F0F0F0F0F0F0F)
 _MASK01 = np.uint64(0x0101010101010101)
 
 
+####################################################################################################
+# exact distance via brute-force enumeration over logical-op and stabilizer combinations
+
+
 def get_distance_classical(
     generators: npt.ArrayLike,
     *,
@@ -39,6 +43,9 @@ def get_distance_classical(
 
     Args:
         generators: The generator matrix of the classical code whose distance we want to compute.
+            Its rows must be linearly independent; otherwise a nonzero combination of rows can be
+            the zero vector, and the returned value is not a true distance (in exact mode,
+            ``cutoff=0``, it is ``0``).
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Vectorize distance calculations over batches of size ``2**block_size``.
         use_numba: Use numba to (maybe) speed up calculations.
@@ -71,7 +78,10 @@ def get_distance_quantum(
     """Distance of a binary quantum code.
 
     Args:
-        logical_ops: A matrix whose rows represent logical operators of the code.
+        logical_ops: A matrix whose rows represent logical operators of the code.  These rows must
+            be linearly independent modulo the stabilizers; otherwise a nonzero combination of
+            them can be a stabilizer (weight ``0`` modulo stabilizers), and the returned value is
+            not a true distance (in exact mode, ``cutoff=0``, it is ``0``).
         stabilizers: A matrix whose rows represent stabilizers of the code.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Vectorize distance calculations over batches of size ``2**block_size``.
@@ -81,8 +91,13 @@ def get_distance_quantum(
             have mixed (X, Y, or Z) support on different qubits.
 
     Returns:
-        The minimum weight of a nontrivial logical operator in logical_ops modulo stabilizers, or
-        some logical operator weight that is <= a cutoff, whichever is larger.
+        The exact minimum weight of a nontrivial logical operator in ``logical_ops`` modulo
+        stabilizers (the code distance).  As an optimization, as soon as the lightest operator
+        seen so far has weight ``<= cutoff`` the search stops early and returns that weight -- an
+        upper bound on the true distance, in ``[distance, cutoff]``.  With the default ``cutoff=1``
+        this still returns the exact distance for every valid input (an early return can exceed
+        the distance only when ``cutoff >= 2``).  Pass ``cutoff=0`` to disable the early exit and
+        force the exact minimum.
 
     More specifically, if homogeneous is True, then::
 
@@ -99,9 +114,9 @@ def get_distance_quantum(
     num_bits = np.shape(logical_ops)[-1]
 
     if homogeneous:
-        weight_func, nbuf = _get_hamming_weight_fn(use_numba)
+        weight_func, num_buffers = _get_hamming_weight_fn(use_numba)
     else:
-        weight_func, nbuf = _get_symplectic_weight_fn(use_numba)
+        weight_func, num_buffers = _get_symplectic_weight_fn(use_numba)
 
         logical_ops = _riffle(logical_ops)
         stabilizers = _riffle(stabilizers)
@@ -111,10 +126,15 @@ def get_distance_quantum(
     num_stabilizers = len(int_stabilizers)
 
     # Number of generators to include in the operational array. Most calculations will then be
-    # vectorized over ``2**block_size`` values
-    num_vectorized_ops = min(
-        block_size + 1 - int_logical_ops.shape[-1],
-        len(int_logical_ops) + len(int_stabilizers),
+    # vectorized over ``2**block_size`` values.  Clamp at 0: when the packed word-count per row
+    # exceeds ``block_size + 1`` the first term goes negative, which would make a negative slice and
+    # build an uncapped ``2**(S-k)`` array, defeating the block_size cap.
+    num_vectorized_ops = max(
+        0,
+        min(
+            block_size + 1 - int_logical_ops.shape[-1],
+            len(int_logical_ops) + len(int_stabilizers),
+        ),
     )
 
     # Vectorize all combinations of first `num_vectorized_ops` stabilizers
@@ -134,88 +154,46 @@ def get_distance_quantum(
     # Everything below will run much faster if we use Fortran-style ordering
     arrayf = np.asarray(array, order="F", dtype=np.uint64)
 
+    # out is the uint64 buffer for the in-loop weight_func calls: passing out=out keeps
+    # np.bitwise_count's uint8 result cast to uint64, avoiding the weight-reduction overflow for
+    # codes with >= 256 columns (the pre-loop call below casts explicitly for the same reason).
     out = np.empty_like(arrayf)
-    bufs = [np.empty_like(arrayf) for _ in range(nbuf)]
+    bufs = [np.empty_like(arrayf) for _ in range(num_buffers)]
 
-    # Min weight of the part containing logical ops
-    weights = weight_func(arrayf[2**num_stabilizers :])
+    # Min weight of the block containing logical ops.  Cast to uint64 because np.bitwise_count
+    # (numpy >= 2) returns uint8, which would overflow the reduction below for >= 256 columns.
+    weights = np.asarray(weight_func(arrayf[2**num_stabilizers :]), dtype=np.uint64)
     min_weight = _inplace_rowsum(weights).min(initial=num_bits)
-    if min_weight <= cutoff:  # pragma: no cover
+    if min_weight <= cutoff:
         return int(min_weight)
 
+    # Sweep over every remaining logical-op combination and, nested, every remaining stabilizer
+    # combination, on top of the vectorized block above.  The sweep uses a reflected Gray code:
+    # successive Gray-code words differ in one bit, whose position is the trailing-zero count of
+    # the step index.  Each step therefore flips a single operator into/out of the running XOR
+    # (``arrayf``) with one ^=, so the loop walks the 2**k - 1 nonzero combinations of the
+    # remaining operators (the empty combination is the pre-loop state) without rebuilding any.
+    # ``min_weight`` tracks the lightest operator seen; ``cutoff`` lets the sweep stop once that
+    # bound is reached (see Returns).
     for li in range(1, 2 ** len(int_logical_ops)):
         arrayf ^= int_logical_ops[_count_trailing_zeros(li)]
         weights = weight_func(arrayf, *bufs, out=out)
         min_weight = _inplace_rowsum(weights).min(initial=min_weight)
-        if min_weight <= cutoff:  # pragma: no cover
+        if min_weight <= cutoff:
             return int(min_weight)
 
         for si in range(1, 2 ** len(int_stabilizers)):
             arrayf ^= int_stabilizers[_count_trailing_zeros(si)]
             weights = weight_func(arrayf, *bufs, out=out)
             min_weight = _inplace_rowsum(weights).min(initial=min_weight)
-            if min_weight <= cutoff:  # pragma: no cover
+            if min_weight <= cutoff:
                 return int(min_weight)
 
     return int(min_weight)
 
 
-def _hamming_weight(
-    arr: npt.NDArray[np.uint64],
-    buf: npt.NDArray[np.uint64] | None = None,
-    out: npt.NDArray[np.uint64] | None = None,
-) -> npt.NDArray[np.uint64]:
-    """Somewhat efficient (vectorized) Hamming weight calculation.
-
-    Assumes 64-bit uints.  For `numpy >= 2.0.0`, it's generally better to use `np.bitwise_count`
-    (which uses processors' builtin `popcnt` instruction). Unfortunately this isn't available for
-    numpy < 2.0.0.
-    """
-    out = np.right_shift(arr, 1, out=out)
-    out &= _MASK55
-    out = np.subtract(arr, out, out=out)
-
-    buf = np.right_shift(out, 2, out=buf)
-    buf &= _MASK33
-    out &= _MASK33
-    out += buf
-
-    buf = np.right_shift(out, 4, out=buf)
-    out += buf
-    out &= _MASK0F
-
-    # out *= _mask01
-    out = np.multiply(out, _MASK01, out=out)
-    out >>= np.uint64(56)
-    return out
-
-
-def _symplectic_weight(
-    arr: npt.NDArray[np.uint64],
-    buf: npt.NDArray[np.uint64] | None = None,
-    out: npt.NDArray[np.uint64] | None = None,
-) -> npt.NDArray[np.uint64]:
-    """Somewhat efficient (vectorized) symplectic weight calculation.
-
-    Assumes 64-bit uints.  This function is equivalent to (but slightly more efficient than) the
-    expression ``_hamming_weight((arr | (arr >> 1)) & 0x5555555555555555, buf=buf, out=out)``.
-    """
-    out = np.right_shift(arr, 1, out=out)
-    out |= arr
-    out &= _MASK55
-
-    buf = np.right_shift(out, 2, out=buf)
-    buf &= _MASK33
-    out &= _MASK33
-    out += buf
-
-    buf = np.right_shift(out, 4, out=buf)
-    out += buf
-    out &= _MASK0F
-
-    out *= _MASK01
-    out >>= np.uint64(56)
-    return out
+####################################################################################################
+# weight functions (Hamming and symplectic popcount) and backend selection
 
 
 def _hamming_weight_single(val: np.uint64) -> np.uint64:
@@ -302,6 +280,10 @@ def _get_symplectic_weight_fn(
     return _symplectic_weight, 1
 
 
+####################################################################################################
+# bit-packing and array helpers
+
+
 def _count_trailing_zeros(val: int) -> int:
     """Returns the position of the least significant 1 in the binary representation of `val`."""
     return (val & -val).bit_length() - 1
@@ -346,6 +328,73 @@ def _rows_to_ints(
 
 def _riffle(array: npt.ArrayLike) -> npt.ArrayLike:
     """'Riffle' Pauli strings, putting X and Z support bits for each qubit next to each other."""
-    num_bits = np.shape(array)[-1]
+    arr = np.asarray(array)
+    num_bits = arr.shape[-1]
     assert num_bits % 2 == 0
-    return np.reshape(array, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)
+    if arr.size == 0:
+        return np.empty((0, num_bits), dtype=arr.dtype)  # nothing to riffle (e.g. no stabilizers)
+    return np.reshape(arr, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)
+
+
+####################################################################################################
+# numpy < 2.0 does not provide np.bitwise_count; the methods below provide a fallback
+
+
+def _hamming_weight(
+    arr: npt.NDArray[np.uint64],
+    buf: npt.NDArray[np.uint64] | None = None,
+    out: npt.NDArray[np.uint64] | None = None,
+) -> npt.NDArray[np.uint64]:
+    """Somewhat efficient (vectorized) Hamming weight calculation.
+
+    Assumes 64-bit uints.  For `numpy >= 2.0.0`, it's generally better to use `np.bitwise_count`
+    (which uses processors' builtin `popcnt` instruction). Unfortunately this isn't available for
+    numpy < 2.0.0.
+
+    The mask-and-shift steps are the classic SWAR (SIMD-within-a-register) popcount; see
+    https://en.wikipedia.org/wiki/Hamming_weight.
+    """
+    out = np.right_shift(arr, 1, out=out)
+    out &= _MASK55
+    out = np.subtract(arr, out, out=out)
+
+    buf = np.right_shift(out, 2, out=buf)
+    buf &= _MASK33
+    out &= _MASK33
+    out += buf
+
+    buf = np.right_shift(out, 4, out=buf)
+    out += buf
+    out &= _MASK0F
+
+    out = np.multiply(out, _MASK01, out=out)
+    out >>= np.uint64(56)
+    return out
+
+
+def _symplectic_weight(
+    arr: npt.NDArray[np.uint64],
+    buf: npt.NDArray[np.uint64] | None = None,
+    out: npt.NDArray[np.uint64] | None = None,
+) -> npt.NDArray[np.uint64]:
+    """Somewhat efficient (vectorized) symplectic weight calculation.
+
+    Assumes 64-bit uints.  This function is equivalent to (but slightly more efficient than) the
+    expression ``_hamming_weight((arr | (arr >> 1)) & 0x5555555555555555, buf=buf, out=out)``.
+    """
+    out = np.right_shift(arr, 1, out=out)
+    out |= arr
+    out &= _MASK55
+
+    buf = np.right_shift(out, 2, out=buf)
+    buf &= _MASK33
+    out &= _MASK33
+    out += buf
+
+    buf = np.right_shift(out, 4, out=buf)
+    out += buf
+    out &= _MASK0F
+
+    out *= _MASK01
+    out >>= np.uint64(56)
+    return out
