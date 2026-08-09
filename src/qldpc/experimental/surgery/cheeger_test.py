@@ -241,29 +241,6 @@ def test_exact_boundary_cheeger_rejects_n_V_above_26() -> None:
         _exact_boundary_cheeger(F)
 
 
-def test_spectral_cheeger_screen_matches_lambda2_over_2() -> None:
-    """_spectral_cheeger_screen returns lambda_2(F F^T) / 2 for the given F."""
-    import galois
-
-    from qldpc.experimental.surgery.cheeger import _spectral_cheeger_screen
-
-    F = galois.GF(2)(np.array([[1, 1, 0], [0, 1, 1], [1, 0, 1]], dtype=np.int_))
-    h = _spectral_cheeger_screen(F)
-    F_arr = np.asarray(F).astype(np.float64)
-    expected_lambda2 = float(np.linalg.eigvalsh(F_arr @ F_arr.T)[1])
-    assert abs(h - expected_lambda2 / 2.0) < 1e-9
-
-
-def test_spectral_cheeger_screen_degenerate_returns_zero() -> None:
-    """_spectral_cheeger_screen on a single-row F returns 0.0."""
-    import galois
-
-    from qldpc.experimental.surgery.cheeger import _spectral_cheeger_screen
-
-    F = galois.GF(2)(np.array([[1, 1, 0]], dtype=np.int_))
-    assert _spectral_cheeger_screen(F) == 0.0
-
-
 def test_cheeger_constant_raises_for_n_V_above_26() -> None:
     """cheeger_constant raises for |V_0| > 26 instead of returning an unsound value."""
     import dataclasses

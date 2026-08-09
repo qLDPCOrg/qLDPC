@@ -93,38 +93,6 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
     return best_h, v_star
 
 
-def _spectral_cheeger_screen(incidence: galois.FieldArray) -> float:
-    """Spectral proxy for the boundary Cheeger constant of F — a heuristic screen.
-
-    gadget notation: F → incidence; V_0 → support; C_0 → data_checks.
-
-    Returns ``lambda_2(F_float @ F_float.T) / 2.0``, where F_float =
-    F.astype(np.float64) and lambda_2 is the second-smallest eigenvalue of the
-    check Gram matrix.
-
-    WARNING: this is NOT a valid bound on the mod-2 boundary Cheeger constant
-    h(F) — neither a lower nor an upper bound. The classical Cheeger inequality
-    concerns graph conductance, not the mod-2 boundary expansion used here, and
-    empirically this quantity can far exceed the true h (e.g. it returns ≈1.8 on
-    an interface whose true h is 0). It must NEVER be used to certify distance
-    preservation. Provided only as a cheap spectral diagnostic for exploration;
-    ``cheeger_constant`` does not use it.
-
-    Args:
-        incidence: GF(2) restriction matrix of shape (|C_0|, |V_0|).
-
-    Returns:
-        Non-negative float spectral proxy (not a bound on h(F)).
-    """
-    incidence_float = np.asarray(incidence).astype(np.float64)
-    if incidence_float.shape[0] < 2:
-        return 0.0
-    M = incidence_float @ incidence_float.T
-    eigenvalues = np.linalg.eigvalsh(M)
-    lambda_2 = float(eigenvalues[1])
-    return max(0.0, lambda_2 / 2.0)
-
-
 def cheeger_constant(g: GadgetLayout) -> float:
     """Exact boundary Cheeger constant h(F) of a gadget's F matrix.
 
@@ -143,10 +111,8 @@ def cheeger_constant(g: GadgetLayout) -> float:
 
     Raises:
         ValueError: if |V_0| > 26. Exact enumeration is infeasible at that size
-            and no valid lower bound on h(F) is available (the spectral proxy
-            ``_spectral_cheeger_screen`` is a heuristic that must not certify a
-            distance claim), so returning a number would be unsound. Compute the
-            exact code distance instead.
+            and no valid lower bound on h(F) is available, so returning a number
+            would be unsound; compute the exact code distance instead.
     """
     incidence = galois.GF(2)(np.asarray(g.incidence).astype(int))
     if incidence.shape[1] > 26:
