@@ -355,8 +355,8 @@ def test_build_gadget_z_basis_dual_matches_x_basis_on_dual_code() -> None:
     merged matrices as build_gadget(dual_code, z, basis=X), where dual_code has
     HX/HZ swapped. The swap labels swap too, so we compare HX_z vs HZ_dx_x and
     HZ_z vs HX_dx_x."""
-    from qldpc.experimental.surgery.gadget import build_gadget
     from qldpc.codes.common import CSSCode
+    from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
     z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)

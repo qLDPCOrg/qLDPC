@@ -64,9 +64,9 @@ def test_classify_reliable_round1_checks_basis_x() -> None:
     import galois
 
     from qldpc.circuits.bookkeeping import QubitIDs
+    from qldpc.codes.common import CSSCode
     from qldpc.experimental.surgery.circuit import _classify_reliable_round1_checks
     from qldpc.experimental.surgery.gadget import build_gadget
-    from qldpc.codes.common import CSSCode
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -95,9 +95,9 @@ def test_classify_reliable_round1_checks_basis_z() -> None:
     import galois
 
     from qldpc.circuits.bookkeeping import QubitIDs
+    from qldpc.codes.common import CSSCode
     from qldpc.experimental.surgery.circuit import _classify_reliable_round1_checks
     from qldpc.experimental.surgery.gadget import build_gadget
-    from qldpc.codes.common import CSSCode
 
     code = codes.SteaneCode()
     z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
@@ -124,9 +124,9 @@ def test_surgery_state_prep_basis_x_resets() -> None:
     import galois
 
     from qldpc.circuits.bookkeeping import QubitIDs
+    from qldpc.codes.common import CSSCode
     from qldpc.experimental.surgery.circuit import _surgery_state_prep
     from qldpc.experimental.surgery.gadget import build_gadget
-    from qldpc.codes.common import CSSCode
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -152,9 +152,9 @@ def test_surgery_state_prep_basis_z_resets() -> None:
     import galois
 
     from qldpc.circuits.bookkeeping import QubitIDs
+    from qldpc.codes.common import CSSCode
     from qldpc.experimental.surgery.circuit import _surgery_state_prep
     from qldpc.experimental.surgery.gadget import build_gadget
-    from qldpc.codes.common import CSSCode
 
     code = codes.SteaneCode()
     z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
@@ -180,9 +180,12 @@ def test_surgery_qec_cycle_round_1_detectors_classified() -> None:
     import galois
 
     from qldpc.circuits.bookkeeping import QubitIDs
-    from qldpc.experimental.surgery.circuit import _classify_reliable_round1_checks, _surgery_qec_cycle
-    from qldpc.experimental.surgery.gadget import build_gadget
     from qldpc.codes.common import CSSCode
+    from qldpc.experimental.surgery.circuit import (
+        _classify_reliable_round1_checks,
+        _surgery_qec_cycle,
+    )
+    from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
