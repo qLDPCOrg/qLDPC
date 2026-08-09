@@ -154,6 +154,9 @@ def get_distance_quantum(
     # Everything below will run much faster if we use Fortran-style ordering
     arrayf = np.asarray(array, order="F", dtype=np.uint64)
 
+    # out is the uint64 buffer for the in-loop weight_func calls: passing out=out keeps
+    # np.bitwise_count's uint8 result cast to uint64, avoiding the weight-reduction overflow for
+    # codes with >= 256 columns (the pre-loop call below casts explicitly for the same reason).
     out = np.empty_like(arrayf)
     bufs = [np.empty_like(arrayf) for _ in range(num_buffers)]
 
