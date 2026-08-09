@@ -239,31 +239,32 @@ def test_exact_boundary_cheeger_rejects_n_V_above_26() -> None:
         _exact_boundary_cheeger(F)
 
 
-def test_spectral_cheeger_lower_bound_matches_lambda2_over_2() -> None:
-    """_spectral_cheeger_lower_bound returns lambda_2(F F^T) / 2 for the given F."""
+def test_spectral_cheeger_screen_matches_lambda2_over_2() -> None:
+    """_spectral_cheeger_screen returns lambda_2(F F^T) / 2 for the given F."""
     import galois
 
-    from qldpc.experimental.surgery.cheeger import _spectral_cheeger_lower_bound
+    from qldpc.experimental.surgery.cheeger import _spectral_cheeger_screen
 
     F = galois.GF(2)(np.array([[1, 1, 0], [0, 1, 1], [1, 0, 1]], dtype=np.int_))
-    h = _spectral_cheeger_lower_bound(F)
+    h = _spectral_cheeger_screen(F)
     F_arr = np.asarray(F).astype(np.float64)
     expected_lambda2 = float(np.linalg.eigvalsh(F_arr @ F_arr.T)[1])
     assert abs(h - expected_lambda2 / 2.0) < 1e-9
 
 
-def test_spectral_cheeger_lower_bound_degenerate_returns_zero() -> None:
-    """_spectral_cheeger_lower_bound on a single-row F returns 0.0."""
+def test_spectral_cheeger_screen_degenerate_returns_zero() -> None:
+    """_spectral_cheeger_screen on a single-row F returns 0.0."""
     import galois
 
-    from qldpc.experimental.surgery.cheeger import _spectral_cheeger_lower_bound
+    from qldpc.experimental.surgery.cheeger import _spectral_cheeger_screen
 
     F = galois.GF(2)(np.array([[1, 1, 0]], dtype=np.int_))
-    assert _spectral_cheeger_lower_bound(F) == 0.0
+    assert _spectral_cheeger_screen(F) == 0.0
 
 
-def test_cheeger_constant_dispatches_to_spectral_for_n_V_above_26() -> None:
-    """cheeger_constant uses _spectral_cheeger_lower_bound when |V_0| > 26."""
+def test_cheeger_constant_raises_for_n_V_above_26() -> None:
+    """cheeger_constant raises for |V_0| > 26 rather than returning an unsound
+    (non-certifying) spectral value."""
     import dataclasses
 
     from qldpc.experimental.surgery import build_gadget, cheeger_constant
@@ -271,17 +272,17 @@ def test_cheeger_constant_dispatches_to_spectral_for_n_V_above_26() -> None:
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
-    # Synthesize a gadget with wide incidence (n_V = 27) to force the spectral path.
-    # We don't run the merged code through validation here — we only check the dispatch
-    # branch in cheeger_constant.
+    # Synthesize a gadget with wide incidence (n_V = 27) to exceed the exact-
+    # enumeration limit; cheeger_constant must refuse to certify (raise) rather
+    # than fall back to a spectral proxy that is not a valid bound on h.
     wide_incidence = np.zeros((2, 27), dtype=np.uint8)
     wide_incidence[0, 0] = 1
     wide_incidence[0, 1] = 1
     wide_incidence[1, 0] = 1
     wide_incidence[1, 2] = 1
     g_wide = dataclasses.replace(g, incidence=wide_incidence)
-    h = cheeger_constant(g_wide)
-    assert h >= 0
+    with pytest.raises(ValueError, match="certifying"):
+        cheeger_constant(g_wide)
 
 
 def test_augment_incidence_with_random_edges_adds_rows_disjoint_from_existing() -> None:

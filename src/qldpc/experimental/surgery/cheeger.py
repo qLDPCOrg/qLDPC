@@ -59,7 +59,7 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
     if n_V > 26:
         raise ValueError(
             f"_exact_boundary_cheeger requires |V| ≤ 26; got |V|={n_V}. "
-            f"Use _spectral_cheeger_lower_bound for larger problems."
+            f"Exact boundary-Cheeger enumeration is infeasible beyond this size."
         )
 
     # Bit-pack F columns: incidence_col_ints[i] is a Python int with bit r set iff
@@ -93,21 +93,28 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
     return best_h, v_star
 
 
-def _spectral_cheeger_lower_bound(incidence: galois.FieldArray) -> float:
-    """Spectral lower bound on the boundary Cheeger constant of F.
+def _spectral_cheeger_screen(incidence: galois.FieldArray) -> float:
+    """Spectral proxy for the boundary Cheeger constant of F — a heuristic screen.
 
-    Cain mapping: F → incidence; V_0 → support; C_0 → data_checks.
+    gadget notation: F → incidence; V_0 → support; C_0 → data_checks.
 
     Returns ``lambda_2(F_float @ F_float.T) / 2.0``, where F_float =
-    F.astype(np.float64). This is a tractable lower bound based on the
-    discrete Cheeger inequality, used by ``cheeger_constant`` when
-    ``|V_0| > 26`` makes the exact subset enumeration infeasible.
+    F.astype(np.float64) and lambda_2 is the second-smallest eigenvalue of the
+    check Gram matrix.
+
+    WARNING: this is NOT a valid bound on the mod-2 boundary Cheeger constant
+    h(F) — neither a lower nor an upper bound. The classical Cheeger inequality
+    concerns graph conductance, not the mod-2 boundary expansion used here, and
+    empirically this quantity can far exceed the true h (e.g. it returns ≈1.8 on
+    an interface whose true h is 0). It must NEVER be used to certify distance
+    preservation. Provided only as a cheap spectral diagnostic for exploration;
+    ``cheeger_constant`` does not use it.
 
     Args:
         incidence: GF(2) restriction matrix of shape (|C_0|, |V_0|).
 
     Returns:
-        Non-negative float lower bound on h(F).
+        Non-negative float spectral proxy (not a bound on h(F)).
     """
     incidence_float = np.asarray(incidence).astype(np.float64)
     if incidence_float.shape[0] < 2:
@@ -119,24 +126,38 @@ def _spectral_cheeger_lower_bound(incidence: galois.FieldArray) -> float:
 
 
 def cheeger_constant(g: GadgetLayout) -> float:
-    """Boundary Cheeger constant of a gadget's F matrix (Webster §II.A Def 1).
+    """Exact boundary Cheeger constant h(F) of a gadget's F matrix.
 
-    Cain mapping: F → incidence; V_0 → support.
+    gadget notation: F → incidence; V_0 → support (Webster–Smith–Cohen
+    arXiv:2511.15989 §II.A Def 1 / Cross et al. arXiv:2407.18393 Def 3).
 
-    Returns the exact h(F) when |V_0| ≤ 26 (Gray-code subset enumeration),
-    otherwise the spectral lower bound. Either way:
+    Computed exactly by Gray-code subset enumeration, which is tractable only
+    for |V_0| ≤ 26.
 
         h(g) ≥ 1   ⇒   surgery on this gadget preserves code distance
-                       (Webster Lemma 9; structural argument, no decoder).
+                       (Cross et al. arXiv:2407.18393 Thm 6; structural
+                       argument, no decoder).
         h(g) <  1   ⇒   distance may degrade; consider boost_gadget(g, target=1.0).
 
     Use as a pre-flight check before deciding whether to call boost_gadget.
+
+    Raises:
+        ValueError: if |V_0| > 26. Exact enumeration is infeasible at that size
+            and no valid lower bound on h(F) is available (the spectral proxy
+            ``_spectral_cheeger_screen`` is a heuristic that must not certify a
+            distance claim), so returning a number would be unsound. Compute the
+            exact code distance instead.
     """
     incidence = galois.GF(2)(np.asarray(g.incidence).astype(int))
-    if incidence.shape[1] <= 26:
-        h, _ = _exact_boundary_cheeger(incidence)
-        return h
-    return _spectral_cheeger_lower_bound(incidence)
+    if incidence.shape[1] > 26:
+        raise ValueError(
+            f"cheeger_constant requires |V_0| ≤ 26 for an exact, certifying value; "
+            f"got |V_0|={incidence.shape[1]}. Exact enumeration is infeasible and the "
+            f"spectral proxy is not a valid bound on h(F), so no distance certificate "
+            f"can be issued; compute the exact code distance instead."
+        )
+    h, _ = _exact_boundary_cheeger(incidence)
+    return h
 
 
 def _augment_incidence_with_random_edges(
