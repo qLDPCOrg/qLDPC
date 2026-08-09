@@ -1,4 +1,4 @@
-"""Tests for src/qldpc/circuits/surgery/cheeger.py (cheeger_constant + boost_gadget)."""
+"""Tests for src/qldpc/experimental/surgery/cheeger.py (cheeger_constant + boost_gadget)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from ._webster_fixture import (
 
 def test_cheeger_constant_matches_boost_target() -> None:
     """cheeger_constant(g) reports the Webster boundary Cheeger; boost raises it."""
-    from qldpc.circuits.surgery import boost_gadget, build_gadget, cheeger_constant
+    from qldpc.experimental.surgery import boost_gadget, build_gadget, cheeger_constant
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -34,8 +34,8 @@ def test_cheeger_constant_matches_boost_target() -> None:
 
 
 def test_boost_gadget_dispatches_to_two_methods() -> None:
-    from qldpc.circuits.surgery.cheeger import boost_gadget
-    from qldpc.circuits.surgery.gadget import (
+    from qldpc.experimental.surgery.cheeger import boost_gadget
+    from qldpc.experimental.surgery.gadget import (
         GadgetLayout,
         build_gadget,
     )
@@ -53,8 +53,8 @@ def test_boost_gadget_dispatches_to_two_methods() -> None:
 
 
 def test_boost_gadget_seed_reproducible() -> None:
-    from qldpc.circuits.surgery.cheeger import boost_gadget
-    from qldpc.circuits.surgery.gadget import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget
+    from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -67,8 +67,8 @@ def test_boost_gadget_seed_reproducible() -> None:
 
 @pytest.mark.parametrize("method", ["combinatorial", "distance"])
 def test_boost_gadget_preserves_css_commutation(method: str) -> None:
-    from qldpc.circuits.surgery.cheeger import boost_gadget
-    from qldpc.circuits.surgery.gadget import (
+    from qldpc.experimental.surgery.cheeger import boost_gadget
+    from qldpc.experimental.surgery.gadget import (
         build_gadget,
     )
 
@@ -85,8 +85,8 @@ def test_boost_gadget_preserves_css_commutation(method: str) -> None:
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_boost_gadget_preserves_css_commutation_both_bases(basis: PauliXZ) -> None:
     """boost_gadget on a basis=X or basis=Z gadget preserves CSS commutation."""
-    from qldpc.circuits.surgery.cheeger import boost_gadget
-    from qldpc.circuits.surgery.gadget import (
+    from qldpc.experimental.surgery.cheeger import boost_gadget
+    from qldpc.experimental.surgery.gadget import (
         build_gadget,
     )
 
@@ -117,8 +117,8 @@ def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
     fixture only ships X̄ operators; the basis=X path of distance boost is
     covered by test_boost_gadget_preserves_css_commutation[distance].
     """
-    from qldpc.circuits.surgery.cheeger import boost_gadget
-    from qldpc.circuits.surgery.gadget import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget
+    from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
     z_op = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
@@ -140,7 +140,7 @@ def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
 def test_boost_combinatorial_above_initial_h_enters_loop_body() -> None:
     """Webster code 0 has h(F)=1; boosting to target=2.0 forces the augmentation
     loop to run (adds rows; cheeger constant increases)."""
-    from qldpc.circuits.surgery import boost_gadget, build_gadget, cheeger_constant
+    from qldpc.experimental.surgery import boost_gadget, build_gadget, cheeger_constant
 
     data = load_webster_seed_set(0)
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
@@ -157,11 +157,11 @@ def test_boost_combinatorial_above_initial_h_enters_loop_body() -> None:
 
 def test_boost_combinatorial_rejects_non_positive_target_h() -> None:
     """boost_gadget_cheeger_combinatorial rejects target_h <= 0."""
-    from qldpc.circuits.surgery.cheeger import boost_gadget_cheeger_combinatorial
+    from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    from qldpc.circuits.surgery import build_gadget
+    from qldpc.experimental.surgery import build_gadget
 
     g = build_gadget(code, x, basis=Pauli.X)
     with pytest.raises(ValueError, match="target_h must be positive"):
@@ -170,8 +170,8 @@ def test_boost_combinatorial_rejects_non_positive_target_h() -> None:
 
 def test_boost_combinatorial_rejects_negative_max_extra_qubits() -> None:
     """boost_gadget_cheeger_combinatorial rejects max_extra_qubits < 0."""
-    from qldpc.circuits.surgery import build_gadget
-    from qldpc.circuits.surgery.cheeger import boost_gadget_cheeger_combinatorial
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -182,8 +182,8 @@ def test_boost_combinatorial_rejects_negative_max_extra_qubits() -> None:
 
 def test_boost_distance_rejects_non_positive_target_distance() -> None:
     """boost_gadget_distance rejects target_distance <= 0."""
-    from qldpc.circuits.surgery import build_gadget
-    from qldpc.circuits.surgery.cheeger import boost_gadget_distance
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget_distance
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -194,8 +194,8 @@ def test_boost_distance_rejects_non_positive_target_distance() -> None:
 
 def test_boost_distance_rejects_negative_max_extra_qubits() -> None:
     """boost_gadget_distance rejects max_extra_qubits < 0."""
-    from qldpc.circuits.surgery import build_gadget
-    from qldpc.circuits.surgery.cheeger import boost_gadget_distance
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget_distance
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -206,7 +206,7 @@ def test_boost_distance_rejects_negative_max_extra_qubits() -> None:
 
 def test_boost_gadget_rejects_unknown_method() -> None:
     """boost_gadget(method='bogus') raises ValueError."""
-    from qldpc.circuits.surgery import boost_gadget, build_gadget
+    from qldpc.experimental.surgery import boost_gadget, build_gadget
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -219,7 +219,7 @@ def test_exact_boundary_cheeger_n_V_below_2_returns_inf() -> None:
     """_exact_boundary_cheeger on a 1-column F returns (inf, [0])."""
     import galois
 
-    from qldpc.circuits.surgery.cheeger import _exact_boundary_cheeger
+    from qldpc.experimental.surgery.cheeger import _exact_boundary_cheeger
 
     F = galois.GF(2)(np.array([[1]], dtype=np.int_))
     h, v_star = _exact_boundary_cheeger(F)
@@ -232,7 +232,7 @@ def test_exact_boundary_cheeger_rejects_n_V_above_26() -> None:
     """_exact_boundary_cheeger raises on |V| > 26 (would explode subset enumeration)."""
     import galois
 
-    from qldpc.circuits.surgery.cheeger import _exact_boundary_cheeger
+    from qldpc.experimental.surgery.cheeger import _exact_boundary_cheeger
 
     F = galois.GF(2)(np.zeros((2, 27), dtype=np.int_))
     with pytest.raises(ValueError, match="requires \\|V\\| ≤ 26"):
@@ -243,7 +243,7 @@ def test_spectral_cheeger_lower_bound_matches_lambda2_over_2() -> None:
     """_spectral_cheeger_lower_bound returns lambda_2(F F^T) / 2 for the given F."""
     import galois
 
-    from qldpc.circuits.surgery.cheeger import _spectral_cheeger_lower_bound
+    from qldpc.experimental.surgery.cheeger import _spectral_cheeger_lower_bound
 
     F = galois.GF(2)(np.array([[1, 1, 0], [0, 1, 1], [1, 0, 1]], dtype=np.int_))
     h = _spectral_cheeger_lower_bound(F)
@@ -256,7 +256,7 @@ def test_spectral_cheeger_lower_bound_degenerate_returns_zero() -> None:
     """_spectral_cheeger_lower_bound on a single-row F returns 0.0."""
     import galois
 
-    from qldpc.circuits.surgery.cheeger import _spectral_cheeger_lower_bound
+    from qldpc.experimental.surgery.cheeger import _spectral_cheeger_lower_bound
 
     F = galois.GF(2)(np.array([[1, 1, 0]], dtype=np.int_))
     assert _spectral_cheeger_lower_bound(F) == 0.0
@@ -266,7 +266,7 @@ def test_cheeger_constant_dispatches_to_spectral_for_n_V_above_26() -> None:
     """cheeger_constant uses _spectral_cheeger_lower_bound when |V_0| > 26."""
     import dataclasses
 
-    from qldpc.circuits.surgery import build_gadget, cheeger_constant
+    from qldpc.experimental.surgery import build_gadget, cheeger_constant
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -287,7 +287,7 @@ def test_cheeger_constant_dispatches_to_spectral_for_n_V_above_26() -> None:
 def test_augment_incidence_with_random_edges_adds_rows_disjoint_from_existing() -> None:
     """_augment_incidence_with_random_edges adds degree-2 rows whose endpoint
     pairs are not already present in the base incidence."""
-    from qldpc.circuits.surgery.cheeger import _augment_incidence_with_random_edges
+    from qldpc.experimental.surgery.cheeger import _augment_incidence_with_random_edges
 
     base = np.zeros((1, 5), dtype=np.int_)
     base[0, 0] = 1
@@ -305,7 +305,7 @@ def test_augment_incidence_with_random_edges_adds_rows_disjoint_from_existing() 
 
 def test_augment_incidence_with_random_edges_returns_none_when_too_few_columns() -> None:
     """Returns None if n_X < 2 (no valid degree-2 row exists)."""
-    from qldpc.circuits.surgery.cheeger import _augment_incidence_with_random_edges
+    from qldpc.experimental.surgery.cheeger import _augment_incidence_with_random_edges
 
     base = np.zeros((1, 1), dtype=np.int_)
     out = _augment_incidence_with_random_edges(base, n_new_edges=1, rng=np.random.default_rng(0))
@@ -314,7 +314,7 @@ def test_augment_incidence_with_random_edges_returns_none_when_too_few_columns()
 
 def test_augment_incidence_with_random_edges_returns_base_when_no_new_edges_requested() -> None:
     """Returns base incidence unchanged if n_new_edges == 0."""
-    from qldpc.circuits.surgery.cheeger import _augment_incidence_with_random_edges
+    from qldpc.experimental.surgery.cheeger import _augment_incidence_with_random_edges
 
     base = np.zeros((1, 3), dtype=np.int_)
     base[0, 0] = 1
@@ -326,7 +326,7 @@ def test_augment_incidence_with_random_edges_returns_base_when_no_new_edges_requ
 
 def test_augment_incidence_with_random_edges_returns_none_when_no_fresh_pair() -> None:
     """When all degree-2 pairs are already covered, the sampler exhausts and returns None."""
-    from qldpc.circuits.surgery.cheeger import _augment_incidence_with_random_edges
+    from qldpc.experimental.surgery.cheeger import _augment_incidence_with_random_edges
 
     # 2 columns: only pair is (0,1), already present.
     base = np.zeros((1, 2), dtype=np.int_)
@@ -340,8 +340,8 @@ def test_boost_combinatorial_rejects_synthetic_n_V_above_26() -> None:
     """Combinatorial boost raises on synthetic |V_0| > 26 (subset enumeration infeasible)."""
     import dataclasses
 
-    from qldpc.circuits.surgery import build_gadget
-    from qldpc.circuits.surgery.cheeger import boost_gadget_cheeger_combinatorial
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -356,8 +356,8 @@ def test_boost_combinatorial_max_extra_qubits_saturation_returns_partial_augment
     """When boost can't reach target_h within max_extra_qubits, it stops early
     and returns a partially-augmented gadget. Webster0 (h0=1) with target=10
     saturates at max_extra=2."""
-    from qldpc.circuits.surgery import build_gadget
-    from qldpc.circuits.surgery.cheeger import boost_gadget_cheeger_combinatorial
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
 
     data = load_webster_seed_set(0)
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
