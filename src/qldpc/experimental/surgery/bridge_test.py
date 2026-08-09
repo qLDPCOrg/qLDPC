@@ -149,8 +149,10 @@ def test_cellulate_no_op_when_already_short() -> None:
 
 
 def test_cellulate_raises_when_port_cycle_has_no_available_chord() -> None:
-    """RuntimeError when a port-subgraph cycle exists but every (i, j) pair
-    is already an edge — i.e. the port subgraph is complete on those vertices."""
+    """RuntimeError when a port-subgraph cycle exists but every (i, j) pair is already an edge.
+
+    I.e. the port subgraph is complete on those vertices.
+    """
     import networkx as nx
 
     from qldpc.experimental.surgery.bridge import _cellulate_port_subgraph
@@ -176,9 +178,10 @@ def test_cellulate_raises_when_port_cycle_has_no_available_chord() -> None:
 
 
 def test_cellulate_port_subgraph_breaks_long_port_cycle() -> None:
-    """Ports are a strict subset of vertices, with a long cycle on the port
-    subgraph. Cellulation breaks the port cycle without inspecting non-port
-    edges elsewhere in G_aux."""
+    """Ports are a strict subset of vertices, with a long cycle on the port subgraph.
+
+    Cellulation breaks the port cycle without inspecting non-port edges elsewhere in G_aux.
+    """
     import networkx as nx
 
     from qldpc.experimental.surgery.bridge import _cellulate_port_subgraph
@@ -223,7 +226,10 @@ def test_cellulate_port_subgraph_skips_non_port_cycle() -> None:
 
 
 def test_bridge_dataclass_fields_universal_adapter() -> None:
-    """Bridge dataclass exposes the universal-adapter fields (Swaroop et al. arXiv:2410.03628 §IV)."""
+    """Bridge dataclass exposes the universal-adapter fields.
+
+    Swaroop et al. arXiv:2410.03628 §IV.
+    """
     import dataclasses
 
     from qldpc.experimental.surgery.bridge import Bridge
@@ -307,8 +313,9 @@ def test_build_bridge_rejects_basis_mismatch() -> None:
 
 
 def test_build_bridge_bb18_hyperedge_and_long_cycle() -> None:
-    """End-to-end: Cain bb_18 BBCode triggers both Bug 1 (hyperedge) and
-    Bug 2 (long port-subgraph cycle). build_bridge must succeed and produce
+    """End-to-end: Cain bb_18 BBCode triggers both Bug 1 (hyperedge) and Bug 2 (long cycle).
+
+    Bug 2 is a long port-subgraph cycle. build_bridge must succeed and produce
     a merged code with k_merged = k_orig - 1 (intra-code joint Z̄_1 ⊗ Z̄_2).
 
     Two *distinct* Z-logicals are used so that the joint measurement reduces k
@@ -412,8 +419,10 @@ def test_canonical_H_R_rejects_w_below_2() -> None:
 
 
 def test_skip_tree_fullrank_defaults_edge_index_when_omitted() -> None:
-    """_skip_tree_fullrank with edge_index_verts=None builds the default index dict
-    from S.edges() order — matches the explicit-dict path."""
+    """_skip_tree_fullrank with edge_index_verts=None builds the default index dict.
+
+    Built from S.edges() order — matches the explicit-dict path.
+    """
     import networkx as nx
 
     from qldpc.experimental.surgery.bridge import _skip_tree_fullrank
@@ -465,7 +474,7 @@ def test_build_bridge_rejects_spanning_tree_root_out_of_range_right() -> None:
         build_bridge(g, g, spanning_tree_root_r=99)
 
 
-def _bb_72_12():
+def _bb_72_12() -> codes.BBCode:
     """Cain et al. arXiv:2603.28627 Table I `[[72, 12]]` BB code (cheeger h<1)."""
     import sympy
 
@@ -510,10 +519,12 @@ def test_build_bridge_skiptree_invariant_holds_after_boost() -> None:
         )
 
 
-def _bb_36_8():
-    """BBCode (l=3, m=6) [[36, 8]] — has *duplicate* weight-2 incidence rows
-    when restricted to Z̄_0, exercising _run_skiptree_on_port_subgraph's
-    duplicate-edge guard."""
+def _bb_36_8() -> codes.BBCode:
+    """BBCode (l=3, m=6) [[36, 8]] — has *duplicate* weight-2 incidence rows.
+
+    When restricted to Z̄_0, this exercises _run_skiptree_on_port_subgraph's
+    duplicate-edge guard.
+    """
     import sympy
 
     xs, ys = sympy.symbols("x y")

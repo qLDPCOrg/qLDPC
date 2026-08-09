@@ -1,7 +1,7 @@
-"""Standalone bridge adapter for two-PPM joint surgery
-(Swaroop et al. arXiv:2410.03628 §IV / §VII).
+"""Standalone bridge adapter for two-PPM joint surgery.
 
-Handles both intra-code (g1.code is g2.code) and inter-code joints.
+Swaroop et al. arXiv:2410.03628 §IV / §VII. Handles both intra-code
+(g1.code is g2.code) and inter-code joints.
 """
 
 from __future__ import annotations
@@ -341,7 +341,8 @@ def _run_skiptree_on_port_subgraph(
         u_orig, v_orig = sorted(int(x) for x in cols)
         if u_orig not in new_of_orig or v_orig not in new_of_orig:
             continue
-        e_relab = tuple(sorted((new_of_orig[u_orig], new_of_orig[v_orig])))
+        lo, hi = sorted((new_of_orig[u_orig], new_of_orig[v_orig]))
+        e_relab = (lo, hi)
         if e_relab in edge_idx_tree and e_relab not in assigned_edges:
             T_full[:, r] = T_relab[:, edge_idx_tree[e_relab]]
             assigned_edges.add(e_relab)

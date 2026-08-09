@@ -201,7 +201,7 @@ def test_step3_assemble_csscode_with_distinct_nV_nC() -> None:
     )
 
     support, data_checks, incidence = _step1_restriction(code, x_logical)
-    # V0 = {0,1,2,3} (nV=4); HZ row0 touches {0,1}, HZ row1 touches {0,2} -> data_checks=(0,1) (nC=2)
+    # V0 = {0,1,2,3} (nV=4); HZ r0 touches {0,1}, r1 touches {0,2} -> data_checks=(0,1) (nC=2)
     assert len(support) != len(data_checks), (
         f"nV={len(support)} == nC={len(data_checks)}: this test requires nV != nC to catch the bug"
     )
@@ -287,8 +287,10 @@ def test_build_generalised_bicycle_code_constructs_css() -> None:
 
 @pytest.mark.parametrize("code_index,n_anc", WEBSTER_TABLE_I_ANCILLA_MEAS_COMP)
 def test_webster_table_i_ancilla_meas_comp_exact(code_index: int, n_anc: int) -> None:
-    """Webster Table I in Cain notation: |Q'| + |S'_meas| + |S'_comp| matches
-    each of the 4 generalised-bicycle codes. Reproduces Webster Table I exactly."""
+    """Webster Table I in Cain notation: |Q'| + |S'_meas| + |S'_comp| matches each code.
+
+    Matches each of the 4 generalised-bicycle codes; reproduces Webster Table I exactly.
+    """
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
     )
@@ -307,8 +309,10 @@ def test_webster_table_i_ancilla_meas_comp_exact(code_index: int, n_anc: int) ->
 
 
 def test_build_gadget_basis_is_required() -> None:
-    """basis has no default: a CSS code's X-logical and Z-logical can coincide
-    (e.g. self-dual Steane), so the caller must declare intent explicitly.
+    """basis has no default: a CSS code's X-logical and Z-logical can coincide.
+
+    For a self-dual code (e.g. Steane) they coincide, so the caller must declare
+    intent explicitly.
     """
     from qldpc.experimental.surgery.gadget import build_gadget
 
@@ -351,10 +355,12 @@ def test_build_gadget_z_basis_css_commutation() -> None:
 
 
 def test_build_gadget_z_basis_dual_matches_x_basis_on_dual_code() -> None:
-    """basis-symmetric invariant: build_gadget(code, z, basis=Z) gives the same
-    merged matrices as build_gadget(dual_code, z, basis=X), where dual_code has
-    HX/HZ swapped. The swap labels swap too, so we compare HX_z vs HZ_dx_x and
-    HZ_z vs HX_dx_x."""
+    """basis-symmetric invariant: build_gadget on the Z basis matches its dual on the X basis.
+
+    build_gadget(code, z, basis=Z) gives the same merged matrices as
+    build_gadget(dual_code, z, basis=X), where dual_code has HX/HZ swapped. The
+    swap labels swap too, so we compare HX_z vs HZ_dx_x and HZ_z vs HX_dx_x.
+    """
     from qldpc.codes.common import CSSCode
     from qldpc.experimental.surgery.gadget import build_gadget
 
@@ -379,8 +385,10 @@ def test_build_gadget_z_basis_dual_matches_x_basis_on_dual_code() -> None:
 
 
 def test_webster_table_i_z_basis_ancilla_meas_comp_exact() -> None:
-    """Webster Z̄_1 seed in Cain notation: |Q'| + |S'_meas| + |S'_comp| matches
-    (basis-symmetric dual; reproduces Webster Table I)."""
+    """Webster Z̄_1 seed in Cain notation: |Q'| + |S'_meas| + |S'_comp| matches.
+
+    Basis-symmetric dual; reproduces Webster Table I.
+    """
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
     )

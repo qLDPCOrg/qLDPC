@@ -138,8 +138,10 @@ def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
 
 
 def test_boost_combinatorial_above_initial_h_enters_loop_body() -> None:
-    """Webster code 0 has h(F)=1; boosting to target=2.0 forces the augmentation
-    loop to run (adds rows; cheeger constant increases)."""
+    """Webster code 0 has h(F)=1; boosting to target=2.0 forces the augmentation loop to run.
+
+    Adds rows; cheeger constant increases.
+    """
     from qldpc.experimental.surgery import boost_gadget, build_gadget, cheeger_constant
 
     data = load_webster_seed_set(0)
@@ -285,8 +287,10 @@ def test_cheeger_constant_raises_for_n_V_above_26() -> None:
 
 
 def test_augment_incidence_with_random_edges_adds_rows_disjoint_from_existing() -> None:
-    """_augment_incidence_with_random_edges adds degree-2 rows whose endpoint
-    pairs are not already present in the base incidence."""
+    """_augment_incidence_with_random_edges adds degree-2 rows with new endpoint pairs.
+
+    The endpoint pairs are not already present in the base incidence.
+    """
     from qldpc.experimental.surgery.cheeger import _augment_incidence_with_random_edges
 
     base = np.zeros((1, 5), dtype=np.int_)
@@ -353,10 +357,11 @@ def test_boost_combinatorial_rejects_synthetic_n_V_above_26() -> None:
 
 
 def test_boost_combinatorial_raises_when_target_unreachable_in_budget() -> None:
-    """When boost can't reach target_h within max_extra_qubits, it raises
-    RuntimeError rather than silently returning an under-target (distance-
-    degraded) gadget. Webster0 (h0=1) with target=10 cannot be reached in
-    max_extra=2."""
+    """When boost can't reach target_h within max_extra_qubits, it raises RuntimeError.
+
+    It raises rather than silently returning an under-target (distance-degraded)
+    gadget. Webster0 (h0=1) with target=10 cannot be reached in max_extra=2.
+    """
     from qldpc.experimental.surgery import build_gadget
     from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
 

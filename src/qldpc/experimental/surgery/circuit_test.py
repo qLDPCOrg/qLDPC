@@ -59,8 +59,10 @@ def test_build_single_ppm_circuit_with_noise_detectors_fire() -> None:
 
 
 def test_classify_reliable_round1_checks_basis_x() -> None:
-    """For basis=X: reliable round-1 checks are data H_X (first m_X X-checks)
-    plus gauge-fix G (last n_comp_checks Z-checks)."""
+    """For basis=X: reliable round-1 checks are data H_X plus gauge-fix G.
+
+    H_X is the first m_X X-checks; gauge-fix G is the last n_comp_checks Z-checks.
+    """
     import galois
 
     from qldpc.circuits.bookkeeping import QubitIDs
@@ -90,8 +92,10 @@ def test_classify_reliable_round1_checks_basis_x() -> None:
 
 
 def test_classify_reliable_round1_checks_basis_z() -> None:
-    """For basis=Z: reliable round-1 checks are data H_Z (first m_Z Z-checks)
-    plus gauge-fix G (last n_comp_checks X-checks)."""
+    """For basis=Z: reliable round-1 checks are data H_Z plus gauge-fix G.
+
+    H_Z is the first m_Z Z-checks; gauge-fix G is the last n_comp_checks X-checks.
+    """
     import galois
 
     from qldpc.circuits.bookkeeping import QubitIDs
@@ -1562,9 +1566,10 @@ def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
 def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
     error_qubit: int,
 ) -> None:
-    """Inject X_ERROR(1.0) on data qubit ``error_qubit`` between state
-    prep and the first QEC round of the Steane basis=Z PPM. Assert
-    exactly the round-1 Z-stab detectors whose support contains
+    """Inject X_ERROR(1.0) on data qubit ``error_qubit`` before the first QEC round.
+
+    Injected between state prep and the first QEC round of the Steane basis=Z PPM.
+    Assert exactly the round-1 Z-stab detectors whose support contains
     ``error_qubit`` fire (by row index, not just count).
 
     Why X_ERROR (not data_init):
@@ -1852,8 +1857,10 @@ def test_single_ppm_even_rounds_truth_table() -> None:
 
 
 def test_keep_only_observable_drops_others_and_recurses_into_repeat() -> None:
-    """keep_only_observable retains the matching OBSERVABLE_INCLUDE and recurses
-    into REPEAT blocks, dropping all other observable IDs."""
+    """keep_only_observable retains the matching OBSERVABLE_INCLUDE observable.
+
+    Recurses into REPEAT blocks, dropping all other observable IDs.
+    """
     from qldpc.experimental.surgery.circuit import keep_only_observable
 
     inner = stim.Circuit("""

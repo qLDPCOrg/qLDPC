@@ -165,11 +165,11 @@ def _augment_incidence_with_random_edges(
     n_new_edges: int,
     rng: np.random.Generator,
 ) -> np.ndarray | None:
-    """Add n_new_edges random degree-2 rows to F (each connects two distinct
-    columns not already directly connected via another existing row).
+    """Add n_new_edges random degree-2 rows to F.
 
-    Returns None if a collision-free sample could not be drawn within the
-    attempt budget.
+    Each new row connects two distinct columns not already directly connected
+    via another existing row. Returns None if a collision-free sample could not
+    be drawn within the attempt budget.
     """
     incidence = incidence_base.copy()
     n_X = incidence.shape[1]
@@ -369,8 +369,9 @@ def boost_gadget_distance(
     decoder_trials: int = 10,
     seed: int | None = None,
 ) -> GadgetLayout:
-    """Distance-verifying gadget boost (Williamson & Yoder arXiv:2410.02213 /
-    Webster, Smith, Cohen arXiv:2511.15989).
+    """Distance-verifying gadget boost.
+
+    Williamson & Yoder arXiv:2410.02213 / Webster, Smith, Cohen arXiv:2511.15989.
 
     gadget notation: F → incidence; κ' → new ancilla qubits.
 
@@ -447,6 +448,7 @@ def boost_gadget_distance(
             incidence_extra_rows = np.asarray(incidence_extra[incidence_base.shape[0] :]).astype(
                 np.uint8
             )
+            # Best-effort heuristic search: skip any augmentation that fails to build.
             try:
                 candidate = build_gadget_augmented(
                     g.code,
@@ -454,7 +456,7 @@ def boost_gadget_distance(
                     incidence_extra_rows,
                     basis=g.basis,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S112
                 continue
             if _passes_decoder(candidate):
                 return candidate

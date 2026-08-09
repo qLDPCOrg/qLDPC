@@ -57,7 +57,8 @@ def build_generalised_bicycle_code(ell: int, A_set: list[int], B_set: list[int])
 
     Args:
         ell: cyclic group order.
-        A_set, B_set: subsets of {0, 1, ..., ell-1}.
+        A_set: subset of {0, 1, ..., ell-1} defining A(x) = sum(x^a for a in A_set).
+        B_set: subset of {0, 1, ..., ell-1} defining B(x) = sum(x^b for b in B_set).
 
     Returns:
         CSSCode on 2*ell data qubits with check matrices [A | B] and

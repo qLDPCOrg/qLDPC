@@ -29,8 +29,9 @@ def _gadget_merged_csscode(g: GadgetLayout) -> CSSCode:
 
 
 def keep_only_observable(circuit: stim.Circuit, keep_idx: int) -> stim.Circuit:
-    """Return a copy of ``circuit`` with all OBSERVABLE_INCLUDE entries dropped
-    except the one whose first argument equals ``keep_idx``. Recurses into
+    """Return a copy of ``circuit`` with all OBSERVABLE_INCLUDE entries dropped except one.
+
+    Keeps only the observable whose first argument equals ``keep_idx``. Recurses into
     REPEAT blocks so observables inside loops are filtered the same way.
 
     For surgery PPM circuits, pass ``keep_idx=0`` to retain only obs0
@@ -59,8 +60,9 @@ def keep_only_observable(circuit: stim.Circuit, keep_idx: int) -> stim.Circuit:
 
 
 def logical_state_init(code: CSSCode, state: str, *, log_idx: int) -> str:
-    """Per-qubit ``data_init`` string preparing a Pauli logical state on
-    logical qubit ``log_idx`` of a CSS code.
+    """Per-qubit ``data_init`` string preparing a Pauli logical state.
+
+    Prepares the state on logical qubit ``log_idx`` of a CSS code.
 
     ``state`` ∈ {"0", "1", "+", "-"}:
       * "0" → ``"0" * n``  — |0⟩^n projects to |0⟩_L^{⊗k} for any CSS code
@@ -828,8 +830,10 @@ def _surgery_qec_cycle_joint(
     *,
     intercode: bool,
 ) -> tuple[stim.Circuit, MeasurementRecord, DetectorRecord]:
-    """Joint-code variant of _surgery_qec_cycle that classifies reliable checks
-    across both gadgets + the bridge's new cycle-checks."""
+    """Joint-code variant of _surgery_qec_cycle.
+
+    Classifies reliable checks across both gadgets + the bridge's new cycle-checks.
+    """
     strategy = EdgeColoring()
     one_round, round_measurement_record = strategy.get_circuit(joint_code, qubit_ids)
     reliable = set(
