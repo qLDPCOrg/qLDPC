@@ -241,8 +241,9 @@ class GroupRing:
         elements (e.g. over ``GF(4)`` the integer ``2`` is the element with integer representation
         2, the primitive element -- not ``2 * one``, which is ``0`` in characteristic 2).  Integers
         outside ``[0, field.order)`` are accepted only when unambiguous: over a prime field they
-        reduce modulo the order, and a negative integer is read as the additive inverse of its
-        magnitude; otherwise a ValueError is raised.
+        reduce modulo the order, and over an extension field a negative integer in
+        ``(-field.order, 0)`` is read as the additive inverse of its magnitude; any other
+        out-of-range integer raises a ValueError.
         """
         if not 0 <= value < self.field.order:
             if self.field.degree == 1:
