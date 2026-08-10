@@ -1505,10 +1505,11 @@ def test_logical_state_init_end_to_end_bbcode_basis_z(state: str, expected_obs0:
 def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
     """obs0 reads the merged Z̄ eigenvalue independently of R.
 
-    Webster, Smith, Cohen arXiv:2511.15989 §II.A gives the single-round identity Z̄ = ∏_{v ∈ support}
-    A_v on the merged stabilizer group: the XOR of one round's meas-check outcomes equals the
-    eigenvalue bit of Z̄. Cain et al. arXiv:2603.28627 §B.1 selects the final QEC round as the
-    readout point; detectors carry the FT load round-to-round.
+    Webster, Smith, Cohen arXiv:2511.15989 §II.A gives the single-round identity
+    Z̄ = ∏_{v ∈ support} A_v on the merged stabilizer group: the XOR of one round's meas-check
+    outcomes equals the eigenvalue bit of Z̄. Reading at the final QEC round is
+    decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D); detectors
+    carry the FT load round-to-round.
 
     Therefore obs0 = int(state) for every R ≥ 1:
       * state="0" (|0⟩^n → Z̄=+1): obs0 = 0
