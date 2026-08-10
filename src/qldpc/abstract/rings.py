@@ -237,7 +237,12 @@ class GroupRing:
     def _eval_int(self, value: int) -> galois.FieldArray:
         """Evaluate an integer as an element of the base field of this ring.
 
-        Some integers may have "invalid" but unambiguous interpretations as field members.
+        Over an extension field the integer is interpreted via galois' integer encoding of field
+        elements (e.g. over ``GF(4)`` the integer ``2`` is the element with integer representation
+        2, the primitive element -- not ``2 * one``, which is ``0`` in characteristic 2).  Integers
+        outside ``[0, field.order)`` are accepted only when unambiguous: over a prime field they
+        reduce modulo the order, and a negative integer is read as the additive inverse of its
+        magnitude; otherwise a ValueError is raised.
         """
         if not 0 <= value < self.field.order:
             if self.field.degree == 1:

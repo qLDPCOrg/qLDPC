@@ -456,7 +456,13 @@ class Group:
 
     @staticmethod
     def from_generating_mats(*matrices: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> Group:
-        """Constructs a Group from a given set of generating matrices."""
+        """Construct a Group from a set of generating matrices.
+
+        The matrices should be over a finite field (e.g. a ``galois.FieldArray``); their products
+        then stay bounded and the generated group is finite.  Plain integer matrices multiply with
+        unbounded integer arithmetic, so a group that is infinite as an integer matrix group will
+        not terminate here.
+        """
         if not matrices:
             return TrivialGroup()
 
@@ -895,7 +901,7 @@ class SpecialLinearGroup(Group):
     def get_generating_mats(
         dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Generating matrices for the Special Linear group, based on arXiv:2201.09155."""
+        """Generating matrices for the Special Linear group, based on https://arxiv.org/abs/2201.09155."""
         field = resolve_field(field)
         minus_one = -field(1)
         gen_w = minus_one * np.diag(np.ones(dimension - 1, dtype=int), k=-1).view(field)

@@ -103,7 +103,10 @@ def get_bimodule(ring: GroupRing) -> GroupRing:
 
     Elements ``r ⨂ s ∈ F[G ⨂ G]`` of the bimodule act on elements of the base ring as::
 
-        (r ⨂ s)(t) = r·t·s.
+        (r ⨂ s)(t) = r·t·s⁻¹.
+
+    (The right sector lifts to an anti-representation of the inverse, hence ``s⁻¹`` rather than
+    ``s``.)
 
     When lifting a RingArray matrix over a bimodule, the "left" entries of ``G ⨂ G`` get lifted to
     an ordinary representation, while the "right" entries get lifted to an anti-representation.
