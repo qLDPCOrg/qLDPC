@@ -530,7 +530,7 @@ class RingMember:
         return vector
 
 
-class Element(RingMember):  # pragma: no cover
+class Element(RingMember):
     """Deprecated alias for RingMember."""
 
     def __getattribute__(self, name: str) -> Any:
@@ -1135,7 +1135,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         )
 
 
-class Protograph(RingArray):  # pragma: no cover
+class Protograph(RingArray):
     """Deprecated alias for RingArray."""
 
     def __getattribute__(self, name: str) -> Any:

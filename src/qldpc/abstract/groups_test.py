@@ -26,6 +26,7 @@ import random
 import unittest.mock
 from collections.abc import Callable
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -327,6 +328,14 @@ def test_psl_requires_trivial_center() -> None:
             abstract.PSL(dimension, field)  # default linear_rep=True
         # the regular representation is always available
         assert abstract.PSL(dimension, field, linear_rep=False).order > 0
+
+
+def test_resolve_field() -> None:
+    """resolve_field accepts None (GF2 default), a field order, or a galois field type."""
+    assert abstract.resolve_field(None) is galois.GF2
+    assert abstract.resolve_field(3).order == 3
+    field = galois.GF(4)
+    assert abstract.resolve_field(field) is field
 
 
 def test_small_group() -> None:

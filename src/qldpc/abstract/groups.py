@@ -54,7 +54,7 @@ from qldpc import external
 
 def resolve_field(
     field: int | type[galois.FieldArray] | None,
-) -> type[galois.FieldArray]:  # pragma: no cover
+) -> type[galois.FieldArray]:
     """Parse a finite field argument to obtain an actual finite field."""
     if field is None:
         return galois.GF2
