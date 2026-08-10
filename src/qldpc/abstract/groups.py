@@ -31,6 +31,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import itertools
 import math
@@ -61,6 +62,23 @@ def resolve_field(
 
 
 NestedSequence = Sequence[object | Sequence["NestedSequence"]]
+
+
+@contextlib.contextmanager
+def _preserve_sympy_rng() -> Iterator[None]:
+    """Restore SymPy's global RNG state on exit, so a local reseed leaves other consumers intact.
+
+    ``sympy.core.random.seed`` reseeds both the main RNG and the separate "assumptions" RNG, so
+    both are saved and restored.
+    """
+    rng_state = sympy.core.random.rng.getstate()
+    assumptions_state = sympy.core.random._assumptions_rng.getstate()
+    try:
+        yield
+    finally:
+        sympy.core.random.rng.setstate(rng_state)
+        sympy.core.random._assumptions_rng.setstate(assumptions_state)
+
 
 ################################################################################
 # groups and group members
@@ -182,10 +200,28 @@ class Group:
             self._lift = lift or group._lift
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Group) and self._group == other._group
+        # Two groups are equal only if they share a representation as well as an underlying group:
+        # equality is consistent with __hash__ (which also mixes in the generation function and
+        # lift).  Use ``equiv`` to compare the underlying groups alone, ignoring the representation.
+        return (
+            isinstance(other, Group)
+            and self._group == other._group
+            and self._generate_func == other._generate_func
+            and self._lift == other._lift
+        )
 
     def __hash__(self) -> int:
         return hash((self._group, self._generate_func, self._lift))
+
+    def equiv(self, other: object) -> bool:
+        """Do these share the same underlying group, ignoring their representations (lifts)?
+
+        Unlike ``==``, this compares only the underlying SymPy permutation groups, so groups that
+        differ solely in their custom lift (e.g. the same group built twice, hence carrying
+        distinct lift closures) compare as equivalent.  This is the equality this class used
+        historically.
+        """
+        return isinstance(other, Group) and self._group == other._group
 
     @property
     def name(self) -> str:
@@ -274,14 +310,18 @@ class Group:
 
     def random(self, *, seed: int | None = None) -> GroupMember:
         """A random element this group."""
-        if seed is not None:
-            sympy.core.random.seed(seed)
+        with contextlib.ExitStack() as stack:
+            # A seed reseeds SymPy's global RNG; confine that reseed to this call (SymPy exposes no
+            # per-call random stream) by restoring the RNG state on the way out.
+            if seed is not None:
+                stack.enter_context(_preserve_sympy_rng())
+                sympy.core.random.seed(seed)
 
-        # HACK to circumvent an error thrown by sympy when "unranking" an empty Permutation
-        if self.generators == [GroupMember()]:
-            return self.identity
+            # HACK to circumvent an error thrown by sympy when "unranking" an empty Permutation
+            if self.generators == [GroupMember()]:
+                return self.identity
 
-        return GroupMember.from_sympy(self._group.random())
+            return GroupMember.from_sympy(self._group.random())
 
     def regular_lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
         """Lift a group member to its regular representation.
@@ -480,40 +520,44 @@ class Group:
                 "A random symmetric subset of this group must have a size between 1 and"
                 f" {self.order} (provided: {size})"
             )
-        if seed is not None:
-            sympy.core.random.seed(seed)
+        with contextlib.ExitStack() as stack:
+            # A seed reseeds SymPy's global RNG; confine that reseed to this call (SymPy exposes no
+            # per-call random stream) by restoring the RNG state on the way out.
+            if seed is not None:
+                stack.enter_context(_preserve_sympy_rng())
+                sympy.core.random.seed(seed)
 
-        singles = set()  # group members equal to their own inverse
-        doubles = set()  # pairs of group members and their inverses
-        while True:  # sounds dangerous, but bear with me...
-            member = self.random()
-            if exclude_identity and member == self.identity:
-                continue  # pragma: no cover
+            singles = set()  # group members equal to their own inverse
+            doubles = set()  # pairs of group members and their inverses
+            while True:  # sounds dangerous, but bear with me...
+                member = self.random()
+                if exclude_identity and member == self.identity:
+                    continue  # pragma: no cover
 
-            # always add group members and their inverses
-            if member == ~member:
-                singles.add(member)
-            else:
-                doubles.add(member)
-                doubles.add(~member)
+                # always add group members and their inverses
+                if member == ~member:
+                    singles.add(member)
+                else:
+                    doubles.add(member)
+                    doubles.add(~member)
 
-            # count how many extra group members we have found
-            num_extra = len(singles) + len(doubles) - size
+                # count how many extra group members we have found
+                num_extra = len(singles) + len(doubles) - size
 
-            if not num_extra:
-                # if we have the correct number of group members, we are done
-                return singles | doubles
+                if not num_extra:
+                    # if we have the correct number of group members, we are done
+                    return singles | doubles
 
-            elif num_extra > 0 and len(singles):
-                # we have overshot, so throw away members to get down to the right size
-                for _ in range(num_extra // 2):
-                    member = sorted(doubles)[sympy.core.random.randint(0, len(doubles) - 1)]
-                    doubles.remove(member)
-                    doubles.remove(~member)
-                if num_extra % 2:
-                    member = sorted(singles)[sympy.core.random.randint(0, len(singles) - 1)]
-                    singles.remove(member)
-                return singles | doubles
+                elif num_extra > 0 and len(singles):
+                    # we have overshot, so throw away members to get down to the right size
+                    for _ in range(num_extra // 2):
+                        member = sorted(doubles)[sympy.core.random.randint(0, len(doubles) - 1)]
+                        doubles.remove(member)
+                        doubles.remove(~member)
+                    if num_extra % 2:
+                        member = sorted(singles)[sympy.core.random.randint(0, len(singles) - 1)]
+                        singles.remove(member)
+                    return singles | doubles
 
     @staticmethod
     def from_name(

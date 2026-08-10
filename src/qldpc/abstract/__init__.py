@@ -36,7 +36,6 @@ from .wedderburn_artin import (
 )
 
 __all__ = [
-    "GF2",
     "PSL",
     "SL",
     "AbelianGroup",

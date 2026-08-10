@@ -96,12 +96,17 @@ class GroupRing:
         return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
+        # Two group algebras are equal when they share a base field and underlying group; the
+        # group's representation (lift) is irrelevant here, so compare with ``Group.equiv``.  This
+        # keeps equality value-based, and __hash__ (below) is keyed on the same stable data.
         return (
-            isinstance(other, GroupRing) and self.field is other.field and self.group == other.group
+            isinstance(other, GroupRing)
+            and self.field is other.field
+            and self.group.equiv(other.group)
         )
 
     def __hash__(self) -> int:
-        return hash((self.field.order, self.group))
+        return hash((self.field.order, self.group.to_sympy()))
 
     @property
     def name(self) -> str:
@@ -114,7 +119,7 @@ class GroupRing:
     @property
     def is_commutative(self) -> bool:
         """Is this ring commutative?"""
-        return isinstance(self, AbelianGroup) or self._group.is_abelian
+        return self._group.is_abelian
 
     @property
     def is_abelian(self) -> bool:
@@ -488,7 +493,10 @@ class RingMember:
         try:
             matrix = self.regular_lift()
             matrix_inv = np.linalg.inv(matrix).view(self.field)
-            return RingMember.from_vector(matrix_inv[:, 0], self.ring)
+            # ``regular_lift`` M satisfies M @ s.to_vector() == (self * s).to_vector(), so the
+            # inverse element solves M @ x == one.to_vector(), i.e. x = M^{-1} @ one.to_vector().
+            # (This is column 0 of M^{-1} only when the identity is first in ``group.generate()``.)
+            return RingMember.from_vector(matrix_inv @ self.ring.one.to_vector(), self.ring)
         except np.linalg.LinAlgError:
             return None
 
@@ -531,6 +539,29 @@ class Element(RingMember):  # pragma: no cover
 # RingArray: RingMember-valued array
 
 NestedSequence = Sequence[object | Sequence["NestedSequence"]]
+
+
+def _iter_ring_arrays(obj: Any) -> Iterator[RingArray]:
+    """Yield every RingArray in a (possibly nested) numpy-function argument.
+
+    Functions such as ``np.concatenate`` and ``np.stack`` take a *sequence* of arrays as a single
+    argument, so the RingArrays are nested one level (or more) inside a list/tuple rather than
+    passed directly.
+    """
+    if isinstance(obj, RingArray):
+        yield obj
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            yield from _iter_ring_arrays(item)
+
+
+def _unwrap_ring_arrays(obj: Any) -> Any:
+    """Replace every RingArray in a (possibly nested) argument with its plain-ndarray view."""
+    if isinstance(obj, RingArray):
+        return obj.view(np.ndarray)
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_unwrap_ring_arrays(item) for item in obj)
+    return obj
 
 
 class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
@@ -577,14 +608,17 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         kwargs: Mapping[str, Any],
     ) -> RingArray | None:
         """Intercept array operations to ensure RingArray compatibility."""
-        rings = {self._ring} | {x._ring for x in args if isinstance(x, RingArray)}
-        if len(rings) > 1:
+        # ``_iter_ring_arrays`` descends into sequence arguments (e.g. the list passed to
+        # np.concatenate/np.stack), so RingArrays nested one or more levels deep are still checked
+        # for a ring mismatch -- a plain scan of the top-level args would miss them.
+        rings = [self._ring, *(arr._ring for arr in _iter_ring_arrays(args))]
+        if any(ring != rings[0] for ring in rings[1:]):
             raise ValueError("Cannot perform operations on RingArrays with different base rings")
-        args = tuple(x.view(np.ndarray) if isinstance(x, RingArray) else x for x in args)
+        args = tuple(_unwrap_ring_arrays(x) for x in args)
         result = super().__array_function__(func, types, args, kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
+            result._ring = rings[0]  # type:ignore[attr-defined]
         return result
 
     def __array_ufunc__(

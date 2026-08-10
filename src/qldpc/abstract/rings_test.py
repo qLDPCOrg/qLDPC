@@ -70,6 +70,20 @@ def test_ring() -> None:
     ring_member = abstract.RingMember(group, group.identity, *group.generators)
     assert ring_member.inverse() is None
 
+    # a multi-term inverse over a group whose identity is not first in generate(): the inverse is
+    # recovered from the identity's coordinate, not a fixed column of the regular representation.
+    # Cayley table of C3 with elements ordered (a, a^2, e) so the identity sits last.
+    table = np.array([[1, 2, 0], [2, 0, 1], [0, 1, 2]])
+    group = abstract.Group.from_table(table)
+    assert list(group.generate()).index(group.identity) != 0
+    ring = abstract.GroupRing(group, field=5)
+    gen_a, gen_b, _ = ring.group.generate()
+    ring_member = abstract.RingMember(ring, (1, gen_a), (2, gen_b))
+    ring_member_inverse = ring_member.inverse()
+    assert ring_member_inverse is not None
+    assert ring_member * ring_member_inverse == ring.one
+    assert ring_member_inverse * ring_member == ring.one
+
     # evaluate polynomials
     group = abstract.QuaternionGroup()
     ring = abstract.GroupRing(group, field=3)
@@ -138,7 +152,7 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
 
     int_matrix = np.random.randint(2, size=(3, 3))
     matrix = abstract.RingArray.build(int_matrix)
-    assert matrix.group == abstract.TrivialGroup()
+    assert matrix.group.equiv(abstract.TrivialGroup())
     assert np.array_equal(matrix.lift(), int_matrix)
     assert np.array_equal(
         (matrix @ matrix).lift(),
@@ -169,6 +183,15 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
         matrix @ new_matrix
     with pytest.raises(ValueError, match="different base rings"):
         np.kron(matrix, new_matrix)
+
+    # np.concatenate passes its arrays inside a *sequence* argument; ring mixing must still be
+    # caught, and a same-ring concatenation must preserve the RingArray type and its base ring.
+    one_c1 = abstract.RingArray.build([[1]], abstract.CyclicGroup(1))
+    joined = np.concatenate([one_c1, new_matrix], 0)  # positional axis: a scalar arg survives too
+    assert isinstance(joined, abstract.RingArray)
+    assert joined.ring == new_matrix.ring
+    with pytest.raises(ValueError, match="different base rings"):
+        np.concatenate([one_c1, abstract.RingArray.build([[1]], abstract.CyclicGroup(2))])
 
 
 def test_empty_lift() -> None:

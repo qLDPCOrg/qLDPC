@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import copy
 import functools
 import itertools
 import math
@@ -29,6 +30,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import sympy
+import sympy.core.random
 
 from qldpc import abstract
 
@@ -68,7 +70,7 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
     with pytest.raises(ValueError, match="Only monomials with a coefficient of 1"):
         group.eval(5 * monomial, symbols)
 
-    assert abstract.Group.from_generating_mats([[1]]) == abstract.CyclicGroup(1)
+    assert abstract.Group.from_generating_mats([[1]]).equiv(abstract.CyclicGroup(1))
 
     with pytest.raises(TypeError, match="not in group"):
         abstract.CyclicGroup(1).index(abstract.GroupMember(2, 1))
@@ -81,13 +83,36 @@ def test_trivial_group() -> None:
     """Trivial group tests."""
     group = abstract.TrivialGroup()
     group_squared = group**2
-    assert group == group_squared == group * group
+    assert group.equiv(group_squared) and group_squared.equiv(group * group)
     assert group.lift_dim == 1
     assert group_squared.lift_dim == 1
     assert group.random() == group.identity
     assert np.array_equal(group.lift(group.identity), np.array(1, ndmin=2))
-    assert group == abstract.Group.from_generating_mats()
+    assert group.equiv(abstract.Group.from_generating_mats())
     assert str(group) == "TrivialGroup"
+
+
+def test_group_equality_and_equivalence() -> None:
+    """``==`` requires a matching representation; ``equiv`` compares underlying groups only."""
+    group = abstract.CyclicGroup(3)
+    other = abstract.CyclicGroup(3)  # same group, but a separately built lift
+
+    # equality is representation-sensitive (consistent with __hash__), so distinct instances of
+    # the same group are not equal, but they are equivalent.  A copy shares the representation.
+    assert group == copy.copy(group)
+    assert group != other
+    assert group != "not a group"
+    assert group.equiv(other) and other.equiv(group)
+    assert not group.equiv(abstract.CyclicGroup(4))
+    assert not group.equiv("not a group")
+
+    # group algebras compare (and hash) by value, ignoring the representation
+    ring, other_ring = abstract.GroupRing(group), abstract.GroupRing(other)
+    assert ring == other_ring
+    assert hash(ring) == hash(other_ring)
+    assert ring != abstract.GroupRing(abstract.CyclicGroup(4))
+    assert ring != abstract.GroupRing(group, field=4)
+    assert ring != "not a ring"
 
     with pytest.raises(ValueError, match="DEFUNCT"):
         abstract.TrivialGroup.to_ring_array([])
@@ -195,6 +220,44 @@ def test_random_symmetric_subset() -> None:
         group.random_symmetric_subset(size=0)
 
 
+def test_seeded_random_leaves_global_rng_intact() -> None:
+    """Passing a seed does not disturb SymPy's global RNG for other consumers.
+
+    Seeding is still deterministic, but the reseed is confined to the seeded call: sampling the
+    global SymPy RNG before and after a seeded call yields the same sequence as sampling it twice
+    in a row.
+    """
+    group = abstract.CyclicGroup(2) * abstract.CyclicGroup(3)
+
+    # sample both RNGs that sympy.core.random.seed touches: the main one and the assumptions one
+    def sample_global_rngs() -> list[tuple[int, float]]:
+        return [
+            (sympy.core.random.randint(0, 10**9), sympy.core.random._assumptions_rng.random())
+            for _ in range(3)
+        ]
+
+    for seeded_call in (
+        lambda: group.random(seed=7),
+        lambda: group.random_symmetric_subset(size=2, seed=7),
+    ):
+        sympy.core.random.seed(1234)
+        baseline = sample_global_rngs()
+        sympy.core.random.seed(1234)
+        seeded_call()
+        assert sample_global_rngs() == baseline
+
+    # seeding remains deterministic across calls
+    assert group.random(seed=3) == group.random(seed=3)
+
+
+def test_star_import() -> None:
+    """Every name advertised in abstract.__all__ resolves (so ``import *`` succeeds)."""
+    namespace: dict[str, object] = {}
+    exec("from qldpc.abstract import *", namespace)  # noqa: S102
+    for name in abstract.__all__:
+        assert name in namespace
+
+
 def test_quaternion_group() -> None:
     """Validate the multiplication table for the quaternion group."""
     group = abstract.QuaternionGroup()
@@ -258,7 +321,8 @@ def test_small_group() -> None:
     ):
         group = abstract.SmallGroup(order, index)
         assert group.generators == desired_group.generators
-        assert list(abstract.SmallGroup.generator(order)) == [desired_group]
+        generated = list(abstract.SmallGroup.generator(order))
+        assert len(generated) == 1 and generated[0].equiv(desired_group)
 
         # retrieve group structure
         structure = "test"
@@ -270,7 +334,7 @@ def test_small_group() -> None:
     # cover a special case
     with unittest.mock.patch("qldpc.external.groups.get_small_group_number", return_value=1):
         group = abstract.SmallGroup(1, 1)
-    assert group == abstract.TrivialGroup()
+    assert group.equiv(abstract.TrivialGroup())
     assert group.random() == group.identity
 
 
@@ -284,7 +348,7 @@ def test_magma_group(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixt
     )
     monkeypatch.setattr("builtins.input", lambda: next(inputs))
 
-    assert abstract.Group.from_name(name, from_magma=True) == abstract.CyclicGroup(2)
+    assert abstract.Group.from_name(name, from_magma=True).equiv(abstract.CyclicGroup(2))
     capsys.readouterr()  # intercept print statements
 
 
