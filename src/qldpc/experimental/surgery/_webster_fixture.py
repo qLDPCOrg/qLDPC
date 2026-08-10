@@ -1,17 +1,15 @@
 """Webster (arXiv:2511.15989) Appendix A seed-set fixture + helpers.
 
-Private to the surgery test suite and the `examples/lattice_surgery.ipynb`
-demo. Not part of the public API. Pytest's default discovery skips this
-file (no `def test_*` + leading underscore).
+Private to the surgery test suite and the `examples/lattice_surgery.ipynb` demo. Not part of the
+public API. Pytest's default discovery skips this file (no `def test_*` + leading underscore).
 
 Provides:
 
-* `load_webster_seed_set(code_index)` — read the JSON fixture for code
-  index 0..3.
-* `build_generalised_bicycle_code(l, A_set, B_set)` — build a CSS code
-  from cyclic exponent sets per Kovalev-Pryadko arXiv:1212.6703.
-* `_webster_x_bar_operator(data, name, pauli_type)` — extract a named
-  logical operator from a seed-set dict as a length-2l bit-vector.
+* `load_webster_seed_set(code_index)` — read the JSON fixture for code index 0..3.
+* `build_generalised_bicycle_code(l, A_set, B_set)` — build a CSS code from cyclic exponent sets
+  per Kovalev-Pryadko arXiv:1212.6703.
+* `_webster_x_bar_operator(data, name, pauli_type)` — extract a named logical operator from a
+  seed-set dict as a length-2l bit-vector.
 * `_webster_z_bar_operator(data, name)` — Z-type convenience wrapper.
 """
 
@@ -48,12 +46,11 @@ def load_webster_seed_set(code_index: int) -> dict[str, Any]:
 def build_generalised_bicycle_code(ell: int, A_set: list[int], B_set: list[int]) -> CSSCode:
     """Build a generalised bicycle code from cyclic exponent sets A, B.
 
-    Per Kovalev-Pryadko (arXiv:1212.6703) and Swaroop's reference
-    implementation (https://github.com/eswaroop/adapters-LDPC-surgery,
-    ext/bivariate_bicyclic.py): given subsets A, B of Z_ell, let A(x) =
-    sum(x^a for a in A_set) and B(x) = sum(x^b for b in B_set) as cyclic
-    matrices in F_2[Z_ell]. Then H_X = [A | B] and H_Z = [B^T | A^T] define
-    the bicycle code on 2*ell data qubits.
+    Per Kovalev-Pryadko (arXiv:1212.6703) and Swaroop's reference implementation
+    (https://github.com/eswaroop/adapters-LDPC-surgery, ext/bivariate_bicyclic.py): given subsets
+    A, B of Z_ell, let A(x) = sum(x^a for a in A_set) and B(x) = sum(x^b for b in B_set) as cyclic
+    matrices in F_2[Z_ell]. Then H_X = [A | B] and H_Z = [B^T | A^T] define the bicycle code on
+    2*ell data qubits.
 
     Args:
         ell: cyclic group order.
@@ -61,8 +58,7 @@ def build_generalised_bicycle_code(ell: int, A_set: list[int], B_set: list[int])
         B_set: subset of {0, 1, ..., ell-1} defining B(x) = sum(x^b for b in B_set).
 
     Returns:
-        CSSCode on 2*ell data qubits with check matrices [A | B] and
-        [B^T | A^T] over GF(2).
+        CSSCode on 2*ell data qubits with check matrices [A | B] and [B^T | A^T] over GF(2).
     """
     I_ell = np.eye(ell, dtype=np.int_)
     S = np.roll(I_ell, shift=-1, axis=0)
@@ -86,8 +82,8 @@ def _webster_x_bar_operator(
 ) -> np.ndarray:
     """Extract the named logical operator from a Webster seed_set dict.
 
-    L_support and R_support are sparse index lists (positions within each ell-half
-    that are set to 1). Returns a dense binary vector of length 2*ell.
+    L_support and R_support are sparse index lists (positions within each ell-half that are set to
+    1). Returns a dense binary vector of length 2*ell.
 
     Args:
         data: Webster seed set dict (from load_webster_seed_set).

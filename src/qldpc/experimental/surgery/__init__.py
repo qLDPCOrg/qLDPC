@@ -1,11 +1,11 @@
 """Lattice-surgery constructions for CSS / quantum LDPC codes.
 
-EXPERIMENTAL: this subpackage is under active development; its public API is
-unstable and may change without notice or deprecation.
+EXPERIMENTAL: this subpackage is under active development; its public API is unstable and may
+change without notice or deprecation.
 
-Fault-tolerant logical Pauli-product measurement (PPM) via code surgery:
-single-PPM "gadgets", joint-PPM "bridges" (universal adapters), a distance
-boost, and a stim circuit layer. See the individual modules for references.
+Fault-tolerant logical Pauli-product measurement (PPM) via code surgery: single-PPM "gadgets",
+joint-PPM "bridges" (universal adapters), a distance boost, and a stim circuit layer. See the
+individual modules for references.
 
 Public API:
     build_gadget, GadgetLayout        — single-PPM gadget

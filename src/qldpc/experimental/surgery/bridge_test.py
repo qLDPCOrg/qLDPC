@@ -315,12 +315,12 @@ def test_build_bridge_rejects_basis_mismatch() -> None:
 def test_build_bridge_bb18_hyperedge_and_long_cycle() -> None:
     """End-to-end: Cain bb_18 BBCode triggers both Bug 1 (hyperedge) and Bug 2 (long cycle).
 
-    Bug 2 is a long port-subgraph cycle. build_bridge must succeed and produce
-    a merged code with k_merged = k_orig - 1 (intra-code joint Z̄_1 ⊗ Z̄_2).
+    Bug 2 is a long port-subgraph cycle. build_bridge must succeed and produce a merged code with
+    k_merged = k_orig - 1 (intra-code joint Z̄_1 ⊗ Z̄_2).
 
-    Two *distinct* Z-logicals are used so that the joint measurement reduces k
-    by exactly 1.  Z-logical 0 has a weight-4 F row (triggers Bug 1); the pair
-    together exercises the full _cellulate_port_subgraph path (Bug 2)."""
+    Two *distinct* Z-logicals are used so that the joint measurement reduces k by exactly
+    1.  Z-logical 0 has a weight-4 F row (triggers Bug 1); the pair together exercises the full
+    _cellulate_port_subgraph path (Bug 2)."""
     import sympy
 
     from qldpc.experimental.surgery import build_bridge, build_gadget
@@ -485,12 +485,11 @@ def _bb_72_12() -> codes.BBCode:
 def test_build_bridge_skiptree_invariant_holds_after_boost() -> None:
     """T_s · F_aug · P_s = H_R must hold even when g_l/g_r are boosted.
 
-    Regression: build_bridge rebuilds g_l_aug via _step1_restriction on the
-    ORIGINAL (un-boosted) code+x+basis, dropping boost-added κ' rows from
-    g_l.incidence. SkipTree T_l is computed against the boosted G_aux but
-    embedded into unboosted g_l_aug.incidence → tree edges through boost-κ'
-    are silently zeroed in T_full → invariant fails → joint_code cycle
-    stabilizers are bogus → non-deterministic detector in joint PPM DEM.
+    Regression: build_bridge rebuilds g_l_aug via _step1_restriction on the ORIGINAL (un-boosted)
+    code+x+basis, dropping boost-added κ' rows from g_l.incidence. SkipTree T_l is computed against
+    the boosted G_aux but embedded into unboosted g_l_aug.incidence → tree edges through boost-κ'
+    are silently zeroed in T_full → invariant fails → joint_code cycle stabilizers are bogus →
+    non-deterministic detector in joint PPM DEM.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.cheeger import boost_gadget
@@ -522,8 +521,7 @@ def test_build_bridge_skiptree_invariant_holds_after_boost() -> None:
 def _bb_36_8() -> codes.BBCode:
     """BBCode (l=3, m=6) [[36, 8]] — has *duplicate* weight-2 incidence rows.
 
-    When restricted to Z̄_0, this exercises _run_skiptree_on_port_subgraph's
-    duplicate-edge guard.
+    When restricted to Z̄_0, this exercises _run_skiptree_on_port_subgraph's duplicate-edge guard.
     """
     import sympy
 
@@ -534,13 +532,12 @@ def _bb_36_8() -> codes.BBCode:
 def test_build_bridge_skiptree_invariant_holds_with_duplicate_incidence_rows() -> None:
     """T_s · F_aug · P_s = H_R must hold when F_aug has duplicate weight-2 rows.
 
-    Regression: BBCode [[36, 8]] restricted to Z̄_0 has h(F)=1 (no boost
-    needed) but the restricted incidence has two κ rows sharing the same
-    (u, v) support — _build_aux_graph_strict dedups them to one G_aux edge.
-    Pre-fix, _run_skiptree_on_port_subgraph assigned the *same* T_relab
-    column to both duplicate κ rows, so their contributions to T · F_aug
-    cancel mod 2 → invariant fails → joint_code cycle stabilizer non-trivially
-    anti-commutes with the gauge → non-deterministic detector.
+    Regression: BBCode [[36, 8]] restricted to Z̄_0 has h(F)=1 (no boost needed) but the restricted
+    incidence has two κ rows sharing the same (u, v) support — _build_aux_graph_strict dedups them
+    to one G_aux edge. Pre-fix, _run_skiptree_on_port_subgraph assigned the *same* T_relab column to
+    both duplicate κ rows, so their contributions to T · F_aug cancel mod 2 → invariant fails →
+    joint_code cycle stabilizer non-trivially anti-commutes with the gauge → non-deterministic
+    detector.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -576,10 +573,9 @@ def test_build_bridge_skiptree_invariant_holds_with_duplicate_incidence_rows() -
 def test_build_joint_ppm_circuit_dem_deterministic_bb_36_8() -> None:
     """Joint PPM DEM constructs without non-deterministic detectors on BB [[36, 8]].
 
-    End-to-end regression for the duplicate-edge bug: BB [[36, 8]] Z̄⊗Z̄ joint
-    PPM (h=1, no boost) previously crashed stim DEM with non-deterministic
-    detectors because the SkipTree invariant failed on duplicate incidence
-    rows.
+    End-to-end regression for the duplicate-edge bug: BB [[36, 8]] Z̄⊗Z̄ joint PPM (h=1, no boost)
+    previously crashed stim DEM with non-deterministic detectors because the SkipTree invariant
+    failed on duplicate incidence rows.
     """
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.bridge import build_bridge

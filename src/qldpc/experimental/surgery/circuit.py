@@ -31,17 +31,16 @@ def _gadget_merged_csscode(g: GadgetLayout) -> CSSCode:
 def keep_only_observable(circuit: stim.Circuit, keep_idx: int) -> stim.Circuit:
     """Return a copy of ``circuit`` with all OBSERVABLE_INCLUDE entries dropped except one.
 
-    Keeps only the observable whose first argument equals ``keep_idx``. Recurses into
-    REPEAT blocks so observables inside loops are filtered the same way.
+    Keeps only the observable whose first argument equals ``keep_idx``. Recurses into REPEAT blocks
+    so observables inside loops are filtered the same way.
 
-    For surgery PPM circuits, pass ``keep_idx=0`` to retain only obs0
-    (Webster Eq. 1, the physical syndrome-based readout). obs1 is an
-    implementation cross-check that directly measures the data on V_0 and
-    is NOT part of any physical protocol — keeping it for an LER run would
-    sample the wrong distribution.
+    For surgery PPM circuits, pass ``keep_idx=0`` to retain only obs0 (Webster Eq. 1, the physical
+    syndrome-based readout). obs1 is an implementation cross-check that directly measures the data
+    on V_0 and is NOT part of any physical protocol — keeping it for an LER run would sample the
+    wrong distribution.
 
-    Useful for sinter LER sweeps that compare one observable against a
-    memory-experiment baseline — sinter expects exactly one observable per task.
+    Useful for sinter LER sweeps that compare one observable against a memory-experiment baseline —
+    sinter expects exactly one observable per task.
     """
     out = stim.Circuit()
     for op in circuit:
@@ -72,31 +71,25 @@ def logical_state_init(code: CSSCode, state: str, *, log_idx: int) -> str:
       * "-" → "-" on supp(Z̄_{log_idx}), "+" elsewhere — flips logical qubit
         ``log_idx`` from |+⟩_L to |-⟩_L; other logical qubits stay at |+⟩_L
 
-    X̄_{log_idx} and Z̄_{log_idx} are taken from
-    ``code.get_logical_ops(Pauli.X)[log_idx]`` and ``[Pauli.Z][log_idx]``;
-    qldpc guarantees they form an anti-commuting symplectic pair on that
-    logical qubit, so the prep is correct for ANY CSS code regardless of
-    the parity of wt(X̄) / wt(Z̄). Naive broadcast ``data_init = "1" * n``
-    is correct only when those weights are odd, and silently produces the
-    wrong logical state on codes where they are even (e.g. BBCode [[36, 8]]
+    X̄_{log_idx} and Z̄_{log_idx} are taken from ``code.get_logical_ops(Pauli.X)[log_idx]`` and
+    ``[Pauli.Z][log_idx]``; qldpc guarantees they form an anti-commuting symplectic pair on that
+    logical qubit, so the prep is correct for ANY CSS code regardless of the parity of wt(X̄) /
+    wt(Z̄). Naive broadcast ``data_init = "1" * n`` is correct only when those weights are odd, and
+    silently produces the wrong logical state on codes where they are even (e.g. BBCode [[36, 8]]
     with wt(Z̄_0) = 8).
 
-    ``log_idx`` is REQUIRED (keyword-only, no default) — there is no
-    universally "right" logical qubit choice on a k>1 code, so the
-    caller must declare intent explicitly. Even for state="0" / "+"
-    (which physically broadcast and don't depend on log_idx), supplying
-    log_idx makes the targeted logical qubit unambiguous in the call
-    site. To get a meaningful PPM truth-table check, ``log_idx`` MUST
-    match the logical qubit chosen for the gadget's measured Z̄ (or X̄)
-    — i.e. the gadget's seed operator should be
-    ``code.get_logical_ops(Pauli.Z)[log_idx]`` (or ``[Pauli.X]`` for
-    basis=X). The helper does NOT verify this; if indices disagree the
-    prep targets a logical qubit that the gadget doesn't measure, and
-    the obs0 outcome is silently random.
+    ``log_idx`` is REQUIRED (keyword-only, no default) — there is no universally "right" logical
+    qubit choice on a k>1 code, so the caller must declare intent explicitly. Even for state="0" /
+    "+" (which physically broadcast and don't depend on log_idx), supplying log_idx makes the
+    targeted logical qubit unambiguous in the call site. To get a meaningful PPM truth-table check,
+    ``log_idx`` MUST match the logical qubit chosen for the gadget's measured Z̄ (or X̄) — i.e. the
+    gadget's seed operator should be ``code.get_logical_ops(Pauli.Z)[log_idx]`` (or ``[Pauli.X]``
+    for basis=X). The helper does NOT verify this; if indices disagree the prep targets a logical
+    qubit that the gadget doesn't measure, and the obs0 outcome is silently random.
 
-    The returned string has length ``code.num_qudits``. Plug it straight
-    into ``build_single_ppm_circuit(..., data_init=...)`` or wrap with a
-    tuple for ``build_joint_ppm_circuit(..., data_init=(s_l, s_r))``.
+    The returned string has length ``code.num_qudits``. Plug it straight into
+    ``build_single_ppm_circuit(..., data_init=...)`` or wrap with a tuple for
+    ``build_joint_ppm_circuit(..., data_init=(s_l, s_r))``.
 
     Raises
     ------
@@ -144,11 +137,10 @@ def _surgery_qubit_coordinates(
                                (basis=X: checks_z[m_Z:]; basis=Z: checks_x[m_X:])
       y=6  bridge data + bridge cycle ancillas (joint PPM only)
 
-    For basis=X, y is monotonic in qubit ID order (ids 0..6→y=0, 7..9→y=1,
-    10..12→y=2, 13..15→y=3, 16..18→y=4, 19→y=5), so QUBIT_COORDS lines in
-    the stringified circuit dump appear in increasing y order. basis=Z
-    breaks monotonicity because χ and G swap matrix slots, but the lane
-    numbers remain stable: S'_meas always y=3, S'_comp always y=5.
+    For basis=X, y is monotonic in qubit ID order (ids 0..6→y=0, 7..9→y=1, 10..12→y=2, 13..15→y=3,
+    16..18→y=4, 19→y=5), so QUBIT_COORDS lines in the stringified circuit dump appear in increasing
+    y order. basis=Z breaks monotonicity because χ and G swap matrix slots, but the lane numbers
+    remain stable: S'_meas always y=3, S'_comp always y=5.
 
     `joint=None` → single PPM. Otherwise pass (g_r, bridge, intercode).
     """
@@ -350,23 +342,21 @@ def build_single_ppm_circuit(
 ) -> stim.Circuit:
     """Single-PPM measurement circuit for `gadget`, assembled per Cain et al. arXiv:2603.28627.
 
-    Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for
-    full semantics):
+    Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 
-      * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout (Webster, Smith,
-        Cohen arXiv:2511.15989 §II.A, gadget Eq. 1). XOR of the **last** QEC
-        round's meas-check outcomes. The repeated rounds give FT distance
-        via the detector layer. Reading the eigenvalue at the final round
-        should be decoding-equivalent to Cain et al.'s first-cycle readout
-        (arXiv:2603.28627 App. D): the interface detectors telescope, so the
-        observable's fault distance should be unchanged.
-      * obs1 — Direct destructive M on ``support`` qubits; noiseless
-        cross-check, not a physical protocol.
+      * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout (Webster, Smith, Cohen arXiv:2511.15989
+        §II.A, gadget Eq. 1). XOR of the **last** QEC round's meas-check outcomes. The repeated
+        rounds give FT distance via the detector layer. Reading the eigenvalue at the final round
+        should be decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App.
+        D): the interface detectors telescope, so the observable's fault distance should be
+        unchanged.
+      * obs1 — Direct destructive M on ``support`` qubits; noiseless cross-check, not a physical
+        protocol.
 
     For LER / noisy runs, use ``keep_only_observable(circuit, keep_idx=0)``.
 
-    ``data_init`` (optional): per-data-qubit init override; see
-    ``_surgery_state_prep`` for the character-to-state mapping.
+    ``data_init`` (optional): per-data-qubit init override; see ``_surgery_state_prep`` for the
+    character-to-state mapping.
     """
     merged_code = _gadget_merged_csscode(gadget)
     qubit_ids = QubitIDs.from_code(merged_code)
@@ -599,9 +589,9 @@ def _stitch_to_joint_csscode(
 ) -> CSSCode:
     """Assemble merged CSSCode for two-PPM surgery.
 
-    Dispatches on the structural axis (g_l.code is g_r.code → intra-code
-    shares data; otherwise inter-code).  Each branch handles both
-    bridge.basis values internally via the χ-carrier abstraction.
+    Dispatches on the structural axis (g_l.code is g_r.code → intra-code shares data; otherwise
+    inter-code). Each branch handles both bridge.basis values internally via the χ-carrier
+    abstraction.
     """
     if g_l.code is g_r.code:
         return _stitch_intracode(g_l, g_r, bridge)
@@ -618,16 +608,15 @@ def _expand_joint_data_init(
 
     Two accepted shapes:
 
-      * ``str`` (or ``None``) — passed through verbatim to ``_surgery_state_prep``
-        (length-1 broadcasts to all data qubits; length n_l + n_r is per-qubit).
+      * ``str`` (or ``None``) — passed through verbatim to ``_surgery_state_prep`` (length-1
+        broadcasts to all data qubits; length n_l + n_r is per-qubit).
 
-      * ``tuple[str, str]`` (or list) — per-code logical-init spec. Each entry
-        is a string that is itself per-code broadcast (length 1) or per-qubit
-        (length n_code). Tuple form is only valid for intercode joint PPM
-        (intracode has a single data set; use a plain string instead).
-        Example: ``("0", "+")`` initializes c_l data to |0⟩^{n_l} and c_r data
-        to |+⟩^{n_r} — which, after the first round of merged-code SE projects
-        into the codespace, equals logical |0⟩_L ⊗ |+⟩_L for any CSS code.
+      * ``tuple[str, str]`` (or list) — per-code logical-init spec. Each entry is a string that is
+        itself per-code broadcast (length 1) or per-qubit (length n_code). Tuple form is only valid
+        for intercode joint PPM (intracode has a single data set; use a plain string instead).
+        Example: ``("0", "+")`` initializes c_l data to |0⟩^{n_l} and c_r data to |+⟩^{n_r} — which,
+        after the first round of merged-code SE projects into the codespace, equals logical
+        |0⟩_L ⊗ |+⟩_L for any CSS code.
     """
     if data_init is None or isinstance(data_init, str):
         return data_init
@@ -672,27 +661,24 @@ def build_joint_ppm_circuit(
 ) -> tuple[stim.Circuit, CSSCode]:
     """Joint-PPM circuit (universal adapter; no U_B in α*).
 
-    Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for
-    full semantics):
+    Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 
       * obs0 — Single-round joint readout via Webster's identity
-        ∏_{v ∈ support_l ∪ support_r} A_v = X̄_l ⊗ X̄_r (or Z̄_l ⊗ Z̄_r for
-        basis=Z). See Webster, Smith, Cohen arXiv:2511.15989 §II.A. XOR of
-        the **last** QEC round's meas-check outcomes on both patches.
-        Detectors carry the FT load. Reading at the final round should be
-        decoding-equivalent to Cain et al.'s first-cycle readout
-        (arXiv:2603.28627 App. D) because the interface detectors telescope,
-        so the observable's fault distance should be unchanged.
-      * obs1 — Direct destructive M on ``support_l ∪ support_r``; noiseless
-        cross-check, not a physical protocol.
+        ∏_{v ∈ support_l ∪ support_r} A_v = X̄_l ⊗ X̄_r (or Z̄_l ⊗ Z̄_r for basis=Z). See Webster,
+        Smith, Cohen arXiv:2511.15989 §II.A. XOR of the **last** QEC round's meas-check outcomes on
+        both patches. Detectors carry the FT load. Reading at the final round should be
+        decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D) because
+        the interface detectors telescope, so the observable's fault distance should be unchanged.
+      * obs1 — Direct destructive M on ``support_l ∪ support_r``; noiseless cross-check, not a
+        physical protocol.
 
     For LER / noisy runs, use ``keep_only_observable(circuit, keep_idx=0)``.
 
     ``data_init`` (optional): override the per-code data init.
 
-      * ``str`` — per-physical-qubit (or len-1 broadcast). For intercode,
-        positions [0:n_l) are left, [n_l:n_l+n_r) are right; for intracode,
-        length is n_l. See ``_surgery_state_prep`` for the char-to-state mapping.
+      * ``str`` — per-physical-qubit (or len-1 broadcast). For intercode, positions [0:n_l) are
+        left, [n_l:n_l+n_r) are right; for intracode, length is n_l. See ``_surgery_state_prep`` for
+        the char-to-state mapping.
       * ``tuple[str, str]`` (intercode only) — per-code logical-init spec.
         ``data_init=("0", "+")`` → c_l in |0⟩_L, c_r in |+⟩_L.
     """
@@ -971,17 +957,17 @@ def _surgery_state_prep(
       basis=X → data |+⟩ (RX), ancilla + bridge |0⟩ (R)
       basis=Z → data |0⟩ (R),  ancilla + bridge |+⟩ (RX)
 
-    Optional ``data_init`` overrides per-data-qubit initial state. Each
-    character selects a state for the data qubit at the same position:
+    Optional ``data_init`` overrides per-data-qubit initial state. Each character selects a state
+    for the data qubit at the same position:
 
       "0" → |0⟩  (R)
       "1" → |1⟩  (R + post-init X)
       "+" → |+⟩  (RX)
       "-" → |-⟩  (RX + post-init Z)
 
-    A length-1 string broadcasts to all data qubits; otherwise length must
-    equal ``len(data_ids)``.  ancilla + bridge init is independent of ``data_init``
-    and always follows the protocol default (basis-complement +1 eigenstate).
+    A length-1 string broadcasts to all data qubits; otherwise length must equal ``len(data_ids)``.
+    ancilla + bridge init is independent of ``data_init`` and always follows the protocol default
+    (basis-complement +1 eigenstate).
     """
     if data_init is None:
         default_char = "+" if gadget.basis is Pauli.X else "0"
@@ -1098,20 +1084,18 @@ def _surgery_observable(
 ) -> stim.Circuit:
     """Emit two OBSERVABLE_INCLUDE entries (obs0, obs1) for the surgery PPM.
 
-    obs0 — physical readout of the logical Pauli. The merged stabilizer group
-        satisfies the single-round identity Z̄ = ∏_{v ∈ support} A_v (Webster,
-        Smith, Cohen arXiv:2511.15989 §II.A, gadget Eq. 1). We point
-        ``OBSERVABLE_INCLUDE`` at the **last** QEC round's meas-check (S'_meas)
-        outcomes — their XOR is the eigenvalue bit of Z̄ (or X̄ for basis=X).
-        Detectors carry the FT load via round-to-round consistency. Reading at
-        the final round should be decoding-equivalent to Cain et al.'s
-        first-cycle readout (arXiv:2603.28627 App. D) because the interface
-        detectors telescope, so the observable's fault distance should be
-        unchanged (argued, not yet covered by a fault-distance test).
+    obs0 — physical readout of the logical Pauli. The merged stabilizer group satisfies the
+        single-round identity Z̄ = ∏_{v ∈ support} A_v (Webster, Smith, Cohen arXiv:2511.15989
+        §II.A, gadget Eq. 1). We point ``OBSERVABLE_INCLUDE`` at the **last** QEC round's meas-check
+        (S'_meas) outcomes — their XOR is the eigenvalue bit of Z̄ (or X̄ for basis=X). Detectors
+        carry the FT load via round-to-round consistency. Reading at the final round should be
+        decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D) because
+        the interface detectors telescope, so the observable's fault distance should be unchanged
+        (argued, not yet covered by a fault-distance test).
 
-    obs1 — Direct stim measurement of the data qubits on ``support``. NOT a
-        physical protocol — destructively projects the data — but a useful
-        noiseless cross-check: in any noiseless shot ``obs0 == obs1``.
+    obs1 — Direct stim measurement of the data qubits on ``support``. NOT a physical protocol —
+        destructively projects the data — but a useful noiseless cross-check: in any noiseless shot
+        ``obs0 == obs1``.
 
     For LER sweeps and any noisy run, keep ONLY obs0 via
     ``keep_only_observable(circuit, keep_idx=0)``.

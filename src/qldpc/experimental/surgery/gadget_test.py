@@ -158,16 +158,15 @@ def test_step3_assemble_steane_css_commutes() -> None:
 def test_step3_assemble_csscode_with_distinct_nV_nC() -> None:
     """Synthetic CSS code where nV != nC — catches F_tilde shape bug.
 
-    Uses a 5-qubit CSS code with k=1, picking a logical-X representative
-    whose support size (nV=4) differs from the number of Z-checks it
-    touches (nC=2). With the buggy F_tilde[j] = F[k] form, numpy raises
-    ValueError because F[k] has shape (nV=4,) but the row width is (nC=2).
-    The fix (F_tilde[j, k] = 1) is the correct indicator/selection matrix.
+    Uses a 5-qubit CSS code with k=1, picking a logical-X representative whose support size (nV=4)
+    differs from the number of Z-checks it touches (nC=2). With the buggy F_tilde[j] = F[k] form,
+    numpy raises ValueError because F[k] has shape (nV=4,) but the row width is (nC=2). The fix
+    (F_tilde[j, k] = 1) is the correct indicator/selection matrix.
 
     Verifies:
     1. CSS commutation: HX_merged @ HZ_merged.T == 0 over GF(2).
-    2. Indicator form: each Z-check in data_checks attaches to EXACTLY ONE
-       ancilla (row-sum == 1 in the ancilla block).
+    2. Indicator form: each Z-check in data_checks attaches to EXACTLY ONE ancilla (row-sum == 1 in
+       the ancilla block).
     """
     from qldpc.experimental.surgery.gadget import (
         _step1_restriction,
@@ -311,8 +310,7 @@ def test_webster_table_i_ancilla_meas_comp_exact(code_index: int, n_anc: int) ->
 def test_build_gadget_basis_is_required() -> None:
     """basis has no default: a CSS code's X-logical and Z-logical can coincide.
 
-    For a self-dual code (e.g. Steane) they coincide, so the caller must declare
-    intent explicitly.
+    For a self-dual code (e.g. Steane) they coincide, so the caller must declare intent explicitly.
     """
     from qldpc.experimental.surgery.gadget import build_gadget
 
@@ -357,9 +355,9 @@ def test_build_gadget_z_basis_css_commutation() -> None:
 def test_build_gadget_z_basis_dual_matches_x_basis_on_dual_code() -> None:
     """basis-symmetric invariant: build_gadget on the Z basis matches its dual on the X basis.
 
-    build_gadget(code, z, basis=Z) gives the same merged matrices as
-    build_gadget(dual_code, z, basis=X), where dual_code has HX/HZ swapped. The
-    swap labels swap too, so we compare HX_z vs HZ_dx_x and HZ_z vs HX_dx_x.
+    build_gadget(code, z, basis=Z) gives the same merged matrices as build_gadget(dual_code, z,
+    basis=X), where dual_code has HX/HZ swapped. The swap labels swap too, so we compare HX_z vs
+    HZ_dx_x and HZ_z vs HX_dx_x.
     """
     from qldpc.codes.common import CSSCode
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -438,14 +436,12 @@ def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None
 def test_step2_gauge_fix_rows_linearly_independent() -> None:
     """G rows from _step2_gauge_fix are linearly independent over GF(2).
 
-    Webster §II.A step 3 requires |S_L| - wt(L) + 1 INDEPENDENT gauge
-    constraints. The existing test verifies G @ F == 0 (i.e. G is in
-    ker(F.T)) but not that G has full row rank.
+    Webster §II.A step 3 requires |S_L| - wt(L) + 1 INDEPENDENT gauge constraints. The existing
+    test verifies G @ F == 0 (i.e. G is in ker(F.T)) but not that G has full row rank.
 
-    A degenerate F could let the gauge fix return redundant rows,
-    inflating g.gauge.shape[0] without changing the actual gauge structure.
-    The Cain Table III bb_18 G=20 reproduction would catch the final
-    count but not the underlying rank degeneracy.
+    A degenerate F could let the gauge fix return redundant rows, inflating g.gauge.shape[0]
+    without changing the actual gauge structure. The Cain Table III bb_18 G=20 reproduction would
+    catch the final count but not the underlying rank degeneracy.
     """
     import galois
     import sympy
@@ -554,8 +550,8 @@ def test_step2_gauge_fix_empty_incidence_returns_zero_rows() -> None:
 def test_build_gadget_rejects_non_logical_input() -> None:
     """build_gadget rejects x that isn't a logical operator support.
 
-    For basis=X: HZ @ x must be 0; for basis=Z: HX @ x must be 0. Single-qubit
-    support [1,0,0,...] generally violates both (it's not in the codespace).
+    For basis=X: HZ @ x must be 0; for basis=Z: HX @ x must be 0. Single-qubit support [1,0,0,...]
+    generally violates both (it's not in the codespace).
     """
     from qldpc.experimental.surgery.gadget import build_gadget
 

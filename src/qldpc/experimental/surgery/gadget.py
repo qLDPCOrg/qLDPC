@@ -5,8 +5,8 @@ Three explicit named steps that map 1:1 to the paper:
     _step2_gauge_fix    — Webster §II.A step 2 (gauge fix)
     _step3_assemble     — Webster §II.A step 3 (block assembly)
 
-Notation (used throughout the surgery package; the symbols follow
-Webster/Cohen/Cross, not Cain). For a logical measured on support V_0:
+Notation (used throughout the surgery package; the symbols follow Webster/Cohen/Cross, not Cain).
+For a logical measured on support V_0:
     V_0  — logical support (measured qubits)                 → ``support``
     C_0  — data-code checks touching V_0                     → ``data_checks``
     F    — restriction (incidence) matrix on (C_0, V_0)      → ``incidence``
@@ -52,8 +52,8 @@ def _step1_restriction(
 
     gadget notation: V_0 → support; C_0 → data_checks; F → incidence.
 
-    For basis=Pauli.X: incidence = H_Z[data_checks, support] (the complementary
-    basis to the measured logical). For basis=Pauli.Z: incidence = H_X[data_checks, support].
+    For basis=Pauli.X: incidence = H_Z[data_checks, support] (the complementary basis to the
+    measured logical). For basis=Pauli.Z: incidence = H_X[data_checks, support].
     """
     x = np.asarray(x).astype(np.uint8)
     if x.shape != (code.num_qudits,):
@@ -98,9 +98,8 @@ def _assemble_HX_L1(
 
     gadget notation: V_0 → support; F → incidence.
 
-    Used by _step3_assemble (initial gadget assembly) and
-    build_gadget_augmented (post-boost rebuild). The Z-side
-    assembly is NOT shared — the boost rebuild treats new κ' qubits as
+    Used by _step3_assemble (initial gadget assembly) and build_gadget_augmented (post-boost
+    rebuild). The Z-side assembly is NOT shared — the boost rebuild treats new κ' qubits as
     pure-gauge (no data-Z extension), unlike the initial assembly.
 
     Args:
@@ -232,8 +231,8 @@ def build_gadget_augmented(
 
     gadget notation: F → incidence; F_extra → incidence_extra; κ → ancilla qubits.
 
-    Each row of ``incidence_extra`` has weight 2 and corresponds to a new κ qubit not
-    backed by any original Z-check (basis=X) or X-check (basis=Z). The function:
+    Each row of ``incidence_extra`` has weight 2 and corresponds to a new κ qubit not backed by any
+    original Z-check (basis=X) or X-check (basis=Z). The function:
 
     1. Stacks incidence_aug = [incidence; incidence_extra].
     2. Recomputes G_aug = ker(incidence_aug^T) via _step2_gauge_fix.
@@ -241,8 +240,8 @@ def build_gadget_augmented(
        The extra columns of tilde_F are all zero (no original check sits on the
        new κ qubits).
 
-    The returned ``GadgetLayout.data_checks`` and ``ancilla_qubits`` are extended to cover
-    the new κ qubits; the new κ indices come after the original ones.
+    The returned ``GadgetLayout.data_checks`` and ``ancilla_qubits`` are extended to cover the new κ
+    qubits; the new κ indices come after the original ones.
     """
     x = np.asarray(x).astype(np.uint8)
     support, data_checks, incidence = _step1_restriction(code, x, basis=basis)

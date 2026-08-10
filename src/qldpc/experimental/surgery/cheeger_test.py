@@ -108,14 +108,13 @@ def test_boost_gadget_preserves_css_commutation_both_bases(basis: PauliXZ) -> No
 def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
     """After basis=Z combinatorial boost, χ rows must live in HZ_merged.
 
-    The legacy adapter handled basis=Z by swapping HX↔HZ on entry and back on
-    exit; the GadgetLayout-native path delegates basis routing to
-    build_gadget_augmented. This test catches a regression where χ rows end
-    up in HX_merged instead of HZ_merged.
+    The legacy adapter handled basis=Z by swapping HX↔HZ on entry and back on exit; the
+    GadgetLayout-native path delegates basis routing to build_gadget_augmented. This test catches a
+    regression where χ rows end up in HX_merged instead of HZ_merged.
 
-    Distance-strategy basis=Z is not tested here because the Webster JSON
-    fixture only ships X̄ operators; the basis=X path of distance boost is
-    covered by test_boost_gadget_preserves_css_commutation[distance].
+    Distance-strategy basis=Z is not tested here because the Webster JSON fixture only ships X̄
+    operators; the basis=X path of distance boost is covered by
+    test_boost_gadget_preserves_css_commutation[distance].
     """
     from qldpc.experimental.surgery.cheeger import boost_gadget
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -336,8 +335,8 @@ def test_boost_combinatorial_rejects_synthetic_n_V_above_26() -> None:
 def test_boost_combinatorial_raises_when_target_unreachable_in_budget() -> None:
     """When boost can't reach target_h within max_extra_qubits, it raises RuntimeError.
 
-    It raises rather than silently returning an under-target (distance-degraded)
-    gadget. Webster0 (h0=1) with target=10 cannot be reached in max_extra=2.
+    It raises rather than silently returning an under-target (distance-degraded) gadget. Webster0
+    (h0=1) with target=10 cannot be reached in max_extra=2.
     """
     from qldpc.experimental.surgery import build_gadget
     from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial

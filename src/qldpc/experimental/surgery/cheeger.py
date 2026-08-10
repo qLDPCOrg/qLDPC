@@ -26,28 +26,24 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
 
     gadget notation: V → support; C → data_checks; F → incidence.
 
-    Helper / sanity-check tool. Used by ``boost_gadget_cheeger_combinatorial``
-    (which follows Williamson & Yoder / Webster, Smith, Cohen: random edge addition + distance
-    verification). Also kept for diagnostic use to debug the cut structure
-    when a boost run is unexpectedly long.
+    Helper / sanity-check tool. Used by ``boost_gadget_cheeger_combinatorial`` (which follows
+    Williamson & Yoder / Webster, Smith, Cohen: random edge addition + distance verification). Also
+    kept for diagnostic use to debug the cut structure when a boost run is unexpectedly long.
 
-    For bipartite incidence F: V -> C (V = X-check χ_i indices, C = κ_j
-    indices), the boundary ∂v of v ⊆ V is the subset of C with an odd
-    number of neighbours in v. The boundary Cheeger constant is
+    For bipartite incidence F: V -> C (V = X-check χ_i indices, C = κ_j indices), the boundary ∂v of
+    v ⊆ V is the subset of C with an odd number of neighbours in v. The boundary Cheeger constant is
 
         h(F) = min_{v ⊆ V, 1 ≤ |v| ≤ |V|/2} |∂v| / |v|.
 
-    Computes h(F) exactly by Gray-code enumeration over all subsets v.
-    Tractable for |V| ≤ 26 (≈ 67M subsets; ~5-30 s in numpy). Raises if
-    |V| > 26.
+    Computes h(F) exactly by Gray-code enumeration over all subsets v. Tractable for |V| ≤ 26 (≈ 67M
+    subsets; ~5-30 s in numpy). Raises if |V| > 26.
 
     Args:
         incidence: GF(2) restriction matrix of shape (|C|, |V|).
 
     Returns:
-        (h, v_star_indicator) where v_star_indicator is a length-|V|
-        binary numpy array marking the worst cut. If |V| < 2, returns
-        (inf, zero vector) — boost is not applicable.
+        (h, v_star_indicator) where v_star_indicator is a length-|V| binary numpy array marking the
+        worst cut. If |V| < 2, returns (inf, zero vector) — boost is not applicable.
 
     Raises:
         ValueError: if |V| > 26 (exhaustive enumeration is infeasible).
@@ -99,8 +95,7 @@ def cheeger_constant(g: GadgetLayout) -> float:
     gadget notation: F → incidence; V_0 → support (Webster–Smith–Cohen
     arXiv:2511.15989 §II.A Def 1 / Cross et al. arXiv:2407.18393 Def 3).
 
-    Computed exactly by Gray-code subset enumeration, which is tractable only
-    for |V_0| ≤ 26.
+    Computed exactly by Gray-code subset enumeration, which is tractable only for |V_0| ≤ 26.
 
         h(g) ≥ 1   ⇒   surgery on this gadget preserves code distance
                        (Cross et al. arXiv:2407.18393 Thm 6; structural
@@ -110,9 +105,9 @@ def cheeger_constant(g: GadgetLayout) -> float:
     Use as a pre-flight check before deciding whether to call boost_gadget.
 
     Raises:
-        ValueError: if |V_0| > 26. Exact enumeration is infeasible at that size
-            and no valid lower bound on h(F) is available, so returning a number
-            would be unsound; compute the exact code distance instead.
+        ValueError: if |V_0| > 26. Exact enumeration is infeasible at that size and no valid lower
+            bound on h(F) is available, so returning a number would be unsound; compute the exact
+            code distance instead.
     """
     incidence = galois.GF(2)(np.asarray(g.incidence).astype(int))
     if incidence.shape[1] > 26:
@@ -133,9 +128,8 @@ def _augment_incidence_with_random_edges(
 ) -> np.ndarray | None:
     """Add n_new_edges random degree-2 rows to F.
 
-    Each new row connects two distinct columns not already directly connected
-    via another existing row. Returns None if a collision-free sample could not
-    be drawn within the attempt budget.
+    Each new row connects two distinct columns not already directly connected via another existing
+    row. Returns None if a collision-free sample could not be drawn within the attempt budget.
     """
     incidence = incidence_base.copy()
     n_X = incidence.shape[1]
@@ -183,18 +177,16 @@ def boost_gadget_cheeger_combinatorial(
 
     gadget notation: F → incidence; V_0 → support; κ → ancilla.
 
-    Computes the exact boundary Cheeger constant h(F) via subset enumeration
-    (Webster Def 1 / Cross Def 3). When h < target_h, identifies the worst
-    cut v* and adds a κ qubit (degree-2 row of F) with one endpoint in v*
-    and one outside, which monotonically increases |∂v*| by 1 without
+    Computes the exact boundary Cheeger constant h(F) via subset enumeration (Webster Def 1 / Cross
+    Def 3). When h < target_h, identifies the worst cut v* and adds a κ qubit (degree-2 row of F)
+    with one endpoint in v* and one outside, which monotonically increases |∂v*| by 1 without
     decreasing any other |∂v|.
 
-    By Cross et al. arXiv:2407.18393 Thm 6, h(F) >= 1 implies d_merged >=
-    d_data, so reaching target_h = 1.0 guarantees distance preservation. The
-    guarantee is enforced: if the qubit budget is exhausted before target_h is
-    reached, this raises RuntimeError rather than silently returning an
-    under-target (distance-degraded) gadget. Tractable for |V_0| <= 26
-    (Webster's family up to l=255).
+    By Cross et al. arXiv:2407.18393 Thm 6, h(F) >= 1 implies d_merged >= d_data, so reaching
+    target_h = 1.0 guarantees distance preservation. The guarantee is enforced: if the qubit budget
+    is exhausted before target_h is reached, this raises RuntimeError rather than silently returning
+    an under-target (distance-degraded) gadget. Tractable for |V_0| <= 26 (Webster's family up to
+    l=255).
 
     Args:
         g: input gadget produced by build_gadget.
@@ -341,31 +333,30 @@ def boost_gadget_distance(
 
     gadget notation: F → incidence; κ' → new ancilla qubits.
 
-    Iteratively add small random batches of degree-2 edges to F, use BP+OSD
-    upper bound on merged code distance to fast-reject any augmentation whose
-    deformed code falls below target. Starts from n_extra = 0 (verify bare
-    gadget already meets target).
+    Iteratively add small random batches of degree-2 edges to F, use BP+OSD upper bound on merged
+    code distance to fast-reject any augmentation whose deformed code falls below target. Starts
+    from n_extra = 0 (verify bare gadget already meets target).
 
     Args:
         g: input gadget produced by build_gadget.
-        target_distance: minimum X- and Z-distance required for acceptance
-            (usually d_data, the data code's distance).
+        target_distance: minimum X- and Z-distance required for acceptance (usually d_data, the data
+            code's distance).
         max_extra_qubits: cap on number of new κ' qubits to consider.
         num_trials_per_step: random augmentations per n_extra value.
         decoder_trials: trials for each get_distance_bound_with_decoder call.
         seed: RNG seed for reproducibility.
 
     Returns:
-        A new GadgetLayout whose merged code passes BP+OSD at target_distance,
-        or the bare input gadget if max_extra_qubits is exhausted.
+        A new GadgetLayout whose merged code passes BP+OSD at target_distance, or the bare input
+        gadget if max_extra_qubits is exhausted.
 
     Raises:
         ValueError: target_distance <= 0 or max_extra_qubits < 0.
 
     Notes:
-        BP+OSD gives an UPPER bound on distance. ``d_bound >= target_distance``
-        is a strong heuristic but not a proof. For exact verification,
-        post-process accepted candidates with ``merged.get_distance_exact()``.
+        BP+OSD gives an UPPER bound on distance. ``d_bound >= target_distance`` is a strong
+        heuristic but not a proof. For exact verification, post-process accepted candidates with
+        ``merged.get_distance_exact()``.
     """
     from qldpc.objects import Pauli as _Pauli
 
