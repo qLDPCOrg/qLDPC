@@ -1067,16 +1067,26 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 field_array[other_row] = new_bb_vec
 
             """
-            "Reduce" the pivot:
-            (1) Find ff for which ff * pivot = gcd(pivot, modulus).
-            (2) Multiply the pivot row by ff, reducing the pivot to gcd(pivot, modulus).
+            "Reduce" the pivot to gcd(pivot, modulus):
+            (1) Find ff for which ff * pivot = gcd(pivot, modulus) = gg.
+            (2) Replace the pivot row with ff * (pivot row), reducing the pivot to gg.
+            Multiplying the whole row by the non-unit ff would shrink the row-module span (it scales
+            every column, not just the pivot), so preserve the span by keeping the residual: the
+            original row minus its reconstruction quotient * (reduced row), where
+            quotient = pivot / gg (exact, and quotient * gg = pivot with no reduction modulo
+            x^n - 1 since deg(pivot) < n).  That residual is therefore zero in the pivot column
+            and, being a combination of the original rows, adds no span; it is resolved later.
             """
             pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
             gcd_poly: galois.Poly
             ff_poly: galois.Poly
             gcd_poly, ff_poly, _ = galois.egcd(pivot_poly, modulus_poly)  # type:ignore[assignment,arg-type]
             if pivot_poly != gcd_poly:
-                field_array[pivot_row] = _multiply(ff_poly, field_array[pivot_row])
+                quotient_poly = pivot_poly // gcd_poly
+                reduced_row = _multiply(ff_poly, field_array[pivot_row])
+                residual_row = field_array[pivot_row] - _multiply(quotient_poly, reduced_row)
+                field_array[pivot_row] = reduced_row
+                field_array = np.append(field_array, [residual_row], axis=0).view(self.field)
                 pivot_poly = gcd_poly
 
             """
