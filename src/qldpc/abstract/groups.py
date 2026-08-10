@@ -523,7 +523,7 @@ class Group:
     ) -> set[GroupMember]:
         """Construct a random symmetric subset of a given size.
 
-        Note: this is not a uniformaly random subset, only a "sufficiently random" one.
+        Note: this is not a uniformly random subset, only a "sufficiently random" one.
 
         WARNING: if excluding the identity element, not all groups have symmetric subsets of
         arbitrary size.  If called with a poor choice of group and subset size, this method may

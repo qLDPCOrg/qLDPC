@@ -29,7 +29,7 @@ import functools
 import itertools
 import operator
 import warnings
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
 import galois
@@ -47,6 +47,7 @@ from .groups import (
     CyclicGroup,
     Group,
     GroupMember,
+    NestedSequence,
     TrivialGroup,
     iter_monomial_terms,
     resolve_field,
@@ -544,8 +545,6 @@ class Element(RingMember):
 
 ################################################################################
 # RingArray: RingMember-valued array
-
-NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
 
 def _iter_ring_arrays(obj: Any) -> Iterator[RingArray]:
@@ -1127,7 +1126,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def reduced_groebner_basis(self) -> RingArray:
         """Compute a reduced Groebner basis for this RingArray.
 
-        At least, that the plan.  This method is not yet implemented.
+        At least, that's the plan.  This method is not yet implemented.
         """
         assert self.ndim == 2
         raise NotImplementedError(
