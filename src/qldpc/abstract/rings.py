@@ -154,7 +154,7 @@ class GroupRing:
         return self.group.regular_lift(member, right=right).view(self.field)
 
     def lift(self, member: GroupMember, *, right: bool = False) -> galois.FieldArray:
-        """Lift a group member to a representation by an orthogonal matrix.
+        """Lift a group member to a representation by a matrix.
 
         A representation satisfies
 
@@ -431,7 +431,7 @@ class RingMember:
         return self.ring.field
 
     def lift(self, *, right: bool = False) -> galois.FieldArray:
-        """Lift this ring member to a representation by an orthogonal matrix.
+        """Lift this ring member to a representation by a matrix.
 
         A representation satisfies
 
@@ -474,8 +474,9 @@ class RingMember:
         """Transpose of this element.
 
         If this element is ``x = sum_{g in G) x_g g``, return ``x.T = sum_{g in G} x_g g.T``,
-        where g.T is the group member for which the lift ``L(g.T) = L(g).T``.  The fact that
-        group members get lifted to orthogonal matrices implies that ``g.T = ~g = g**-1``.
+        where ``g.T = ~g = g**-1``.  For an orthogonal lift this matches the matrix transpose,
+        ``L(g.T) = L(g).T``; for non-orthogonal (experimental) lifts the group inverse ``~g`` is
+        still used, but it no longer corresponds to a matrix transpose.
         """
         new_element = self.ring.zero
         for val, member in self:

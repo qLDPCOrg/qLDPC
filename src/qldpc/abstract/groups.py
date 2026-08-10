@@ -8,10 +8,12 @@ a subgroup of the symmetric group.  Group members subclass the SymPy Permutation
 This module does not promise to be performant.  If you need to do heavy numerical abstract algebra,
 you're probably better served by GAP or MAGMA (or maybe SageMath).
 
-This module only supports representations of group members by orthogonal matrices over finite
-fields.  The restriction to orthogonal representations allows identifying the "transpose" of a group
-member p with respect to a representation (lift) L, which is defined by enforcing L(p.T) = L(p).T.
-If the representation is orthogonal, then p.T is equal to the inverse ~p = p**-1.
+This module represents group members by matrices over a finite field via a lift L, a homomorphism
+with L(g . h) = L(g) @ L(h).  The default lift is the regular representation, whose matrices are
+permutation matrices and hence orthogonal; for an orthogonal lift the "transpose" of a group member
+p satisfies L(p.T) = L(p).T, and p.T equals the inverse ~p = p**-1.  Some custom lifts
+(SpecialLinearGroup, ProjectiveSpecialLinearGroup, QuaternionGroup) are experimental and generally
+not orthogonal, so that transpose/inverse identity does not hold for them.
 
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
@@ -160,8 +162,9 @@ class Group:
     representation of a group represents group members by how they act on the group itself.
     See https://en.wikipedia.org/wiki/Regular_representation.
 
-    A group may additionally be equipped with a custom lift to an orthogonal matrix over a finite
-    field, for which the group action corresponds to matrix multiplication.  If no lift is provided,
+    A group may additionally be equipped with a custom lift to a matrix over a finite field, for
+    which the group action corresponds to matrix multiplication.  Custom lifts are not required to
+    be orthogonal (some, such as SpecialLinearGroup, are not).  If no lift is provided,
     group.lift(member) will default to the regular lift of the group.
     """
 
@@ -401,7 +404,7 @@ class Group:
         return matrix
 
     def lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
-        """Lift a group member to a representation by an orthogonal matrix.
+        """Lift a group member to a representation by a matrix.
 
         A representation satisfies
 
@@ -497,8 +500,13 @@ class Group:
         permutation_to_index = {tuple(row): idx for idx, row in enumerate(table)}
 
         def lift(member: GroupMember) -> npt.NDArray[np.int_]:
-            """Lift a member to its matrix representation."""
-            return index_to_member[permutation_to_index[tuple(member.array_form)]]
+            """Lift a member to its (transposed) matrix representation.
+
+            The transpose makes the lift a homomorphism, lift(g . h) = lift(g) @ lift(h); the raw
+            generating matrices compose in the opposite order.  EXPERIMENTAL: these matrices are
+            generally not orthogonal, so lift(g.T) == lift(g).T does not hold.
+            """
+            return index_to_member[permutation_to_index[tuple(member.array_form)]].T
 
         # identify generating permutations and build the group itself
         generators = [GroupMember(table[row]) for row in range(len(matrices))]
@@ -713,7 +721,12 @@ class SymmetricGroup(Group):
 
 
 class QuaternionGroup(Group):
-    """Quaternion group: 1, i, j, k, -1, -i, -j, -k."""
+    """Quaternion group: 1, i, j, k, -1, -i, -j, -k.
+
+    EXPERIMENTAL: the 2-dimensional lift is a faithful homomorphism, but over GF(3) it is not
+    orthogonal -- lift(i) and lift(j) satisfy ``M.T @ M == -I`` -- so the transpose/inverse identity
+    ``lift(g.T) == lift(g).T`` does not hold for this group.
+    """
 
     # multiplication table for this group
 
@@ -803,7 +816,11 @@ class SmallGroup(Group):
 
 
 class SpecialLinearGroup(Group):
-    """Special linear group (SL): square matrices with determinant 1."""
+    """Special linear group (SL): square matrices with determinant 1.
+
+    EXPERIMENTAL: the linear-representation lift is a homomorphism, but its matrices are generally
+    not orthogonal, so the transpose/inverse identity ``lift(g.T) == lift(g).T`` does not hold here.
+    """
 
     _dimension: int
     _field: type[galois.FieldArray]
@@ -852,7 +869,9 @@ class SpecialLinearGroup(Group):
                     out_idx = member(inp_idx)
                     out_vec = np.frombuffer(target_space[out_idx], dtype=np.uint8)
                     cols.append(out_vec)
-                return np.vstack(cols, dtype=int).T
+                # stacking the images as rows yields the transpose of the acting matrix; that
+                # transpose (not the matrix itself) is the homomorphism lift(g.h) = lift(g) lift(h)
+                return self.field(np.vstack(cols, dtype=int))
 
             super()._init_from_group(comb.PermutationGroup(generators), lift=lift)
 
@@ -928,36 +947,35 @@ class ProjectiveSpecialLinearGroup(Group):
         self._field = resolve_field(field)
 
         if linear_rep:
-            # Construct a linear representation of this group, in which group elements permute
-            # elements of the vector space that the generating matrices act on.
-
-            # identify multiplicative roots of unity
+            # This linear representation is the SL(d, q) action on nonzero vectors, which descends
+            # to PSL = SL/center only when the center is trivial.  The center is the scalar matrices
+            # in SL, of size gcd(d, q - 1), so the construction is valid only when that gcd is 1.
             num_roots = math.gcd(self.dimension, self.field.order - 1)
-            primitive_root = self.field.primitive_element ** ((self.field.order - 1) // num_roots)
-            roots = [primitive_root**kk for kk in range(num_roots)]
+            if num_roots > 1:
+                raise ValueError(
+                    f"PSL({self.dimension}, {self.field.order}) has a nontrivial center "
+                    f"(gcd(d, q - 1) = {num_roots} > 1), so the {self.dimension}-dimensional linear "
+                    "representation of SL does not descend to PSL; use linear_rep=False."
+                )
 
-            # Identify the target space that group members (as matrices) act on:
-            # all nonzero vectors, modded out by roots of unity.
-            target_orbits = [
-                frozenset([(root * self.field(vec)).tobytes() for root in roots])
-                for vec in itertools.product(range(self.field.order), repeat=self.dimension)
+            # with a trivial center, PSL(d, q) = SL(d, q): represent members by their action on all
+            # nonzero vectors, exactly as SpecialLinearGroup does
+            target_space = [
+                self.field(vec).tobytes()
+                for vec in itertools.product(self.field.elements, repeat=self.dimension)
             ]
-            del target_orbits[0]  # remove the orbit of the zero vector
-            target_space = [next(iter(orbit)) for orbit in set(target_orbits)]
+            del target_space[0]  # remove the zero vector
 
             # identify how the generators permute elements of the target space
             generators = []
             for member in SpecialLinearGroup.get_generating_mats(self.dimension, self.field.order):
                 perm = np.empty(len(target_space), dtype=int)
                 for index, vec_bytes in enumerate(target_space):
-                    vec = np.frombuffer(vec_bytes, dtype=np.uint8).view(self.field)
-                    next_orbit = [root * member @ vec for root in roots]
-                    next_vec = next(vec for vec in next_orbit if vec.tobytes() in target_space)
-                    next_index = target_space.index(next_vec.tobytes())
+                    next_vec = member @ np.frombuffer(vec_bytes, dtype=np.uint8).view(self.field)
+                    next_index = target_space.index(next_vec.view(np.ndarray).tobytes())
                     perm[index] = next_index
                 generators.append(GroupMember(perm))
 
-            # construct a lift identical to that for the linear representation of SL
             def lift(member: GroupMember) -> npt.NDArray[np.int_]:
                 """Lift a group member to a square matrix.
 
@@ -971,7 +989,8 @@ class ProjectiveSpecialLinearGroup(Group):
                     out_idx = member(inp_idx)
                     out_vec = np.frombuffer(target_space[out_idx], dtype=np.uint8)
                     cols.append(out_vec)
-                return np.vstack(cols, dtype=int).T
+                # see SpecialLinearGroup: the transpose of the acting matrix is the homomorphism
+                return self.field(np.vstack(cols, dtype=int))
 
             super()._init_from_group(comb.PermutationGroup(generators), lift=lift)
 

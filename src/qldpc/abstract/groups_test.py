@@ -155,6 +155,14 @@ def assert_valid_lifts(group: abstract.Group) -> None:
             for aa, bb in itertools.product(group_members, repeat=2)
         )
 
+    # regular-representation matrices are permutation matrices, hence orthogonal
+    assert all(
+        np.array_equal(
+            group.regular_lift(gg).T @ group.regular_lift(gg), np.eye(group.order, dtype=int)
+        )
+        for gg in group_members
+    )
+
     # invert elements: g -> g**(-1)
     assert all(
         np.array_equal(
@@ -270,35 +278,55 @@ def test_quaternion_group() -> None:
     members = [one, ii, jj, kk, minus_one, minus_one * ii, minus_one * jj, minus_one * kk]
     assert all(gg == hh for gg, hh in zip(group.generate(), members))
 
+    # the 2-D lift is a faithful homomorphism but is NOT orthogonal over GF(3): lift(i) and lift(j)
+    # satisfy M.T @ M == -I (= 2*I mod 3), so the transpose/inverse identity does not hold here.
+    assert_lift_is_homomorphism(group)
+    for generator in (ii, jj):
+        lift = group.lift(generator)
+        assert np.array_equal(lift.T @ lift, 2 * np.eye(2, dtype=int))
+
+
+def assert_lift_is_homomorphism(group: abstract.Group) -> None:
+    """The lift satisfies lift(g . h) == lift(g) @ lift(h) over the whole group."""
+    members = list(group.generate())
+    assert all(
+        np.array_equal(group.lift(g * h), group.lift(g) @ group.lift(h))
+        for g, h in itertools.product(members, members)
+    )
+
 
 @pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False)])
 def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
-    """Special linear group."""
+    """Special linear group; its lift is a homomorphism (though not orthogonal)."""
     group = abstract.SL(dimension, field=field, linear_rep=linear_rep)
     order = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
     mats = tuple(abstract.SL.iter_mats(dimension, field))
     assert group.order == len(mats) == order
-
-    gens = group.generators
-    gen_mats = group.get_generating_mats(dimension, field)
-    assert np.array_equal(group.lift(gens[0]), gen_mats[0])
-    assert np.array_equal(group.lift(gens[1]), gen_mats[1])
+    assert_lift_is_homomorphism(group)
 
 
-@pytest.mark.parametrize("dimension,field,linear_rep", [(2, 2, True), (2, 3, False)])
+@pytest.mark.parametrize("dimension,field,linear_rep", [(2, 2, True), (2, 2, False), (2, 3, False)])
 def test_PSL(dimension: int, field: int, linear_rep: bool) -> None:
-    """Projective special linear group."""
+    """Projective special linear group; its lift is a homomorphism (though not orthogonal)."""
     group = abstract.PSL(dimension, field, linear_rep=linear_rep)
     order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
     order = order_SL // math.gcd(dimension, field - 1)
     mats = tuple(abstract.PSL.iter_mats(dimension, field))
     assert group.order == len(mats) == order
+    assert_lift_is_homomorphism(group)
 
-    if field == 2:
-        gens = group.generators
-        gen_mats = group.get_generating_mats(dimension, field)
-        assert np.array_equal(group.lift(gens[0]), gen_mats[0])
-        assert np.array_equal(group.lift(gens[1]), gen_mats[1])
+
+def test_psl_requires_trivial_center() -> None:
+    """PSL's linear representation raises when a faithful one cannot exist (nontrivial center).
+
+    A faithful d-dimensional linear representation of PSL(d, q) exists only when the center of
+    SL(d, q) -- the scalar matrices, of size gcd(d, q - 1) -- is trivial.
+    """
+    for dimension, field in [(2, 3), (2, 5), (2, 7)]:  # gcd(d, q - 1) = 2 > 1
+        with pytest.raises(ValueError, match="does not descend to PSL"):
+            abstract.PSL(dimension, field)  # default linear_rep=True
+        # the regular representation is always available
+        assert abstract.PSL(dimension, field, linear_rep=False).order > 0
 
 
 def test_small_group() -> None:
