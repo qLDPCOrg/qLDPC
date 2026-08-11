@@ -1507,7 +1507,7 @@ def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
 
     Webster, Smith, Cohen arXiv:2511.15989 §II.A gives the single-round identity
     Z̄ = ∏_{v ∈ support} A_v on the merged stabilizer group: the XOR of one round's meas-check
-    outcomes equals the eigenvalue bit of Z̄. Reading at the final QEC round is
+    outcomes equals the eigenvalue bit of Z̄. Reading at the final QEC round should be
     decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D); detectors
     carry the FT load round-to-round.
 
