@@ -1885,7 +1885,7 @@ def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
 
     Contract test: single-PPM does NOT call build_bridge / SkipTree, so the joint-PPM boost-drop and
     duplicate-edge bugs (fixed in bridge.py) cannot affect it. This regression locks that property
-    in — both BB [[36, 8]] (duplicate weight-2 incidence rows on Z̄_0) AND boost (Cheeger h<1)
+    in — both BB [[36, 8]] (duplicate weight-2 incidence rows on Z̄_0) AND a Cheeger boost (h=1→2)
     simultaneously, the double-boundary case for the bridge bugs. If a future refactor accidentally
     routes single-PPM through bridge code, this test will catch it via stim's
     non-deterministic-detector rejection.
@@ -1908,8 +1908,10 @@ def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
     assert g.incidence.shape[0] > np.unique(g.incidence, axis=0).shape[0], (
         "test premise broken: BB [[36, 8]] Z̄_0 restriction should have duplicate κ rows"
     )
-    if cheeger_constant(g) < 1.0:
-        g = boost_gadget(g, method="combinatorial", target=1.0, max_extra_qubits=20, seed=3)
+    # BB[[36, 8]] Z̄_0 has h(F) = 1.0; boost to h ≥ 2 to exercise the boosted path atop the
+    # duplicate-row interface (the double-boundary stressor for the bridge bugs).
+    assert cheeger_constant(g) == 1.0
+    g = boost_gadget(g, method="combinatorial", target=2.0, max_extra_qubits=20, seed=3)
 
     noise = DepolarizingNoiseModel(1e-3, include_idling_error=False)
     circuit = build_single_ppm_circuit(g, rounds=3, noise_model=noise)
