@@ -1075,7 +1075,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             # residual: the original row minus its reconstruction quotient * (reduced row), where
             # quotient = pivot / gg (exact, and quotient * gg = pivot with no reduction modulo
             # x^n - 1 since deg(pivot) < n).  That residual is therefore zero in the pivot column
-            # and, being a combination of the original rows, adds no span; it is resolved later.
+            # and, being a ring-multiple of the pivot row, adds no span; it is resolved later.
             pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
             gcd_poly: galois.Poly
             ff_poly: galois.Poly
