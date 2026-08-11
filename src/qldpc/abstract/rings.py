@@ -42,6 +42,7 @@ from typing_extensions import Self
 import qldpc
 from qldpc import external
 
+from ._monomials import iter_monomial_terms
 from .groups import (
     AbelianGroup,
     CyclicGroup,
@@ -49,7 +50,6 @@ from .groups import (
     GroupMember,
     NestedSequence,
     TrivialGroup,
-    iter_monomial_terms,
     resolve_field,
 )
 

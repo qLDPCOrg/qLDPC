@@ -51,6 +51,8 @@ import sympy.core
 
 from qldpc import external
 
+from ._monomials import get_coefficient_and_exponents
+
 
 def resolve_field(
     field: int | type[galois.FieldArray] | None,
@@ -1049,43 +1051,3 @@ class ProjectiveSpecialLinearGroup(Group):
 
 SL = SpecialLinearGroup
 PSL = ProjectiveSpecialLinearGroup
-
-
-################################################################################
-# miscellaneous helper methods that don't quite belong in qldpc.math
-
-
-def iter_monomial_terms(polynomial: sympy.Basic | int | np.int_) -> tuple[sympy.Expr, ...]:
-    """Split a SymPy polynomial into its monomial terms, distributing any products of sums.
-
-    Accepts a sympy.Expr, a sympy.Poly, or a (Python or NumPy) integer, and always returns a tuple
-    of single-term monomials.  For example, (1 + x) * (1 + y) becomes (1, x, y, x*y), while a lone
-    monomial or constant such as 2 * x or 5 becomes a one-element tuple.
-    """
-    if isinstance(polynomial, sympy.Poly):
-        polynomial = polynomial.as_expr()
-    # sympify integers into SymPy objects, then expand so that make_args sees a sum of monomials
-    return sympy.Add.make_args(sympy.sympify(polynomial).expand())
-
-
-def get_coefficient_and_exponents(
-    monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
-) -> tuple[int, list[tuple[sympy.Symbol, int]]]:
-    """Extract the coefficients and exponents in a SymPy monomial expression.
-
-    For example, this method takes 5 * x**3 * y**2 to (5, [(x, 3), (y, 2)]).
-    """
-    if isinstance(monomial, (sympy.Integer, int, np.int_)):
-        return int(monomial), []
-    coeff, monomial = monomial.as_coeff_Mul()
-    exponents = []
-    if isinstance(monomial, sympy.Symbol):
-        exponents.append((monomial, 1))
-    elif isinstance(monomial, sympy.Pow):
-        base, exponent = monomial.as_base_exp()
-        exponents.append((base, exponent))
-    elif isinstance(monomial, sympy.Mul):
-        for factor in monomial.args:
-            base, exponent = factor.as_base_exp()
-            exponents.append((base, exponent))
-    return int(coeff), exponents
