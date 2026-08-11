@@ -306,9 +306,16 @@ def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
     assert_lift_is_homomorphism(group)
 
 
-@pytest.mark.parametrize("dimension,field,linear_rep", [(2, 2, True), (2, 2, False), (2, 3, False)])
-def test_PSL(dimension: int, field: int, linear_rep: bool) -> None:
-    """Projective special linear group; its lift is a homomorphism (though not orthogonal)."""
+@pytest.mark.parametrize(
+    "dimension,field,linear_rep",
+    [(2, 2, True), (2, 2, False), (2, 3, False), (2, 4, None), (2, 3, None)],
+)
+def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
+    """Projective special linear group; its lift is a homomorphism (though not orthogonal).
+
+    ``linear_rep=None`` (the default) uses the linear representation where it exists (gcd = 1, as in
+    PSL(2,4)) and otherwise falls back to the permutation representation (gcd > 1, as in PSL(2,3)).
+    """
     group = abstract.PSL(dimension, field, linear_rep=linear_rep)
     order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
     order = order_SL // math.gcd(dimension, field - 1)
@@ -318,16 +325,23 @@ def test_PSL(dimension: int, field: int, linear_rep: bool) -> None:
 
 
 def test_psl_requires_trivial_center() -> None:
-    """PSL's linear representation raises when a faithful one cannot exist (nontrivial center).
+    """An explicit linear rep raises when a faithful one cannot exist; the default falls back.
 
     A faithful d-dimensional linear representation of PSL(d, q) exists only when the center of
-    SL(d, q) -- the scalar matrices, of size gcd(d, q - 1) -- is trivial.
+    SL(d, q) -- the scalar matrices, of size gcd(d, q - 1) -- is trivial.  ``linear_rep=True``
+    demands it and raises otherwise; the default (``linear_rep=None``) instead falls back to the
+    permutation representation, so the group is always constructible.
     """
     for dimension, field in [(2, 3), (2, 5), (2, 7)]:  # gcd(d, q - 1) = 2 > 1
         with pytest.raises(ValueError, match="does not descend to PSL"):
-            abstract.PSL(dimension, field)  # default linear_rep=True
-        # the regular representation is always available
-        assert abstract.PSL(dimension, field, linear_rep=False).order > 0
+            abstract.PSL(dimension, field, linear_rep=True)  # explicitly demand the linear rep
+        # the default and the permutation representation are always available and faithful
+        for group in [
+            abstract.PSL(dimension, field),
+            abstract.PSL(dimension, field, linear_rep=False),
+        ]:
+            assert group.order > 0
+            assert_lift_is_homomorphism(group)
 
 
 def test_resolve_field() -> None:

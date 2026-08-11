@@ -939,6 +939,13 @@ class ProjectiveSpecialLinearGroup(Group):
     ``scalar**d == 1``.
 
     Altogether, we construct ``PSL(d,q)`` by ``SL(d,q)`` mod [d-th roots of unity over ``F_q``].
+
+    The faithful ``d``-dimensional linear representation of ``SL`` descends to ``PSL`` only when the
+    center is trivial, i.e. ``gcd(d, q - 1) == 1`` (e.g. ``PSL(2,4)`` but not ``PSL(2,5)``).  By
+    default (``linear_rep=None``) this representation is used where it exists and a permutation
+    representation is used otherwise, so ``PSL(d,q)`` is always constructible.  Pass
+    ``linear_rep=True`` to require the linear representation (raising where it does not exist) or
+    ``linear_rep=False`` to always use the permutation representation.
     """
 
     _dimension: int
@@ -948,24 +955,30 @@ class ProjectiveSpecialLinearGroup(Group):
         self,
         dimension: int,
         field: int | type[galois.FieldArray] | None = None,
-        linear_rep: bool = True,
+        linear_rep: bool | None = None,
     ) -> None:
         self._name = f"PSL({dimension},{field})"
         self._dimension = dimension
         self._field = resolve_field(field)
 
-        if linear_rep:
-            # This linear representation is the SL(d, q) action on nonzero vectors, which descends
-            # to PSL = SL/center only when the center is trivial.  The center is the scalar matrices
-            # in SL, of size gcd(d, q - 1), so the construction is valid only when that gcd is 1.
-            num_roots = math.gcd(self.dimension, self.field.order - 1)
-            if num_roots > 1:
-                raise ValueError(
-                    f"PSL({self.dimension}, {self.field.order}) has a nontrivial center "
-                    f"(gcd(d, q - 1) = {num_roots} > 1), so the {self.dimension}-dimensional linear "
-                    "representation of SL does not descend to PSL; use linear_rep=False."
-                )
+        # This linear representation is the SL(d, q) action on nonzero vectors, which descends to
+        # PSL = SL/center only when the center is trivial.  The center is the scalar matrices in SL,
+        # of size gcd(d, q - 1), so the linear representation exists only when that gcd is 1.  By
+        # default (linear_rep=None) use it where it exists, else fall back to the permutation
+        # representation; linear_rep=True demands it and raises where it does not exist, while
+        # linear_rep=False always uses the permutation representation.
+        num_roots = math.gcd(self.dimension, self.field.order - 1)
+        has_linear_rep = num_roots == 1
+        if linear_rep and not has_linear_rep:
+            raise ValueError(
+                f"PSL({self.dimension}, {self.field.order}) has a nontrivial center "
+                f"(gcd(d, q - 1) = {num_roots} > 1), so the {self.dimension}-dimensional linear "
+                "representation of SL does not descend to PSL; use linear_rep=False."
+            )
+        if linear_rep is None:
+            linear_rep = has_linear_rep
 
+        if linear_rep:
             # with a trivial center, PSL(d, q) = SL(d, q): represent members by their action on all
             # nonzero vectors, exactly as SpecialLinearGroup does
             target_space = [
