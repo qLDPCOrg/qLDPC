@@ -937,11 +937,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         pivot_col = 0
         num_rows, num_cols = matrices[0].shape[:2]
         while pivot_row < num_rows and pivot_col < num_cols - 1:
-            """
-            Identify:
-            1. The column of the first nonzero value in the pivot_row of each component.
-            2. The column that will contain the pivot when we recombine the components.
-            """
+            # Identify:
+            # 1. The column of the first nonzero value in the pivot_row of each component.
+            # 2. The column that will contain the pivot when we recombine the components.
             pivot_rows_as_bools = [
                 np.any(matrix[pivot_row].view(np.ndarray).astype(bool), axis=(1, 2))
                 for matrix in matrices
@@ -949,15 +947,14 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             pivot_cols = qldpc.math.first_nonzero_cols(pivot_rows_as_bools)
             pivot_col = min(pivot_cols)
 
-            """
-            Let π be a projector onto the components in which the pivot is nonzero.  If π != 1, then
-            (1-π) is a nontrivial annihilator of the pivot.  If, moreover, (1-π)·r is nonzero, then
-            (1-π)·r contains a "hidden" pivot in a later column.  In this case, we in principle need
-            to replace r -> π·r and add (1-π)·r as a new row to the matrix.  In practice, this
-            procedure messes up the reduced row echelon form of the matrix, so we instead...
-            1. In the (1-π) sector, insert a zero row at the pivot_row and shift down rows below.
-            2. In the π sector, append a zero row to the matrix.
-            """
+            # Let π be a projector onto the components in which the pivot is nonzero.  If π != 1,
+            # then (1-π) is a nontrivial annihilator of the pivot.  If, moreover, (1-π)·r is
+            # nonzero, then (1-π)·r contains a "hidden" pivot in a later column.  In this case, we
+            # in principle need to replace r -> π·r and add (1-π)·r as a new row to the matrix.  In
+            # practice, this procedure messes up the reduced row echelon form of the matrix, so we
+            # instead...
+            # 1. In the (1-π) sector, insert a zero row at the pivot_row and shift down rows below.
+            # 2. In the π sector, append a zero row to the matrix.
             components_with_hidden_pivots = [
                 cc for cc in range(len(matrices)) if pivot_col < pivot_cols[cc] < num_cols
             ]
@@ -1043,19 +1040,17 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 bb_vec = field_array[other_row]
                 if not np.any(bb_vec):
                     continue
-                """
-                Let:
-                    aa = aa_vec[pivot_row]
-                    bb = bb_vec[other_row]
-                We will transform rows as
-                    [aa_vec, bb_vec] --> [[ss, tt], [uu, vv]] @ [aa_vec, bb_vec]
-                where
-                    (1) ss * aa + tt * bb = gcd(aa, bb) = gg
-                    (2) uu * aa + vv * bb = 0
-                    (3) det([[ss, tt], [uu, vv]]) = ss * vv - tt * uu = 1
-                Condition (3) ensures that this transformation is invertible.
-                Condition (2) ensures that bb_vec gets zeroed out at the pivot column.
-                """
+                # Let:
+                #     aa = aa_vec[pivot_row]
+                #     bb = bb_vec[other_row]
+                # We will transform rows as
+                #     [aa_vec, bb_vec] --> [[ss, tt], [uu, vv]] @ [aa_vec, bb_vec]
+                # where
+                #     (1) ss * aa + tt * bb = gcd(aa, bb) = gg
+                #     (2) uu * aa + vv * bb = 0
+                #     (3) det([[ss, tt], [uu, vv]]) = ss * vv - tt * uu = 1
+                # Condition (3) ensures that this transformation is invertible.
+                # Condition (2) ensures that bb_vec gets zeroed out at the pivot column.
                 aa_poly = galois.Poly(aa_vec[pivot_col, ::-1], field=self.field)
                 bb_poly = galois.Poly(bb_vec[pivot_col, ::-1], field=self.field)
 
@@ -1072,17 +1067,15 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 field_array[pivot_row] = new_aa_vec
                 field_array[other_row] = new_bb_vec
 
-            """
-            "Reduce" the pivot to gcd(pivot, modulus):
-            (1) Find ff for which ff * pivot = gcd(pivot, modulus) = gg.
-            (2) Replace the pivot row with ff * (pivot row), reducing the pivot to gg.
-            Multiplying the whole row by the non-unit ff would shrink the row-module span (it scales
-            every column, not just the pivot), so preserve the span by keeping the residual: the
-            original row minus its reconstruction quotient * (reduced row), where
-            quotient = pivot / gg (exact, and quotient * gg = pivot with no reduction modulo
-            x^n - 1 since deg(pivot) < n).  That residual is therefore zero in the pivot column
-            and, being a combination of the original rows, adds no span; it is resolved later.
-            """
+            # "Reduce" the pivot to gcd(pivot, modulus):
+            # (1) Find ff for which ff * pivot = gcd(pivot, modulus) = gg.
+            # (2) Replace the pivot row with ff * (pivot row), reducing the pivot to gg.
+            # Multiplying the whole row by the non-unit ff would shrink the row-module span (it
+            # scales every column, not just the pivot), so preserve the span by keeping the
+            # residual: the original row minus its reconstruction quotient * (reduced row), where
+            # quotient = pivot / gg (exact, and quotient * gg = pivot with no reduction modulo
+            # x^n - 1 since deg(pivot) < n).  That residual is therefore zero in the pivot column
+            # and, being a combination of the original rows, adds no span; it is resolved later.
             pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
             gcd_poly: galois.Poly
             ff_poly: galois.Poly
@@ -1095,22 +1088,18 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 field_array = np.append(field_array, [residual_row], axis=0).view(self.field)
                 pivot_poly = gcd_poly
 
-            """
-            Reduce all rows above the pivot_row at the pivot_column.
-            If some value in the pivot_col above the pivot_row can be written as a multiple of the
-            pivot plus a remainder, use row operations to subtract off that multiple of the pivot,
-            leaving only the remainder.
-            """
+            # Reduce all rows above the pivot_row at the pivot_column.
+            # If some value in the pivot_col above the pivot_row can be written as a multiple of the
+            # pivot plus a remainder, use row operations to subtract off that multiple of the pivot,
+            # leaving only the remainder.
             for other_row in range(pivot_row):
                 other_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
                 div_poly = other_poly // pivot_poly
                 if div_poly != 0:
                     field_array[other_row] -= _multiply(div_poly, field_array[pivot_row])
 
-            """
-            Check whether the pivot has a nontrivial annihilator, with annihilator * pivot = 0.
-            If a nontrivial annihilator is found, append a new row with the pivot annihilated.
-            """
+            # Check whether the pivot has a nontrivial annihilator, with annihilator * pivot = 0.
+            # If a nontrivial annihilator is found, append a new row with the pivot annihilated.
             annihilator_poly = modulus_poly // pivot_poly
             if annihilator_poly != 0:
                 new_row = _multiply(annihilator_poly, field_array[pivot_row])
