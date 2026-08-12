@@ -406,7 +406,41 @@ class TBCode(CSSCode):
 
 
 class GALACode(CSSCode):
-    """Group-action lift with active orthogonality."""
+    """Group-Action Lift with Active orthogonality (GALA) code.
+
+    A GALA code is a two-block CSS code built from two sequences of elements in a binary group
+    algebra.  Given generator sequences (F_0, ..., F_{L/2-1}) and (G_0, ..., G_{L/2-1}), construct
+    block-circulant matrices F and G with entries
+        F[i, j] = F_{j-i},
+        G[i, j] = G_{j-i},
+    where generator indices are taken modulo L/2.  These matrices define parent check matrices
+        parent_matrix_x = [F, G],
+        parent_matrix_z = [G.T, F.T].
+    The first J block rows of each parent matrix are the active rows that define the parity checks
+    of the code.  The remaining rows are latent rows and do not define stabilizers.
+
+    Each generator is a RingMember and may therefore be either a monomial, representing one group
+    element, or a polynomial sum of group elements.  GALA codes are currently supported only over
+    GF(2).
+
+    The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by
+
+        from qldpc import abstract, codes
+
+        ring = abstract.GroupRing(abstract.CyclicGroup(11))
+        x = ring.generators[0]
+        code = codes.GALACode(
+            generators_f=[x**2, x**4, x**3, x**6, x**3, x**9],
+            generators_g=[x**9, x**2, x**8, x**5, x**8, x**7],
+            num_active_rows=5,
+        )
+        assert code.num_qubits == 132
+        assert code.dimension == 30
+        assert code.get_weight() == 12
+
+    References:
+    - https://arxiv.org/abs/2608.07431
+    """
 
     generators_f: tuple[abstract.RingMember, ...]
     generators_g: tuple[abstract.RingMember, ...]
@@ -430,7 +464,18 @@ class GALACode(CSSCode):
         *,
         skip_validation: bool = False,
     ) -> None:
-        """Construct a GALA code from two sequences of group-ring generators."""
+        """Construct a GALA code from two sequences of group-ring generators.
+
+        Args:
+            generators_f: The sequence (F_0, ..., F_{L/2-1}) of group-ring elements.
+            generators_g: The sequence (G_0, ..., G_{L/2-1}) of group-ring elements.
+            num_active_rows: The number J of active block rows, with 1 <= J <= L/2.
+
+        Keyword args:
+            skip_validation: If True, skip the check that the active X-type and Z-type parity
+                checks commute.  Structural input validation is performed regardless.  Default:
+                False.
+        """
         generators_f, generators_g, ring = self._validate_generators(
             generators_f, generators_g, num_active_rows
         )
@@ -453,6 +498,13 @@ class GALACode(CSSCode):
         if not skip_validation and np.any(matrix_x @ matrix_z.T):
             raise ValueError("The active parity checks of this GALACode do not commute")
         super().__init__(matrix_x, matrix_z, is_subsystem_code=False)
+
+    def __str__(self) -> str:
+        """Human-readable representation of this code."""
+        text = f"{self.name} on {self.num_qubits} qubits"
+        text += f" with {self.num_blocks} blocks, {self.num_active_rows} active rows,"
+        text += f" and lift group {self.group}"
+        return text
 
     @staticmethod
     def _validate_generators(
