@@ -131,6 +131,56 @@ def test_gala_code_construction() -> None:
     assert not code.is_subsystem_code
     assert code.num_blocks == 4
     assert code.num_active_rows == 1
+    assert code.generators_f[0] is not one
+
+
+def test_gala_code_active_orthogonality() -> None:
+    """Validate aggregate rather than pairwise active orthogonality."""
+    ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    aa, bb = ring.generators
+    assert aa * bb != bb * aa
+
+    code = GALACode(
+        generators_f=[aa, aa],
+        generators_g=[bb, bb],
+        num_active_rows=1,
+    )
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    generators_f = [aa, ring.one]
+    generators_g = [bb, ring.one]
+    with pytest.raises(ValueError, match="active parity checks.*do not commute"):
+        GALACode(generators_f, generators_g, num_active_rows=1)
+
+    code = GALACode(generators_f, generators_g, num_active_rows=1, skip_validation=True)
+    assert np.any(code.matrix_x @ code.matrix_z.T)
+
+
+def test_gala_code_errors() -> None:
+    """Reject invalid GALA generator data."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+
+    with pytest.raises(ValueError, match="nonempty"):
+        GALACode([], [], num_active_rows=1)
+    with pytest.raises(ValueError, match="equal lengths"):
+        GALACode([one], [one, one], num_active_rows=1)
+    with pytest.raises(ValueError, match="RingMember"):
+        GALACode([one], [1], num_active_rows=1)  # type: ignore[list-item]
+
+    other_ring = abstract.GroupRing(abstract.CyclicGroup(2))
+    with pytest.raises(ValueError, match="same group ring"):
+        GALACode([one], [other_ring.one], num_active_rows=1)
+
+    qutrit_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    with pytest.raises(ValueError, match=r"only over GF\(2\)"):
+        GALACode([qutrit_ring.one], [qutrit_ring.one], num_active_rows=1)
+
+    with pytest.raises(ValueError, match="must be an integer"):
+        GALACode([one], [one], num_active_rows=1.5)  # type: ignore[arg-type]
+    for num_active_rows in [0, 2]:
+        with pytest.raises(ValueError, match="must lie between"):
+            GALACode([one], [one], num_active_rows)
 
 
 def test_bivariate_bicycle_codes() -> None:

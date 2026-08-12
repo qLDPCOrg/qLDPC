@@ -427,11 +427,16 @@ class GALACode(CSSCode):
         generators_f: Sequence[abstract.RingMember],
         generators_g: Sequence[abstract.RingMember],
         num_active_rows: int,
+        *,
+        skip_validation: bool = False,
     ) -> None:
         """Construct a GALA code from two sequences of group-ring generators."""
-        self.generators_f = tuple(generators_f)
-        self.generators_g = tuple(generators_g)
-        self.ring = self.generators_f[0].ring
+        generators_f, generators_g, ring = self._validate_generators(
+            generators_f, generators_g, num_active_rows
+        )
+        self.generators_f = generators_f
+        self.generators_g = generators_g
+        self.ring = ring
         self.group = self.ring.group
         self.num_blocks = 2 * len(self.generators_f)
         self.num_active_rows = num_active_rows
@@ -445,7 +450,48 @@ class GALACode(CSSCode):
         active_matrix_z = abstract.RingArray(self.parent_matrix_z[: self.num_active_rows])
         matrix_x = active_matrix_x.lift()
         matrix_z = active_matrix_z.lift()
+        if not skip_validation and np.any(matrix_x @ matrix_z.T):
+            raise ValueError("The active parity checks of this GALACode do not commute")
         super().__init__(matrix_x, matrix_z, is_subsystem_code=False)
+
+    @staticmethod
+    def _validate_generators(
+        generators_f: Sequence[abstract.RingMember],
+        generators_g: Sequence[abstract.RingMember],
+        num_active_rows: int,
+    ) -> tuple[
+        tuple[abstract.RingMember, ...],
+        tuple[abstract.RingMember, ...],
+        abstract.GroupRing,
+    ]:
+        """Validate and normalize GALA generator data."""
+        generators_f = tuple(generators_f)
+        generators_g = tuple(generators_g)
+        if not generators_f or not generators_g:
+            raise ValueError("GALA generator sequences must be nonempty")
+        if len(generators_f) != len(generators_g):
+            raise ValueError("GALA generator sequences must have equal lengths")
+
+        generators = generators_f + generators_g
+        if not all(isinstance(generator, abstract.RingMember) for generator in generators):
+            raise ValueError("GALA generators must be RingMember objects")
+        ring = generators[0].ring
+        if any(generator.ring != ring for generator in generators[1:]):
+            raise ValueError("All GALA generators must belong to the same group ring")
+        if ring.field is not GF2:
+            raise ValueError("GALA codes are currently supported only over GF(2)")
+
+        if not isinstance(num_active_rows, int):
+            raise ValueError("The number of active rows must be an integer")
+        if not 1 <= num_active_rows <= len(generators_f):
+            raise ValueError(
+                "The number of active rows must lie between 1 and"
+                f" {len(generators_f)} (provided: {num_active_rows})"
+            )
+
+        generators_f = tuple(generator.copy() for generator in generators_f)
+        generators_g = tuple(generator.copy() for generator in generators_g)
+        return generators_f, generators_g, ring
 
     @staticmethod
     def _get_block_circulant(
