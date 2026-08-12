@@ -28,6 +28,7 @@ from sympy.abc import x, y
 
 import qldpc
 from qldpc import abstract, codes
+from qldpc.codes.quantum import GALACode
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
@@ -101,6 +102,35 @@ def test_two_block_code_error() -> None:
     matrix_b = [[0, 1], [1, 0]]
     with pytest.raises(ValueError, match="do not commute"):
         codes.TBCode(matrix_a, matrix_b, field=3)
+
+
+def test_gala_code_construction() -> None:
+    """Construct the block-circulant parent and active matrices of a GALA code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+    xx = ring.generators[0]
+
+    code = GALACode(
+        generators_f=[one, xx],
+        generators_g=[xx**2, one],
+        num_active_rows=1,
+    )
+
+    expected_f = abstract.RingArray([[one, xx], [xx, one]])
+    expected_g = abstract.RingArray([[xx**2, one], [one, xx**2]])
+    expected_parent_x = abstract.RingArray([[one, xx, xx**2, one], [xx, one, one, xx**2]])
+    expected_parent_z = abstract.RingArray([[xx, one, one, xx**2], [one, xx, xx**2, one]])
+
+    assert np.array_equal(code.matrix_f, expected_f)
+    assert np.array_equal(code.matrix_g, expected_g)
+    assert np.array_equal(code.parent_matrix_x, expected_parent_x)
+    assert np.array_equal(code.parent_matrix_z, expected_parent_z)
+    assert code.matrix_x.shape == (3, 12)
+    assert code.matrix_z.shape == (3, 12)
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+    assert not code.is_subsystem_code
+    assert code.num_blocks == 4
+    assert code.num_active_rows == 1
 
 
 def test_bivariate_bicycle_codes() -> None:

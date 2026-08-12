@@ -405,6 +405,59 @@ class TBCode(CSSCode):
         )
 
 
+class GALACode(CSSCode):
+    """Group-action lift with active orthogonality."""
+
+    generators_f: tuple[abstract.RingMember, ...]
+    generators_g: tuple[abstract.RingMember, ...]
+
+    matrix_f: abstract.RingArray
+    matrix_g: abstract.RingArray
+    parent_matrix_x: abstract.RingArray
+    parent_matrix_z: abstract.RingArray
+
+    ring: abstract.GroupRing
+    group: abstract.Group
+
+    num_blocks: int
+    num_active_rows: int
+
+    def __init__(
+        self,
+        generators_f: Sequence[abstract.RingMember],
+        generators_g: Sequence[abstract.RingMember],
+        num_active_rows: int,
+    ) -> None:
+        """Construct a GALA code from two sequences of group-ring generators."""
+        self.generators_f = tuple(generators_f)
+        self.generators_g = tuple(generators_g)
+        self.ring = self.generators_f[0].ring
+        self.group = self.ring.group
+        self.num_blocks = 2 * len(self.generators_f)
+        self.num_active_rows = num_active_rows
+
+        self.matrix_f = self._get_block_circulant(self.generators_f)
+        self.matrix_g = self._get_block_circulant(self.generators_g)
+        self.parent_matrix_x = abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
+        self.parent_matrix_z = abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
+
+        active_matrix_x = abstract.RingArray(self.parent_matrix_x[: self.num_active_rows])
+        active_matrix_z = abstract.RingArray(self.parent_matrix_z[: self.num_active_rows])
+        matrix_x = active_matrix_x.lift()
+        matrix_z = active_matrix_z.lift()
+        super().__init__(matrix_x, matrix_z, is_subsystem_code=False)
+
+    @staticmethod
+    def _get_block_circulant(
+        generators: Sequence[abstract.RingMember],
+    ) -> abstract.RingArray:
+        """Construct the block-circulant matrix induced by a sequence of generators."""
+        size = len(generators)
+        return abstract.RingArray(
+            [[generators[(col - row) % size] for col in range(size)] for row in range(size)]
+        )
+
+
 class QCCode(TBCode):
     """Quasi-cyclic code.
 
