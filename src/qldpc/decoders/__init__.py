@@ -5,13 +5,15 @@ from .custom import (
     DirectDecoder,
     GUFDecoder,
     ILPDecoder,
-    LookupDecoder,
     RelayBPDecoder,
-    WeightedLookupDecoder,
 )
 from .dems import (
     DetectorErrorModelArrays,
     FlipPattern,
+)
+from .lookup import (
+    LookupDecoder,
+    WeightedLookupDecoder,
 )
 from .retrieval import (
     decode,

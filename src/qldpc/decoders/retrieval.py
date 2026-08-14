@@ -36,10 +36,10 @@ from .custom import (
     Decoder,
     GUFDecoder,
     ILPDecoder,
-    LookupDecoder,
     RelayBPDecoder,
 )
 from .dems import DetectorErrorModelArrays
+from .lookup import LookupDecoder
 
 
 def decode(
