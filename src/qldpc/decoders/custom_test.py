@@ -18,8 +18,6 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
-import itertools
-import random
 import unittest.mock
 
 import galois
@@ -28,21 +26,12 @@ import pytest
 import scipy.sparse
 
 from qldpc import codes, decoders, math
+from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
 
 
-@functools.cache
-def get_toy_problem() -> tuple[galois.FieldArray, galois.FieldArray, galois.FieldArray]:
-    """Get a toy decoding problem."""
-    field = galois.GF(2)
-    matrix = np.eye(3, 2, dtype=int).view(field)
-    error = np.array([1, 1], dtype=int).view(field)
-    syndrome = matrix @ error
-    return matrix, error, syndrome
-
-
-def test_relay_bp() -> None:
+def test_relay_bp(toy_problem: ToyProblem) -> None:
     """The Relay-BP decoder needs a custom wrapper class."""
-    matrix, error, syndrome = get_toy_problem()
+    matrix, error, syndrome = toy_problem
     errors = np.array([error, error])
     syndromes = np.array([syndrome, syndrome])
 
@@ -79,9 +68,9 @@ def test_relay_bp() -> None:
         decoders.RelayBPDecoder(dem, error_priors=[0.1, 0.1])
 
 
-def test_ilp_decoder() -> None:
+def test_ilp_decoder(toy_problem: ToyProblem) -> None:
     """Decode using an integer linear program."""
-    matrix, error, syndrome = get_toy_problem()
+    matrix, error, syndrome = toy_problem
     decoder = decoders.ILPDecoder(scipy.sparse.csc_matrix(matrix))
     assert np.array_equal(error, decoder.decode(syndrome))
 
@@ -122,9 +111,9 @@ def test_generalized_union_find() -> None:
     )
 
 
-def test_augmented_decoders() -> None:
+def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     """Composite and direct decoders, built from other decoders."""
-    matrix, error, syndrome = get_toy_problem()
+    matrix, error, syndrome = toy_problem
     decoder = decoders.get_decoder(matrix, with_MWPM=True)
 
     # decode corrupted code words directly
@@ -147,19 +136,9 @@ def test_augmented_decoders() -> None:
     assert np.array_equal(composite_errors, composite_decoder.decode_batch(composite_syndromes))
 
 
-def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
+def test_quantum_decoding(surface_code_problem: SurfaceCodeProblem) -> None:
     """Decode random weight-2 errors in a GF(3) surface code."""
-    np.random.seed(pytestconfig.getoption("randomly_seed"))
-
-    code = codes.SurfaceCode(4, field=3)
-    local_errors = tuple(itertools.product(code.field.elements, repeat=2))[1:]
-    qubit_a, qubit_b = np.random.choice(range(len(code)), size=2, replace=False)
-    pauli_a, pauli_b = random.choices(local_errors, k=2)
-    error = code.field.Zeros(2 * len(code))
-    error[[qubit_a, qubit_a + len(code)]] = pauli_a
-    error[[qubit_b, qubit_b + len(code)]] = pauli_b
-    syndrome = code.matrix @ math.symplectic_conjugate(error)
-
+    code, _error, syndrome = surface_code_problem
     decoder = decoders.GUFDecoder(code.matrix, symplectic=True)
     decoded_error = decoder.decode(syndrome).view(code.field)
     assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))

@@ -17,31 +17,17 @@ limitations under the License.
 
 from __future__ import annotations
 
-import functools
-import itertools
-import random
-
-import galois
 import numpy as np
 import pytest
 import stim
 
-from qldpc import codes, decoders, math
+from qldpc import decoders, math
+from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
 
 
-@functools.cache
-def get_toy_problem() -> tuple[galois.FieldArray, galois.FieldArray, galois.FieldArray]:
-    """Get a toy decoding problem."""
-    field = galois.GF(2)
-    matrix = np.eye(3, 2, dtype=int).view(field)
-    error = np.array([1, 1], dtype=int).view(field)
-    syndrome = matrix @ error
-    return matrix, error, syndrome
-
-
-def test_lookup() -> None:
+def test_lookup(toy_problem: ToyProblem) -> None:
     """Lookup decoding should be straightforward."""
-    matrix, error, syndrome = get_toy_problem()
+    matrix, error, syndrome = toy_problem
 
     decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
@@ -210,19 +196,9 @@ def test_confidence_ratio() -> None:
     assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0])
 
 
-def test_quantum_lookup_decoding(pytestconfig: pytest.Config) -> None:
+def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> None:
     """Lookup-decode random weight-2 errors in a GF(3) surface code."""
-    np.random.seed(pytestconfig.getoption("randomly_seed"))
-
-    code = codes.SurfaceCode(4, field=3)
-    local_errors = tuple(itertools.product(code.field.elements, repeat=2))[1:]
-    qubit_a, qubit_b = np.random.choice(range(len(code)), size=2, replace=False)
-    pauli_a, pauli_b = random.choices(local_errors, k=2)
-    error = code.field.Zeros(2 * len(code))
-    error[[qubit_a, qubit_a + len(code)]] = pauli_a
-    error[[qubit_b, qubit_b + len(code)]] = pauli_b
-    syndrome = code.matrix @ math.symplectic_conjugate(error)
-
+    code, _error, syndrome = surface_code_problem
     decoder: decoders.Decoder
     decoder = decoders.LookupDecoder(code.matrix, symplectic=True, max_weight=2)
     decoded_error = decoder.decode(syndrome).view(code.field)
