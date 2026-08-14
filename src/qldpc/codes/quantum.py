@@ -236,7 +236,7 @@ class SteaneCode(QuantumHammingCode):
 
 
 class QuantumReedMullerCode(CSSCode):
-    """Self-orthogonal CSS code from a classical Reed-Muller code.
+    r"""Self-orthogonal CSS code from a classical Reed-Muller code.
 
     The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code
     for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal:
@@ -260,7 +260,9 @@ class QuantumReedMullerCode(CSSCode):
         self._order = order
         self._size = size
         generator = np.atleast_2d(ReedMullerCode.get_generator(order, size))
-        super().__init__(generator, generator, is_subsystem_code=False, promise_equal_distance_xz=True)
+        super().__init__(
+            generator, generator, is_subsystem_code=False, promise_equal_distance_xz=True
+        )
 
     @property
     def order(self) -> int:
