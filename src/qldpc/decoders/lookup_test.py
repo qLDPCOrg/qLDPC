@@ -1,0 +1,237 @@
+"""Unit tests for lookup.py.
+
+Copyright 2023 The qLDPC Authors and Infleqtion Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+import stim
+
+from qldpc import decoders, math
+from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
+
+
+def test_lookup(toy_problem: ToyProblem) -> None:
+    """Lookup decoding should be straightforward."""
+    matrix, error, syndrome = toy_problem
+
+    decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
+    assert np.array_equal(error, decoder.decode(syndrome))
+    assert len(decoder) == len(decoder.syndrome_to_error)
+
+    # decode with a detector error model
+    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
+    decoder = decoders.get_decoder_lookup(dem, max_weight=2)
+    assert np.array_equal(error, decoder.decode(syndrome))
+
+
+def test_observable_lookup_decoding() -> None:
+    """Lookup decoding can identify the most likely observable flip for each syndrome."""
+    obs_matrix: math.IntegerArray
+
+    # toy detector error model and error syndrome
+    dem = stim.DetectorErrorModel("""
+        error(0.10) D0
+        error(0.09) D0 L0
+        error(0.06) D0 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=False)
+    pcm, obs_matrix, error_probs = dem_arrays.get_arrays()
+    syndrome = np.array([1], dtype=int)
+
+    # given only the parity check matrix, a LookupDecoder will return the most likely error
+    decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_probs)
+    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [0])
+
+    # provided a DEM, the LookupDecoder will simplify and predict the most likely observable flip
+    decoder = decoders.LookupDecoder(dem, max_weight=1)
+    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
+
+    # with predict_observable_flips=True, the decoder returns the observable flip directly
+    decoder = decoders.LookupDecoder(dem, max_weight=1, predict_observable_flips=True)
+    assert np.array_equal(decoder.decode(syndrome), [1])
+    # an unseen syndrome falls back to a zero observable flip of the correct length
+    assert np.array_equal(decoder.decode(np.array([0], dtype=int)), [0])
+
+    # this also works when given a parity check matrix and observable_flip_matrix
+    decoder = decoders.LookupDecoder(
+        pcm,
+        max_weight=1,
+        error_channel=error_probs,
+        observable_flip_matrix=obs_matrix,
+        predict_observable_flips=True,
+    )
+    assert np.array_equal(decoder.decode(syndrome), [1])
+
+    # The above example is "trivial" in the sense that simplifying the DEM is sufficient to predict
+    # the correct observable flips....
+    dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=True)
+    pcm, obs_matrix, error_probs = dem_arrays.get_arrays()
+    decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_probs)
+    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
+
+    # However, sometimes simplifying is not enough.  Consider th following DEM, in which each error
+    # has a unique (detector, observable) patterns, so simplifying changes nothing:
+    dem = stim.DetectorErrorModel("""
+        error(0.04) D0 D1  # E0: syndrome (1, 1), obs_flip=0
+        error(0.25) D0     # E1: syndrome (1, 0), obs_flip=0
+        error(0.10) D1     # E2: syndrome (0, 1), obs_flip=0
+        error(0.10) D0 L0  # E3: syndrome (1, 0), obs_flip=1
+        error(0.25) D1 L0  # E4: syndrome (0, 1), obs_flip=1
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    pcm, obs_matrix, error_probs = dem_arrays.get_arrays()
+    syndrome = np.array([1, 1], dtype=int)
+
+    # without knowing about observables, the most likely error is E0, with obs_flip=0
+    decoder = decoders.LookupDecoder(pcm, max_weight=2)
+    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [0])
+
+    # however, it is more likely that either (E1 + E4) XOR (E2 + E3) occurred, which have obs_flip=1
+    decoder = decoders.LookupDecoder(dem, max_weight=2)
+    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
+
+    # a WeightedLookupDecoder can be built from a DEM and predict observable flips directly
+    weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, predict_observable_flips=True)
+    assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
+    assert np.array_equal(weighted.decode(np.array([0, 1], dtype=int)), [0])
+
+    # ... or from a parity check matrix and an explicit observable_flip_matrix
+    weighted = decoders.WeightedLookupDecoder(
+        pcm, max_weight=2, observable_flip_matrix=obs_matrix, predict_observable_flips=True
+    )
+    assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
+
+    # post-selecting on a detector drops it from the syndrome keys; decode still takes the full
+    # syndrome and internally removes the post-selected bits before the lookup
+    decoder = decoders.LookupDecoder(dem, max_weight=2, post_select=[0])
+    assert np.array_equal(obs_matrix @ decoder.decode(np.array([0, 1], dtype=int)), [1])  # E4
+    weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, post_select=[0])
+    assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
+
+    # grouping errors by observable flip requires a way to weigh errors against each other
+    with pytest.raises(ValueError, match="error_channel, or penalty_func"):
+        decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
+
+
+def test_confidence_ratio() -> None:
+    """A confidence_ratio omits ambiguous syndromes so they decode to erasure."""
+    pcm = np.eye(1, dtype=int)
+
+    # a confidence_ratio must be a non-negative number
+    with pytest.raises(ValueError, match="non-negative"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=-1)
+    with pytest.raises(ValueError, match="non-negative"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=float("nan"))
+    # a positive confidence_ratio signals erasure, so it conflicts with add_erasure_bit=False
+    with pytest.raises(ValueError, match="add_erasure_bit=False"):
+        decoders.LookupDecoder(
+            pcm, 1, error_channel=[0.1], add_erasure_bit=False, confidence_ratio=2
+        )
+    # ... and it requires grouping errors by observable flip
+    with pytest.raises(ValueError, match="observable flip"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=2)
+
+    # confidence_ratio=0 is a requirement-free no-op: it needs neither an erasure bit nor obs flips
+    decoder = decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=0)
+    assert not decoder.has_erasure_bit
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
+
+    # a zero-probability error mechanism does not crash a syndrome that only it can explain: here
+    # syndrome (1, 0) is reachable only via the probability-0 mechanism, so its group has no
+    # finite-probability representative, but the decoder still returns that mechanism's error
+    decoder = decoders.LookupDecoder(
+        np.array([[1, 0], [0, 1]], dtype=int),
+        max_weight=1,
+        error_channel=[0.0, 0.1],
+        observable_flip_matrix=np.array([[1, 0]], dtype=int),
+    )
+    assert np.array_equal(decoder.decode(np.array([1, 0], dtype=int)), [1, 0])
+
+    # In this DEM, syndrome (1, 1)'s most likely observable flip (obs_flip=1) is only ~1.067 times
+    # as likely as the alternative; see test_observable_lookup_decoding for the enumeration.
+    dem = stim.DetectorErrorModel("""
+        error(0.04) D0 D1
+        error(0.25) D0
+        error(0.10) D1
+        error(0.10) D0 L0
+        error(0.25) D1 L0
+    """)
+    syndrome = np.array([1, 1], dtype=int)
+
+    # confidence_ratio=0 assigns the most likely flip (obs_flip=1) and adds no erasure bit
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=2, predict_observable_flips=True, confidence_ratio=0
+    )
+    assert np.array_equal(decoder.decode(syndrome), [1])
+
+    # a confidence_ratio above the ~1.067 threshold omits the syndrome and auto-enables the erasure
+    # bit, so the syndrome decodes to erasure: an all-zero flip with the erasure bit set
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=2, predict_observable_flips=True, confidence_ratio=1.5
+    )
+    assert decoder.has_erasure_bit
+    assert np.array_equal(decoder.decode(syndrome), [0, 1])
+
+    # a syndrome with a single consistent observable flip is always confident, so it is kept and
+    # decodes to that flip with the auto-enabled erasure bit left clear
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    decoder = decoders.LookupDecoder(
+        dem, max_weight=1, predict_observable_flips=True, confidence_ratio=1e6
+    )
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0])
+
+
+def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> None:
+    """Lookup-decode random weight-2 errors in a GF(3) surface code."""
+    code, _error, syndrome = surface_code_problem
+    decoder: decoders.Decoder
+    decoder = decoders.LookupDecoder(code.matrix, symplectic=True, max_weight=2)
+    decoded_error = decoder.decode(syndrome).view(code.field)
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
+
+    decoder = decoders.LookupDecoder(
+        code.matrix,
+        symplectic=True,
+        add_erasure_bit=True,
+        max_weight=2,
+        penalty_func=lambda vec: int(np.count_nonzero(vec)),
+    )
+    decoded_error = decoder.decode(syndrome).view(code.field)
+    assert decoded_error[-1] == 0
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
+
+    decoder = decoders.WeightedLookupDecoder(
+        code.matrix, symplectic=True, add_erasure_bit=True, max_weight=2
+    )
+    assert len(decoder) == len(decoder.syndrome_to_candidates)
+    decoded_error = decoder.decode(syndrome).view(code.field)
+    assert decoded_error[-1] == 0
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
+
+    # passing penalty_func=None returns the last-recorded (lowest-weight) consistent candidate
+    decoded_error = decoder.decode(syndrome, penalty_func=None).view(code.field)
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+
+
+def test_penalty_func() -> None:
+    """Lookup tables can build penalty functions that penalize unlikely errors."""
+    error_channel = [0.2, 0.1]
+    penalty_func = decoders.LookupDecoder._build_penalty_func(error_channel)
+    assert penalty_func([0, 0]) < penalty_func([1, 0]) < penalty_func([0, 1]) < penalty_func([1, 1])
