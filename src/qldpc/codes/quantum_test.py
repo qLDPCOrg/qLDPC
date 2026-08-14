@@ -175,7 +175,7 @@ def test_gala_code_errors() -> None:
     with pytest.raises(ValueError, match=r"only over GF\(2\)"):
         codes.GALACode([qutrit_ring.one], [qutrit_ring.one], num_active_rows=1)
 
-    with pytest.raises(ValueError, match="must be an integer"):
+    with pytest.raises(TypeError, match="must be an integer"):
         codes.GALACode([one], [one], num_active_rows=1.5)  # type: ignore[arg-type]
     for num_active_rows in [0, 2]:
         with pytest.raises(ValueError, match="must lie between"):

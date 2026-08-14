@@ -530,11 +530,11 @@ class GALACode(CSSCode):
         ring = generators[0].ring
         if any(generator.ring != ring for generator in generators[1:]):
             raise ValueError("All GALA generators must belong to the same group ring")
-        if ring.field is not GF2:
+        if ring.field.order != 2:
             raise ValueError("GALA codes are currently supported only over GF(2)")
 
         if not isinstance(num_active_rows, int):
-            raise ValueError("The number of active rows must be an integer")
+            raise TypeError("The number of active rows must be an integer")
         if not 1 <= num_active_rows <= len(generators_f):
             raise ValueError(
                 "The number of active rows must lie between 1 and"
