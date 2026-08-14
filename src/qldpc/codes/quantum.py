@@ -235,7 +235,7 @@ class SteaneCode(QuantumHammingCode):
         super().__init__(size=3)
 
 
-class ReedMullerCSSCode(CSSCode):
+class QuantumReedMullerCode(CSSCode):
     """Self-orthogonal CSS code from a classical Reed-Muller code.
 
     The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code
