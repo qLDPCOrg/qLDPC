@@ -405,7 +405,9 @@ def boost_gadget_distance(
             incidence_extra_rows = np.asarray(incidence_extra[incidence_base.shape[0] :]).astype(
                 np.uint8
             )
-            # Best-effort heuristic search: skip any augmentation that fails to build.
+            # Best-effort heuristic search: skip augmentations that fail row-weight/shape
+            # validation (the only failure build_gadget_augmented raises); let anything
+            # unexpected propagate rather than silently swallowing it.
             try:
                 candidate = build_gadget_augmented(
                     g.code,
@@ -413,7 +415,7 @@ def boost_gadget_distance(
                     incidence_extra_rows,
                     basis=g.basis,
                 )
-            except Exception:  # noqa: BLE001, S112
+            except ValueError:
                 continue
             if _passes_decoder(candidate):
                 return candidate
