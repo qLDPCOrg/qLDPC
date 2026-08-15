@@ -152,9 +152,9 @@ class WedderburnArtinTransformer:
     def transpose_array(self, array: RingArray) -> RingArray:
         """Transpose the array and transpose each entry's matrix within each simple component.
 
-        This is the array analog of WedderburnArtinTransformer.transpose, additionally transposing
-        the array itself.  As there, the per-component matrix transpose is distinct from
-        RingMember.T, which inverts group members (transposing the regular representation).
+        This composes an ordinary transpose of the array with WedderburnArtinTransformer.transpose
+        applied to each entry.  The per-component matrix transpose is distinct from RingMember.T,
+        which inverts group members (transposing the regular representation).
         """
         if self.ring.is_commutative:
             return array.transpose().view(RingArray)

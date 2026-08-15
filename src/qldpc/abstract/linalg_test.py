@@ -102,41 +102,52 @@ def test_matmul_and_kron_interplay(ring: abstract.GroupRing, rows: int = 2, cols
         )
 
 
+def assert_howell_pseudoinverse(
+    matrix: abstract.RingArray, transformer: abstract.WedderburnArtinTransformer, right: bool
+) -> None:
+    """Assert the null-space Howell form of ``matrix`` has a dual that acts like a pseudoinverse."""
+    # find a null-space matrix in Howell normal form
+    generator = matrix.null_space(right=right).howell_normal_form_semisimple(right=right)
+    assert not np.any(abstract.matmul(matrix, generator.T, right=right))
+
+    # find the "dual" of the null-space matrix, which acts like a pseudoinverse.  `right` must match
+    # the orientation used to build the Howell form.
+    dual = abstract.get_howell_dual(generator, right=right)
+    diag = abstract.matmul(generator, dual.T, right=right)
+    assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
+    assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
+    assert np.array_equal(abstract.matmul(diag.T, dual, right=right), dual)
+    assert np.array_equal(diag, transformer.transpose_array(diag))
+
+
 @pytest.mark.parametrize("right", [False, True])
 def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols: int = 3) -> None:
     """Matrices in Howell normal form have a "dual" that acts like a pseudoinverse."""
-    transformer = ring.get_transformer()
-
-    def check_pseudoinverse(matrix: abstract.RingArray) -> None:
-        # find a null-space matrix in Howell normal form
-        generator = matrix.null_space(right=right).howell_normal_form_semisimple(right=right)
-        assert not np.any(abstract.matmul(matrix, generator.T, right=right))
-
-        # find the "dual" of the null-space matrix, which acts like a pseudoinverse.  `right` must
-        # match the orientation used to build the Howell form.
-        dual = abstract.get_howell_dual(generator, right=right)
-        diag = abstract.matmul(generator, dual.T, right=right)
-        assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
-        assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
-        assert np.array_equal(abstract.matmul(diag.T, dual, right=right), dual)
-        assert np.array_equal(diag, transformer.transpose_array(diag))
-
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    check_pseudoinverse(abstract.RingArray.build(values, ring))
+    assert_howell_pseudoinverse(
+        abstract.RingArray.build(values, ring), ring.get_transformer(), right
+    )
 
-    # Multi-term entries make the null-space pivots non-self-transpose idempotents, distinguishing
-    # pivot.T from pivot.  These coefficients are specific to the GF(4)[C3] fixture (values in GF(4)
-    # over a 3-element group), so the rich check runs only there.
-    if ring.field.order == 4 and ring.group.order == 3:
-        field = ring.field
-        rich = abstract.RingArray.build(
-            [
-                [abstract.RingMember.from_vector(field(coeffs), ring) for coeffs in row]
-                for row in ([[0, 2, 1], [2, 1, 0], [1, 0, 1]], [[0, 0, 1], [1, 1, 0], [1, 0, 0]])
-            ],
-            ring,
-        )
-        check_pseudoinverse(rich)
+
+@pytest.mark.parametrize("right", [False, True])
+def test_howell_dual_with_non_self_transpose_pivots(right: bool) -> None:
+    """A non-self-transpose idempotent pivot distinguishes pivot.T from pivot in get_howell_dual.
+
+    Multi-term entries make the null-space Howell pivots rich idempotents.  GF(4)[C3] is the natural
+    home for this check: its degree-1 components form a conjugate pair of characters, so their
+    idempotents E satisfy ``E.T != E``.  A group over a field lacking the relevant roots of unity
+    (e.g. GF(2)[C5]) has only self-transpose idempotents, so it cannot distinguish the two and is
+    not a substitute here.
+    """
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=4)
+    rich = abstract.RingArray.build(
+        [
+            [abstract.RingMember.from_vector(ring.field(coeffs), ring) for coeffs in row]
+            for row in ([[0, 2, 1], [2, 1, 0], [1, 0, 1]], [[0, 0, 1], [1, 1, 0], [1, 0, 0]])
+        ],
+        ring,
+    )
+    assert_howell_pseudoinverse(rich, ring.get_transformer(seed=0), right)
 
 
 def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.GroupRing) -> None:
