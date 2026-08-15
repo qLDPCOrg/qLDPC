@@ -12,8 +12,8 @@ This module represents group members by matrices over a finite field via a lift 
 with L(g . h) = L(g) @ L(h).  The default lift is the regular representation, whose matrices are
 permutation matrices and hence orthogonal; for an orthogonal lift the "transpose" of a group member
 p satisfies L(p.T) = L(p).T, and p.T equals the inverse ~p = p**-1.  Some custom lifts
-(SpecialLinearGroup, ProjectiveSpecialLinearGroup, QuaternionGroup) are experimental and generally
-not orthogonal, so that transpose/inverse identity does not hold for them.
+(SpecialLinearGroup, ProjectiveSpecialLinearGroup, QuaternionGroup) are generally not orthogonal, so
+that transpose/inverse identity does not hold for them.
 
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
@@ -734,8 +734,8 @@ class SymmetricGroup(Group):
 class QuaternionGroup(Group):
     """Quaternion group: 1, i, j, k, -1, -i, -j, -k.
 
-    EXPERIMENTAL: the 2-dimensional lift is a faithful homomorphism, but over GF(3) it is not
-    orthogonal -- lift(i) and lift(j) satisfy ``M.T @ M == -I`` -- so the transpose/inverse identity
+    The 2-dimensional lift is a faithful homomorphism, but over GF(3) it is not orthogonal --
+    lift(i) and lift(j) satisfy ``M.T @ M == -I`` -- so the transpose/inverse identity
     ``lift(g.T) == lift(g).T`` does not hold for this group.
     """
 
@@ -829,8 +829,8 @@ class SmallGroup(Group):
 class SpecialLinearGroup(Group):
     """Special linear group (SL): square matrices with determinant 1.
 
-    EXPERIMENTAL: the linear-representation lift is a homomorphism, but its matrices are generally
-    not orthogonal, so the transpose/inverse identity ``lift(g.T) == lift(g).T`` does not hold here.
+    The linear-representation lift is a homomorphism, but its matrices are generally not orthogonal,
+    so the transpose/inverse identity ``lift(g.T) == lift(g).T`` does not hold here.
     """
 
     _dimension: int
