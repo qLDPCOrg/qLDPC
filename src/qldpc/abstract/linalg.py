@@ -135,7 +135,7 @@ def get_howell_dual(
     matrix_hnf: RingArray,
     *,
     transformer: WedderburnArtinTransformer | None = None,
-    right: bool = False,
+    right: bool | None = None,
     skip_validation: bool | None = None,
 ) -> RingArray:
     """Build the "dual" of a matrix in Howell normal form.
@@ -172,7 +172,9 @@ def get_howell_dual(
 
     Likewise, the ``right`` flag must match the orientation used to build matrix_hnf (the ``right``
     passed to ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative ring the
-    dual is orientation-specific: the dual built for the wrong orientation does not satisfy it.
+    dual is orientation-specific: the dual built for the wrong orientation does not satisfy it.  By
+    default (``right=None``) it is read from matrix_hnf, like ``transformer``; an explicit value is
+    cross-checked against what matrix_hnf was built with.
 
     ``skip_validation`` controls whether the returned dual is checked against properties 1-4:
 
@@ -195,9 +197,10 @@ def get_howell_dual(
     transformer = transformer or matrix_hnf._hnf_transformer or ring.get_transformer()
 
     if skip_validation is None:
-        # trust Howell-form provenance when present, but reject an orientation that disagrees
+        # trust Howell-form provenance when present, but reject an explicit orientation that
+        # disagrees with it
         if matrix_hnf._in_hnf:
-            if not ring.is_commutative and matrix_hnf._hnf_right != right:
+            if right is not None and not ring.is_commutative and right != matrix_hnf._hnf_right:
                 raise ValueError(
                     "get_howell_dual: `right` does not match the orientation used to build"
                     f" matrix_hnf (built with right={matrix_hnf._hnf_right}, called with"
@@ -206,6 +209,10 @@ def get_howell_dual(
             skip_validation = True
         else:
             skip_validation = False
+
+    # infer the orientation from the tag when not given (False for an untagged matrix)
+    if right is None:
+        right = matrix_hnf._hnf_right
 
     if ring.is_commutative:
         # Every simple component of a commutative ring is 1x1, so the construction below reduces to
