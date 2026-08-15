@@ -114,6 +114,21 @@ def test_ring() -> None:
         ring.eval(5, symbols)
 
 
+def test_ring_equality() -> None:
+    """Group algebras compare (and hash) by value, ignoring the group's representation."""
+    group = abstract.CyclicGroup(3)
+    other = abstract.CyclicGroup(3)  # the same group, but a separately built representation
+    ring, other_ring = abstract.GroupRing(group), abstract.GroupRing(other)
+    assert ring == other_ring
+    assert hash(ring) == hash(other_ring)
+    assert ring != abstract.GroupRing(abstract.CyclicGroup(4))  # different group
+    assert ring != abstract.GroupRing(group, field=4)  # different field
+    assert ring != "not a ring"
+
+    with pytest.raises(ValueError, match="DEFUNCT"):
+        abstract.TrivialGroup.to_ring_array([])
+
+
 def test_printing() -> None:
     """Convert ring members and ring arrays into human-readable strings."""
     ring = abstract.GroupRing(abstract.AbelianGroup(2, 2))

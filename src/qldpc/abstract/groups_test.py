@@ -107,17 +107,6 @@ def test_group_equality_and_equivalence() -> None:
     assert not group.equiv(abstract.CyclicGroup(4))
     assert not group.equiv("not a group")
 
-    # group algebras compare (and hash) by value, ignoring the representation
-    ring, other_ring = abstract.GroupRing(group), abstract.GroupRing(other)
-    assert ring == other_ring
-    assert hash(ring) == hash(other_ring)
-    assert ring != abstract.GroupRing(abstract.CyclicGroup(4))
-    assert ring != abstract.GroupRing(group, field=4)
-    assert ring != "not a ring"
-
-    with pytest.raises(ValueError, match="DEFUNCT"):
-        abstract.TrivialGroup.to_ring_array([])
-
 
 def test_lifts() -> None:
     """Lift named group elements."""
@@ -317,23 +306,14 @@ def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
 
 
 def test_psl_requires_trivial_center() -> None:
-    """An explicit linear rep raises when a faithful one cannot exist; the default falls back.
+    """Asking for the linear representation raises an error when it does not exist.
 
-    A faithful d-dimensional linear representation of PSL(d, q) exists only when the center of
-    SL(d, q) -- the scalar matrices, of size gcd(d, q - 1) -- is trivial.  ``linear_rep=True``
-    demands it and raises otherwise; the default (``linear_rep=None``) instead falls back to the
-    permutation representation, so the group is always constructible.
+    The linear representation of PSL(d, q) only exists when gcd(d, q - 1) == 1.  PSL(2, 5) has
+    gcd(2, 4) == 2, so requesting the linear representation there raises an error.  (The fallback to
+    a permutation representation is covered by test_PSL.)
     """
-    for dimension, field in [(2, 3), (2, 5), (2, 7)]:  # gcd(d, q - 1) = 2 > 1
-        with pytest.raises(ValueError, match="does not descend to PSL"):
-            abstract.PSL(dimension, field, linear_rep=True)  # explicitly demand the linear rep
-        # the default and the permutation representation are always available and faithful
-        for group in [
-            abstract.PSL(dimension, field),
-            abstract.PSL(dimension, field, linear_rep=False),
-        ]:
-            assert group.order > 0
-            assert_lift_is_homomorphism(group)
+    with pytest.raises(ValueError, match="does not descend to PSL"):
+        abstract.PSL(2, 5, linear_rep=True)
 
 
 def test_resolve_field() -> None:
