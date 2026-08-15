@@ -223,8 +223,7 @@ class Group:
 
         Unlike ``==``, this compares only the underlying SymPy permutation groups, so groups that
         differ solely in their custom lift (e.g. the same group built twice, hence carrying
-        distinct lift closures) compare as equivalent.  This is the equality this class used
-        historically.
+        distinct lift closures) compare as equivalent.
         """
         return isinstance(other, Group) and self._group == other._group
 
@@ -510,9 +509,13 @@ class Group:
         def lift(member: GroupMember) -> npt.NDArray[np.int_]:
             """Lift a member to its (transposed) matrix representation.
 
-            The transpose makes the lift a homomorphism, lift(g . h) = lift(g) @ lift(h); the raw
-            generating matrices compose in the opposite order.  EXPERIMENTAL: these matrices are
-            generally not orthogonal, so lift(g.T) == lift(g).T does not hold.
+            Each member g is identified with the matrix M_g that it came from.  If we returned M_g
+            directly, the lift would not be a homomorphism: SymPy multiplies permutations in the
+            order opposite to matrix multiplication, so the product g . h corresponds to M_h @ M_g
+            rather than M_g @ M_h.  Transposing swaps the order back, since (M_h @ M_g).T equals
+            M_g.T @ M_h.T, giving lift(g . h) = lift(g) @ lift(h) as desired.
+
+            These matrices are generally not orthogonal, so lift(g.T) == lift(g).T may not hold.
             """
             return index_to_member[permutation_to_index[tuple(member.array_form)]].T
 
