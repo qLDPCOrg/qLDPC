@@ -943,12 +943,13 @@ class ProjectiveSpecialLinearGroup(Group):
 
     Altogether, we construct ``PSL(d,q)`` by ``SL(d,q)`` mod [d-th roots of unity over ``F_q``].
 
-    The faithful ``d``-dimensional linear representation of ``SL`` descends to ``PSL`` only when the
-    center is trivial, i.e. ``gcd(d, q - 1) == 1`` (e.g. ``PSL(2,4)`` but not ``PSL(2,5)``).  By
-    default (``linear_rep=None``) this representation is used where it exists and a permutation
-    representation is used otherwise, so ``PSL(d,q)`` is always constructible.  Pass
-    ``linear_rep=True`` to require the linear representation (raising where it does not exist) or
-    ``linear_rep=False`` to always use the permutation representation.
+    There are two ways to represent ``PSL`` by matrices.  The ``d``-dimensional linear
+    representation (inherited from ``SL``) only works when ``gcd(d, q - 1) == 1`` (e.g. ``PSL(2,4)``
+    but not ``PSL(2,5)``); otherwise we fall back to a permutation representation, which always
+    works.  The ``linear_rep`` argument chooses between them: ``None`` (default) uses the linear
+    representation when it exists and the permutation representation otherwise; ``True`` forces the
+    linear representation, raising an error when it does not exist; ``False`` always uses the
+    permutation representation.
     """
 
     _dimension: int
@@ -964,12 +965,9 @@ class ProjectiveSpecialLinearGroup(Group):
         self._dimension = dimension
         self._field = resolve_field(field)
 
-        # This linear representation is the SL(d, q) action on nonzero vectors, which descends to
-        # PSL = SL/center only when the center is trivial.  The center is the scalar matrices in SL,
-        # of size gcd(d, q - 1), so the linear representation exists only when that gcd is 1.  By
-        # default (linear_rep=None) use it where it exists, else fall back to the permutation
-        # representation; linear_rep=True demands it and raises where it does not exist, while
-        # linear_rep=False always uses the permutation representation.
+        # The linear representation of PSL exists only when SL has a trivial center.  The center is
+        # the scalar matrices in SL, of size gcd(d, q - 1), so this happens exactly when that gcd
+        # is 1.  See the class docstring for how linear_rep selects the representation.
         num_roots = math.gcd(self.dimension, self.field.order - 1)
         has_linear_rep = num_roots == 1
         if linear_rep and not has_linear_rep:
