@@ -181,6 +181,11 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
     assert np.array_equal(abstract.matmul(diag.T, dual, right=True), dual)
     assert np.array_equal(diag, transformer.transpose_array(diag))
 
+    # omitting `right` infers it from the orientation the Howell form recorded; here the dual
+    # genuinely depends on the orientation, so a wrong inference would give a different dual (or be
+    # rejected as a mismatch)
+    assert np.array_equal(abstract.get_howell_dual(generator, transformer=transformer), dual)
+
     # skip_validation=False re-checks the constructed dual; it passes for the correct orientation
     rechecked = abstract.get_howell_dual(
         generator, transformer=transformer, right=True, skip_validation=False
@@ -192,21 +197,11 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
         abstract.get_howell_dual(generator, transformer=transformer, right=False)
 
 
-def test_get_howell_dual_edge_cases(
-    ring_cyclic3_gf4: abstract.GroupRing, ring_alternating4_gf5: abstract.GroupRing
-) -> None:
-    """Orientation inference, rejection of a non-Howell input, and a mismatched orientation."""
-    ring = ring_cyclic3_gf4
-
-    # when `right` is omitted it is inferred from the orientation the Howell form recorded
-    values = [[ring.group.random() for _ in range(3)] for _ in range(2)]
-    generator = abstract.RingArray.build(values, ring).null_space().howell_normal_form_semisimple()
-    assert np.array_equal(
-        abstract.get_howell_dual(generator), abstract.get_howell_dual(generator, right=False)
-    )
-
+def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -> None:
+    """Rejection of a non-Howell input, and of a mismatched orientation reaching the projector."""
     # a matrix that is not in Howell normal form (here a multi-term, non-idempotent pivot) has no
     # valid dual, so the default validation rejects it
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=4)
     pivot = abstract.RingMember.from_vector(ring.field([1, 1, 0]), ring)
     non_hnf = abstract.RingArray.build([[pivot]], ring)
     with pytest.raises(ValueError, match="could not validate"):

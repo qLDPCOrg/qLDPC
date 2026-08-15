@@ -273,8 +273,9 @@ class WedderburnArtinComponentTransformer:
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
         self.embedded_power_basis_dual = self._get_embedded_power_basis_dual()
 
-        # cast to a Python int so the "+ 1" cannot overflow the field's small integer dtype (e.g.
-        # uint8 wrapping 255 -> 0 for a base field with 256 or more elements)
+        # cast to a Python int so the "+ 1" cannot overflow the field's small integer dtype, whose
+        # ceiling a large base field can hit exactly (e.g. GF(256) is stored as uint8, whose maximum
+        # element 255 would wrap to 0)
         max_embedded_scalar = int(max(self.embedded_scalars.view(np.ndarray)))
         self.embedded_scalars_inverse = self.field.Zeros(max_embedded_scalar + 1)
         for qq, pp in enumerate(self.embedded_scalars):
@@ -438,8 +439,9 @@ class WedderburnArtinComponentTransformer:
         minimal_poly = self.field.primitive_element.minimal_poly()  # this is m(x) ∈ GF(q)[x]
         extended_minimal_poly = galois.Poly(minimal_poly.coeffs, field=self.extended_field)
         embedded_root = extended_minimal_poly.roots()[0]  # this is σ ∈ GF(p^{kd})
-        # each scalar expands as a degree-(field.degree) polynomial in α (scalar.vector() has that
-        # many coefficients), so only that many powers of the embedded root σ are consumed below
+        # each scalar expands over the prime field in field.degree coefficients (scalar.vector()
+        # returns exactly that many), so only field.degree powers of the embedded root σ are used
+        # below; the old construction built field.order of them and the surplus was truncated
         embedded_root_powers = [embedded_root**power for power in range(self.field.degree)]
         embedded_scalars = []
         for scalar in self.field.elements:
@@ -678,10 +680,13 @@ class WedderburnArtinComponentTransformer:
         if np.any(remainder := functools.reduce(operator.add, new_idempotents) - idempotent_vec):
             new_idempotents.append(remainder)  # pragma: no cover
 
-        # Whether a single decomposition step already yields all ``size`` primitive idempotents, or
-        # instead needs a recursive decomposition, depends on the random element drawn: exactly one
-        # of the two branches runs for any given seed, so neither is deterministically covered.
-        if len(new_idempotents) == self.size:  # pragma: no cover
+        # A size-n component splits in one step into n orthogonal idempotents exactly when the
+        # random element's minimal polynomial has n factors.  A size-2 component always does (its
+        # minimal polynomial has at most 2 factors, and the loop above requires >= 2), so the tested
+        # size-2 fixtures always take the return below.  A larger component may instead need to
+        # recurse, which happens only for size > 2 and only on some random draws, so the recursive
+        # branch is not deterministically covered.
+        if len(new_idempotents) == self.size:
             # the number of mutually orthogonal idempotents guarantees that they are primitive
             return self.field(new_idempotents)
         else:  # pragma: no cover
@@ -713,7 +718,7 @@ class WedderburnArtinComponentTransformer:
 
         # PART 1: construct a matrix of linearly independent column vectors [α^0, α^1, α^2, ...].
         # Start with the one-column matrix [α^0] and repeatedly double its size:
-        #     [α^0] -> [α^0, α^1] -> [α^0, α^1, α^2, α^4] -> ...
+        #     [α^0] -> [α^0, α^1] -> [α^0, α^1, α^2, α^3] -> ...
         # Stop when the number of columns exceeds the rank r of the matrix, then save α^r for later
         # use and throw out all but the first r columns, [α^0, α^1, α^2, ..., α^{r-1}].
         element_mat = self._regular_lift(element)
