@@ -125,8 +125,9 @@ def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols:
     check_pseudoinverse(abstract.RingArray.build(values, ring))
 
     # Multi-term entries make the null-space pivots non-self-transpose idempotents, distinguishing
-    # pivot.T from pivot.  These GF(4)[C3] coefficients are specific to the commutative fixture.
-    if ring.is_commutative:
+    # pivot.T from pivot.  These coefficients are specific to the GF(4)[C3] fixture (values in GF(4)
+    # over a 3-element group), so the rich check runs only there.
+    if ring.field.order == 4 and ring.group.order == 3:
         field = ring.field
         rich = abstract.RingArray.build(
             [
@@ -178,3 +179,49 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
     # the generator records right=True, so building the dual with right=False is rejected
     with pytest.raises(ValueError, match="does not match the orientation"):
         abstract.get_howell_dual(generator, transformer=transformer, right=False)
+
+
+def test_get_howell_dual_edge_cases(
+    ring_cyclic3_gf4: abstract.GroupRing, ring_alternating4_gf5: abstract.GroupRing
+) -> None:
+    """Orientation inference, rejection of a non-Howell input, and a mismatched orientation."""
+    ring = ring_cyclic3_gf4
+
+    # when `right` is omitted it is inferred from the orientation the Howell form recorded
+    values = [[ring.group.random() for _ in range(3)] for _ in range(2)]
+    generator = abstract.RingArray.build(values, ring).null_space().howell_normal_form_semisimple()
+    assert np.array_equal(
+        abstract.get_howell_dual(generator), abstract.get_howell_dual(generator, right=False)
+    )
+
+    # a matrix that is not in Howell normal form (here a multi-term, non-idempotent pivot) has no
+    # valid dual, so the default validation rejects it
+    pivot = abstract.RingMember.from_vector(ring.field([1, 1, 0]), ring)
+    non_hnf = abstract.RingArray.build([[pivot]], ring)
+    with pytest.raises(ValueError, match="could not validate"):
+        abstract.get_howell_dual(non_hnf)
+
+    # skip_validation bypasses the orientation check, so a mismatched `right` reaches the projector,
+    # where a row's projected blocks span a space with no symmetric idempotent projector
+    matrix_ring = ring_alternating4_gf5
+    matrix_transformer = matrix_ring.get_transformer(seed=0)
+    coeffs = np.random.default_rng(2).integers(
+        0, matrix_ring.field.order, size=(2, 5, matrix_ring.group.order)
+    )
+    matrix = abstract.RingArray.build(
+        [
+            [
+                abstract.RingMember.from_vector(matrix_ring.field(coeffs[i, j]), matrix_ring)
+                for j in range(5)
+            ]
+            for i in range(2)
+        ],
+        matrix_ring,
+    )
+    generator = matrix.null_space(right=True).howell_normal_form_semisimple(
+        transformer=matrix_transformer, right=True
+    )
+    with pytest.raises(ValueError, match="Cannot build a Howell dual"):
+        abstract.get_howell_dual(
+            generator, transformer=matrix_transformer, right=False, skip_validation=True
+        )
