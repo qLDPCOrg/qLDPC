@@ -136,6 +136,7 @@ def get_howell_dual(
     *,
     transformer: WedderburnArtinTransformer | None = None,
     right: bool = False,
+    skip_validation: bool | None = None,
 ) -> RingArray:
     """Build the "dual" of a matrix in Howell normal form.
 
@@ -165,16 +166,46 @@ def get_howell_dual(
         (b) for each entry of D, transposes its matrix representation within each Wedderburn-Artin
             component of the ring.
 
-    The ``right`` flag must match the orientation used to build matrix_hnf (the ``right`` passed to
-    ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative ring the dual is
-    orientation-specific: the dual built for the wrong orientation does not satisfy it.
+    The ``transformer`` must be the one used to build matrix_hnf, since the dual is built in that
+    transformer's basis.  By default it is read from matrix_hnf (the transformer recorded when the
+    Howell form was built).
 
-    WARNINGS: This method assumes--and does not verify--that matrix_hnf is in Howell normal form,
-    and that the ``right`` flag matches the orientation used to build matrix_hnf.  Passing the wrong
-    ``right`` may raise an error, but may also silently return a wrong dual.
+    Likewise, the ``right`` flag must match the orientation used to build matrix_hnf (the ``right``
+    passed to ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative ring the
+    dual is orientation-specific: the dual built for the wrong orientation does not satisfy it.
+
+    ``skip_validation`` controls whether the returned dual is checked against properties 1-4:
+
+    - ``False``: always check, raising an error if the dual is not valid.
+    - ``True``: never check (fastest; trusts that matrix_hnf is a Howell form and that ``right``
+      matches its orientation).
+    - ``None`` (default): if matrix_hnf carries Howell-form provenance (attached by
+      ``howell_normal_form_semisimple``/``howell_normal_form_poly``), trust it -- but raise an error
+      if its recorded orientation disagrees with ``right``.  Otherwise, check as for ``False``.
+
+    WARNINGS: Any ``transformer`` passed in must be the one used to build matrix_hnf; otherwise the
+    dual is built in the wrong basis and may be wrong.  By default the transformer recorded on
+    matrix_hnf is used.  Separately, with ``skip_validation=True`` this method verifies nothing
+    else: it trusts that matrix_hnf is in Howell normal form and that ``right`` matches the
+    orientation used to build it, so a wrong ``right`` may raise an error but may also silently
+    return a wrong dual.
     """
     ring = matrix_hnf.ring
-    transformer = transformer or ring.get_transformer()
+    # prefer the transformer matrix_hnf was built with, so we build (and validate) in the same basis
+    transformer = transformer or matrix_hnf._hnf_transformer or ring.get_transformer()
+
+    if skip_validation is None:
+        # trust Howell-form provenance when present, but reject an orientation that disagrees
+        if matrix_hnf._in_hnf:
+            if not ring.is_commutative and matrix_hnf._hnf_right != right:
+                raise ValueError(
+                    "get_howell_dual: `right` does not match the orientation used to build"
+                    f" matrix_hnf (built with right={matrix_hnf._hnf_right}, called with"
+                    f" right={right})."
+                )
+            skip_validation = True
+        else:
+            skip_validation = False
 
     if ring.is_commutative:
         # Every simple component of a commutative ring is 1x1, so the construction below reduces to
@@ -182,25 +213,52 @@ def get_howell_dual(
         dual_matrix = np.zeros(matrix_hnf.shape, dtype=object)
         for row, col in enumerate(math.first_nonzero_cols(matrix_hnf)):
             dual_matrix[row, col] = matrix_hnf[row, col].copy().T
-        return RingArray.build(dual_matrix, ring)
+        dual = RingArray.build(dual_matrix, ring)
+    else:
+        # For a non-commutative ring, the dual entry that "fixes" a row within a Wedderburn
+        # component belongs at that component's own leading column, which on an augmented Howell
+        # form can lie to the right of (and differ from) the ring-level pivot column.  In each
+        # component we place a symmetric idempotent projecting onto the row's span (see
+        # _get_fixing_projector).
+        dual_matrix = np.empty(matrix_hnf.shape, dtype=object)
+        for index in np.ndindex(matrix_hnf.shape):
+            dual_matrix[index] = ring.zero
+        for component_transformer in transformer.transformers:
+            blocks = component_transformer.project_array(matrix_hnf)
+            for row in range(matrix_hnf.shape[0]):
+                nonzero_cols = np.nonzero(np.any(blocks[row], axis=(-2, -1)))[0]
+                if not len(nonzero_cols):
+                    continue
+                projector = _get_fixing_projector(blocks[row], component_transformer, right=right)
+                col = int(nonzero_cols[0])
+                embedded = component_transformer.embed(projector).T
+                dual_matrix[row, col] = dual_matrix[row, col] + embedded
+        dual = RingArray.build(dual_matrix, ring)
 
-    # For a non-commutative ring, the dual entry that "fixes" a row within a Wedderburn component
-    # belongs at that component's own leading column, which on an augmented Howell form can lie to
-    # the right of (and differ from) the ring-level pivot column.  In each component we place a
-    # symmetric idempotent projecting onto the row's span (see _get_fixing_projector).
-    dual_matrix = np.empty(matrix_hnf.shape, dtype=object)
-    for index in np.ndindex(matrix_hnf.shape):
-        dual_matrix[index] = ring.zero
-    for component_transformer in transformer.transformers:
-        blocks = component_transformer.project_array(matrix_hnf)
-        for row in range(matrix_hnf.shape[0]):
-            nonzero_cols = np.nonzero(np.any(blocks[row], axis=(-2, -1)))[0]
-            if not len(nonzero_cols):
-                continue
-            projector = _get_fixing_projector(blocks[row], component_transformer, right=right)
-            col = int(nonzero_cols[0])
-            dual_matrix[row, col] = dual_matrix[row, col] + component_transformer.embed(projector).T
-    return RingArray.build(dual_matrix, ring)
+    if not skip_validation:
+        _validate_howell_dual(matrix_hnf, dual, transformer, right)
+    return dual
+
+
+def _validate_howell_dual(
+    matrix_hnf: RingArray,
+    dual: RingArray,
+    transformer: WedderburnArtinTransformer,
+    right: bool,
+) -> None:
+    """Raise an error if ``dual`` is not a valid dual of matrix_hnf (properties 1-4 above)."""
+    diag = matmul(matrix_hnf, dual.T, right=right)
+    valid = (
+        np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))  # 1: diagonal
+        and np.array_equal(matmul(diag, matrix_hnf, right=right), matrix_hnf)  # 2
+        and np.array_equal(matmul(diag.T, dual, right=right), dual)  # 3
+        and np.array_equal(diag, transformer.transpose_array(diag))  # 4
+    )
+    if not valid:
+        raise ValueError(
+            "get_howell_dual could not validate the constructed dual: matrix_hnf may not be in"
+            " Howell normal form, or `transformer`/`right` may not match those used to build it."
+        )
 
 
 def _get_fixing_projector(

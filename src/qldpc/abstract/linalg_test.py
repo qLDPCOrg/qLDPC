@@ -142,9 +142,9 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
     """The dual depends on the orientation used to build the Howell form.
 
     A₄ over GF(5) has a size-3 component, so this tests the dual for blocks bigger than a single
-    number.  Passing the same ``right`` used to build the Howell form gives a working dual; passing
-    the wrong ``right`` does not (here it raises an error, though it will not always -- see the note
-    in ``get_howell_dual``).  The fixed transformer seed makes the case below deterministic.
+    number.  Passing the same ``right`` used to build the Howell form gives a working dual.  The
+    Howell form records the orientation it was built with, so passing the wrong ``right`` is
+    rejected.  The fixed transformer seed makes the case below deterministic.
     """
     ring = ring_alternating4_gf5
     transformer = ring.get_transformer(seed=0)
@@ -169,6 +169,12 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
     assert np.array_equal(abstract.matmul(diag.T, dual, right=True), dual)
     assert np.array_equal(diag, transformer.transpose_array(diag))
 
-    # the wrong orientation is rejected with a clear error
-    with pytest.raises(ValueError, match="Cannot build a Howell dual"):
+    # skip_validation=False re-checks the constructed dual; it passes for the correct orientation
+    rechecked = abstract.get_howell_dual(
+        generator, transformer=transformer, right=True, skip_validation=False
+    )
+    assert np.array_equal(rechecked, dual)
+
+    # the generator records right=True, so building the dual with right=False is rejected
+    with pytest.raises(ValueError, match="does not match the orientation"):
         abstract.get_howell_dual(generator, transformer=transformer, right=False)

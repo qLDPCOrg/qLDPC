@@ -551,6 +551,15 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
     _ring: GroupRing
 
+    # Howell-form provenance, attached by howell_normal_form_* to their direct output only (via
+    # _mark_as_hnf).  These deliberately do NOT propagate through numpy operations:
+    # __array_finalize__ copies only _ring, so any slice, transpose, or arithmetic result falls back
+    # to the class defaults below.  A True _in_hnf therefore reliably means "this exact object is a
+    # fresh Howell normal form", which is what get_howell_dual relies on.
+    _in_hnf: bool = False
+    _hnf_transformer: WedderburnArtinTransformer | None = None
+    _hnf_right: bool = False
+
     def __new__(
         cls,
         data: npt.NDArray[np.object_] | NestedSequence,
@@ -579,8 +588,16 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
     def __array_finalize__(self, obj: npt.NDArray[np.object_] | None) -> None:
         """Propagate metadata to newly constructed arrays."""
-        # obj may be None or lack _ring during numpy view construction; _ring is set before use
+        # obj may be None or lack _ring during numpy view construction; _ring is set before use.
+        # Howell-form provenance is intentionally NOT propagated here (see the class attributes).
         self._ring = getattr(obj, "_ring", None)  # type:ignore[assignment]
+
+    def _mark_as_hnf(self, *, transformer: WedderburnArtinTransformer | None, right: bool) -> Self:
+        """Record that this array is a Howell normal form, as provenance for get_howell_dual."""
+        self._in_hnf = True
+        self._hnf_transformer = transformer
+        self._hnf_right = right
+        return self
 
     def __array_function__(
         self,
@@ -955,7 +972,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             [np.any(matrix, axis=(1, 2, 3)) for matrix in matrices],
         )
         matrices = [matrix[nonzero_rows] for matrix in matrices]
-        return transformer.recompose_array(matrices)
+        return transformer.recompose_array(matrices)._mark_as_hnf(
+            transformer=transformer, right=right
+        )
 
     def howell_normal_form_poly(self) -> RingArray:
         """Compute a Howell normal form of a RingArray using polynomial division.
@@ -1044,8 +1063,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 field_array[other_row] = new_bb_vec
 
             # "Reduce" the pivot to gcd(pivot, modulus):
-            # (1) Find ff for which ff * pivot = gcd(pivot, modulus) = gg.
-            # (2) Replace the pivot row with ff * (pivot row), reducing the pivot to gg.
+            #     (1) Find ff for which ff * pivot = gcd(pivot, modulus) = gg.
+            #     (2) Replace the pivot row with ff * (pivot row), reducing the pivot to gg.
             # Multiplying the whole row by the non-unit ff would shrink the row-module span (it
             # scales every column, not just the pivot), so preserve the span by keeping the
             # residual: the original row minus its reconstruction quotient * (reduced row), where
@@ -1086,7 +1105,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         # remove all-zero rows and return
         field_array = field_array[np.any(field_array, axis=(1, 2))]
-        return RingArray.from_field_array(field_array, self.ring)
+        return RingArray.from_field_array(field_array, self.ring)._mark_as_hnf(
+            transformer=None, right=False
+        )
 
     def reduced_groebner_basis(self) -> RingArray:
         """Compute a reduced Groebner basis for this RingArray.
