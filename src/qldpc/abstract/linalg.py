@@ -163,11 +163,11 @@ def get_howell_dual(
         (b) for each entry of D, transposes its matrix representation within each Wedderburn-Artin
             component of the ring.
 
-    WARNING: This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
-
     The ``right`` flag must match the orientation used to build matrix_hnf (the ``right`` passed to
     ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative ring the dual is
     orientation-specific: the dual built for the wrong orientation does not satisfy it.
+
+    WARNING: This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
     """
     ring = matrix_hnf.ring
     transformer = transformer or ring.get_transformer()
