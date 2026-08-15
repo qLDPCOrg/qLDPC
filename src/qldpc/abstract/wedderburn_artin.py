@@ -33,12 +33,12 @@ from .rings import GroupRing, RingArray, RingMember
 
 
 class WedderburnArtinTransformer:
-    r"""Instrument for implementing the Wedderburn-Artin decomposition of semisimple rings.
+    r"""Compute the Wedderburn-Artin decomposition of a semisimple ring.
 
     The Wedderburn-Artin theorem states that every semisimple ring R is isomorphic to a direct
-    product of matrix algebras over division rings:
+    sum of matrix algebras over division rings:
 
-        ``R ≅ ⨂_i R_i``
+        ``R ≅ ⊕_i R_i``
 
     where
 
@@ -49,18 +49,17 @@ class WedderburnArtinTransformer:
     group algebra over a finite field F then every division ring ``D_i`` is a field extension of F.
     If R is a commutative ring, then all ``n_i = 1``, so
 
-        ``R = ⨂_i D_i``  (if R is commutative).
+        ``R = ⊕_i D_i``  (if R is commutative).
 
-    This class is an instrument for decomposing elements of ``r ∈ R`` into simple
-    components, taking::
+    This class decomposes an element ``r ∈ R`` into its simple components, taking::
 
-        r -> (r_1, r_2, ...) ∈ ⨂_i R_i,
+        r -> (r_1, r_2, ...) ∈ ⊕_i R_i,
 
-    and embedding elements of ``⨂_i R_i`` back into R.
+    and embeds elements of ``⊕_i R_i`` back into R.
 
     References:
-    - https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
-    - https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem
+    - Wedderburn-Artin theorem: https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
+    - Wedderburn's little theorem: https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem
     """
 
     ring: GroupRing
@@ -151,7 +150,12 @@ class WedderburnArtinTransformer:
         return self.recompose(components)
 
     def transpose_array(self, array: RingArray) -> RingArray:
-        """Transpose the array its entries within each simple component."""
+        """Transpose the array and transpose each entry's matrix within each simple component.
+
+        This is the array analog of WedderburnArtinTransformer.transpose, additionally transposing
+        the array itself.  As there, the per-component matrix transpose is distinct from
+        RingMember.T, which inverts group members (transposing the regular representation).
+        """
         if self.ring.is_commutative:
             return array.transpose().view(RingArray)
         components = [np.swapaxes(component, -1, -2) for component in self.decompose_array(array)]
@@ -184,12 +188,12 @@ class WedderburnArtinComponentTransformer:
 
     Given a PCI e of R, the corresponding simple component is ``S = R·e = { r·e : r ∈ R }``.
 
-    This class is an instrument for projecting elements of R onto a simple component S corresponding
-    to a provided PCI e, and embedding elements of S back into R.
+    This class projects elements of R onto a simple component S corresponding to a provided PCI e,
+    and embeds elements of S back into R.
 
     References:
-    - https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
-    - https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem
+    - Wedderburn-Artin theorem: https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
+    - Wedderburn's little theorem: https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem
     """
 
     ring: GroupRing  # base ring, R
@@ -417,22 +421,16 @@ class WedderburnArtinComponentTransformer:
         if self.degree == 1:
             return self.field.elements, self.field.Ones([1])
 
-        """
-        PART 1
-        ------
-        To embed GF(q) scalars into GF(p^{kd}), we...
-            1. Identify the generator α of GF(q) = GF(p^k).
-            2. Find the minimal polynomial m(x) of α, which has α as a root in GF(p^k).
-            3. Interpret the coefficients of m(x) as elements of GF(p^{kd}).
-            4. Identify a root σ ∈ GF(p^{kd}) of m(x).
-        A scalar in GF(q) = GF(p^k) = GF(p)[x] / m(x) can then be embedded into GF(p^{kd}) by...
-            1. Expanding the scalar as a polynomial in α with coefficients in GF(p).
-            2. Interpreting the coefficients as elements of GF(p^{kd}).
-            3. Replacing α by σ.
-        See:
-        - https://mhostetter.github.io/galois/v0.1.1/api/galois.GF/
-        - https://mhostetter.github.io/galois/v0.1.1/api/galois.FieldArray.minimal_poly/
-        """
+        # PART 1: embed GF(q) scalars into GF(p^{kd}).
+        #   1. Identify the generator α of GF(q) = GF(p^k).
+        #   2. Find the minimal polynomial m(x) of α, which has α as a root in GF(p^k).
+        #   3. Interpret the coefficients of m(x) as elements of GF(p^{kd}).
+        #   4. Identify a root σ ∈ GF(p^{kd}) of m(x).
+        # A scalar in GF(q) = GF(p^k) = GF(p)[x] / m(x) is then embedded into GF(p^{kd}) by
+        # expanding it as a polynomial in α with coefficients in GF(p), reinterpreting those
+        # coefficients as elements of GF(p^{kd}), and replacing α by σ.  See:
+        #   - https://mhostetter.github.io/galois/latest/api/galois.GF/
+        #   - https://mhostetter.github.io/galois/latest/api/galois.FieldArray.minimal_poly/
         minimal_poly = self.field.primitive_element.minimal_poly()  # this is m(x) ∈ GF(q)[x]
         extended_minimal_poly = galois.Poly(minimal_poly.coeffs, field=self.extended_field)
         embedded_root = extended_minimal_poly.roots()[0]  # this is σ ∈ GF(p^{kd})
@@ -448,21 +446,16 @@ class WedderburnArtinComponentTransformer:
             ]
             embedded_scalars.append(functools.reduce(operator.add, terms))
 
-        """
-        PART 2
-        ------
-        To embed elements of the power basis B into GF(p^{kd}) we...
-            1. Identify the minimal polynomial f(x) of b, for which f(b) = 0.  This is the
-                polynomial we use to construct GF(q^d) = GF(q)[x] / f(x) with f(b) = 0.
-            2. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain the polynomial g(x).
-            3. Use any root of g(x) as the generator of the embedded power basis.
-        To find f(x), we seek coefficients f_j ∈ GF(q) for which
-            f(b) = sum_{j=0}^d f_j b^j = 0,
-        where we define b^0 = e.  We can set f_d = 1 without loss of generality, reducing the
-        problem to
-            sum_{j=0}^{d-1} f_j b^j = -b^d.
-        The remaining coefficients can be found by solving a linear system of equations.
-        """
+        # PART 2: embed the power basis B into GF(p^{kd}).
+        #   1. Identify the minimal polynomial f(x) of b, for which f(b) = 0.  This is the
+        #      polynomial used to construct GF(q^d) = GF(q)[x] / f(x) with f(b) = 0.
+        #   2. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain the polynomial g(x).
+        #   3. Use any root of g(x) as the generator of the embedded power basis.
+        # To find f(x), we seek coefficients f_j ∈ GF(q) for which
+        #     f(b) = sum_{j=0}^d f_j b^j = 0,
+        # where b^0 = e.  Setting f_d = 1 without loss of generality reduces this to
+        #     sum_{j=0}^{d-1} f_j b^j = -b^d,
+        # whose remaining coefficients follow from a linear system of equations.
         gen_to_dim_power = self._regular_lift(self.power_basis[1]) @ self.power_basis[-1]
         linear_system = np.column_stack([self.power_basis.T, -gen_to_dim_power])
         poly_coeffs = linear_system.view(self.field).row_reduce()[: self.degree, -1]
@@ -620,35 +613,25 @@ class WedderburnArtinComponentTransformer:
         if idempotent_vec is None:
             idempotent_vec = self.pci_vec
 
-        """
-        PART 1
-        ------
-        To determine whether the idempotent is primitive, we first identify the sub-algebra that it
-        projects onto, or the image of the map r -> e_start r e_start.  If this image spans a
-        d-dimensional vector space over GF(q), then it must be GF(q^d), which means that the
-        idempotent must be primitive.
-        """
+        # PART 1: determine whether the idempotent is primitive.  Identify the sub-algebra it
+        # projects onto -- the image of the map r -> e_start r e_start.  If this image spans a
+        # d-dimensional vector space over GF(q), then it must be GF(q^d), so the idempotent is
+        # primitive.
         idempotent = RingMember.from_vector(idempotent_vec, self.ring)
         subalgebra_proj = idempotent.regular_lift() @ idempotent.regular_lift(right=True)
         subalgebra_basis = subalgebra_proj.column_space()
         if len(subalgebra_basis) == self.degree:  # pragma: no cover (we may not hit this in tests)
             return idempotent_vec.reshape(1, -1).view(self.field)
 
-        """
-        PART 2
-        ------
-        At this point, we know that the idempotent e_start is not primitive, so we seek to decompose
-        e_start into a sum of two or more idempotents.  To this end, we proceed as follows:
-            1. Pick a random element α in the sub-algebra stabilized by e_start.
-            2. Find the minimal polynomial of α, or a minimal-degree polynomial m(x) with m(α) = 0.
-            3. Identify the irreducible factors of m(x).  If m(x) is irreducible, return to step 1.
-            4. Factor m(x) into irreducible ("prime") polynomials p_j(x) as
-                    m(x) = prod_j p_j(x)^{k_j},
-                and define
-                    f_j(x) = p_j(x)^{k_j},
-                    g_j(x) = m(x) / f_j(x).
-        These polynomials will be used to construct idempotents that sum to e_start.
-        """
+        # PART 2: e_start is not primitive, so decompose it into a sum of two or more idempotents.
+        #   1. Pick a random element α in the sub-algebra stabilized by e_start.
+        #   2. Find the minimal polynomial of α, or a minimal-degree polynomial m(x) with m(α) = 0.
+        #   3. Identify the irreducible factors of m(x).  If m(x) is irreducible, return to step 1.
+        #   4. Factor m(x) into irreducible ("prime") polynomials p_j(x) as
+        #          m(x) = prod_j p_j(x)^{k_j},
+        #      and define
+        #          f_j(x) = p_j(x)^{k_j},   g_j(x) = m(x) / f_j(x).
+        # These polynomials are used to construct idempotents that sum to e_start.
 
         # find an element of the sub-algebra whose minimal polynomial has nontrivial factors
         while True:
@@ -662,24 +645,19 @@ class WedderburnArtinComponentTransformer:
         # above, we found factors f_j(x) of m(x); now, build the quotients g_j(x) = m(x) / f_j(x)
         quotients = [minimal_poly // factor for factor in factors]
 
-        """
-        PART 3
-        ------
-        We now use the minimal polynomial m(x) of α ∈ e_start R e_start, its factors f_j(x), and the
-        quotients g_j(x) to construct idempotents that sum to e_start.  To this end, we use the
-        extended Euclidean algorithm to find polynomials u_j and v_j for which
-            u_j f_j + v_j g_j = gcd(f_j, g_j),
-        and define
-            F_j = u_j f_j / gcd(f_j, g_j),
-            G_j = v_j g_j / gcd(f_j, g_j).
-        Some observations:
-            1. By construction, F_j + G_j = 1, where "1" is e_start in this sub-algebra of S.
-            2. (F_j G_j)(x) contains a factor of (f_j g_j)(x) = m(x), so (F_j G_j)(α) = 0.
-            3. G_j(α) = G_j(α) (F_j + G_j)(α) = (G_j F_j)(α) + G_j(α)^2 = G_j(α)^2.
-            4. If i != j, then (G_i G_j)(x) contains a factor of m(x) so, (G_i G_j)(α) = 0.
-        Observation 3 implies that G_j(α) is idempotent, and observation 4 implies that these
-        idempotents are orthogonal, so {G_j(α)}_j is a set of orthogonal idempotents.
-        """
+        # PART 3: use the minimal polynomial m(x) of α ∈ e_start R e_start, its factors f_j(x), and
+        # the quotients g_j(x) to construct idempotents that sum to e_start.  Via the extended
+        # Euclidean algorithm, find polynomials u_j and v_j for which
+        #     u_j f_j + v_j g_j = gcd(f_j, g_j),
+        # and define
+        #     F_j = u_j f_j / gcd(f_j, g_j),   G_j = v_j g_j / gcd(f_j, g_j).
+        # Then:
+        #   1. By construction, F_j + G_j = 1, where "1" is e_start in this sub-algebra of S.
+        #   2. (F_j G_j)(x) contains a factor of (f_j g_j)(x) = m(x), so (F_j G_j)(α) = 0.
+        #   3. G_j(α) = G_j(α) (F_j + G_j)(α) = (G_j F_j)(α) + G_j(α)^2 = G_j(α)^2.
+        #   4. If i != j, then (G_i G_j)(x) contains a factor of m(x), so (G_i G_j)(α) = 0.
+        # Observation 3 makes each G_j(α) idempotent and observation 4 makes them mutually
+        # orthogonal, so {G_j(α)}_j is a set of orthogonal idempotents.
 
         new_idempotents = []
         quotient_coeff: galois.Poly
@@ -724,14 +702,11 @@ class WedderburnArtinComponentTransformer:
             - A matrix in ``GF(q)^{d × |G|}`` whose j-th row is ``element^j ∈ S``.
         """
 
-        """
-        PART 1: Construct a matrix of linearly independent column vectors: [α^0, α^1, α^2, ...].
-
-        We start with the one-column matrix [α^0], and repeatedly double the size of this matrix by
-            [α^0] -> [α^0, α^1] -> [α^0, α^1, α^2, α^4] -> ...
-        We stop when the number of columns exceeds the rank r of the matrix, at which point we save
-        α^r for later use and throw out all but the first r columns, [α^0, α^1, α^2, ..., α^{r-1}].
-        """
+        # PART 1: construct a matrix of linearly independent column vectors [α^0, α^1, α^2, ...].
+        # Start with the one-column matrix [α^0] and repeatedly double its size:
+        #     [α^0] -> [α^0, α^1] -> [α^0, α^1, α^2, α^4] -> ...
+        # Stop when the number of columns exceeds the rank r of the matrix, then save α^r for later
+        # use and throw out all but the first r columns, [α^0, α^1, α^2, ..., α^{r-1}].
         element_mat = self._regular_lift(element)
         powers = idempotent.reshape(-1, 1).view(self.field)
         while True:
@@ -744,13 +719,9 @@ class WedderburnArtinComponentTransformer:
         extra = powers[:, rank]  # element^rank
         powers = powers[:, :rank]
 
-        """
-        PART 2: Construct the minimal polynomial m(x) of α.
-
-        This polynomial is defined by coefficients m_j for which
-            m(α) = α^r + sum_{j=0}^{r-1} m_j α^r = 0.
-        These coefficients can be found by solving a linear system of equations.
-        """
+        # PART 2: construct the minimal polynomial m(x) of α, defined by coefficients m_j for which
+        #     m(α) = α^r + sum_{j=0}^{r-1} m_j α^j = 0,
+        # which follow from solving a linear system of equations.
         linear_system = np.column_stack([powers, -extra]).view(self.field)
         poly_coeffs = linear_system.row_reduce()[:rank, -1]
         poly_coeffs = np.append(poly_coeffs, self.field(1))
