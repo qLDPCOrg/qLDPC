@@ -290,3 +290,36 @@ def test_idempotents() -> None:
     ):
         idempotents = external.groups.get_primitive_central_idempotents("fake_group", field.order)
         assert idempotents == expected_idempotents
+
+
+def test_idempotents_over_intermediate_subfield() -> None:
+    """Coefficients whose GAP field is a proper intermediate subfield are embedded, not reindexed.
+
+    Over GF(16) the primitive central idempotents of the cyclic group of order 3 have coefficients
+    that are cube roots of unity, which GAP reports as powers of Z(2^2) -- the generator of the
+    subfield GF(4).  The generator of GF(4) must be mapped into GF(16) through the subfield
+    embedding (a power of the GF(16) primitive element), not by reinterpreting the integer that
+    galois uses to store the GF(4) generator (which is a primitive element of GF(16), of order 15).
+    """
+    field = galois.GF(16)
+    gap_output = (
+        "[ (Z(2)^0)*()+(Z(2)^0)*(1,2,3)+(Z(2)^0)*(1,3,2), "
+        "(Z(2)^0)*()+(Z(2^2))*(1,2,3)+(Z(2^2)^2)*(1,3,2), "
+        "(Z(2)^0)*()+(Z(2^2)^2)*(1,2,3)+(Z(2^2))*(1,3,2) ]"
+    )
+
+    # Z(2^2) is the GF(4) generator; its image in GF(16) is primitive_element ** ((16-1)//(4-1)).
+    z4 = field.primitive_element ** ((field.order - 1) // (galois.GF(4).order - 1))
+    assert z4 != field(1) and z4**3 == field(1)  # a genuine (nontrivial) cube root of unity
+    expected_idempotents = [
+        ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+        ((1, ((),)), (int(z4), ((0, 1, 2),)), (int(z4**2), ((0, 2, 1),))),
+        ((1, ((),)), (int(z4**2), ((0, 1, 2),)), (int(z4), ((0, 2, 1),))),
+    ]
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=gap_output),
+    ):
+        idempotents = external.groups.get_primitive_central_idempotents("group", field.order)
+        assert idempotents == expected_idempotents

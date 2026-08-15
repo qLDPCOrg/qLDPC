@@ -170,3 +170,44 @@ def test_wedderburn_artin_errors(
         ring.get_transformer()
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
         abstract.WedderburnArtinComponentTransformer(ring.one)
+
+
+def test_primitive_central_idempotent_validation(
+    ring_cyclic3_gf2: abstract.GroupRing, ring_dihedral3_gf5: abstract.GroupRing
+) -> None:
+    """A component transformer checks that its input is a primitive central idempotent (PCI).
+
+    The checks -- nonzero, idempotent, central, and rank equal to ``size**2 * degree`` -- are
+    necessary but not sufficient for primitivity, and ``skip_validation=True`` bypasses them.
+    """
+    transformer = abstract.WedderburnArtinComponentTransformer
+    ring = ring_cyclic3_gf2
+
+    # the zero element is not idempotent-with-a-component
+    with pytest.raises(ValueError, match="it is zero"):
+        transformer(abstract.RingMember(ring))
+
+    # a single non-identity group member is nonzero but not idempotent
+    non_idempotent = abstract.RingMember(ring, (ring.field(1), ring.group.generators[0]))
+    assert non_idempotent * non_idempotent != non_idempotent
+    with pytest.raises(ValueError, match="not idempotent"):
+        transformer(non_idempotent)
+
+    # a matrix unit |0><0| of a size-2 component is idempotent but not central
+    matrix_ring = ring_dihedral3_gf5
+    component = next(cc for cc in matrix_ring.get_transformer().transformers if cc.size == 2)
+    matrix_unit = abstract.RingMember.from_vector(component.matrix_basis[0], matrix_ring)
+    assert matrix_unit * matrix_unit == matrix_unit
+    with pytest.raises(ValueError, match="not central"):
+        transformer(matrix_unit)
+
+    # the ring identity is a central idempotent, but it spans every simple component at once, so its
+    # regular-representation rank exceeds size**2 * degree for any single component
+    with pytest.raises(ValueError, match=re.escape("(size**2 * degree)")):
+        transformer(matrix_ring.one)
+
+    # skip_validation bypasses the checks, e.g. for an idempotent from a trusted source, and it
+    # threads through the whole-ring transformer to each component transformer
+    trusted_pci = ring.get_primitive_central_idempotents()[0]
+    transformer(trusted_pci, skip_validation=True)
+    abstract.WedderburnArtinTransformer(ring, skip_validation=True)

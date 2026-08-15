@@ -17,7 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 import itertools
 import math
@@ -68,7 +67,13 @@ class WedderburnArtinTransformer:
     transformers: list[WedderburnArtinComponentTransformer]
     random_number_generator: np.random.Generator
 
-    def __init__(self, ring: GroupRing, *, seed: np.random.Generator | int | None = None) -> None:
+    def __init__(
+        self,
+        ring: GroupRing,
+        *,
+        seed: np.random.Generator | int | None = None,
+        skip_validation: bool = False,
+    ) -> None:
         if not ring.is_semisimple:
             raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
         self.ring = ring
@@ -76,7 +81,9 @@ class WedderburnArtinTransformer:
             seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
         )
         self.transformers = [
-            WedderburnArtinComponentTransformer(pci, seed=self.random_number_generator)
+            WedderburnArtinComponentTransformer(
+                pci, seed=self.random_number_generator, skip_validation=skip_validation
+            )
             for pci in self.ring.get_primitive_central_idempotents()
         ]
 
@@ -151,7 +158,6 @@ class WedderburnArtinTransformer:
         return self.recompose_array(components).transpose().view(RingArray)
 
 
-@dataclasses.dataclass
 class WedderburnArtinComponentTransformer:
     r"""Transformer to map between a semisimple ring R and a simple component S of R.
 
@@ -219,10 +225,14 @@ class WedderburnArtinComponentTransformer:
         seed: np.random.Generator | None = None,
         galois_compile: Literal["auto", "jit-lookup", "jit-calculate", "python-calculate"]
         | None = "python-calculate",
+        skip_validation: bool = False,
     ) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring.
 
-        WARNING: This class assumes--and does not verify--that the provided RingMember is a PCI.
+        By default the provided RingMember is checked against the necessary conditions of a
+        primitive central idempotent (nonzero, idempotent, central, and consistent rank).  These
+        conditions are necessary but not sufficient for primitivity; see
+        _validate_primitive_central_idempotent.
 
         Args:
             pci: A primitive central idempotent of a ring.
@@ -230,6 +240,9 @@ class WedderburnArtinComponentTransformer:
             galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``.
                 Default: 'python-calculate', which is empirically faster for small field arrays.
                 See help(galois.GF), and the 'compile' argument in particular.
+            skip_validation: If False (the default), check the necessary conditions above and raise
+                a ``ValueError`` when the provided RingMember fails them; pass True to skip the
+                check (e.g. when the idempotent comes from a trusted source).
         """
         if not pci.ring.is_semisimple:
             raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
@@ -244,7 +257,10 @@ class WedderburnArtinComponentTransformer:
 
         self.center = self._get_center()
         self.degree = len(self.center)
-        self.size = math.isqrt(np.linalg.matrix_rank(self.pci_reg) // self.degree)
+        rank = int(np.linalg.matrix_rank(self.pci_reg))
+        if not skip_validation:
+            self._validate_primitive_central_idempotent(rank)
+        self.size = math.isqrt(rank // self.degree)
 
         self.power_basis = self._get_power_basis(seed)
         self.power_basis_dual = qldpc.math.get_dual_basis(self.power_basis, validate=False)
@@ -261,6 +277,41 @@ class WedderburnArtinComponentTransformer:
         self.matrix_basis = self._get_matrix_basis(seed)
         self.decomposition_coefficient_extractor = self._get_decomposition_coefficient_extractor()
         self.decomposition_coefficient_recombiner = self._get_decomposition_coefficient_recombiner()
+
+    def _validate_primitive_central_idempotent(self, rank: int) -> None:
+        """Check the necessary conditions of a primitive central idempotent for ``self.pci``.
+
+        Checks that the element is nonzero, idempotent (``e·e = e``), and central (commutes with the
+        ring), and that the rank of its regular representation equals ``size**2 · degree`` (as a
+        single simple component ``GF(q^d)^{n × n}`` requires).  These conditions are necessary but
+        not sufficient for primitivity: a nonzero central idempotent may still decompose into a sum
+        of orthogonal central idempotents (e.g. the ring identity), which this does not detect.  A
+        full primitivity check is expensive; pass ``skip_validation=True`` to bypass this method.
+
+        The nonzero, idempotent, and central checks run before the rank check, so ``self.degree`` is
+        guaranteed positive by the time the rank check divides by it.
+        """
+        if not self.pci_vec.any():
+            raise ValueError(
+                "The provided RingMember is not a primitive central idempotent: it is zero"
+            )
+        if self.pci * self.pci != self.pci:
+            raise ValueError(
+                "The provided RingMember is not a primitive central idempotent: it is not idempotent"
+                " (e * e != e)"
+            )
+        for generator in self.ring.group.generators:
+            generator_member = RingMember(self.ring, generator)
+            if self.pci * generator_member != generator_member * self.pci:
+                raise ValueError(
+                    "The provided RingMember is not a primitive central idempotent: it is not central"
+                    " (it does not commute with the ring)"
+                )
+        if math.isqrt(rank // self.degree) ** 2 * self.degree != rank:
+            raise ValueError(
+                "The provided RingMember is not a primitive central idempotent: the rank of its"
+                " regular representation is not (size**2 * degree) for a single simple component"
+            )
 
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
@@ -347,7 +398,7 @@ class WedderburnArtinComponentTransformer:
 
     def _random_nonzero_vec(self, length: int, seed: np.random.Generator) -> galois.FieldArray:
         """Return a random nonzero vector over GF(q)."""
-        while not np.any(vector := self.field.Random(len(self.center), seed=seed)):
+        while not np.any(vector := self.field.Random(length, seed=seed)):
             pass  # pragma: no cover
         return vector
 
