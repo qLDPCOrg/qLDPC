@@ -503,7 +503,6 @@ class RingMember:
             matrix_inv = np.linalg.inv(matrix).view(self.field)
             # ``regular_lift`` M satisfies M @ s.to_vector() == (self * s).to_vector(), so the
             # inverse element solves M @ x == one.to_vector(), i.e. x = M^{-1} @ one.to_vector().
-            # (This is column 0 of M^{-1} only when the identity is first in ``group.generate()``.)
             return RingMember.from_vector(matrix_inv @ self.ring.one.to_vector(), self.ring)
         except np.linalg.LinAlgError:
             return None
