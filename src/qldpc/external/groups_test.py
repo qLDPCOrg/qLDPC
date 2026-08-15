@@ -310,7 +310,11 @@ def test_idempotents_over_intermediate_subfield() -> None:
 
     # Z(2^2) is the GF(4) generator; its image in GF(16) is primitive_element ** ((16-1)//(4-1)).
     z4 = field.primitive_element ** ((field.order - 1) // (galois.GF(4).order - 1))
-    assert z4 != field(1) and z4**3 == field(1)  # a genuine (nontrivial) cube root of unity
+    # {1, z4, z4**2} are exactly the cube roots of unity in GF(16), computed here independently of
+    # the embedding formula: this pins the embedded coefficients to the characters of the cyclic
+    # group of order 3, which is what makes each nontrivial idempotent square to itself (the pre-fix
+    # coefficients were {1, 2, 3}, and 2 is a primitive element of order 15, not a cube root).
+    assert {int(root) for root in field.elements if root**3 == field(1)} == {1, int(z4), int(z4**2)}
     expected_idempotents = [
         ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
         ((1, ((),)), (int(z4), ((0, 1, 2),)), (int(z4**2), ((0, 2, 1),))),
