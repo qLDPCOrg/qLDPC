@@ -273,7 +273,9 @@ class WedderburnArtinComponentTransformer:
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
         self.embedded_power_basis_dual = self._get_embedded_power_basis_dual()
 
-        max_embedded_scalar = max(self.embedded_scalars.view(np.ndarray))
+        # cast to a Python int so the "+ 1" cannot overflow the field's small integer dtype (e.g.
+        # uint8 wrapping 255 -> 0 for a base field with 256 or more elements)
+        max_embedded_scalar = int(max(self.embedded_scalars.view(np.ndarray)))
         self.embedded_scalars_inverse = self.field.Zeros(max_embedded_scalar + 1)
         for qq, pp in enumerate(self.embedded_scalars):
             self.embedded_scalars_inverse[int(pp)] = qq
@@ -393,7 +395,7 @@ class WedderburnArtinComponentTransformer:
             generator_mat = generator.regular_lift()
 
             basis = [self.pci_vec, generator_vec]
-            for _ in range(self.degree - 2):  # pragma: no cover
+            for _ in range(self.degree - 2):
                 basis.append(generator_mat @ basis[-1])
 
             basis_in_field = self.field(basis)
@@ -402,6 +404,8 @@ class WedderburnArtinComponentTransformer:
 
     def _random_nonzero_vec(self, length: int, seed: np.random.Generator) -> galois.FieldArray:
         """Return a random nonzero vector over GF(q)."""
+        # a uniform random vector over GF(q) is almost surely nonzero, so the retry below is
+        # effectively never taken and is not reliably reachable in tests
         while not np.any(vector := self.field.Random(length, seed=seed)):
             pass  # pragma: no cover
         return vector
@@ -620,7 +624,7 @@ class WedderburnArtinComponentTransformer:
         idempotent = RingMember.from_vector(idempotent_vec, self.ring)
         subalgebra_proj = idempotent.regular_lift() @ idempotent.regular_lift(right=True)
         subalgebra_basis = subalgebra_proj.column_space()
-        if len(subalgebra_basis) == self.degree:  # pragma: no cover (we may not hit this in tests)
+        if len(subalgebra_basis) == self.degree:
             return idempotent_vec.reshape(1, -1).view(self.field)
 
         # PART 2: e_start is not primitive, so decompose it into a sum of two or more idempotents.
@@ -668,14 +672,19 @@ class WedderburnArtinComponentTransformer:
             new_idempotent = idempotent_poly.coeffs[::-1] @ powers[: len(idempotent_poly)]  # <- e_j
             new_idempotents.append(new_idempotent)
 
-        # if sum_j G_j != e_start, then add the remainder to our set of new idempotents
+        # The orthogonal idempotents G_j built above sum exactly to e_start (their factors are
+        # pairwise coprime and partition m(x)), so this remainder is always zero; the guard is
+        # defensive and its body is unreachable.
         if np.any(remainder := functools.reduce(operator.add, new_idempotents) - idempotent_vec):
             new_idempotents.append(remainder)  # pragma: no cover
 
-        if len(new_idempotents) == self.size:  # pragma: no cover (we may not hit this in tests)
+        # Whether a single decomposition step already yields all ``size`` primitive idempotents, or
+        # instead needs a recursive decomposition, depends on the random element drawn: exactly one
+        # of the two branches runs for any given seed, so neither is deterministically covered.
+        if len(new_idempotents) == self.size:  # pragma: no cover
             # the number of mutually orthogonal idempotents guarantees that they are primitive
             return self.field(new_idempotents)
-        else:  # pragma: no cover (we may not hit this in tests)
+        else:  # pragma: no cover
             # recursively decompose the new idempotents to find primitive idempotents
             primitives = [self._get_primitive_idempotents(seed, id) for id in new_idempotents]
             return np.vstack(primitives).view(self.field)
