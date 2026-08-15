@@ -434,9 +434,9 @@ class WedderburnArtinComponentTransformer:
         minimal_poly = self.field.primitive_element.minimal_poly()  # this is m(x) ∈ GF(q)[x]
         extended_minimal_poly = galois.Poly(minimal_poly.coeffs, field=self.extended_field)
         embedded_root = extended_minimal_poly.roots()[0]  # this is σ ∈ GF(p^{kd})
-        embedded_root_powers = [self.extended_field(1)]
-        for _ in range(self.field.order - 1):
-            embedded_root_powers.append(embedded_root_powers[-1] * embedded_root)
+        # each scalar expands as a degree-(field.degree) polynomial in α (scalar.vector() has that
+        # many coefficients), so only that many powers of the embedded root σ are consumed below
+        embedded_root_powers = [embedded_root**power for power in range(self.field.degree)]
         embedded_scalars = []
         for scalar in self.field.elements:
             poly_coeffs = scalar.vector()[::-1]
