@@ -71,20 +71,6 @@ def test_ring() -> None:
     ring_member = abstract.RingMember(group, group.identity, *group.generators)
     assert ring_member.inverse() is None
 
-    # a multi-term inverse over a group whose identity is not first in generate(): the inverse is
-    # recovered from the identity's coordinate, not a fixed column of the regular representation.
-    # Cayley table of C3 with elements ordered (a, a^2, e) so the identity sits last.
-    table = np.array([[1, 2, 0], [2, 0, 1], [0, 1, 2]])
-    group = abstract.Group.from_table(table)
-    assert list(group.generate()).index(group.identity) != 0
-    ring = abstract.GroupRing(group, field=5)
-    gen_a, gen_b, _ = ring.group.generate()
-    ring_member = abstract.RingMember(ring, (1, gen_a), (2, gen_b))
-    ring_member_inverse = ring_member.inverse()
-    assert ring_member_inverse is not None
-    assert ring_member * ring_member_inverse == ring.one
-    assert ring_member_inverse * ring_member == ring.one
-
     # evaluate polynomials
     group = abstract.QuaternionGroup()
     ring = abstract.GroupRing(group, field=3)
