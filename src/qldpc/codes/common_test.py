@@ -225,7 +225,7 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     monkeypatch.setattr("builtins.input", lambda: next(user_inputs))
     code = codes.RepetitionCode(2)
     group = abstract.CyclicGroup(2)
-    assert code.get_automorphism_group(with_magma=True) == group
+    assert code.get_automorphism_group(with_magma=True).equiv(group)
     capsys.readouterr()  # intercept print statements
 
 

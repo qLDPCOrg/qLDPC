@@ -1569,9 +1569,9 @@ class LPCode(CSSCode):
         generator_b_T = matrix_b.T.null_space(right=True).howell_normal_form_semisimple(right=True)
 
         dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
-        dual_b = abstract.get_howell_dual(generator_b, right=True)
+        dual_b = abstract.get_howell_dual(generator_b)
         dual_a_T = abstract.get_howell_dual(generator_a_T)
-        dual_b_T = abstract.get_howell_dual(generator_b_T, right=True)
+        dual_b_T = abstract.get_howell_dual(generator_b_T)
 
         logical_ops_x_l = abstract.kron(dual_a, generator_b)
         logical_ops_z_l = abstract.kron(generator_a, dual_b)
@@ -1704,7 +1704,7 @@ class SLPCode(CSSCode):
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
 
         dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
-        dual_b = abstract.get_howell_dual(generator_b, right=True)
+        dual_b = abstract.get_howell_dual(generator_b)
 
         logical_ops_x = abstract.kron(dual_a, generator_b)
         logical_ops_z = abstract.kron(generator_a, dual_b)

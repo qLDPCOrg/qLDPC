@@ -29,7 +29,7 @@ import functools
 import itertools
 import operator
 import warnings
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
 import galois
@@ -42,13 +42,14 @@ from typing_extensions import Self
 import qldpc
 from qldpc import external
 
+from ._monomials import iter_monomial_terms
 from .groups import (
     AbelianGroup,
     CyclicGroup,
     Group,
     GroupMember,
+    NestedSequence,
     TrivialGroup,
-    iter_monomial_terms,
     resolve_field,
 )
 
@@ -96,12 +97,17 @@ class GroupRing:
         return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
+        # Two group algebras are equal when they share a base field and underlying group; the
+        # group's representation (lift) is irrelevant here, so compare with ``Group.equiv``.  This
+        # keeps equality value-based, and __hash__ (below) is keyed on the same stable data.
         return (
-            isinstance(other, GroupRing) and self.field is other.field and self.group == other.group
+            isinstance(other, GroupRing)
+            and self.field is other.field
+            and self.group.equiv(other.group)
         )
 
     def __hash__(self) -> int:
-        return hash((self.field.order, self.group))
+        return hash((self.field.order, self.group.to_sympy()))
 
     @property
     def name(self) -> str:
@@ -114,7 +120,7 @@ class GroupRing:
     @property
     def is_commutative(self) -> bool:
         """Is this ring commutative?"""
-        return isinstance(self, AbelianGroup) or self._group.is_abelian
+        return self._group.is_abelian
 
     @property
     def is_abelian(self) -> bool:
@@ -149,7 +155,7 @@ class GroupRing:
         return self.group.regular_lift(member, right=right).view(self.field)
 
     def lift(self, member: GroupMember, *, right: bool = False) -> galois.FieldArray:
-        """Lift a group member to a representation by an orthogonal matrix.
+        """Lift a group member to a representation by a matrix.
 
         A representation satisfies
 
@@ -232,7 +238,13 @@ class GroupRing:
     def _eval_int(self, value: int) -> galois.FieldArray:
         """Evaluate an integer as an element of the base field of this ring.
 
-        Some integers may have "invalid" but unambiguous interpretations as field members.
+        Over an extension field the integer is interpreted via galois' integer encoding of field
+        elements (e.g. over ``GF(4)`` the integer ``2`` is the element with integer representation
+        2, the primitive element -- not ``2 * one``, which is ``0`` in characteristic 2).  Integers
+        outside ``[0, field.order)`` are accepted only when unambiguous: over a prime field they
+        reduce modulo the order, and over an extension field a negative integer in
+        ``(-field.order, 0)`` is read as the additive inverse of its magnitude; any other
+        out-of-range integer raises a ValueError.
         """
         if not 0 <= value < self.field.order:
             if self.field.degree == 1:
@@ -426,7 +438,7 @@ class RingMember:
         return self.ring.field
 
     def lift(self, *, right: bool = False) -> galois.FieldArray:
-        """Lift this ring member to a representation by an orthogonal matrix.
+        """Lift this ring member to a representation by a matrix.
 
         A representation satisfies
 
@@ -469,8 +481,9 @@ class RingMember:
         """Transpose of this element.
 
         If this element is ``x = sum_{g in G) x_g g``, return ``x.T = sum_{g in G} x_g g.T``,
-        where g.T is the group member for which the lift ``L(g.T) = L(g).T``.  The fact that
-        group members get lifted to orthogonal matrices implies that ``g.T = ~g = g**-1``.
+        where ``g.T = ~g = g**-1``.  For an orthogonal lift this matches the matrix transpose,
+        ``L(g.T) = L(g).T``; for non-orthogonal lifts the group inverse ``~g`` is still used, but it
+        no longer corresponds to a matrix transpose.
         """
         new_element = self.ring.zero
         for val, member in self:
@@ -488,7 +501,9 @@ class RingMember:
         try:
             matrix = self.regular_lift()
             matrix_inv = np.linalg.inv(matrix).view(self.field)
-            return RingMember.from_vector(matrix_inv[:, 0], self.ring)
+            # ``regular_lift`` M satisfies M @ s.to_vector() == (self * s).to_vector(), so the
+            # inverse element solves M @ x == one.to_vector(), i.e. x = M^{-1} @ one.to_vector().
+            return RingMember.from_vector(matrix_inv @ self.ring.one.to_vector(), self.ring)
         except np.linalg.LinAlgError:
             return None
 
@@ -515,7 +530,7 @@ class RingMember:
         return vector
 
 
-class Element(RingMember):  # pragma: no cover
+class Element(RingMember):
     """Deprecated alias for RingMember."""
 
     def __getattribute__(self, name: str) -> Any:
@@ -530,13 +545,20 @@ class Element(RingMember):  # pragma: no cover
 ################################################################################
 # RingArray: RingMember-valued array
 
-NestedSequence = Sequence[object | Sequence["NestedSequence"]]
-
 
 class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     """Array whose entries are members of a GroupRing."""
 
     _ring: GroupRing
+
+    # Howell-form provenance, attached by howell_normal_form_* to their direct output only (via
+    # _mark_as_hnf).  These deliberately do NOT propagate through numpy operations:
+    # __array_finalize__ copies only _ring, so any slice, transpose, or arithmetic result falls back
+    # to the class defaults below.  A True _in_hnf therefore reliably means "this exact object is a
+    # fresh Howell normal form", which is what get_howell_dual relies on.
+    _in_hnf: bool = False
+    _hnf_transformer: WedderburnArtinTransformer | None = None
+    _hnf_right: bool = False
 
     def __new__(
         cls,
@@ -566,8 +588,16 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
     def __array_finalize__(self, obj: npt.NDArray[np.object_] | None) -> None:
         """Propagate metadata to newly constructed arrays."""
-        # obj may be None or lack _ring during numpy view construction; _ring is set before use
+        # obj may be None or lack _ring during numpy view construction; _ring is set before use.
+        # Howell-form provenance is intentionally NOT propagated here (see the class attributes).
         self._ring = getattr(obj, "_ring", None)  # type:ignore[assignment]
+
+    def _mark_as_hnf(self, *, transformer: WedderburnArtinTransformer | None, right: bool) -> Self:
+        """Record that this array is a Howell normal form, as provenance for get_howell_dual."""
+        self._in_hnf = True
+        self._hnf_transformer = transformer
+        self._hnf_right = right
+        return self
 
     def __array_function__(
         self,
@@ -577,14 +607,17 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         kwargs: Mapping[str, Any],
     ) -> RingArray | None:
         """Intercept array operations to ensure RingArray compatibility."""
-        rings = {self._ring} | {x._ring for x in args if isinstance(x, RingArray)}
-        if len(rings) > 1:
+        # ``_iter_ring_arrays`` descends into sequence arguments (e.g. the list passed to
+        # np.concatenate/np.stack), so RingArrays nested one or more levels deep are still checked
+        # for a ring mismatch -- a plain scan of the top-level args would miss them.
+        rings = [self._ring, *(arr._ring for arr in _iter_ring_arrays(args))]
+        if any(ring != rings[0] for ring in rings[1:]):
             raise ValueError("Cannot perform operations on RingArrays with different base rings")
-        args = tuple(x.view(np.ndarray) if isinstance(x, RingArray) else x for x in args)
+        args = tuple(_unwrap_ring_arrays(x) for x in args)
         result = super().__array_function__(func, types, args, kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
+            result._ring = rings[0]  # type:ignore[attr-defined]
         return result
 
     def __array_ufunc__(
@@ -897,11 +930,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         pivot_col = 0
         num_rows, num_cols = matrices[0].shape[:2]
         while pivot_row < num_rows and pivot_col < num_cols - 1:
-            """
-            Identify:
-            1. The column of the first nonzero value in the pivot_row of each component.
-            2. The column that will contain the pivot when we recombine the components.
-            """
+            # Identify:
+            # 1. The column of the first nonzero value in the pivot_row of each component.
+            # 2. The column that will contain the pivot when we recombine the components.
             pivot_rows_as_bools = [
                 np.any(matrix[pivot_row].view(np.ndarray).astype(bool), axis=(1, 2))
                 for matrix in matrices
@@ -909,15 +940,14 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             pivot_cols = qldpc.math.first_nonzero_cols(pivot_rows_as_bools)
             pivot_col = min(pivot_cols)
 
-            """
-            Let π be a projector onto the components in which the pivot is nonzero.  If π != 1, then
-            (1-π) is a nontrivial annihilator of the pivot.  If, moreover, (1-π)·r is nonzero, then
-            (1-π)·r contains a "hidden" pivot in a later column.  In this case, we in principle need
-            to replace r -> π·r and add (1-π)·r as a new row to the matrix.  In practice, this
-            procedure messes up the reduced row echelon form of the matrix, so we instead...
-            1. In the (1-π) sector, insert a zero row at the pivot_row and shift down rows below.
-            2. In the π sector, append a zero row to the matrix.
-            """
+            # Let π be a projector onto the components in which the pivot is nonzero.  If π != 1,
+            # then (1-π) is a nontrivial annihilator of the pivot.  If, moreover, (1-π)·r is
+            # nonzero, then (1-π)·r contains a "hidden" pivot in a later column.  In this case, we
+            # in principle need to replace r -> π·r and add (1-π)·r as a new row to the matrix.  In
+            # practice, this procedure messes up the reduced row echelon form of the matrix, so we
+            # instead...
+            # 1. In the (1-π) sector, insert a zero row at the pivot_row and shift down rows below.
+            # 2. In the π sector, append a zero row to the matrix.
             components_with_hidden_pivots = [
                 cc for cc in range(len(matrices)) if pivot_col < pivot_cols[cc] < num_cols
             ]
@@ -942,7 +972,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             [np.any(matrix, axis=(1, 2, 3)) for matrix in matrices],
         )
         matrices = [matrix[nonzero_rows] for matrix in matrices]
-        return transformer.recompose_array(matrices)
+        return transformer.recompose_array(matrices)._mark_as_hnf(
+            transformer=transformer, right=right
+        )
 
     def howell_normal_form_poly(self) -> RingArray:
         """Compute a Howell normal form of a RingArray using polynomial division.
@@ -1003,19 +1035,17 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 bb_vec = field_array[other_row]
                 if not np.any(bb_vec):
                     continue
-                """
-                Let:
-                    aa = aa_vec[pivot_row]
-                    bb = bb_vec[other_row]
-                We will transform rows as
-                    [aa_vec, bb_vec] --> [[ss, tt], [uu, vv]] @ [aa_vec, bb_vec]
-                where
-                    (1) ss * aa + tt * bb = gcd(aa, bb) = gg
-                    (2) uu * aa + vv * bb = 0
-                    (3) det([[ss, tt], [uu, vv]]) = ss * vv - tt * uu = 1
-                Condition (3) ensures that this transformation is invertible.
-                Condition (2) ensures that bb_vec gets zeroed out at the pivot column.
-                """
+                # Let:
+                #     aa = aa_vec[pivot_row]
+                #     bb = bb_vec[other_row]
+                # We will transform rows as
+                #     [aa_vec, bb_vec] --> [[ss, tt], [uu, vv]] @ [aa_vec, bb_vec]
+                # where
+                #     (1) ss * aa + tt * bb = gcd(aa, bb) = gg
+                #     (2) uu * aa + vv * bb = 0
+                #     (3) det([[ss, tt], [uu, vv]]) = ss * vv - tt * uu = 1
+                # Condition (3) ensures that this transformation is invertible.
+                # Condition (2) ensures that bb_vec gets zeroed out at the pivot column.
                 aa_poly = galois.Poly(aa_vec[pivot_col, ::-1], field=self.field)
                 bb_poly = galois.Poly(bb_vec[pivot_col, ::-1], field=self.field)
 
@@ -1032,35 +1062,39 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 field_array[pivot_row] = new_aa_vec
                 field_array[other_row] = new_bb_vec
 
-            """
-            "Reduce" the pivot:
-            (1) Find ff for which ff * pivot = gcd(pivot, modulus).
-            (2) Multiply the pivot row by ff, reducing the pivot to gcd(pivot, modulus).
-            """
+            # "Reduce" the pivot to gcd(pivot, modulus):
+            #     (1) Find ff for which ff * pivot = gcd(pivot, modulus) = gg.
+            #     (2) Replace the pivot row with ff * (pivot row), reducing the pivot to gg.
+            # Multiplying the whole row by the non-unit ff would shrink the row-module span (it
+            # scales every column, not just the pivot), so preserve the span by keeping the
+            # residual: the original row minus its reconstruction quotient * (reduced row), where
+            # quotient = pivot / gg (exact, and quotient * gg = pivot with no reduction modulo
+            # x^n - 1 since deg(pivot) < n).  That residual is therefore zero in the pivot column
+            # and, being a ring-multiple of the pivot row, adds no span; it is resolved later.
             pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
             gcd_poly: galois.Poly
             ff_poly: galois.Poly
             gcd_poly, ff_poly, _ = galois.egcd(pivot_poly, modulus_poly)  # type:ignore[assignment,arg-type]
             if pivot_poly != gcd_poly:
-                field_array[pivot_row] = _multiply(ff_poly, field_array[pivot_row])
+                quotient_poly = pivot_poly // gcd_poly
+                reduced_row = _multiply(ff_poly, field_array[pivot_row])
+                residual_row = field_array[pivot_row] - _multiply(quotient_poly, reduced_row)
+                field_array[pivot_row] = reduced_row
+                field_array = np.append(field_array, [residual_row], axis=0).view(self.field)
                 pivot_poly = gcd_poly
 
-            """
-            Reduce all rows above the pivot_row at the pivot_column.
-            If some value in the pivot_col above the pivot_row can be written as a multiple of the
-            pivot plus a remainder, use row operations to subtract off that multiple of the pivot,
-            leaving only the remainder.
-            """
+            # Reduce all rows above the pivot_row at the pivot_column.
+            # If some value in the pivot_col above the pivot_row can be written as a multiple of the
+            # pivot plus a remainder, use row operations to subtract off that multiple of the pivot,
+            # leaving only the remainder.
             for other_row in range(pivot_row):
                 other_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
                 div_poly = other_poly // pivot_poly
                 if div_poly != 0:
                     field_array[other_row] -= _multiply(div_poly, field_array[pivot_row])
 
-            """
-            Check whether the pivot has a nontrivial annihilator, with annihilator * pivot = 0.
-            If a nontrivial annihilator is found, append a new row with the pivot annihilated.
-            """
+            # Check whether the pivot has a nontrivial annihilator, with annihilator * pivot = 0.
+            # If a nontrivial annihilator is found, append a new row with the pivot annihilated.
             annihilator_poly = modulus_poly // pivot_poly
             if annihilator_poly != 0:
                 new_row = _multiply(annihilator_poly, field_array[pivot_row])
@@ -1071,12 +1105,14 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         # remove all-zero rows and return
         field_array = field_array[np.any(field_array, axis=(1, 2))]
-        return RingArray.from_field_array(field_array, self.ring)
+        return RingArray.from_field_array(field_array, self.ring)._mark_as_hnf(
+            transformer=None, right=False
+        )
 
     def reduced_groebner_basis(self) -> RingArray:
         """Compute a reduced Groebner basis for this RingArray.
 
-        At least, that the plan.  This method is not yet implemented.
+        At least, that's the plan.  This method is not yet implemented.
         """
         assert self.ndim == 2
         raise NotImplementedError(
@@ -1084,7 +1120,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         )
 
 
-class Protograph(RingArray):  # pragma: no cover
+class Protograph(RingArray):
     """Deprecated alias for RingArray."""
 
     def __getattribute__(self, name: str) -> Any:
@@ -1094,6 +1130,29 @@ class Protograph(RingArray):  # pragma: no cover
             stacklevel=2,
         )
         return super().__getattribute__(name)
+
+
+def _iter_ring_arrays(obj: Any) -> Iterator[RingArray]:
+    """Yield every RingArray in a (possibly nested) numpy-function argument.
+
+    Functions such as ``np.concatenate`` and ``np.stack`` take a *sequence* of arrays as a single
+    argument, so the RingArrays are nested one level (or more) inside a list/tuple rather than
+    passed directly.
+    """
+    if isinstance(obj, RingArray):
+        yield obj
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            yield from _iter_ring_arrays(item)
+
+
+def _unwrap_ring_arrays(obj: Any) -> Any:
+    """Replace every RingArray in a (possibly nested) argument with its plain-ndarray view."""
+    if isinstance(obj, RingArray):
+        return obj.view(np.ndarray)
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_unwrap_ring_arrays(item) for item in obj)
+    return obj
 
 
 def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) -> galois.FieldArray:

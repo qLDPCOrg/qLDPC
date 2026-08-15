@@ -531,6 +531,55 @@ def test_lifted_product_line_logicals(
     )
 
 
+def test_lifted_product_valid_over_group_algebras() -> None:
+    """Canonical-logical LP/SLP construction yields valid codes over several group algebras.
+
+    Setting canonical logicals is the only path that exercises the Howell dual of the code's ring
+    generator, and rich (multi-term) ring entries are the case a wrong pivot dual mishandles --
+    misreporting the construction as unsupported.  These cases span two group orders and two fields
+    (C3 over GF(4), C4 over GF(5)), whose polynomial moduli x^3 - 1 and x^4 - 1 factor differently;
+    each coefficient vector has length equal to the group order.
+    """
+    cases = [
+        (
+            abstract.CyclicGroup(3),
+            4,
+            ([[0, 2, 1], [2, 1, 0], [1, 0, 1]], [[0, 0, 1], [1, 1, 0], [1, 0, 0]]),
+        ),
+        (
+            abstract.CyclicGroup(4),
+            5,
+            (
+                [[0, 2, 1, 0], [2, 1, 0, 3], [1, 0, 1, 4]],
+                [[0, 0, 1, 2], [1, 1, 0, 0], [1, 0, 0, 3]],
+            ),
+        ),
+    ]
+    for group, characteristic, rows in cases:
+        ring = abstract.GroupRing(group, field=characteristic)
+        assert ring.is_commutative
+        matrix = abstract.RingArray.build(
+            [
+                [abstract.RingMember.from_vector(ring.field(coeffs), ring) for coeffs in row]
+                for row in rows
+            ],
+            ring,
+        )
+        for code in (
+            codes.LPCode(matrix, set_logicals=True),
+            codes.SLPCode(matrix, set_logicals=True),
+        ):
+            # the code is nonzero and its canonical logicals are well-formed: Lx . Lz^T = I
+            assert code.dimension > 0
+            assert np.array_equal(
+                code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
+                np.eye(code.dimension),
+            )
+            # an ordinary CSS code's stabilizers commute; a subsystem code's need not
+            if not code.is_subsystem_code:
+                assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+
 def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
     """We do not support line operators in lifted product codes with non-semisimple rings."""
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
