@@ -139,13 +139,12 @@ def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols:
 
 
 def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.GroupRing) -> None:
-    """The dual of a non-commutative Howell form is orientation-specific.
+    """The dual depends on the orientation used to build the Howell form.
 
-    On an augmented Howell form (repeated pivot columns), a row can lead in different columns across
-    Wedderburn components, so the dual entry belongs at each component's own leading column.  The
-    ``right`` passed to ``get_howell_dual`` must match the one used to build the Howell form; the
-    wrong orientation has no symmetric idempotent projector and is rejected.  A₄ over GF(5) has a
-    size-3 component; the fixed transformer seed makes the case below deterministic.
+    A₄ over GF(5) has a size-3 component, so this tests the dual for blocks bigger than a single
+    number.  Passing the same ``right`` used to build the Howell form gives a working dual; passing
+    the wrong ``right`` does not (here it raises an error, though it will not always -- see the note
+    in ``get_howell_dual``).  The fixed transformer seed makes the case below deterministic.
     """
     ring = ring_alternating4_gf5
     transformer = ring.get_transformer(seed=0)
@@ -161,7 +160,8 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
         transformer=transformer, right=True
     )
 
-    # with the matching orientation, the dual satisfies the pseudoinverse contract
+    # with the matching orientation, the dual acts as a pseudoinverse: generator @ dual.T is a
+    # diagonal that leaves both the generator and the dual unchanged, and is its own transpose
     dual = abstract.get_howell_dual(generator, transformer=transformer, right=True)
     diag = abstract.matmul(generator, dual.T, right=True)
     assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))

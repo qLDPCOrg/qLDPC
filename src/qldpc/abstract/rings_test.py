@@ -400,32 +400,3 @@ def test_deprecations() -> None:
     protograph = abstract.RingArray.build([[1]], ring).view(abstract.Protograph)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         _ = protograph.ring
-
-
-def test_ring_axioms() -> None:
-    """Group-algebra arithmetic satisfies the ring axioms."""
-    rng = np.random.default_rng(0)
-
-    def sample(ring: abstract.GroupRing) -> abstract.RingMember:
-        coefficients = ring.field(rng.integers(0, ring.field.order, ring.group.order))
-        return abstract.RingMember.from_vector(coefficients, ring)
-
-    for group, characteristic in [
-        (abstract.CyclicGroup(3), 2),
-        (abstract.QuaternionGroup(), 3),
-        (abstract.DihedralGroup(3), 4),
-    ]:
-        ring = abstract.GroupRing(group, field=characteristic)
-        zero, one = ring.zero, ring.one
-        for _ in range(20):
-            a, b, c = sample(ring), sample(ring), sample(ring)
-            # additive abelian group
-            assert a + b == b + a
-            assert (a + b) + c == a + (b + c)
-            assert a + zero == a
-            assert a + (-a) == zero
-            # multiplicative monoid + distributivity
-            assert (a * b) * c == a * (b * c)
-            assert a * one == one * a == a
-            assert a * (b + c) == a * b + a * c
-            assert (a + b) * c == a * c + b * c

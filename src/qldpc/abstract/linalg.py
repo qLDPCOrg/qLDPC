@@ -139,7 +139,9 @@ def get_howell_dual(
 ) -> RingArray:
     """Build the "dual" of a matrix in Howell normal form.
 
-    The dual matrix provides a pseudoinverse of matrix_hnf in the following sense: if
+    The dual matrix provides a pseudoinverse of matrix_hnf in the following sense.  Below, ``@``
+    denotes the orientation-aware product ``abstract.matmul(..., right=right)`` (ordinary matrix
+    multiplication when ``right=False``).  If
 
         ``D = matrix_hnf @ dual_matrix.T``,
 
@@ -205,29 +207,33 @@ def _get_fixing_projector(
     *,
     right: bool,
 ) -> galois.FieldArray:
-    """Symmetric idempotent that fixes a row's span within one Wedderburn component.
+    """Build the projector onto the space spanned by one row's projected blocks.
 
-    ``row_blocks = component_transformer.project(matrix_hnf[row, :])`` has shape
-    ``(num_cols, size, size)``.  For ``right=True`` the returned projector E fixes the row space of
-    the blocks (``v @ E == v``); for ``right=False`` it fixes their column space (``E @ w == w``).
-    Placed as ``embed(E).T``, E is the diagonal block of the dual that the contract requires.
+    ``row_blocks`` is ``component_transformer.project_array(matrix_hnf)[row]``: the row's entries
+    projected into one component of the ring and stacked, with shape ``(num_cols, size, size)``.
+
+    The result E is a ``size x size`` matrix that leaves that space unchanged: for ``right=True`` it
+    fixes the rows of the blocks (``v @ E == v``), and for ``right=False`` their columns
+    (``E @ w == w``).  E is symmetric and ``E @ E == E``.  The dual places it as ``embed(E).T``.
     """
     field = component_transformer.extended_field
     size = component_transformer.size
     vectors = row_blocks if right else row_blocks.transpose(0, 2, 1)
-    # basis is nonempty: the caller only calls this for a component in which the row is nonzero.
-    # With a matching `right`, the span is a coordinate subspace, so gram is the identity and the
-    # inverse is trivial.  A mismatched `right` yields a degenerate span (no symmetric idempotent
-    # projector), which raises below.
+    # `basis` holds independent vectors spanning that space.  It is never empty: the caller only
+    # gets here when the row is nonzero in this component.  When `right` matches the orientation
+    # used to build matrix_hnf, these are just standard basis vectors, so `gram` is the identity and
+    # inverting it does nothing.  A wrong `right` is a caller mistake: it may land on a `gram` that
+    # cannot be inverted (raising below) or, worse, one that can (returning a wrong dual) -- so
+    # callers must pass the same `right` used to build matrix_hnf.
     basis = vectors.reshape(-1, size).view(field).row_space().view(field)
     gram = (basis @ basis.T).view(field)
     try:
         gram_inv = np.linalg.inv(gram).view(field)
     except np.linalg.LinAlgError as error:
         raise ValueError(
-            "Cannot build a Howell dual: a pivot span is degenerate under its component's bilinear"
-            " form, so no symmetric idempotent projector exists.  This is not expected for a valid"
-            " Howell normal form built with a matching `right`."
+            "Cannot build a Howell dual: a row's projected blocks span a space with no projector"
+            " (basis @ basis.T is not invertible).  This is not expected for a valid Howell normal"
+            " form built with a matching `right`."
         ) from error
     return (basis.T @ gram_inv @ basis).view(field)
 
