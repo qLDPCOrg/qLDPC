@@ -169,7 +169,9 @@ def get_howell_dual(
     ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative ring the dual is
     orientation-specific: the dual built for the wrong orientation does not satisfy it.
 
-    WARNING: This method assumes--and does not verify--that matrix_hnf is in Howell normal form.
+    WARNINGS: This method assumes--and does not verify--that matrix_hnf is in Howell normal form,
+    and that the ``right`` flag matches the orientation used to build matrix_hnf.  Passing the wrong
+    ``right`` may raise an error, but may also silently return a wrong dual.
     """
     ring = matrix_hnf.ring
     transformer = transformer or ring.get_transformer()
