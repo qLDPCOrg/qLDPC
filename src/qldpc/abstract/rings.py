@@ -546,29 +546,6 @@ class Element(RingMember):
 # RingArray: RingMember-valued array
 
 
-def _iter_ring_arrays(obj: Any) -> Iterator[RingArray]:
-    """Yield every RingArray in a (possibly nested) numpy-function argument.
-
-    Functions such as ``np.concatenate`` and ``np.stack`` take a *sequence* of arrays as a single
-    argument, so the RingArrays are nested one level (or more) inside a list/tuple rather than
-    passed directly.
-    """
-    if isinstance(obj, RingArray):
-        yield obj
-    elif isinstance(obj, (list, tuple)):
-        for item in obj:
-            yield from _iter_ring_arrays(item)
-
-
-def _unwrap_ring_arrays(obj: Any) -> Any:
-    """Replace every RingArray in a (possibly nested) argument with its plain-ndarray view."""
-    if isinstance(obj, RingArray):
-        return obj.view(np.ndarray)
-    if isinstance(obj, (list, tuple)):
-        return type(obj)(_unwrap_ring_arrays(item) for item in obj)
-    return obj
-
-
 class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     """Array whose entries are members of a GroupRing."""
 
@@ -1132,6 +1109,29 @@ class Protograph(RingArray):
             stacklevel=2,
         )
         return super().__getattribute__(name)
+
+
+def _iter_ring_arrays(obj: Any) -> Iterator[RingArray]:
+    """Yield every RingArray in a (possibly nested) numpy-function argument.
+
+    Functions such as ``np.concatenate`` and ``np.stack`` take a *sequence* of arrays as a single
+    argument, so the RingArrays are nested one level (or more) inside a list/tuple rather than
+    passed directly.
+    """
+    if isinstance(obj, RingArray):
+        yield obj
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            yield from _iter_ring_arrays(item)
+
+
+def _unwrap_ring_arrays(obj: Any) -> Any:
+    """Replace every RingArray in a (possibly nested) argument with its plain-ndarray view."""
+    if isinstance(obj, RingArray):
+        return obj.view(np.ndarray)
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_unwrap_ring_arrays(item) for item in obj)
+    return obj
 
 
 def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) -> galois.FieldArray:
