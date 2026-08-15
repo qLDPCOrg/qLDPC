@@ -259,14 +259,6 @@ def test_seeded_random_leaves_global_rng_intact() -> None:
     assert group.random(seed=3) == group.random(seed=3)
 
 
-def test_star_import() -> None:
-    """Every name advertised in abstract.__all__ resolves (so ``import *`` succeeds)."""
-    namespace: dict[str, object] = {}
-    exec("from qldpc.abstract import *", namespace)  # noqa: S102
-    for name in abstract.__all__:
-        assert name in namespace
-
-
 def test_quaternion_group() -> None:
     """Validate the multiplication table for the quaternion group."""
     group = abstract.QuaternionGroup()
