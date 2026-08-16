@@ -235,6 +235,56 @@ class SteaneCode(QuantumHammingCode):
         super().__init__(size=3)
 
 
+class QuantumReedMullerCode(CSSCode):
+    """Self-orthogonal CSS code from a classical Reed-Muller code.
+
+    The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code
+    for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal:
+
+        RM(r, m) \subseteq RM(r, m)^\perp = RM(m - r - 1, m).
+
+    The stabilizer generators are the rows of the generator matrix of RM(r, m), whose pairwise
+    orthogonality follows from self-orthogonality.  Both the X- and the Z-distance equal
+    2**(r + 1), the minimum weight of a vector in RM(m - r - 1, m) \ RM(r, m), attained by the
+    indicator vector of an affine (r + 1)-flat in AG(m, 2) (MacWilliams & Sloane, Ch. 13).  This
+    closed form makes distance evaluation O(1), independent of block length.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/quantum_reed_muller_css
+    - https://feog.github.io/10-coding.pdf
+    """
+
+    def __init__(self, order: int, size: int) -> None:
+        self._assert_valid_params(order, size)
+        self._order = order
+        self._size = size
+        generator = np.atleast_2d(ReedMullerCode.get_generator(order, size))
+        super().__init__(generator, generator, is_subsystem_code=False, promise_equal_distance_xz=True)
+
+    @property
+    def order(self) -> int:
+        """The order parameter of this code."""
+        return self._order
+
+    @property
+    def size(self) -> int:
+        """The size parameter of this code."""
+        return self._size
+
+    @staticmethod
+    def _assert_valid_params(order: int, size: int) -> None:
+        if not (size >= 1 and 0 <= order < size and 2 * order < size - 1):
+            raise ValueError(
+                "A self-orthogonal CSS(RM(r,m), RM(r,m)) code requires 0 <= r < m and 2r < m - 1\n"
+                + f"Provided: (r, m) = ({order}, {size})"
+            )
+
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+        """Closed-form distance of CSS(RM(r, m), RM(r, m)) codes: 2**(r + 1)."""
+        return 2 ** (self._order + 1)
+
+
 class TetrahedralCode(CSSCode):
     r"""Smallest quantum error-correcting CSS code with a transversal non-Clifford (T) gate.
 
