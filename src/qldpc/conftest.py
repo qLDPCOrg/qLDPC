@@ -55,12 +55,27 @@ def ring_dihedral5_gf3(pytestconfig: pytest.Config) -> abstract.GroupRing:
     return ring
 
 
+@pytest.fixture(name="ring", scope="session", params=["cyclic3_gf4", "dihedral3_gf5"])
+def rings_to_test(
+    request: pytest.FixtureRequest,
+    ring_cyclic3_gf4: abstract.GroupRing,
+    ring_dihedral3_gf5: abstract.GroupRing,
+) -> abstract.GroupRing:
+    """Retrieve a ring for which we have pre-built a Wedderburn-Artin transformer."""
+    match request.param:
+        case "cyclic3_gf4":
+            return ring_cyclic3_gf4
+        case "dihedral3_gf5":
+            return ring_dihedral3_gf5
+    raise ValueError(f"Invalid fixture name: {request.param}")  # pragma: no cover
+
+
 @pytest.fixture(
-    name="ring",
+    name="wa_ring",
     scope="session",
     params=["cyclic3_gf4", "dihedral3_gf5", "cyclic5_gf2", "alternating4_gf5", "dihedral5_gf3"],
 )
-def rings_to_test(
+def wedderburn_artin_rings_to_test(
     request: pytest.FixtureRequest,
     ring_cyclic3_gf4: abstract.GroupRing,
     ring_dihedral3_gf5: abstract.GroupRing,
@@ -68,12 +83,12 @@ def rings_to_test(
     ring_alternating4_gf5: abstract.GroupRing,
     ring_dihedral5_gf3: abstract.GroupRing,
 ) -> abstract.GroupRing:
-    """Retrieve a ring for which we have pre-built a Wedderburn-Artin transformer.
+    """Retrieve a ring for exercising the Wedderburn-Artin machinery.
 
-    These rings jointly exercise the Wedderburn-Artin machinery across a commutative field
-    extension (cyclic3_gf4), matrix components of size 2 and 3 (dihedral3_gf5, alternating4_gf5), a
-    degree-4 field-extension component (cyclic5_gf2), and a matrix component that is itself over a
-    field extension -- size 2 and degree 2, i.e. 2x2 matrices over GF(9) (dihedral5_gf3).
+    These rings jointly cover a commutative field extension (cyclic3_gf4), matrix components of size
+    2 and 3 (dihedral3_gf5, alternating4_gf5), a degree-4 field-extension component (cyclic5_gf2),
+    and a matrix component that is itself over a field extension -- size 2 and degree 2, i.e. 2x2
+    matrices over GF(9) (dihedral5_gf3).
     """
     match request.param:
         case "cyclic3_gf4":
