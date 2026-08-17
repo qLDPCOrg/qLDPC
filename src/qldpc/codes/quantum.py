@@ -533,7 +533,7 @@ class GALACode(CSSCode):
         if ring.field.order != 2:
             raise ValueError("GALA codes are currently supported only over GF(2)")
 
-        if not isinstance(num_active_rows, int):
+        if not isinstance(num_active_rows, (int, np.int_)):
             raise TypeError("The number of active rows must be an integer")
         if not 1 <= num_active_rows <= len(generators_f):
             raise ValueError(
