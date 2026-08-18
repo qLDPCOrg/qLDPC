@@ -1,4 +1,4 @@
-"""Decoders for sinter to sample quantum error correction circuits
+"""Decoders for sinter to sample quantum error correction circuits.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -51,7 +51,8 @@ class SinterDecoder(Decoder, sinter.Decoder):
         predict observable flips.  See help(sinter.Decoder) for additional information.
 
         Args:
-            simplify: Whether merge equivalent errors in a DEM when compiling a decoder for that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
+                that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
@@ -162,7 +163,10 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
         )
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Alias for CompiledSinterDecoder.decode_shots.  Predicts observable flips."""
+        """Alias for CompiledSinterDecoder.decode_shots.
+
+        Predicts observable flips.
+        """
         syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
         return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
@@ -217,12 +221,12 @@ class SubgraphDecoder(SinterDecoder):
     A SubgraphDecoder splits the Tanner graph of a detector error model into subgraphs, and decodes
     these subgraphs independently.  Each subgraph is defined by a subset of detectors, S.  When
     compiling a SubgraphDecoder for a specific detector error model D, this decoder constructs, for
-    each subgraph S, a smaller detector error model D_S that restricts D to the detectors in S and
-    the error mechanisms that flip the detectors in S.
+    each subgraph S, a smaller detector error model ``D_S`` that restricts D to the detectors in S
+    and the error mechanisms that flip the detectors in S.
 
-    A SubgraphDecoder may optionally assign each subgraph S a set of observables, O_S, in which case
-    the subgraph detector error model D_S only considers (and predicts corrections for) the
-    observables in O_S.
+    A SubgraphDecoder may optionally assign each subgraph S a set of observables, ``O_S``, in which
+    case the subgraph detector error model ``D_S`` only considers (and predicts corrections for) the
+    observables in ``O_S``.
 
     As an example, a SubgraphDecoder is useful for independently decoding the X and Z sectors of a
     CSS code.
@@ -248,7 +252,8 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_detectors: A sequence containing one set of detectors per subgraph.
             subgraph_observables: A sequence containing one set of observables per subgraph; or None
                 to indicate that every subgraph should decode every observable.  Default: None.
-            simplify: Whether merge equivalent errors in a DEM when compiling a decoder for that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
+                that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
@@ -389,19 +394,21 @@ class SequentialWindowDecoder(SinterDecoder):
     (induced) set of error mechanisms that trigger those detectors.
 
     Windows are decoded sequentially, one by one.  To decode a window, we first decode the syndrome
-    in its its detection region.  We then "commit" to the decoded circuit error in the commit
+    in its detection region.  We then "commit" to the decoded circuit error in the commit
     region, which entails
+
     (a) removing the error mechanisms in the commit region from all subsequent windows, and
     (b) emulating the active correction of committed errors by appropriately updating the syndromes
         in subsequent windows.
+
     The net circuit error inferred by decoding all windows is used to predict observable flips.
 
-    A SequentialWindowDecoder initialized without specifying commit regions sets the commit region of
-    each window to the corresponding detection region.
+    A SequentialWindowDecoder initialized without specifying commit regions sets the commit region
+    of each window to the corresponding detection region.
 
     A special case of SequentialWindowDecoder is a SlidingWindowDecoder, in which case this
-    decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which is
-    explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
+    decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which
+    is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
     """
 
     def __init__(
@@ -425,7 +432,8 @@ class SequentialWindowDecoder(SinterDecoder):
             commit_regions: A sequence containing a set of detectors for each window, or None, in
                 which case the commit region of each window is equal to its detection regions.
                 Default: None.
-            simplify: Whether merge equivalent errors in a DEM when compiling a decoder for that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
+                that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
@@ -482,8 +490,8 @@ class SequentialWindowDecoder(SinterDecoder):
 
             # Restricting the DEM to this window may result in several error mechanisms that are
             # equivalent, which the window_decoder will merge into one error mechanism.  In this
-            # case, wrap the decoder into an _ExpandingDecoder that maps decoded errors in the
-            # simflified DEM to errors in the full DEM.
+            # case, wrap the decoder into an _ExpandedWindowDecoder that maps decoded errors in the
+            # simplified DEM to errors in the full DEM.
             test_error = window_decoder.decode(np.zeros(window_dem.num_detectors, dtype=int))
             if len(test_error) < window_dem.num_errors:
                 window_decoder = _ExpandedWindowDecoder(window_decoder, window_dem)
@@ -509,11 +517,11 @@ class SequentialWindowDecoder(SinterDecoder):
 class _ExpandedWindowDecoder(Decoder):
     """Wrapper for a decoder, to map decoded errors in a simplified DEM to errors in the full DEM.
 
-    The SequentialWindowDecoder restricts a DEM to a "window" before passing the DEM to a decoder for
-    that window.  Restricting a DEM may result in equivalent error mechanisms that end up getting
-    merged, which causes the restricted + simplified DEM to have fewer errors in the window than the
-    un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM to equivalent
-    errors in the original DEM.
+    The SequentialWindowDecoder restricts a DEM to a "window" before passing the DEM to a decoder
+    for that window.  Restricting a DEM may result in equivalent error mechanisms that end up
+    getting merged, which causes the restricted + simplified DEM to have fewer errors in the window
+    than the un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM to
+    equivalent errors in the original DEM.
     """
 
     def __init__(self, decoder: Decoder, window_dem: stim.DetectorErrorModel) -> None:
@@ -652,10 +660,10 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
     A SlidingWindowDecoder is a SequentialWindowDecoder whose windows are constructed by grouping
     detectors based on a time coordinate.  The amount of overlapping rounds between adjacent windows
     is determined by the window size and stride.  For example, a window size of w and a stride of s
-    indicates adjacent windows will overlap on w - s rounds.  The "commit region" for each window
-    therefore corresponds to the first s rounds in the window.
+    indicates adjacent windows will overlap on ``w - s`` rounds.  The "commit region" for each
+    window therefore corresponds to the first s rounds in the window.
 
-    Visually:
+    Visually::
 
       Time:      |------------------------------------------------------------>
 
@@ -713,7 +721,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 WARNING: if a detector_to_time mapping is not None, it will be assumed to be
                 both valid compatible with any detector error model that this decoder is later
                 compiled to with SlidingWindowDecoder.compile_decoder_for_dem.
-            simplify: Whether merge equivalent errors in a DEM when compiling a decoder for that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
+                that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
@@ -756,7 +765,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             for detector in detectors:
                 time = self.detector_to_time(detector)
                 if not isinstance(time, int):  # pragma: no cover
-                    raise ValueError(
+                    raise TypeError(
                         f"detector {detector} has an invalid (non-integer) time index: {time}"
                     )
                 time_to_dets[time].append(detector)

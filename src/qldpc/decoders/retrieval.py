@@ -1,4 +1,4 @@
-"""Methods to decode, or retrieve various decoders
+"""Methods to decode, or retrieve various decoders.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -22,13 +22,12 @@ import sys
 from collections.abc import Sequence
 
 import galois
-import ldpc
 import numpy as np
 import numpy.typing as npt
-import pymatching
 import scipy.sparse
 import stim
 
+from qldpc._util import format_docstring
 from qldpc.math import IntegerArray
 
 from .custom import (
@@ -37,10 +36,10 @@ from .custom import (
     Decoder,
     GUFDecoder,
     ILPDecoder,
-    LookupDecoder,
     RelayBPDecoder,
 )
 from .dems import DetectorErrorModelArrays
+from .lookup import LookupDecoder
 
 
 def decode(
@@ -48,7 +47,10 @@ def decode(
     syndrome: npt.NDArray[np.int_],
     **decoder_args: object,
 ) -> npt.NDArray[np.int_]:
-    """Construct a decoder and decode a syndrome.  Return the result of decoding."""
+    """Construct a decoder and decode a syndrome.
+
+    Return the result of decoding.
+    """
     decoder = get_decoder(pcm_or_dem, **decoder_args)
     return decoder.decode(syndrome)
 
@@ -59,10 +61,11 @@ def get_decoder(
     """Retrieve a decoder.
 
     This method looks for a keyword "with_<DECODER_NAME>: bool" argument, and returns
-    "get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)".
+    ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.
 
     This method also recognizes the following keyword arguments for injecting a custom decoder:
-    - decoder_constructor: return decoder_constructor(pcm_or_dem, **decoder_args).
+
+    - decoder_constructor: return ``decoder_constructor(pcm_or_dem, **decoder_args)``.
     - static_decoder: ignore all other arguments and return static_decoder.
 
     If no decoder is specified, this method defaults to generalized union-find (GUF) for non-binary
@@ -75,12 +78,12 @@ def get_decoder(
 
     # optionally inject a static decoder, ignoring all other arguments
     if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
-        assert hasattr(static_decoder, "decode") and callable(getattr(static_decoder, "decode"))
+        assert hasattr(static_decoder, "decode") and callable(static_decoder.decode)
         assert not decoder_args, "If passed a static decoder, we cannot process decoding arguments"
         return static_decoder
 
     # look for and construct a recognized decoder
-    for name in DECODER_CONSTRUCTORS.keys():
+    for name in DECODER_CONSTRUCTORS:
         if decoder_args.pop(f"with_{name}", False):
             decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{name}")
             return decoder_constructor(pcm_or_dem, **decoder_args)
@@ -94,6 +97,7 @@ def get_decoder(
     return get_decoder_BP_OSD(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
 
 
+@format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BP_OSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -101,14 +105,14 @@ def get_decoder_BP_OSD(
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
-    f"""Decoder based on belief propagation with ordered statistics (BP+OSD).
+    """Decoder based on belief propagation with ordered statistics (BP+OSD).
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
         error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
-            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a matrix, the error_channel defaults to ``[error_rate] * num_errors``.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
         **decoder_args: Additional keyword arguments passed to ldpc.BpOsdDecoder.
@@ -117,14 +121,18 @@ def get_decoder_BP_OSD(
         A decoder constructed by the ldpc package.
 
     For details about the BD-OSD decoder and its arguments, see:
+
     - help(ldpc.BpOsdDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2005.07016
     """
+    import ldpc
+
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
     return ldpc.BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
+@format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BP_LSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -132,14 +140,14 @@ def get_decoder_BP_LSD(
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
-    f"""Decoder based on belief propagation with localized statistics (BP+LSD).
+    """Decoder based on belief propagation with localized statistics (BP+LSD).
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
         error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
-            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a matrix, the error_channel defaults to ``[error_rate] * num_errors``.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
         **decoder_args: Additional keyword arguments passed to ldpc.bplsd_decoder.BpLsdDecoder.
@@ -148,14 +156,18 @@ def get_decoder_BP_LSD(
         A decoder constructed by the ldpc package.
 
     For details about the BD-LSD decoder and its arguments, see:
+
     - help(ldpc.bplsd_decoder.BpLsdDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2406.18655
     """
+    import ldpc
+
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
     return ldpc.bplsd_decoder.BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
+@format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BF(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -163,14 +175,14 @@ def get_decoder_BF(
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> Decoder:
-    f"""Decoder based on belief finding (BF).
+    """Decoder based on belief finding (BF).
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
         error_rate: The i.i.d. probability of each error in pcm_or_dem.  This argument is ignored if
             pcm_or_dem is a DEM.  Default: {PLACEHOLDER_ERROR_RATE}.
         error_channel: A vector declaring the probability of each error mechanism in pcm_or_dem.
-            If pcm_or_dem is a matrix, the error_channel defaults to [error_rate] * num_errors.
+            If pcm_or_dem is a matrix, the error_channel defaults to ``[error_rate] * num_errors``.
             If pcm_or_dem is a DEM, its error probabilities are used as the default error_channel.
             If an explicit error_channel is provided, it overrides all defaults.
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
@@ -179,6 +191,7 @@ def get_decoder_BF(
         A decoder constructed by the ldpc package.
 
     For details about the BF decoder and its arguments, see:
+
     - help(ldpc.BeliefFindDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - References:
@@ -186,6 +199,8 @@ def get_decoder_BF(
       - https://arxiv.org/abs/2103.08049
       - https://arxiv.org/abs/2209.01180
     """
+    import ldpc
+
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
     return ldpc.BeliefFindDecoder(pcm, error_channel=error_channel, **decoder_args)
 
@@ -217,8 +232,8 @@ def get_decoder_MWPM(
 
     Args:
         pcm_or_dem: A parity check matrix or detector error model (DEM) to decode.
-        decompose_errors: Whether apply suggested decompositions of error mechanisms.
-        ignore_graphlike_errors: Whether to ignore errors that trigger > 2 detectors (after
+        decompose_errors: Whether to apply suggested decompositions of error mechanisms.
+        ignore_non_graphlike_errors: Whether to ignore errors that trigger > 2 detectors (after
             decomposition, if applicable).
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
 
@@ -261,6 +276,8 @@ def get_decoder_MWPM(
         )
 
     # retrieve a matching decoder from pymatching
+    import pymatching
+
     return pymatching.Matching.from_check_matrix(pcm, **decoder_args)
 
 
@@ -272,6 +289,7 @@ def get_decoder_RBP(
     """Relay-BP decoders.
 
     For details about Relay-BP decoders, see:
+
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
     """

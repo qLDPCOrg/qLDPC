@@ -1,4 +1,4 @@
-"""Unit tests for groups.py
+"""Unit tests for groups.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 

@@ -1,4 +1,4 @@
-"""Miscellaneous circuit utilities
+"""Miscellaneous circuit utilities.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -18,18 +18,65 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
-from collections.abc import Mapping, Sequence
-from typing import Callable, ParamSpec, TypeVar
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import ParamSpec, Protocol, TypeVar
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import stim
+from typing_extensions import Self
 
 from qldpc import codes, math
-from qldpc.abstract import GF2
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
+
+
+class StimCircuitProtocol(Protocol):
+    """Structural type for circuit objects that behave like a ``stim.Circuit``.
+
+    A ``stim.Circuit`` satisfies this protocol, as do stim-wrapping circuit classes such as
+    ``tsim.Circuit``.  qLDPC's circuit-polymorphic functions (e.g. ``noisy_circuit``,
+    ``with_remapped_qubits``) are generic over the ``StimCircuitLike`` type variable (bound to this
+    protocol) so that they preserve the concrete circuit type of their input.  Those functions read
+    a circuit as a sequence of ``stim`` operations (via ``range(len(circuit))`` and indexing), do
+    their work on a ``stim.Circuit``, and rebuild a circuit of the original type by constructing an
+    empty instance (``type(circuit)()``) and populating it via ``append`` / in-place concatenation.
+    A conforming circuit must therefore be default-constructible in addition to supporting the
+    methods declared here.  This lets qLDPC support such circuits structurally, without depending on
+    the packages that define them.
+    """
+
+    def append(
+        self,
+        name: str | stim.CircuitInstruction | stim.CircuitRepeatBlock | stim.Circuit,
+        targets: (
+            int
+            | stim.GateTarget
+            | stim.PauliString
+            | Iterable[int | stim.GateTarget | stim.PauliString]
+        ) = (),
+        arg: float | Iterable[float] | None = None,
+        *,
+        tag: str = "",
+    ) -> None:
+        """Append an operation to this circuit in place."""
+
+    def __iadd__(self, other: stim.Circuit) -> Self:
+        """Append another circuit to this circuit in place."""
+
+    def __getitem__(self, index: int) -> stim.CircuitInstruction | stim.CircuitRepeatBlock:
+        """The operation at the given index."""
+
+    def __len__(self) -> int:
+        """The number of operations in this circuit."""
+
+
+# A type variable for a circuit that behaves like a stim.Circuit (see StimCircuitProtocol).  Used to
+# type functions that are generic over stim.Circuit and stim-wrapping circuits while preserving the
+# concrete circuit type of their input.
+StimCircuitLike = TypeVar("StimCircuitLike", bound=StimCircuitProtocol)
 
 
 def restrict_to_qubits(
@@ -39,7 +86,7 @@ def restrict_to_qubits(
 
     @functools.wraps(func)
     def qubit_func(*args: Params.args, **kwargs: Params.kwargs) -> stim.Circuit:
-        if any(isinstance(arg, codes.QuditCode) and arg.field is not GF2 for arg in args):
+        if any(isinstance(arg, codes.QuditCode) and arg.field is not galois.GF2 for arg in args):
             raise ValueError("Circuit methods are only supported for qubit codes")
         return func(*args, **kwargs)
 
@@ -47,8 +94,11 @@ def restrict_to_qubits(
 
 
 def with_remapped_qubits(
-    circuit: stim.Circuit, qubit_map: Mapping[int, int] | Sequence[int], *, inverse: bool = False
-) -> stim.Circuit:
+    circuit: StimCircuitLike,
+    qubit_map: Mapping[int, int] | Sequence[int],
+    *,
+    inverse: bool = False,
+) -> StimCircuitLike:
     """The same circuit, but with relabeled qubits.
 
     Qubits not in qubit_map get mapped to themselves.
@@ -60,7 +110,7 @@ def with_remapped_qubits(
         inverse: If True, invert the provided qubit_map.  Default: False.
 
     Returns:
-        stim.Circuit: A remapped circuit.
+        The input circuit with remapped qubits.
     """
     qubit_map = (
         qubit_map
@@ -70,8 +120,9 @@ def with_remapped_qubits(
     if inverse:
         qubit_map = {val: key for key, val in qubit_map.items()}
 
-    new_circuit = stim.Circuit()
-    for op in circuit:
+    new_circuit = type(circuit)()  # same type as input circuit
+    for index in range(len(circuit)):
+        op = circuit[index]
         if isinstance(op, stim.CircuitRepeatBlock):
             block = stim.CircuitRepeatBlock(
                 repeat_count=op.repeat_count,
@@ -81,13 +132,32 @@ def with_remapped_qubits(
             new_circuit.append(block)
 
         else:
-            new_targets = [_remap_target(target, qubit_map) for target in op.targets_copy()]
+            new_targets = [remap_qubit_target(target, qubit_map) for target in op.targets_copy()]
             new_op = stim.CircuitInstruction(
                 name=op.name, targets=new_targets, gate_args=op.gate_args_copy(), tag=op.tag
             )
             new_circuit.append(new_op)
 
     return new_circuit
+
+
+def remap_qubit_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
+    """Remap the qubit addressed by a stim.GateTarget, if any."""
+    if target.qubit_value is None:
+        return target
+
+    new_qubit_value = qubit_map.get(target.qubit_value, target.qubit_value)
+    if target.is_x_target or target.is_z_target or target.is_y_target:
+        return stim.target_pauli(
+            new_qubit_value,
+            target.pauli_type,
+            invert=target.is_inverted_result_target,
+        )
+
+    if target.is_inverted_result_target:
+        return stim.target_inv(new_qubit_value)
+
+    return stim.GateTarget(new_qubit_value)
 
 
 def get_pauli_product_measurements(
@@ -97,8 +167,8 @@ def get_pauli_product_measurements(
     """Construct a circuit of MPP instructions that measure the given Pauli strings.
 
     In addition to a list of Pauli strings, this method accepts a symplectic matrix in which each
-    row indicates the [X|Z] support of a Pauli string.  If "code" is a QuditCode, for example, then
-    passing "pauli_strings=code.get_stabilizer_ops()" will measure the stabilizers of "code".
+    row indicates the ``[X|Z]`` support of a Pauli string.  If "code" is a QuditCode, for example,
+    then passing "pauli_strings=code.get_stabilizer_ops()" will measure the stabilizers of "code".
     """
     if isinstance(pauli_strings, np.ndarray):
         pauli_strings = [math.op_to_string(op) for op in np.atleast_2d(pauli_strings)]
@@ -123,22 +193,3 @@ def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
                 measurements[target.value] for target in instruction.targets_copy()
             }
     return sorted(set(measurements) - addressed_measurements)
-
-
-def _remap_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
-    """Remap the qubit addressed by a stim.GateTarget, if any."""
-    if target.qubit_value is None:
-        return target
-
-    new_qubit_value = qubit_map.get(target.qubit_value, target.qubit_value)
-    if target.is_x_target or target.is_z_target or target.is_y_target:
-        return stim.target_pauli(
-            new_qubit_value,
-            target.pauli_type,
-            invert=target.is_inverted_result_target,
-        )
-
-    if target.is_inverted_result_target:
-        return stim.target_inv(new_qubit_value)
-
-    return stim.GateTarget(new_qubit_value)

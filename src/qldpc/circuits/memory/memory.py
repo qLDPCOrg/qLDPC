@@ -1,4 +1,4 @@
-"""Circuit construction utilities for quantum error-corrected memory experiments
+"""Circuit construction utilities for quantum error-corrected memory experiments.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -22,6 +22,7 @@ import numpy as np
 import stim
 
 from qldpc import codes
+from qldpc._util import format_docstring
 from qldpc.objects import Node, Pauli, PauliXZ
 
 from ..bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
@@ -29,6 +30,9 @@ from ..common import get_pauli_product_measurements, restrict_to_qubits, with_re
 from ..encoding import get_encoding_circuit
 from ..noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
+
+# default strategy used to schedule the two-qubit gates of a syndrome measurement circuit
+DEFAULT_STRATEGY = EdgeColoring()
 
 
 class MemoryExperimentParts(NamedTuple):
@@ -40,6 +44,7 @@ class MemoryExperimentParts(NamedTuple):
     qubit_ids: QubitIDs
 
 
+@format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
 def get_memory_experiment(
     code: codes.QuditCode | codes.ClassicalCode,
     basis: PauliXZ | None = Pauli.X,
@@ -47,9 +52,9 @@ def get_memory_experiment(
     *,
     noise_model: NoiseModel | None = None,
     qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
 ) -> stim.Circuit:
-    f"""Construct a circuit for testing the performance of a code as a quantum memory.
+    """Construct a circuit for testing the performance of a code as a quantum memory.
 
     In a nutshell, the circuit constructed by this method performs (generally multiple) rounds
     quantum error correction (QEC) for the given code.  Each round of QEC measures all parity checks
@@ -64,15 +69,18 @@ def get_memory_experiment(
 
     More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
     following:
-    1. Initialize all data qubits to a +1 eigenstate of the specified basis: |0> for Z, |+> for X.
+
+    1. Initialize all data qubits to a +1 eigenstate of the specified basis: ``|0>`` for Z,
+        ``|+>`` for X.
     2. Perform an initial round of QEC, adding detectors for the basis-type stabilizers.
     3. Perform num_rounds - 1 additional QEC rounds, adding detectors to enforce that basis-type
         stabilizers have not changed between adjacent rounds of QEC.
     4. Measure all data qubits in the specified basis.
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
+
     If a noise_model is provided, then noise is added to all parts of the circuit.
 
-    If basis is None, then the memory experiment noiselesly initializes each logical qubit of the
+    If basis is None, then the memory experiment noiselessly initializes each logical qubit of the
     code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
     a noisy logical QEC cycle.  This initialization makes it possible to meaningfully track errors
     in both X-type and Z-type logical operators of a code.  The probability of an error in any
@@ -80,12 +88,14 @@ def get_memory_experiment(
     logical QEC cycle.
 
     More specifically, if basis is None then the memory experiment performs the following:
-    1. Prepare a logical all-|0> state of the code.
-    2. For each logical qubit of the code, prepare an ancilla qubit in |+>, and apply an
+
+    1. Prepare a logical all-``|0>`` state of the code.
+    2. For each logical qubit of the code, prepare an ancilla qubit in ``|+>``, and apply an
         ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
-        |00> + |11> of logical qubits with their respective ancillas.
+        ``|00> + |11>`` of logical qubits with their respective ancillas.
     3. Perform a logical QEC cycle as before, but now adding detectors for all stabilizers.
     4. Measure all stabilizers (with MPP gates).
+
     Unlike the fixed-basis experiment, the combined basis experiment only makes sense when starting
     from the Bell state.  It is also no longer possible to measure out all data qubits to infer all
     stabilizers.  Initialization and readout (measuring final stabilizers) are therefore noiseless.
@@ -98,8 +108,8 @@ def get_memory_experiment(
     must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
     XX and ZZ observables for each Bell pair.  Here one of the "X"s in XX is a logical X for a
     logical qubit of the code, and the other "X" is a physical X on an associated ancilla qubit;
-    likewise with ZZ.  Since the ancilla qubit is noiseless, we can attribute an error in XX or ZZ to
-    a logical qubit error.
+    likewise with ZZ.  Since the ancilla qubit is noiseless, we can attribute an error in XX or ZZ
+    to a logical qubit error.
 
     Having said all of that, we do not actually annotate memory simulation circuits with the XX and
     ZZ observables described above.  Instead, we recognize that Bell-pair XX and ZZ operators are
@@ -111,6 +121,7 @@ def get_memory_experiment(
     supported on the data qubits alone.
 
     Qubits and detectors are assigned coordinates as follows:
+
     - The data qubit addressed by column C of the parity check matrix gets coordinate (0, C).
     - The check qubit associated with row R of the parity check matrix gets coordinate (1, R).
     - The ancilla qubit associated with logical qubit L of the code gets coordinate (2, L).
@@ -122,7 +133,7 @@ def get_memory_experiment(
             logical operators (or X-type logicals, if basis is None).
         basis: Should be Pauli.X, Pauli.Z, or None to indicate which type of logical operators to
             track (where "None" means "both X and Z").  Default: Pauli.X.
-        num_rounds: The number of syndome measurement rounds to perform in one logical QEC cycle.
+        num_rounds: The number of syndrome measurement rounds to perform in one logical QEC cycle.
             Must be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
             noiseless circuit.  Default: None.
@@ -135,7 +146,8 @@ def get_memory_experiment(
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
 
-    Example:
+    Example::
+
         from qldpc import circuits, codes
         from qldpc.objects import Pauli
 
@@ -189,14 +201,14 @@ def get_memory_experiment_parts(
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
 ) -> MemoryExperimentParts:
     """Noiseless components of a memory experiment.
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
 
     Returns:
-        initialization: A circuit that sets the coordinates and initializes the state of data qubits.
+        initialization: A circuit that sets the coordinates and initializes data qubit state.
         qec_cycle: A circuit for one logical QEC cycle, with num_rounds syndrome measurements.
         readout: A circuit that reads out final stabilizers.
         measurement_record: A record of all measurements in the above circuits.
@@ -235,7 +247,7 @@ def _get_basis_memory_experiment_parts(
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
 ) -> MemoryExperimentParts:
     """Components of a memory experiment that tracks logical operators of a fixed type (basis).
 
@@ -247,7 +259,7 @@ def _get_basis_memory_experiment_parts(
             f" not {basis}"
         )
     if not isinstance(code, codes.CSSCode):
-        raise ValueError("Memory experiments in a fixed basis only support CSS codes")
+        raise TypeError("Memory experiments in a fixed basis only support CSS codes")
 
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
@@ -275,7 +287,7 @@ def _get_basis_memory_experiment_parts(
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
     check_support = code.get_matrix(basis)
     for kk, check_id in enumerate(basis_check_ids):
-        data_support = np.where(check_support[kk])[0]
+        data_support = np.flatnonzero(check_support[kk])
         readout.append(
             "DETECTOR",
             [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support]
@@ -303,7 +315,7 @@ def _get_combined_memory_simulation_parts(
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
+    syndrome_measurement_strategy: SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
 ) -> MemoryExperimentParts:
     """Components of a memory experiment that tracks all logical operators.
 

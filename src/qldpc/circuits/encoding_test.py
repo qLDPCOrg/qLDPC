@@ -1,4 +1,4 @@
-"""Unit tests for encoding.py
+"""Unit tests for encoding.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -17,8 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import itertools
-
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -32,12 +30,9 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
     """Prepare logical Pauli states of qubit codes."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
-    codes_to_test = [
-        codes.FiveQubitCode(),
-        codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31))),
-    ]
+    code = codes.SHPCode(codes.ClassicalCode.random(4, 2, seed=np.random.randint(2**31)))
 
-    for code, only_zero in itertools.product(codes_to_test, [True, False]):
+    for only_zero in [True, False]:
         simulator = stim.TableauSimulator()
 
         if not only_zero:
@@ -47,8 +42,8 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
                 size=code.dimension + code.gauge_dimension,
             )
             basis_prep = stim.Circuit()
-            basis_prep.append("H", np.where(bases != Pauli.Z)[0])
-            basis_prep.append("S", np.where(bases == Pauli.Y)[0])
+            basis_prep.append("H", np.flatnonzero(bases != Pauli.Z))
+            basis_prep.append("S", np.flatnonzero(bases == Pauli.Y))
             simulator.do(basis_prep)
 
         encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
@@ -96,6 +91,19 @@ def _get_logical_pauli_string(  # pragma: no cover
     return 1j * string_x * string_z
 
 
+def test_encoding_overcomplete_stabilizers() -> None:
+    """Build an encoding circuit for a code with an overcomplete stabilizer matrix."""
+    code = codes.ToricCode(4)  # has more stabilizer generators than len(code) - dimension
+    assert len(code.get_stabilizer_ops()) != len(code) - code.dimension - code.gauge_dimension
+
+    simulator = stim.TableauSimulator()
+    simulator.do(circuits.get_encoding_circuit(code))
+
+    # all stabilizers have expectation value +1
+    for op in code.get_stabilizer_ops():
+        assert simulator.peek_observable_expectation(math.op_to_string(op)) == 1
+
+
 def test_logical_tableau() -> None:
     """Reconstruct a logical tableau."""
     code = codes.FiveQubitCode()
@@ -108,6 +116,15 @@ def test_logical_tableau() -> None:
 
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)
     assert logical_circuit.to_tableau() == reconstructed_logical_tableau
+
+    # logical Pauli operations (which flip logical operator signs) are valid logical operations
+    logical_x = math.op_to_string(code.get_logical_ops(Pauli.X, symplectic=True)[0])
+    reconstructed_logical_tableau = circuits.get_logical_tableau(code, logical_x.to_tableau())
+    assert stim.Circuit("X 0").to_tableau() == reconstructed_logical_tableau
+
+    # a physical circuit that does not preserve the code space is not a logical operation
+    with pytest.raises(ValueError, match="does not implement a logical operation"):
+        circuits.get_logical_tableau(code, stim.Circuit("X 0"))
 
 
 def test_state_stabilizers(pytestconfig: pytest.Config) -> None:

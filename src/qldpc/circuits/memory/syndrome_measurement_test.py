@@ -1,4 +1,4 @@
-"""Unit tests for syndrome_measurement.py
+"""Unit tests for syndrome_measurement.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -24,6 +24,9 @@ import sympy
 
 from qldpc import circuits, codes, math
 from qldpc.objects import Pauli
+
+# default strategy used by the validity-checking helper below
+DEFAULT_STRATEGY = circuits.EdgeColoring()
 
 
 def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
@@ -63,12 +66,12 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
 
     # EdgeColoringXZ strategy
     assert syndrome_measurement_is_valid(codes.SteaneCode(), circuits.EdgeColoringXZ())
-    with pytest.raises(ValueError, match="only supports CSS codes"):
+    with pytest.raises(TypeError, match="only supports CSS codes"):
         circuits.EdgeColoringXZ().get_circuit(codes.FiveQubitCode())
 
 
 def syndrome_measurement_is_valid(
-    code: codes.QuditCode, strategy: circuits.SyndromeMeasurementStrategy = circuits.EdgeColoring()
+    code: codes.QuditCode, strategy: circuits.SyndromeMeasurementStrategy = DEFAULT_STRATEGY
 ) -> bool:
     """Check the validity of syndrome measurement in a given code."""
     # prepare a logical |0> state

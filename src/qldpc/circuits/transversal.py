@@ -1,4 +1,4 @@
-"""Tools for identifying the transversal logical Clifford gates
+"""Tools for identifying the transversal logical Clifford gates.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -33,6 +33,52 @@ from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decod
 
 
 @restrict_to_qubits
+def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Circuit:
+    """Get a physical circuit for a transversal logical ``S = diag(1, i)`` gate of the code.
+
+    The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts
+    a logical S gate on every logical qubit of the code.
+
+    This construction only supports self-dual codes with equivalent logicals (SWEL):
+
+    1. Self dual = CSS code with identical X and Z stabilizers.
+    2. Equivalent logicals = applying a Hadamard to every physical qubit enacts a logical Hadamard
+        on every logical qubit.  This property depends on the choice of logical operator basis.
+    """
+    if validate:
+        logs_z = code.get_logical_ops(Pauli.Z)
+        if not np.array_equal(
+            code.canonicalized.matrix_x, code.canonicalized.matrix_z
+        ) or not np.array_equal(logs_z @ logs_z.T, np.eye(code.dimension, dtype=int)):
+            raise ValueError(
+                "Transversal S gate construction currently only supports SWEL stabilizer codes"
+            )
+
+    # Build a test circuit: physical S on all qubits
+    test_circuit = stim.Circuit()
+    test_circuit.append("S", range(len(code)))
+    test_tableau = test_circuit.to_tableau()
+
+    # Identify Pauli corrections in the "decoded" frame of logicals/stabilizers/destabilizers.
+    encoder, decoder = get_encoder_and_decoder(code)
+    decoded_tableau = encoder.then(test_tableau).then(decoder)
+    *_, x_signs, z_signs = decoded_tableau.to_numpy()
+    # A flip of an X-type operator is corrected by its Z-type dual, and vice versa.
+    decoded_frame_correction = stim.PauliString.from_numpy(xs=z_signs, zs=x_signs)
+
+    # Map the decoded-frame Pauli correction back to a physical Pauli.  For SWEL codes this
+    # correction is purely Z-type (mod stabilizers), and appending a Z after an S makes it S_DAG,
+    # so we can realize the correction by emitting S_DAG (rather than S) on the corrected qubits.
+    physical_correction = decoded_frame_correction.after(encoder, targets=range(len(code)))
+    _, physical_zs = physical_correction.to_numpy()
+
+    circuit = stim.Circuit()
+    circuit.append("S", np.flatnonzero(~physical_zs))
+    circuit.append("S_DAG", np.flatnonzero(physical_zs))
+    return circuit
+
+
+@restrict_to_qubits
 def get_transversal_ops(
     code: codes.QuditCode,
     local_gates: Collection[str] = ("S", "H", "SWAP"),
@@ -48,7 +94,7 @@ def get_transversal_ops(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+    ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
@@ -92,10 +138,13 @@ def get_transversal_automorphism_group(
     corresponds to a physical_circuit that has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+    ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
+    if not local_gates:
+        return abstract.Group(abstract.GroupMember(range(len(code))))
+
     local_gates = _validate_local_gates(local_gates)
     allow_swaps = "SWAP" in local_gates
     local_gates.discard("SWAP")
@@ -121,11 +170,32 @@ def get_transversal_automorphism_group(
     if not local_gates:
         # we are looking for transversal gates involving only two-qubit SWAPs
         matrix: npt.NDArray[np.int_] = parity_checks
-        if isinstance(
-            canonicalized_code := codes.QuditCode(matrix).canonicalized.maybe_to_css(),
-            codes.CSSCode,
-        ) and np.array_equal(canonicalized_code.matrix_x, canonicalized_code.matrix_z):
-            matrix = canonicalized_code.matrix_x
+        _code = codes.QuditCode(matrix).maybe_to_css()
+        if isinstance(_code, codes.CSSCode):
+            canonicalized_code = _code.canonicalized
+            if np.array_equal(canonicalized_code.matrix_x, canonicalized_code.matrix_z):
+                # Self-dual CSS: column permutations preserving H_x automatically preserve H_z
+                matrix = canonicalized_code.matrix_x
+            else:
+                # Non-self-dual CSS: the joint parity-check matrix has block-diagonal support, so
+                # its column-permutation automorphism group factors as Aut(H_x) x Aut(H_z) on
+                # disjoint column sets.  SWAPs act diagonally on X- and Z-columns, so the SWAP
+                # transversal group is Aut(H_x) ∩ Aut(H_z). Recurse on fake self-dual codes built
+                # from H_x and H_z so the self-dual branch above handles each half, then intersect.
+                fake_code_x = codes.CSSCode(
+                    canonicalized_code.matrix_x, canonicalized_code.matrix_x
+                )
+                fake_code_z = codes.CSSCode(
+                    canonicalized_code.matrix_z, canonicalized_code.matrix_z
+                )
+                group_x = get_transversal_automorphism_group(
+                    fake_code_x, ["SWAP"], deform_code=False, with_magma=with_magma
+                )
+                group_z = get_transversal_automorphism_group(
+                    fake_code_z, ["SWAP"], deform_code=False, with_magma=with_magma
+                )
+                generators = _sympy_group_intersection_generators(group_x, group_z)
+                return abstract.Group(*map(abstract.GroupMember, generators))
 
     else:
         # we are looking for transversal gates involving two-qubit SWAPs and single-qubit Cliffords
@@ -187,7 +257,7 @@ def get_transversal_circuits(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+    ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
     and thereby generally has exponential runtime.
@@ -260,7 +330,7 @@ def get_transversal_circuit(
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to
-        code.deform(physical_circuit, preserve_logicals=True)
+    ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
     and thereby generally has exponential runtime.

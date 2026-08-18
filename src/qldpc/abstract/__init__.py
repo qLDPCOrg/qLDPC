@@ -1,5 +1,8 @@
+from ._monomials import (
+    get_coefficient_and_exponents,
+    iter_monomial_terms,
+)
 from .groups import (
-    GF2,
     PSL,
     SL,
     AbelianGroup,
@@ -14,7 +17,6 @@ from .groups import (
     SpecialLinearGroup,
     SymmetricGroup,
     TrivialGroup,
-    get_coefficient_and_exponents,
     resolve_field,
 )
 from .linalg import (
@@ -36,32 +38,32 @@ from .wedderburn_artin import (
 )
 
 __all__ = [
-    "GF2",
     "PSL",
     "SL",
     "AbelianGroup",
     "AlternatingGroup",
     "CyclicGroup",
     "DihedralGroup",
+    "Element",
     "Group",
     "GroupMember",
+    "GroupRing",
     "ProjectiveSpecialLinearGroup",
+    "Protograph",
     "QuaternionGroup",
+    "RingArray",
+    "RingMember",
     "SmallGroup",
     "SpecialLinearGroup",
     "SymmetricGroup",
     "TrivialGroup",
-    "get_coefficient_and_exponents",
-    "resolve_field",
-    "block_diag",
-    "get_howell_dual",
-    "kron",
-    "matmul",
-    "Element",
-    "GroupRing",
-    "Protograph",
-    "RingArray",
-    "RingMember",
     "WedderburnArtinComponentTransformer",
     "WedderburnArtinTransformer",
+    "block_diag",
+    "get_coefficient_and_exponents",
+    "get_howell_dual",
+    "iter_monomial_terms",
+    "kron",
+    "matmul",
+    "resolve_field",
 ]

@@ -1,4 +1,4 @@
-"""Module for loading groups from GroupNames or the GAP computer algebra system
+"""Module for loading groups from GroupNames or the GAP computer algebra system.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -142,7 +142,7 @@ def get_small_group_number(order: int) -> int:
     # get the HTML for the page with all groups
     page_html = maybe_get_webpage(order)
     if page_html is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         raise ValueError("Cannot determine the number of small groups")
 
     matches = re.findall(rf"<td>{order},([0-9]+)</td>", page_html)
@@ -183,7 +183,7 @@ def maybe_get_generators_from_gap(
     except FileNotFoundError as error:
         if re.search("GAP 4 .* is not installed", str(error)):
             return None
-        raise error  # pragma: no cover
+        raise  # pragma: no cover
 
     # if provided a warning to raise before calling GAP, raise it now
     if warning is not None:
@@ -215,7 +215,7 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
     # load web page for the specified group
     group_url = get_group_url(order, index)
     if group_url is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
     group_page = urllib.request.urlopen(group_url)
     group_page_html = group_page.read().decode("utf-8")
@@ -237,8 +237,8 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
 def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GeneratorsList:
     """Parse newline-separated GAP permutations.
 
-    As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)].
-    This function returns a list of permutations; one for each line in the input string.
+    As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)]. This function returns a
+    list of permutations; one for each line in the input string.
     """
     parsed_permutations = []
     for line in permutations.strip().splitlines():
@@ -261,7 +261,7 @@ def get_group_url(order: int, index: int) -> str | None:
     # get the HTML for the page with all groups
     page_html = maybe_get_webpage(order)
     if page_html is None:
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
 
     # extract section with the specified group
@@ -289,7 +289,7 @@ def maybe_get_webpage(order: int) -> str | None:
         page = urllib.request.urlopen(url)
         return page.read().decode("utf-8")
     except (urllib.error.URLError, urllib.error.HTTPError):
-        # we cannot access the webapage
+        # we cannot access the webpage
         return None
 
 
@@ -301,10 +301,12 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
     """Get the primitive central idempotents of a group algebra over a finite field.
 
     Primitive central idempotents of a ring are nonzero elements that:
+
     - square to themselves (they are idempotent)
     - commute with all other elements of the ring (they lie in the ring's center), and
     - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
-    Two idempotents g, h are orthogonal if g * h = h * g 0.
+
+    Two idempotents g, h are orthogonal if ``g * h = h * g = 0``.
 
     Intuitively, primitive central idempotents act like projectors onto orthogonal components of a
     ring.
@@ -321,7 +323,7 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
 
     qldpc.external.gap.require_package("Wedderga")
 
-    gap_ouptut = qldpc.external.gap.get_output(
+    gap_output = qldpc.external.gap.get_output(
         'LoadPackage("wedderga", false);;',
         f"group := {group};;",
         f"ring := GroupRing(GF({field}), group);;",
@@ -342,7 +344,7 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
     re_coefficient_components = re.compile(r"\(Z\((\d+)(?:\^(\d+))?\)(?:\^(\d+))?\)")
 
     idempotents = []
-    for ring_member_match in re_ring_member.finditer(gap_ouptut):
+    for ring_member_match in re_ring_member.finditer(gap_output):
         idempotent = []
         for ring_term_match in re_ring_term.finditer(ring_member_match.group()):
             coefficient_string, cycles_string = ring_term_match.group().split("*")
@@ -371,13 +373,15 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
     "SmallGroup(1,1)": [[]],
     "Group(())": [[]],
     "SmallGroup(21,1)": [[(1, 2, 4), (3, 6, 5)], [(0, 1, 2, 3, 4, 5, 6)]],
+    # FiveQubitCode automorphism group (SWAP only)
     "AutomorphismGroup(CheckMatCode([[1,0,0,0,1,1,1,0,1,1],[0,1,0,0,1,0,0,1,1,0],[0,0,1,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,1,1,1]],GF(2)))": [
         [(3, 7), (4, 5), (8, 9)],
         [(1, 5), (2, 7), (3, 9), (6, 8)],
         [(2, 6), (3, 8), (4, 5), (7, 9)],
         [(0, 9, 2, 8), (1, 6), (3, 5, 4, 7)],
         [(0, 7, 3), (1, 9, 8), (2, 4, 5)],
-    ],  # FiveQubitCode automorphism group (SWAP only)
+    ],
+    # FiveQubitCode automorphism group (SWAP + Cliffords)
     "AutomorphismGroup(CheckMatCode([[1,0,0,0,1,1,1,0,1,1,0,1,0,1,0],[0,1,0,0,1,0,0,1,1,0,0,1,1,1,1],[0,0,1,0,1,1,1,0,0,0,1,1,1,0,1],[0,0,0,1,1,1,0,1,1,1,1,0,1,0,0]],GF(2)))": [
         [(0, 1), (5, 12), (6, 14), (7, 9)],
         [(2, 3), (6, 9), (7, 14), (8, 11)],
@@ -388,12 +392,14 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(2, 11), (3, 8), (6, 14), (7, 9)],
         [(3, 8), (4, 10), (5, 12), (7, 9)],
         [(3, 9), (4, 12), (5, 10), (7, 8)],
-    ],  # FiveQubitCode automorphism group (SWAP + Cliffords)
+    ],
+    # ToricCode(2) automorphism group (SWAP only)
     "AutomorphismGroup(CheckMatCode([[1,1,1,1]],GF(2)))": [
         [(0, 1)],
         [(1, 2)],
         [(2, 3)],
-    ],  # ToricCode(2) automorphism group (SWAP only)
+    ],
+    # ToricCode(2) automorphism group (SWAP + H/S/SQRT_X)
     "AutomorphismGroup(CheckMatCode([[1,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,1]],GF(2)))": [
         [(2, 3), (4, 7), (5, 6)],
         [(4, 7, 6, 5)],
@@ -403,7 +409,8 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(1, 3), (4, 6), (5, 7)],
         [(0, 6, 3, 7), (1, 5), (2, 4)],
         [(0, 7), (1, 4), (2, 5, 3, 6)],
-    ],  # ToricCode(2) automorphism group (SWAP + H/S/SQRT_X)
+    ],
+    # ToricCode(2) automorphism group (SWAP + Cliffords)
     "AutomorphismGroup(CheckMatCode([[1,1,1,1,0,0,0,0,1,1,1,1],[0,0,0,0,1,1,1,1,1,1,1,1]],GF(2)))": [
         [(4, 9), (5, 8, 6, 11), (7, 10)],
         [(4, 7, 6, 5), (9, 11, 10)],
@@ -419,7 +426,28 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(0, 4, 10, 1, 5, 9, 2, 7, 8), (3, 6, 11)],
         [(2, 3), (4, 7), (8, 11)],
         [(0, 10, 2, 11, 1, 9), (3, 8), (4, 7)],
-    ],  # ToricCode(2) automorphism group (SWAP + Cliffords)
+    ],
+    # [[8, 3, 2]] X check automorphism group
+    "AutomorphismGroup(CheckMatCode([[1,1,0,0,0,0,1,1],[0,0,1,1,0,0,1,1],[0,0,0,0,1,1,1,1]],GF(2)))": [
+        [(6, 7)],
+        [(4, 5), (6, 7)],
+        [(4, 7, 5, 6)],
+        [(2, 3), (6, 7)],
+        [(2, 6, 4), (3, 7, 5)],
+        [(0, 3, 5, 1, 2, 4)],
+        [(0, 7), (1, 6), (2, 3), (4, 5)],
+    ],
+    # [[8, 3, 2]] Z check automorphism group
+    "AutomorphismGroup(CheckMatCode([[1,0,1,0,1,0,1,0],[0,1,0,1,0,1,0,1]],GF(2)))": [
+        [(1, 7), (3, 5), (4, 6)],
+        [(1, 7, 5, 3)],
+        [(5, 7)],
+        [(3, 5, 7)],
+        [(1, 3, 5), (2, 4, 6)],
+        [(1, 5), (2, 6), (3, 7)],
+        [(0, 5, 6, 7), (1, 4), (2, 3)],
+        [(0, 7), (1, 2), (3, 6, 5, 4)],
+    ],
 }
 
 KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], IdempotentsList] = {

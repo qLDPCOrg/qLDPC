@@ -133,7 +133,7 @@ def get_max_qubit_distance(code: qldpc.codes.BBCode) -> float:
 def get_check_supports(code: qldpc.codes.BBCode) -> npt.NDArray[np.int_]:
     """Identify the support of the parity checks of the given code."""
     return np.vstack(
-        [np.where(stabilizer) for stabilizer in itertools.chain(code.matrix_x, code.matrix_z)]
+        [np.flatnonzero(stabilizer) for stabilizer in itertools.chain(code.matrix_x, code.matrix_z)]
     )
 
 
@@ -421,8 +421,7 @@ def get_max_comm_distance(
         for neighbor in code.graph.successors(node):
             loc_1 = get_qubit_pos(neighbor)
             squared_distance = (loc_0[0] - loc_1[0]) ** 2 + (loc_0[1] - loc_1[1]) ** 2
-            if squared_distance > max_squared_distance:
-                max_squared_distance = squared_distance
+            max_squared_distance = max(max_squared_distance, squared_distance)
 
     return math.sqrt(max_squared_distance)
 
@@ -486,7 +485,7 @@ def get_completed_qubit_pos_func(
 
     # assign check qubits to candidate locations
     biadjacency_matrix = placement_matrix <= (max_comm_distance + 1e-15) ** 2
-    check_loc_indices, check_qubit_indices = scipy.optimize.linear_sum_assignment(
+    _check_loc_indices, check_qubit_indices = scipy.optimize.linear_sum_assignment(
         biadjacency_matrix, maximize=True
     )
 

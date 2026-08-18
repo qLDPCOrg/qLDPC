@@ -20,6 +20,7 @@ __pycache__
 
 # sphinx documentation
 docs/build
+docs/source/autoapi
 
 # cython build artifacts
 build

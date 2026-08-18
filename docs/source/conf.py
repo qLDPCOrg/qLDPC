@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath("../../qldpc"))
+sys.path.insert(0, os.path.abspath("../../src"))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -40,7 +40,7 @@ nbsphinx_execute = "never"
 # generate stub.rst files automatically
 autosummary_generate = False
 
-# fix fox mathjax v3
+# fix for mathjax v3
 # https://www.sphinx-doc.org/en/master/usage/extensions/math.html#module-sphinx.ext.mathjax
 mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
 
@@ -48,19 +48,30 @@ templates_path = ["_templates"]
 exclude_patterns = ["modules.rst"]
 
 autoapi_dirs = [
-    "../../qldpc",
+    "../../src/qldpc",
 ]
 autoapi_type = "python"
 
+# Note: "imported-members" is intentionally omitted.  Including it re-documents
+# every object on each parent package's page (e.g. classes defined in
+# qldpc/codes/quantum.py would also appear on the qldpc.codes page), which both
+# roughly doubles the number of pages/warnings and produces ambiguous
+# cross-references.  Each object is instead documented once, on the page of the
+# module that defines it.
 autoapi_options = [
     "members",
     "undoc-members",
     "show-inheritance",
     "show-module-summary",
-    "imported-members",
 ]
 
-autoapi_ignore = ["*_test.py", "*/checks/*.py", "*conftest.py"]
+autoapi_ignore = ["*_test.py", "*conftest.py"]
+
+# Keep AutoAPI's generated .rst files on disk through the whole build.  With the default (False),
+# AutoAPI removes them before the HTML writer copies page sources (html_copy_source), which makes
+# the build fail intermittently with "autoapi/.../index.rst does not exist" under recent Sphinx.
+# (These files land in docs/source/autoapi, which is gitignored.)
+autoapi_keep_files = True
 
 autoapi_member_order = "groupwise"
 

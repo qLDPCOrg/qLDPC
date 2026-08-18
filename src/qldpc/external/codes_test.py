@@ -1,4 +1,4 @@
-"""Unit tests for codes.py
+"""Unit tests for codes.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -72,7 +72,7 @@ def test_get_quantum_code() -> None:
     dist_line = "<tr> <td>d</td> <td>5</td> </tr>"
     css_line = "<tr> <td>css</td> <td>False</td> </tr>"
     stab_line = "<tr> <td>H</td> <td><tt>XXXX<br>ZZZZ</tt></td> </tr>"
-    mock_page = get_mock_page("\n".join([dist_line, css_line, stab_line]))
+    mock_page = get_mock_page(f"{dist_line}\n{css_line}\n{stab_line}")
     with unittest.mock.patch("urllib.request.urlopen", return_value=mock_page):
         assert external.codes.get_quantum_code("") == (["XXXX", "ZZZZ"], 5, False)
 

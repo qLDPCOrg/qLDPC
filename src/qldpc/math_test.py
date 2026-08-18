@@ -1,4 +1,4 @@
-"""Unit tests for math.py
+"""Unit tests for math.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -37,6 +37,11 @@ def test_pauli_strings() -> None:
     sign = string.sign
     assert string == sign * qldpc.math.op_to_string(qldpc.math.string_to_op(string))
 
+    # string_to_op must not mutate its input, even when num_qubits exceeds len(string)
+    unpadded = stim.PauliString("XZ")
+    qldpc.math.string_to_op(unpadded, num_qubits=5)
+    assert len(unpadded) == 2
+
 
 def test_vectors() -> None:
     """Methods that act on vectors."""
@@ -48,10 +53,32 @@ def test_vectors() -> None:
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors_conj), [0, 0])
 
 
+def test_symplectic_conjugate_identity() -> None:
+    """The symplectic inner product satisfies ``<P, Q>_s = P @ symplectic_conjugate(Q)``.
+
+    Anchors the identity documented on ``symplectic_conjugate``, including the ``-1`` on the Z
+    sector that only matters in odd characteristic.
+    """
+    num_qubits = 6
+    # GF(3)/GF(5) exercise the -1 on the Z sector, which is invisible over GF(2) (where -1 == 1).
+    for field in [galois.GF(2), galois.GF(3), galois.GF(5)]:
+        vectors_p = field(np.random.randint(field.order, size=(4, 2 * num_qubits)))
+        vectors_q = field(np.random.randint(field.order, size=(7, 2 * num_qubits)))
+        p_x, p_z = vectors_p[:, :num_qubits], vectors_p[:, num_qubits:]
+        q_x, q_z = vectors_q[:, :num_qubits], vectors_q[:, num_qubits:]
+        expected = p_x @ q_z.T - p_z @ q_x.T
+        actual = vectors_p @ qldpc.math.symplectic_conjugate(vectors_q).T
+        assert np.array_equal(actual, expected)
+
+
 def test_nonzero_cols() -> None:
     """Edge cases in finding the pivot columns."""
-    empty_matrix = np.array([], ndmin=2, dtype=int)
-    assert qldpc.math.first_nonzero_cols(empty_matrix).size == 0
+    # a matrix with no columns: every row is all-zero, so its pivot is the column count (0)
+    assert np.array_equal(qldpc.math.first_nonzero_cols(np.zeros((3, 0), dtype=int)), [0, 0, 0])
+    assert np.array_equal(qldpc.math.first_nonzero_cols(np.array([], ndmin=2, dtype=int)), [0])
+
+    # a matrix with no rows has no pivots
+    assert qldpc.math.first_nonzero_cols(np.zeros((0, 4), dtype=int)).size == 0
 
     zero_matrix = np.zeros((1, 1), dtype=int)
     assert np.array_equal(qldpc.math.first_nonzero_cols(zero_matrix), [1])
@@ -60,18 +87,53 @@ def test_nonzero_cols() -> None:
     assert np.array_equal(qldpc.math.first_nonzero_cols(tensor), [0])
 
 
-def test_dual_basis(pytestconfig: pytest.Config) -> None:
+def test_dual_basis() -> None:
     """Construct dual bases."""
-    np.random.seed(pytestconfig.getoption("randomly_seed"))
-
     field = galois.GF(2)
-    basis = field.Random((4, 5)).row_reduce()
-    basis = basis[qldpc.math.first_nonzero_cols(basis) < basis.shape[1]]
+    basis = field([[1, 1, 0, 0, 1], [0, 1, 1, 0, 0], [1, 0, 0, 1, 1]])
     dual_basis = qldpc.math.get_dual_basis(basis)
     assert np.array_equal(dual_basis @ basis.T, field.Identity(len(basis)))
 
     with pytest.raises(ValueError, match="wide matrices of full rank"):
-        qldpc.math.get_dual_basis(field.Random((2, 1)))
+        qldpc.math.get_dual_basis(field([[1], [0]]))
+
+
+def test_orthonormal_basis() -> None:
+    """Orthonormal bases over finite fields (arXiv:2503.19790, Algorithm 1 and Lemma 2)."""
+    # subspaces that admit an orthonormal basis: check that L @ L.T is the identity
+    with_basis = [
+        galois.GF(2).Zeros((0, 4)),  # the empty subspace
+        galois.GF(2)([[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 0], [0, 0, 0, 0, 1, 1]]),  # Lemma 2
+        galois.GF(4)([[2, 0]]),  # characteristic 2, a rescaled unit vector
+        galois.GF(3)([[1, 0], [0, 1]]),  # odd characteristic, unit norms
+        galois.GF(7)([[1, 1]]),  # odd characteristic, a rescaled square norm
+        galois.GF(7)([[1, 2], [1, 3]]),  # odd characteristic, two non-square norms paired off
+    ]
+    # these inputs are full-rank bases crafted to exercise each branch of the orthonormalization
+    for vectors in with_basis:
+        field = type(vectors)
+        basis = qldpc.math.get_orthonormal_basis(vectors, promise_full_rank=True)
+        assert basis is not None and np.array_equal(basis @ basis.T, field.Identity(len(basis)))
+
+    # subspaces with no orthonormal basis: get_orthonormal_basis returns None
+    without_basis = [
+        # characteristic 2, an alternating form (every vector has even weight)
+        galois.GF(2)(
+            [[1, 1, 0, 0, 0, 0], [1, 0, 1, 0, 0, 0], [0, 1, 1, 1, 1, 0], [0, 0, 0, 1, 0, 1]]
+        ),
+        galois.GF(2)([[1, 1, 0, 0], [0, 0, 1, 1]]),  # a degenerate form
+        galois.GF(7)([[1, 2]]),  # odd characteristic, a non-square discriminant
+        galois.GF(7)([[1, 2, 3]]),  # odd characteristic, a degenerate (isotropic) form
+        galois.GF(7)([[1, 2, 3], [1, 2, 4]]),  # odd characteristic, isotropic then non-square
+    ]
+    for vectors in without_basis:
+        assert qldpc.math.get_orthonormal_basis(vectors, promise_full_rank=True) is None
+
+    # by default (promise_full_rank=False) the rows are first reduced to a basis of their row space
+    vectors = galois.GF(3)([[1, 0], [0, 1], [1, 1]])  # three dependent rows spanning all of GF(3)^2
+    basis = qldpc.math.get_orthonormal_basis(vectors)
+    assert basis is not None and basis.shape == (2, 2)
+    assert np.array_equal(basis @ basis.T, galois.GF(3).Identity(2))
 
 
 def test_block_matrix() -> None:
@@ -90,6 +152,10 @@ def test_block_matrix() -> None:
         qldpc.math.block_matrix([[np.eye(1)], [np.eye(2)]])
     with pytest.raises(ValueError, match="Inconsistent block data types"):
         qldpc.math.block_matrix([[np.eye(1, dtype=int), np.eye(1, dtype=float)]])
+    # a literal other than 0 or 1 is rejected (and does so under `python -O`, unlike an assert)
+    with pytest.raises(ValueError, match="Unrecognized block: 2"):
+        zero = np.zeros((2, 2), dtype=int)
+        qldpc.math.block_matrix([[np.eye(2, dtype=int), zero], [zero, 2]])
 
 
 def test_log() -> None:

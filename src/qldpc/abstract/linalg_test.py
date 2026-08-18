@@ -1,4 +1,4 @@
-"""Unit tests for linalg.py
+"""Unit tests for linalg.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -106,17 +106,75 @@ def test_matmul_and_kron_interplay(ring: abstract.GroupRing, rows: int = 2, cols
 def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols: int = 3) -> None:
     """Matrices in Howell normal form have a "dual" that acts like a pseudoinverse."""
     transformer = ring.get_transformer()
+
+    def check_pseudoinverse(matrix: abstract.RingArray) -> None:
+        # find a null-space matrix in Howell normal form
+        generator = matrix.null_space(right=right).howell_normal_form_semisimple(right=right)
+        assert not np.any(abstract.matmul(matrix, generator.T, right=right))
+
+        # find the "dual" of the null-space matrix, which acts like a pseudoinverse.  `right` must
+        # match the orientation used to build the Howell form.
+        dual = abstract.get_howell_dual(generator, right=right)
+        diag = abstract.matmul(generator, dual.T, right=right)
+        assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
+        assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
+        assert np.array_equal(abstract.matmul(diag.T, dual, right=right), dual)
+        assert np.array_equal(diag, transformer.transpose_array(diag))
+
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    matrix = abstract.RingArray.build(values, ring)
+    check_pseudoinverse(abstract.RingArray.build(values, ring))
 
-    # find a null-space matrix in Howell normal form
-    generator = matrix.null_space(right=right).howell_normal_form_semisimple(right=right)
-    assert not np.any(abstract.matmul(matrix, generator.T, right=right))
+    # Multi-term entries make the null-space pivots non-self-transpose idempotents, distinguishing
+    # pivot.T from pivot.  These GF(4)[C3] coefficients are specific to the commutative fixture.
+    if ring.is_commutative:
+        field = ring.field
+        rich = abstract.RingArray.build(
+            [
+                [abstract.RingMember.from_vector(field(coeffs), ring) for coeffs in row]
+                for row in ([[0, 2, 1], [2, 1, 0], [1, 0, 1]], [[0, 0, 1], [1, 1, 0], [1, 0, 0]])
+            ],
+            ring,
+        )
+        check_pseudoinverse(rich)
 
-    # find the "dual" of the null-space matrix, which acts like a pseudoinverse
-    dual = abstract.get_howell_dual(generator)
-    diag = abstract.matmul(generator, dual.T, right=right)
+
+def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.GroupRing) -> None:
+    """The dual depends on the orientation used to build the Howell form.
+
+    A₄ over GF(5) has a size-3 component, so this tests the dual for blocks bigger than a single
+    number.  Passing the same ``right`` used to build the Howell form gives a working dual.  The
+    Howell form records the orientation it was built with, so passing the wrong ``right`` is
+    rejected.  The fixed transformer seed makes the case below deterministic.
+    """
+    ring = ring_alternating4_gf5
+    transformer = ring.get_transformer(seed=0)
+    coeffs = np.random.default_rng(2).integers(0, ring.field.order, size=(2, 5, ring.group.order))
+    matrix = abstract.RingArray.build(
+        [
+            [abstract.RingMember.from_vector(ring.field(coeffs[i, j]), ring) for j in range(5)]
+            for i in range(2)
+        ],
+        ring,
+    )
+    generator = matrix.null_space(right=True).howell_normal_form_semisimple(
+        transformer=transformer, right=True
+    )
+
+    # with the matching orientation, the dual acts as a pseudoinverse: generator @ dual.T is a
+    # diagonal that leaves both the generator and the dual unchanged, and is its own transpose
+    dual = abstract.get_howell_dual(generator, transformer=transformer, right=True)
+    diag = abstract.matmul(generator, dual.T, right=True)
     assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
-    assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
-    assert np.array_equal(abstract.matmul(diag.T, dual, right=right), dual)
+    assert np.array_equal(abstract.matmul(diag, generator, right=True), generator)
+    assert np.array_equal(abstract.matmul(diag.T, dual, right=True), dual)
     assert np.array_equal(diag, transformer.transpose_array(diag))
+
+    # skip_validation=False re-checks the constructed dual; it passes for the correct orientation
+    rechecked = abstract.get_howell_dual(
+        generator, transformer=transformer, right=True, skip_validation=False
+    )
+    assert np.array_equal(rechecked, dual)
+
+    # the generator records right=True, so building the dual with right=False is rejected
+    with pytest.raises(ValueError, match="does not match the orientation"):
+        abstract.get_howell_dual(generator, transformer=transformer, right=False)

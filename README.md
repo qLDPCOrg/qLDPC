@@ -32,7 +32,7 @@ You can also `pip install -e 'qLDPC[dev]'` to additionally install some developm
 
 ### GAP
 
-Some features in `qLDPC` require an installation of the [GAP](https://www.gap-system.org) computer algebra system.  If you (a) use linux or macOS, and (b) use a `conda` to manage your python environment, then you can obtain GAP by running
+Some features in `qLDPC` require an installation of the [GAP](https://www.gap-system.org) computer algebra system.  If you (a) use Linux or macOS, and (b) use `conda` to manage your python environment, then you can obtain GAP by running
 ```
 conda install -c conda-forge gap
 ```
@@ -72,7 +72,7 @@ Notable features include:
 - `qldpc.decoders`: module for decoding code and circuit errors.
   - BP-OSD, BP-LSD, and belief-find (via [`ldpc`](https://github.com/quantumgizmos/ldpc)), Relay-BP (via [`relay-bp`](https://pypi.org/project/relay-bp)), minimum-weight perfect matching (via [`pymatching`](https://github.com/oscarhiggott/PyMatching)), lookup-table decoding, and others.  Includes an interface for using custom decoders.
   - `SinterDecoder`: class to construct circuit-level decoders that are usable by [`sinter`](https://pypi.org/project/sinter).
-  - `SlidingWindowDecoder`: the overlapping-recovery sliding-window decoder of [arXiv:quant-ph/0110143](https://arxiv.org/abs/quant-ph/0110143) and [arXiv:2209.08552](https://arxiv.org/pdf/2209.08552).
+  - `SlidingWindowDecoder`: the overlapping-recovery sliding-window decoder of [arXiv:quant-ph/0110143](https://arxiv.org/abs/quant-ph/0110143) and [arXiv:2209.08552](https://arxiv.org/abs/2209.08552).
   - `SequentialWindowDecoder`: a generalization of the `SlidingWindowDecoder` for arbitrary decoding and commit regions.
   - `DetectorErrorModelArrays`: representation of a `stim.DetectorErrorModel` with `scipy.sparse` and `numpy` arrays (`detector_flip_matrix`, `observable_flip_matrix`, `error_probs`).
 - `qldpc.circuits`: module for [`stim`](https://github.com/quantumlib/Stim) circuits and circuit utilities, including:
@@ -89,7 +89,7 @@ Notable features include:
 
 ## 🤔 Questions and issues
 
-This project aspires to one day have a proper [documentation page](https://qldpc.readthedocs.io/en/latest).  In the meantime, I recommend looking at source code and the detailed comments therein, as well as `help(qldpc.object_of_interest)`.  `qLDPC` requires every file (such as [`qldpc/codes/quantum.py`](https://github.com/qLDPCOrg/qLDPC/blob/main/qldpc/codes/quantum.py)) to be covered by its own test file (such as [`qldpc/codes/quantum_test.py`](https://github.com/qLDPCOrg/qLDPC/blob/main/qldpc/codes/quantum_test.py)), so test files are a good place to look for example usage of any function, class, etc.  Finally, the [`examples`](https://github.com/qLDPCOrg/qLDPC/tree/main/examples) directory has some helpful notebooks to get you started.
+This project aspires to one day have a proper [documentation page](https://qldpc.readthedocs.io/en/latest).  In the meantime, I recommend looking at source code and the detailed comments therein, as well as `help(qldpc.object_of_interest)`.  `qLDPC` requires every file (such as [`src/qldpc/codes/quantum.py`](https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/quantum.py)) to be covered by its own test file (such as [`src/qldpc/codes/quantum_test.py`](https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/quantum_test.py)), so test files are a good place to look for example usage of any function, class, etc.  Finally, the [`examples`](https://github.com/qLDPCOrg/qLDPC/tree/main/examples) directory has some helpful notebooks to get you started.
 
 If you have any questions, feedback, or requests, please [open an issue on GitHub](https://github.com/qLDPCOrg/qLDPC/issues/new) or email me at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com)!
 
