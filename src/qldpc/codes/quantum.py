@@ -436,7 +436,7 @@ class GALACode(CSSCode):
         )
         assert code.num_qubits == 132
         assert code.dimension == 30
-        assert code.get_weight() == 12
+        assert code.get_weight() == 12  # maximum stabilizer weight
 
     References:
     - https://arxiv.org/abs/2608.07431
