@@ -963,3 +963,46 @@ def test_exact_distances() -> None:
             assert dist == code.get_distance()
             assert dist_x == code.get_distance(Pauli.X)
             assert dist_z == code.get_distance(Pauli.Z)
+
+
+def test_reed_muller_css_codes() -> None:
+    """Self-orthogonal CSS(RM(r, m), RM(r, m)) codes."""
+    for (order, size), params in [
+        ((0, 2), (4, 2, 2)),
+        ((1, 4), (16, 6, 4)),
+        ((1, 5), (32, 20, 4)),
+        ((2, 6), (64, 20, 8)),
+        ((2, 7), (128, 70, 8)),
+        ((3, 8), (256, 70, 16)),
+        ((2, 10), (1024, 912, 8)),
+    ]:
+        code = codes.QuantumReedMullerCode(order, size)
+        assert code.get_code_params() == params
+        assert code.get_distance() == params[2]
+        assert code.get_distance(Pauli.X) == params[2]
+        assert code.get_distance(Pauli.Z) == params[2]
+        assert not code.is_subsystem_code
+        # self-orthogonality: H_x @ H_z.T == 0 on GF(2)
+        hx = code.code_x.matrix
+        hz = code.code_z.matrix
+        assert np.array_equal(hx @ hz.T, np.zeros((hx.shape[0], hz.shape[0]), dtype=int))
+
+
+def test_reed_muller_css_invalid_params() -> None:
+    """Invalid parameters for self-orthogonal CSS(RM(r, m), RM(r, m)) codes."""
+    for order, size in [(2, 5), (1, 3), (3, 7), (2, 4), (0, 1), (-1, 4), (5, 4)]:
+        with pytest.raises(ValueError):
+            codes.QuantumReedMullerCode(order, size)
+
+
+def test_reed_muller_css_brute_force_agreement() -> None:
+    """Closed-form distances agree with brute-force enumeration on small codes."""
+    for (order, size), dist in [((0, 2), 2), ((1, 4), 4)]:
+        code = codes.QuantumReedMullerCode(order, size)
+        with (
+            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
+            unittest.mock.patch(
+                "qldpc.codes.QuantumReedMullerCode._get_distance_exact", return_value=NotImplemented
+            ),
+        ):
+            assert code.get_distance() == dist
