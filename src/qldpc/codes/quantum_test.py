@@ -174,6 +174,46 @@ def test_gala_code_active_orthogonality() -> None:
     assert np.any(code.matrix_x @ code.matrix_z.T)
 
 
+def test_gala_product_group_integration() -> None:
+    """Construct GALA codes from direct- and wreath-product group elements."""
+    top = abstract.SymmetricGroup(3).with_natural_lift()
+    bottom = abstract.CyclicGroup(2)
+    top_f, top_g = top.generators
+    bottom_identity, bottom_shift = bottom.generate()
+
+    direct_product = abstract.Group.tensor_product(top, bottom)
+    direct_ring = abstract.GroupRing(direct_product)
+    direct_generator_f = abstract.RingMember(direct_ring, top_f @ bottom_shift)
+    direct_generator_g = abstract.RingMember(direct_ring, top_g @ bottom_identity)
+    direct_code = codes.GALACode(
+        [direct_generator_f] * 2, [direct_generator_g] * 2, num_active_rows=1
+    )
+
+    wreath_product = abstract.WreathProductGroup(top, bottom)
+    wreath_element_f = wreath_product.element(top_f, [bottom_shift, bottom_identity, bottom_shift])
+    wreath_element_g = wreath_product.element(
+        top_g, [bottom_identity, bottom_shift, bottom_identity]
+    )
+    wreath_ring = abstract.GroupRing(wreath_product)
+    wreath_generator_f = abstract.RingMember(wreath_ring, wreath_element_f)
+    wreath_generator_g = abstract.RingMember(wreath_ring, wreath_element_g)
+    wreath_code = codes.GALACode(
+        [wreath_generator_f] * 2, [wreath_generator_g] * 2, num_active_rows=1
+    )
+
+    assert direct_code.group is direct_product
+    assert direct_code.matrix_x.shape == direct_code.matrix_z.shape == (6, 24)
+    assert direct_code.num_qubits == 24
+    assert direct_code.get_weight() == 4
+    assert not np.any(direct_code.matrix_x @ direct_code.matrix_z.T)
+
+    assert wreath_code.group is wreath_product
+    assert wreath_code.matrix_x.shape == wreath_code.matrix_z.shape == (6, 24)
+    assert wreath_code.num_qubits == 24
+    assert wreath_code.get_weight() == 4
+    assert not np.any(wreath_code.matrix_x @ wreath_code.matrix_z.T)
+
+
 def test_gala_code_errors() -> None:
     """Reject invalid GALA generator data."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3))

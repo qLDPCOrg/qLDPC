@@ -247,7 +247,11 @@ class Group:
         return new_group
 
     def with_natural_lift(self) -> Group:
-        """Copy this group with its natural permutation representation as the lift."""
+        """Copy this group with its natural permutation representation as the lift.
+
+        The natural lift has the dimension of the set acted on by the group, rather than the order
+        of the group as in the regular representation.
+        """
         group = Group()
         group._init_from_group(self, name=self.name, lift=GroupMember.to_matrix)
         return group
@@ -320,7 +324,12 @@ class Group:
 
     @staticmethod
     def tensor_product(*groups: Group, repeat: int = 1) -> Group:
-        """Direct product of Groups with lifts combined by Kronecker products."""
+        """Direct product of Groups with lifts combined by Kronecker products.
+
+        The underlying group is the same as ``Group.product``, while the selected lift of a product
+        element is the Kronecker product of its factor lifts.  The ``repeat`` argument repeats the
+        entire sequence of factors.
+        """
         groups = groups * repeat
         product = Group.product(*groups)
         degrees = [group.to_sympy().degree for group in groups]
@@ -652,7 +661,8 @@ class WreathProductGroup(Group):
 
     If the top group acts on ``k`` points and the bottom group acts on ``m`` points, an element
     ``(h; c_0, ..., c_{k-1})`` acts on ``k * m`` points by
-    ``(i, j) -> (h(i), c_i(j))``.
+    ``(i, j) -> (h(i), c_i(j))``.  The selected lift is the natural permutation representation on
+    these ``k * m`` points.
     """
 
     top: Group
