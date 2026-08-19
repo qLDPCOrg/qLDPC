@@ -445,6 +445,157 @@ class TBCode(CSSCode):
         )
 
 
+class GALACode(CSSCode):
+    """Group-Action Lift with Active orthogonality (GALA) code.
+
+    A GALA code is a two-block CSS code built from two sequences of elements in a binary group
+    algebra.  Given generator sequences (F_0, ..., F_{L/2-1}) and (G_0, ..., G_{L/2-1}), construct
+    block-circulant matrices F and G with entries
+        F[i, j] = F_{j-i},
+        G[i, j] = G_{j-i},
+    where generator indices are taken modulo L/2.  These matrices define parent check matrices
+        parent_matrix_x = [F, G],
+        parent_matrix_z = [G.T, F.T].
+    The first J block rows of each parent matrix are the active rows that define the parity checks
+    of the code.  The remaining rows are latent rows and do not define stabilizers.
+
+    Each generator is a RingMember and may therefore be either a monomial, representing one group
+    element, or a polynomial sum of group elements.  GALA codes are currently supported only over
+    GF(2).
+
+    The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by
+
+        from qldpc import abstract, codes
+
+        ring = abstract.GroupRing(abstract.CyclicGroup(11))
+        x = ring.generators[0]
+        code = codes.GALACode(
+            generators_f=[x**2, x**4, x**3, x**6, x**3, x**9],
+            generators_g=[x**9, x**2, x**8, x**5, x**8, x**7],
+            num_active_rows=5,
+        )
+        assert code.num_qubits == 132
+        assert code.dimension == 30
+        assert code.get_weight() == 12  # maximum stabilizer weight
+
+    References:
+    - https://arxiv.org/abs/2608.07431
+    """
+
+    generators_f: tuple[abstract.RingMember, ...]
+    generators_g: tuple[abstract.RingMember, ...]
+
+    matrix_f: abstract.RingArray
+    matrix_g: abstract.RingArray
+    parent_matrix_x: abstract.RingArray
+    parent_matrix_z: abstract.RingArray
+
+    ring: abstract.GroupRing
+    group: abstract.Group
+
+    num_blocks: int
+    num_active_rows: int
+
+    def __init__(
+        self,
+        generators_f: Sequence[abstract.RingMember],
+        generators_g: Sequence[abstract.RingMember],
+        num_active_rows: int,
+        *,
+        skip_validation: bool = False,
+    ) -> None:
+        """Construct a GALA code from two sequences of group-ring generators.
+
+        Args:
+            generators_f: The sequence (F_0, ..., F_{L/2-1}) of group-ring elements.
+            generators_g: The sequence (G_0, ..., G_{L/2-1}) of group-ring elements.
+            num_active_rows: The number J of active block rows, with 1 <= J <= L/2.
+
+        Keyword args:
+            skip_validation: If True, skip the check that the active X-type and Z-type parity
+                checks commute.  Structural input validation is performed regardless.  Default:
+                False.
+        """
+        generators_f, generators_g, ring = self._validate_generators(
+            generators_f, generators_g, num_active_rows
+        )
+        self.generators_f = generators_f
+        self.generators_g = generators_g
+        self.ring = ring
+        self.group = self.ring.group
+        self.num_blocks = 2 * len(self.generators_f)
+        self.num_active_rows = num_active_rows
+
+        self.matrix_f = self._get_block_circulant(self.generators_f)
+        self.matrix_g = self._get_block_circulant(self.generators_g)
+        self.parent_matrix_x = abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
+        self.parent_matrix_z = abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
+
+        active_matrix_x = abstract.RingArray(self.parent_matrix_x[: self.num_active_rows])
+        active_matrix_z = abstract.RingArray(self.parent_matrix_z[: self.num_active_rows])
+        matrix_x = active_matrix_x.lift()
+        matrix_z = active_matrix_z.lift()
+        if not skip_validation and np.any(matrix_x @ matrix_z.T):
+            raise ValueError("The active parity checks of this GALACode do not commute")
+        super().__init__(matrix_x, matrix_z, is_subsystem_code=False)
+
+    def __str__(self) -> str:
+        """Human-readable representation of this code."""
+        text = f"{self.name} on {self.num_qubits} qubits"
+        text += f" with {self.num_blocks} blocks, {self.num_active_rows} active rows,"
+        text += f" and lift group {self.group}"
+        return text
+
+    @staticmethod
+    def _validate_generators(
+        generators_f: Sequence[abstract.RingMember],
+        generators_g: Sequence[abstract.RingMember],
+        num_active_rows: int,
+    ) -> tuple[
+        tuple[abstract.RingMember, ...],
+        tuple[abstract.RingMember, ...],
+        abstract.GroupRing,
+    ]:
+        """Validate and normalize GALA generator data."""
+        generators_f = tuple(generators_f)
+        generators_g = tuple(generators_g)
+        if not generators_f or not generators_g:
+            raise ValueError("GALA generator sequences must be nonempty")
+        if len(generators_f) != len(generators_g):
+            raise ValueError("GALA generator sequences must have equal lengths")
+
+        generators = generators_f + generators_g
+        if not all(isinstance(generator, abstract.RingMember) for generator in generators):
+            raise ValueError("GALA generators must be RingMember objects")
+        ring = generators[0].ring
+        if any(generator.ring != ring for generator in generators[1:]):
+            raise ValueError("All GALA generators must belong to the same group ring")
+        if ring.field.order != 2:
+            raise ValueError("GALA codes are currently supported only over GF(2)")
+
+        if not isinstance(num_active_rows, (int, np.int_)):
+            raise TypeError("The number of active rows must be an integer")
+        if not 1 <= num_active_rows <= len(generators_f):
+            raise ValueError(
+                "The number of active rows must lie between 1 and"
+                f" {len(generators_f)} (provided: {num_active_rows})"
+            )
+
+        generators_f = tuple(generator.copy() for generator in generators_f)
+        generators_g = tuple(generator.copy() for generator in generators_g)
+        return generators_f, generators_g, ring
+
+    @staticmethod
+    def _get_block_circulant(
+        generators: Sequence[abstract.RingMember],
+    ) -> abstract.RingArray:
+        """Construct the block-circulant matrix induced by a sequence of generators."""
+        size = len(generators)
+        return abstract.RingArray(
+            [[generators[(col - row) % size] for col in range(size)] for row in range(size)]
+        )
+
+
 class QCCode(TBCode):
     """Quasi-cyclic code.
 

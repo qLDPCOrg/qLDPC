@@ -122,6 +122,127 @@ def test_two_block_code_error() -> None:
         codes.TBCode(matrix_a, matrix_b, field=3)
 
 
+def test_gala_code_construction() -> None:
+    """Construct the block-circulant parent and active matrices of a GALA code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+    xx = ring.generators[0]
+
+    code = codes.GALACode(
+        generators_f=[one, xx],
+        generators_g=[xx**2, one],
+        num_active_rows=1,
+    )
+
+    expected_f = abstract.RingArray([[one, xx], [xx, one]])
+    expected_g = abstract.RingArray([[xx**2, one], [one, xx**2]])
+    expected_parent_x = abstract.RingArray([[one, xx, xx**2, one], [xx, one, one, xx**2]])
+    expected_parent_z = abstract.RingArray([[xx, one, one, xx**2], [one, xx, xx**2, one]])
+
+    assert np.array_equal(code.matrix_f, expected_f)
+    assert np.array_equal(code.matrix_g, expected_g)
+    assert np.array_equal(code.parent_matrix_x, expected_parent_x)
+    assert np.array_equal(code.parent_matrix_z, expected_parent_z)
+    assert code.matrix_x.shape == (3, 12)
+    assert code.matrix_z.shape == (3, 12)
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+    assert not code.is_subsystem_code
+    assert code.num_blocks == 4
+    assert code.num_active_rows == 1
+    assert code.generators_f[0] is not one
+
+
+def test_gala_code_active_orthogonality() -> None:
+    """Validate aggregate rather than pairwise active orthogonality."""
+    ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    aa, bb = ring.generators
+    assert aa * bb != bb * aa
+
+    code = codes.GALACode(
+        generators_f=[aa, aa],
+        generators_g=[bb, bb],
+        num_active_rows=1,
+    )
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    generators_f = [aa, ring.one]
+    generators_g = [bb, ring.one]
+    with pytest.raises(ValueError, match="active parity checks.*do not commute"):
+        codes.GALACode(generators_f, generators_g, num_active_rows=1)
+
+    code = codes.GALACode(generators_f, generators_g, num_active_rows=1, skip_validation=True)
+    assert np.any(code.matrix_x @ code.matrix_z.T)
+
+
+def test_gala_code_errors() -> None:
+    """Reject invalid GALA generator data."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+
+    with pytest.raises(ValueError, match="nonempty"):
+        codes.GALACode([], [], num_active_rows=1)
+    with pytest.raises(ValueError, match="equal lengths"):
+        codes.GALACode([one], [one, one], num_active_rows=1)
+    with pytest.raises(ValueError, match="RingMember"):
+        codes.GALACode([one], [1], num_active_rows=1)  # type: ignore[list-item]
+
+    other_ring = abstract.GroupRing(abstract.CyclicGroup(2))
+    with pytest.raises(ValueError, match="same group ring"):
+        codes.GALACode([one], [other_ring.one], num_active_rows=1)
+
+    qutrit_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    with pytest.raises(ValueError, match=r"only over GF\(2\)"):
+        codes.GALACode([qutrit_ring.one], [qutrit_ring.one], num_active_rows=1)
+
+    with pytest.raises(TypeError, match="must be an integer"):
+        codes.GALACode([one], [one], num_active_rows=1.5)  # type: ignore[arg-type]
+    for num_active_rows in [0, 2]:
+        with pytest.raises(ValueError, match="must lie between"):
+            codes.GALACode([one], [one], num_active_rows)
+
+
+def test_gala_code_from_paper() -> None:
+    """Reproduce the construction-level parameters of the [[132, 30, 12]] GALA code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(11))
+    xx = ring.generators[0]
+    code = codes.GALACode(
+        generators_f=[xx**power for power in [2, 4, 3, 6, 3, 9]],
+        generators_g=[xx**power for power in [9, 2, 8, 5, 8, 7]],
+        num_active_rows=5,
+    )
+
+    assert code.matrix_x.shape == (55, 132)
+    assert code.matrix_z.shape == (55, 132)
+    assert code.num_qubits == 132
+    assert code.dimension == 30
+    assert code.get_weight() == 12
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    code_string = str(code)
+    assert "132 qubits" in code_string
+    assert "12 blocks" in code_string
+    assert "5 active rows" in code_string
+    assert code.group.name in code_string
+
+
+def test_polynomial_gala_code() -> None:
+    """Construct a GALA code with a polynomial group-ring generator."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+    xx = ring.generators[0]
+    polynomial = one + xx
+    code = codes.GALACode(
+        generators_f=[polynomial, xx**2],
+        generators_g=[one, xx],
+        num_active_rows=1,
+    )
+
+    block_size = code.group.lift_dim
+    assert np.count_nonzero(code.generators_f[0].to_vector()) == 2
+    assert np.array_equal(code.matrix_x[:block_size, :block_size], polynomial.lift())
+    assert code.get_weight() == 5
+
+
 def test_bivariate_bicycle_codes() -> None:
     """Bivariate bicycle codes from arXiv:2308.07915 and arXiv:2311.16980."""
     from sympy.abc import x, y, z
