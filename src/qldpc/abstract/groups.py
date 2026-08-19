@@ -318,6 +318,26 @@ class Group:
         """Direct product of Groups."""
         return functools.reduce(operator.mul, groups * repeat)
 
+    @staticmethod
+    def tensor_product(*groups: Group, repeat: int = 1) -> Group:
+        """Direct product of Groups with lifts combined by Kronecker products."""
+        groups = groups * repeat
+        product = Group.product(*groups)
+        degrees = [group.to_sympy().degree for group in groups]
+
+        def lift(member: GroupMember) -> npt.NDArray[np.int_]:
+            matrices = []
+            offset = 0
+            for group, degree in zip(groups, degrees):
+                array_form = [
+                    value - offset for value in member.array_form[offset : offset + degree]
+                ]
+                matrices.append(group.lift(GroupMember(array_form)))
+                offset += degree
+            return functools.reduce(np.kron, matrices)
+
+        return Group.from_sympy(product.to_sympy(), lift=lift)
+
     def random(self, *, seed: int | None = None) -> GroupMember:
         """A random element this group."""
         with contextlib.ExitStack() as stack:

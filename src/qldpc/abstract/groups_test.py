@@ -222,6 +222,29 @@ def test_group_product() -> None:
     assert np.array_equal(table, abstract.Group.from_table(table).table)
 
 
+def test_group_tensor_product() -> None:
+    """Direct product of groups that preserves the selected factor lifts."""
+    top = abstract.SymmetricGroup(3).with_natural_lift()
+    bottom = abstract.CyclicGroup(5)
+    group = abstract.Group.tensor_product(top, bottom)
+
+    assert group.equiv(abstract.Group.product(top, bottom))
+    assert group.order == 30
+    assert group.lift_dim == 15
+    assert all(
+        np.array_equal(
+            group.lift(top_member @ bottom_member),
+            np.kron(top.lift(top_member), bottom.lift(bottom_member)),
+        )
+        for top_member, bottom_member in itertools.product(top.generate(), bottom.generate())
+    )
+    assert_valid_lifts(group)
+
+    cycle = abstract.CyclicGroup(2)
+    repeated_group = abstract.Group.tensor_product(cycle, repeat=2)
+    assert repeated_group.lift_dim == 4
+
+
 def test_random_symmetric_subset() -> None:
     """Group.random_symmetric_subset generates properly symmetric subsets of the requested size."""
     group = abstract.CyclicGroup(2) * abstract.CyclicGroup(3)
