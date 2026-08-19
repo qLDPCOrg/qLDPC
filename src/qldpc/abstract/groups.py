@@ -246,6 +246,12 @@ class Group:
         new_group._group = group
         return new_group
 
+    def with_natural_lift(self) -> Group:
+        """Copy this group with its natural permutation representation as the lift."""
+        group = Group()
+        group._init_from_group(self, name=self.name, lift=GroupMember.to_matrix)
+        return group
+
     def __contains__(self, member: GroupMember) -> bool:
         return member in self._group
 

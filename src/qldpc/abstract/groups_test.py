@@ -108,6 +108,24 @@ def test_group_equality_and_equivalence() -> None:
     assert not group.equiv("not a group")
 
 
+def test_natural_lift() -> None:
+    """Select the natural permutation representation of a group."""
+    group = abstract.SymmetricGroup(3)
+    natural_group = group.with_natural_lift()
+
+    assert group.lift_dim == group.order == 6
+    assert natural_group.lift_dim == 3
+    assert natural_group != group
+    assert natural_group.equiv(group)
+    assert natural_group.name == group.name
+    assert list(natural_group.generate()) == list(group.generate())
+    assert all(
+        np.array_equal(natural_group.lift(member), member.to_matrix())
+        for member in natural_group.generate()
+    )
+    assert_valid_lifts(natural_group)
+
+
 def test_lifts() -> None:
     """Lift named group elements."""
     assert_valid_lifts(abstract.TrivialGroup())
