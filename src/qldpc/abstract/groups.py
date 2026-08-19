@@ -647,6 +647,76 @@ class Group:
         return output
 
 
+class WreathProductGroup(Group):
+    """Permutational wreath product of a top group and copies of a bottom group.
+
+    If the top group acts on ``k`` points and the bottom group acts on ``m`` points, an element
+    ``(h; c_0, ..., c_{k-1})`` acts on ``k * m`` points by
+    ``(i, j) -> (h(i), c_i(j))``.
+    """
+
+    top: Group
+    bottom: Group
+    top_degree: int
+    bottom_degree: int
+
+    def __init__(self, top: Group, bottom: Group) -> None:
+        self.top = top
+        self.bottom = bottom
+        self.top_degree = top.to_sympy().degree
+        self.bottom_degree = bottom.to_sympy().degree
+        if not self.top_degree or not self.bottom_degree:
+            raise ValueError("Wreath-product groups must act on nonempty sets")
+
+        top_identity = self.top.identity
+        bottom_identity = self.bottom.identity
+        generators = [
+            self.element(generator, [bottom_identity] * self.top_degree)
+            for generator in self.top.generators
+        ]
+        generators += [
+            self.element(
+                top_identity,
+                [
+                    generator if index == block else bottom_identity
+                    for index in range(self.top_degree)
+                ],
+            )
+            for block in range(self.top_degree)
+            for generator in self.bottom.generators
+        ]
+        super().__init__(*generators, lift=GroupMember.to_matrix)
+
+    def element(
+        self,
+        top_member: GroupMember,
+        bottom_members: Sequence[GroupMember],
+    ) -> GroupMember:
+        """Construct a wreath-product element from its top and bottom components.
+
+        Args:
+            top_member: An element of the top group.
+            bottom_members: One bottom-group element for each point acted on by the top group.
+        """
+        bottom_members = tuple(bottom_members)
+        if top_member not in self.top:
+            raise ValueError("The top member must belong to the top group")
+        if len(bottom_members) != self.top_degree:
+            raise ValueError(
+                f"Expected {self.top_degree} bottom members (provided: {len(bottom_members)})"
+            )
+        if any(member not in self.bottom for member in bottom_members):
+            raise ValueError("All bottom members must belong to the bottom group")
+
+        return GroupMember(
+            [
+                top_member.apply(row) * self.bottom_degree + bottom_members[row].apply(col)
+                for row in range(self.top_degree)
+                for col in range(self.bottom_degree)
+            ]
+        )
+
+
 ################################################################################
 # "simple" named groups
 
