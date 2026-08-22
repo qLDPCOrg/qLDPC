@@ -47,6 +47,7 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
     group = abstract.Group(*gens)
     assert all(perm in group for perm in gens)
     assert len(group.generators) == 2
+    assert group.order == group.degree == 3
     assert group.random() in group
     assert group.random(seed=0) == group.random(seed=0)
     assert group.to_sympy() == group._group
@@ -203,6 +204,39 @@ def assert_valid_lifts(group: abstract.Group) -> None:
             )
             for aa, bb in itertools.product(group_members, repeat=2)
         )
+
+
+def test_lift_truncated_member() -> None:
+    """Custom lifts accept members whose array_form omits trailing fixed points.
+
+    SymPy truncates trailing fixed points, so a directly-constructed member (e.g. from cycle
+    notation) can have a shorter array_form than the group's degree.  Group.lift pads such members
+    up to the group degree before dispatching to a custom lift.
+    """
+    # a from_table group with an integer_lift exercises the identity-keyed custom lift, alongside
+    # the to_matrix-based natural and wreath lifts and the Kronecker-product tensor lift
+    table = [[0, 1, 2], [1, 2, 0], [2, 0, 1]]
+    table_group = abstract.Group.from_table(
+        table, integer_lift=lambda index: np.roll(np.eye(3, dtype=int), index, axis=0)
+    )
+    groups = [
+        abstract.SymmetricGroup(3).with_natural_lift(),
+        abstract.Group.tensor_product(
+            abstract.SymmetricGroup(3).with_natural_lift(), abstract.CyclicGroup(5)
+        ),
+        abstract.WreathProductGroup(abstract.SymmetricGroup(3), abstract.CyclicGroup(2)),
+        table_group,
+    ]
+    for group in groups:
+        degree = group.degree
+        truncated_members = 0
+        for member in group.generate():
+            # rebuild from cyclic form, which drops trailing fixed points as SymPy does
+            truncated = abstract.GroupMember(member.cyclic_form)
+            truncated_members += truncated.size < degree
+            assert np.array_equal(group.lift(truncated), group.lift(member))
+        # the group actually has members whose array_form is shorter than its degree
+        assert truncated_members
 
 
 def test_group_product() -> None:
