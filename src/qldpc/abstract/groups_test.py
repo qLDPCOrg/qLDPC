@@ -108,6 +108,24 @@ def test_group_equality_and_equivalence() -> None:
     assert not group.equiv("not a group")
 
 
+def test_natural_lift() -> None:
+    """Select the natural permutation representation of a group."""
+    group = abstract.SymmetricGroup(3)
+    natural_group = group.with_natural_lift()
+
+    assert group.lift_dim == group.order == 6
+    assert natural_group.lift_dim == 3
+    assert natural_group != group
+    assert natural_group.equiv(group)
+    assert natural_group.name == group.name
+    assert list(natural_group.generate()) == list(group.generate())
+    assert all(
+        np.array_equal(natural_group.lift(member), member.to_matrix())
+        for member in natural_group.generate()
+    )
+    assert_valid_lifts(natural_group)
+
+
 def test_lifts() -> None:
     """Lift named group elements."""
     assert_valid_lifts(abstract.TrivialGroup())
@@ -202,6 +220,81 @@ def test_group_product() -> None:
     assert group.generators == [shift @ identity, identity @ shift]
     assert np.array_equal(table, group.table)
     assert np.array_equal(table, abstract.Group.from_table(table).table)
+
+
+def test_group_tensor_product() -> None:
+    """Direct product of groups that preserves the selected factor lifts."""
+    top = abstract.SymmetricGroup(3).with_natural_lift()
+    bottom = abstract.CyclicGroup(5)
+    group = abstract.Group.tensor_product(top, bottom)
+
+    assert group.equiv(abstract.Group.product(top, bottom))
+    assert group.order == 30
+    assert group.lift_dim == 15
+    assert all(
+        np.array_equal(
+            group.lift(top_member @ bottom_member),
+            np.kron(top.lift(top_member), bottom.lift(bottom_member)),
+        )
+        for top_member, bottom_member in itertools.product(top.generate(), bottom.generate())
+    )
+    assert_valid_lifts(group)
+
+    cycle = abstract.CyclicGroup(2)
+    repeated_group = abstract.Group.tensor_product(cycle, repeat=2)
+    assert repeated_group.lift_dim == 4
+
+
+def test_wreath_product_group() -> None:
+    """Permutational wreath product of top and bottom groups."""
+    top = abstract.SymmetricGroup(3).with_natural_lift()
+    bottom = abstract.CyclicGroup(2)
+    group = abstract.WreathProductGroup(top, bottom)
+
+    assert group.top is top and group.bottom is bottom
+    assert group.top_degree == 3 and group.bottom_degree == 2
+    assert group.order == top.order * bottom.order**group.top_degree == 48
+    assert group.lift_dim == group.top_degree * group.bottom_degree == 6
+
+    top_member = top.generators[0]
+    bottom_identity, bottom_shift = bottom.generate()
+    bottom_members = [bottom_shift, bottom_identity, bottom_shift]
+    member = group.element(top_member, bottom_members)
+    assert member in group
+    assert all(
+        member.apply(row * group.bottom_degree + col)
+        == top_member.apply(row) * group.bottom_degree + bottom_members[row].apply(col)
+        for row in range(group.top_degree)
+        for col in range(group.bottom_degree)
+    )
+    assert np.array_equal(group.lift(member), member.to_matrix())
+    assert_valid_lifts(group)
+
+    direct_product = abstract.Group.tensor_product(top, bottom)
+    direct_member = top_member @ bottom_shift
+    wreath_member = group.element(top_member, [bottom_shift] * group.top_degree)
+    assert np.array_equal(group.lift(wreath_member), direct_product.lift(direct_member))
+
+
+def test_wreath_product_group_errors() -> None:
+    """Reject invalid wreath-product factors and elements."""
+    top = abstract.SymmetricGroup(3)
+    bottom = abstract.CyclicGroup(2)
+    group = abstract.WreathProductGroup(top, bottom)
+
+    with pytest.raises(ValueError, match="top member"):
+        group.element(abstract.CyclicGroup(4).generators[0], [bottom.identity] * 3)
+    with pytest.raises(ValueError, match="Expected 3 bottom members"):
+        group.element(top.identity, [bottom.identity] * 2)
+    with pytest.raises(ValueError, match="bottom group"):
+        group.element(top.identity, [bottom.identity] * 2 + abstract.CyclicGroup(3).generators)
+
+    for factor_a, factor_b in [
+        (abstract.TrivialGroup(), bottom),
+        (bottom, abstract.TrivialGroup()),
+    ]:
+        with pytest.raises(ValueError, match="nonempty"):
+            abstract.WreathProductGroup(factor_a, factor_b)
 
 
 def test_random_symmetric_subset() -> None:
