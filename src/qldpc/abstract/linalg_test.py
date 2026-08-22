@@ -150,15 +150,18 @@ def test_howell_dual_with_non_self_transpose_pivots(right: bool) -> None:
     assert_howell_pseudoinverse(rich, ring.get_transformer(seed=0), right)
 
 
-def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.GroupRing) -> None:
-    """The dual depends on the orientation used to build the Howell form.
+def build_alternating4_gf5_howell_generator(
+    ring: abstract.GroupRing,
+) -> tuple[abstract.WedderburnArtinTransformer, abstract.RingArray]:
+    """Build a right-oriented null-space Howell generator over A₄[GF(5)], and its transformer.
 
-    A₄ over GF(5) has a size-3 component, so this tests the dual for blocks bigger than a single
-    number.  Passing the same ``right`` used to build the Howell form gives a working dual.  The
-    Howell form records the orientation it was built with, so passing the wrong ``right`` is
-    rejected.  The fixed transformer seed makes the case below deterministic.
+    A₄ over GF(5) has a size-3 component, so the generator's pivots are blocks bigger than a single
+    number.  The transformer seed and coefficient RNG are fixed on purpose: they pin a matrix for
+    which the *wrong*-orientation dual has no symmetric idempotent projector -- the case
+    test_get_howell_dual_edge_cases exercises -- which only a minority of random matrices produce,
+    so a random seed would make that test flake.  The explicit seeds also make it independent of
+    the pytest-randomly run seed.
     """
-    ring = ring_alternating4_gf5
     transformer = ring.get_transformer(seed=0)
     coeffs = np.random.default_rng(2).integers(0, ring.field.order, size=(2, 5, ring.group.order))
     matrix = abstract.RingArray.build(
@@ -171,6 +174,18 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
     generator = matrix.null_space(right=True).howell_normal_form_semisimple(
         transformer=transformer, right=True
     )
+    return transformer, generator
+
+
+def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.GroupRing) -> None:
+    """The dual depends on the orientation used to build the Howell form.
+
+    A₄ over GF(5) has a size-3 component, so this tests the dual for blocks bigger than a single
+    number.  Passing the same ``right`` used to build the Howell form gives a working dual.  The
+    Howell form records the orientation it was built with, so passing the wrong ``right`` is
+    rejected.
+    """
+    transformer, generator = build_alternating4_gf5_howell_generator(ring_alternating4_gf5)
 
     # with the matching orientation, the dual acts as a pseudoinverse: generator @ dual.T is a
     # diagonal that leaves both the generator and the dual unchanged, and is its own transpose
@@ -209,25 +224,8 @@ def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -
 
     # skip_validation bypasses the orientation check, so a mismatched `right` reaches the projector,
     # where a row's projected blocks span a space with no symmetric idempotent projector
-    matrix_ring = ring_alternating4_gf5
-    matrix_transformer = matrix_ring.get_transformer(seed=0)
-    coeffs = np.random.default_rng(2).integers(
-        0, matrix_ring.field.order, size=(2, 5, matrix_ring.group.order)
-    )
-    matrix = abstract.RingArray.build(
-        [
-            [
-                abstract.RingMember.from_vector(matrix_ring.field(coeffs[i, j]), matrix_ring)
-                for j in range(5)
-            ]
-            for i in range(2)
-        ],
-        matrix_ring,
-    )
-    generator = matrix.null_space(right=True).howell_normal_form_semisimple(
-        transformer=matrix_transformer, right=True
-    )
+    transformer, generator = build_alternating4_gf5_howell_generator(ring_alternating4_gf5)
     with pytest.raises(ValueError, match="Cannot build a Howell dual"):
         abstract.get_howell_dual(
-            generator, transformer=matrix_transformer, right=False, skip_validation=True
+            generator, transformer=transformer, right=False, skip_validation=True
         )

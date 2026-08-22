@@ -674,11 +674,10 @@ class WedderburnArtinComponentTransformer:
             new_idempotent = idempotent_poly.coeffs[::-1] @ powers[: len(idempotent_poly)]  # <- e_j
             new_idempotents.append(new_idempotent)
 
-        # The orthogonal idempotents G_j built above sum exactly to e_start (their factors are
-        # pairwise coprime and partition m(x)), so this remainder is always zero; the guard is
-        # defensive and its body is unreachable.
-        if np.any(remainder := functools.reduce(operator.add, new_idempotents) - idempotent_vec):
-            new_idempotents.append(remainder)  # pragma: no cover
+        # The orthogonal idempotents G_j sum to e_start exactly: each G_j is reduced (degree
+        # < deg m) and they sum to 1 modulo m(x), hence to the polynomial 1, which evaluates to
+        # e_start.  Assert the invariant rather than carry an unreachable defensive branch.
+        assert not np.any(functools.reduce(operator.add, new_idempotents) - idempotent_vec)
 
         # A size-n component splits in one step into n orthogonal idempotents exactly when the
         # random element's minimal polynomial has n factors.  A size-2 component always does (its

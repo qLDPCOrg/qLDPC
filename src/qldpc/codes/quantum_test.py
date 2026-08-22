@@ -629,15 +629,13 @@ def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) ->
 
 
 def test_lifted_product_line_logicals(
-    ring: abstract.GroupRing, rows: int = 2, cols: int = 3
+    pytestconfig: pytest.Config, ring: abstract.GroupRing, rows: int = 2, cols: int = 3
 ) -> None:
     """Canonical line operators of lifted product codes."""
     code: codes.CSSCode
 
-    # a fixed seed keeps the test matrix deterministic: whether canonical logicals can be built is a
-    # property of the matrix, so a per-run random matrix would make any failure a nonreproducible
-    # lottery rather than a stable signal
-    sympy.core.random.seed(0)
+    seed = pytestconfig.getoption("randomly_seed")
+    sympy.core.random.seed(seed)
 
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
