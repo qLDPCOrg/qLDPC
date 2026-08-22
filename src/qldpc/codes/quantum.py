@@ -235,6 +235,58 @@ class SteaneCode(QuantumHammingCode):
         super().__init__(size=3)
 
 
+class QuantumReedMullerCode(CSSCode):
+    r"""Self-orthogonal CSS code from a classical Reed-Muller code.
+
+    The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code
+    for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal:
+
+        RM(r, m) \subseteq RM(r, m)^\perp = RM(m - r - 1, m).
+
+    The stabilizer generators are the rows of the generator matrix of RM(r, m), whose pairwise
+    orthogonality follows from self-orthogonality.  Both the X- and the Z-distance equal
+    2**(r + 1), the minimum weight of a vector in RM(m - r - 1, m) \ RM(r, m), attained by the
+    indicator vector of an affine (r + 1)-flat in AG(m, 2) (MacWilliams & Sloane, Ch. 13).  This
+    closed form makes distance evaluation O(1), independent of block length.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/quantum_reed_muller_css
+    - https://feog.github.io/10-coding.pdf
+    """
+
+    def __init__(self, order: int, size: int) -> None:
+        self._assert_valid_params(order, size)
+        self._order = order
+        self._size = size
+        generator = np.atleast_2d(ReedMullerCode.get_generator(order, size))
+        super().__init__(
+            generator, generator, is_subsystem_code=False, promise_equal_distance_xz=True
+        )
+
+    @property
+    def order(self) -> int:
+        """The order parameter of this code."""
+        return self._order
+
+    @property
+    def size(self) -> int:
+        """The size parameter of this code."""
+        return self._size
+
+    @staticmethod
+    def _assert_valid_params(order: int, size: int) -> None:
+        if not (size >= 1 and 0 <= order < size and 2 * order < size - 1):
+            raise ValueError(
+                "A self-orthogonal CSS(RM(r,m), RM(r,m)) code requires 0 <= r < m and 2r < m - 1\n"
+                + f"Provided: (r, m) = ({order}, {size})"
+            )
+
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+        """Closed-form distance of CSS(RM(r, m), RM(r, m)) codes: 2**(r + 1)."""
+        return 2 ** (self._order + 1)
+
+
 class TetrahedralCode(CSSCode):
     r"""Smallest quantum error-correcting CSS code with a transversal non-Clifford (T) gate.
 
@@ -442,6 +494,157 @@ class TBCode(CSSCode):
             field,
             promise_equal_distance_xz=promise_equal_distance_xz,
             is_subsystem_code=False,
+        )
+
+
+class GALACode(CSSCode):
+    """Group-Action Lift with Active orthogonality (GALA) code.
+
+    A GALA code is a two-block CSS code built from two sequences of elements in a binary group
+    algebra.  Given generator sequences (F_0, ..., F_{L/2-1}) and (G_0, ..., G_{L/2-1}), construct
+    block-circulant matrices F and G with entries
+        F[i, j] = F_{j-i},
+        G[i, j] = G_{j-i},
+    where generator indices are taken modulo L/2.  These matrices define parent check matrices
+        parent_matrix_x = [F, G],
+        parent_matrix_z = [G.T, F.T].
+    The first J block rows of each parent matrix are the active rows that define the parity checks
+    of the code.  The remaining rows are latent rows and do not define stabilizers.
+
+    Each generator is a RingMember and may therefore be either a monomial, representing one group
+    element, or a polynomial sum of group elements.  GALA codes are currently supported only over
+    GF(2).
+
+    The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by
+
+        from qldpc import abstract, codes
+
+        ring = abstract.GroupRing(abstract.CyclicGroup(11))
+        x = ring.generators[0]
+        code = codes.GALACode(
+            generators_f=[x**2, x**4, x**3, x**6, x**3, x**9],
+            generators_g=[x**9, x**2, x**8, x**5, x**8, x**7],
+            num_active_rows=5,
+        )
+        assert code.num_qubits == 132
+        assert code.dimension == 30
+        assert code.get_weight() == 12  # maximum stabilizer weight
+
+    References:
+    - https://arxiv.org/abs/2608.07431
+    """
+
+    generators_f: tuple[abstract.RingMember, ...]
+    generators_g: tuple[abstract.RingMember, ...]
+
+    matrix_f: abstract.RingArray
+    matrix_g: abstract.RingArray
+    parent_matrix_x: abstract.RingArray
+    parent_matrix_z: abstract.RingArray
+
+    ring: abstract.GroupRing
+    group: abstract.Group
+
+    num_blocks: int
+    num_active_rows: int
+
+    def __init__(
+        self,
+        generators_f: Sequence[abstract.RingMember],
+        generators_g: Sequence[abstract.RingMember],
+        num_active_rows: int,
+        *,
+        skip_validation: bool = False,
+    ) -> None:
+        """Construct a GALA code from two sequences of group-ring generators.
+
+        Args:
+            generators_f: The sequence (F_0, ..., F_{L/2-1}) of group-ring elements.
+            generators_g: The sequence (G_0, ..., G_{L/2-1}) of group-ring elements.
+            num_active_rows: The number J of active block rows, with 1 <= J <= L/2.
+
+        Keyword args:
+            skip_validation: If True, skip the check that the active X-type and Z-type parity
+                checks commute.  Structural input validation is performed regardless.  Default:
+                False.
+        """
+        generators_f, generators_g, ring = self._validate_generators(
+            generators_f, generators_g, num_active_rows
+        )
+        self.generators_f = generators_f
+        self.generators_g = generators_g
+        self.ring = ring
+        self.group = self.ring.group
+        self.num_blocks = 2 * len(self.generators_f)
+        self.num_active_rows = num_active_rows
+
+        self.matrix_f = self._get_block_circulant(self.generators_f)
+        self.matrix_g = self._get_block_circulant(self.generators_g)
+        self.parent_matrix_x = abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
+        self.parent_matrix_z = abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
+
+        active_matrix_x = abstract.RingArray(self.parent_matrix_x[: self.num_active_rows])
+        active_matrix_z = abstract.RingArray(self.parent_matrix_z[: self.num_active_rows])
+        matrix_x = active_matrix_x.lift()
+        matrix_z = active_matrix_z.lift()
+        if not skip_validation and np.any(matrix_x @ matrix_z.T):
+            raise ValueError("The active parity checks of this GALACode do not commute")
+        super().__init__(matrix_x, matrix_z, is_subsystem_code=False)
+
+    def __str__(self) -> str:
+        """Human-readable representation of this code."""
+        text = f"{self.name} on {self.num_qubits} qubits"
+        text += f" with {self.num_blocks} blocks, {self.num_active_rows} active rows,"
+        text += f" and lift group {self.group}"
+        return text
+
+    @staticmethod
+    def _validate_generators(
+        generators_f: Sequence[abstract.RingMember],
+        generators_g: Sequence[abstract.RingMember],
+        num_active_rows: int,
+    ) -> tuple[
+        tuple[abstract.RingMember, ...],
+        tuple[abstract.RingMember, ...],
+        abstract.GroupRing,
+    ]:
+        """Validate and normalize GALA generator data."""
+        generators_f = tuple(generators_f)
+        generators_g = tuple(generators_g)
+        if not generators_f or not generators_g:
+            raise ValueError("GALA generator sequences must be nonempty")
+        if len(generators_f) != len(generators_g):
+            raise ValueError("GALA generator sequences must have equal lengths")
+
+        generators = generators_f + generators_g
+        if not all(isinstance(generator, abstract.RingMember) for generator in generators):
+            raise ValueError("GALA generators must be RingMember objects")
+        ring = generators[0].ring
+        if any(generator.ring != ring for generator in generators[1:]):
+            raise ValueError("All GALA generators must belong to the same group ring")
+        if ring.field.order != 2:
+            raise ValueError("GALA codes are currently supported only over GF(2)")
+
+        if not isinstance(num_active_rows, (int, np.int_)):
+            raise TypeError("The number of active rows must be an integer")
+        if not 1 <= num_active_rows <= len(generators_f):
+            raise ValueError(
+                "The number of active rows must lie between 1 and"
+                f" {len(generators_f)} (provided: {num_active_rows})"
+            )
+
+        generators_f = tuple(generator.copy() for generator in generators_f)
+        generators_g = tuple(generator.copy() for generator in generators_g)
+        return generators_f, generators_g, ring
+
+    @staticmethod
+    def _get_block_circulant(
+        generators: Sequence[abstract.RingMember],
+    ) -> abstract.RingArray:
+        """Construct the block-circulant matrix induced by a sequence of generators."""
+        size = len(generators)
+        return abstract.RingArray(
+            [[generators[(col - row) % size] for col in range(size)] for row in range(size)]
         )
 
 

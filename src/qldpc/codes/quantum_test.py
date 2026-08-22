@@ -122,6 +122,127 @@ def test_two_block_code_error() -> None:
         codes.TBCode(matrix_a, matrix_b, field=3)
 
 
+def test_gala_code_construction() -> None:
+    """Construct the block-circulant parent and active matrices of a GALA code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+    xx = ring.generators[0]
+
+    code = codes.GALACode(
+        generators_f=[one, xx],
+        generators_g=[xx**2, one],
+        num_active_rows=1,
+    )
+
+    expected_f = abstract.RingArray([[one, xx], [xx, one]])
+    expected_g = abstract.RingArray([[xx**2, one], [one, xx**2]])
+    expected_parent_x = abstract.RingArray([[one, xx, xx**2, one], [xx, one, one, xx**2]])
+    expected_parent_z = abstract.RingArray([[xx, one, one, xx**2], [one, xx, xx**2, one]])
+
+    assert np.array_equal(code.matrix_f, expected_f)
+    assert np.array_equal(code.matrix_g, expected_g)
+    assert np.array_equal(code.parent_matrix_x, expected_parent_x)
+    assert np.array_equal(code.parent_matrix_z, expected_parent_z)
+    assert code.matrix_x.shape == (3, 12)
+    assert code.matrix_z.shape == (3, 12)
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+    assert not code.is_subsystem_code
+    assert code.num_blocks == 4
+    assert code.num_active_rows == 1
+    assert code.generators_f[0] is not one
+
+
+def test_gala_code_active_orthogonality() -> None:
+    """Validate aggregate rather than pairwise active orthogonality."""
+    ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    aa, bb = ring.generators
+    assert aa * bb != bb * aa
+
+    code = codes.GALACode(
+        generators_f=[aa, aa],
+        generators_g=[bb, bb],
+        num_active_rows=1,
+    )
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    generators_f = [aa, ring.one]
+    generators_g = [bb, ring.one]
+    with pytest.raises(ValueError, match="active parity checks.*do not commute"):
+        codes.GALACode(generators_f, generators_g, num_active_rows=1)
+
+    code = codes.GALACode(generators_f, generators_g, num_active_rows=1, skip_validation=True)
+    assert np.any(code.matrix_x @ code.matrix_z.T)
+
+
+def test_gala_code_errors() -> None:
+    """Reject invalid GALA generator data."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+
+    with pytest.raises(ValueError, match="nonempty"):
+        codes.GALACode([], [], num_active_rows=1)
+    with pytest.raises(ValueError, match="equal lengths"):
+        codes.GALACode([one], [one, one], num_active_rows=1)
+    with pytest.raises(ValueError, match="RingMember"):
+        codes.GALACode([one], [1], num_active_rows=1)  # type: ignore[list-item]
+
+    other_ring = abstract.GroupRing(abstract.CyclicGroup(2))
+    with pytest.raises(ValueError, match="same group ring"):
+        codes.GALACode([one], [other_ring.one], num_active_rows=1)
+
+    qutrit_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    with pytest.raises(ValueError, match=r"only over GF\(2\)"):
+        codes.GALACode([qutrit_ring.one], [qutrit_ring.one], num_active_rows=1)
+
+    with pytest.raises(TypeError, match="must be an integer"):
+        codes.GALACode([one], [one], num_active_rows=1.5)  # type: ignore[arg-type]
+    for num_active_rows in [0, 2]:
+        with pytest.raises(ValueError, match="must lie between"):
+            codes.GALACode([one], [one], num_active_rows)
+
+
+def test_gala_code_from_paper() -> None:
+    """Reproduce the construction-level parameters of the [[132, 30, 12]] GALA code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(11))
+    xx = ring.generators[0]
+    code = codes.GALACode(
+        generators_f=[xx**power for power in [2, 4, 3, 6, 3, 9]],
+        generators_g=[xx**power for power in [9, 2, 8, 5, 8, 7]],
+        num_active_rows=5,
+    )
+
+    assert code.matrix_x.shape == (55, 132)
+    assert code.matrix_z.shape == (55, 132)
+    assert code.num_qubits == 132
+    assert code.dimension == 30
+    assert code.get_weight() == 12
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    code_string = str(code)
+    assert "132 qubits" in code_string
+    assert "12 blocks" in code_string
+    assert "5 active rows" in code_string
+    assert code.group.name in code_string
+
+
+def test_polynomial_gala_code() -> None:
+    """Construct a GALA code with a polynomial group-ring generator."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+    xx = ring.generators[0]
+    polynomial = one + xx
+    code = codes.GALACode(
+        generators_f=[polynomial, xx**2],
+        generators_g=[one, xx],
+        num_active_rows=1,
+    )
+
+    block_size = code.group.lift_dim
+    assert np.count_nonzero(code.generators_f[0].to_vector()) == 2
+    assert np.array_equal(code.matrix_x[:block_size, :block_size], polynomial.lift())
+    assert code.get_weight() == 5
+
+
 def test_bivariate_bicycle_codes() -> None:
     """Bivariate bicycle codes from arXiv:2308.07915 and arXiv:2311.16980."""
     from sympy.abc import x, y, z
@@ -844,3 +965,46 @@ def test_exact_distances() -> None:
             assert dist == code.get_distance()
             assert dist_x == code.get_distance(Pauli.X)
             assert dist_z == code.get_distance(Pauli.Z)
+
+
+def test_reed_muller_css_codes() -> None:
+    """Self-orthogonal CSS(RM(r, m), RM(r, m)) codes."""
+    for (order, size), params in [
+        ((0, 2), (4, 2, 2)),
+        ((1, 4), (16, 6, 4)),
+        ((1, 5), (32, 20, 4)),
+        ((2, 6), (64, 20, 8)),
+        ((2, 7), (128, 70, 8)),
+        ((3, 8), (256, 70, 16)),
+        ((2, 10), (1024, 912, 8)),
+    ]:
+        code = codes.QuantumReedMullerCode(order, size)
+        assert code.get_code_params() == params
+        assert code.get_distance() == params[2]
+        assert code.get_distance(Pauli.X) == params[2]
+        assert code.get_distance(Pauli.Z) == params[2]
+        assert not code.is_subsystem_code
+        # self-orthogonality: H_x @ H_z.T == 0 on GF(2)
+        hx = code.code_x.matrix
+        hz = code.code_z.matrix
+        assert np.array_equal(hx @ hz.T, np.zeros((hx.shape[0], hz.shape[0]), dtype=int))
+
+
+def test_reed_muller_css_invalid_params() -> None:
+    """Invalid parameters for self-orthogonal CSS(RM(r, m), RM(r, m)) codes."""
+    for order, size in [(2, 5), (1, 3), (3, 7), (2, 4), (0, 1), (-1, 4), (5, 4)]:
+        with pytest.raises(ValueError):
+            codes.QuantumReedMullerCode(order, size)
+
+
+def test_reed_muller_css_brute_force_agreement() -> None:
+    """Closed-form distances agree with brute-force enumeration on small codes."""
+    for (order, size), dist in [((0, 2), 2), ((1, 4), 4)]:
+        code = codes.QuantumReedMullerCode(order, size)
+        with (
+            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
+            unittest.mock.patch(
+                "qldpc.codes.QuantumReedMullerCode._get_distance_exact", return_value=NotImplemented
+            ),
+        ):
+            assert code.get_distance() == dist

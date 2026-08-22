@@ -61,6 +61,7 @@ Notable features include:
   - `TBCode`: [two-block quantum codes](https://errorcorrectionzoo.org/c/two_block_quantum).
   - `QCCode`: quasi-cyclic two-block codes (also known as [multivariate bicycle codes](https://arxiv.org/abs/2406.19151), generalizing the `BBCode` below).
   - `BBCode`: [bivariate bicycle codes](https://errorcorrectionzoo.org/c/quantum_quasi_cyclic), as in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) and [arXiv:2311.16980](https://arxiv.org/abs/2311.16980).  See also [`examples/bivariate_bicycle_codes.ipynb`](https://github.com/qLDPCOrg/qLDPC/blob/main/examples/bivariate_bicycle_codes.ipynb).
+  - `GALACode`: [group-action lifts with active orthogonality](https://arxiv.org/abs/2608.07431), supporting monomial and polynomial lifts over binary group algebras.
   - `HGPCode`: [hypergraph product codes](https://errorcorrectionzoo.org/c/hypergraph_product), first introduced in [arXiv:0903.0566](https://arxiv.org/abs/0903.0566).
   - `CHGPCode` / `CRCode`: cyclic hypergraph product and repeated cyclic hypergraph product codes, as in [arXiv:2511.09683](https://arxiv.org/abs/2511.09683).
   - `SHPCode`: [subsystem hypergraph product codes](https://errorcorrectionzoo.org/c/subsystem_quantum_parity), as in [arXiv:2002.06257](https://arxiv.org/abs/2002.06257).
