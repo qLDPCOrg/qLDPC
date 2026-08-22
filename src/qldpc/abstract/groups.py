@@ -265,6 +265,11 @@ class Group:
         return int(self._group.order())
 
     @property
+    def degree(self) -> int:
+        """Number of points that this group's permutation representation acts on."""
+        return self._group.degree
+
+    @property
     def is_commutative(self) -> bool:
         """Is this group commutative (abelian)?"""
         return isinstance(self, AbelianGroup) or self._group.is_abelian
@@ -332,7 +337,7 @@ class Group:
         """
         groups = groups * repeat
         product = Group.product(*groups)
-        degrees = [group.to_sympy().degree for group in groups]
+        degrees = [group.degree for group in groups]
 
         def lift(member: GroupMember) -> npt.NDArray[np.int_]:
             matrices = []
@@ -453,6 +458,11 @@ class Group:
         if self._lift is None:
             return self.regular_lift(member, right=right)
         if not right or self.is_commutative:
+            # SymPy drops trailing fixed points, so a directly-constructed member (e.g. from cycle
+            # notation) may have array_form shorter than this group's degree.  Custom lifts assume a
+            # full-degree member, so pad the member with its fixed tail points before lifting.
+            if member.size < self.degree:
+                member = GroupMember(member.array_form + list(range(member.size, self.degree)))
             return self._lift(member)
         raise ValueError(
             "Anti-representations for non-commutative groups with custom lifts are not supported"
@@ -673,8 +683,8 @@ class WreathProductGroup(Group):
     def __init__(self, top: Group, bottom: Group) -> None:
         self.top = top
         self.bottom = bottom
-        self.top_degree = top.to_sympy().degree
-        self.bottom_degree = bottom.to_sympy().degree
+        self.top_degree = top.degree
+        self.bottom_degree = bottom.degree
         if not self.top_degree or not self.bottom_degree:
             raise ValueError("Wreath-product groups must act on nonempty sets")
 
