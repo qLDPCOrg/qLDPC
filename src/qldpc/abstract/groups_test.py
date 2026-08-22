@@ -307,6 +307,12 @@ def test_wreath_product_group() -> None:
     assert np.array_equal(group.lift(member), member.to_matrix())
     assert_valid_lifts(group)
 
+    # element accepts members whose array_form drops trailing fixed points (e.g. the identity)
+    truncated_top = abstract.GroupMember(top_member.cyclic_form)
+    truncated_bottom = [abstract.GroupMember(bottom_member.cyclic_form) for bottom_member in bottom_members]
+    assert min(bottom_member.size for bottom_member in truncated_bottom) < group.bottom_degree
+    assert group.element(truncated_top, truncated_bottom) == member
+
     direct_product = abstract.Group.tensor_product(top, bottom)
     direct_member = top_member @ bottom_shift
     wreath_member = group.element(top_member, [bottom_shift] * group.top_degree)

@@ -739,6 +739,10 @@ class WreathProductGroup(Group):
         if any(member not in self.bottom for member in bottom_members):
             raise ValueError("All bottom members must belong to the bottom group")
 
+        # pad members to their full degree, since apply below indexes over every point
+        top_member = self.top._pad(top_member)
+        bottom_members = tuple(self.bottom._pad(member) for member in bottom_members)
+
         return GroupMember(
             [
                 top_member.apply(row) * self.bottom_degree + bottom_members[row].apply(col)
