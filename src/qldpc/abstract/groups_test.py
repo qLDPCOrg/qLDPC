@@ -210,8 +210,8 @@ def test_lift_truncated_member() -> None:
     """Custom lifts accept members whose array_form omits trailing fixed points.
 
     SymPy truncates trailing fixed points, so a directly-constructed member (e.g. from cycle
-    notation) can have a shorter array_form than the group's degree.  Group.lift pads such members
-    up to the group degree before dispatching to a custom lift.
+    notation) can have a shorter array_form than the group's degree.  Member-keyed operations
+    (containment, indexing, custom lifts) pad such members up to the group degree before use.
     """
     # a from_table group with an integer_lift exercises the identity-keyed custom lift, alongside
     # the to_matrix-based natural and wreath lifts and the Kronecker-product tensor lift
@@ -235,6 +235,9 @@ def test_lift_truncated_member() -> None:
             truncated = abstract.GroupMember(member.cyclic_form)
             truncated_members += truncated.size < degree
             assert np.array_equal(group.lift(truncated), group.lift(member))
+            # containment and indexing also accept the truncated member
+            assert truncated in group
+            assert group.index(truncated) == group.index(member)
         # the group actually has members whose array_form is shorter than its degree
         assert truncated_members
 

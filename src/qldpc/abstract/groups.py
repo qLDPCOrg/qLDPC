@@ -257,7 +257,23 @@ class Group:
         return group
 
     def __contains__(self, member: GroupMember) -> bool:
-        return member in self._group
+        return self._pad(member) in self._group
+
+    def _pad(self, member: GroupMember) -> GroupMember:
+        """Pad a member to this group's full degree.
+
+        A permutation on n points is stored as the list of images [f(0), ..., f(n-1)].  SymPy
+        (which backs GroupMember) records only up to the largest moved point: any points fixed at
+        the tail are omitted, so a member built directly (e.g. from cycle notation) can have a
+        shorter image list than this group's degree.  For example, the permutation swapping 0 and 1
+        in the symmetric group on 3 points (degree 3) is stored as [1, 0] rather than [1, 0, 2].
+
+        Member-keyed operations (containment, indexing, custom lifts) assume a full-degree member,
+        so re-append the omitted fixed tail points before use.
+        """
+        if member.size < self.degree:
+            return GroupMember(member, size=self.degree)
+        return member
 
     @property
     def order(self) -> int:
@@ -308,7 +324,7 @@ class Group:
 
     def index(self, member: GroupMember) -> int:
         """The index of a GroupMember in this group."""
-        index = self._members.get(member)
+        index = self._members.get(self._pad(member))
         if not isinstance(index, int):
             raise TypeError(f"Member {member} not in group {self}")
         return index
@@ -458,12 +474,7 @@ class Group:
         if self._lift is None:
             return self.regular_lift(member, right=right)
         if not right or self.is_commutative:
-            # SymPy drops trailing fixed points, so a directly-constructed member (e.g. from cycle
-            # notation) may have array_form shorter than this group's degree.  Custom lifts assume a
-            # full-degree member, so pad the member with its fixed tail points before lifting.
-            if member.size < self.degree:
-                member = GroupMember(member, size=self.degree)
-            return self._lift(member)
+            return self._lift(self._pad(member))
         raise ValueError(
             "Anti-representations for non-commutative groups with custom lifts are not supported"
         )
