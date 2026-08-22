@@ -462,7 +462,7 @@ class Group:
             # notation) may have array_form shorter than this group's degree.  Custom lifts assume a
             # full-degree member, so pad the member with its fixed tail points before lifting.
             if member.size < self.degree:
-                member = GroupMember(member.array_form + list(range(member.size, self.degree)))
+                member = GroupMember(member, size=self.degree)
             return self._lift(member)
         raise ValueError(
             "Anti-representations for non-commutative groups with custom lifts are not supported"
