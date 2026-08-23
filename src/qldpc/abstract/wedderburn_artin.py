@@ -33,7 +33,7 @@ from .rings import GroupRing, RingArray, RingMember
 
 
 class WedderburnArtinTransformer:
-    r"""Compute the Wedderburn-Artin decomposition of a semisimple ring.
+    r"""Instrument for implementing the Wedderburn-Artin decomposition of semisimple rings.
 
     The Wedderburn-Artin theorem states that every semisimple ring R is isomorphic to a direct
     sum of matrix algebras over division rings:
