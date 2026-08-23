@@ -574,7 +574,6 @@ class ChainComplex:
 
         if chain_a.ring is None:
             return ChainComplex([op.view(chain_field) for op in matrices], skip_validation=True)
-        # structurally-zero blocks are integer-valued, so rebuild each operator through
-        # RingArray.build to coerce every entry into a ring member of chain_a.ring
+        # rebuild each operator through RingArray.build to coerce every entry into a ring member
         ops = [abstract.RingArray.build(matrix, chain_a.ring) for matrix in matrices]
         return ChainComplex(ops, skip_validation=True)

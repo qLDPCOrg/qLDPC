@@ -137,9 +137,9 @@ def test_chain_complex(field: int = 3) -> None:
     assert not np.any(two_chain.op(0))
     assert not np.any(two_chain.op(two_chain.num_links + 1))
 
-    # tensor products over a nontrivial commutative group algebra: once the total complex has three
-    # or more links, some "sector" blocks of a boundary operator are structurally zero, and every
-    # operator must remain a well-formed RingArray whose entries can be lifted to matrices
+    # a tensor product over a nontrivial commutative group algebra must yield boundary operators
+    # whose entries are all ring members (and can therefore be lifted to matrices), including the
+    # three-or-more-link case where some operator blocks are entirely zero
     cyclic_ring = abstract.GroupRing(abstract.CyclicGroup(3), field)
     cyclic_matrix = abstract.RingArray.build(matrix, cyclic_ring)
     ring_chain = objects.ChainComplex.tensor_product(cyclic_matrix, cyclic_matrix)
