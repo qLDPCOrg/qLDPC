@@ -57,7 +57,7 @@ class Pauli(enum.Enum):
         if self is Pauli.Z:
             return Pauli.X
         raise ValueError(
-            f"Pauli.dual_xz only converts between Pauli.X and Pauli.Z (provided: {self})"
+            f"Pauli.swap_xz only converts between Pauli.X and Pauli.Z (provided: {self})"
         )
 
     def __str__(self) -> str:
@@ -144,10 +144,10 @@ class QuditPauli:
             raise ValueError(invalid_op)
 
         for factor in factors:
-            pauli = factor[0]
+            pauli = factor[:1]
             val_str = factor[2:-1]
             _factor = f"{pauli}({val_str})"
-            if pauli not in "XYZ" or not val_str.isnumeric() or factor != _factor:
+            if pauli not in "XYZ" or not val_str.isdecimal() or factor != _factor:
                 raise ValueError(invalid_op)
 
             val = int(val_str)
@@ -435,7 +435,7 @@ class ChainComplex:
             self._validate_ops()
 
     def _validate_ops(self) -> None:
-        """Validate the consistency of this the boundary operators in this chain complex."""
+        """Validate the consistency of the boundary operators in this chain complex."""
         for op_a, op_b in zip(self.ops, self.ops[1:]):
             if op_a.shape[1] != op_b.shape[0] or np.any(op_a @ op_b):
                 raise ValueError(

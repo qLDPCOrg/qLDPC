@@ -56,7 +56,7 @@ def test_qudit_operator() -> None:
     assert -objects.QuditPauli((0, 1)) == objects.QuditPauli((0, -1))
     for op in ["I", "Y(1)", "X(1)*Z(2)"]:
         assert str(objects.QuditPauli.from_string(op)) == op
-    for op in ["a*b*c", "a(1)"]:
+    for op in ["a*b*c", "a(1)", "*", "X(1)*", "", "X(²)"]:
         with pytest.raises(ValueError, match="Invalid qudit operator"):
             objects.QuditPauli.from_string(op)
 
