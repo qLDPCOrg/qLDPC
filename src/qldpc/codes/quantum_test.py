@@ -1017,6 +1017,7 @@ def test_reed_muller_css_codes() -> None:
         ((2, 10), (1024, 912, 8)),
     ]:
         code = codes.QuantumReedMullerCode(order, size)
+        assert (code.order, code.size) == (order, size)
         assert code.get_code_params() == params
         assert code.get_distance() == params[2]
         assert code.get_distance(Pauli.X) == params[2]
