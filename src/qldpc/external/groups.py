@@ -349,13 +349,23 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
         for ring_term_match in re_ring_term.finditer(ring_member_match.group()):
             coefficient_string, cycles_string = ring_term_match.group().split("*")
 
-            # convert "Z(p^k)^m" into galois.GF(field)(galois.GF(p**k).primitive_element ** m)
+            # Convert "Z(p^k)^m" into an element of GF(field).  Z(p^k) is the primitive element of
+            # the subfield GF(p^k), which is not the same as the integer galois.GF(p**k) uses to
+            # store it: the embedding GF(p^k) -> GF(field) sends the subfield generator to
+            # ``GF(field).primitive_element ** ((field - 1) // (p^k - 1))``, and Z(p^k)^m follows.
+            # This relies on GAP and galois selecting the same primitive element of GF(field); both
+            # use Conway polynomials (galois for field orders in its Conway database, which covers
+            # every field small enough to arise here), so their primitive elements agree.
             coefficient_match = re_coefficient_components.match(coefficient_string)
             assert coefficient_match is not None
             pp = int(coefficient_match.group(1))
             kk = int(coefficient_match.group(2) or 1)
             mm = int(coefficient_match.group(3) or 1)
-            coefficient = galois.GF(field)(galois.GF(pp**kk).primitive_element ** mm)
+            # GAP only reports Z(p^k) for elements that lie in GF(field), so k divides the degree of
+            # GF(field) and (p^k - 1) divides (field - 1) exactly (no floor-division truncation).
+            assert (field - 1) % (pp**kk - 1) == 0
+            subfield_embedding_power = (field - 1) // (pp**kk - 1)
+            coefficient = galois.GF(field).primitive_element ** (subfield_embedding_power * mm)
 
             # extract and 0-index cycles
             cycles = tuple(
@@ -652,6 +662,39 @@ KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], IdempotentsList] = {
             (1, ((0, 3, 6, 2, 5, 1, 4),)),
             (1, ((0, 5, 3, 1, 6, 4, 2),)),
             (1, ((0, 6, 5, 4, 3, 2, 1),)),
+        ),
+    ],
+    ("Group((1,2,3,4,5),(1,5)(2,4))", 3): [  # F3[DihedralGroup(5)]
+        (
+            (1, ((),)),
+            (1, ((1, 4), (2, 3))),
+            (1, ((0, 1), (2, 4))),
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2), (3, 4))),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3), (1, 2))),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+            (1, ((0, 4), (1, 3))),
+        ),
+        (
+            (1, ((),)),
+            (2, ((1, 4), (2, 3))),
+            (2, ((0, 1), (2, 4))),
+            (1, ((0, 1, 2, 3, 4),)),
+            (2, ((0, 2), (3, 4))),
+            (1, ((0, 2, 4, 1, 3),)),
+            (2, ((0, 3), (1, 2))),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+            (2, ((0, 4), (1, 3))),
+        ),
+        (
+            (2, ((),)),
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
         ),
     ],
 }

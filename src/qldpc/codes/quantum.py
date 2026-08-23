@@ -1743,12 +1743,14 @@ class LPCode(CSSCode):
         if set_logicals:
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
-                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
-            except (ValueError, NotImplementedError):
+            except (ValueError, NotImplementedError) as exception:
                 raise ValueError(
                     "Cannot set canonical logical operators for this code, likely due to a"
                     " choice of group algebra for which some features are not yet supported"
-                )
+                ) from exception
+            # this call sits outside the try above because a validation failure here is a real bug
+            # in the computed operators, not the "unsupported group algebra" the try/except reports
+            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
 
     @staticmethod
     def get_canonical_logical_line_ops(
@@ -1880,12 +1882,14 @@ class SLPCode(CSSCode):
         if set_logicals:
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
-                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
-            except (ValueError, NotImplementedError):
+            except (ValueError, NotImplementedError) as exception:
                 raise ValueError(
                     "Cannot set canonical logical operators for this code, likely due to a"
                     " choice of group algebra for which some features are not yet supported"
-                )
+                ) from exception
+            # this call sits outside the try above because a validation failure here is a real bug
+            # in the computed operators, not the "unsupported group algebra" the try/except reports
+            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
 
     @staticmethod
     def get_canonical_logical_line_ops(

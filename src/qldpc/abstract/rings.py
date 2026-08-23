@@ -86,14 +86,22 @@ class GroupRing:
         """Base field of this ring."""
         return self._field
 
-    def get_transformer(self, seed: int | None = None) -> WedderburnArtinTransformer:
-        """Instrument for the Wedderburn-Artin decomposition of this ring."""
+    def get_transformer(
+        self, seed: int | None = None, *, skip_validation: bool = False
+    ) -> WedderburnArtinTransformer:
+        """Instrument for the Wedderburn-Artin decomposition of this ring.
+
+        By default each component's primitive central idempotent is validated; pass
+        ``skip_validation=True`` to skip the check (see WedderburnArtinComponentTransformer).
+        """
         from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
 
         if seed not in self._transformers:
             if seed is None and self._transformers:
                 return next(iter(self._transformers.values()))
-            self._transformers[seed] = WedderburnArtinTransformer(self, seed=seed)
+            self._transformers[seed] = WedderburnArtinTransformer(
+                self, seed=seed, skip_validation=skip_validation
+            )
         return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
