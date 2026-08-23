@@ -17,6 +17,7 @@ from .groups import (
     SpecialLinearGroup,
     SymmetricGroup,
     TrivialGroup,
+    WreathProductGroup,
     resolve_field,
 )
 from .linalg import (
@@ -59,6 +60,7 @@ __all__ = [
     "TrivialGroup",
     "WedderburnArtinComponentTransformer",
     "WedderburnArtinTransformer",
+    "WreathProductGroup",
     "block_diag",
     "get_coefficient_and_exponents",
     "get_howell_dual",

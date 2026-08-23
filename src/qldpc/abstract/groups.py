@@ -246,6 +246,16 @@ class Group:
         new_group._group = group
         return new_group
 
+    def with_natural_lift(self) -> Group:
+        """Copy this group with its natural permutation representation as the lift.
+
+        The natural lift has the dimension of the set acted on by the group, rather than the order
+        of the group as in the regular representation.
+        """
+        group = Group()
+        group._init_from_group(self, name=self.name, lift=GroupMember.to_matrix)
+        return group
+
     def __contains__(self, member: GroupMember) -> bool:
         return member in self._group
 
@@ -253,6 +263,11 @@ class Group:
     def order(self) -> int:
         """Number of members in this group."""
         return int(self._group.order())
+
+    @property
+    def degree(self) -> int:
+        """Number of points that this group's permutation representation acts on."""
+        return self._group.degree
 
     @property
     def is_commutative(self) -> bool:
@@ -311,6 +326,31 @@ class Group:
     def product(*groups: Group, repeat: int = 1) -> Group:
         """Direct product of Groups."""
         return functools.reduce(operator.mul, groups * repeat)
+
+    @staticmethod
+    def tensor_product(*groups: Group, repeat: int = 1) -> Group:
+        """Direct product of Groups with lifts combined by Kronecker products.
+
+        The underlying group is the same as ``Group.product``, while the selected lift of a product
+        element is the Kronecker product of its factor lifts.  The ``repeat`` argument repeats the
+        entire sequence of factors.
+        """
+        groups = groups * repeat
+        product = Group.product(*groups)
+        degrees = [group.degree for group in groups]
+
+        def lift(member: GroupMember) -> npt.NDArray[np.int_]:
+            matrices = []
+            offset = 0
+            for group, degree in zip(groups, degrees):
+                array_form = [
+                    value - offset for value in member.array_form[offset : offset + degree]
+                ]
+                matrices.append(group.lift(GroupMember(array_form)))
+                offset += degree
+            return functools.reduce(np.kron, matrices)
+
+        return Group.from_sympy(product.to_sympy(), lift=lift)
 
     def random(self, *, seed: int | None = None) -> GroupMember:
         """A random element this group."""
@@ -418,6 +458,12 @@ class Group:
         if self._lift is None:
             return self.regular_lift(member, right=right)
         if not right or self.is_commutative:
+            # SymPy stores a permutation only up to its largest moved point, so a member built
+            # directly (e.g. from cycle notation) can have an image list shorter than this group's
+            # degree.  Custom lifts read the full image list, so re-append the omitted fixed tail
+            # points before lifting.
+            if member.size < self.degree:
+                member = GroupMember(member, size=self.degree)
             return self._lift(member)
         raise ValueError(
             "Anti-representations for non-commutative groups with custom lifts are not supported"
@@ -619,6 +665,77 @@ class Group:
         for base, exponent in exponents:
             output *= symbols[base] ** exponent
         return output
+
+
+class WreathProductGroup(Group):
+    """Permutational wreath product of a top group and copies of a bottom group.
+
+    If the top group acts on ``k`` points and the bottom group acts on ``m`` points, an element
+    ``(h; c_0, ..., c_{k-1})`` acts on ``k * m`` points by
+    ``(i, j) -> (h(i), c_i(j))``.  The selected lift is the natural permutation representation on
+    these ``k * m`` points.
+    """
+
+    top: Group
+    bottom: Group
+    top_degree: int
+    bottom_degree: int
+
+    def __init__(self, top: Group, bottom: Group) -> None:
+        self.top = top
+        self.bottom = bottom
+        self.top_degree = top.degree
+        self.bottom_degree = bottom.degree
+        if not self.top_degree or not self.bottom_degree:
+            raise ValueError("Wreath-product groups must act on nonempty sets")
+
+        top_identity = self.top.identity
+        bottom_identity = self.bottom.identity
+        generators = [
+            self.element(generator, [bottom_identity] * self.top_degree)
+            for generator in self.top.generators
+        ]
+        generators += [
+            self.element(
+                top_identity,
+                [
+                    generator if index == block else bottom_identity
+                    for index in range(self.top_degree)
+                ],
+            )
+            for block in range(self.top_degree)
+            for generator in self.bottom.generators
+        ]
+        super().__init__(*generators, lift=GroupMember.to_matrix)
+
+    def element(
+        self,
+        top_member: GroupMember,
+        bottom_members: Sequence[GroupMember],
+    ) -> GroupMember:
+        """Construct a wreath-product element from its top and bottom components.
+
+        Args:
+            top_member: An element of the top group.
+            bottom_members: One bottom-group element for each point acted on by the top group.
+        """
+        bottom_members = tuple(bottom_members)
+        if top_member not in self.top:
+            raise ValueError("The top member must belong to the top group")
+        if len(bottom_members) != self.top_degree:
+            raise ValueError(
+                f"Expected {self.top_degree} bottom members (provided: {len(bottom_members)})"
+            )
+        if any(member not in self.bottom for member in bottom_members):
+            raise ValueError("All bottom members must belong to the bottom group")
+
+        return GroupMember(
+            [
+                top_member.apply(row) * self.bottom_degree + bottom_members[row].apply(col)
+                for row in range(self.top_degree)
+                for col in range(self.bottom_degree)
+            ]
+        )
 
 
 ################################################################################
