@@ -93,6 +93,10 @@ def test_trivial_group() -> None:
     assert group.equiv(abstract.Group.from_generating_mats())
     assert str(group) == "TrivialGroup"
 
+    # to_ring_array is a defunct alias that only raises, directing callers to RingArray.build
+    with pytest.raises(ValueError, match="DEFUNCT"):
+        abstract.TrivialGroup.to_ring_array([[1]])
+
 
 def test_group_equality_and_equivalence() -> None:
     """``==`` requires a matching representation; ``equiv`` compares underlying groups only."""
