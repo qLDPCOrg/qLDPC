@@ -172,9 +172,6 @@ class Node:
     index: int
     is_data: bool = True
 
-    def __hash__(self) -> int:
-        return hash((self.index, self.is_data))
-
     def __lt__(self, other: Node) -> bool:
         if self.is_data == other.is_data:
             return self.index < other.index
@@ -267,9 +264,6 @@ class CayleyComplex:
     subset_b: set[abstract.GroupMember]
     bipartite: bool
 
-    # geometric data
-    _graph: nx.Graph | None = None
-
     def __init__(
         self,
         subset_a: Collection[abstract.GroupMember],
@@ -346,11 +340,11 @@ class CayleyComplex:
             # add all edges adjacent to this node
             for aa in subset_a:
                 aa_gg = aa * gg
-                graph.add_edge(gg, aa_gg, type="L")  # "L" for left-acting
+                graph.add_edge(gg, aa_gg)
                 new_nodes.add(aa_gg)
             for bb in subset_b:
                 gg_bb = gg * bb
-                graph.add_edge(gg, gg_bb, type="R")  # "R" for right-acting
+                graph.add_edge(gg, gg_bb)
                 new_nodes.add(gg_bb)
 
             nodes_to_add |= new_nodes - old_nodes
@@ -396,8 +390,7 @@ class ChainComplex:
     _field: type[galois.FieldArray]
     _ops: tuple[npt.NDArray[np.int_] | abstract.RingArray, ...]
 
-    # if boundary operators are defined over a group algebra, keep track of the base group and ring
-    _group: abstract.Group | None
+    # if boundary operators are defined over a group algebra, keep track of the base ring
     _ring: abstract.GroupRing | None
 
     def __init__(
