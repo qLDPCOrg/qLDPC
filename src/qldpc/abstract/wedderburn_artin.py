@@ -441,7 +441,7 @@ class WedderburnArtinComponentTransformer:
         embedded_root = extended_minimal_poly.roots()[0]  # this is σ ∈ GF(p^{kd})
         # each scalar expands over the prime field in field.degree coefficients (scalar.vector()
         # returns exactly that many), so only field.degree powers of the embedded root σ are used
-        # below; the old construction built field.order of them and the surplus was truncated
+        # below
         embedded_root_powers = [embedded_root**power for power in range(self.field.degree)]
         embedded_scalars = []
         for scalar in self.field.elements:
@@ -676,7 +676,7 @@ class WedderburnArtinComponentTransformer:
 
         # The orthogonal idempotents G_j sum to e_start exactly: each G_j is reduced (degree
         # < deg m) and they sum to 1 modulo m(x), hence to the polynomial 1, which evaluates to
-        # e_start.  Assert the invariant rather than carry an unreachable defensive branch.
+        # e_start.
         assert not np.any(functools.reduce(operator.add, new_idempotents) - idempotent_vec)
 
         # A size-n component splits in one step into n orthogonal idempotents exactly when the
