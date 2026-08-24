@@ -146,6 +146,7 @@ def test_chain_complex(field: int = 3) -> None:
     ring_chain = objects.ChainComplex.tensor_product(ring_chain, cyclic_matrix)
     ring_chain._validate_ops()
     for ring_op in ring_chain.ops:
+        assert isinstance(ring_op, abstract.RingArray)
         ring_op.lift()
 
     # invalid chain complex constructions
