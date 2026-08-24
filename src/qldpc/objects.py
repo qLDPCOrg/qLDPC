@@ -340,11 +340,11 @@ class CayleyComplex:
             # add all edges adjacent to this node
             for aa in subset_a:
                 aa_gg = aa * gg
-                graph.add_edge(gg, aa_gg)
+                graph.add_edge(gg, aa_gg, type="L")  # "L" for left-acting
                 new_nodes.add(aa_gg)
             for bb in subset_b:
                 gg_bb = gg * bb
-                graph.add_edge(gg, gg_bb)
+                graph.add_edge(gg, gg_bb, type="R")  # "R" for right-acting
                 new_nodes.add(gg_bb)
 
             nodes_to_add |= new_nodes - old_nodes
