@@ -146,6 +146,7 @@ def test_chain_complex(field: int = 3) -> None:
     ring_chain = objects.ChainComplex.tensor_product(ring_chain, cyclic_matrix)
     ring_chain._validate_ops()
     for ring_op in ring_chain.ops:
+        # every op of a ring-valued chain is a RingArray; assert narrows the union type for .lift()
         assert isinstance(ring_op, abstract.RingArray)
         ring_op.lift()
 
