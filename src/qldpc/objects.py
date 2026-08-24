@@ -57,7 +57,7 @@ class Pauli(enum.Enum):
         if self is Pauli.Z:
             return Pauli.X
         raise ValueError(
-            f"Pauli.dual_xz only converts between Pauli.X and Pauli.Z (provided: {self})"
+            f"Pauli.swap_xz only converts between Pauli.X and Pauli.Z (provided: {self})"
         )
 
     def __str__(self) -> str:
@@ -144,10 +144,10 @@ class QuditPauli:
             raise ValueError(invalid_op)
 
         for factor in factors:
-            pauli = factor[0]
+            pauli = factor[:1]
             val_str = factor[2:-1]
             _factor = f"{pauli}({val_str})"
-            if pauli not in "XYZ" or not val_str.isnumeric() or factor != _factor:
+            if pauli not in "XYZ" or not val_str.isdecimal() or factor != _factor:
                 raise ValueError(invalid_op)
 
             val = int(val_str)
@@ -171,9 +171,6 @@ class Node:
 
     index: int
     is_data: bool = True
-
-    def __hash__(self) -> int:
-        return hash((self.index, self.is_data))
 
     def __lt__(self, other: Node) -> bool:
         if self.is_data == other.is_data:
@@ -266,9 +263,6 @@ class CayleyComplex:
     subset_a: set[abstract.GroupMember]
     subset_b: set[abstract.GroupMember]
     bipartite: bool
-
-    # geometric data
-    _graph: nx.Graph | None = None
 
     def __init__(
         self,
@@ -396,8 +390,7 @@ class ChainComplex:
     _field: type[galois.FieldArray]
     _ops: tuple[npt.NDArray[np.int_] | abstract.RingArray, ...]
 
-    # if boundary operators are defined over a group algebra, keep track of the base group and ring
-    _group: abstract.Group | None
+    # if boundary operators are defined over a group algebra, keep track of the base ring
     _ring: abstract.GroupRing | None
 
     def __init__(
@@ -435,7 +428,7 @@ class ChainComplex:
             self._validate_ops()
 
     def _validate_ops(self) -> None:
-        """Validate the consistency of this the boundary operators in this chain complex."""
+        """Validate the consistency of the boundary operators in this chain complex."""
         for op_a, op_b in zip(self.ops, self.ops[1:]):
             if op_a.shape[1] != op_b.shape[0] or np.any(op_a @ op_b):
                 raise ValueError(
@@ -574,9 +567,6 @@ class ChainComplex:
 
         if chain_a.ring is None:
             return ChainComplex([op.view(chain_field) for op in matrices], skip_validation=True)
-        ops = []
-        for matrix in matrices:
-            op = matrix.view(abstract.RingArray)
-            op._ring = chain_a.ring
-            ops.append(op)
+        # rebuild each operator through RingArray.build to coerce every entry into a ring member
+        ops = [abstract.RingArray.build(matrix, chain_a.ring) for matrix in matrices]
         return ChainComplex(ops, skip_validation=True)
