@@ -1463,10 +1463,14 @@ class QuditCode(AbstractCode):
         logical_ops = np.asanyarray(logical_ops).view(self.field)
         if not skip_validation:
             dimension = len(logical_ops) // 2
-            logical_ops_x = logical_ops[:dimension]
-            logical_ops_z = logical_ops[dimension:]
-            inner_products = logical_ops_x @ math.symplectic_conjugate(logical_ops_z).T
-            if not np.array_equal(inner_products, np.eye(dimension, dtype=int)):
+            # A valid logical basis has symplectic Gram matrix equal to the block anti-diagonal
+            # [[0, I], [-I, 0]]: the X-type logicals mutually commute, the Z-type logicals mutually
+            # commute, and logical j anticommutes only with its dual logical j + dimension.
+            gram = logical_ops @ math.symplectic_conjugate(logical_ops).T
+            expected_gram = self.field.Zeros((2 * dimension, 2 * dimension))
+            expected_gram[:dimension, dimension:] = self.field.Identity(dimension)
+            expected_gram[dimension:, :dimension] = -self.field.Identity(dimension)
+            if not np.array_equal(gram, expected_gram):
                 raise ValueError("The given logical operators have incorrect commutation relations")
             if np.any(self.matrix @ math.symplectic_conjugate(logical_ops).T):
                 raise ValueError("The given logical operators violate parity checks")

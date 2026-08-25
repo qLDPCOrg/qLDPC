@@ -324,9 +324,17 @@ def test_qudit_codes() -> None:
     with pytest.raises(ValueError, match="incorrect commutation relations"):
         two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
-    # invalid modifications of logical operators break commutation relations
+    # making an X-type logical anticommute with another X-type logical is rejected; the X-Z
+    # cross-type commutation relations alone do not detect a broken intra-type relation
     logical_ops = two_codes.get_logical_ops().copy()
-    logical_ops[0, -1] += two_codes.field(1)
+    logical_ops[1] += logical_ops[two_codes.dimension]  # Lx[1] += Lz[0]
+    with pytest.raises(ValueError, match="incorrect commutation relations"):
+        two_codes.set_logical_ops(logical_ops, skip_validation=False)
+
+    # adding a destabilizer to a logical operator preserves the commutation relations among the
+    # logical operators but violates a parity check
+    logical_ops = two_codes.get_logical_ops().copy()
+    logical_ops[0] += two_codes.get_destabilizer_ops()[0]
     with pytest.raises(ValueError, match="violate parity checks"):
         two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
