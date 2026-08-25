@@ -298,6 +298,12 @@ def test_qudit_codes() -> None:
     assert code.is_equiv_to(codes.QuditCode(code))
     assert_valid_subgraphs(code)
 
+    # parity checks whose support overlaps no other check still appear in the subgraphs, and a
+    # check with no support at all is simply omitted (it contributes no edges to the Tanner graph)
+    assert_valid_subgraphs(codes.QuditCode.from_strings(["Y Y I I", "I I Z Z"]))
+    assert_valid_subgraphs(codes.QuditCode.from_strings(["X X X"]))
+    assert_valid_subgraphs(codes.QuditCode.from_strings(["X X X", "I I I"]))
+
     # equivalence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
     assert code.is_equiv_to(redundant_code)
@@ -559,6 +565,12 @@ def test_qudit_concatenation() -> None:
     assert len(code) == 10 * len(code_5q)
     assert code.dimension == 2 * code_5q.dimension
 
+    # concatenation does not mutate the logical operators of the outer code passed by the caller
+    outer = codes.QuditCode.stack([code_5q] * len(code_5q))  # dimension == inner physical qudits
+    logical_ops_before = outer.get_logical_ops().copy()
+    codes.QuditCode.concatenate(outer, code_5q, [1, 0, 2, 3, 4])
+    assert np.array_equal(outer.get_logical_ops(), logical_ops_before)
+
     # cover some errors
     with pytest.raises(ValueError, match="different fields"):
         codes.QuditCode.concatenate(code_5q, codes.ToricCode(2, field=3))
@@ -566,7 +578,7 @@ def test_qudit_concatenation() -> None:
         codes.QuditCode.concatenate(code_5q, code_5q, [0, 1, 2])
 
 
-def test_quantum_capacity() -> None:
+def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     """Logical error rates in a code capacity model."""
     code = codes.FiveQubitCode()
 
@@ -584,6 +596,28 @@ def test_quantum_capacity() -> None:
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
+
+    # a subsystem code is decoded against its stabilizer generators rather than its more numerous,
+    # non-commuting gauge generators, so the QuditCode and CSSCode views of the same subsystem code
+    # decode identically and yield the same logical error rate
+    seed = pytestconfig.getoption("randomly_seed")
+    css_code = codes.BaconShorCode(3)
+    qudit_code = codes.QuditCode(css_code.matrix)
+    assert qudit_code.is_subsystem_code
+    np.random.seed(seed)
+    css_rate = css_code.get_logical_error_rate_func(num_samples=200, max_error_rate=0.3)(0.1)
+    np.random.seed(seed)
+    qudit_rate = qudit_code.get_logical_error_rate_func(num_samples=200, max_error_rate=0.3)(0.1)
+    assert np.allclose(qudit_rate, css_rate)
+
+    # a code over a non-binary field is decoded with a field-aware decoder: its syndrome matrix is
+    # a field array, from which the decoder is selected to match the field
+    qudit_code = codes.QuditCode(codes.BaconShorCode(3, field=3).matrix)
+    logical_error_rate_func = qudit_code.get_logical_error_rate_func(
+        num_samples=100, max_error_rate=0.2
+    )
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
 
 
 def test_qudit_to_css() -> None:
@@ -901,3 +935,13 @@ def test_css_capacity() -> None:
     )
     assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
+
+    # a subsystem code is decoded against its stabilizer generators, whose number differs from the
+    # number of parity checks (gauge generators), so a syndrome has one entry per stabilizer
+    subsystem_code = codes.BaconShorCode(3)
+    assert subsystem_code.is_subsystem_code
+    logical_error_rate_func = subsystem_code.get_logical_error_rate_func(
+        num_samples=200, max_error_rate=0.3
+    )
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate

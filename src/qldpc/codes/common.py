@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import abc
 import collections
-import dataclasses
+import copy
 import functools
 import itertools
 import random
 import warnings
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from typing import Any, TypeVar, cast
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from typing import Any, cast
 
 import galois
 import numpy as np
@@ -40,6 +40,7 @@ from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
+from ._monte_carlo import ErrorRateFunc, _get_error_and_erasure, _get_sample_allocation
 from .distance import get_distance_classical, get_distance_quantum
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
@@ -1050,6 +1051,9 @@ class QuditCode(AbstractCode):
         """
         # build a graph whose vertices are checks, and edges connect checks with overlapping support
         check_graph = nx.Graph()
+        # seed every check that appears in the Tanner graph, so that a check whose support overlaps
+        # no other check still gets colored (and its edges collected) below
+        check_graph.add_nodes_from(node for node in self.graph if not node.is_data)
         for qubit in range(len(self)):
             data_node = Node(qubit, is_data=True)
             check_nodes = self.graph.predecessors(data_node)
@@ -2066,7 +2070,9 @@ class QuditCode(AbstractCode):
         if (num_inner_blocks := len(inner_physical_to_outer_logical) // len(inner)) > 1:
             inner = inner.stack([inner] * num_inner_blocks)
 
-        # permute logical operators of the outer code
+        # permute logical operators of the outer code, working on a copy so that the caller's code
+        # object is left unmodified
+        outer = copy.copy(outer)
         outer._logical_ops = (
             outer.get_logical_ops()
             .reshape(2, outer.dimension, -1)[:, inner_physical_to_outer_logical, :]
@@ -2097,6 +2103,13 @@ class QuditCode(AbstractCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
+        For a subsystem code, errors are decoded against the stabilizer generators of the code, so
+        a syndrome has one entry per stabilizer generator.  These generators can be high-weight
+        (for example, the stabilizers of a Bacon-Shor code have weight proportional to the code's
+        linear size), which general-purpose decoders may handle poorly.  The estimate is still
+        computed correctly, but it can overestimate the logical error rate achievable with a
+        decoder tailored to the code.
+
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
@@ -2109,10 +2122,10 @@ class QuditCode(AbstractCode):
         else:
             pauli_bias_zxy = None
 
-        # construct decoders
-        decoder = decoders.get_decoder(
-            math.symplectic_conjugate(self.matrix).view(np.ndarray), **decoder_kwargs
-        )
+        # construct a decoder from the stabilizer generators of the code; the syndrome matrix is a
+        # field array, from which get_decoder selects a decoder appropriate to the field
+        stabilizer_ops = self.get_stabilizer_ops()
+        decoder = decoders.get_decoder(math.symplectic_conjugate(stabilizer_ops), **decoder_kwargs)
 
         # identify logical operators
         logical_ops = self.get_logical_ops()
@@ -2124,7 +2137,12 @@ class QuditCode(AbstractCode):
         for weight in range(1, len(sample_allocation)):
             num_failures[weight], num_discards[weight] = (
                 self._estimate_decoding_fidelity_and_variance(
-                    weight, sample_allocation[weight], decoder, logical_ops, pauli_bias_zxy
+                    weight,
+                    sample_allocation[weight],
+                    decoder,
+                    stabilizer_ops,
+                    logical_ops,
+                    pauli_bias_zxy,
                 )
             )
         return ErrorRateFunc(
@@ -2136,16 +2154,22 @@ class QuditCode(AbstractCode):
         error_weight: int,
         num_samples: int,
         decoder: decoders.Decoder,
+        stabilizer_ops: npt.NDArray[np.int_],
         logical_ops: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
+        Syndromes are computed against the stabilizer generators in stabilizer_ops, which is the
+        matrix that the decoder is built to invert.  For a subsystem code the stabilizer generators
+        are a strict subset of the parity checks (the gauge generators), so a syndrome vector has
+        one entry per stabilizer generator rather than one per gauge generator.
+
         Return logical error and discard counts.
         """
         num_failures = 0
         num_discards = 0
-        syndrome_matrix = -math.symplectic_conjugate(self.matrix)
+        syndrome_matrix = -math.symplectic_conjugate(stabilizer_ops)
         for _ in range(num_samples):
             # construct an error
             error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
@@ -3280,6 +3304,13 @@ class CSSCode(QuditCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
+        For a subsystem code, errors are decoded against the stabilizer generators of the code, so
+        a syndrome has one entry per stabilizer generator.  These generators can be high-weight
+        (for example, the stabilizers of a Bacon-Shor code have weight proportional to the code's
+        linear size), which general-purpose decoders may handle poorly.  The estimate is still
+        computed correctly, but it can overestimate the logical error rate achievable with a
+        decoder tailored to the code.
+
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
@@ -3294,14 +3325,15 @@ class CSSCode(QuditCode):
 
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
+
+        # construct decoders; the X-type and Z-type decoders can be shared when they are built from
+        # equal stabilizers with equal (fully merged) decoder arguments
+        decoder_x_kwargs = (decoder_x_kwargs or {}) | decoder_kwargs
+        decoder_z_kwargs = (decoder_z_kwargs or {}) | decoder_kwargs
         same_x_and_z = (
             np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
             and decoder_x_kwargs == decoder_z_kwargs
         )
-
-        # construct decoders
-        decoder_x_kwargs = (decoder_x_kwargs or {}) | decoder_kwargs
-        decoder_z_kwargs = (decoder_z_kwargs or {}) | decoder_kwargs
         decoder_x = decoders.get_decoder(stabilizer_ops_z, **decoder_x_kwargs)
         decoder_z = (
             decoder_x
@@ -3324,6 +3356,8 @@ class CSSCode(QuditCode):
                     sample_allocation[weight],
                     decoder_x,
                     decoder_z,
+                    stabilizer_ops_x,
+                    stabilizer_ops_z,
                     logicals_x,
                     logicals_z,
                     pauli_bias_zxy,
@@ -3339,11 +3373,19 @@ class CSSCode(QuditCode):
         num_samples: int,
         decoder_x: decoders.Decoder,
         decoder_z: decoders.Decoder,
+        stabilizer_ops_x: npt.NDArray[np.int_],
+        stabilizer_ops_z: npt.NDArray[np.int_],
         logicals_x: npt.NDArray[np.int_],
         logicals_z: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
+
+        Syndromes are computed against the stabilizer generators in stabilizer_ops_x and
+        stabilizer_ops_z, which are the matrices that decoder_z and decoder_x are respectively built
+        to invert.  For a subsystem code the stabilizer generators are a strict subset of the parity
+        checks (the gauge generators), so a syndrome vector has one entry per stabilizer generator
+        rather than one per gauge generator.
 
         Return logical error and discard counts.
         """
@@ -3360,7 +3402,7 @@ class CSSCode(QuditCode):
             error_z[error_locs_z] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_z)
             )
-            syndrome_z = self.matrix_x @ error_z
+            syndrome_z = stabilizer_ops_x @ error_z
             decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
             if erasure:
                 num_discards += 1
@@ -3379,7 +3421,7 @@ class CSSCode(QuditCode):
             error_x[error_locs_x] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_x)
             )
-            syndrome_x = self.matrix_z @ error_x
+            syndrome_x = stabilizer_ops_z @ error_x
             decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
             if erasure:
                 num_discards += 1
@@ -3388,185 +3430,6 @@ class CSSCode(QuditCode):
                 num_failures += 1
 
         return num_failures, num_discards
-
-
-OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
-
-
-@dataclasses.dataclass
-class ErrorRateFunc:
-    """Container for raw simulation data used to compute logical error and discard rates.
-
-    An instance of this class is built and returned by the .get_logical_error_rate_func method of
-    ClassicalCode, QuditCode, and CSSCode.  If
-
-        func = code.get_logical_error_rate_func(...),
-
-    then "func" takes a physical error rate "p" as an argument, and returns two numbers:
-    (1) A logical error rate.
-    (2) An uncertainty (standard error) in the logical error rate.
-    If called with an array of physical error rates, this function returns two arrays.
-
-    If called with the keyword argument discard_rate=True, compute a discard rate rather than an
-    error rate.
-    """
-
-    # number of times we sampled each error weight
-    num_samples: npt.NDArray[np.int_]
-
-    # number of failures and discards by error weight
-    num_failures: npt.NDArray[np.int_]
-    num_discards: npt.NDArray[np.int_]
-
-    num_error_locations: int  # total number of error locations
-    max_error_rate: float  # largest physical error rate we can consider
-
-    @property
-    def max_error_weight(self) -> int:
-        """Max error weight considered."""
-        return self.num_samples.size - 1
-
-    @functools.cached_property
-    def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight."""
-        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
-        num_samples_kept[num_samples_kept == 0] = np.inf
-        return self.num_failures / num_samples_kept
-
-    @functools.cached_property
-    def infidelity_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the infidelity at each error weight."""
-        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
-        num_samples_kept[num_samples_kept == 0] = np.inf
-        return self.infidelities * (1 - self.infidelities) / num_samples_kept
-
-    @functools.cached_property
-    def discard_rates(self) -> npt.NDArray[np.floating]:
-        """Discard rate at each error weight."""
-        return self.num_discards / self.num_samples
-
-    @functools.cached_property
-    def discard_rate_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the discard rate at each error weight."""
-        return self.discard_rates * (1 - self.discard_rates) / self.num_samples
-
-    def __call__(
-        self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
-    ) -> tuple[OneOrManyFloats, OneOrManyFloats]:
-        """Compute the logical error rate (or discard rate) at a given physical error rate."""
-        if isinstance(error_rate, Iterable):
-            results = [self(rate, discard_rate=discard_rate) for rate in error_rate]
-            return (  # type:ignore[return-value]
-                np.array([result[0] for result in results]),
-                np.array([result[1] for result in results]),
-            )
-        if error_rate > self.max_error_rate:
-            raise ValueError(
-                "This ErrorRateFunc does not cover physical error rates greater than"
-                f" {self.max_error_rate}.  Try calling <YOUR_CODE>.get_logical_error_rate_func with"
-                " a larger max_error_rate."
-            )
-        weight_probs = _get_error_probs_by_weight(
-            self.num_error_locations, error_rate, self.max_error_weight
-        )
-        if discard_rate:
-            values = 1 - self.discard_rates
-            variances = self.discard_rate_variances
-        else:
-            values = 1 - self.infidelities
-            variances = self.infidelity_variances
-        value = weight_probs @ values
-        error = np.sqrt(weight_probs**2 @ variances)
-        return 1 - float(value), float(error)
-
-    def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
-        """Upper bound on the truncation error in the infidelity or discard rate estimate."""
-        if isinstance(error_rate, Iterable):
-            values = [self.truncation_error_bound(rate) for rate in error_rate]
-            return np.array(values)  # type:ignore[return-value]
-        weight_probs = _get_error_probs_by_weight(
-            self.num_error_locations, error_rate, self.max_error_weight
-        )
-        return float(1.0 - weight_probs.sum())
-
-
-def _get_sample_allocation(
-    num_samples: int, block_length: int, max_error_rate: float
-) -> npt.NDArray[np.int_]:
-    """Construct an allocation of samples by error weight.
-
-    This method returns an array whose k-th entry is the number of samples to devote to errors of
-    weight k, given a maximum error rate that we care about.
-    """
-    probs = _get_error_probs_by_weight(block_length, max_error_rate)
-
-    # zero out the distribution at k=0, flatten it out to the left of its peak, and renormalize
-    probs[0] = 0
-    probs[1 : np.argmax(probs)] = probs.max()
-    probs /= np.sum(probs)
-
-    # assign sample numbers according to the probability distribution constructed above,
-    # increasing num_samples if necessary to deal with weird edge cases from round-off errors
-    while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
-        num_samples += 1  # pragma: no cover
-
-    # allocate one sample to k=0 to fix an edge case in ErrorRateFunc
-    sample_allocation[0] = 1
-
-    # truncate trailing zeros and return
-    nonzero = np.nonzero(sample_allocation)[0]
-    return sample_allocation[: nonzero[-1] + 1]
-
-
-def _get_error_probs_by_weight(
-    block_length: int, error_rate: float, max_weight: int | None = None
-) -> npt.NDArray[np.floating]:
-    """Build an array whose k-th entry is the probability of a weight-k error in a code.
-
-    If a code has block_length n and each bit has an independent probability ``p = error_rate`` of
-    an error, then the probability of k errors is ``(n choose k) p**k (1-p)**(n-k)``.
-
-    We compute the above probability using logarithms because otherwise the combinatorial factor
-    ``(n choose k)`` might be too large to handle.
-    """
-    max_weight = max_weight or block_length
-
-    # deal with some pathological cases
-    if error_rate == 0:
-        probs = np.zeros(max_weight + 1)
-        probs[0] = 1
-        return probs
-    elif error_rate == 1:
-        probs = np.zeros(max_weight + 1)
-        probs[block_length:] = 1
-        return probs
-
-    log_error_rate = np.log(error_rate)
-    log_one_minus_error_rate = np.log(1 - error_rate)
-    log_probs = [
-        math.log_choose(block_length, kk)
-        + kk * log_error_rate
-        + (block_length - kk) * log_one_minus_error_rate
-        for kk in range(max_weight + 1)
-    ]
-    return np.exp(log_probs)
-
-
-def _get_error_and_erasure(
-    decoder: decoders.Decoder,
-    syndrome: galois.FieldArray,
-) -> tuple[galois.FieldArray, bool]:
-    """Decode a syndrome and return the inferred error together with an erasure flag.
-
-    If the decoder has a has_erasure_bit attribute set to True (e.g., a LookupDecoder constructed
-    with add_erasure_bit=True), the last element of the decoded vector is treated as the erasure
-    bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
-    correction was found normally.  The erasure bit is stripped before returning the error.
-    """
-    error = decoder.decode(syndrome.view(np.ndarray))
-    if getattr(decoder, "has_erasure_bit", False):
-        return error[:-1].view(type(syndrome)), bool(error[-1])
-    return error.view(type(syndrome)), False
 
 
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:

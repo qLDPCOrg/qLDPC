@@ -1,0 +1,112 @@
+"""Unit tests for _monte_carlo.py.
+
+Copyright 2023 The qLDPC Authors and Infleqtion Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+
+from __future__ import annotations
+
+import galois
+import numpy as np
+import pytest
+
+from qldpc.codes import _monte_carlo
+
+
+def test_get_error_probs_by_weight() -> None:
+    """Probability of a weight-k error under an i.i.d. error model."""
+    # a zero error rate puts all probability on the weight-0 error
+    probs = _monte_carlo._get_error_probs_by_weight(5, 0.0)
+    assert probs[0] == 1 and probs[1:].sum() == 0
+
+    # a unit error rate puts all probability on the maximum weight
+    probs = _monte_carlo._get_error_probs_by_weight(5, 1.0)
+    assert probs.shape == (6,) and probs[5] == 1 and probs[:5].sum() == 0
+
+    # an intermediate error rate gives a normalized truncated binomial distribution
+    probs = _monte_carlo._get_error_probs_by_weight(5, 0.3, max_weight=3)
+    assert probs.shape == (4,) and np.all(probs >= 0)
+    assert np.isclose(probs.sum(), sum(_monte_carlo._get_error_probs_by_weight(5, 0.3)[:4]))
+
+
+def test_get_sample_allocation() -> None:
+    """Allocation of samples across error weights."""
+    allocation = _monte_carlo._get_sample_allocation(1000, block_length=10, max_error_rate=0.2)
+    assert allocation[0] == 1  # exactly one sample is reserved for the weight-0 error
+    assert np.sum(allocation) >= 1000  # every requested sample is allocated
+    assert allocation[-1] > 0  # trailing zeros are truncated
+
+
+def test_get_error_and_erasure() -> None:
+    """Decoding a syndrome, with and without an erasure bit."""
+    field = galois.GF2
+    syndrome = field([1, 0, 1])
+
+    class _Decoder:
+        def __init__(self, output: np.ndarray, has_erasure_bit: bool = False) -> None:
+            self.output = output
+            if has_erasure_bit:
+                self.has_erasure_bit = True
+
+        def decode(self, syndrome: np.ndarray) -> np.ndarray:
+            return self.output
+
+    # a plain decoder returns the inferred error and no erasure
+    decoder = _Decoder(np.array([1, 1, 0, 0], dtype=np.uint8))
+    error, erasure = _monte_carlo._get_error_and_erasure(decoder, syndrome)
+    assert not erasure and isinstance(error, field) and np.array_equal(error, field([1, 1, 0, 0]))
+
+    # an erasure-enabled decoder strips the last (erasure) bit and reports it
+    decoder = _Decoder(np.array([1, 1, 0, 0, 1], dtype=np.uint8), has_erasure_bit=True)
+    error, erasure = _monte_carlo._get_error_and_erasure(decoder, syndrome)
+    assert erasure and np.array_equal(error, field([1, 1, 0, 0]))
+
+
+def test_error_rate_func() -> None:
+    """Convert raw failure and discard counts into error and discard rate estimates."""
+    func = _monte_carlo.ErrorRateFunc(
+        num_samples=np.array([1, 100, 100]),
+        num_failures=np.array([0, 10, 50]),
+        num_discards=np.array([0, 0, 100]),  # every weight-2 sample is discarded
+        num_error_locations=5,
+        max_error_rate=0.5,
+    )
+    assert func.max_error_weight == 2
+
+    # a weight whose samples are all discarded has an undefined infidelity, recorded as zero
+    assert func.infidelities[2] == 0
+    assert np.isclose(func.infidelities[1], 0.1)
+    assert np.all(func.infidelity_variances >= 0)
+    assert np.array_equal(func.discard_rates, [0, 0, 1])
+    assert np.all(func.discard_rate_variances >= 0)
+
+    # a scalar physical error rate yields a (rate, uncertainty) pair, for errors and discards alike
+    error_rate, uncertainty = func(0.1)
+    assert 0 <= error_rate <= 1 and uncertainty >= 0
+    discard_rate, uncertainty = func(0.1, discard_rate=True)
+    assert 0 <= discard_rate <= 1 and uncertainty >= 0
+
+    # an iterable of physical error rates yields arrays of rates and uncertainties
+    rates, uncertainties = func([0.0, 0.1])
+    rates, uncertainties = np.asarray(rates), np.asarray(uncertainties)
+    assert rates.shape == (2,) and uncertainties.shape == (2,)
+    assert rates[0] == 0  # a zero physical error rate gives a zero logical error rate
+
+    # physical error rates beyond the constructed range are rejected
+    with pytest.raises(ValueError, match="does not cover"):
+        func(0.9)
+
+    # the truncation error bound is available for scalar and iterable inputs
+    assert 0 <= func.truncation_error_bound(0.1) <= 1
+    assert np.asarray(func.truncation_error_bound([0.1, 0.2])).shape == (2,)
