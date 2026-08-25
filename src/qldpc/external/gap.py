@@ -1,5 +1,7 @@
 """Module for communicating with the GAP computer algebra system.
 
+See https://www.gap-system.org.
+
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,7 +47,11 @@ def is_callable() -> bool:
 
 @functools.cache
 def is_installed() -> bool:
-    """Is GAP 4 installed?"""
+    """Is GAP 4 installed?
+
+    When GAP is not callable from the command line, this prompts on standard input, so it blocks in
+    a non-interactive context (and raises ``EOFError`` if standard input is closed).
+    """
     if is_callable():
         return True
     print("GAP 4 cannot be called from the command line (with 'gap').")
@@ -67,7 +73,17 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
 
 
 def get_output(*commands: str, use_pipe: bool = False) -> str:
-    """Get the output from the given GAP commands."""
+    """Get the output from the given GAP commands.
+
+    When GAP is callable this runs it in a subprocess.  Otherwise it falls back to a manual workflow
+    that prints the commands, copies them to the system clipboard, and reads pasted output from
+    standard input (blocking, and raising ``EOFError`` if standard input is closed), caching the
+    result to disk.
+
+    Raises:
+        FileNotFoundError: If GAP 4 is not installed.
+        ValueError: If GAP reports an error (a nonzero exit code or output on standard error).
+    """
     if not is_installed():
         raise FileNotFoundError("GAP 4 is required to proceed, but is not installed")
 
@@ -153,13 +169,17 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
 def require_package(name: str, repo: str | None = None) -> bool:
     """Enforce the installation of a GAP package.
 
+    If the package is missing and GAP is callable, this prompts on standard input and, with the
+    user's consent, installs it by running ``git clone`` into the GAP root's ``pkg`` directory.
+
     Args:
         name: The GAP package name.
         repo: The repository from which to git clone the package, if necessary.
             Defaults to f"https://github.com/gap-packages/{name}" if no repository is provided.
 
     Raises:
-        ValueError: If the package is not installed and an attempt to install it fails.
+        ModuleNotFoundError: If the package is missing and GAP cannot be called to install it.
+        ValueError: If the user declines to install a missing package, or the installation fails.
 
     Returns:
         True if the requirement is satisfied (raises an error otherwise).

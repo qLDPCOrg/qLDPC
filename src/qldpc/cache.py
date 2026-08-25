@@ -41,7 +41,11 @@ def get_disk_cache_path(
 def get_disk_cache(
     cache_name: str, *, cache_dir: pathlib.Path | str | None = None
 ) -> diskcache.Cache:
-    """Retrieve a dictionary-like cache object."""
+    """Retrieve a dictionary-like cache object.
+
+    Under pytest this returns a fresh in-memory ``dict`` instead of an on-disk cache, so tests never
+    read or write the persistent cache.
+    """
     if running_with_pytest():
         return {}
     return diskcache.Cache(get_disk_cache_path(cache_name, cache_dir=cache_dir))
@@ -53,7 +57,11 @@ def use_disk_cache(
     cache_dir: pathlib.Path | str | None = None,
     key_func: Callable[..., Hashable] | None = None,
 ) -> Callable[[Callable[Params, Any]], Callable[Params, Any]]:
-    """Decorator to cache results to disk."""
+    """Decorator to cache results to disk.
+
+    Under pytest this is a no-op: it returns the undecorated function, so results are never cached
+    during tests.
+    """
 
     def decorator(function: Callable[Params, Any]) -> Callable[Params, Any]:
         if running_with_pytest():

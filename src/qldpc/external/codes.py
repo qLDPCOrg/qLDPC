@@ -36,7 +36,11 @@ import qldpc.external.gap
     key_func=lambda code: "".join(code.split()),  # strip whitespace
 )
 def get_classical_code(code: str) -> tuple[list[list[int]], int]:
-    """Retrieve a classical code from GAP."""
+    """Retrieve a classical code from GAP.
+
+    Requires the GAP GUAVA package (https://www.gap-system.org/Packages/guava.html); installing a
+    missing package may prompt and run ``git clone``, and this runs GAP in a subprocess.
+    """
     qldpc.external.gap.require_package("GUAVA")
 
     # Run GAP commands.  Each check-matrix entry is reported as its discrete logarithm base the
@@ -84,6 +88,9 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int]:
 @qldpc.cache.use_disk_cache("qecdb")
 def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     """Retrieve a quantum code from qecdb.org.
+
+    Fetches and scrapes the code's HTML page at https://qecdb.org, so this requires network access
+    and is sensitive to that page's layout.
 
     Return the stabilizers of the code, its distance, and whether it's CSS.
     """
@@ -174,11 +181,16 @@ def get_distance_bound(
 ) -> int:
     """Estimate the distance of a quantum code using GAP's QDistRnd package.
 
+    The estimate is a randomized upper bound (QDistRnd samples random codewords).  Requires the
+    GAP GUAVA and QDistRnd packages; installing a missing package may prompt and run ``git clone``,
+    and this runs GAP in a subprocess.
+
     If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
     See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
     Note that QDistRnd does not support subsystem codes.  In the case of a CSS code, however, we
     can still compute the Z-distance by promoting all Z-type gauge group generators to stabilizers.
+    ``maxav`` is passed through to QDistRnd as a raw GAP value (default "fail"); see its docs above.
     """
     qldpc.external.gap.require_package("GUAVA")
     qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
