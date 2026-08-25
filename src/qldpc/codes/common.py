@@ -794,16 +794,14 @@ class ClassicalCode(AbstractCode):
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
         for weight in range(1, len(sample_allocation)):
-            num_failures[weight], num_discards[weight] = (
-                self._estimate_decoding_infidelity_and_variance(
-                    weight, sample_allocation[weight], decoder
-                )
+            num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
+                weight, sample_allocation[weight], decoder
             )
         return ErrorRateFunc(
             sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
         )
 
-    def _estimate_decoding_infidelity_and_variance(
+    def _sample_failure_and_discard_counts(
         self, error_weight: int, num_samples: int, decoder: decoders.Decoder
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
@@ -1103,6 +1101,9 @@ class QuditCode(AbstractCode):
                 check = " ".join(check)
             return check.split()
 
+        if not checks:
+            raise ValueError("Cannot build a QuditCode from an empty collection of parity checks")
+
         check_ops = [parse_check(check) for check in checks]
 
         num_checks = len(checks)
@@ -1110,7 +1111,10 @@ class QuditCode(AbstractCode):
         matrix = np.zeros((num_checks, 2, num_qudits), dtype=int)
         for index, check_op in enumerate(check_ops):
             if len(check_op) != num_qudits:
-                raise ValueError(f"Parity checks 0 and {index} have different lengths")
+                raise ValueError(
+                    f"Parity checks 0 and {index} have different lengths"
+                    f" ({num_qudits} and {len(check_op)})"
+                )
             for qudit, op in enumerate(check_op):
                 matrix[index, :, qudit] = operator.from_string(op).value
 
@@ -1141,7 +1145,7 @@ class QuditCode(AbstractCode):
         if self.field is not galois.GF2:
             raise ValueError(
                 "You asked for the number of qubits in this code, but this code is built out of "
-                rf"{self.field.order}-dimensional qudits.\nTry calling {type(self)}.num_qudits."
+                f"{self.field.order}-dimensional qudits.  Try calling {type(self).__name__}.num_qudits."
             )
         return len(self)
 
@@ -1494,11 +1498,6 @@ class QuditCode(AbstractCode):
         to get ``Lz = (Kz @ Ω.T @ Lx.T)**-1 @ Kz``.
         """
         logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
-        if logicals_ops_x.shape[1] == len(self):  # pragma: no cover
-            # assume the logicals have only X support
-            logicals_ops_x = np.hstack(
-                [logicals_ops_x, self.field.Zeros((self.dimension, len(self)))]
-            ).view(self.field)
         old_logicals_z = self.get_logical_ops(Pauli.Z, symplectic=True)
         basis_change = np.linalg.inv(math.symplectic_conjugate(old_logicals_z) @ logicals_ops_x.T)
         new_logicals_z = basis_change @ old_logicals_z
@@ -1528,11 +1527,6 @@ class QuditCode(AbstractCode):
         to get ``Lx = (Kx @ Ω @ Lz.T)**-1 @ Kx``.
         """
         logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
-        if logicals_ops_z.shape[1] == len(self):  # pragma: no cover
-            # assume the logicals have only Z support
-            logicals_ops_z = np.hstack(
-                [self.field.Zeros((self.dimension, len(self))), logicals_ops_z]
-            ).view(self.field)
         old_logicals_x = self.get_logical_ops(Pauli.X, symplectic=True)
         basis_change = np.linalg.inv(old_logicals_x @ math.symplectic_conjugate(logicals_ops_z).T)
         new_logicals_x = basis_change @ old_logicals_x
@@ -1616,6 +1610,12 @@ class QuditCode(AbstractCode):
         Destabilizers are defined relative to a specific minimal choice of stabilizer generators.
         This method first considers the stabilizer matrix built by self.get_stabilizer_ops().  If
         that choice is overcomplete, this method uses self.get_stabilizer_ops(canonicalized=True).
+
+        If a pauli (Pauli.X or Pauli.Z) is provided, return only the destabilizers whose leading
+        (first nonzero) entry has that type.  Since each destabilizer anticommutes with the single
+        stabilizer generator it is paired with, these are the destabilizers dual to the stabilizer
+        generators of the opposite type: Pauli.X selects the destabilizers dual to the Z-type
+        stabilizers, and Pauli.Z those dual to the X-type stabilizers.
 
         The symplectic argument is provided for compatibility with CSSCode.get_destabilizer_ops, and
         must always be True for a non-CSS code.
@@ -2135,21 +2135,19 @@ class QuditCode(AbstractCode):
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
         for weight in range(1, len(sample_allocation)):
-            num_failures[weight], num_discards[weight] = (
-                self._estimate_decoding_fidelity_and_variance(
-                    weight,
-                    sample_allocation[weight],
-                    decoder,
-                    stabilizer_ops,
-                    logical_ops,
-                    pauli_bias_zxy,
-                )
+            num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
+                weight,
+                sample_allocation[weight],
+                decoder,
+                stabilizer_ops,
+                logical_ops,
+                pauli_bias_zxy,
             )
         return ErrorRateFunc(
             sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
         )
 
-    def _estimate_decoding_fidelity_and_variance(
+    def _sample_failure_and_discard_counts(
         self,
         error_weight: int,
         num_samples: int,
@@ -2236,7 +2234,13 @@ class CSSCode(QuditCode):
         is_subsystem_code: bool | None = None,
         promise_equal_distance_xz: bool = False,  # do X and Z logicals have equal minimum weight?
     ) -> None:
-        """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks."""
+        """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks.
+
+        If promise_equal_distance_xz is True, the X-type and Z-type logical operators are assumed to
+        have equal minimum weight, which lets the code distance be computed from one type alone.
+        This promise is trusted rather than verified: passing True when it does not hold makes
+        get_distance return an incorrect (and compute-order-dependent) distance.
+        """
         self._code_x = ClassicalCode(code_x, field)  # X-type parity checks, measuring Z-type errors
         self._code_z = ClassicalCode(code_z, field)  # Z-type parity checks, measuring X-type errors
         self._field = self.code_x.field
@@ -2941,7 +2945,7 @@ class CSSCode(QuditCode):
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Method for subclasses to compute specialized exact distance calculations."""
-        return NotImplemented  # pragma: no cover
+        return NotImplemented
 
     def get_distance_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
         """Retrieve a distance, if known.
@@ -2967,8 +2971,8 @@ class CSSCode(QuditCode):
     def get_distance_bound(
         self,
         num_trials: int = 1,
-        pauli: PauliXZ | None = None,
         *,
+        pauli: PauliXZ | None = None,
         cutoff: int | None = None,
         **bound_kwargs: Any,
     ) -> int | float:
@@ -3351,7 +3355,7 @@ class CSSCode(QuditCode):
         num_discards = np.zeros(sample_allocation.size, dtype=int)
         for weight in range(1, len(sample_allocation)):
             num_failures[weight], num_discards[weight] = (
-                self._estimate_css_decoding_fidelity_and_variance(
+                self._sample_css_failure_and_discard_counts(
                     weight,
                     sample_allocation[weight],
                     decoder_x,
@@ -3367,7 +3371,7 @@ class CSSCode(QuditCode):
             sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
         )
 
-    def _estimate_css_decoding_fidelity_and_variance(
+    def _sample_css_failure_and_discard_counts(
         self,
         error_weight: int,
         num_samples: int,

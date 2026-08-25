@@ -278,7 +278,9 @@ def get_random_qudit_code(qudits: int, checks: int, field: int = 2) -> codes.Qud
 def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
     """Random qubit code."""
     assert get_random_qudit_code(num_qubits, num_checks).num_qubits == num_qubits
-    with pytest.raises(ValueError, match="3-dimensional qudits"):
+    with pytest.raises(
+        ValueError, match=r"3-dimensional qudits\.\s+Try calling QuditCode\.num_qudits"
+    ):
         assert get_random_qudit_code(num_qubits, num_checks, field=3).num_qubits
 
 
@@ -406,8 +408,10 @@ def test_qudit_stabilizers(field: int, bits: int = 5, checks: int = 3) -> None:
     assert code_a == code_b
     assert strings == code_b.get_strings()
 
-    with pytest.raises(ValueError, match="different lengths"):
+    with pytest.raises(ValueError, match=r"different lengths \(1 and 2\)"):
         codes.QuditCode.from_strings(["I", "II"], field=field)
+    with pytest.raises(ValueError, match="empty collection"):
+        codes.QuditCode.from_strings([], field=field)
 
 
 def test_from_qecdb_id() -> None:
@@ -789,6 +793,10 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
 def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
+
+    # a bare CSSCode has no specialized exact-distance method, so it falls back to brute force
+    bare_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
+    assert bare_code.get_distance_exact() == 3
 
     # qubit code distance
     code = codes.QuditCode(codes.SHPCode(codes.RepetitionCode(2)).matrix).to_css()
