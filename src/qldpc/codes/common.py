@@ -1187,6 +1187,15 @@ class QuditCode(AbstractCode):
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
         always be True for a non-CSS code.
         """
+        # Subclasses store logical operators in their own format in the shared self._logical_ops
+        # cache (for example, CSSCode caches the block-diagonal single-type form).  If this base
+        # implementation is invoked directly on such a subclass instance, defer to the subclass so
+        # that the cache is read and written in that subclass's format.
+        if type(self).get_logical_ops is not QuditCode.get_logical_ops:
+            return type(self).get_logical_ops(
+                self, pauli, recompute=recompute, symplectic=symplectic
+            )
+
         assert symplectic is True
         assert pauli is None or pauli in PAULIS_XZ
 

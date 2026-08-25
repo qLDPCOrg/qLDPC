@@ -711,6 +711,13 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert nx.utils.graphs_equal(subgraphs[0], code.get_graph(Pauli.X))
     assert nx.utils.graphs_equal(subgraphs[1], code.get_graph(Pauli.Z))
 
+    # invoking the QuditCode base get_logical_ops on a CSSCode instance defers to the CSSCode
+    # implementation, so it does not populate the shared cache with a different-format basis
+    expected_logicals_x = codes.SurfaceCode(3).get_logical_ops(Pauli.X, symplectic=True)
+    css_code = codes.SurfaceCode(3)  # a fresh instance with an empty logical-operator cache
+    codes.QuditCode.get_logical_ops(css_code, None)
+    assert np.array_equal(css_code.get_logical_ops(Pauli.X, symplectic=True), expected_logicals_x)
+
 
 def test_css_from_strings() -> None:
     """Construct a CSSCode from parity check strings."""
