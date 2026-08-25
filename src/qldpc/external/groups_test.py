@@ -91,6 +91,13 @@ def test_maybe_get_generators_from_groupnames() -> None:
     ):
         external.groups.maybe_get_generators_from_groupnames(GROUP)
 
+    # group webpage is unreachable
+    with (
+        unittest.mock.patch("qldpc.external.groups.get_group_url", return_value=GROUP_URL),
+        unittest.mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("message")),
+    ):
+        assert external.groups.maybe_get_generators_from_groupnames(GROUP) is None
+
     # everything works as expected
     mock_page = get_mock_page(MOCK_GROUP_HTML)
     with (
@@ -98,6 +105,14 @@ def test_maybe_get_generators_from_groupnames() -> None:
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
     ):
         assert external.groups.maybe_get_generators_from_groupnames(GROUP) == GENERATORS
+
+
+def test_parse_gap_permutations() -> None:
+    """Parse GAP permutations, tolerating blank lines and the identity."""
+    # a blank line between permutations must not create a spurious identity generator
+    assert external.groups.parse_gap_permutations("(1,2)\n\n(3,4)") == [[(0, 1)], [(2, 3)]]
+    # the identity permutation parses to a generator with no cycles
+    assert external.groups.parse_gap_permutations("()") == [[]]
 
 
 def test_maybe_get_generators_from_gap() -> None:
@@ -213,9 +228,19 @@ def test_get_small_group_number() -> None:
     order, number = 16, 14
     text = rf"<td>{order},{number}</td>"
 
-    # fail to determine group number
+    # fail to determine group number: webpage is unreachable
     with (
         unittest.mock.patch("qldpc.external.groups.maybe_get_webpage", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        pytest.raises(ValueError, match="Cannot determine"),
+    ):
+        external.groups.get_small_group_number(order)
+
+    # fail to determine group number: webpage has no matching entries
+    with (
+        unittest.mock.patch(
+            "qldpc.external.groups.maybe_get_webpage", return_value="<html></html>"
+        ),
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
         pytest.raises(ValueError, match="Cannot determine"),
     ):

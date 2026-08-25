@@ -93,9 +93,10 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
             text=True,
             check=False,
         )
-        if result.stderr:
+        if result.returncode or result.stderr:
             raise ValueError(
-                f"Error encountered when running GAP:\n{result.stderr}\n\n"
+                f"Error encountered when running GAP (exit code {result.returncode}):\n"
+                f"{result.stderr}\n\n"
                 f"GAP command:\n{' '.join(commands)}"
             )
         return result.stdout
@@ -122,7 +123,6 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
         )
         return output
 
-    pyperclip.copy(command)
     print("===============================================================================")
     print("NOTE:")
     try:

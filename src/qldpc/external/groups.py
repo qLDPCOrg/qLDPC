@@ -146,6 +146,8 @@ def get_small_group_number(order: int) -> int:
         raise ValueError("Cannot determine the number of small groups")
 
     matches = re.findall(rf"<td>{order},([0-9]+)</td>", page_html)
+    if not matches:
+        raise ValueError("Cannot determine the number of small groups")
     return max(int(match) for match in matches)
 
 
@@ -217,7 +219,11 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
     if group_url is None:
         # we cannot access the webpage
         return None
-    group_page = urllib.request.urlopen(group_url)
+    try:
+        group_page = urllib.request.urlopen(group_url, timeout=10)
+    except (urllib.error.URLError, TimeoutError):
+        # we cannot access the webpage
+        return None
     group_page_html = group_page.read().decode("utf-8")
 
     # extract section with the generators we are after
@@ -242,6 +248,9 @@ def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> Generator
     """
     parsed_permutations = []
     for line in permutations.strip().splitlines():
+        if not line.strip():
+            continue
+
         # extract list of cycles, where each cycle is a tuple of integers
         cycle_strings = line.strip()[1:-1].split(")(")
         try:
@@ -286,9 +295,9 @@ def maybe_get_webpage(order: int) -> str | None:
     """Try to retrieve the webpage listing all groups up to a given order."""
     try:
         url = GROUPNAMES_URL + ("index500.html" if order > 60 else "")
-        page = urllib.request.urlopen(url)
+        page = urllib.request.urlopen(url, timeout=10)
         return page.read().decode("utf-8")
-    except (urllib.error.URLError, urllib.error.HTTPError):
+    except (urllib.error.URLError, TimeoutError):
         # we cannot access the webpage
         return None
 
