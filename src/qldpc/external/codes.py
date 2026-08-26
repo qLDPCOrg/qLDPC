@@ -64,13 +64,14 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int]:
     field: int | None = None
     logarithms = []
     for line in code_str.splitlines():
-        if not line.strip():
+        line = line.strip()
+        if not line:
             continue
 
         if field is None and (match := re.search(r"GF\(([0-9]+(\^[0-9]+)?)\)", line)):
             base, exponent, *_ = (match.group(1) + "^1").split("^")
             field = int(base) ** int(exponent)
-        else:
+        elif line.startswith("["):
             logarithms.append(ast.literal_eval(line))
 
     if field is None:
@@ -97,7 +98,7 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     url = f"https://qecdb.org/codes/{code_id}"
     try:
         lines = urllib.request.urlopen(url, timeout=10).read().decode("utf-8").splitlines()
-    except urllib.error.URLError as exception:
+    except (urllib.error.URLError, TimeoutError) as exception:
         raise RuntimeError(f"Cannot access {url}") from exception
 
     stab_line = next((line for line in lines if "<td>H</td>" in line), None)
