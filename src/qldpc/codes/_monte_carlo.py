@@ -69,29 +69,46 @@ class ErrorRateFunc:
         """Max error weight considered."""
         return self.num_samples.size - 1
 
+    @staticmethod
+    def _as_divisor(counts: npt.NDArray[np.int_]) -> npt.NDArray[np.floating]:
+        """Cast sample counts to float for use as a divisor, mapping zeros to infinity.
+
+        Dividing by infinity sends the corresponding rate and variance to zero rather than to nan
+        or inf.  The reachable case is a weight whose samples were all discarded (zero kept
+        samples): it is then recorded as zero infidelity with zero variance, i.e. a weight that
+        never fails and is known to do so exactly.  This is optimistic -- such a weight carries no
+        information -- and is the zero-kept-samples end of the same effect that collapses the
+        variance to zero when a weight sees no failures.  A principled treatment (e.g. a Jeffreys
+        posterior) is deferred; see the error-bar follow-up notes.
+        """
+        divisor = counts.astype(float)
+        divisor[divisor == 0] = np.inf
+        return divisor
+
     @functools.cached_property
     def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight."""
-        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
-        num_samples_kept[num_samples_kept == 0] = np.inf
-        return self.num_failures / num_samples_kept
+        """Mean infidelity at each error weight.
+
+        A weight whose samples were all discarded has no kept samples and is reported as zero
+        infidelity; see _as_divisor for the caveat this carries.
+        """
+        return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
 
     @functools.cached_property
     def infidelity_variances(self) -> npt.NDArray[np.floating]:
         """Variance of the infidelity at each error weight."""
-        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
-        num_samples_kept[num_samples_kept == 0] = np.inf
+        num_samples_kept = self._as_divisor(self.num_samples - self.num_discards)
         return self.infidelities * (1 - self.infidelities) / num_samples_kept
 
     @functools.cached_property
     def discard_rates(self) -> npt.NDArray[np.floating]:
         """Discard rate at each error weight."""
-        return self.num_discards / self.num_samples
+        return self.num_discards / self._as_divisor(self.num_samples)
 
     @functools.cached_property
     def discard_rate_variances(self) -> npt.NDArray[np.floating]:
         """Variance of the discard rate at each error weight."""
-        return self.discard_rates * (1 - self.discard_rates) / self.num_samples
+        return self.discard_rates * (1 - self.discard_rates) / self._as_divisor(self.num_samples)
 
     def __call__(
         self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
@@ -180,8 +197,13 @@ def _get_error_probs_by_weight(
         probs[0] = 1
         return probs
     elif error_rate == 1:
+        # every location has an error, so the weight is exactly block_length with probability 1.
+        # If block_length exceeds max_weight then this weight lies outside the array and its
+        # probability is fully truncated, so leave all entries at zero (the missing mass is
+        # reported by truncation_error_bound) rather than indexing past the end of the array.
         probs = np.zeros(max_weight + 1)
-        probs[block_length:] = 1
+        if block_length <= max_weight:
+            probs[block_length] = 1
         return probs
 
     log_error_rate = np.log(error_rate)
