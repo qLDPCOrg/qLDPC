@@ -1187,15 +1187,6 @@ class QuditCode(AbstractCode):
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
         always be True for a non-CSS code.
         """
-        # Subclasses store logical operators in their own format in the shared self._logical_ops
-        # cache (for example, CSSCode caches the block-diagonal single-type form).  If this base
-        # implementation is invoked directly on such a subclass instance, defer to the subclass so
-        # that the cache is read and written in that subclass's format.
-        if type(self).get_logical_ops is not QuditCode.get_logical_ops:
-            return type(self).get_logical_ops(
-                self, pauli, recompute=recompute, symplectic=symplectic
-            )
-
         assert symplectic is True
         assert pauli is None or pauli in PAULIS_XZ
 
@@ -1489,6 +1480,14 @@ class QuditCode(AbstractCode):
         self._dimension = len(logical_ops) // 2
         return self
 
+    def _validate_logical_ops_shape(self, logical_ops: galois.FieldArray) -> None:
+        """Require a 2D matrix with one row per logical qudit."""
+        if logical_ops.ndim != 2 or len(logical_ops) != self.dimension:
+            raise ValueError(
+                f"Expected {self.dimension} logical operators, got an array of shape "
+                f"{logical_ops.shape}"
+            )
+
     def set_logical_ops_x(
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
@@ -1509,8 +1508,19 @@ class QuditCode(AbstractCode):
 
         Plugging (1) into (2), we find ``M = (Kz @ Ω.T @ Lx.T)**-1``, and in turn plug M into (1)
         to get ``Lz = (Kz @ Ω.T @ Lx.T)**-1 @ Kz``.
+
+        The X-type logical operators are given by a matrix with shape ``(k, 2*n)``.  As a
+        convenience, a matrix with shape ``(k, n)`` is also accepted, in which case its entries are
+        taken to be the X-type support of X-only logical operators (that is, with zero Z-type
+        support).
         """
         logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
+        self._validate_logical_ops_shape(logicals_ops_x)
+        if logicals_ops_x.shape[1] == len(self):
+            # the given logical operators have only X-type support
+            logicals_ops_x = np.hstack(
+                [logicals_ops_x, self.field.Zeros((self.dimension, len(self)))]
+            ).view(self.field)
         old_logicals_z = self.get_logical_ops(Pauli.Z, symplectic=True)
         basis_change = np.linalg.inv(math.symplectic_conjugate(old_logicals_z) @ logicals_ops_x.T)
         new_logicals_z = basis_change @ old_logicals_z
@@ -1538,8 +1548,19 @@ class QuditCode(AbstractCode):
 
         Plugging (1) into (2), we find ``M = (Kx @ Ω @ Lz.T)**-1``, and in turn plug M into (1)
         to get ``Lx = (Kx @ Ω @ Lz.T)**-1 @ Kx``.
+
+        The Z-type logical operators are given by a matrix with shape ``(k, 2*n)``.  As a
+        convenience, a matrix with shape ``(k, n)`` is also accepted, in which case its entries are
+        taken to be the Z-type support of Z-only logical operators (that is, with zero X-type
+        support).
         """
         logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
+        self._validate_logical_ops_shape(logicals_ops_z)
+        if logicals_ops_z.shape[1] == len(self):
+            # the given logical operators have only Z-type support
+            logicals_ops_z = np.hstack(
+                [self.field.Zeros((self.dimension, len(self))), logicals_ops_z]
+            ).view(self.field)
         old_logicals_x = self.get_logical_ops(Pauli.X, symplectic=True)
         basis_change = np.linalg.inv(old_logicals_x @ math.symplectic_conjugate(logicals_ops_z).T)
         new_logicals_x = basis_change @ old_logicals_x
@@ -2756,6 +2777,7 @@ class CSSCode(QuditCode):
         get ``Lz = (Kz @ Lx.T)**-1 @ Kz``.
         """
         logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
+        self._validate_logical_ops_shape(logicals_ops_x)
         old_logicals_z = self.get_logical_ops(Pauli.Z)
         new_logicals_z = np.linalg.inv(old_logicals_z @ logicals_ops_x.T) @ old_logicals_z
         return self.set_logical_ops_xz(
@@ -2784,6 +2806,7 @@ class CSSCode(QuditCode):
         get ``Lx = (Kx @ Lz.T)**-1 @ Kx``.
         """
         logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
+        self._validate_logical_ops_shape(logicals_ops_z)
         old_logicals_x = self.get_logical_ops(Pauli.X)
         new_logicals_x = np.linalg.inv(old_logicals_x @ logicals_ops_z.T) @ old_logicals_x
         return self.set_logical_ops_xz(
@@ -2984,8 +3007,8 @@ class CSSCode(QuditCode):
     def get_distance_bound(
         self,
         num_trials: int = 1,
-        *,
         pauli: PauliXZ | None = None,
+        *,
         cutoff: int | None = None,
         **bound_kwargs: Any,
     ) -> int | float:

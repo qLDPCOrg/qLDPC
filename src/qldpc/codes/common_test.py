@@ -562,6 +562,45 @@ def test_qudit_ops(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(code.get_stabilizer_ops(canonicalized=True), stabilizer_ops[:-1])
 
 
+def test_set_logical_ops_single_type_support() -> None:
+    """QuditCode.set_logical_ops_x/z accept width-n single-type support."""
+    css_code = codes.SteaneCode()
+    matrix = css_code.matrix
+    num_qudits = len(css_code)
+
+    # a valid pure-X (pure-Z) logical basis in symplectic (k, 2n) form, and its width-n support
+    logical_x = css_code.get_logical_ops(Pauli.X, symplectic=True).view(css_code.field)
+    logical_z = css_code.get_logical_ops(Pauli.Z, symplectic=True).view(css_code.field)
+    assert not np.any(logical_x[:, num_qudits:])  # no Z-type support
+    assert not np.any(logical_z[:, :num_qudits])  # no X-type support
+
+    # setting the width-n support is equivalent to setting the full symplectic operators
+    code_full = codes.QuditCode(matrix)
+    code_full.set_logical_ops_x(logical_x)
+    code_half = codes.QuditCode(matrix)
+    code_half.set_logical_ops_x(logical_x[:, :num_qudits])
+    assert np.array_equal(code_full.get_logical_ops(), code_half.get_logical_ops())
+
+    code_full = codes.QuditCode(matrix)
+    code_full.set_logical_ops_z(logical_z)
+    code_half = codes.QuditCode(matrix)
+    code_half.set_logical_ops_z(logical_z[:, num_qudits:])
+    assert np.array_equal(code_full.get_logical_ops(), code_half.get_logical_ops())
+
+    # providing the wrong number of logical operators raises a helpful error, including for the
+    # CSSCode overrides and for 1-D inputs (which would otherwise raise a cryptic IndexError)
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.QuditCode(matrix).set_logical_ops_x(logical_x[:0])
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.QuditCode(matrix).set_logical_ops_z(np.vstack([logical_z, logical_z]))
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.QuditCode(matrix).set_logical_ops_x(logical_x[0])  # 1-D input
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.SteaneCode().set_logical_ops_x(css_code.get_logical_ops(Pauli.X)[:0])
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.SteaneCode().set_logical_ops_z(css_code.get_logical_ops(Pauli.Z)[0])  # 1-D input
+
+
 def test_qudit_concatenation() -> None:
     """Concatenate qudit codes."""
     code_5q = codes.FiveQubitCode()
@@ -710,13 +749,6 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     subgraphs = code.get_syndrome_subgraphs()
     assert nx.utils.graphs_equal(subgraphs[0], code.get_graph(Pauli.X))
     assert nx.utils.graphs_equal(subgraphs[1], code.get_graph(Pauli.Z))
-
-    # invoking the QuditCode base get_logical_ops on a CSSCode instance defers to the CSSCode
-    # implementation, so it does not populate the shared cache with a different-format basis
-    expected_logicals_x = codes.SurfaceCode(3).get_logical_ops(Pauli.X, symplectic=True)
-    css_code = codes.SurfaceCode(3)  # a fresh instance with an empty logical-operator cache
-    codes.QuditCode.get_logical_ops(css_code, None)
-    assert np.array_equal(css_code.get_logical_ops(Pauli.X, symplectic=True), expected_logicals_x)
 
 
 def test_css_from_strings() -> None:
