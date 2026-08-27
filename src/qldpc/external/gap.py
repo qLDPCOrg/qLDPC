@@ -110,11 +110,11 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
             check=False,
         )
         if result.returncode or result.stderr:
-            raise ValueError(
-                f"Error encountered when running GAP (exit code {result.returncode}):\n"
-                f"{result.stderr}\n\n"
-                f"GAP command:\n{' '.join(commands)}"
-            )
+            parts = [f"Error encountered when running GAP (exit code {result.returncode})"]
+            if result.stderr:
+                parts.append(result.stderr)
+            parts.append(f"GAP command:\n{' '.join(commands)}")
+            raise ValueError("\n\n".join(parts))
         return result.stdout
 
     command = " ".join(commands)
