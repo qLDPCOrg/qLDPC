@@ -38,8 +38,7 @@ import qldpc.external.gap
 def get_classical_code(code: str) -> tuple[list[list[int]], int]:
     """Retrieve a classical code from GAP.
 
-    Runs GAP in a subprocess.  Requires the GAP GUAVA package
-    (https://www.gap-system.org/Packages/guava.html).
+    Requires the GAP GUAVA package (https://www.gap-system.org/Packages/guava.html).
     """
     qldpc.external.gap.require_package("GUAVA")
 
@@ -181,8 +180,8 @@ def get_distance_bound(
 ) -> int:
     """Estimate the distance of a quantum code using GAP's QDistRnd package.
 
-    Runs GAP in a subprocess.  The estimate is a randomized upper bound (QDistRnd samples random
-    codewords).  Requires the GAP GUAVA and QDistRnd packages.
+    The estimate is a randomized upper bound (QDistRnd samples random codewords).  Requires the GAP
+    GUAVA and QDistRnd packages.
 
     If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
     See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
