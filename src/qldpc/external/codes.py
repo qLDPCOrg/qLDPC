@@ -45,8 +45,8 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int]:
     # Run GAP commands.  Each check-matrix entry is reported as its discrete logarithm base the
     # field's primitive root Z(q), or -1 for a zero entry.  GAP's Int() accepts only prime-field
     # elements, so a discrete logarithm is the field-agnostic way to bring an extension-field
-    # element back; the entry is rebuilt below as primitive_element**log.  This matches galois's
-    # encoding because GAP and galois share the primitive element (both use Conway polynomials).
+    # element back; the entry is rebuilt below as primitive_element**log, which reproduces galois's
+    # own encoding because GAP and galois share the primitive element (both use Conway polynomials).
     commands = [
         'LoadPackage("guava", false);;',
         f"code := {code};;",
@@ -89,8 +89,8 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int]:
 def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     """Retrieve a quantum code from qecdb.org.
 
-    Fetches and scrapes the code's HTML page at https://qecdb.org, so this requires network access
-    and is sensitive to that page's layout.
+    This function fetches and scrapes the code's HTML page at https://qecdb.org, so it requires
+    network access and is sensitive to that page's layout.
 
     Return the stabilizers of the code, its distance, and whether it's CSS.
     """

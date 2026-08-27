@@ -45,8 +45,8 @@ def get_generators(
 ) -> GeneratorsList:
     """Retrieve GAP group generators.
 
-    Tries a local database, then GAP (a subprocess), then a GroupNames.org web lookup, so this may
-    run GAP and access the network.
+    This function tries a local database, then GAP (a subprocess), then a GroupNames.org web lookup,
+    so it may run GAP and access the network.
     """
     # try retrieving a known group
     if generators := KNOWN_GROUPS.get(group):
@@ -75,9 +75,9 @@ def get_generators(
 def get_generators_from_magma(group: str) -> GeneratorsList:
     """Retrieve group generators from MAGMA.
 
-    Uses a manual copy/paste workflow: prints the command, copies it to the system clipboard, and
-    reads pasted output from standard input (blocking, and raising ``EOFError`` if standard input is
-    closed).
+    This function uses a manual copy/paste workflow that prints the command, copies it to the
+    system clipboard, and reads the pasted output from standard input (blocking, and raising
+    ``EOFError`` if standard input is closed).
     """
     print("Run the following command in MAGMA:")
     print()
@@ -146,8 +146,8 @@ def get_generators_from_magma(group: str) -> GeneratorsList:
 def get_small_group_number(order: int) -> int:
     """Get the number of 'SmallGroup's of a given order.
 
-    Uses the GAP SmallGrp package (https://gap-packages.github.io/SmallGrp/) if available, else a
-    GroupNames.org lookup.
+    This function uses the GAP SmallGrp package (https://gap-packages.github.io/SmallGrp/) if
+    available, else a GroupNames.org lookup.
     """
     if qldpc.external.gap.is_installed():
         qldpc.external.gap.require_package("SmallGrp")
@@ -325,7 +325,8 @@ def maybe_get_webpage(order: int) -> str | None:
 def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList | None:
     """Get the primitive central idempotents of a group algebra over a finite field.
 
-    Uses the GAP Wedderga package (https://gap-packages.github.io/wedderga/), run in a subprocess.
+    This function uses the GAP Wedderga package (https://gap-packages.github.io/wedderga/), run in
+    a subprocess.
 
     Primitive central idempotents of a ring are nonzero elements that:
 

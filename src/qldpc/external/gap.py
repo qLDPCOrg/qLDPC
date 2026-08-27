@@ -49,8 +49,8 @@ def is_callable() -> bool:
 def is_installed() -> bool:
     """Is GAP 4 installed?
 
-    When GAP is not callable from the command line, this prompts on standard input, so it blocks in
-    a non-interactive context (and raises ``EOFError`` if standard input is closed).
+    When GAP is not callable from the command line, this function prompts on standard input, so it
+    blocks in a non-interactive context (and raises ``EOFError`` if standard input is closed).
     """
     if is_callable():
         return True
@@ -169,8 +169,9 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
 def require_package(name: str, repo: str | None = None) -> bool:
     """Enforce the installation of a GAP package.
 
-    If the package is missing and GAP is callable, this prompts on standard input and, with the
-    user's consent, installs it by running ``git clone`` into the GAP root's ``pkg`` directory.
+    If the package is missing and GAP is callable, this function prompts on standard input and,
+    with the user's consent, installs it by running ``git clone`` into the GAP root's ``pkg``
+    directory.
 
     Args:
         name: The GAP package name.
