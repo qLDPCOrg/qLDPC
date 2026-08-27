@@ -1172,17 +1172,19 @@ class QuditCode(AbstractCode):
         If this method is passed a pauli operator (Pauli.X or Pauli.Z), it returns only the logical
         operators of that type.
 
-        Due to the way that logical operators are constructed in this method, logical Z-type
-        operators only address physical qudits by physical Z-type operators, while logical X-type
-        operators address at least one physical qudit with a physical X-type operator, and may
-        additionally address physical qudits with physical Z-type operators.
+        For a non-subsystem code, logical Z-type operators address physical qudits only by physical
+        Z-type operators, while logical X-type operators address at least one physical qudit with a
+        physical X-type operator, and may additionally address physical qudits with physical Z-type
+        operators.  For a subsystem code the logical operators are a symplectic basis of the gauge
+        group's centralizer and carry no such guarantee on their physical support.
 
-        Logical operators are constructed with the method similar to that in Section 4.1 of
-        Gottesman's thesis (arXiv:9705052), generalized for subsystem qudit codes.  The basic
-        strategy is to fix the values of the logical operator matrix in the GL sector of the parity
-        check matrix when written in standard form (see QuditCode.get_standard_form_data), and then
-        fill in the remaining entries of the logical operator matrix as required by parity check
-        constraints.
+        For a non-subsystem code, logical operators are constructed with the method similar to that
+        in Section 4.1 of Gottesman's thesis (arXiv:9705052): fix the values of the logical operator
+        matrix in the GL sector of the parity check matrix when written in standard form (see
+        QuditCode.get_standard_form_data), and then fill in the remaining entries of the logical
+        operator matrix as required by parity check constraints.  For a subsystem code the logical
+        operators are instead extracted as a symplectic basis of the gauge group's centralizer,
+        whose symplectic radical is the stabilizer group.
 
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
         always be True for a non-CSS code.
@@ -1198,11 +1200,23 @@ class QuditCode(AbstractCode):
         if not (self._logical_ops is None or recompute):
             return self._logical_ops
 
+        # For a subsystem code, extract the logical operators as a symplectic basis of the gauge
+        # group's centralizer C(G): the operators commuting with every gauge generator.  The
+        # symplectic radical of C(G) is the stabilizer group, so a symplectic (hyperbolic) basis of
+        # C(G) is exactly the k dual pairs of logical operators.
+        if self.is_subsystem_code:
+            centralizer = math.symplectic_conjugate(self.canonicalized.matrix).null_space()
+            logical_ops, _radical = math.symplectic_gram_schmidt(
+                centralizer, promise_full_rank=True
+            )
+            self._logical_ops = logical_ops.view(self.field)
+            return self._logical_ops
+
         # construct the standard-form parity check matrix
         (
             matrix,
             qudit_locs,
-            (rows_sx, rows_gx, rows_sz, rows_gz),
+            (rows_sx, rows_gx, rows_sz, _rows_gz),
             (cols_sx, cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
         ) = self.get_standard_form_data()
         matrix_x = matrix[:, 0, :]
@@ -1213,34 +1227,8 @@ class QuditCode(AbstractCode):
         logicals_zz = self.field.Zeros((len(self), self.dimension))
 
         # "seed" the logical operators in the GL sector
-        if not self.is_subsystem_code:
-            logicals_xx[cols_lz] = self.field.Identity(self.dimension)
-            logicals_zz[cols_lx] = self.field.Identity(self.dimension)
-
-        else:
-            cols_gl = np.sort(_join_slices(cols_gx, cols_lx))  # indices for all GL columns
-            """
-            Focusing on the gauge-qudit rows (i.e., constraints) of the parity check matrix, define
-                A = matrix_z[rows_gz, cols_gl],
-                B = matrix_x[rows_gx, cols_gl],
-            and denote the logical operator components in the GL sector by
-                U = logicals_xx[cols_gl],
-                V = logicals_zz[cols_gl].
-            These components need to satisfy the system of matrix equations
-                (1) A @ U.T = 0,
-                (2) B @ V.T = 0,
-                (3) U.T @ V = I.
-            Without loss of generality, we can satisfy (1) and (2) by setting
-                U = null_space(A).T
-                V = null_space(B).T @ M,
-            where the matrix M is determined by subsituting U and V back into (3),
-                U.T @ W @ M = I.
-            """
-            mat_U = matrix_z[rows_gz, cols_gl].view(self.field).null_space().T
-            mat_W = matrix_x[rows_gx, cols_gl].view(self.field).null_space().T
-            mat_M = np.linalg.inv(mat_U.T @ mat_W)
-            logicals_xx[cols_gl] = mat_U
-            logicals_zz[cols_gl] = mat_W @ mat_M
+        logicals_xx[cols_lz] = self.field.Identity(self.dimension)
+        logicals_zz[cols_lx] = self.field.Identity(self.dimension)
 
         # fill in remaining entries by enforcing parity check constraints
         logicals_xx[cols_sz] = -matrix_z[rows_sz] @ logicals_xx
