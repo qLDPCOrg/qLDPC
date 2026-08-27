@@ -305,9 +305,9 @@ def get_transversal_circuits(
         *_, x_signs_m, z_signs_m = matching_tableau.to_numpy()
         for logical_qubit in range(code.dimension):
             if x_signs_l[logical_qubit] != x_signs_m[logical_qubit]:  # pragma: no cover
-                correction += codes.QuditCode.get_logical_ops(code, Pauli.Z)[logical_qubit]
+                correction += code.get_logical_ops(Pauli.Z, symplectic=True)[logical_qubit]
             if z_signs_l[logical_qubit] != z_signs_m[logical_qubit]:  # pragma: no cover
-                correction += codes.QuditCode.get_logical_ops(code, Pauli.X)[logical_qubit]
+                correction += code.get_logical_ops(Pauli.X, symplectic=True)[logical_qubit]
         correction_circuit = _get_pauli_circuit(op_to_string(correction))
 
         physical_circuits[tt] = correction_circuit + matching_circuit

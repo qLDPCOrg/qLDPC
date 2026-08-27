@@ -278,7 +278,9 @@ def get_random_qudit_code(qudits: int, checks: int, field: int = 2) -> codes.Qud
 def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
     """Random qubit code."""
     assert get_random_qudit_code(num_qubits, num_checks).num_qubits == num_qubits
-    with pytest.raises(ValueError, match="3-dimensional qudits"):
+    with pytest.raises(
+        ValueError, match=r"3-dimensional qudits\.\s+Try calling QuditCode\.num_qudits"
+    ):
         assert get_random_qudit_code(num_qubits, num_checks, field=3).num_qubits
 
 
@@ -298,6 +300,12 @@ def test_qudit_codes() -> None:
     assert code.is_equiv_to(codes.QuditCode(code))
     assert_valid_subgraphs(code)
 
+    # parity checks whose support overlaps no other check still appear in the subgraphs, and a
+    # check with no support at all is simply omitted (it contributes no edges to the Tanner graph)
+    assert_valid_subgraphs(codes.QuditCode.from_strings(["Y Y I I", "I I Z Z"]))
+    assert_valid_subgraphs(codes.QuditCode.from_strings(["X X X"]))
+    assert_valid_subgraphs(codes.QuditCode.from_strings(["X X X", "I I I"]))
+
     # equivalence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
     assert code.is_equiv_to(redundant_code)
@@ -316,9 +324,17 @@ def test_qudit_codes() -> None:
     with pytest.raises(ValueError, match="incorrect commutation relations"):
         two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
-    # invalid modifications of logical operators break commutation relations
+    # making an X-type logical anticommute with another X-type logical is rejected; the X-Z
+    # cross-type commutation relations alone do not detect a broken intra-type relation
     logical_ops = two_codes.get_logical_ops().copy()
-    logical_ops[0, -1] += two_codes.field(1)
+    logical_ops[1] += logical_ops[two_codes.dimension]  # Lx[1] += Lz[0]
+    with pytest.raises(ValueError, match="incorrect commutation relations"):
+        two_codes.set_logical_ops(logical_ops, skip_validation=False)
+
+    # adding a destabilizer to a logical operator preserves the commutation relations among the
+    # logical operators but violates a parity check
+    logical_ops = two_codes.get_logical_ops().copy()
+    logical_ops[0] += two_codes.get_destabilizer_ops()[0]
     with pytest.raises(ValueError, match="violate parity checks"):
         two_codes.set_logical_ops(logical_ops, skip_validation=False)
 
@@ -400,8 +416,10 @@ def test_qudit_stabilizers(field: int, bits: int = 5, checks: int = 3) -> None:
     assert code_a == code_b
     assert strings == code_b.get_strings()
 
-    with pytest.raises(ValueError, match="different lengths"):
+    with pytest.raises(ValueError, match=r"different lengths \(1 and 2\)"):
         codes.QuditCode.from_strings(["I", "II"], field=field)
+    with pytest.raises(ValueError, match="empty collection"):
+        codes.QuditCode.from_strings([], field=field)
 
 
 def test_from_qecdb_id() -> None:
@@ -544,6 +562,45 @@ def test_qudit_ops(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(code.get_stabilizer_ops(canonicalized=True), stabilizer_ops[:-1])
 
 
+def test_set_logical_ops_single_type_support() -> None:
+    """QuditCode.set_logical_ops_x/z accept width-n single-type support."""
+    css_code = codes.SteaneCode()
+    matrix = css_code.matrix
+    num_qudits = len(css_code)
+
+    # a valid pure-X (pure-Z) logical basis in symplectic (k, 2n) form, and its width-n support
+    logical_x = css_code.get_logical_ops(Pauli.X, symplectic=True).view(css_code.field)
+    logical_z = css_code.get_logical_ops(Pauli.Z, symplectic=True).view(css_code.field)
+    assert not np.any(logical_x[:, num_qudits:])  # no Z-type support
+    assert not np.any(logical_z[:, :num_qudits])  # no X-type support
+
+    # setting the width-n support is equivalent to setting the full symplectic operators
+    code_full = codes.QuditCode(matrix)
+    code_full.set_logical_ops_x(logical_x)
+    code_half = codes.QuditCode(matrix)
+    code_half.set_logical_ops_x(logical_x[:, :num_qudits])
+    assert np.array_equal(code_full.get_logical_ops(), code_half.get_logical_ops())
+
+    code_full = codes.QuditCode(matrix)
+    code_full.set_logical_ops_z(logical_z)
+    code_half = codes.QuditCode(matrix)
+    code_half.set_logical_ops_z(logical_z[:, num_qudits:])
+    assert np.array_equal(code_full.get_logical_ops(), code_half.get_logical_ops())
+
+    # providing the wrong number of logical operators raises a helpful error, including for the
+    # CSSCode overrides and for 1-D inputs (which would otherwise raise a cryptic IndexError)
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.QuditCode(matrix).set_logical_ops_x(logical_x[:0])
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.QuditCode(matrix).set_logical_ops_z(np.vstack([logical_z, logical_z]))
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.QuditCode(matrix).set_logical_ops_x(logical_x[0])  # 1-D input
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.SteaneCode().set_logical_ops_x(css_code.get_logical_ops(Pauli.X)[:0])
+    with pytest.raises(ValueError, match="Expected 1 logical operators"):
+        codes.SteaneCode().set_logical_ops_z(css_code.get_logical_ops(Pauli.Z)[0])  # 1-D input
+
+
 def test_qudit_concatenation() -> None:
     """Concatenate qudit codes."""
     code_5q = codes.FiveQubitCode()
@@ -559,6 +616,12 @@ def test_qudit_concatenation() -> None:
     assert len(code) == 10 * len(code_5q)
     assert code.dimension == 2 * code_5q.dimension
 
+    # concatenation does not mutate the logical operators of the outer code passed by the caller
+    outer = codes.QuditCode.stack([code_5q] * len(code_5q))  # dimension == inner physical qudits
+    logical_ops_before = outer.get_logical_ops().copy()
+    codes.QuditCode.concatenate(outer, code_5q, [1, 0, 2, 3, 4])
+    assert np.array_equal(outer.get_logical_ops(), logical_ops_before)
+
     # cover some errors
     with pytest.raises(ValueError, match="different fields"):
         codes.QuditCode.concatenate(code_5q, codes.ToricCode(2, field=3))
@@ -566,7 +629,7 @@ def test_qudit_concatenation() -> None:
         codes.QuditCode.concatenate(code_5q, code_5q, [0, 1, 2])
 
 
-def test_quantum_capacity() -> None:
+def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     """Logical error rates in a code capacity model."""
     code = codes.FiveQubitCode()
 
@@ -584,6 +647,28 @@ def test_quantum_capacity() -> None:
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
+
+    # a subsystem code is decoded against its stabilizer generators rather than its more numerous,
+    # non-commuting gauge generators, so the QuditCode and CSSCode views of the same subsystem code
+    # decode identically and yield the same logical error rate
+    seed = pytestconfig.getoption("randomly_seed")
+    css_code = codes.BaconShorCode(3)
+    qudit_code = codes.QuditCode(css_code.matrix)
+    assert qudit_code.is_subsystem_code
+    np.random.seed(seed)
+    css_rate = css_code.get_logical_error_rate_func(num_samples=200, max_error_rate=0.3)(0.1)
+    np.random.seed(seed)
+    qudit_rate = qudit_code.get_logical_error_rate_func(num_samples=200, max_error_rate=0.3)(0.1)
+    assert np.allclose(qudit_rate, css_rate)
+
+    # a code over a non-binary field is decoded with a field-aware decoder: its syndrome matrix is
+    # a field array, from which the decoder is selected to match the field
+    qudit_code = codes.QuditCode(codes.BaconShorCode(3, field=3).matrix)
+    logical_error_rate_func = qudit_code.get_logical_error_rate_func(
+        num_samples=100, max_error_rate=0.2
+    )
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
 
 
 def test_qudit_to_css() -> None:
@@ -756,6 +841,10 @@ def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
 
+    # a bare CSSCode has no specialized exact-distance method, so it falls back to brute force
+    bare_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
+    assert bare_code.get_distance_exact() == 3
+
     # qubit code distance
     code = codes.QuditCode(codes.SHPCode(codes.RepetitionCode(2)).matrix).to_css()
     assert code.get_distance_exact(cutoff=len(code)) <= len(code)
@@ -901,3 +990,13 @@ def test_css_capacity() -> None:
     )
     assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
+
+    # a subsystem code is decoded against its stabilizer generators, whose number differs from the
+    # number of parity checks (gauge generators), so a syndrome has one entry per stabilizer
+    subsystem_code = codes.BaconShorCode(3)
+    assert subsystem_code.is_subsystem_code
+    logical_error_rate_func = subsystem_code.get_logical_error_rate_func(
+        num_samples=200, max_error_rate=0.3
+    )
+    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
