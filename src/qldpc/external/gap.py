@@ -75,7 +75,7 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
 def get_output(*commands: str, use_pipe: bool = False) -> str:
     """Get the output from the given GAP commands.
 
-    When GAP is callable this runs it in a subprocess.  Otherwise it falls back to a manual workflow
+    When GAP is callable, runs it in a subprocess.  Otherwise falls back to a manual workflow
     that prints the commands, copies them to the system clipboard, and reads pasted output from
     standard input (blocking, and raising ``EOFError`` if standard input is closed), caching the
     result to disk.

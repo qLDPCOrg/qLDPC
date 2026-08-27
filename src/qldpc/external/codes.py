@@ -38,8 +38,9 @@ import qldpc.external.gap
 def get_classical_code(code: str) -> tuple[list[list[int]], int]:
     """Retrieve a classical code from GAP.
 
-    Requires the GAP GUAVA package (https://www.gap-system.org/Packages/guava.html); installing a
-    missing package may prompt and run ``git clone``, and this runs GAP in a subprocess.
+    Runs GAP in a subprocess.  Requires the GAP GUAVA package
+    (https://www.gap-system.org/Packages/guava.html); installing a missing package may prompt and
+    run ``git clone``.
     """
     qldpc.external.gap.require_package("GUAVA")
 
@@ -146,10 +147,9 @@ def _gap_define_sparse_matrix(
     nonzero_str = ",".join(nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
 
     # Map each stored galois integer 1..field_order-1 to the matching GAP field element.  A galois
-    # integer f encodes the element's coordinates in the primitive-element basis, so it equals
-    # Z(field_order)^log(f) -- not f*One(F), which over an extension field would collapse to
-    # (f mod p)*One(F).  GAP and galois share the primitive element Z(field_order) (both use Conway
-    # polynomials for the field orders that arise here), so the powers agree.
+    # integer encodes an element's coordinates in the primitive-element basis, so it equals
+    # Z(field_order)^log.  GAP and galois share that primitive element (both use Conway
+    # polynomials), so the powers agree.
     field = galois.GF(field_order)
     field_elements = ",".join(
         f"Z({field_order})^{int(field(value).log())}" for value in range(1, field_order)
@@ -157,13 +157,13 @@ def _gap_define_sparse_matrix(
     commands = [
         f"nz:=[{nonzero_str}];;",
         f"F:=GF({field_order});;",
-        f"elts:=[{field_elements}];;",
+        f"elements:=[{field_elements}];;",
         f"{matrix_var}:=[];",
         "for r in nz do",
         f"  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;",
         f"  for f in [1..{field_order - 1}] do",
         "    for i in r[f] do",
-        "      v[i+1]:=elts[f];;",
+        "      v[i+1]:=elements[f];;",
         "    od;;",
         "  od;;",
         f"  Append({matrix_var},[v]);;",
@@ -182,9 +182,9 @@ def get_distance_bound(
 ) -> int:
     """Estimate the distance of a quantum code using GAP's QDistRnd package.
 
-    The estimate is a randomized upper bound (QDistRnd samples random codewords).  Requires the
-    GAP GUAVA and QDistRnd packages; installing a missing package may prompt and run ``git clone``,
-    and this runs GAP in a subprocess.
+    Runs GAP in a subprocess.  The estimate is a randomized upper bound (QDistRnd samples random
+    codewords).  Requires the GAP GUAVA and QDistRnd packages; installing a missing package may
+    prompt and run ``git clone``.
 
     If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
     See https://qec-pages.github.io/QDistRnd/doc/chap4.html.

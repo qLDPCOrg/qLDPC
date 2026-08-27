@@ -66,8 +66,8 @@ def test_gap_define_sparse_matrix() -> None:
     """Extension-field entries map to primitive-element powers, not integer multiples of One(F)."""
     # over GF(4) the galois integers 1, 2, 3 are Z(4)^0, Z(4)^1, Z(4)^2 -- not 1, 2, 3 copies of One
     commands = " ".join(external.codes._gap_define_sparse_matrix("m", 4, np.array([[0, 1, 2, 3]])))
-    assert "elts:=[Z(4)^0,Z(4)^1,Z(4)^2]" in commands
-    assert "v[i+1]:=elts[f]" in commands
+    assert "elements:=[Z(4)^0,Z(4)^1,Z(4)^2]" in commands
+    assert "v[i+1]:=elements[f]" in commands
 
 
 def get_mock_page(text: str) -> unittest.mock.MagicMock:
