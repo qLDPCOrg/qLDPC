@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import ast
 import re
-import urllib
+import urllib.error
+import urllib.request
 
+import galois
 import numpy as np
 import numpy.typing as npt
 
@@ -33,36 +35,53 @@ import qldpc.external.gap
     "codes",
     key_func=lambda code: "".join(code.split()),  # strip whitespace
 )
-def get_classical_code(code: str) -> tuple[list[list[int]], int | None]:
-    """Retrieve a classical code from GAP."""
+def get_classical_code(code: str) -> tuple[list[list[int]], int]:
+    """Retrieve a classical code from GAP.
+
+    Requires the GAP GUAVA package (https://www.gap-system.org/Packages/guava.html).
+    """
     qldpc.external.gap.require_package("GUAVA")
 
-    # run GAP commands
+    # Run GAP commands.  Each check-matrix entry is reported as its discrete logarithm base the
+    # field's primitive root Z(q), or -1 for a zero entry.  GAP's Int() accepts only prime-field
+    # elements, so a discrete logarithm is the field-agnostic way to bring an extension-field
+    # element back; the entry is rebuilt below as primitive_element**log, which reproduces galois's
+    # own encoding because GAP and galois share the primitive element (both use Conway polynomials).
     commands = [
         'LoadPackage("guava", false);;',
         f"code := {code};;",
         "mat := CheckMat(code);;",
+        "z := PrimitiveRoot(LeftActingDomain(code));;",
         r'Print(LeftActingDomain(code), "\n");;',
-        r'for vec in mat do Print(List(vec, x -> Int(x)), "\n");; od;;',
+        "for vec in mat do",
+        r'  Print(List(vec, function(x) if IsZero(x) then return -1; else return LogFFE(x, z); fi; end), "\n");;',
+        "od;;",
     ]
     code_str = qldpc.external.gap.get_output(*commands)
 
-    # identify base field and retrieve parity checks
+    # identify the base field, then rebuild the parity checks from the reported discrete logarithms
     field: int | None = None
-    checks = []
+    logarithms = []
     for line in code_str.splitlines():
-        if not line.strip():
+        line = line.strip()
+        if not line:
             continue
 
         if field is None and (match := re.search(r"GF\(([0-9]+(\^[0-9]+)?)\)", line)):
             base, exponent, *_ = (match.group(1) + "^1").split("^")
             field = int(base) ** int(exponent)
-        else:
-            checks.append(ast.literal_eval(line))
+        elif line.startswith("["):
+            logarithms.append(ast.literal_eval(line))
 
-    if not checks:
+    if field is None:
+        raise ValueError(f"Could not determine the base field of code: {code}")
+    if not logarithms:
         raise ValueError(f"Code has no parity checks: {code}")
 
+    primitive_element = galois.GF(field).primitive_element
+    checks = [
+        [0 if power < 0 else int(primitive_element**power) for power in row] for row in logarithms
+    ]
     return checks, field
 
 
@@ -70,12 +89,15 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int | None]:
 def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     """Retrieve a quantum code from qecdb.org.
 
+    This function fetches and scrapes the code's HTML page at https://qecdb.org, so it requires
+    network access and is sensitive to that page's layout.
+
     Return the stabilizers of the code, its distance, and whether it's CSS.
     """
     url = f"https://qecdb.org/codes/{code_id}"
     try:
         lines = urllib.request.urlopen(url, timeout=10).read().decode("utf-8").splitlines()
-    except urllib.error.URLError as exception:
+    except (urllib.error.URLError, TimeoutError) as exception:
         raise RuntimeError(f"Cannot access {url}") from exception
 
     stab_line = next((line for line in lines if "<td>H</td>" in line), None)
@@ -121,15 +143,25 @@ def _gap_define_sparse_matrix(
         return f"[{','.join(all_field_vals)}]"
 
     nonzero_str = ",".join(nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
+
+    # Map each stored galois integer 1..field_order-1 to the matching GAP field element.  A galois
+    # integer encodes an element's coordinates in the primitive-element basis, so it equals
+    # Z(field_order)^log.  GAP and galois share that primitive element (both use Conway
+    # polynomials), so the powers agree.
+    field = galois.GF(field_order)
+    field_elements = ",".join(
+        f"Z({field_order})^{int(field(value).log())}" for value in range(1, field_order)
+    )
     commands = [
         f"nz:=[{nonzero_str}];;",
         f"F:=GF({field_order});;",
+        f"elements:=[{field_elements}];;",
         f"{matrix_var}:=[];",
         "for r in nz do",
         f"  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;",
         f"  for f in [1..{field_order - 1}] do",
         "    for i in r[f] do",
-        "      v[i+1]:=f*One(F);;",
+        "      v[i+1]:=elements[f];;",
         "    od;;",
         "  od;;",
         f"  Append({matrix_var},[v]);;",
@@ -148,11 +180,15 @@ def get_distance_bound(
 ) -> int:
     """Estimate the distance of a quantum code using GAP's QDistRnd package.
 
+    The estimate is a randomized upper bound (QDistRnd samples random codewords).  Requires the GAP
+    GUAVA and QDistRnd packages.
+
     If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
     See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
     Note that QDistRnd does not support subsystem codes.  In the case of a CSS code, however, we
     can still compute the Z-distance by promoting all Z-type gauge group generators to stabilizers.
+    ``maxav`` is passed through to QDistRnd as a raw GAP value (default "fail"); see its docs above.
     """
     qldpc.external.gap.require_package("GUAVA")
     qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
@@ -188,9 +224,14 @@ def get_distance_bound(
         ]
 
     # Issue: Piped input somehow causes extra terminal output.  Fix: Ignore all but last line.
-    output = qldpc.external.gap.get_output(*commands, use_pipe=True).strip().splitlines()[-1]
+    result_lines = qldpc.external.gap.get_output(*commands, use_pipe=True).strip().splitlines()
+    if not result_lines:
+        raise ValueError(f"QDistRnd returned no output for code:\n{code}")
+    output = result_lines[-1]
 
     # strip whitespace and comments, and interpret the remaining text as the bound
     lines = [line.strip() for line in output.splitlines()]
     bound = "".join([line for line in lines if not line.startswith("#")])
+    if not bound:
+        raise ValueError(f"Could not parse a distance bound from QDistRnd output: {output!r}")
     return int(bound)

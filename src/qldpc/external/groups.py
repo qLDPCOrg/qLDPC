@@ -1,5 +1,7 @@
 """Module for loading groups from GroupNames or the GAP computer algebra system.
 
+See https://groupnames.org and https://www.gap-system.org.
+
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,7 +43,11 @@ GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 def get_generators(
     group: str, *, warning_to_raise_if_calling_gap: str | None = None
 ) -> GeneratorsList:
-    """Retrieve GAP group generators."""
+    """Retrieve GAP group generators.
+
+    This function tries a local database, then GAP (a subprocess), then a GroupNames.org web lookup,
+    so it may run GAP and access the network.
+    """
     # try retrieving a known group
     if generators := KNOWN_GROUPS.get(group):
         return generators
@@ -67,7 +73,12 @@ def get_generators(
 
 
 def get_generators_from_magma(group: str) -> GeneratorsList:
-    """Retrieve group generators from MAGMA."""
+    """Retrieve group generators from MAGMA.
+
+    This function uses a manual copy/paste workflow that prints the command, copies it to the
+    system clipboard, and reads the pasted output from standard input (blocking, and raising
+    ``EOFError`` if standard input is closed).
+    """
     print("Run the following command in MAGMA:")
     print()
     print(group)
@@ -133,7 +144,11 @@ def get_generators_from_magma(group: str) -> GeneratorsList:
 
 @qldpc.cache.use_disk_cache("small_group_number")
 def get_small_group_number(order: int) -> int:
-    """Get the number of 'SmallGroup's of a given order."""
+    """Get the number of 'SmallGroup's of a given order.
+
+    This function uses the GAP SmallGrp package (https://gap-packages.github.io/SmallGrp/) if
+    available, else a GroupNames.org lookup.
+    """
     if qldpc.external.gap.is_installed():
         qldpc.external.gap.require_package("SmallGrp")
         command = f"Print(NumberSmallGroups({order}));;"
@@ -146,12 +161,15 @@ def get_small_group_number(order: int) -> int:
         raise ValueError("Cannot determine the number of small groups")
 
     matches = re.findall(rf"<td>{order},([0-9]+)</td>", page_html)
+    if not matches:
+        raise ValueError("Cannot determine the number of small groups")
     return max(int(match) for match in matches)
 
 
 def get_small_group_structure(order: int, index: int) -> str:
     """Get a description of the structure of a SmallGroup from GAP."""
-    # if we have the structure cached, retrieve it
+    # Cache manually (not via @use_disk_cache) so the fallback name returned when GAP is unavailable
+    # is never cached: only GAP's real StructureDescription (below) is stored.
     key = (order, index)
     cache = qldpc.cache.get_disk_cache("qldpc_group_structure")
     if structure := cache.get(key, None):
@@ -217,7 +235,11 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
     if group_url is None:
         # we cannot access the webpage
         return None
-    group_page = urllib.request.urlopen(group_url)
+    try:
+        group_page = urllib.request.urlopen(group_url, timeout=10)
+    except (urllib.error.URLError, TimeoutError):
+        # we cannot access the webpage
+        return None
     group_page_html = group_page.read().decode("utf-8")
 
     # extract section with the generators we are after
@@ -242,6 +264,9 @@ def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> Generator
     """
     parsed_permutations = []
     for line in permutations.strip().splitlines():
+        if not line.strip():
+            continue
+
         # extract list of cycles, where each cycle is a tuple of integers
         cycle_strings = line.strip()[1:-1].split(")(")
         try:
@@ -286,9 +311,9 @@ def maybe_get_webpage(order: int) -> str | None:
     """Try to retrieve the webpage listing all groups up to a given order."""
     try:
         url = GROUPNAMES_URL + ("index500.html" if order > 60 else "")
-        page = urllib.request.urlopen(url)
+        page = urllib.request.urlopen(url, timeout=10)
         return page.read().decode("utf-8")
-    except (urllib.error.URLError, urllib.error.HTTPError):
+    except (urllib.error.URLError, TimeoutError):
         # we cannot access the webpage
         return None
 
@@ -299,6 +324,9 @@ def maybe_get_webpage(order: int) -> str | None:
 )
 def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList | None:
     """Get the primitive central idempotents of a group algebra over a finite field.
+
+    This function uses the GAP Wedderga package (https://gap-packages.github.io/wedderga/), run in
+    a subprocess.
 
     Primitive central idempotents of a ring are nonzero elements that:
 
