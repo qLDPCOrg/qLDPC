@@ -73,13 +73,9 @@ class ErrorRateFunc:
     def _as_divisor(counts: npt.NDArray[np.int_]) -> npt.NDArray[np.floating]:
         """Cast sample counts to float for use as a divisor, mapping zeros to infinity.
 
-        Dividing by infinity sends the corresponding rate and variance to zero rather than to nan
-        or inf.  The reachable case is a weight whose samples were all discarded (zero kept
-        samples): it is then recorded as zero infidelity with zero variance, i.e. a weight that
-        never fails and is known to do so exactly.  This is optimistic -- such a weight carries no
-        information -- and is the zero-kept-samples end of the same effect that collapses the
-        variance to zero when a weight sees no failures.  A principled treatment (e.g. a Jeffreys
-        posterior) is deferred; see the error-bar follow-up notes.
+        Dividing by infinity yields zero, so a weight with no (kept) samples is recorded with a
+        zero rate and variance rather than nan or inf.  That is optimistic for a weight with no
+        data; a principled fix is deferred to the Jeffreys error-bar follow-up.
         """
         divisor = counts.astype(float)
         divisor[divisor == 0] = np.inf
