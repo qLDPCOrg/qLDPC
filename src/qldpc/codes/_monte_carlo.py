@@ -48,7 +48,9 @@ class ErrorRateFunc:
     (1) A logical error rate.
     (2) An uncertainty in the logical error rate, obtained by propagating the per-weight Jeffreys
         posterior variances (see infidelity_variances).  It is a posterior standard deviation
-        rather than a frequentist standard error.
+        rather than a frequentist standard error: a regularized dispersion that need not vanish at
+        zero observed failures and is not generally centered on the point estimate, and to which a
+        weight with no kept samples contributes the prior standard deviation sqrt(1/8).
     If called with an array of physical error rates, this function returns two arrays.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
@@ -75,6 +77,8 @@ class ErrorRateFunc:
             raise ValueError("failure and discard counts must be non-negative")
         if np.any(self.num_failures + self.num_discards > self.num_samples):
             raise ValueError("failures plus discards cannot exceed the samples at any weight")
+        if self.num_failures[0] != 0 or self.num_discards[0] != 0:
+            raise ValueError("weight 0 is a no-error case: it cannot fail or be discarded")
 
     @property
     def max_error_weight(self) -> int:
@@ -121,7 +125,7 @@ class ErrorRateFunc:
         """
         num_samples_kept = self.num_samples - self.num_discards
         variances = _jeffreys_variance(self.num_failures, num_samples_kept)
-        variances[0] = 0.0  # weight 0 is never sampled, so num_failures[0] is exactly 0
+        variances[0] = 0.0  # weight 0 (no error) cannot fail (enforced in __post_init__)
         return variances
 
     @property
@@ -133,7 +137,7 @@ class ErrorRateFunc:
         uncertainty, matching infidelity_variances.
         """
         variances = _jeffreys_variance(self.num_discards, self.num_samples)
-        variances[0] = 0.0  # weight 0 is never sampled, so num_discards[0] is exactly 0
+        variances[0] = 0.0  # weight 0 (no error) is never discarded (enforced in __post_init__)
         return variances
 
     def __call__(
@@ -211,12 +215,11 @@ def _get_sample_allocation(
     while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
         num_samples += 1  # pragma: no cover
 
-    # allocate one sample to k=0 to fix an edge case in ErrorRateFunc
-    sample_allocation[0] = 1
-
-    # truncate trailing zeros and return
+    # weight 0 (no error) decodes deterministically and is not sampled, so its allocation stays
+    # zero; truncate trailing zeros, keeping just the weight-0 bin when nothing is allocated
     nonzero = np.nonzero(sample_allocation)[0]
-    return sample_allocation[: nonzero[-1] + 1]
+    end = nonzero[-1] + 1 if nonzero.size else 1
+    return sample_allocation[:end]
 
 
 def _get_error_probs_by_weight(

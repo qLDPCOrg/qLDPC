@@ -43,9 +43,14 @@ def test_get_error_probs_by_weight() -> None:
 def test_get_sample_allocation() -> None:
     """Allocation of samples across error weights."""
     allocation = _monte_carlo._get_sample_allocation(1000, block_length=10, max_error_rate=0.2)
-    assert allocation[0] == 1  # exactly one sample is reserved for the weight-0 error
+    assert allocation[0] == 0  # weight 0 (no error) is not sampled
     assert np.sum(allocation) >= 1000  # every requested sample is allocated
     assert allocation[-1] > 0  # trailing zeros are truncated
+
+    # zero requested samples yield a lone weight-0 bin rather than an empty allocation
+    assert np.array_equal(
+        _monte_carlo._get_sample_allocation(0, block_length=10, max_error_rate=0.2), [0]
+    )
 
 
 def test_get_error_and_erasure() -> None:
@@ -118,6 +123,12 @@ def test_error_rate_func_validation() -> None:
     with pytest.raises(ValueError, match="cannot exceed"):
         make([10], [7], [5])
 
+    # weight 0 is the no-error case and cannot record failures or discards
+    with pytest.raises(ValueError, match="no-error"):
+        make([10, 10], [3, 0], [0, 0])
+    with pytest.raises(ValueError, match="no-error"):
+        make([10, 10], [0, 0], [3, 0])
+
 
 def test_error_bar_survives_zero_failures() -> None:
     """The reported uncertainty stays positive when contributing weights see zero failures.
@@ -171,6 +182,10 @@ def test_error_rate_func() -> None:
     # a weight with no kept samples reverts to the Jeffreys prior variance 1/8 (weight 2: every
     # sample discarded)
     assert np.isclose(func.infidelity_variances[2], 1 / 8)
+
+    # variance is non-negative at every weight, on both the infidelity and discard paths
+    assert np.all(func.infidelity_variances >= 0)
+    assert np.all(func.discard_rate_variances >= 0)
 
     # a scalar physical error rate yields a (rate, uncertainty) pair, for errors and discards alike
     error_rate, uncertainty = func(0.1)
