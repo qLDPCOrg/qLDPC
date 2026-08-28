@@ -395,7 +395,9 @@ def symplectic_gram_schmidt(
 
     Together the rows of ``hyperbolic`` and ``radical`` form a basis for V.  The rows of ``vectors``
     may be linearly dependent; they are first reduced to a basis of V.  Pass promise_full_rank=True
-    to skip this reduction when the rows are already independent.
+    to skip this reduction when the rows are already independent; passing it for dependent rows
+    leaves the dependent directions in ``radical`` as spurious (possibly zero) rows, though the
+    ``hyperbolic`` pairs stay correct.
 
     Because the symplectic form is alternating, ``⟨v, v⟩_s = 0`` for every vector in every
     characteristic, so -- unlike get_orthonormal_basis -- there is no unit-vector case: the

@@ -915,7 +915,7 @@ class QuditCode(AbstractCode):
     def is_subsystem_code(self) -> bool:
         """Is this code a subsystem code?
 
-        That is, do all parity checks commute?
+        That is, do some parity checks fail to commute with each other?
         """
         if self._is_subsystem_code is None:
             self._is_subsystem_code = bool(
@@ -1209,15 +1209,15 @@ class QuditCode(AbstractCode):
             logical_ops, _radical = math.symplectic_gram_schmidt(
                 centralizer, promise_full_rank=True
             )
-            self._logical_ops = logical_ops.view(self.field)
+            self._logical_ops = logical_ops
             return self._logical_ops
 
         # construct the standard-form parity check matrix
         (
             matrix,
             qudit_locs,
-            (rows_sx, rows_gx, rows_sz, _rows_gz),
-            (cols_sx, cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
+            (rows_sx, _rows_gx, rows_sz, _rows_gz),
+            (cols_sx, _cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
         ) = self.get_standard_form_data()
         matrix_x = matrix[:, 0, :]
         matrix_z = matrix[:, 1, :]
@@ -1237,7 +1237,6 @@ class QuditCode(AbstractCode):
         # Z support of X-type logicals, as column vectors
         logicals_xz = self.field.Zeros((len(self), self.dimension))
         logicals_xz[cols_lx] = self.field.Identity(self.dimension)
-        logicals_xz[cols_gx] = -matrix_x[rows_gx] @ logicals_xz + matrix_z[rows_gx] @ logicals_xx
         logicals_xz[cols_sx] = -matrix_x[rows_sx] @ logicals_xz + matrix_z[rows_sx] @ logicals_xx
 
         # full X and Z logicals as row vectors
@@ -2394,7 +2393,7 @@ class CSSCode(QuditCode):
     def is_subsystem_code(self) -> bool:
         """Is this code a subsystem code?
 
-        That is, do all parity checks commute?
+        That is, do some parity checks fail to commute with each other?
         """
         if self._is_subsystem_code is None:
             self._is_subsystem_code = bool(np.any(self.matrix_x @ self.matrix_z.T))
