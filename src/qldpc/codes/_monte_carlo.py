@@ -46,11 +46,9 @@ class ErrorRateFunc:
 
     then "func" takes a physical error rate "p" as an argument, and returns two numbers:
     (1) A logical error rate.
-    (2) An uncertainty in the logical error rate, obtained by propagating the per-weight Jeffreys
-        posterior variances (see infidelity_variances).  It is a posterior standard deviation
-        rather than a frequentist standard error: a regularized dispersion that need not vanish at
-        zero observed failures and is not generally centered on the point estimate, and to which a
-        weight with no kept samples contributes the prior standard deviation sqrt(1/8).
+    (2) An uncertainty in the logical error rate, propagated from the per-weight Jeffreys posterior
+        variances (see infidelity_variances).  It is a posterior standard deviation, not a
+        frequentist standard error.
     If called with an array of physical error rates, this function returns two arrays.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
@@ -207,6 +205,10 @@ def _get_sample_allocation(
 
     # zero out the distribution at k=0, flatten it out to the left of its peak, and renormalize
     probs[0] = 0
+    if not probs.any():
+        # no error of weight >= 1 is possible (e.g. max_error_rate 0 or an empty code), so there
+        # is nothing to sample; return a lone weight-0 bin
+        return np.zeros(1, dtype=int)
     probs[1 : np.argmax(probs)] = probs.max()
     probs /= np.sum(probs)
 
@@ -233,7 +235,7 @@ def _get_error_probs_by_weight(
     We compute the above probability using logarithms because otherwise the combinatorial factor
     ``(n choose k)`` might be too large to handle.
     """
-    max_weight = max_weight or block_length
+    max_weight = block_length if max_weight is None else max_weight
 
     # deal with some pathological cases
     if error_rate == 0:

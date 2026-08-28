@@ -39,6 +39,10 @@ def test_get_error_probs_by_weight() -> None:
     assert probs.shape == (4,) and np.all(probs >= 0)
     assert np.isclose(probs.sum(), sum(_monte_carlo._get_error_probs_by_weight(5, 0.3)[:4]))
 
+    # max_weight=0 keeps only the weight-0 entry rather than being treated as "unset"
+    probs = _monte_carlo._get_error_probs_by_weight(5, 0.3, max_weight=0)
+    assert probs.shape == (1,) and np.isclose(probs[0], 0.7**5)
+
 
 def test_get_sample_allocation() -> None:
     """Allocation of samples across error weights."""
@@ -50,6 +54,15 @@ def test_get_sample_allocation() -> None:
     # zero requested samples yield a lone weight-0 bin rather than an empty allocation
     assert np.array_equal(
         _monte_carlo._get_sample_allocation(0, block_length=10, max_error_rate=0.2), [0]
+    )
+
+    # a distribution with no weight >= 1 mass (max_error_rate 0, or an empty code) also yields a
+    # lone weight-0 bin rather than dividing by zero
+    assert np.array_equal(
+        _monte_carlo._get_sample_allocation(1000, block_length=10, max_error_rate=0.0), [0]
+    )
+    assert np.array_equal(
+        _monte_carlo._get_sample_allocation(1000, block_length=0, max_error_rate=0.2), [0]
     )
 
 
@@ -206,3 +219,21 @@ def test_error_rate_func() -> None:
     # the truncation error bound is available for scalar and iterable inputs
     assert 0 <= func.truncation_error_bound(0.1) <= 1
     assert np.asarray(func.truncation_error_bound([0.1, 0.2])).shape == (2,)
+
+
+def test_error_rate_func_single_weight() -> None:
+    """A degenerate func covering only the weight-0 bin evaluates without crashing."""
+    func = _monte_carlo.ErrorRateFunc(
+        num_samples=np.array([0]),
+        num_failures=np.array([0]),
+        num_discards=np.array([0]),
+        num_error_locations=5,
+        max_error_rate=0.5,
+    )
+    assert func.max_error_weight == 0
+
+    # every error of weight >= 1 lies outside the covered range, so it is fully truncated: the
+    # reported rate is 1 - P(weight 0) with zero uncertainty
+    error_rate, uncertainty = func(0.1)
+    assert np.isclose(error_rate, 1 - 0.9**5) and uncertainty == 0
+    assert np.isclose(func.truncation_error_bound(0.1), 1 - 0.9**5)
