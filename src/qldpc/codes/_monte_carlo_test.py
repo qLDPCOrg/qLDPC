@@ -73,11 +73,52 @@ def test_get_error_and_erasure() -> None:
     assert erasure and np.array_equal(error, field([1, 1, 0, 0]))
 
 
+def test_jeffreys_variance() -> None:
+    """Posterior variance of a binomial rate under a Jeffreys prior."""
+    events = np.array([0, 0, 5])
+    trials = np.array([0, 100, 100])
+    variances = _monte_carlo._jeffreys_variance(events, trials)
+
+    # no data reverts to the prior variance 1/8 (Beta(1/2, 1/2))
+    assert np.isclose(variances[0], 1 / 8)
+
+    # zero observed events over many trials still carries positive uncertainty
+    assert variances[1] > 0
+
+    # the general entry matches mean * (1 - mean) / (n + 2) with mean = (x + 1/2) / (n + 1)
+    mean = (5 + 0.5) / (100 + 1)
+    assert np.isclose(variances[2], mean * (1 - mean) / (100 + 2))
+
+
+def test_error_bar_survives_zero_failures() -> None:
+    """The reported uncertainty stays positive when contributing weights see zero failures.
+
+    This is the pathology the Jeffreys variance fixes: a plug-in f(1 - f)/n variance is exactly
+    zero at every weight with no observed failures, so the aggregate error bar collapses to zero
+    in precisely the rare-event regime the estimate exists to measure.
+    """
+    func = _monte_carlo.ErrorRateFunc(
+        num_samples=np.array([1, 100, 100]),
+        num_failures=np.array([0, 0, 0]),  # no observed failures at any weight
+        num_discards=np.array([0, 0, 0]),
+        num_error_locations=5,
+        max_error_rate=0.5,
+    )
+    # every sampled weight (>0) carries positive variance despite zero observed failures, while
+    # the deterministic weight-0 case remains exempt
+    assert func.infidelity_variances[0] == 0
+    assert np.all(func.infidelity_variances[1:] > 0)
+
+    # so the aggregate error bar is positive at a physical error rate that weights those bins
+    _, uncertainty = func(0.1)
+    assert uncertainty > 0
+
+
 def test_error_rate_func() -> None:
     """Convert raw failure and discard counts into error and discard rate estimates."""
     func = _monte_carlo.ErrorRateFunc(
         num_samples=np.array([1, 100, 100]),
-        num_failures=np.array([0, 10, 50]),
+        num_failures=np.array([0, 10, 0]),
         num_discards=np.array([0, 0, 100]),  # every weight-2 sample is discarded
         num_error_locations=5,
         max_error_rate=0.5,
@@ -87,9 +128,20 @@ def test_error_rate_func() -> None:
     # a weight whose samples are all discarded has an undefined infidelity, recorded as zero
     assert func.infidelities[2] == 0
     assert np.isclose(func.infidelities[1], 0.1)
-    assert np.all(func.infidelity_variances >= 0)
     assert np.array_equal(func.discard_rates, [0, 0, 1])
-    assert np.all(func.discard_rate_variances >= 0)
+
+    # the deterministic weight-0 (no-error) case carries no uncertainty
+    assert func.infidelity_variances[0] == 0
+    assert func.discard_rate_variances[0] == 0
+
+    # a weight with observed events has positive variance, as does the discard path at a weight
+    # with zero observed discards (0 of 100) -- the Jeffreys variance does not collapse there
+    assert func.infidelity_variances[1] > 0
+    assert func.discard_rate_variances[1] > 0
+
+    # a weight with no kept samples reverts to the Jeffreys prior variance 1/8 (weight 2: every
+    # sample discarded)
+    assert np.isclose(func.infidelity_variances[2], 1 / 8)
 
     # a scalar physical error rate yields a (rate, uncertainty) pair, for errors and discards alike
     error_rate, uncertainty = func(0.1)
