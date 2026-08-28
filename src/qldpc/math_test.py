@@ -136,6 +136,43 @@ def test_orthonormal_basis() -> None:
     assert np.array_equal(basis @ basis.T, galois.GF(3).Identity(2))
 
 
+def test_symplectic_gram_schmidt() -> None:
+    """Symplectic Gram-Schmidt: hyperbolic pairs plus a symplectic radical."""
+    conj = qldpc.math.symplectic_conjugate
+
+    def check(vectors: galois.FieldArray, *, promise_full_rank: bool = False) -> tuple[int, int]:
+        field = type(vectors)
+        hyp, rad = qldpc.math.symplectic_gram_schmidt(vectors, promise_full_rank=promise_full_rank)
+        num_pairs = len(hyp) // 2
+        # the hyperbolic Gram matrix is the block anti-diagonal [[0, I], [-I, 0]]
+        expected_gram = field.Zeros((2 * num_pairs, 2 * num_pairs))
+        expected_gram[:num_pairs, num_pairs:] = field.Identity(num_pairs)
+        expected_gram[num_pairs:, :num_pairs] = -field.Identity(num_pairs)
+        assert np.array_equal(hyp @ conj(hyp).T, expected_gram)
+        # the radical is isotropic and orthogonal to the entire space
+        combined = field(np.vstack([hyp, rad]))
+        assert not np.any(rad @ conj(combined).T)
+        # the hyperbolic pairs and the radical together span the input row space
+        assert np.array_equal(combined.row_space(), vectors.row_space())
+        # the reduction is deterministic
+        again = qldpc.math.symplectic_gram_schmidt(vectors, promise_full_rank=promise_full_rank)
+        assert np.array_equal(again[0], hyp) and np.array_equal(again[1], rad)
+        return num_pairs, len(rad)
+
+    for field in [galois.GF(2), galois.GF(3), galois.GF(4)]:
+        # a non-degenerate symplectic plane: one hyperbolic pair, empty radical
+        assert check(field([[1, 0, 0, 0], [0, 0, 1, 0]]), promise_full_rank=True) == (1, 0)
+        # a purely isotropic space (pure-Z rows mutually commute): no pairs, all radical
+        assert check(field([[0, 0, 1, 0], [0, 0, 0, 1]]), promise_full_rank=True) == (0, 2)
+        # a mix: an (X_0, Z_0) pair and a Z_2 radical vector
+        rows = field([[1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 0, 1]])
+        assert check(rows, promise_full_rank=True) == (1, 1)
+        # the empty subspace
+        assert check(field.Zeros((0, 4)), promise_full_rank=True) == (0, 0)
+        # linearly dependent rows are reduced to a basis first (promise_full_rank=False)
+        assert check(field([[1, 0, 0, 0], [0, 0, 1, 0], [1, 0, 1, 0]])) == (1, 0)
+
+
 def test_block_matrix() -> None:
     """block_matrix assembles a nested block structure into a single NumPy array."""
     eye = np.eye(2, dtype=float)

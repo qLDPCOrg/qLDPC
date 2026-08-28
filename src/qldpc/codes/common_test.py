@@ -562,6 +562,126 @@ def test_qudit_ops(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(code.get_stabilizer_ops(canonicalized=True), stabilizer_ops[:-1])
 
 
+def test_qudit_subsystem_logical_ops() -> None:
+    """Non-CSS subsystem codes get a valid symplectic basis of logical operators.
+
+    The base QuditCode.get_logical_ops extracts the logical operators of a subsystem code as a
+    symplectic basis of the gauge group's centralizer.  This test checks that basis is valid --
+    correct commutation relations, and commuting with the gauge group -- for codes whose parity
+    checks mix X-type and Z-type support.
+    """
+
+    def assert_valid_basis(code: codes.QuditCode) -> None:
+        assert code.is_subsystem_code
+        logical_ops = code.get_logical_ops()
+        assert len(logical_ops) == 2 * code.dimension
+        # a valid basis has the full symplectic Gram matrix [[0, I], [-I, 0]]: X-type logicals
+        # mutually commute, Z-type logicals mutually commute, and each logical anticommutes only
+        # with its dual
+        assert np.array_equal(
+            logical_ops @ math.symplectic_conjugate(logical_ops).T,
+            get_symplectic_form(code.dimension, code.field),
+        )
+        # logical operators commute with every gauge generator (they lie in the centralizer)
+        assert not np.any(code.matrix @ math.symplectic_conjugate(logical_ops).T)
+        # gauge operators (dual().get_logical_ops()) are likewise a valid symplectic basis
+        gauge_ops = code.get_gauge_ops()
+        assert np.array_equal(
+            gauge_ops @ math.symplectic_conjugate(gauge_ops).T,
+            get_symplectic_form(code.gauge_dimension, code.field),
+        )
+        # the basis round-trips through the commutation-relation validation of set_logical_ops
+        code.set_logical_ops(logical_ops)
+
+    # conjugating some qudits mixes a Bacon-Shor code's X/Z support into a non-CSS subsystem code.
+    # The shipped reproduction must yield a valid basis without error, including via get_gauge_ops
+    # and get_distance, which build the logical operators of the dual code.
+    shipped = codes.BaconShorCode(3).conjugated([1, 3, 5])
+    assert_valid_basis(shipped)
+    assert shipped.get_distance() == 3
+
+    # property test over several fields, for one and two logical qudits.  Away from GF(2), build
+    # the non-CSS codes with _local_fourier, as conjugated() is only symplectic over GF(2).
+    for field in [galois.GF(2), galois.GF(3), galois.GF(4)]:
+        bacon_shor = codes.BaconShorCode(3, field=field.order).matrix
+        single = _local_fourier(bacon_shor, [1, 3, 5])
+        double = _local_fourier(_direct_sum(bacon_shor, bacon_shor), [1, 3, 5, 10, 14])
+        for matrix, expected_dimension in [(single, 1), (double, 2)]:
+            code = codes.QuditCode(matrix)
+            # the parity checks genuinely mix X-type and Z-type support (the code is not CSS)
+            has_x = np.any(code.matrix[:, : len(code)], axis=1)
+            has_z = np.any(code.matrix[:, len(code) :], axis=1)
+            assert np.any(has_x & has_z)
+            assert code.dimension == expected_dimension
+            assert_valid_basis(code)
+
+    # a subsystem code with no logical qudits yields an empty basis rather than an error
+    five_qubit = codes.FiveQubitCode()
+    gauged = codes.QuditCode(np.vstack([five_qubit.matrix, five_qubit.get_logical_ops()]))
+    assert gauged.is_subsystem_code and gauged.dimension == 0
+    assert gauged.get_logical_ops().shape == (0, 2 * len(gauged))
+
+
+def _local_fourier(matrix: galois.FieldArray, qudits: Sequence[int]) -> galois.FieldArray:
+    """Apply the local symplectic Fourier map ``(x_i, z_i) -> (z_i, -x_i)`` on the given qudits.
+
+    This preserves every symplectic inner product, so it maps a valid code to a valid code over any
+    field.  Applied to some qudits of a CSS code, it can mix X-type and Z-type support to build a
+    non-CSS code -- the regime that exercises the base QuditCode.get_logical_ops construction (CSS
+    codes use their own override).
+    """
+    field = type(matrix)
+    num_qudits = matrix.shape[1] // 2
+    x_bits, z_bits = matrix[:, :num_qudits].copy(), matrix[:, num_qudits:].copy()
+    x_bits[:, qudits], z_bits[:, qudits] = z_bits[:, qudits].copy(), -x_bits[:, qudits]
+    return np.hstack([x_bits, z_bits]).view(field)
+
+
+def _direct_sum(matrix_a: galois.FieldArray, matrix_b: galois.FieldArray) -> galois.FieldArray:
+    """Combine two symplectic parity check matrices into a code acting on disjoint qudits.
+
+    The result encodes the logical qudits of both summands, giving a simple way to build subsystem
+    codes with more than one logical qudit.
+    """
+    field = type(matrix_a)
+    num_a, num_b = matrix_a.shape[1] // 2, matrix_b.shape[1] // 2
+    num_qudits = num_a + num_b
+    result = field.Zeros((len(matrix_a) + len(matrix_b), 2 * num_qudits))
+    result[: len(matrix_a), :num_a] = matrix_a[:, :num_a]
+    result[: len(matrix_a), num_qudits : num_qudits + num_a] = matrix_a[:, num_a:]
+    result[len(matrix_a) :, num_a:num_qudits] = matrix_b[:, :num_b]
+    result[len(matrix_a) :, num_qudits + num_a :] = matrix_b[:, num_b:]
+    return result
+
+
+def test_get_standard_form_data_subsystem() -> None:
+    """QuditCode.get_standard_form_data reduces a subsystem code's checks to standard form.
+
+    get_logical_ops does not route subsystem codes through get_standard_form_data, so this covers
+    its subsystem branch directly against the identity-block structure that the method documents.
+    """
+    code = codes.QuditCode(codes.BaconShorCode(3).matrix)
+    assert code.is_subsystem_code
+    matrix, qudit_locs, row_sectors, col_sectors = code.get_standard_form_data()
+    rows_sx, rows_gx, rows_sz, rows_gz = row_sectors
+    cols_sx, cols_gx, _cols_lx, cols_sz, cols_gz, _cols_lz = col_sectors
+
+    # each stabilizer/gauge pivot block is an identity matrix, as documented
+    for rows, pauli_index, cols in [
+        (rows_sx, 0, cols_sx),
+        (rows_gx, 0, cols_gx),
+        (rows_sz, 1, cols_sz),
+        (rows_gz, 1, cols_gz),
+    ]:
+        block = matrix[rows, pauli_index, cols]
+        assert block.shape[0] == block.shape[1]
+        assert np.array_equal(block, code.field.Identity(len(block)))
+
+    # undoing the qudit permutation recovers the canonicalized parity check matrix
+    reordered = matrix[:, :, np.argsort(qudit_locs)].reshape(-1, 2 * len(code)).view(code.field)
+    assert np.array_equal(reordered.row_space(), code.canonicalized.matrix)
+
+
 def test_set_logical_ops_single_type_support() -> None:
     """QuditCode.set_logical_ops_x/z accept width-n single-type support."""
     css_code = codes.SteaneCode()

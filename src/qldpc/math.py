@@ -375,3 +375,64 @@ def _sqrt(value: galois.FieldArray) -> galois.FieldArray:
     than a 0-dimensional scalar (which it rejects over some extension fields).
     """
     return np.sqrt(np.atleast_1d(value))[0]
+
+
+def symplectic_gram_schmidt(
+    vectors: galois.FieldArray, *, promise_full_rank: bool = False
+) -> tuple[galois.FieldArray, galois.FieldArray]:
+    """Reduce vectors to symplectic hyperbolic pairs and a symplectic radical.
+
+    The rows of ``vectors`` span a subspace V of ``GF(q)^(2n)`` equipped with the symplectic inner
+    product ``⟨a, b⟩_s = a @ symplectic_conjugate(b)`` (see symplectic_conjugate).  Return a pair
+    ``(hyperbolic, radical)``:
+
+    - ``hyperbolic`` has shape ``(2m, 2n)`` and holds ``m`` mutually orthogonal hyperbolic pairs.
+      Its rows are ordered ``[b_0, ..., b_{m-1}, c_0, ..., c_{m-1}]``, so that
+      ``hyperbolic @ symplectic_conjugate(hyperbolic).T`` is the block matrix ``[[0, I], [-I, 0]]``:
+      ``⟨b_i, c_j⟩_s = δ_ij`` and all other products vanish.
+    - ``radical`` spans the symplectic radical of V -- the vectors of V that are orthogonal to all
+      of V.  Its rows are isotropic and orthogonal to every row of ``hyperbolic`` and ``radical``.
+
+    Together the rows of ``hyperbolic`` and ``radical`` form a basis for V.  The rows of ``vectors``
+    may be linearly dependent; they are first reduced to a basis of V.  Pass promise_full_rank=True
+    to skip this reduction when the rows are already independent; passing it for dependent rows
+    leaves the dependent directions in ``radical`` as spurious (possibly zero) rows, though the
+    ``hyperbolic`` pairs stay correct.
+
+    Because the symplectic form is alternating, ``⟨v, v⟩_s = 0`` for every vector in every
+    characteristic, so -- unlike get_orthonormal_basis -- there is no unit-vector case: the
+    construction peels off one hyperbolic pair at a time and collects the leftover radical.
+    """
+    field = type(vectors)
+    dimension = vectors.shape[1]
+    if not promise_full_rank:
+        vectors = vectors.row_space()  # reduce to a basis, discarding linearly dependent rows
+    words = list(vectors)
+
+    firsts: list[galois.FieldArray] = []  # the b_j
+    partners: list[galois.FieldArray] = []  # the c_j, with ⟨b_j, c_j⟩_s = 1
+    radical: list[galois.FieldArray] = []
+    while words:
+        first = words.pop(0)
+        index = next(
+            (ii for ii, word in enumerate(words) if first @ symplectic_conjugate(word) != 0), None
+        )
+        if index is None:
+            # "first" is orthogonal to every remaining word (and, by prior projections, to the
+            # extracted pairs and radical), so it belongs to the symplectic radical
+            radical.append(first)
+            continue
+        partner = words.pop(index)
+        # rescale so that ⟨first, partner⟩_s = 1
+        partner = partner / (first @ symplectic_conjugate(partner))
+        # project the remaining words to be symplectically orthogonal to both "first" and "partner"
+        conj_first = symplectic_conjugate(first)
+        conj_partner = symplectic_conjugate(partner)
+        words = [
+            word - (word @ conj_partner) * first + (word @ conj_first) * partner for word in words
+        ]
+        firsts.append(first)
+        partners.append(partner)
+
+    hyperbolic = field(firsts + partners) if firsts else field.Zeros((0, dimension))
+    return hyperbolic, field(radical) if radical else field.Zeros((0, dimension))
