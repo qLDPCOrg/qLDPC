@@ -1172,19 +1172,17 @@ class QuditCode(AbstractCode):
         If this method is passed a pauli operator (Pauli.X or Pauli.Z), it returns only the logical
         operators of that type.
 
-        For a non-subsystem code, logical Z-type operators address physical qudits only by physical
-        Z-type operators, while logical X-type operators address at least one physical qudit with a
-        physical X-type operator, and may additionally address physical qudits with physical Z-type
-        operators.  For a subsystem code the logical operators are a symplectic basis of the gauge
-        group's centralizer and carry no such guarantee on their physical support.
+        For a non-subsystem code, logical X-type operators have X-support and may additionally have
+        Z-support, while logical Z-type operators have only Z-support and no X-support.  These
+        logical operators are constructed with a method similar to that in Section 4.1 of
+        Gottesman's thesis (arXiv:9705052): fix the values of the logical operator matrix in the GL
+        sector of the parity check matrix when written in standard form (see
+        QuditCode.get_standard_form_data), and fill in the remaining entries of the logical operator
+        matrix as required by commutation constraints.
 
-        For a non-subsystem code, logical operators are constructed with the method similar to that
-        in Section 4.1 of Gottesman's thesis (arXiv:9705052): fix the values of the logical operator
-        matrix in the GL sector of the parity check matrix when written in standard form (see
-        QuditCode.get_standard_form_data), and then fill in the remaining entries of the logical
-        operator matrix as required by parity check constraints.  For a subsystem code the logical
-        operators are instead extracted as a symplectic basis of the gauge group's centralizer,
-        whose symplectic radical is the stabilizer group.
+        For a subsystem code, logical operators are constructed as a symplectic basis of the gauge
+        group's centralizer, whose symplectic radical is the stabilizer group.  These logical
+        operators make no guarantees on their physical support.
 
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
         always be True for a non-CSS code.
