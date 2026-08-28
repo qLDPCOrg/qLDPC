@@ -2582,12 +2582,22 @@ class CSSCode(QuditCode):
             logicals_z[cols_lx] = self.field.Identity(self.dimension)
 
         else:
-            # Restrict to the gauge-qudit rows (constraints) and define A = matrix_z[rows_gz,
-            # cols_gl] and B = matrix_x[rows_gx, cols_gl].  The GL-sector components of the logical
-            # operators, U = logicals_x[cols_gl] and V = logicals_z[cols_gl], must satisfy
-            # A @ U = 0, B @ V = 0, and U.T @ V = I.  Setting U = null_space(A).T and
-            # V = null_space(B).T @ M satisfies the first two; the mixing matrix M = inv(U.T @ W),
-            # with W = null_space(B).T, fixes the third, since U.T @ V = U.T @ W @ M = I.
+            # Restrict to the gauge-qudit rows (constraints) and define
+            #   A = matrix_z[rows_gz, cols_gl] and
+            #   B = matrix_x[rows_gx, cols_gl].
+            # The GL-sector components of the logical operators,
+            #   U = logicals_x[cols_gl] and
+            #   V = logicals_z[cols_gl],
+            # must satisfy
+            #   (1) A @ U = 0,
+            #   (2) B @ V = 0, and
+            #   (3) U.T @ V = I.
+            # Setting
+            #   U = null_space(A).T and
+            #   V = null_space(B).T @ M for some M
+            # satisfies (1) and (2), and setting
+            #   M = inv(U.T @ W) with W = null_space(B).T
+            # satisfies (3), since U.T @ V = U.T @ W @ M = I.
             cols_gl = np.sort(_join_slices(cols_gx, cols_lx))
             mat_U = matrix_z[rows_gz, cols_gl].view(self.field).null_space().T
             mat_W = matrix_x[rows_gx, cols_gl].view(self.field).null_space().T
