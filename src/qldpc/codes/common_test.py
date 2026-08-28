@@ -565,10 +565,10 @@ def test_qudit_ops(pytestconfig: pytest.Config) -> None:
 def test_qudit_subsystem_logical_ops() -> None:
     """Non-CSS subsystem codes get a valid symplectic basis of logical operators.
 
-    The base QuditCode.get_logical_ops extracts the logical operators as a symplectic basis of the
-    gauge group's centralizer.  This handles subsystem codes whose parity checks mix X-type and
-    Z-type support, for which seeding the two sectors independently can produce a non-square system
-    (a crash) or a basis with the wrong commutation relations.
+    The base QuditCode.get_logical_ops extracts the logical operators of a subsystem code as a
+    symplectic basis of the gauge group's centralizer.  This test checks that basis is valid --
+    correct commutation relations, and commuting with the gauge group -- for codes whose parity
+    checks mix X-type and Z-type support.
     """
 
     def assert_valid_basis(code: codes.QuditCode) -> None:
@@ -626,9 +626,9 @@ def _local_fourier(matrix: galois.FieldArray, qudits: Sequence[int]) -> galois.F
     """Apply the local symplectic Fourier map ``(x_i, z_i) -> (z_i, -x_i)`` on the given qudits.
 
     This preserves every symplectic inner product, so it maps a valid code to a valid code over any
-    field.  Applying it to only some qudits turns a CSS code into a genuinely non-CSS subsystem code
-    whose parity checks mix X-type and Z-type support -- the regime that exercises the base
-    QuditCode.get_logical_ops construction (CSS codes use their own override).
+    field.  Applied to some qudits of a CSS code, it can mix X-type and Z-type support to build a
+    non-CSS code -- the regime that exercises the base QuditCode.get_logical_ops construction (CSS
+    codes use their own override).
     """
     field = type(matrix)
     num_qudits = matrix.shape[1] // 2
@@ -657,8 +657,8 @@ def _direct_sum(matrix_a: galois.FieldArray, matrix_b: galois.FieldArray) -> gal
 def test_get_standard_form_data_subsystem() -> None:
     """QuditCode.get_standard_form_data reduces a subsystem code's checks to standard form.
 
-    get_logical_ops no longer routes subsystem codes through get_standard_form_data, so cover its
-    subsystem branch directly against the identity-block structure that the method documents.
+    get_logical_ops does not route subsystem codes through get_standard_form_data, so this covers
+    its subsystem branch directly against the identity-block structure that the method documents.
     """
     code = codes.QuditCode(codes.BaconShorCode(3).matrix)
     assert code.is_subsystem_code

@@ -424,11 +424,10 @@ def symplectic_gram_schmidt(
         # rescale so that ⟨first, partner⟩_s = 1
         partner = partner / (first @ symplectic_conjugate(partner))
         # project the remaining words to be symplectically orthogonal to both "first" and "partner"
+        conj_first = symplectic_conjugate(first)
+        conj_partner = symplectic_conjugate(partner)
         words = [
-            word
-            - (word @ symplectic_conjugate(partner)) * first
-            + (word @ symplectic_conjugate(first)) * partner
-            for word in words
+            word - (word @ conj_partner) * first + (word @ conj_first) * partner for word in words
         ]
         firsts.append(first)
         partners.append(partner)
