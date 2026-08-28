@@ -90,6 +90,35 @@ def test_jeffreys_variance() -> None:
     assert np.isclose(variances[2], mean * (1 - mean) / (100 + 2))
 
 
+def test_error_rate_func_validation() -> None:
+    """Inconsistent count arrays are rejected at construction."""
+
+    def make(samples: list[int], failures: list[int], discards: list[int]) -> None:
+        _monte_carlo.ErrorRateFunc(
+            num_samples=np.array(samples),
+            num_failures=np.array(failures),
+            num_discards=np.array(discards),
+            num_error_locations=5,
+            max_error_rate=0.5,
+        )
+
+    # the count arrays must share a shape
+    with pytest.raises(ValueError, match="equal shape"):
+        make([10, 10], [0], [0])
+
+    # at least one error weight is required
+    with pytest.raises(ValueError, match="at least one error weight"):
+        make([], [], [])
+
+    # counts cannot be negative
+    with pytest.raises(ValueError, match="non-negative"):
+        make([10], [-1], [0])
+
+    # failures plus discards cannot exceed the samples at any weight
+    with pytest.raises(ValueError, match="cannot exceed"):
+        make([10], [7], [5])
+
+
 def test_error_bar_survives_zero_failures() -> None:
     """The reported uncertainty stays positive when contributing weights see zero failures.
 

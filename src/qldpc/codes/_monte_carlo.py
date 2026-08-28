@@ -66,6 +66,17 @@ class ErrorRateFunc:
     num_error_locations: int  # total number of error locations
     max_error_rate: float  # largest physical error rate we can consider
 
+    def __post_init__(self) -> None:
+        """Check that the counts form a consistent set of per-weight binomial observations."""
+        if not self.num_samples.shape == self.num_failures.shape == self.num_discards.shape:
+            raise ValueError("num_samples, num_failures, and num_discards must have equal shape")
+        if self.num_samples.size == 0:
+            raise ValueError("at least one error weight is required")
+        if np.any(self.num_failures < 0) or np.any(self.num_discards < 0):
+            raise ValueError("failure and discard counts must be non-negative")
+        if np.any(self.num_failures + self.num_discards > self.num_samples):
+            raise ValueError("failures plus discards cannot exceed the samples at any weight")
+
     @property
     def max_error_weight(self) -> int:
         """Max error weight considered."""
