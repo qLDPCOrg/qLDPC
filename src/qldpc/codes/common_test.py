@@ -463,6 +463,23 @@ def test_qudit_deformations() -> None:
     assert code.is_equiv_to(code.deformed("H 0 1 2 3 4 5 6", preserve_logicals=True))
 
 
+def test_conjugated_over_qudits() -> None:
+    """conjugated() is a symplectic map, so it preserves code structure over every field."""
+    conj = math.symplectic_conjugate
+    for base in [codes.BaconShorCode(3, field=3), codes.ToricCode(4, field=4)]:
+        code = codes.QuditCode(base.matrix)
+        code.get_logical_ops()  # populate the cache so conjugated() transforms it too
+        conjugated = code.conjugated([0, 5, 7])
+        # the transform preserves every symplectic product, so the parity checks keep their
+        # commutation relations and the code stays the same size
+        assert np.array_equal(
+            code.matrix @ conj(code.matrix).T, conjugated.matrix @ conj(conjugated.matrix).T
+        )
+        assert codes.QuditCode(conjugated.matrix).dimension == code.dimension
+        # the transformed logical operators are still a valid symplectic basis for the new code
+        conjugated.set_logical_ops(conjugated.get_logical_ops())
+
+
 def get_codes_for_testing_ops() -> Iterator[codes.CSSCode]:
     """Iterate over some codes for testing operator constructions."""
     # Bacon-Shor code and toric codes
