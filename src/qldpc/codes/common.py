@@ -1887,10 +1887,11 @@ class QuditCode(AbstractCode):
             qudits = range(len(self))
 
         def transform_ops(ops: galois.FieldArray) -> galois.FieldArray:
-            """Fourier-transform the given Pauli strings."""
-            ops_reshaped = ops.copy().reshape(-1, 2, len(self))
-            ops_reshaped[:, :, qudits] = ops_reshaped[:, ::-1, qudits]
-            return ops_reshaped.reshape(-1, 2 * len(self)).view(self.field)
+            """Fourier-transform the given Pauli strings on the chosen qudits."""
+            result = ops.copy().reshape(-1, 2, len(self))
+            conjugated = math.symplectic_conjugate(ops).reshape(-1, 2, len(self))
+            result[:, :, qudits] = conjugated[:, :, qudits]
+            return result.reshape(-1, 2 * len(self)).view(self.field)
 
         # transform the parity check matrix, and any other operators that are already known
         code = QuditCode(transform_ops(self.matrix), is_subsystem_code=self._is_subsystem_code)
