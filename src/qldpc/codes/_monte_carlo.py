@@ -23,7 +23,6 @@ limitations under the License.
 from __future__ import annotations
 
 import dataclasses
-import functools
 from collections.abc import Iterable
 from typing import TypeVar
 
@@ -82,6 +81,20 @@ class ErrorRateFunc:
         """Max error weight considered."""
         return self.num_samples.size - 1
 
+    @property
+    def infidelities(self) -> npt.NDArray[np.floating]:
+        """Mean infidelity at each error weight.
+
+        A weight whose samples were all discarded has no kept samples and is reported as zero
+        infidelity; see _as_divisor for the caveat this carries.
+        """
+        return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
+
+    @property
+    def discard_rates(self) -> npt.NDArray[np.floating]:
+        """Discard rate at each error weight."""
+        return self.num_discards / self._as_divisor(self.num_samples)
+
     @staticmethod
     def _as_divisor(counts: npt.NDArray[np.int_]) -> npt.NDArray[np.floating]:
         """Cast sample counts to float for use as a divisor, mapping zeros to infinity.
@@ -94,16 +107,7 @@ class ErrorRateFunc:
         divisor[divisor == 0] = np.inf
         return divisor
 
-    @functools.cached_property
-    def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight.
-
-        A weight whose samples were all discarded has no kept samples and is reported as zero
-        infidelity; see _as_divisor for the caveat this carries.
-        """
-        return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
-
-    @functools.cached_property
+    @property
     def infidelity_variances(self) -> npt.NDArray[np.floating]:
         """Variance of the infidelity at each error weight.
 
@@ -120,12 +124,7 @@ class ErrorRateFunc:
         variances[0] = 0.0  # weight 0 is never sampled, so num_failures[0] is exactly 0
         return variances
 
-    @functools.cached_property
-    def discard_rates(self) -> npt.NDArray[np.floating]:
-        """Discard rate at each error weight."""
-        return self.num_discards / self._as_divisor(self.num_samples)
-
-    @functools.cached_property
+    @property
     def discard_rate_variances(self) -> npt.NDArray[np.floating]:
         """Variance of the discard rate at each error weight.
 
