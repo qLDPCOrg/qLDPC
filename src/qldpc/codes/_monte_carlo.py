@@ -46,8 +46,8 @@ class ErrorRateFunc:
 
     then "func" takes a physical error rate "p" as an argument, and returns two numbers:
     (1) A logical error rate.
-    (2) An uncertainty in the logical error rate, propagated from the per-weight Jeffreys posterior
-        variances (see infidelity_variances).  It is a posterior standard deviation.
+    (2) An uncertainty in the logical error rate: the standard deviation propagated from the
+        per-weight Jeffreys posterior variances (see infidelity_variances).
     If called with an array of physical error rates, this function returns two arrays.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
