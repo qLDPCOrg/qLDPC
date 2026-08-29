@@ -47,8 +47,7 @@ class ErrorRateFunc:
     then "func" takes a physical error rate "p" as an argument, and returns two numbers:
     (1) A logical error rate.
     (2) An uncertainty in the logical error rate, propagated from the per-weight Jeffreys posterior
-        variances (see infidelity_variances).  It is a posterior standard deviation, not a
-        frequentist standard error.
+        variances (see infidelity_variances).  It is a posterior standard deviation.
     If called with an array of physical error rates, this function returns two arrays.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
@@ -131,8 +130,11 @@ class ErrorRateFunc:
         """Variance of the discard rate at each error weight.
 
         This is the Jeffreys posterior variance of the discard fraction among all samples; see
-        _jeffreys_variance.  The weight-0 (no-error) case is never discarded and carries no
-        uncertainty, matching infidelity_variances.
+        _jeffreys_variance.
+
+        The weight-0 (no-error) case is decoded deterministically and is never discarded, so it is
+        known exactly and carries no uncertainty; a smoothing prior would only inject spurious
+        variance there.
         """
         variances = _jeffreys_variance(self.num_discards, self.num_samples)
         variances[0] = 0.0  # weight 0 (no error) is never discarded (enforced in __post_init__)
