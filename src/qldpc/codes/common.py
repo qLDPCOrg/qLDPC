@@ -747,7 +747,7 @@ class ClassicalCode(AbstractCode):
         return self.shortened(bits)
 
     def get_logical_error_rate_func(
-        self, num_samples: int, max_error_rate: float = 0.3, **decoder_kwargs: Any
+        self, num_samples: int, max_error_rate: float = 0.1, **decoder_kwargs: Any
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
@@ -2104,7 +2104,7 @@ class QuditCode(AbstractCode):
     def get_logical_error_rate_func(
         self,
         num_samples: int,
-        max_error_rate: float = 0.3,
+        max_error_rate: float = 0.1,
         pauli_bias: Sequence[float] | None = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
@@ -3323,7 +3323,7 @@ class CSSCode(QuditCode):
     def get_logical_error_rate_func(
         self,
         num_samples: int,
-        max_error_rate: float = 0.3,
+        max_error_rate: float = 0.1,
         pauli_bias: Sequence[float] | None = None,
         *,
         decoder_x_kwargs: dict[str, Any] | None = None,
