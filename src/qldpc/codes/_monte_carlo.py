@@ -47,7 +47,7 @@ class ErrorRateFunc:
     then "func" takes a physical error rate "p" as an argument, and returns two numbers:
     (1) A logical error rate.
     (2) An uncertainty in the logical error rate: the standard deviation propagated from the
-        per-weight Jeffreys posterior variances (see infidelity_variances).
+        per-weight Jeffreys posterior variances.
     If called with an array of physical error rates, this function returns two arrays.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
@@ -106,7 +106,10 @@ class ErrorRateFunc:
 
     @property
     def infidelity_variances(self) -> npt.NDArray[np.floating]:
-        """The Jeffreys posterior variance of the infidelity at each error weight."""
+        """The Jeffreys posterior variance of the infidelity at each error weight.
+
+        See help(qldpc.codes._monte_carlo._jeffreys_variance) for additional info.
+        """
         num_samples_kept = self.num_samples - self.num_discards
         variances = _jeffreys_variance(self.num_failures, num_samples_kept)
         variances[0] = 0.0  # weight 0 (no error) cannot fail
@@ -114,7 +117,10 @@ class ErrorRateFunc:
 
     @property
     def discard_rate_variances(self) -> npt.NDArray[np.floating]:
-        """The Jeffreys posterior variance of the discard rate at each error weight."""
+        """The Jeffreys posterior variance of the discard rate at each error weight.
+
+        See help(qldpc.codes._monte_carlo._jeffreys_variance) for additional info.
+        """
         variances = _jeffreys_variance(self.num_discards, self.num_samples)
         variances[0] = 0.0  # weight 0 (no error) is never discarded
         return variances
@@ -169,6 +175,10 @@ def _jeffreys_variance(
     plug-in variance f (1 - f) / n, this is positive at x = 0, so a weight with no observed events
     still carries uncertainty, and finite at n = 0, where it reverts to the prior variance 1/8 for
     a weight with no data at all.
+
+    See Brown, Cai & DasGupta, "Interval Estimation for a Binomial Proportion," Statist. Sci. 16
+    (2001) 101-133, https://doi.org/10.1214/ss/1009213286, which recommends this Jeffreys interval
+    for its coverage in the small-count regime.
     """
     smoothed_rate = (num_events + 0.5) / (num_trials + 1)
     return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
