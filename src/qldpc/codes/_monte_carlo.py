@@ -23,7 +23,6 @@ limitations under the License.
 from __future__ import annotations
 
 import dataclasses
-import functools
 from collections.abc import Iterable
 from typing import TypeVar
 
@@ -47,7 +46,8 @@ class ErrorRateFunc:
 
     then "func" takes a physical error rate "p" as an argument, and returns two numbers:
     (1) A logical error rate.
-    (2) An uncertainty (standard error) in the logical error rate.
+    (2) An uncertainty in the logical error rate: the standard deviation propagated from the
+        per-weight Jeffreys posterior variances.
     If called with an array of physical error rates, this function returns two arrays.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
@@ -64,47 +64,66 @@ class ErrorRateFunc:
     num_error_locations: int  # total number of error locations
     max_error_rate: float  # largest physical error rate we can consider
 
+    def __post_init__(self) -> None:
+        """Check that the counts form a consistent set of per-weight binomial observations."""
+        if not self.num_samples.shape == self.num_failures.shape == self.num_discards.shape:
+            raise ValueError("num_samples, num_failures, and num_discards must have equal shape")
+        if self.num_samples.size == 0:
+            raise ValueError("at least one error weight is required")
+        if np.any(self.num_failures < 0) or np.any(self.num_discards < 0):
+            raise ValueError("failure and discard counts must be non-negative")
+        if np.any(self.num_failures + self.num_discards > self.num_samples):
+            raise ValueError("failures plus discards cannot exceed the samples at any weight")
+        if self.num_failures[0] != 0 or self.num_discards[0] != 0:
+            raise ValueError("weight 0 is a no-error case: it cannot fail or be discarded")
+
     @property
     def max_error_weight(self) -> int:
         """Max error weight considered."""
         return self.num_samples.size - 1
+
+    @property
+    def infidelities(self) -> npt.NDArray[np.floating]:
+        """Mean infidelity at each error weight."""
+        return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
+
+    @property
+    def discard_rates(self) -> npt.NDArray[np.floating]:
+        """Discard rate at each error weight."""
+        return self.num_discards / self._as_divisor(self.num_samples)
 
     @staticmethod
     def _as_divisor(counts: npt.NDArray[np.int_]) -> npt.NDArray[np.floating]:
         """Cast sample counts to float for use as a divisor, mapping zeros to infinity.
 
         Dividing by infinity yields zero, so a weight with no (kept) samples is recorded with a
-        zero rate and variance rather than nan or inf.  That is optimistic for a weight with no
-        data; a principled fix is deferred to the Jeffreys error-bar follow-up.
+        zero rate rather than nan or inf.  That is optimistic for a weight with no data; the
+        reported variance does not share this optimism (see _jeffreys_variance).
         """
         divisor = counts.astype(float)
         divisor[divisor == 0] = np.inf
         return divisor
 
-    @functools.cached_property
-    def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight.
-
-        A weight whose samples were all discarded has no kept samples and is reported as zero
-        infidelity; see _as_divisor for the caveat this carries.
-        """
-        return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
-
-    @functools.cached_property
+    @property
     def infidelity_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the infidelity at each error weight."""
-        num_samples_kept = self._as_divisor(self.num_samples - self.num_discards)
-        return self.infidelities * (1 - self.infidelities) / num_samples_kept
+        """The Jeffreys posterior variance of the infidelity at each error weight.
 
-    @functools.cached_property
-    def discard_rates(self) -> npt.NDArray[np.floating]:
-        """Discard rate at each error weight."""
-        return self.num_discards / self._as_divisor(self.num_samples)
+        See help(qldpc.codes._monte_carlo._jeffreys_variance) for additional info.
+        """
+        num_samples_kept = self.num_samples - self.num_discards
+        variances = _jeffreys_variance(self.num_failures, num_samples_kept)
+        variances[0] = 0.0  # weight 0 (no error) cannot fail
+        return variances
 
-    @functools.cached_property
+    @property
     def discard_rate_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the discard rate at each error weight."""
-        return self.discard_rates * (1 - self.discard_rates) / self._as_divisor(self.num_samples)
+        """The Jeffreys posterior variance of the discard rate at each error weight.
+
+        See help(qldpc.codes._monte_carlo._jeffreys_variance) for additional info.
+        """
+        variances = _jeffreys_variance(self.num_discards, self.num_samples)
+        variances[0] = 0.0  # weight 0 (no error) is never discarded
+        return variances
 
     def __call__(
         self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
@@ -146,6 +165,25 @@ class ErrorRateFunc:
         return float(1.0 - weight_probs.sum())
 
 
+def _jeffreys_variance(
+    num_events: npt.NDArray[np.int_], num_trials: npt.NDArray[np.int_]
+) -> npt.NDArray[np.floating]:
+    """Posterior variance of a binomial rate under a Jeffreys prior.
+
+    With x events observed in n trials, the rate posterior is Beta(x + 1/2, n - x + 1/2), whose
+    mean is (x + 1/2) / (n + 1) and whose variance is mean * (1 - mean) / (n + 2).  Unlike the
+    plug-in variance f (1 - f) / n, this is positive at x = 0, so a weight with no observed events
+    still carries uncertainty, and finite at n = 0, where it reverts to the prior variance 1/8 for
+    a weight with no data at all.
+
+    See Brown, Cai & DasGupta, "Interval Estimation for a Binomial Proportion," Statist. Sci. 16
+    (2001) 101-133, https://doi.org/10.1214/ss/1009213286, which recommends this Jeffreys interval
+    for its coverage in the small-count regime.
+    """
+    smoothed_rate = (num_events + 0.5) / (num_trials + 1)
+    return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
+
+
 def _get_sample_allocation(
     num_samples: int, block_length: int, max_error_rate: float
 ) -> npt.NDArray[np.int_]:
@@ -158,6 +196,10 @@ def _get_sample_allocation(
 
     # zero out the distribution at k=0, flatten it out to the left of its peak, and renormalize
     probs[0] = 0
+    if not probs.any():
+        # no error of weight >= 1 is possible (e.g. max_error_rate 0 or an empty code), so there
+        # is nothing to sample; return a lone weight-0 bin
+        return np.zeros(1, dtype=int)
     probs[1 : np.argmax(probs)] = probs.max()
     probs /= np.sum(probs)
 
@@ -166,12 +208,11 @@ def _get_sample_allocation(
     while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
         num_samples += 1  # pragma: no cover
 
-    # allocate one sample to k=0 to fix an edge case in ErrorRateFunc
-    sample_allocation[0] = 1
-
-    # truncate trailing zeros and return
+    # weight 0 (no error) decodes deterministically and is not sampled, so its allocation stays
+    # zero; truncate trailing zeros, keeping just the weight-0 bin when nothing is allocated
     nonzero = np.nonzero(sample_allocation)[0]
-    return sample_allocation[: nonzero[-1] + 1]
+    end = nonzero[-1] + 1 if nonzero.size else 1
+    return sample_allocation[:end]
 
 
 def _get_error_probs_by_weight(
@@ -185,7 +226,7 @@ def _get_error_probs_by_weight(
     We compute the above probability using logarithms because otherwise the combinatorial factor
     ``(n choose k)`` might be too large to handle.
     """
-    max_weight = max_weight or block_length
+    max_weight = block_length if max_weight is None else max_weight
 
     # deal with some pathological cases
     if error_rate == 0:

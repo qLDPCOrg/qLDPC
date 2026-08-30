@@ -751,8 +751,8 @@ class ClassicalCode(AbstractCode):
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        In addition to the logical error rate, the constructed function returns an uncertainty
-        (standard error) in that logical error rate.
+        In addition to the logical error rate, the constructed function returns an uncertainty in
+        that logical error rate: a posterior standard deviation (see ErrorRateFunc).
 
         The physical error rate provided to the constructed function is the probability with which
         each bit experiences a bit-flip error.  The constructed function will throw an error if
@@ -2110,8 +2110,8 @@ class QuditCode(AbstractCode):
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        In addition to the logical error rate, the constructed function returns an uncertainty
-        (standard error) in that logical error rate.
+        In addition to the logical error rate, the constructed function returns an uncertainty in
+        that logical error rate: a posterior standard deviation (see ErrorRateFunc).
 
         The physical error rate provided to the constructed function is the probability with which
         each qubit experiences a Pauli error.  The constructed function will throw an error if
@@ -3332,8 +3332,8 @@ class CSSCode(QuditCode):
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        In addition to the logical error rate, the constructed function returns an uncertainty
-        (standard error) in that logical error rate.
+        In addition to the logical error rate, the constructed function returns an uncertainty in
+        that logical error rate: a posterior standard deviation (see ErrorRateFunc).
 
         The physical error rate provided to the constructed function is the probability with which
         each qubit experiences a Pauli error.  The constructed function will throw an error if
