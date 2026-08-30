@@ -84,11 +84,7 @@ class ErrorRateFunc:
 
     @property
     def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight.
-
-        A weight whose samples were all discarded has no kept samples and is reported as zero
-        infidelity; see _as_divisor for the caveat this carries.
-        """
+        """Mean infidelity at each error weight."""
         return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
 
     @property
@@ -110,34 +106,17 @@ class ErrorRateFunc:
 
     @property
     def infidelity_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the infidelity at each error weight.
-
-        This is the Jeffreys posterior variance of the failure fraction among kept samples; see
-        _jeffreys_variance for why it stays positive at zero observed failures and finite when a
-        weight has no kept samples.
-
-        The weight-0 (no-error) case is decoded deterministically and cannot produce a logical
-        failure, so it is known exactly and carries no uncertainty; a smoothing prior would only
-        inject spurious variance there.
-        """
+        """The Jeffreys posterior variance of the infidelity at each error weight."""
         num_samples_kept = self.num_samples - self.num_discards
         variances = _jeffreys_variance(self.num_failures, num_samples_kept)
-        variances[0] = 0.0  # weight 0 (no error) cannot fail (enforced in __post_init__)
+        variances[0] = 0.0  # weight 0 (no error) cannot fail
         return variances
 
     @property
     def discard_rate_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the discard rate at each error weight.
-
-        This is the Jeffreys posterior variance of the discard fraction among all samples; see
-        _jeffreys_variance.
-
-        The weight-0 (no-error) case is decoded deterministically and is never discarded, so it is
-        known exactly and carries no uncertainty; a smoothing prior would only inject spurious
-        variance there.
-        """
+        """The Jeffreys posterior variance of the discard rate at each error weight."""
         variances = _jeffreys_variance(self.num_discards, self.num_samples)
-        variances[0] = 0.0  # weight 0 (no error) is never discarded (enforced in __post_init__)
+        variances[0] = 0.0  # weight 0 (no error) is never discarded
         return variances
 
     def __call__(
