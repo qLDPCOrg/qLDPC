@@ -32,6 +32,27 @@ _MASK01 = np.uint64(0x0101010101010101)
 # exact distance via brute-force enumeration over logical-op and stabilizer combinations
 
 
+def _assert_binary(vectors: npt.ArrayLike, name: str) -> None:
+    """Assert that the given vectors are binary.
+
+    The enumeration below packs each row into the bits of ``uint64`` words and combines rows by
+    bitwise XOR, so it is only correct over GF(2).  Non-binary input would otherwise be truncated
+    silently and yield a wrong distance rather than an error.
+    """
+    order = getattr(type(vectors), "order", None)
+    if order is not None and order != 2:
+        raise ValueError(
+            f"Distance calculations only support binary codes, but {name} is defined over"
+            f" GF({order})"
+        )
+    array = np.asarray(vectors)
+    if array.size and not np.all((array == 0) | (array == 1)):
+        raise ValueError(
+            f"Distance calculations only support binary codes, but {name} has entries other"
+            " than 0 and 1"
+        )
+
+
 def get_distance_classical(
     generators: npt.ArrayLike,
     *,
@@ -111,6 +132,8 @@ def get_distance_quantum(
             qubits) with the first and second halves indicating the X and Z Pauli support; and
         (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
     """
+    _assert_binary(logical_ops, "logical_ops")
+    _assert_binary(stabilizers, "stabilizers")
     num_bits = np.shape(logical_ops)[-1]
 
     if homogeneous:

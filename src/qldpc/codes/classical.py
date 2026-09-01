@@ -31,8 +31,25 @@ from qldpc._util import networkx as nx
 from .common import ClassicalCode
 
 
+def _is_valid_bch_length(length: int, field_order: int) -> bool:
+    """Is the given block length valid for a BCH code over a field of the given order?
+
+    BCH codes over ``F_q`` are defined for block lengths ``q**m - 1`` with integer ``m >= 1``.
+    """
+    power, exponent = length + 1, 0
+    while power % field_order == 0:
+        power //= field_order
+        exponent += 1
+    return power == 1 and bool(exponent)
+
+
 class RepetitionCode(ClassicalCode):
-    """Classical repetition code."""
+    """Classical repetition code: the ``[n, 1, n]`` code whose code words are constant vectors.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/repetition
+    """
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
         self._field = abstract.resolve_field(field)
@@ -46,7 +63,15 @@ class RepetitionCode(ClassicalCode):
 
 
 class RingCode(ClassicalCode):
-    """Classical ring code: repetition code with periodic boundary conditions."""
+    """Classical ring code: repetition code with periodic boundary conditions.
+
+    The periodic boundary adds one (redundant) parity check, so a RingCode has the same code words
+    as a RepetitionCode of the same block length, and hence the same ``[n, 1, n]`` parameters.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/repetition
+    """
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
         self._field = abstract.resolve_field(field)
@@ -69,6 +94,10 @@ class CyclicCode(ClassicalCode):
     matrices.
 
     The CyclicCode with polynomial ``1 - x`` is a RingCode.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/cyclic
     """
 
     def __init__(
@@ -120,11 +149,17 @@ class HammingCode(ClassicalCode):
     built by stacking together (as columns) all nonzero bitstrings.  More generally, the parity
     check matrix is built from a maximal set of linearly independent nonzero vectors over a finite
     field; equivalently, from all vectors whose first nonzero element is a 1.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/hamming
+    - https://errorcorrectionzoo.org/c/q-ary_hamming
     """
 
     def __init__(self, size: int, field: int | type[galois.FieldArray] | None = None) -> None:
         """Construct a Hamming code of a given rank."""
-        self._distance = 3
+        if size < 2:
+            raise ValueError(f"Hamming codes require a rank of at least 2 (provided: {size})")
         self._field = abstract.resolve_field(field)
         if self.field is galois.GF2:
             # collect all nonzero bitstrings
@@ -148,10 +183,18 @@ class ExtendedHammingCode(ClassicalCode):
     """Classical extended Hamming code: the ordinary Hamming code with an extra parity bit.
 
     The extended Hamming code of size m is also equal to ``ReedMullerCode(m - 2, m)``.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/extended_hamming
     """
 
     def __init__(self, size: int) -> None:
         """Construct an extended Hamming code of a given rank."""
+        if size < 2:
+            raise ValueError(
+                f"Extended Hamming codes require a rank of at least 2 (provided: {size})"
+            )
         matrix: npt.NDArray[np.int_] = HammingCode(size).matrix
         matrix = np.column_stack([np.zeros(matrix.shape[0], dtype=int), matrix])
         matrix = np.vstack([np.ones(matrix.shape[1], dtype=int), matrix])
@@ -209,7 +252,7 @@ class ReedMullerCode(ClassicalCode):
         ReedMullerCode._assert_valid_params(order, size)
 
         if order == 0:
-            return np.ones(2**size, dtype=int)
+            return np.ones((1, 2**size), dtype=int)
         if order == size:
             return np.identity(2**size, dtype=int)
 
@@ -258,8 +301,7 @@ class BCHCode(ClassicalCode):
         self, length: int, dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> None:
         field = abstract.resolve_field(field)
-        length_in_base = np.base_repr(length, base=field.order)
-        if length_in_base != str(field.order - 1) * len(length_in_base):
+        if not _is_valid_bch_length(length, field.order):
             raise ValueError(
                 f"BCH codes over F_{field.order} are only defined for block lengths"
                 f" {field.order}^m - 1 with integer m."
@@ -301,8 +343,13 @@ class SimplexCode(ClassicalCode):
         - the coefficients a and b are elements of a finite field,
         - the exponents c and d are integers, and
         - ``gcd(h(x), x ** (field**dim - 1) - 1)`` is a primitive polynomial of degree dim.
+
+        A dimension of at least 2 is required: a one-dimensional simplex code has block length
+        ``field.order - 1 == 1``, for which no nontrivial check polynomial exists.
         """
         field = abstract.resolve_field(field)
+        if dim < 2:
+            raise ValueError(f"Simplex codes require a dimension of at least 2 (provided: {dim})")
 
         # first try finding a primitive three-term polynomial of degree dim
         try:
@@ -336,7 +383,7 @@ class SimplexCode(ClassicalCode):
 
 
 class TannerCode(ClassicalCode):
-    """Classical Tanner code, as described in DOI:10.1109/TIT.1981.1056404.
+    """Classical Tanner code.
 
     A Tanner code ``T(G,C)`` is constructed from:
     [1] A bipartite "half-regular" graph G.  That is, a graph...
@@ -363,6 +410,10 @@ class TannerCode(ClassicalCode):
 
     - If the subcode C has m checks, its parity matrix has shape ``(m,n)``.
     - The code ``T(G,C)`` has ``|W|`` bits and ``|V|m`` checks.
+
+    References:
+
+    - https://doi.org/10.1109/TIT.1981.1056404
     """
 
     subgraph: nx.DiGraph
@@ -385,6 +436,12 @@ class TannerCode(ClassicalCode):
         for idx, source in enumerate(sorted(sources)):
             checks = range(subcode.num_checks * idx, subcode.num_checks * (idx + 1))
             bits = [sink_indices[sink] for sink in self._get_sorted_neighbors(source)]
+            if len(bits) != len(subcode):
+                raise ValueError(
+                    f"Node {source} has degree {len(bits)}, but the subcode of this Tanner code is"
+                    f" defined on {len(subcode)} bits.  Every source node of the subgraph must have"
+                    " degree equal to the block length of the subcode."
+                )
             matrix[np.ix_(checks, bits)] = subcode.matrix
         super().__init__(matrix, subcode.field)
 
@@ -397,13 +454,16 @@ class TannerCode(ClassicalCode):
 
     @staticmethod
     def as_directed_subgraph(subgraph: nx.Graph) -> nx.DiGraph:
-        """Convert an undirected graph for a Tanner code into a directed graph for the same code."""
+        """Convert an undirected graph for a Tanner code into a directed graph for the same code.
+
+        The given graph is left unmodified.
+        """
         directed_subgraph = nx.DiGraph()
         for node_a, node_b, edge_data in subgraph.edges(data=True):
             edge = frozenset([node_a, node_b])
             directed_subgraph.add_edge(node_a, edge)
             directed_subgraph.add_edge(node_b, edge)
-            if (sort_data := edge_data.pop("sort", None)) is not None:
+            if (sort_data := edge_data.get("sort")) is not None:
                 directed_subgraph[node_a][edge]["sort"] = sort_data[node_a]
                 directed_subgraph[node_b][edge]["sort"] = sort_data[node_b]
         return directed_subgraph

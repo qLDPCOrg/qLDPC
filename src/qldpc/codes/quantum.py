@@ -403,7 +403,7 @@ class QuantumGolayCode(CSSCode):
 
 
 class IcebergCode(CSSCode):
-    """A quantum error detecting code: ``[n, n - 2, 2]``.
+    """A quantum error detecting code: ``[[n, n - 2, 2]]``.
 
     References:
 
@@ -422,7 +422,7 @@ class IcebergCode(CSSCode):
 
 
 class C4Code(IcebergCode):
-    """A [4, 2, 2] code, commonly known as the "C4" code.
+    """A [[4, 2, 2]] code, commonly known as the "C4" code.
 
     References:
 
@@ -434,7 +434,7 @@ class C4Code(IcebergCode):
 
 
 class C6Code(CSSCode):
-    """A [6, 2, 2] code, commonly known as the "C6" code.
+    """A [[6, 2, 2]] code, commonly known as the "C6" code.
 
     References:
 
@@ -515,7 +515,7 @@ class GALACode(CSSCode):
     element, or a polynomial sum of group elements.  GALA codes are currently supported only over
     GF(2).
 
-    The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by
+    The compact self-dual [[132, 30, 12]] code of arXiv:2608.07431 can be constructed by
 
         from qldpc import abstract, codes
 
@@ -526,11 +526,16 @@ class GALACode(CSSCode):
             generators_g=[x**9, x**2, x**8, x**5, x**8, x**7],
             num_active_rows=5,
         )
-        assert code.num_qubits == 132
-        assert code.dimension == 30
-        assert code.get_weight() == 12  # maximum stabilizer weight
+        assert code.num_qubits == 132  # the block length n
+        assert code.dimension == 30  # the number of logical qubits k
+
+        # the maximum stabilizer weight, which for this code coincides numerically with the
+        # distance d = 12 reported in arXiv:2608.07431; computing the distance itself is
+        # intractable at this block length, so it is taken from the reference rather than checked
+        assert code.get_weight() == 12
 
     References:
+
     - https://arxiv.org/abs/2608.07431
     """
 
@@ -676,6 +681,7 @@ class QCCode(TBCode):
     References:
 
     - https://errorcorrectionzoo.org/c/quantum_quasi_cyclic
+    - https://arxiv.org/abs/2109.14609
 
     Univariate quasi-cyclic codes are generalized bicycle codes:
 
@@ -720,10 +726,13 @@ class QCCode(TBCode):
                 assert isinstance(symbol, sympy.Symbol), f"Invalid symbol: {symbol}"
                 symbol_to_order[symbol] = order
 
-        # add more placeholder symbols if necessary
+        # add placeholder symbols for any orders that the polynomials do not account for
+        # the "~" prefix and the index keep each placeholder distinct from the others and from the
+        # symbols appearing in the polynomials; sorting makes the names deterministic
+        placeholder_prefix = "~" + "".join(sorted(map(str, symbols)))
         while len(symbol_to_order) < len(orders):
-            unique_symbol = sympy.Symbol("~" + "".join(map(str, symbols)))
-            symbol_to_order[unique_symbol] = orders[len(symbol_to_order)]
+            index = len(symbol_to_order)
+            symbol_to_order[sympy.Symbol(f"{placeholder_prefix}_{index}")] = orders[index]
 
         self.symbols = tuple(symbol_to_order.keys())
         self.orders = tuple(symbol_to_order.values())
@@ -1234,6 +1243,13 @@ class HGPCode(CSSCode):
     - https://arxiv.org/abs/1202.0928
     - https://arxiv.org/abs/2202.01702
     - https://www.youtube.com/watch?v=iehMcUr2saM
+
+    Syndrome extraction, canonical logical operators, and exact distances additionally follow:
+
+    - https://arxiv.org/abs/2109.14609
+    - https://arxiv.org/abs/2204.10812
+    - https://arxiv.org/abs/2502.07150
+    - https://arxiv.org/abs/2308.15520
     """
 
     code_a: ClassicalCode
@@ -1510,7 +1526,7 @@ class CHGPCode(HGPCode):
 
     References:
 
-    - https://arxiv.org/pdf/2511.09683v2 (Definition 1)
+    - https://arxiv.org/abs/2511.09683 (Definition 1)
     """
 
     def __init__(
@@ -1540,7 +1556,7 @@ class CRCode(HGPCode):
 
     References:
 
-    - https://arxiv.org/pdf/2511.09683v2 (Definition 3)
+    - https://arxiv.org/abs/2511.09683 (Definition 3)
     """
 
     def __init__(
@@ -1704,6 +1720,7 @@ class LPCode(CSSCode):
     - https://arxiv.org/abs/2202.01702
     - https://arxiv.org/abs/2012.04068
     - https://arxiv.org/abs/2306.16400
+    - https://arxiv.org/abs/2401.02911
     """
 
     matrix_a: abstract.RingArray
@@ -1947,7 +1964,7 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ab, gb, agb}``.  We define two
+    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ag, gb, agb}``.  We define two
     (directed) subgraphs on the Cayley complex:
 
     - subgraph_x with edges ``( g, f(g,a,b))``, and
@@ -2034,7 +2051,7 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-        where ``f(g,a,b) = {g, ab, gb, agb}``.  Specifically, the (directed) subgraphs are:
+        where ``f(g,a,b) = {g, ag, gb, agb}``.  Specifically, the (directed) subgraphs are:
 
         - subgraph_x with edges ``( g, f(g,a,b))``, and
         - subgraph_z with edges ``(ag, f(g,a,b))``.
@@ -2577,8 +2594,8 @@ class T4Code(CSSCode):
 
     References:
 
-    - https://arxiv.org/pdf/2506.15130v1
-    - https://arxiv.org/pdf/2505.10403
+    - https://arxiv.org/abs/2506.15130
+    - https://arxiv.org/abs/2505.10403
     """
 
     def __init__(
@@ -2588,8 +2605,20 @@ class T4Code(CSSCode):
         *,
         skip_validation: bool = False,
     ) -> None:
-        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
+        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice.
+
+        The lattice must have at least two unit cells per period, that is ``abs(det(matrix)) >= 2``.
+        A unimodular basis tiles the torus with a single cell, for which every boundary operator
+        vanishes identically and the resulting code has no parity checks at all.
+        """
         self._field = abstract.resolve_field(field)
+
+        determinant = int(sympy.Matrix(matrix).det())
+        if abs(determinant) < 2:
+            raise ValueError(
+                "A T4Code requires a lattice basis with abs(determinant) >= 2"
+                f" (provided a basis with determinant {determinant})"
+            )
 
         self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
         self.num_vertices = self.lattice_basis.det()
@@ -2676,7 +2705,7 @@ class T4Code(CSSCode):
 
 
 class ManyHypercubeCode(CSSCode):
-    """The ``[6**r, 4**r, 2**r]`` concatenated many-hypercubes code of arXiv:2403.16054.
+    """The ``[[6**level, 4**level, 2**level]]`` concatenated many-hypercubes code.
 
     References:
 
@@ -2685,7 +2714,10 @@ class ManyHypercubeCode(CSSCode):
     """
 
     def __init__(self, level: int = 1) -> None:
-        assert level >= 1
+        if level < 1:
+            raise ValueError(
+                f"The many-hypercubes code requires a level of at least 1 (provided: {level})"
+            )
 
         code: CSSCode
         if level == 1:
@@ -2730,7 +2762,7 @@ class BaconShorCode(SHPCode):
         code_z = RepetitionCode(cols, field) if cols is not None else None
         super().__init__(code_x, code_z, field, set_logicals=set_logicals)
 
-        self._distance_x = cols
+        self._distance_x = cols if cols is not None else rows
         self._distance_z = rows
 
 

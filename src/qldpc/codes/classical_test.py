@@ -107,6 +107,62 @@ def test_special_codes() -> None:
     assert set(code.matrix.view(np.ndarray).sum(axis=1)) == {8}
 
 
+def test_reed_muller_order_zero() -> None:
+    """The order-zero Reed-Muller code RM(0, m) is the [2**m, 1, 2**m] repetition code."""
+    for size in range(5):
+        generator = codes.ReedMullerCode.get_generator(0, size)
+        assert np.asarray(generator).ndim == 2  # a single row, not a flat vector
+        assert codes.ReedMullerCode(0, size).get_code_params() == (2**size, 1, 2**size)
+
+    # the documented duality RM(r, m)^perp == RM(m - r - 1, m) reaches order zero at r == m - 1
+    assert codes.ClassicalCode.equiv(~codes.ReedMullerCode(2, 3), codes.ReedMullerCode(0, 3))
+
+
+def test_degenerate_code_sizes() -> None:
+    """Code families reject parameters for which they are not defined."""
+    for size in [-1, 0, 1]:
+        with pytest.raises(ValueError, match="rank of at least 2"):
+            codes.HammingCode(size)
+        with pytest.raises(ValueError, match="rank of at least 2"):
+            codes.ExtendedHammingCode(size)
+        with pytest.raises(ValueError, match="dimension of at least 2"):
+            codes.SimplexCode(size)
+
+
+def test_bch_block_lengths() -> None:
+    """BCH codes accept exactly the block lengths field_order**m - 1 with integer m >= 1."""
+    # valid: q**m - 1.  Digits of these lengths are non-decimal in base q > 10, which a
+    # string-based check on the base-q representation would reject.
+    for length, order in [(1, 2), (15, 2), (8, 3), (120, 11), (168, 13), (16, 17)]:
+        assert codes.classical._is_valid_bch_length(length, order)
+
+    # invalid: not one less than a power of the field order, or m == 0
+    for length, order in [(0, 2), (6, 2), (14, 2), (7, 3), (119, 11)]:
+        assert not codes.classical._is_valid_bch_length(length, order)
+
+
+def test_tanner_code_preserves_input_graph() -> None:
+    """Building a Tanner code leaves the given graph, and hence the resulting code, unchanged."""
+    # a subcode whose automorphism group cannot absorb a relabeling of the subgraph edges
+    subcode = codes.ClassicalCode([[0, 0, 1], [1, 1, 0]])
+    subgraph = nx.complete_graph(4)
+    for node_a, node_b in subgraph.edges:
+        subgraph[node_a][node_b]["sort"] = {node_a: -node_b, node_b: -node_a}
+
+    code = codes.TannerCode(subgraph, subcode)
+    assert all("sort" in subgraph[node_a][node_b] for node_a, node_b in subgraph.edges)
+
+    # a second code built from the same graph is the same code
+    assert codes.ClassicalCode.equiv(code, codes.TannerCode(subgraph, subcode))
+
+
+def test_tanner_code_requires_matching_degree() -> None:
+    """A Tanner code requires every source node to have degree equal to the subcode block length."""
+    subgraph = nx.Graph([(0, 3), (1, 3), (0, 4)])
+    with pytest.raises(ValueError, match="but the subcode of this Tanner code"):
+        codes.TannerCode(subgraph, codes.RepetitionCode(3))
+
+
 def test_tanner_code() -> None:
     """Classical Tanner codes on random regular graphs."""
     subcode = codes.ClassicalCode.random(5, 3)

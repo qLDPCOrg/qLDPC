@@ -426,6 +426,21 @@ def test_quasi_cyclic_codes() -> None:
 
     assert_valid_subgraphs(code)
 
+    # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
+    for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
+        code = codes.QCCode(orders, poly_a, poly_b)
+        assert len(code.symbols) == len(orders)
+        assert len(set(code.symbols)) == len(orders)  # every placeholder is distinct
+        assert len(code) == 2 * np.prod(orders)
+
+    # placeholder names do not depend on the iteration order of a set of symbols
+    assert [str(symbol) for symbol in codes.QCCode([3, 4, 5, 6], 1 + x, 1 + y).symbols] == [
+        "x",
+        "y",
+        "~xy_2",
+        "~xy_3",
+    ]
+
 
 @pytest.mark.parametrize("field", [2, 3])
 def test_hypergraph_product(
@@ -960,11 +975,32 @@ def test_4d_toric_codes() -> None:
     assert (len(code), code.dimension) == (96, 6)
 
 
+def test_4d_toric_code_lattices() -> None:
+    """A T4Code lattice must tile its torus with more than one cell.
+
+    A unimodular basis leaves a single vertex, for which every boundary operator vanishes and the
+    resulting code would have no parity checks whatsoever.
+    """
+    degenerate_lattices = [
+        [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # determinant 1
+        [[1, 1, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # a shear
+        [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # determinant -1
+        [[1, 0, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # singular
+    ]
+    for lattice in degenerate_lattices:
+        with pytest.raises(ValueError, match="abs\\(determinant\\) >= 2"):
+            codes.T4Code(lattice)
+
+
 def test_many_hypercube_code() -> None:
     """Goto's many-hypercube code."""
     for level in range(1, 5):
         params = (6**level, 4**level, 2**level)
         assert codes.ManyHypercubeCode(level).get_code_params() == params
+
+    for level in [-1, 0]:
+        with pytest.raises(ValueError, match="level of at least 1"):
+            codes.ManyHypercubeCode(level)
 
 
 def test_bacon_shor_code() -> None:
@@ -973,6 +1009,12 @@ def test_bacon_shor_code() -> None:
     assert all(np.count_nonzero(row) == 2 for row in code.matrix)
     assert code.get_distance(Pauli.X) == 3
     assert code.get_distance(Pauli.Z) == 2
+
+    # a square Bacon-Shor code knows both of its distances without computing them
+    for rows in [2, 3, 4]:
+        code = codes.BaconShorCode(rows)
+        assert code.get_distance_if_known(Pauli.X) == rows
+        assert code.get_distance_if_known(Pauli.Z) == rows
 
 
 def test_shyps_code() -> None:
