@@ -161,16 +161,16 @@ def test_sliding_window_recompilation() -> None:
 
     decoder = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
 
-    decoder.compile_decoder_for_dem(dem_with_times([0, 1, 2, 3]))
-    assert [detectors for detectors, _ in decoder.windows] == [[0], [1], [2], [3]]
+    compiled = decoder.compile_decoder_for_dem(dem_with_times([0, 1, 2, 3]))
+    assert list(compiled.window_detectors) == [[0], [1], [2], [3]]
 
     # two detectors per time index, so each window holds both detectors of its round
-    decoder.compile_decoder_for_dem(dem_with_times([0, 0, 1, 1]))
-    assert [detectors for detectors, _ in decoder.windows] == [[0, 1], [2, 3]]
+    compiled = decoder.compile_decoder_for_dem(dem_with_times([0, 0, 1, 1]))
+    assert list(compiled.window_detectors) == [[0, 1], [2, 3]]
 
     # a model with more detectors than the first one is also compiled from its own coordinates
-    decoder.compile_decoder_for_dem(dem_with_times([0, 1, 2, 3, 4]))
-    assert [detectors for detectors, _ in decoder.windows] == [[0], [1], [2], [3], [4]]
+    compiled = decoder.compile_decoder_for_dem(dem_with_times([0, 1, 2, 3, 4]))
+    assert list(compiled.window_detectors) == [[0], [1], [2], [3], [4]]
 
 
 def test_sequential_decoding_with_merged_window_errors() -> None:
