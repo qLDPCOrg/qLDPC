@@ -2175,12 +2175,13 @@ class QTCode(CSSCode):
         then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by
         defining ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
         """
-        subset_a = cayplex.cover_subset_a
-        subset_b = cayplex.cover_subset_b
+        # sort the subsets by the total order on the group, which fixes the order in which faces are
+        # added below, and thereby the qudit that each face of the Cayley complex is identified with
+        subset_a = sorted(cayplex.cover_subset_a)
+        subset_b = sorted(cayplex.cover_subset_b)
 
         # identify the identity element
-        member = next(iter(subset_a))
-        identity = member * ~member
+        identity = subset_a[0] * ~subset_a[0]
 
         # identify the set of nodes for which we still need to add faces
         nodes_to_add = {identity}
@@ -2189,7 +2190,8 @@ class QTCode(CSSCode):
         subgraph_x = nx.DiGraph()
         subgraph_z = nx.DiGraph()
         while nodes_to_add:
-            gg = nodes_to_add.pop()
+            gg = min(nodes_to_add)
+            nodes_to_add.remove(gg)
 
             # identify nodes we have already covered, and new nodes we may need to cover
             old_nodes = set(subgraph_x.nodes())

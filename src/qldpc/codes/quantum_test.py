@@ -18,6 +18,9 @@ limitations under the License.
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import sys
 import unittest.mock
 
 import networkx as nx
@@ -870,6 +873,26 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
 
     # without a seed the code is still random
     assert len({matrix_for() for _ in range(4)}) > 1
+
+    # the code is also independent of the hash seed, which sets the iteration order of the sets of
+    # group members that the construction is built from
+    script = (
+        "import numpy as np;"
+        "from qldpc import abstract, codes;"
+        "code = codes.QTCode.random(abstract.CyclicGroup(8), codes.RepetitionCode(2), seed=7);"
+        "print(np.asarray(code.matrix).tobytes().hex())"
+    )
+    matrices = {
+        subprocess.run(
+            [sys.executable, "-c", script],
+            env={**os.environ, "PYTHONHASHSEED": hash_seed},
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+        for hash_seed in ["0", "1"]
+    }
+    assert len(matrices) == 1
 
 
 def test_toric_tanner_code(size: int = 4) -> None:
