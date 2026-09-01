@@ -469,12 +469,22 @@ def test_hypergraph_product(
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
-    # verify X and Z distance
+    # the closed-form X and Z distances agree with a generic computation that ignores them.
+    # Both cache layers have to be bypassed: get_distance_exact caches into _distance_x/_distance_z
+    # on its first call, and get_distance_if_known would then short-circuit on that cached value
+    # before ever reaching _get_distance_exact.
     dist_x = code.get_distance(Pauli.X)
     dist_z = code.get_distance(Pauli.Z)
-    code._get_distance_exact = lambda _: NotImplemented  # type:ignore[method-assign,assignment]
-    assert dist_x == code.get_distance(Pauli.X)
-    assert dist_z == code.get_distance(Pauli.Z)
+    if field == 2:  # the brute-force kernel behind the generic route is binary
+        with (
+            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
+            unittest.mock.patch(
+                "qldpc.codes.HGPCode._get_distance_exact", return_value=NotImplemented
+            ),
+            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        ):
+            assert dist_x == code.get_distance(Pauli.X)
+            assert dist_z == code.get_distance(Pauli.Z)
 
 
 def test_cyclic_hypergraph_product_codes() -> None:
@@ -973,6 +983,47 @@ def test_4d_toric_codes() -> None:
     hadamard = [[1, 1], [1, -1]]
     code = codes.T4Code(np.kron(hadamard, hadamard))
     assert (len(code), code.dimension) == (96, 6)
+
+
+def test_cached_parameters_are_genuine() -> None:
+    """Families that cache their parameters agree with a computation that ignores the cache.
+
+    Several constructors assign a dimension and distance taken from the literature rather than
+    computing them, and the public getters then return those values verbatim.  Compare what each
+    family reports against a recomputation that bypasses the cache, so that a constant which
+    disagrees with the code it describes cannot pass unnoticed.  get_distance_if_known has to be
+    bypassed as well as the cached values themselves, since it short-circuits on
+    _distance_x/_distance_z before any calculation happens.
+    """
+    expected = [
+        (codes.IcebergCode(4), (4, 2, 2)),
+        (codes.IcebergCode(6), (6, 4, 2)),
+        (codes.IcebergCode(8), (8, 6, 2)),
+        (codes.QuantumHammingCode(3), (7, 1, 3)),
+        (codes.QuantumHammingCode(4), (15, 7, 3)),
+        (codes.ManyHypercubeCode(1), (6, 4, 2)),
+        (codes.ManyHypercubeCode(2), (36, 16, 4)),
+        (codes.SurfaceCode(3, 5), (15, 1, 3)),
+        (codes.ToricCode(4), (16, 2, 4)),
+        # the subsystem families additionally route their distance through a closed form, which is
+        # itself expressed in terms of cached classical distances
+        (codes.BaconShorCode(2, 3), (6, 1, 2)),
+        (codes.BaconShorCode(3, 5), (15, 1, 3)),
+        (codes.SHYPSCode(2), (9, 4, 2)),
+    ]
+    for code, params in expected:
+        reported = code.get_code_params()
+        code._dimension = None
+        with (
+            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
+            unittest.mock.patch(
+                "qldpc.codes.SHPCode._get_distance_exact", return_value=NotImplemented
+            ),
+            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        ):
+            computed = code.get_code_params()
+        assert reported == params
+        assert computed == params
 
 
 def test_4d_toric_code_lattices() -> None:

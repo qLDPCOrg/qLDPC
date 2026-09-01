@@ -645,7 +645,10 @@ def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_dist
     )
     assert min(distance_x, distance_z, distance_all) == expected_distance
 
-    code._distance = None
+    # forget_distance clears the X and Z caches as well, which assigning to _distance would not:
+    # get_distance_if_known(None) returns min(_distance_x, _distance_z) whenever both are known,
+    # so the recomputation below would otherwise read back a value it never verified
+    code.forget_distance()
     assert code.get_distance_exact() == expected_distance
 
 
