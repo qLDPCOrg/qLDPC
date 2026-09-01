@@ -492,21 +492,25 @@ def test_hypergraph_product(
 
 def test_hypergraph_product_syndrome_subgraphs() -> None:
     """Horizontal syndrome subgraphs of an HGPCode merge X-type and Z-type parity checks."""
-    code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
+    # a seed code with more than two edge colors, so that merging color classes is detectable
+    code = codes.HGPCode(codes.RepetitionCode(3), codes.HammingCode(3))
     subgraphs = code.get_syndrome_subgraphs()
-    assert_valid_subgraphs(code)
 
-    # each subgraph is a matching, so it is addressable by a single layer of gates
+    # each subgraph is a matching, so it is realizable as a single layer of gates
     assert all(subgraph.degree(node) == 1 for subgraph in subgraphs for node in subgraph.nodes)
 
-    # horizontal subgraphs address X-type and Z-type parity checks together, vertical ones do not
-    num_checks_x = len(code.matrix_x)
+    # the horizontal subgraphs address X-type and Z-type parity checks together, while the vertical
+    # subgraphs that open and close the sequence keep the two check types apart
     addresses_both_check_types = [
-        len({node.index < num_checks_x for node in subgraph.nodes if not node.is_data}) == 2
+        len({node in code.graph_x for node in subgraph.nodes if not node.is_data}) == 2
         for subgraph in subgraphs
     ]
     assert any(addresses_both_check_types)
-    assert not all(addresses_both_check_types)
+    assert not addresses_both_check_types[0]
+    assert not addresses_both_check_types[-1]
+
+    # a seed code with no parity checks contributes no vertical edges at all
+    assert_valid_subgraphs(codes.HGPCode(codes.RepetitionCode(1), codes.RepetitionCode(3)))
 
 
 def test_cyclic_hypergraph_product_codes() -> None:

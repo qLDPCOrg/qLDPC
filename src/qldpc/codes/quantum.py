@@ -1370,15 +1370,15 @@ class HGPCode(CSSCode):
             according to the parity of their color alone: even colors go east and odd colors go
             west, irrespective of parity check type.
 
-        Grouping horizontal edges by color alone, rather than by color and check type as in step 2,
-        is admissible because each color class of an edge coloring is a matching of the seed code's
-        Tanner graph, so the horizontal edges of a single color address each qubit of this code at
-        most once whether their parity checks are X-type or Z-type.  Merging the two check types
-        therefore keeps every subgraph addressable by a single layer of gates, while halving the
-        number of subgraphs that horizontal edges require.  The same merge is not admissible for the
-        vertical edges: the order in which X-type and Z-type vertical edges appear is what makes the
-        induced circuit measure the syndromes of this code, and merging them yields subgraphs that
-        are still matchings but no longer extract the syndrome correctly.
+        Any two overlapping X-type and Z-type parity checks of an HGPCode share exactly two data
+        qubits, so the induced circuit measures the correct syndrome only if the X-type gate comes
+        before the Z-type gate on both of those qubits, or after it on both.  The check-type term in
+        step 2 is what enforces that, sending vertical edges of one color but opposite check type to
+        opposite ends of the returned sequence; grouping vertical edges by color alone breaks it.
+        Horizontal edges need no such term, and grouping them by color alone halves the number of
+        subgraphs they require.  Each color class of an edge coloring is a matching, so every
+        subgraph, horizontal or vertical, addresses each qubit at most once and is therefore
+        realizable as a single layer of gates.
 
         Args:
             strategy: The strategy used by nx.greedy_color to color edges of the Tanner graph.
@@ -1410,7 +1410,7 @@ class HGPCode(CSSCode):
                 node_0 = node_map[node_a, check_b]
                 node_1 = node_map[node_a, data_b]
                 data, check = sorted([node_0, node_1])
-                # group by color alone, merging both check types into one layer of gates
+                # the check-type term of the vertical edges is deliberately absent here
                 edges_ew = edges_e if color % 2 == 0 else edges_w
                 edges_ew[color].append((check, data))
         graphs_e = tuple(self.graph.edge_subgraph(edges) for edges in edges_e.values())
