@@ -107,6 +107,40 @@ def test_special_codes() -> None:
     assert set(code.matrix.view(np.ndarray).sum(axis=1)) == {8}
 
 
+def test_simplex_codes_over_fields() -> None:
+    """A simplex code is the dual of a Hamming code: [(q**k - 1)/(q - 1), k, q**(k - 1)].
+
+    Over F_2 the code has a cyclic presentation whose parity checks all have weight 3, which makes
+    simplex codes useful as the building blocks of a SHYPSCode, so binary codes use it.  A cyclic
+    code of length q**k - 1 over a larger field would instead be the (q - 1)-fold repetition of a
+    simplex code, with (q - 1) times the block length and distance.
+    """
+    for field in [2, 3, 4, 5]:
+        for dim in [2, 3]:
+            code = codes.SimplexCode(dim, field)
+            params = ((field**dim - 1) // (field - 1), dim, field ** (dim - 1))
+
+            # the parameters the constructor reports
+            assert code.get_code_params() == params
+
+            # and the same parameters, recomputed with the cached values discarded
+            code._dimension = None
+            code.forget_distance()
+            assert code.get_code_params() == params
+
+            # over a larger field the code is built as, and equals, the dual of a Hamming code;
+            # the binary cyclic presentation is the same code only up to a permutation of bits
+            if field > 2:
+                assert codes.ClassicalCode.equiv(
+                    codes.SimplexCode(dim, field), ~codes.HammingCode(dim, field)
+                )
+
+    # the binary presentation has weight-3 parity checks, which SHYPS codes inherit
+    for dim in [2, 3, 4, 5]:
+        matrix = codes.SimplexCode(dim).matrix.view(np.ndarray)
+        assert np.all(np.count_nonzero(matrix, axis=1) == 3)
+
+
 def test_reed_muller_order_zero() -> None:
     """The order-zero Reed-Muller code RM(0, m) is the [2**m, 1, 2**m] repetition code."""
     for size in range(5):
@@ -127,6 +161,8 @@ def test_degenerate_code_sizes() -> None:
             codes.ExtendedHammingCode(size)
         with pytest.raises(ValueError, match="dimension of at least 2"):
             codes.SimplexCode(size)
+        with pytest.raises(ValueError, match="dimension of at least 2"):
+            codes.SimplexCode.get_defining_polynomial(size)
 
 
 def test_bch_block_lengths() -> None:

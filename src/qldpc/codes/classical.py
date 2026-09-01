@@ -311,32 +311,63 @@ class BCHCode(ClassicalCode):
 
 
 class SimplexCode(ClassicalCode):
-    """Classical simplex code.
+    """Classical simplex code: the dual of the Hamming code.
 
-    A binary simplex code with dimension k has code parameters ``[2**k - 1, k, 2 ** (k - 1)]``.
-    The automorphism of this code is the general linear group ``GL(k, 2)``.
+    A simplex code of dimension k over a field of order q has code parameters
+
+        ``[(q**k - 1) / (q - 1), k, q ** (k - 1)]``.
+
+    Its generator matrix has one column for each point of the projective space ``PG(k - 1, q)``,
+    that is, one representative of each family of nonzero vectors of ``F_q**k`` that are scalar
+    multiples of one another.  Those columns are precisely the parity checks of a Hamming code of
+    the same rank, which is what makes a simplex code the dual of a Hamming code.
+
+    Over the binary field the scalar multiples of a nonzero vector are just the vector itself, so
+    the block length is ``2**k - 1`` and the code has a cyclic presentation: its parity checks are
+    the cyclic shifts of a three-term polynomial, and therefore all have weight 3.  That
+    presentation is used here for binary codes, since low-weight parity checks are what make simplex
+    codes attractive as the building blocks of a SHYPSCode.  It does not carry over to ``q > 2``,
+    where a cyclic code of length ``q**k - 1`` would instead be the ``(q - 1)``-fold repetition of
+    the simplex code.
+
+    Over the binary field the automorphism group of this code is the general linear group
+    ``GL(k, 2)``.
 
     References:
 
     - https://errorcorrectionzoo.org/c/simplex
+    - https://errorcorrectionzoo.org/c/hamming
     - https://arxiv.org/abs/2502.07150
     """
 
     def __init__(self, dim: int, field: int | type[galois.FieldArray] | None = None) -> None:
         field = abstract.resolve_field(field)
-        polynomial = SimplexCode.get_defining_polynomial(dim, field)
-        coefficients = polynomial.coefficients(size=field.order**dim - 1, order="asc")
-        matrix = np.array([np.roll(coefficients, jj) for jj in range(len(coefficients))])
-        super().__init__(matrix, field=field)
+        if dim < 2:
+            raise ValueError(f"Simplex codes require a dimension of at least 2 (provided: {dim})")
+
+        if field is galois.GF2:
+            # the cyclic presentation, whose parity checks all have weight 3
+            polynomial = SimplexCode.get_defining_polynomial(dim, field)
+            coefficients = polynomial.coefficients(size=2**dim - 1, order="asc")
+            matrix = np.array([np.roll(coefficients, shift) for shift in range(len(coefficients))])
+            super().__init__(matrix, field=field)
+        else:
+            # one generator column per point of PG(dim - 1, q), i.e. the dual of a Hamming code
+            generator = HammingCode(dim, field).matrix
+            super().__init__(ClassicalCode.from_generator(generator, field), field)
 
         self._dimension = dim
-        self._distance = field.order ** (dim - 1) * (field.order - 1)
+        self._distance = field.order ** (dim - 1)
 
     @staticmethod
     def get_defining_polynomial(
         dim: int, field: int | type[galois.FieldArray] | None = None
     ) -> galois.Poly:
-        """The polynomial that defines a SimplexCode of a given dimension and base field.
+        """The polynomial defining the cyclic presentation of a simplex code.
+
+        The cyclic code of length ``field.order**dim - 1`` with this check polynomial is a simplex
+        code when ``field.order == 2``, and the ``(field.order - 1)``-fold repetition of one
+        otherwise.
 
         Returns a three-term polynomial of the form ``h(x) = 1 + a * x**c + b * x**d``, where
 
