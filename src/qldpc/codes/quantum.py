@@ -451,6 +451,44 @@ class C6Code(CSSCode):
         self.set_logical_ops_xz(logical_ops_xz, logical_ops_xz)
 
 
+class ManyHypercubeCode(CSSCode):
+    """The ``[[6**level, 4**level, 2**level]]`` concatenated many-hypercubes code.
+
+    References:
+
+    - https://arxiv.org/abs/2403.16054
+    - https://errorcorrectionzoo.org/c/stab_6_4_2
+    """
+
+    def __init__(self, level: int = 1) -> None:
+        if level < 1:
+            raise ValueError(
+                f"The many-hypercubes code requires a level of at least 1 (provided: {level})"
+            )
+
+        code: CSSCode
+        if level == 1:
+            # construct a [6, 4, 2] Iceberg code
+            code = IcebergCode(6)
+            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
+
+            # split the four logical qubits into pairs with disjoint support on the physical qubits
+            sector_ops_x = [[1, 1, 0], [0, 1, 1]]
+            sector_ops_z = sector_ops_x[::-1]
+            ops_x = scipy.linalg.block_diag(sector_ops_x, sector_ops_x)
+            ops_z = scipy.linalg.block_diag(sector_ops_z, sector_ops_z)
+            self.set_logical_ops_xz(ops_x, ops_z)
+
+        else:
+            code = ManyHypercubeCode(1)
+            base_code = ManyHypercubeCode(1)
+            for _ in range(level - 1):
+                code = CSSCode.concatenate(code, base_code)
+            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
+            self._dimension = 4**level
+            self._distance_x = self._distance_z = 2**level
+
+
 ####################################################################################################
 # two-block and quasi-cyclic codes
 
@@ -1685,6 +1723,61 @@ class SHPCode(CSSCode):
                 return min(self.code_a.get_distance(), self.code_b.get_distance())
 
 
+class BaconShorCode(SHPCode):
+    """Bacon-Shor code on a square grid, implemented as a subsystem hypergraph product code.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/bacon_shor
+    """
+
+    def __init__(
+        self,
+        rows: int,
+        cols: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
+        code_x = RepetitionCode(rows, field)
+        code_z = RepetitionCode(cols, field) if cols is not None else None
+        super().__init__(code_x, code_z, field, set_logicals=set_logicals)
+
+        self._distance_x = cols if cols is not None else rows
+        self._distance_z = rows
+
+
+class SHYPSCode(SHPCode):
+    """Subsystem hypergraph product simplex (SHYPS) code.
+
+    Subsystem hypergraph product codes naturally inherit the automorphisms (symmetries) of the
+    classical codes that they are built from.  The SHYPSCode is built from classical SimplexCodes
+    that have a very large automorphism group, which gives SHYPSCodes a large set of
+    SWAP-transversal Clifford operations.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/shyps
+    - https://arxiv.org/abs/2502.07150
+    """
+
+    def __init__(
+        self,
+        dim_x: int,
+        dim_z: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
+        dim_z = dim_z if dim_z is not None else dim_x
+
+        code_x = SimplexCode(dim_x, field)
+        code_z = SimplexCode(dim_z, field)
+        super().__init__(code_x, code_z, set_logicals=set_logicals)
+
+        self._dimension = dim_x * dim_z
+
+
 class LPCode(CSSCode):
     """Lifted product code.
 
@@ -2714,100 +2807,3 @@ class T4Code(CSSCode):
         return self._ones_vec(
             self.num_faces, [top_face, back_face, left_face], [bottom_face, front_face, right_face]
         )
-
-
-####################################################################################################
-# miscellaneous codes
-
-
-class ManyHypercubeCode(CSSCode):
-    """The ``[[6**level, 4**level, 2**level]]`` concatenated many-hypercubes code.
-
-    References:
-
-    - https://arxiv.org/abs/2403.16054
-    - https://errorcorrectionzoo.org/c/stab_6_4_2
-    """
-
-    def __init__(self, level: int = 1) -> None:
-        if level < 1:
-            raise ValueError(
-                f"The many-hypercubes code requires a level of at least 1 (provided: {level})"
-            )
-
-        code: CSSCode
-        if level == 1:
-            # construct a [6, 4, 2] Iceberg code
-            code = IcebergCode(6)
-            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
-
-            # split the four logical qubits into pairs with disjoint support on the physical qubits
-            sector_ops_x = [[1, 1, 0], [0, 1, 1]]
-            sector_ops_z = sector_ops_x[::-1]
-            ops_x = scipy.linalg.block_diag(sector_ops_x, sector_ops_x)
-            ops_z = scipy.linalg.block_diag(sector_ops_z, sector_ops_z)
-            self.set_logical_ops_xz(ops_x, ops_z)
-
-        else:
-            code = ManyHypercubeCode(1)
-            base_code = ManyHypercubeCode(1)
-            for _ in range(level - 1):
-                code = CSSCode.concatenate(code, base_code)
-            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
-            self._dimension = 4**level
-            self._distance_x = self._distance_z = 2**level
-
-
-class BaconShorCode(SHPCode):
-    """Bacon-Shor code on a square grid, implemented as a subsystem hypergraph product code.
-
-    References:
-
-    - https://errorcorrectionzoo.org/c/bacon_shor
-    """
-
-    def __init__(
-        self,
-        rows: int,
-        cols: int | None = None,
-        field: int | type[galois.FieldArray] | None = None,
-        *,
-        set_logicals: bool = True,
-    ) -> None:
-        code_x = RepetitionCode(rows, field)
-        code_z = RepetitionCode(cols, field) if cols is not None else None
-        super().__init__(code_x, code_z, field, set_logicals=set_logicals)
-
-        self._distance_x = cols if cols is not None else rows
-        self._distance_z = rows
-
-
-class SHYPSCode(SHPCode):
-    """Subsystem hypergraph product simplex (SHYPS) code.
-
-    Subsystem hypergraph product codes naturally inherit the automorphisms (symmetries) of the
-    classical codes that they are built from.  The SHYPSCode is built from classical SimplexCodes
-    that have a very large automorphism group, which gives SHYPSCodes a large set of
-    SWAP-transversal Clifford operations.
-
-    References:
-
-    - https://errorcorrectionzoo.org/c/shyps
-    - https://arxiv.org/abs/2502.07150
-    """
-
-    def __init__(
-        self,
-        dim_x: int,
-        dim_z: int | None = None,
-        field: int | type[galois.FieldArray] | None = None,
-        *,
-        set_logicals: bool = True,
-    ) -> None:
-        dim_z = dim_z if dim_z is not None else dim_x
-
-        code_x = SimplexCode(dim_x, field)
-        code_z = SimplexCode(dim_z, field)
-        super().__init__(code_x, code_z, set_logicals=set_logicals)
-
-        self._dimension = dim_x * dim_z
