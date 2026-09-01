@@ -218,9 +218,11 @@ def _jeffreys_variance(
     return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
 
 
-# largest tolerated probability mass above the maximum sampled error weight.  Errors heavier than
-# that weight are charged as certain failures, so this mass is an upper bound on the pessimistic
-# bias of a reported error or discard rate (see ErrorRateFunc.truncation_error_bound).
+# largest probability mass tolerated above the maximum sampled error weight at any sample budget.
+# Errors heavier than that weight are charged as certain failures, so this mass is an upper bound on
+# the pessimistic bias of a reported error or discard rate (see
+# ErrorRateFunc.truncation_error_bound).  A budget large enough to measure heavier weights pushes
+# the mass below this, so it is a ceiling on the bias rather than a target (_get_max_error_weight).
 _MAX_TRUNCATED_MASS = 1e-6
 
 
@@ -250,7 +252,7 @@ def _get_sample_allocation(
     if num_samples <= 0:
         return np.zeros(1, dtype=int)
 
-    max_weight = _get_max_error_weight(block_length, max_error_rate)
+    max_weight = _get_max_error_weight(block_length, max_error_rate, num_samples, min_error_weight)
     probs = _get_max_error_probs_by_weight(block_length, max_error_rate, max_weight)
     probs[:min_error_weight] = 0
     if not probs.any():
@@ -274,20 +276,39 @@ def _get_sample_allocation(
     return sample_allocation
 
 
-def _get_max_error_weight(block_length: int, max_error_rate: float) -> int:
+def _get_max_error_weight(
+    block_length: int, max_error_rate: float, num_samples: int, min_error_weight: int = 1
+) -> int:
     """Largest error weight to sample, given a maximum error rate that we care about.
 
-    Weights are included until at most _MAX_TRUNCATED_MASS of the probability of an error lies
-    above the largest included weight, at every error rate ``p <= max_error_rate``.  The weight
-    distribution shifts to heavier weights as p grows, so it suffices to check ``p =
-    max_error_rate``.  This weight depends only on the code and the error rate, not on the sample
-    budget, which holds the truncation bias of a reported rate below a fixed tolerance and makes the
-    range of covered weights reproducible from one budget to the next.
+    Two criteria set this weight, and the larger of the two wins.
+
+    The first is a tolerance: weights are included until at most _MAX_TRUNCATED_MASS of the
+    probability of an error lies above the largest included weight, at every error rate
+    ``p <= max_error_rate``.  The weight distribution shifts to heavier weights as p grows, so it
+    suffices to check ``p = max_error_rate``.  This holds the truncation bias of a reported rate
+    below a fixed tolerance however small the sample budget is.
+
+    The second follows the budget: a weight is included as long as its share of the budget rounds up
+    to a sample, that share being the one the allocation would hand it (see
+    _get_max_error_probs_by_weight).  Such a weight does receive a sample, so including it measures
+    the weight instead of charging it as a certain failure, while a lighter weight would be carried
+    by the floor of one sample alone.  This criterion is what lets a larger budget buy a smaller
+    truncation bias, rather than spending everything on weights that are already well measured.
     """
     probs = _get_error_probs_by_weight(block_length, max_error_rate)
     truncated_mass = 1 - np.cumsum(probs)
     # the full weight distribution sums to one, so the last entry is within any tolerance
-    return int(np.argmax(truncated_mass <= _MAX_TRUNCATED_MASS))
+    weight_from_tolerance = int(np.argmax(truncated_mass <= _MAX_TRUNCATED_MASS))
+
+    envelope = _get_max_error_probs_by_weight(block_length, max_error_rate, block_length)
+    envelope[:min_error_weight] = 0
+    if not envelope.any():
+        return weight_from_tolerance
+    shares = envelope / envelope.sum() * num_samples
+    rounds_up_to_a_sample = np.nonzero(shares >= 0.5)[0]
+    weight_from_budget = int(rounds_up_to_a_sample[-1]) if rounds_up_to_a_sample.size else 0
+    return max(weight_from_tolerance, weight_from_budget)
 
 
 def _get_max_error_probs_by_weight(
@@ -304,6 +325,9 @@ def _get_max_error_probs_by_weight(
     that contribution ever gets over the range of p being served.
     """
     probs = np.zeros(max_weight + 1)
+    if max_error_rate == 0:
+        # no error of weight >= 1 is possible, so every entry of the envelope is zero
+        return probs
     for weight in range(1, max_weight + 1):
         error_rate = min(weight / block_length, max_error_rate)
         if error_rate == 1:

@@ -66,19 +66,38 @@ def test_get_max_error_probs_by_weight() -> None:
 
 def test_get_max_error_weight() -> None:
     """Choice of the largest error weight to sample."""
-    # weights are included until the probability above them falls within tolerance
     block_length, max_error_rate = 50, 0.2
-    max_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate)
-    probs = _monte_carlo._get_error_probs_by_weight(block_length, max_error_rate, max_weight)
-    assert 1 - probs.sum() <= _monte_carlo._MAX_TRUNCATED_MASS
 
-    # dropping the last weight would exceed the tolerance, so no weight is included needlessly
-    probs = _monte_carlo._get_error_probs_by_weight(block_length, max_error_rate, max_weight - 1)
-    assert 1 - probs.sum() > _monte_carlo._MAX_TRUNCATED_MASS
+    def truncated_mass(max_weight: int) -> float:
+        probs = _monte_carlo._get_error_probs_by_weight(block_length, max_error_rate, max_weight)
+        return float(1 - probs.sum())
 
-    # a zero error rate, or an empty code, admits no error of weight >= 1
-    assert _monte_carlo._get_max_error_weight(block_length, 0.0) == 0
-    assert _monte_carlo._get_max_error_weight(0, max_error_rate) == 0
+    # a budget too small to reach past the tolerance is held to the tolerance, and no further: the
+    # weight below the one chosen would leave more than the tolerated mass untouched
+    max_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1)
+    assert truncated_mass(max_weight) <= _monte_carlo._MAX_TRUNCATED_MASS
+    assert truncated_mass(max_weight - 1) > _monte_carlo._MAX_TRUNCATED_MASS
+
+    # a budget large enough to measure heavier weights covers them, pushing the mass below the
+    # tolerance, so that spending more samples buys a smaller truncation bias
+    bigger_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate, 10**9)
+    assert bigger_weight > max_weight
+    assert truncated_mass(bigger_weight) < _monte_carlo._MAX_TRUNCATED_MASS
+
+    # coverage never shrinks as the budget grows
+    weights = [
+        _monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
+        for num_samples in [1, 10**3, 10**6, 10**9]
+    ]
+    assert weights == sorted(weights)
+
+    # a zero error rate, an empty code, or a claim that every weight in range decodes perfectly all
+    # leave the budget criterion with nothing to extend
+    assert _monte_carlo._get_max_error_weight(block_length, 0.0, 10**9) == 0
+    assert _monte_carlo._get_max_error_weight(0, max_error_rate, 10**9) == 0
+    assert _monte_carlo._get_max_error_weight(
+        block_length, max_error_rate, 10**9, min_error_weight=block_length + 1
+    ) == _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1)
 
 
 def test_get_sample_allocation() -> None:
@@ -88,12 +107,13 @@ def test_get_sample_allocation() -> None:
     assert np.sum(allocation) >= 1000  # every requested sample is allocated
     assert np.all(allocation[1:] > 0)  # no sampled weight is left without data
 
-    # the covered weights are set by the truncation tolerance, so they do not move with the budget
-    weights = {
+    # the covered weights never shrink as the budget grows, and a budget too small to reach past the
+    # truncation tolerance is still held to it (see _get_max_error_weight)
+    sizes = [
         _monte_carlo._get_sample_allocation(num_samples, 40, 0.2).size
-        for num_samples in [10, 1000, 100000]
-    }
-    assert len(weights) == 1
+        for num_samples in [10, 1000, 100000, 10**9]
+    ]
+    assert sizes == sorted(sizes) and sizes[0] == sizes[1] < sizes[-1]
 
     # the budget is apportioned in proportion to the envelope of the weight distribution
     num_samples, block_length, max_error_rate = 10**6, 40, 0.2
