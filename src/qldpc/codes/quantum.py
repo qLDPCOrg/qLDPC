@@ -1318,7 +1318,7 @@ class HGPCode(CSSCode):
 
         The sequence here is essentially the sequence used for hypergraph product codes in Algorithm
         2 of arXiv:2109.14609, modified to obviate the need to find a balanced ordering of Tanner
-        graph vertices.
+        graph vertices, and to group horizontal edges more coarsely than vertical ones.
 
         More specifically, this method constructs Tanner subgraphs as follows:
 
@@ -1327,8 +1327,20 @@ class HGPCode(CSSCode):
         2. Even edges get assigned a "north" or "south" direction if they are associated,
             respectively, with X-type or Z-type parity checks.  Odd edges get assigned the opposite
             direction.
-        3. Steps 1 and 2 are repeated for (horizontal, self.code_b, east, west) in place of
-            (vertical, self.code_a, north, south).
+        3. Step 1 is repeated for the classical seed code that defines horizontal edges of this
+            HGPCode (self.code_b), but the resulting edges get an "east" or "west" direction
+            according to the parity of their color alone: even colors go east and odd colors go
+            west, irrespective of parity check type.
+
+        Grouping horizontal edges by color alone, rather than by color and check type as in step 2,
+        is admissible because each color class of an edge coloring is a matching of the seed code's
+        Tanner graph, so the horizontal edges of a single color address each qubit of this code at
+        most once whether their parity checks are X-type or Z-type.  Merging the two check types
+        therefore keeps every subgraph addressable by a single layer of gates, while halving the
+        number of subgraphs that horizontal edges require.  The same merge is not admissible for the
+        vertical edges: the order in which X-type and Z-type vertical edges appear is what makes the
+        induced circuit measure the syndromes of this code, and merging them yields subgraphs that
+        are still matchings but no longer extract the syndrome correctly.
 
         Args:
             strategy: The strategy used by nx.greedy_color to color edges of the Tanner graph.
@@ -1345,6 +1357,7 @@ class HGPCode(CSSCode):
                 node_0 = node_map[check_a, node_b]
                 node_1 = node_map[data_a, node_b]
                 data, check = sorted([node_0, node_1])
+                # node_b.is_data selects whether this edge's parity check is X-type or Z-type
                 edges_ns = edges_s if (color + node_b.is_data) % 2 == 0 else edges_n
                 edges_ns[color].append((check, data))
         graphs_n = tuple(self.graph.edge_subgraph(edges) for edges in edges_n.values())
@@ -1359,7 +1372,8 @@ class HGPCode(CSSCode):
                 node_0 = node_map[node_a, check_b]
                 node_1 = node_map[node_a, data_b]
                 data, check = sorted([node_0, node_1])
-                edges_ew = edges_e if (color + node_b.is_data) % 2 == 0 else edges_w
+                # group by color alone, merging both check types into one layer of gates
+                edges_ew = edges_e if color % 2 == 0 else edges_w
                 edges_ew[color].append((check, data))
         graphs_e = tuple(self.graph.edge_subgraph(edges) for edges in edges_e.values())
         graphs_w = tuple(self.graph.edge_subgraph(edges) for edges in edges_w.values())

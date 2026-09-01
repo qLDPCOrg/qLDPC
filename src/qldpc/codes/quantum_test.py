@@ -487,6 +487,25 @@ def test_hypergraph_product(
             assert dist_z == code.get_distance(Pauli.Z)
 
 
+def test_hypergraph_product_syndrome_subgraphs() -> None:
+    """Horizontal syndrome subgraphs of an HGPCode merge X-type and Z-type parity checks."""
+    code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
+    subgraphs = code.get_syndrome_subgraphs()
+    assert_valid_subgraphs(code)
+
+    # each subgraph is a matching, so it is addressable by a single layer of gates
+    assert all(subgraph.degree(node) == 1 for subgraph in subgraphs for node in subgraph.nodes)
+
+    # horizontal subgraphs address X-type and Z-type parity checks together, vertical ones do not
+    num_checks_x = len(code.matrix_x)
+    addresses_both_check_types = [
+        len({node.index < num_checks_x for node in subgraph.nodes if not node.is_data}) == 2
+        for subgraph in subgraphs
+    ]
+    assert any(addresses_both_check_types)
+    assert not all(addresses_both_check_types)
+
+
 def test_cyclic_hypergraph_product_codes() -> None:
     """CHGPCode and CRCode."""
 
