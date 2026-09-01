@@ -57,11 +57,15 @@ class ErrorRateFunc:
     no uncertainty at all rather than the uncertainty that finitely many samples would leave
     behind.  This matters because the weight distribution puts most of its mass on light errors
     when the physical error rate is small, so at small error rates those weights would otherwise
-    dominate the reported uncertainty while carrying no information.  The counts are checked
-    against the claim: a weight below min_error_weight that recorded a failure or a discard is
-    rejected.  Note that this is an assertion about a particular decoder, not about the code: a
+    dominate the reported uncertainty while carrying no information.
+
+    A min_error_weight above one is taken on trust.  Those weights are not sampled, so nothing
+    here can test the claim, and a claim that is false makes the reported error rate too small --
+    unboundedly so at small physical error rates, where the weights it excludes are the ones that
+    carry the error rate.  The claim is about a particular decoder rather than about the code: a
     decoder that does not return a minimum-weight correction can fail on errors far lighter than
-    half the code distance, so min_error_weight cannot be inferred from the distance alone.
+    half the code distance, so min_error_weight cannot be read off the distance.  Establishing it
+    means checking the decoder, for example by enumerating every error of the weights in question.
     """
 
     # number of times we sampled each error weight
@@ -179,7 +183,13 @@ class ErrorRateFunc:
         return 1 - float(value), float(error)
 
     def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
-        """Upper bound on the truncation error in the infidelity or discard rate estimate."""
+        """Upper bound on the truncation error in the infidelity or discard rate estimate.
+
+        Errors heavier than max_error_weight are charged as certain failures, so this is the
+        probability of such an error: the amount by which truncation can inflate a reported rate.
+        It covers only that tail.  A min_error_weight above one biases a reported rate the other
+        way, by an amount this bound says nothing about.
+        """
         if isinstance(error_rate, Iterable):
             values = [self.truncation_error_bound(rate) for rate in error_rate]
             return np.array(values)  # type:ignore[return-value]
@@ -215,7 +225,7 @@ _MAX_TRUNCATED_MASS = 1e-6
 
 
 def _get_sample_allocation(
-    num_samples: int, block_length: int, max_error_rate: float, min_weight: int = 1
+    num_samples: int, block_length: int, max_error_rate: float, min_error_weight: int = 1
 ) -> npt.NDArray[np.int_]:
     """Construct an allocation of samples by error weight.
 
@@ -228,20 +238,21 @@ def _get_sample_allocation(
     guaranteed at least one sample, so no weight below the maximum sampled weight is silently
     recorded as failure-free for want of data.
 
-    Weights below min_weight are taken to be decoded perfectly and get no samples: there is nothing
-    to learn about them, so spending samples there would only take samples away from the weights
-    that the decoder can actually fail on.  The default of one excludes weight 0, the no-error case.
+    Weights below min_error_weight are taken to be decoded perfectly and get no samples: there is
+    nothing to learn about them, so spending samples there would only take samples away from the
+    weights that the decoder can actually fail on.  The default of one excludes weight 0, the
+    no-error case.
     """
     if not 0 <= max_error_rate <= 1:
         raise ValueError("max_error_rate must lie in [0, 1]")
-    if min_weight < 1:
-        raise ValueError("min_weight must be at least 1: weight 0 is a no-error case")
+    if min_error_weight < 1:
+        raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
     if num_samples <= 0:
         return np.zeros(1, dtype=int)
 
     max_weight = _get_max_error_weight(block_length, max_error_rate)
     probs = _get_max_error_probs_by_weight(block_length, max_error_rate, max_weight)
-    probs[:min_weight] = 0
+    probs[:min_error_weight] = 0
     if not probs.any():
         # there is nothing to sample, because no error of weight >= 1 is possible (an empty code or
         # a zero error rate) or because every weight in range is decoded perfectly
@@ -253,10 +264,13 @@ def _get_sample_allocation(
     shares = probs * num_samples
     sample_allocation = np.floor(shares).astype(int)
     leftovers = num_samples - sample_allocation.sum()
-    ranked = min_weight + np.argsort(shares[min_weight:] - sample_allocation[min_weight:])[::-1]
+    ranked = (
+        min_error_weight
+        + np.argsort(shares[min_error_weight:] - sample_allocation[min_error_weight:])[::-1]
+    )
     sample_allocation[ranked[:leftovers]] += 1
 
-    sample_allocation[min_weight:] = np.maximum(sample_allocation[min_weight:], 1)
+    sample_allocation[min_error_weight:] = np.maximum(sample_allocation[min_error_weight:], 1)
     return sample_allocation
 
 
@@ -266,9 +280,9 @@ def _get_max_error_weight(block_length: int, max_error_rate: float) -> int:
     Weights are included until at most _MAX_TRUNCATED_MASS of the probability of an error lies
     above the largest included weight, at every error rate ``p <= max_error_rate``.  The weight
     distribution shifts to heavier weights as p grows, so it suffices to check ``p =
-    max_error_rate``.  Choosing the weight this way, rather than letting it fall out of the sample
-    budget, keeps the truncation bias of a reported rate below a fixed tolerance and makes the
-    range of covered weights reproducible across budgets.
+    max_error_rate``.  This weight depends only on the code and the error rate, not on the sample
+    budget, which holds the truncation bias of a reported rate below a fixed tolerance and makes the
+    range of covered weights reproducible from one budget to the next.
     """
     probs = _get_error_probs_by_weight(block_length, max_error_rate)
     truncated_mass = 1 - np.cumsum(probs)

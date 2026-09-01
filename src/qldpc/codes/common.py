@@ -762,8 +762,9 @@ class ClassicalCode(AbstractCode):
         If the decoder is known to correct every error of weight below min_error_weight, saying so
         skips sampling those weights and drops their contribution to the reported uncertainty,
         which otherwise dominates that uncertainty at small physical error rates while carrying no
-        information.  See ErrorRateFunc for the caveats: this is an assertion about the decoder
-        rather than the code, and it is checked against the data that does get collected.
+        information.  The claim is taken on trust and understates the error rate if it is false; it
+        is a claim about the decoder rather than about the code, and cannot be read off the code
+        distance.  See ErrorRateFunc for the full caveats.
 
         The physical error rate provided to the constructed function is the probability with which
         each bit experiences a bit-flip error.  The constructed function will throw an error if
@@ -2150,6 +2151,9 @@ class QuditCode(AbstractCode):
         computed correctly, but it can overestimate the logical error rate achievable with a
         decoder tailored to the code.
 
+        Errors of weight below min_error_weight are taken to be decoded perfectly and are not
+        sampled; the claim is taken on trust.
+
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
@@ -3379,6 +3383,9 @@ class CSSCode(QuditCode):
         linear size), which general-purpose decoders may handle poorly.  The estimate is still
         computed correctly, but it can overestimate the logical error rate achievable with a
         decoder tailored to the code.
+
+        Errors of weight below min_error_weight are taken to be decoded perfectly and are not
+        sampled; the claim is taken on trust.
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.

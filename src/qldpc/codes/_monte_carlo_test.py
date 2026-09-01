@@ -58,9 +58,10 @@ def test_get_max_error_probs_by_weight() -> None:
         )
         assert scanned <= probs[weight] <= scanned * (1 + 1e-4)
 
-    # a unit error rate puts the whole weight distribution on the maximum weight
+    # the top weight's envelope is one: q_n(p) peaks at p = 1, where every location errs
     probs = _monte_carlo._get_max_error_probs_by_weight(5, 1.0, 5)
     assert probs[5] == 1
+    assert probs[1] == pytest.approx(5 * 0.2 * 0.8**4)  # q_1 peaks at p = 1/5
 
 
 def test_get_max_error_weight() -> None:
@@ -102,22 +103,29 @@ def test_get_sample_allocation() -> None:
     )
     # each weight gets its exact share, up to the one sample that integer apportionment can shift
     # and the floor of one sample that keeps a lightly weighted tail weight from going unsampled
-    expected = np.maximum(probs / probs.sum() * num_samples, 1)
-    assert np.all(np.abs(allocation[1:] - expected[1:]) <= 1)
+    shares = probs / probs.sum() * num_samples
+    assert np.all(np.abs(allocation[1:] - np.maximum(shares[1:], 1)) <= 1)
+
+    # when every weight earns a sample outright, so that the floor never lifts one, the largest
+    # remainders apportion the budget exactly rather than losing samples to rounding
+    allocation = _monte_carlo._get_sample_allocation(10**6, 10, 0.2)
+    probs = _monte_carlo._get_max_error_probs_by_weight(10, 0.2, allocation.size - 1)
+    assert np.min(probs[1:] / probs.sum() * 10**6) > 1
+    assert np.sum(allocation) == 10**6
 
     # weights that the decoder is taken to decode perfectly get no samples at all
-    allocation = _monte_carlo._get_sample_allocation(1000, 40, 0.2, min_weight=4)
+    allocation = _monte_carlo._get_sample_allocation(1000, 40, 0.2, min_error_weight=4)
     assert not allocation[:4].any() and np.all(allocation[4:] > 0)
     assert np.sum(allocation) >= 1000
 
-    # a min_weight past the covered weights leaves nothing to sample, but still covers them, so the
-    # resulting estimate is pure truncation rather than being silently restricted to weight 0
-    allocation = _monte_carlo._get_sample_allocation(1000, 10, 0.05, min_weight=20)
+    # a min_error_weight past the covered weights leaves nothing to sample, but still covers those
+    # weights, so the resulting estimate is pure truncation rather than restricted to weight 0
+    allocation = _monte_carlo._get_sample_allocation(1000, 10, 0.05, min_error_weight=20)
     assert allocation.size > 1 and not allocation.any()
 
-    # weight 0 is a no-error case, so a min_weight below one is rejected
-    with pytest.raises(ValueError, match="min_weight must be at least 1"):
-        _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_weight=0)
+    # weight 0 is a no-error case, so a min_error_weight below one is rejected
+    with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
+        _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_error_weight=0)
 
     # zero requested samples yield a lone weight-0 bin rather than an empty allocation
     assert np.array_equal(

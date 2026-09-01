@@ -1142,18 +1142,32 @@ def test_css_capacity() -> None:
 def test_capacity_min_error_weight() -> None:
     """Declaring a minimum failing error weight skips those weights and their uncertainty.
 
-    A repetition code of length 5 corrects every single-bit error, and the five-qubit code corrects
-    every single-qubit Pauli error, so weight 1 is decoded perfectly in each case.
+    Each code below is paired with a lookup decoder that corrects every weight-1 error, so that
+    min_error_weight=2 is a true claim; the test checks that premise rather than assuming it, since
+    nothing in the library can (see ErrorRateFunc).  The lookup decoder's max_weight counts
+    symplectic weight, so a qudit code decoded against its stabilizers needs two to cover a
+    single-qubit Y error, whereas a CSS code decoded sector by sector needs only one.
     """
     all_codes: list[codes.ClassicalCode | codes.QuditCode] = [
         codes.RepetitionCode(5),
-        codes.FiveQubitCode(),
+        codes.QuditCode(codes.SteaneCode()),
         codes.SteaneCode(),
     ]
-    for code in all_codes:
+    for code, max_weight in zip(all_codes, [1, 2, 1]):
+        baseline = code.get_logical_error_rate_func(
+            num_samples=1000, max_error_rate=0.2, with_lookup=True, max_weight=max_weight
+        )
+        assert baseline.num_failures[1] == 0  # the premise: weight-1 errors are always corrected
+
         func = code.get_logical_error_rate_func(
-            num_samples=100, max_error_rate=0.2, min_error_weight=2
+            num_samples=1000,
+            max_error_rate=0.2,
+            min_error_weight=2,
+            with_lookup=True,
+            max_weight=max_weight,
         )
         assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
         assert np.all(func.infidelity_variances[:2] == 0)  # and no uncertainty charged there
-        assert func(0.1)[0] >= 0
+
+        # declaring the claim is what the feature is for: the reported uncertainty drops
+        assert func(0.1)[1] < baseline(0.1)[1]
