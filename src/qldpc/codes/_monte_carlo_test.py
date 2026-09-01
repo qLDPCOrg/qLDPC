@@ -44,12 +44,66 @@ def test_get_error_probs_by_weight() -> None:
     assert probs.shape == (1,) and np.isclose(probs[0], 0.7**5)
 
 
+def test_get_max_error_probs_by_weight() -> None:
+    """Envelope of the weight distribution over a range of physical error rates."""
+    block_length, max_error_rate = 20, 0.1
+    probs = _monte_carlo._get_max_error_probs_by_weight(block_length, max_error_rate, 8)
+    assert probs.shape == (9,) and probs[0] == 0  # weight 0 carries no weight in an allocation
+
+    # each entry bounds its weight's probability at every error rate in range, and is attained
+    for weight in range(1, 9):
+        scanned = max(
+            _monte_carlo._get_error_probs_by_weight(block_length, rate, weight)[weight]
+            for rate in np.linspace(0, max_error_rate, 200)
+        )
+        assert scanned <= probs[weight] <= scanned * (1 + 1e-4)
+
+    # a unit error rate puts the whole weight distribution on the maximum weight
+    probs = _monte_carlo._get_max_error_probs_by_weight(5, 1.0, 5)
+    assert probs[5] == 1
+
+
+def test_get_max_error_weight() -> None:
+    """Choice of the largest error weight to sample."""
+    # weights are included until the probability above them falls within tolerance
+    block_length, max_error_rate = 50, 0.2
+    max_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate)
+    probs = _monte_carlo._get_error_probs_by_weight(block_length, max_error_rate, max_weight)
+    assert 1 - probs.sum() <= _monte_carlo._MAX_TRUNCATED_MASS
+
+    # dropping the last weight would exceed the tolerance, so no weight is included needlessly
+    probs = _monte_carlo._get_error_probs_by_weight(block_length, max_error_rate, max_weight - 1)
+    assert 1 - probs.sum() > _monte_carlo._MAX_TRUNCATED_MASS
+
+    # a zero error rate, or an empty code, admits no error of weight >= 1
+    assert _monte_carlo._get_max_error_weight(block_length, 0.0) == 0
+    assert _monte_carlo._get_max_error_weight(0, max_error_rate) == 0
+
+
 def test_get_sample_allocation() -> None:
     """Allocation of samples across error weights."""
     allocation = _monte_carlo._get_sample_allocation(1000, block_length=10, max_error_rate=0.2)
     assert allocation[0] == 0  # weight 0 (no error) is not sampled
     assert np.sum(allocation) >= 1000  # every requested sample is allocated
-    assert allocation[-1] > 0  # trailing zeros are truncated
+    assert np.all(allocation[1:] > 0)  # no sampled weight is left without data
+
+    # the covered weights are set by the truncation tolerance, so they do not move with the budget
+    weights = {
+        _monte_carlo._get_sample_allocation(num_samples, 40, 0.2).size
+        for num_samples in [10, 1000, 100000]
+    }
+    assert len(weights) == 1
+
+    # the budget is apportioned in proportion to the envelope of the weight distribution
+    num_samples, block_length, max_error_rate = 10**6, 40, 0.2
+    allocation = _monte_carlo._get_sample_allocation(num_samples, block_length, max_error_rate)
+    probs = _monte_carlo._get_max_error_probs_by_weight(
+        block_length, max_error_rate, allocation.size - 1
+    )
+    # each weight gets its exact share, up to the one sample that integer apportionment can shift
+    # and the floor of one sample that keeps a lightly weighted tail weight from going unsampled
+    expected = np.maximum(probs / probs.sum() * num_samples, 1)
+    assert np.all(np.abs(allocation[1:] - expected[1:]) <= 1)
 
     # zero requested samples yield a lone weight-0 bin rather than an empty allocation
     assert np.array_equal(
@@ -61,6 +115,11 @@ def test_get_sample_allocation() -> None:
     assert np.array_equal(
         _monte_carlo._get_sample_allocation(1000, block_length=10, max_error_rate=0.0), [0]
     )
+
+    # an error rate outside [0, 1] is rejected rather than building a nonsense weight distribution
+    for max_error_rate in [-0.1, 1.5, float("nan")]:
+        with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
+            _monte_carlo._get_sample_allocation(1000, 10, max_error_rate)
 
 
 def test_get_error_and_erasure() -> None:
@@ -138,6 +197,16 @@ def test_error_rate_func_validation() -> None:
         make([10, 10], [3, 0], [0, 0])
     with pytest.raises(ValueError, match="no-error"):
         make([10, 10], [0, 0], [3, 0])
+
+    # the maximum error rate must be a probability
+    with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
+        _monte_carlo.ErrorRateFunc(
+            num_samples=np.array([0, 10]),
+            num_failures=np.array([0, 1]),
+            num_discards=np.array([0, 0]),
+            num_error_locations=5,
+            max_error_rate=1.5,
+        )
 
 
 def test_error_bar_survives_zero_failures() -> None:

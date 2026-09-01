@@ -76,6 +76,8 @@ class ErrorRateFunc:
             raise ValueError("failures plus discards cannot exceed the samples at any weight")
         if self.num_failures[0] != 0 or self.num_discards[0] != 0:
             raise ValueError("weight 0 is a no-error case: it cannot fail or be discarded")
+        if not 0 <= self.max_error_rate <= 1:
+            raise ValueError("max_error_rate must lie in [0, 1]")
 
     @property
     def max_error_weight(self) -> int:
@@ -184,6 +186,12 @@ def _jeffreys_variance(
     return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
 
 
+# largest tolerated probability mass above the maximum sampled error weight.  Errors heavier than
+# that weight are charged as certain failures, so this mass is an upper bound on the pessimistic
+# bias of a reported error or discard rate (see ErrorRateFunc.truncation_error_bound).
+_MAX_TRUNCATED_MASS = 1e-6
+
+
 def _get_sample_allocation(
     num_samples: int, block_length: int, max_error_rate: float
 ) -> npt.NDArray[np.int_]:
@@ -191,28 +199,82 @@ def _get_sample_allocation(
 
     This method returns an array whose k-th entry is the number of samples to devote to errors of
     weight k, given a maximum error rate that we care about.
-    """
-    probs = _get_error_probs_by_weight(block_length, max_error_rate)
 
-    # zero out the distribution at k=0, flatten it out to the left of its peak, and renormalize
-    probs[0] = 0
-    if not probs.any():
-        # no error of weight >= 1 is possible (e.g. max_error_rate 0 or an empty code), so there
-        # is nothing to sample; return a lone weight-0 bin
+    A single allocation has to serve every physical error rate ``p <= max_error_rate``, so samples
+    are apportioned in proportion to the largest probability that each error weight is ever
+    assigned over that range of p (see _get_max_error_probs_by_weight).  Every sampled weight is
+    guaranteed at least one sample, so no weight below the maximum sampled weight is silently
+    recorded as failure-free for want of data.
+    """
+    if not 0 <= max_error_rate <= 1:
+        raise ValueError("max_error_rate must lie in [0, 1]")
+
+    max_weight = _get_max_error_weight(block_length, max_error_rate)
+    if max_weight == 0 or num_samples <= 0:
+        # nothing of weight >= 1 is worth sampling (an empty code, a zero error rate, or an empty
+        # budget), so return a lone weight-0 bin
         return np.zeros(1, dtype=int)
-    probs[1 : np.argmax(probs)] = probs.max()
+
+    # weight 0 (no error) decodes deterministically and is never sampled, so it gets no weight here
+    probs = _get_max_error_probs_by_weight(block_length, max_error_rate, max_weight)
+    probs[0] = 0
     probs /= np.sum(probs)
 
-    # assign sample numbers according to the probability distribution constructed above,
-    # increasing num_samples if necessary to deal with weird edge cases from round-off errors
-    while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
-        num_samples += 1  # pragma: no cover
+    # apportion the budget by the method of largest remainders: hand each weight its floored share,
+    # then give the leftover samples to the weights with the largest discarded fractions
+    shares = probs * num_samples
+    sample_allocation = np.floor(shares).astype(int)
+    leftovers = num_samples - sample_allocation.sum()
+    ranked = 1 + np.argsort(shares[1:] - sample_allocation[1:])[::-1]
+    sample_allocation[ranked[:leftovers]] += 1
 
-    # weight 0 (no error) decodes deterministically and is not sampled, so its allocation stays
-    # zero; truncate trailing zeros, keeping just the weight-0 bin when nothing is allocated
-    nonzero = np.nonzero(sample_allocation)[0]
-    end = nonzero[-1] + 1 if nonzero.size else 1
-    return sample_allocation[:end]
+    sample_allocation[1:] = np.maximum(sample_allocation[1:], 1)
+    return sample_allocation
+
+
+def _get_max_error_weight(block_length: int, max_error_rate: float) -> int:
+    """Largest error weight to sample, given a maximum error rate that we care about.
+
+    Weights are included until at most _MAX_TRUNCATED_MASS of the probability of an error lies
+    above the largest included weight, at every error rate ``p <= max_error_rate``.  The weight
+    distribution shifts to heavier weights as p grows, so it suffices to check ``p =
+    max_error_rate``.  Choosing the weight this way, rather than letting it fall out of the sample
+    budget, keeps the truncation bias of a reported rate below a fixed tolerance and makes the
+    range of covered weights reproducible across budgets.
+    """
+    probs = _get_error_probs_by_weight(block_length, max_error_rate)
+    truncated_mass = 1 - np.cumsum(probs)
+    # the full weight distribution sums to one, so the last entry is within any tolerance
+    return int(np.argmax(truncated_mass <= _MAX_TRUNCATED_MASS))
+
+
+def _get_max_error_probs_by_weight(
+    block_length: int, max_error_rate: float, max_weight: int
+) -> npt.NDArray[np.floating]:
+    """Build an array whose k-th entry is ``max_(p <= max_error_rate) q_k(p)``.
+
+    Here ``q_k(p)`` is the probability of a weight-k error at physical error rate p, as built by
+    _get_error_probs_by_weight.  As a function of p, ``q_k(p)`` peaks at ``p = k / block_length``,
+    so the maximum over ``p <= max_error_rate`` is attained at ``p = min(k / block_length,
+    max_error_rate)``.  This envelope is the natural stand-in for a single ``q_k(p)`` when one
+    allocation must serve a whole range of physical error rates: a weight contributes
+    ``q_k(p)**2`` to the variance of an estimate at error rate p, so the envelope is the largest
+    that contribution ever gets over the range of p being served.
+    """
+    probs = np.zeros(max_weight + 1)
+    for weight in range(1, max_weight + 1):
+        error_rate = min(weight / block_length, max_error_rate)
+        if error_rate == 1:
+            # every location errs, so all probability sits at block_length, which is this weight:
+            # an error rate of one requires both max_error_rate == 1 and weight == block_length
+            probs[weight] = 1
+        else:
+            probs[weight] = np.exp(
+                math.log_choose(block_length, weight)
+                + weight * np.log(error_rate)
+                + (block_length - weight) * np.log(1 - error_rate)
+            )
+    return probs
 
 
 def _get_error_probs_by_weight(
