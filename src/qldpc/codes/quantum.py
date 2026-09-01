@@ -48,7 +48,10 @@ from .classical import (
     SimplexCode,
     TannerCode,
 )
-from .common import ClassicalCode, CSSCode, QuditCode
+from .common import ClassicalCode, CSSCode, QuditCode, get_scrambled_seed
+
+####################################################################################################
+# small named codes
 
 
 class TrivialCode(CSSCode):
@@ -2117,7 +2120,13 @@ class QTCode(CSSCode):
         code_a = ClassicalCode(code_a, field)
         code_b = ClassicalCode(code_b if code_b is not None else ~code_a, field)
         subset_a = group.random_symmetric_subset(code_a.num_bits, seed=seed)
-        subset_b = group.random_symmetric_subset(code_b.num_bits) if not one_subset else subset_a
+        if one_subset:
+            subset_b = subset_a
+        else:
+            # scramble the seed so that the second subset is drawn independently of the first, while
+            # keeping the construction as a whole reproducible from the given seed
+            seed_b = get_scrambled_seed(seed) if seed is not None else None
+            subset_b = group.random_symmetric_subset(code_b.num_bits, seed=seed_b)
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
 
     def save(self, path: str, *headers: str) -> None:
@@ -2184,6 +2193,15 @@ class QTCode(CSSCode):
 
 ####################################################################################################
 # surface code and friends
+
+
+def _get_check_pauli(row: int, col: int) -> PauliXZ:
+    """What type of stabilizer does the check at the given coordinates measure?
+
+    Checks of a rotated surface or toric code alternate between X and Z type in a checkerboard
+    pattern, so the type is fixed by the parity of the sum of the coordinates.
+    """
+    return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
 
 
 class SurfaceCode(CSSCode):
@@ -2273,16 +2291,12 @@ class SurfaceCode(CSSCode):
         - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
         """
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def check_is_used(row: int, col: int) -> bool:
             """Is the check qubit with these coordinates used?"""
             if row == 0 or row == rows:
-                return 0 < col < cols and get_check_pauli(row, col) is Pauli.Z
+                return 0 < col < cols and _get_check_pauli(row, col) is Pauli.Z
             if col == 0 or col == cols:
-                return 0 < row < rows and get_check_pauli(row, col) is Pauli.X
+                return 0 < row < rows and _get_check_pauli(row, col) is Pauli.X
             return 0 < row < rows and 0 < col < cols
 
         def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
@@ -2300,7 +2314,7 @@ class SurfaceCode(CSSCode):
         for row, col in itertools.product(range(rows + 1), range(cols + 1)):
             if check_is_used(row, col):
                 check = get_check(row, col)
-                if get_check_pauli(row, col) is Pauli.X:
+                if _get_check_pauli(row, col) is Pauli.X:
                     checks_x.append(check)
                 else:
                     checks_z.append(check)
@@ -2325,16 +2339,12 @@ class SurfaceCode(CSSCode):
         if not self.rotated:
             return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def check_is_used(row: int, col: int) -> bool:
             """Is the check qubit with these coordinates used?"""
             if row == 0 or row == self.rows:
-                return 0 < col < self.cols and get_check_pauli(row, col) is Pauli.Z
+                return 0 < col < self.cols and _get_check_pauli(row, col) is Pauli.Z
             if col == 0 or col == self.cols:
-                return 0 < row < self.rows and get_check_pauli(row, col) is Pauli.X
+                return 0 < row < self.rows and _get_check_pauli(row, col) is Pauli.X
             return 0 < row < self.rows and 0 < col < self.cols
 
         # identify all coordinates of check qubits, and a map from coordinates to a Node
@@ -2344,7 +2354,7 @@ class SurfaceCode(CSSCode):
                 for row, col in itertools.product(range(self.rows + 1), range(self.cols + 1))
                 if check_is_used(row, col)
             ],
-            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+            key=lambda row_col: (int(_get_check_pauli(*row_col)), *row_col),
         )
         node_map = {
             (row, col): Node(index, is_data=False)
@@ -2361,19 +2371,19 @@ class SurfaceCode(CSSCode):
             check_sw = (row + 1, col)
             check_se = (row + 1, col + 1)
             if check_is_used(*check_nw):
-                check_pauli = get_check_pauli(*check_nw)
+                check_pauli = _get_check_pauli(*check_nw)
                 check_node = node_map[check_nw]
                 edges[check_pauli, "nw"].append((check_node, data_node))
             if check_is_used(*check_ne):
-                check_pauli = get_check_pauli(*check_ne)
+                check_pauli = _get_check_pauli(*check_ne)
                 check_node = node_map[check_ne]
                 edges[check_pauli, "ne"].append((check_node, data_node))
             if check_is_used(*check_sw):
-                check_pauli = get_check_pauli(*check_sw)
+                check_pauli = _get_check_pauli(*check_sw)
                 check_node = node_map[check_sw]
                 edges[check_pauli, "sw"].append((check_node, data_node))
             if check_is_used(*check_se):
-                check_pauli = get_check_pauli(*check_se)
+                check_pauli = _get_check_pauli(*check_se)
                 check_node = node_map[check_se]
                 edges[check_pauli, "se"].append((check_node, data_node))
 
@@ -2468,10 +2478,6 @@ class ToricCode(CSSCode):
         Same as in SurfaceCode.get_rotated_checks, but with periodic boundary conditions.
         """
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
             """Check on the qubits with the given indices, dropping any that are out of bounds."""
             row_indices = np.array([row - 1, row, row - 1, row]) % rows
@@ -2485,7 +2491,7 @@ class ToricCode(CSSCode):
         checks_z = []
         for row, col in itertools.product(range(rows), range(cols)):
             check = get_check(row, col)
-            if get_check_pauli(row, col) is Pauli.X:
+            if _get_check_pauli(row, col) is Pauli.X:
                 checks_x.append(check)
             else:
                 checks_z.append(check)
@@ -2506,14 +2512,10 @@ class ToricCode(CSSCode):
         if not self.rotated:
             return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         # identify all coordinates of check qubits, and a map from coordinates to a Node
         check_node_coords = sorted(
             [(row, col) for row, col in itertools.product(range(self.rows), range(self.cols))],
-            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+            key=lambda row_col: (int(_get_check_pauli(*row_col)), *row_col),
         )
         node_map = {
             (row, col): Node(index, is_data=False)

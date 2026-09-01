@@ -834,6 +834,25 @@ def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
         assert code_copy == code
 
 
+def test_random_quantum_tanner_code_is_reproducible() -> None:
+    """A seed fixes both of the random subsets that define a random quantum Tanner code."""
+    group = abstract.CyclicGroup(8)
+    subcode = codes.RepetitionCode(2)
+
+    def matrix_for(seed: int | None = None, one_subset: bool = False) -> bytes:
+        code = codes.QTCode.random(group, subcode, seed=seed, one_subset=one_subset)
+        return np.asarray(code.matrix).tobytes()
+
+    # the same seed gives the same code every time
+    assert len({matrix_for(seed=7) for _ in range(4)}) == 1
+
+    # reusing one subset for both sides is likewise reproducible
+    assert len({matrix_for(seed=7, one_subset=True) for _ in range(3)}) == 1
+
+    # without a seed the code is still random
+    assert len({matrix_for() for _ in range(4)}) > 1
+
+
 def test_toric_tanner_code(size: int = 4) -> None:
     """Rotated toric code as a quantum Tanner code."""
     group = abstract.Group.product(abstract.CyclicGroup(size), repeat=2)
