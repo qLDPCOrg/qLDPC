@@ -458,6 +458,11 @@ def test_hypergraph_product(
     code_a = codes.ClassicalCode.random(*bits_checks_a, field=field, seed=np.random.randint(2**31))
     code_b = codes.ClassicalCode.random(*bits_checks_b, field=field, seed=np.random.randint(2**31))
 
+    # keep only independent parity checks, which the closed-form distances below assume.  Row
+    # reduction preserves the row space of a parity check matrix, and hence the code it defines.
+    code_a = codes.ClassicalCode(code_a.matrix.row_reduce()[: code_a.rank], field)
+    code_b = codes.ClassicalCode(code_b.matrix.row_reduce()[: code_b.rank], field)
+
     code = codes.HGPCode(code_a, code_b, set_logicals=True)
     graph = codes.HGPCode.get_graph_product(code_a.graph, code_b.graph)
     chain = ChainComplex.tensor_product(code_a.matrix, code_b.matrix.T)
