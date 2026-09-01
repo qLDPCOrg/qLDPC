@@ -218,14 +218,6 @@ def _jeffreys_variance(
     return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
 
 
-# largest probability mass tolerated above the maximum sampled error weight at any sample budget.
-# Errors heavier than that weight are charged as certain failures, so this mass is an upper bound on
-# the pessimistic bias of a reported error or discard rate (see
-# ErrorRateFunc.truncation_error_bound).  A budget large enough to measure heavier weights pushes
-# the mass below this, so it is a ceiling on the bias rather than a target (_get_max_error_weight).
-_MAX_TRUNCATED_MASS = 1e-6
-
-
 def _get_sample_allocation(
     num_samples: int, block_length: int, max_error_rate: float, min_error_weight: int = 1
 ) -> npt.NDArray[np.int_]:
@@ -239,6 +231,9 @@ def _get_sample_allocation(
     assigned over that range of p (see _get_max_error_probs_by_weight).  Every sampled weight is
     guaranteed at least one sample, so no weight below the maximum sampled weight is silently
     recorded as failure-free for want of data.
+
+    The heaviest weight sampled is the heaviest the budget can pay for (see _get_max_error_weight),
+    so a larger budget covers more weights and leaves less probability above them.
 
     Apportioning by that envelope, rather than by the weight distribution at max_error_rate alone,
     trades precision at the top of the range of p for precision below it.  The quantity it improves
@@ -259,21 +254,19 @@ def _get_sample_allocation(
         raise ValueError("max_error_rate must lie in [0, 1]")
     if min_error_weight < 1:
         raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
+    # nothing to sample, whether for want of a budget, because no error of weight >= 1 is possible
+    # (an empty code or a zero error rate), or because every possible weight is taken to decode
+    # perfectly.  The lone weight-0 bin covers nothing, leaving every error of weight >= 1 above the
+    # covered range, where ErrorRateFunc charges it as a certain failure: nothing measured is
+    # reported pessimistically.
     if num_samples <= 0:
-        # an empty budget measures nothing, so cover nothing: the lone weight-0 bin leaves every
-        # error of weight >= 1 above the covered range, where ErrorRateFunc charges it as a certain
-        # failure.  That is the pessimistic reading, which is the right one for knowing nothing.
+        return np.zeros(1, dtype=int)
+    max_weight = _get_max_error_weight(block_length, max_error_rate, num_samples, min_error_weight)
+    if max_weight == 0:
         return np.zeros(1, dtype=int)
 
-    max_weight = _get_max_error_weight(block_length, max_error_rate, num_samples, min_error_weight)
     probs = _get_max_error_probs_by_weight(block_length, max_error_rate, max_weight)
     probs[:min_error_weight] = 0
-    if not probs.any():
-        # nothing here is worth sampling, either because no error of weight >= 1 is possible (an
-        # empty code or a zero error rate) or because the caller has claimed that every weight in
-        # range decodes perfectly.  Unlike an empty budget, both are statements that the covered
-        # weights do not fail, so cover the range and let the estimate be its truncation alone.
-        return np.zeros(max_weight + 1, dtype=int)
     probs /= np.sum(probs)
 
     # apportion the budget by the method of largest remainders: hand each weight its floored share,
@@ -296,34 +289,33 @@ def _get_max_error_weight(
 ) -> int:
     """Largest error weight to sample, given a maximum error rate that we care about.
 
-    Two criteria set this weight, and the larger of the two wins.
+    A weight is included as long as its share of the budget rounds up to a sample, that share being
+    the one the allocation would hand it (see _get_max_error_probs_by_weight).  Such a weight does
+    receive a sample, so including it measures the weight, whereas a lighter weight would be carried
+    by the floor of one sample alone.  Weights above the largest included one are charged as certain
+    failures (see ErrorRateFunc.truncation_error_bound).
 
-    The first is a tolerance: weights are included until at most _MAX_TRUNCATED_MASS of the
-    probability of an error lies above the largest included weight, at every error rate
-    ``p <= max_error_rate``.  The weight distribution shifts to heavier weights as p grows, so it
-    suffices to check ``p = max_error_rate``.  This holds the truncation bias of a reported rate
-    below a fixed tolerance however small the sample budget is.
+    Charging them so is not the pessimistic reading it appears to be, because the budget runs out
+    around the mean weight of an error at max_error_rate, which for any error rate worth plotting is
+    far above the weight at which a decoder starts failing on essentially everything.  On a
+    [[144,12,12]] bivariate bicycle code at max_error_rate 0.1, a thousand samples reach weight 25,
+    where the decoder already fails on 998 errors in 1000, and every heavier weight fails on all of
+    them; the reported rate is then high by 7e-6 where the bound on that error is 2e-3, and by less
+    than one part in 10^14 at larger budgets.  Whether the charge is exact is visible in the
+    collected counts: it is, to the extent that the heaviest sampled weight already fails always.
 
-    The second follows the budget: a weight is included as long as its share of the budget rounds up
-    to a sample, that share being the one the allocation would hand it (see
-    _get_max_error_probs_by_weight).  Such a weight does receive a sample, so including it measures
-    the weight instead of charging it as a certain failure, while a lighter weight would be carried
-    by the floor of one sample alone.  This criterion is what lets a larger budget buy a smaller
-    truncation bias, rather than spending everything on weights that are already well measured.
+    At least one weight the decoder can fail on is always included, so that a small budget yields a
+    poor estimate rather than no estimate at all.
     """
-    probs = _get_error_probs_by_weight(block_length, max_error_rate)
-    truncated_mass = 1 - np.cumsum(probs)
-    # the full weight distribution sums to one, so the last entry is within any tolerance
-    weight_from_tolerance = int(np.argmax(truncated_mass <= _MAX_TRUNCATED_MASS))
-
     envelope = _get_max_error_probs_by_weight(block_length, max_error_rate, block_length)
     envelope[:min_error_weight] = 0
     if not envelope.any():
-        return weight_from_tolerance
+        # no error of weight >= 1 is possible, or every possible weight decodes perfectly
+        return 0
     shares = envelope / envelope.sum() * num_samples
     rounds_up_to_a_sample = np.nonzero(shares >= 0.5)[0]
     weight_from_budget = int(rounds_up_to_a_sample[-1]) if rounds_up_to_a_sample.size else 0
-    return max(weight_from_tolerance, weight_from_budget)
+    return max(weight_from_budget, min_error_weight)
 
 
 def _get_max_error_probs_by_weight(

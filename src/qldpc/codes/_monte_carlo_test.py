@@ -72,32 +72,40 @@ def test_get_max_error_weight() -> None:
         probs = _monte_carlo._get_error_probs_by_weight(block_length, max_error_rate, max_weight)
         return float(1 - probs.sum())
 
-    # a budget too small to reach past the tolerance is held to the tolerance, and no further: the
-    # weight below the one chosen would leave more than the tolerated mass untouched
-    max_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1)
-    assert truncated_mass(max_weight) <= _monte_carlo._MAX_TRUNCATED_MASS
-    assert truncated_mass(max_weight - 1) > _monte_carlo._MAX_TRUNCATED_MASS
+    # a weight is covered exactly while its share of the budget rounds up to a sample
+    num_samples = 10**4
+    max_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
+    envelope = _monte_carlo._get_max_error_probs_by_weight(
+        block_length, max_error_rate, block_length
+    )
+    envelope[0] = 0
+    shares = envelope / envelope.sum() * num_samples
+    assert shares[max_weight] >= 0.5 > shares[max_weight + 1]
 
-    # a budget large enough to measure heavier weights covers them, pushing the mass below the
-    # tolerance, so that spending more samples buys a smaller truncation bias
-    bigger_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate, 10**9)
-    assert bigger_weight > max_weight
-    assert truncated_mass(bigger_weight) < _monte_carlo._MAX_TRUNCATED_MASS
-
-    # coverage never shrinks as the budget grows
+    # a larger budget covers more weights, leaving less probability above them
     weights = [
         _monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
         for num_samples in [1, 10**3, 10**6, 10**9]
     ]
-    assert weights == sorted(weights)
+    assert weights == sorted(weights) and weights[0] < weights[-1]
+    masses = [truncated_mass(weight) for weight in weights]
+    assert masses == sorted(masses, reverse=True)
 
-    # a zero error rate, an empty code, or a claim that every weight in range decodes perfectly all
-    # leave the budget criterion with nothing to extend
+    # a budget that can pay for nothing still covers a weight the decoder can fail on, so that a
+    # small budget gives a poor estimate rather than none at all
+    assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1) == 1
+    assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1, 7) == 7
+
+    # a zero error rate, an empty code, or a claim that every possible weight decodes perfectly all
+    # leave nothing to sample at all
     assert _monte_carlo._get_max_error_weight(block_length, 0.0, 10**9) == 0
     assert _monte_carlo._get_max_error_weight(0, max_error_rate, 10**9) == 0
-    assert _monte_carlo._get_max_error_weight(
-        block_length, max_error_rate, 10**9, min_error_weight=block_length + 1
-    ) == _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1)
+    assert (
+        _monte_carlo._get_max_error_weight(
+            block_length, max_error_rate, 10**9, min_error_weight=block_length + 1
+        )
+        == 0
+    )
 
 
 def test_get_sample_allocation() -> None:
@@ -107,13 +115,13 @@ def test_get_sample_allocation() -> None:
     assert np.sum(allocation) >= 1000  # every requested sample is allocated
     assert np.all(allocation[1:] > 0)  # no sampled weight is left without data
 
-    # the covered weights never shrink as the budget grows, and a budget too small to reach past the
-    # truncation tolerance is still held to it (see _get_max_error_weight)
+    # a larger budget covers more weights, so that spending more samples also shrinks the mass
+    # charged as certain failure above them (see _get_max_error_weight)
     sizes = [
         _monte_carlo._get_sample_allocation(num_samples, 40, 0.2).size
         for num_samples in [10, 1000, 100000, 10**9]
     ]
-    assert sizes == sorted(sizes) and sizes[0] == sizes[1] < sizes[-1]
+    assert sizes == sorted(sizes) and sizes[0] < sizes[-1]
 
     # the budget is apportioned in proportion to the envelope of the weight distribution
     num_samples, block_length, max_error_rate = 10**6, 40, 0.2
@@ -138,26 +146,19 @@ def test_get_sample_allocation() -> None:
     assert not allocation[:4].any() and np.all(allocation[4:] > 0)
     assert np.sum(allocation) >= 1000
 
-    # a min_error_weight past the covered weights leaves nothing to sample, but still covers those
-    # weights, because the caller has claimed they do not fail (unlike an empty budget below)
-    allocation = _monte_carlo._get_sample_allocation(1000, 10, 0.05, min_error_weight=20)
-    assert allocation.size > 1 and not allocation.any()
-
     # weight 0 is a no-error case, so a min_error_weight below one is rejected
     with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
         _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_error_weight=0)
 
-    # an empty budget covers nothing at all, so that every error of weight >= 1 is left above the
-    # covered range and charged as a failure: knowing nothing is reported pessimistically
-    assert np.array_equal(
-        _monte_carlo._get_sample_allocation(0, block_length=10, max_error_rate=0.2), [0]
-    )
-
-    # a distribution with no weight >= 1 mass (max_error_rate 0, or an empty code) also yields a
-    # lone weight-0 bin rather than dividing by zero
-    assert np.array_equal(
-        _monte_carlo._get_sample_allocation(1000, block_length=10, max_error_rate=0.0), [0]
-    )
+    # every way of having nothing to sample yields the same lone weight-0 bin, which covers nothing,
+    # so that every error of weight >= 1 is charged as a failure: nothing measured is pessimistic
+    for allocation in [
+        _monte_carlo._get_sample_allocation(0, 10, 0.2),  # no budget
+        _monte_carlo._get_sample_allocation(1000, 10, 0.0),  # no error possible
+        _monte_carlo._get_sample_allocation(1000, 0, 0.2),  # no error locations
+        _monte_carlo._get_sample_allocation(1000, 10, 0.05, min_error_weight=20),  # none can fail
+    ]:
+        assert np.array_equal(allocation, [0])
 
     # an error rate outside [0, 1] is rejected rather than building a nonsense weight distribution
     for max_error_rate in [-0.1, 1.5, float("nan")]:
