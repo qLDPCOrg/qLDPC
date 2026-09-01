@@ -747,12 +747,23 @@ class ClassicalCode(AbstractCode):
         return self.shortened(bits)
 
     def get_logical_error_rate_func(
-        self, num_samples: int, max_error_rate: float = 0.1, **decoder_kwargs: Any
+        self,
+        num_samples: int,
+        max_error_rate: float = 0.1,
+        *,
+        min_error_weight: int = 1,
+        **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty in
         that logical error rate: a posterior standard deviation (see ErrorRateFunc).
+
+        If the decoder is known to correct every error of weight below min_error_weight, saying so
+        skips sampling those weights and drops their contribution to the reported uncertainty,
+        which otherwise dominates that uncertainty at small physical error rates while carrying no
+        information.  See ErrorRateFunc for the caveats: this is an assertion about the decoder
+        rather than the code, and it is checked against the data that does get collected.
 
         The physical error rate provided to the constructed function is the probability with which
         each bit experiences a bit-flip error.  The constructed function will throw an error if
@@ -790,15 +801,22 @@ class ClassicalCode(AbstractCode):
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = _get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
+        for weight in range(min_error_weight, len(sample_allocation)):
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
                 weight, sample_allocation[weight], decoder
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
     def _sample_failure_and_discard_counts(
@@ -2106,6 +2124,8 @@ class QuditCode(AbstractCode):
         num_samples: int,
         max_error_rate: float = 0.1,
         pauli_bias: Sequence[float] | None = None,
+        *,
+        min_error_weight: int = 1,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -2151,10 +2171,12 @@ class QuditCode(AbstractCode):
         logical_ops = self.get_logical_ops()
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = _get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
+        for weight in range(min_error_weight, len(sample_allocation)):
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
                 weight,
                 sample_allocation[weight],
@@ -2164,7 +2186,12 @@ class QuditCode(AbstractCode):
                 pauli_bias_zxy,
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
     def _sample_failure_and_discard_counts(
@@ -3326,6 +3353,7 @@ class CSSCode(QuditCode):
         max_error_rate: float = 0.1,
         pauli_bias: Sequence[float] | None = None,
         *,
+        min_error_weight: int = 1,
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
@@ -3387,10 +3415,12 @@ class CSSCode(QuditCode):
         logicals_z = self.get_logical_ops(Pauli.Z)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = _get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
+        for weight in range(min_error_weight, len(sample_allocation)):
             num_failures[weight], num_discards[weight] = (
                 self._sample_css_failure_and_discard_counts(
                     weight,
@@ -3405,7 +3435,12 @@ class CSSCode(QuditCode):
                 )
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
     def _sample_css_failure_and_discard_counts(

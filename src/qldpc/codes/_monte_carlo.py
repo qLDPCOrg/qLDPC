@@ -52,6 +52,16 @@ class ErrorRateFunc:
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
     error rate.
+
+    Errors of weight below min_error_weight are taken to be decoded perfectly, so they contribute
+    no uncertainty at all rather than the uncertainty that finitely many samples would leave
+    behind.  This matters because the weight distribution puts most of its mass on light errors
+    when the physical error rate is small, so at small error rates those weights would otherwise
+    dominate the reported uncertainty while carrying no information.  The counts are checked
+    against the claim: a weight below min_error_weight that recorded a failure or a discard is
+    rejected.  Note that this is an assertion about a particular decoder, not about the code: a
+    decoder that does not return a minimum-weight correction can fail on errors far lighter than
+    half the code distance, so min_error_weight cannot be inferred from the distance alone.
     """
 
     # number of times we sampled each error weight
@@ -64,6 +74,10 @@ class ErrorRateFunc:
     num_error_locations: int  # total number of error locations
     max_error_rate: float  # largest physical error rate we can consider
 
+    # smallest error weight that the decoder is taken to be capable of failing on; every lighter
+    # error is treated as decoded perfectly, contributing neither a rate nor an uncertainty
+    min_error_weight: int = 1
+
     def __post_init__(self) -> None:
         """Check that the counts form a consistent set of per-weight binomial observations."""
         if not self.num_samples.shape == self.num_failures.shape == self.num_discards.shape:
@@ -74,10 +88,18 @@ class ErrorRateFunc:
             raise ValueError("failure and discard counts must be non-negative")
         if np.any(self.num_failures + self.num_discards > self.num_samples):
             raise ValueError("failures plus discards cannot exceed the samples at any weight")
-        if self.num_failures[0] != 0 or self.num_discards[0] != 0:
-            raise ValueError("weight 0 is a no-error case: it cannot fail or be discarded")
         if not 0 <= self.max_error_rate <= 1:
             raise ValueError("max_error_rate must lie in [0, 1]")
+        if self.min_error_weight < 1:
+            raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
+        # the weight-0 case is the min_error_weight=1 instance of this check: a no-error sample can
+        # neither fail nor be discarded
+        below = slice(None, self.min_error_weight)
+        if np.any(self.num_failures[below]) or np.any(self.num_discards[below]):
+            raise ValueError(
+                f"errors of weight below min_error_weight={self.min_error_weight} are taken to be"
+                " decoded perfectly, so they cannot fail or be discarded"
+            )
 
     @property
     def max_error_weight(self) -> int:
@@ -114,7 +136,7 @@ class ErrorRateFunc:
         """
         num_samples_kept = self.num_samples - self.num_discards
         variances = _jeffreys_variance(self.num_failures, num_samples_kept)
-        variances[0] = 0.0  # weight 0 (no error) cannot fail
+        variances[: self.min_error_weight] = 0.0  # a perfectly decoded weight cannot fail
         return variances
 
     @property
@@ -124,7 +146,7 @@ class ErrorRateFunc:
         See help(qldpc.codes._monte_carlo._jeffreys_variance) for additional info.
         """
         variances = _jeffreys_variance(self.num_discards, self.num_samples)
-        variances[0] = 0.0  # weight 0 (no error) is never discarded
+        variances[: self.min_error_weight] = 0.0  # a perfectly decoded weight is never discarded
         return variances
 
     def __call__(
@@ -193,7 +215,7 @@ _MAX_TRUNCATED_MASS = 1e-6
 
 
 def _get_sample_allocation(
-    num_samples: int, block_length: int, max_error_rate: float
+    num_samples: int, block_length: int, max_error_rate: float, min_weight: int = 1
 ) -> npt.NDArray[np.int_]:
     """Construct an allocation of samples by error weight.
 
@@ -205,19 +227,25 @@ def _get_sample_allocation(
     assigned over that range of p (see _get_max_error_probs_by_weight).  Every sampled weight is
     guaranteed at least one sample, so no weight below the maximum sampled weight is silently
     recorded as failure-free for want of data.
+
+    Weights below min_weight are taken to be decoded perfectly and get no samples: there is nothing
+    to learn about them, so spending samples there would only take samples away from the weights
+    that the decoder can actually fail on.  The default of one excludes weight 0, the no-error case.
     """
     if not 0 <= max_error_rate <= 1:
         raise ValueError("max_error_rate must lie in [0, 1]")
-
-    max_weight = _get_max_error_weight(block_length, max_error_rate)
-    if max_weight == 0 or num_samples <= 0:
-        # nothing of weight >= 1 is worth sampling (an empty code, a zero error rate, or an empty
-        # budget), so return a lone weight-0 bin
+    if min_weight < 1:
+        raise ValueError("min_weight must be at least 1: weight 0 is a no-error case")
+    if num_samples <= 0:
         return np.zeros(1, dtype=int)
 
-    # weight 0 (no error) decodes deterministically and is never sampled, so it gets no weight here
+    max_weight = _get_max_error_weight(block_length, max_error_rate)
     probs = _get_max_error_probs_by_weight(block_length, max_error_rate, max_weight)
-    probs[0] = 0
+    probs[:min_weight] = 0
+    if not probs.any():
+        # there is nothing to sample, because no error of weight >= 1 is possible (an empty code or
+        # a zero error rate) or because every weight in range is decoded perfectly
+        return np.zeros(max_weight + 1, dtype=int)
     probs /= np.sum(probs)
 
     # apportion the budget by the method of largest remainders: hand each weight its floored share,
@@ -225,10 +253,10 @@ def _get_sample_allocation(
     shares = probs * num_samples
     sample_allocation = np.floor(shares).astype(int)
     leftovers = num_samples - sample_allocation.sum()
-    ranked = 1 + np.argsort(shares[1:] - sample_allocation[1:])[::-1]
+    ranked = min_weight + np.argsort(shares[min_weight:] - sample_allocation[min_weight:])[::-1]
     sample_allocation[ranked[:leftovers]] += 1
 
-    sample_allocation[1:] = np.maximum(sample_allocation[1:], 1)
+    sample_allocation[min_weight:] = np.maximum(sample_allocation[min_weight:], 1)
     return sample_allocation
 
 

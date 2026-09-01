@@ -105,6 +105,20 @@ def test_get_sample_allocation() -> None:
     expected = np.maximum(probs / probs.sum() * num_samples, 1)
     assert np.all(np.abs(allocation[1:] - expected[1:]) <= 1)
 
+    # weights that the decoder is taken to decode perfectly get no samples at all
+    allocation = _monte_carlo._get_sample_allocation(1000, 40, 0.2, min_weight=4)
+    assert not allocation[:4].any() and np.all(allocation[4:] > 0)
+    assert np.sum(allocation) >= 1000
+
+    # a min_weight past the covered weights leaves nothing to sample, but still covers them, so the
+    # resulting estimate is pure truncation rather than being silently restricted to weight 0
+    allocation = _monte_carlo._get_sample_allocation(1000, 10, 0.05, min_weight=20)
+    assert allocation.size > 1 and not allocation.any()
+
+    # weight 0 is a no-error case, so a min_weight below one is rejected
+    with pytest.raises(ValueError, match="min_weight must be at least 1"):
+        _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_weight=0)
+
     # zero requested samples yield a lone weight-0 bin rather than an empty allocation
     assert np.array_equal(
         _monte_carlo._get_sample_allocation(0, block_length=10, max_error_rate=0.2), [0]
@@ -167,8 +181,11 @@ def test_jeffreys_variance() -> None:
 def test_error_rate_func_validation() -> None:
     """Inconsistent count arrays are rejected at construction."""
 
-    def make(samples: list[int], failures: list[int], discards: list[int]) -> None:
+    def make(
+        samples: list[int], failures: list[int], discards: list[int], min_error_weight: int = 1
+    ) -> None:
         _monte_carlo.ErrorRateFunc(
+            min_error_weight=min_error_weight,
             num_samples=np.array(samples),
             num_failures=np.array(failures),
             num_discards=np.array(discards),
@@ -193,10 +210,18 @@ def test_error_rate_func_validation() -> None:
         make([10], [7], [5])
 
     # weight 0 is the no-error case and cannot record failures or discards
-    with pytest.raises(ValueError, match="no-error"):
+    with pytest.raises(ValueError, match="cannot fail or be discarded"):
         make([10, 10], [3, 0], [0, 0])
-    with pytest.raises(ValueError, match="no-error"):
+    with pytest.raises(ValueError, match="cannot fail or be discarded"):
         make([10, 10], [0, 0], [3, 0])
+
+    # neither can a heavier weight that min_error_weight claims is decoded perfectly
+    with pytest.raises(ValueError, match="cannot fail or be discarded"):
+        make([0, 10, 10], [0, 3, 0], [0, 0, 0], min_error_weight=2)
+
+    # a min_error_weight below one would un-zero the no-error case
+    with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
+        make([10], [0], [0], min_error_weight=0)
 
     # the maximum error rate must be a probability
     with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
@@ -229,6 +254,26 @@ def test_error_bar_survives_zero_failures() -> None:
     # so the aggregate error bar is positive at a physical error rate that weights those bins
     _, uncertainty = func(0.1)
     assert uncertainty > 0
+
+
+def test_error_rate_func_min_error_weight() -> None:
+    """Weights taken to be decoded perfectly contribute no uncertainty.
+
+    Without min_error_weight these unsampled weights would each revert to the Jeffreys prior
+    variance 1/8, and at a small physical error rate they carry the largest weight probabilities,
+    so they would dominate the reported uncertainty while carrying no information at all.
+    """
+    func = _monte_carlo.ErrorRateFunc(
+        num_samples=np.array([0, 0, 0, 100]),
+        num_failures=np.array([0, 0, 0, 5]),
+        num_discards=np.array([0, 0, 0, 0]),
+        num_error_locations=10,
+        max_error_rate=0.5,
+        min_error_weight=3,
+    )
+    assert np.all(func.infidelity_variances[:3] == 0)
+    assert np.all(func.discard_rate_variances[:3] == 0)
+    assert func.infidelity_variances[3] > 0
 
 
 def test_error_rate_func() -> None:

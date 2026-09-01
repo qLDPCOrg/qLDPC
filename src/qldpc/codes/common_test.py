@@ -1137,3 +1137,23 @@ def test_css_capacity() -> None:
     )
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
     assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
+
+
+def test_capacity_min_error_weight() -> None:
+    """Declaring a minimum failing error weight skips those weights and their uncertainty.
+
+    A repetition code of length 5 corrects every single-bit error, and the five-qubit code corrects
+    every single-qubit Pauli error, so weight 1 is decoded perfectly in each case.
+    """
+    all_codes: list[codes.ClassicalCode | codes.QuditCode] = [
+        codes.RepetitionCode(5),
+        codes.FiveQubitCode(),
+        codes.SteaneCode(),
+    ]
+    for code in all_codes:
+        func = code.get_logical_error_rate_func(
+            num_samples=100, max_error_rate=0.2, min_error_weight=2
+        )
+        assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
+        assert np.all(func.infidelity_variances[:2] == 0)  # and no uncertainty charged there
+        assert func(0.1)[0] >= 0
