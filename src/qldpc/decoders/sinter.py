@@ -753,9 +753,16 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
 
         See help(sinter.Decoder) for additional information.
         """
-        if not self.detector_to_time:
+        # the time index mapping is specific to the given model, so keep it out of self
+        detector_to_time = self.detector_to_time
+        if detector_to_time is None:
             dem_coords = dem.get_detector_coordinates()
-            self.detector_to_time = lambda det: int(dem_coords[det][0])
+
+            def coordinate_to_time(detector: int) -> int:
+                """Read a detector's time index from its first coordinate in this model."""
+                return int(dem_coords[detector][0])
+
+            detector_to_time = coordinate_to_time
 
         # construct windows defined by "detection" and "commit" regions
         self.windows = []
@@ -763,7 +770,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             # collect detectors according to their time index
             time_to_dets: dict[int, list[int]] = collections.defaultdict(list)
             for detector in detectors:
-                time = self.detector_to_time(detector)
+                time = detector_to_time(detector)
                 if not isinstance(time, int):  # pragma: no cover
                     raise TypeError(
                         f"detector {detector} has an invalid (non-integer) time index: {time}"

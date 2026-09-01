@@ -15,6 +15,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+from collections.abc import Sequence
+
 import numpy as np
 import pytest
 import stim
@@ -138,6 +140,37 @@ def test_sequential_decoding() -> None:
         compiled_decoder_2.packbits(det_data)
     )
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
+
+
+def test_sliding_window_recompilation() -> None:
+    """One SlidingWindowDecoder builds windows from the coordinates of each model it compiles for.
+
+    Sinter reuses a single decoder object across the tasks of one collect job, so
+    compile_decoder_for_dem must derive its time indices afresh every time.
+    """
+
+    def dem_with_times(times: Sequence[int]) -> stim.DetectorErrorModel:
+        """A chain of two-detector errors whose detectors carry the given time coordinates."""
+        dem = stim.DetectorErrorModel()
+        for detector, time in enumerate(times):
+            dem.append("detector", [time], [stim.DemTarget.relative_detector_id(detector)])
+        for detector in range(len(times) - 1):
+            targets = [stim.DemTarget.relative_detector_id(dd) for dd in [detector, detector + 1]]
+            dem.append("error", 0.1, targets)
+        return dem
+
+    decoder = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
+
+    decoder.compile_decoder_for_dem(dem_with_times([0, 1, 2, 3]))
+    assert [detectors for detectors, _ in decoder.windows] == [[0], [1], [2], [3]]
+
+    # two detectors per time index, so each window holds both detectors of its round
+    decoder.compile_decoder_for_dem(dem_with_times([0, 0, 1, 1]))
+    assert [detectors for detectors, _ in decoder.windows] == [[0, 1], [2, 3]]
+
+    # a model with more detectors than the first one is also compiled from its own coordinates
+    decoder.compile_decoder_for_dem(dem_with_times([0, 1, 2, 3, 4]))
+    assert [detectors for detectors, _ in decoder.windows] == [[0], [1], [2], [3], [4]]
 
 
 def test_sequential_decoding_with_merged_window_errors() -> None:
