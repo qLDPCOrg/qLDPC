@@ -807,7 +807,7 @@ class ClassicalCode(AbstractCode):
         )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(min_error_weight, len(sample_allocation)):
+        for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
                 weight, sample_allocation[weight], decoder
             )
@@ -2180,7 +2180,7 @@ class QuditCode(AbstractCode):
         )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(min_error_weight, len(sample_allocation)):
+        for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
                 weight,
                 sample_allocation[weight],
@@ -3427,7 +3427,7 @@ class CSSCode(QuditCode):
         )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(min_error_weight, len(sample_allocation)):
+        for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = (
                 self._sample_css_failure_and_discard_counts(
                     weight,

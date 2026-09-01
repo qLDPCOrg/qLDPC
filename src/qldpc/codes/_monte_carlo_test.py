@@ -139,7 +139,7 @@ def test_get_sample_allocation() -> None:
     assert np.sum(allocation) >= 1000
 
     # a min_error_weight past the covered weights leaves nothing to sample, but still covers those
-    # weights, so the resulting estimate is pure truncation rather than restricted to weight 0
+    # weights, because the caller has claimed they do not fail (unlike an empty budget below)
     allocation = _monte_carlo._get_sample_allocation(1000, 10, 0.05, min_error_weight=20)
     assert allocation.size > 1 and not allocation.any()
 
@@ -147,7 +147,8 @@ def test_get_sample_allocation() -> None:
     with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
         _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_error_weight=0)
 
-    # zero requested samples yield a lone weight-0 bin rather than an empty allocation
+    # an empty budget covers nothing at all, so that every error of weight >= 1 is left above the
+    # covered range and charged as a failure: knowing nothing is reported pessimistically
     assert np.array_equal(
         _monte_carlo._get_sample_allocation(0, block_length=10, max_error_rate=0.2), [0]
     )

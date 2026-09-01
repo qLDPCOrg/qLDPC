@@ -240,6 +240,16 @@ def _get_sample_allocation(
     guaranteed at least one sample, so no weight below the maximum sampled weight is silently
     recorded as failure-free for want of data.
 
+    Apportioning by that envelope, rather than by the weight distribution at max_error_rate alone,
+    trades precision at the top of the range of p for precision below it.  The quantity it improves
+    is the uncertainty relative to the rate being estimated, across the whole range of p served: a
+    small error rate draws its rate from light errors, which the distribution at max_error_rate
+    assigns little weight and therefore barely samples, so an allocation built from that
+    distribution is least precise, relative to the rate, exactly where the rate is smallest.  The
+    price is at ``p = max_error_rate`` itself, where the samples moved to lighter weights are no
+    longer available.  Both effects are of order some tens of percent; which way the trade is worth
+    making depends on how much of the range of p a caller actually reads.
+
     Weights below min_error_weight are taken to be decoded perfectly and get no samples: there is
     nothing to learn about them, so spending samples there would only take samples away from the
     weights that the decoder can actually fail on.  The default of one excludes weight 0, the
@@ -250,14 +260,19 @@ def _get_sample_allocation(
     if min_error_weight < 1:
         raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
     if num_samples <= 0:
+        # an empty budget measures nothing, so cover nothing: the lone weight-0 bin leaves every
+        # error of weight >= 1 above the covered range, where ErrorRateFunc charges it as a certain
+        # failure.  That is the pessimistic reading, which is the right one for knowing nothing.
         return np.zeros(1, dtype=int)
 
     max_weight = _get_max_error_weight(block_length, max_error_rate, num_samples, min_error_weight)
     probs = _get_max_error_probs_by_weight(block_length, max_error_rate, max_weight)
     probs[:min_error_weight] = 0
     if not probs.any():
-        # there is nothing to sample, because no error of weight >= 1 is possible (an empty code or
-        # a zero error rate) or because every weight in range is decoded perfectly
+        # nothing here is worth sampling, either because no error of weight >= 1 is possible (an
+        # empty code or a zero error rate) or because the caller has claimed that every weight in
+        # range decodes perfectly.  Unlike an empty budget, both are statements that the covered
+        # weights do not fail, so cover the range and let the estimate be its truncation alone.
         return np.zeros(max_weight + 1, dtype=int)
     probs /= np.sum(probs)
 
