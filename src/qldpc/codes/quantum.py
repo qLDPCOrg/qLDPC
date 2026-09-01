@@ -1849,13 +1849,13 @@ class SLPCode(CSSCode):
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
     constructed by
 
-        from qldpc.abstract import CyclicGroup, GroupRing, RingMember, RingArray
+        from qldpc.abstract import CyclicGroup, GroupRing, RingArray
         from qldpc.codes import SLPCode
 
         group = CyclicGroup(2)
         ring = GroupRing(group)
-        x = group.generators[0]  # generator of the cyclic group
-        matrix = abstract.RingArray.build([[1, x, x], [x, x, 1]])  # Eq. 21 of arXiv:2404.18302v1
+        x = ring.generators[0]  # generator of the cyclic group
+        matrix = RingArray.build([[1, x, x], [x, x, 1]], ring)  # Eq. 21 of arXiv:2404.18302v1
         code = SLPCode(matrix)
         assert code.get_code_params() == (18, 4, 2)
 
