@@ -770,7 +770,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     """Logical error rates in a code capacity model."""
     code = codes.FiveQubitCode()
 
-    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.1)
     assert logical_error_rate_func(0) == (0, 0, 0)  # no error, no uncertainty, no truncation
 
     # guaranteed logical X and Z errors
@@ -1095,7 +1095,7 @@ def test_css_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.SteaneCode()
 
-    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.1)
     assert logical_error_rate_func(0) == (0, 0, 0)  # no error, no uncertainty, no truncation
 
     # guaranteed logical X and Z errors

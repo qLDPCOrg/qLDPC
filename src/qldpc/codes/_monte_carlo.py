@@ -197,8 +197,11 @@ class ErrorRateFunc:
 
         Errors heavier than max_error_weight are charged as certain failures, so this is the
         probability of such an error: the amount by which truncation can inflate a reported rate.
-        It covers only that tail.  A min_error_weight above one biases a reported rate the other
-        way, by an amount this bound says nothing about.
+        It is also the third value that calling this instance returns, at the same error rate.
+
+        It covers only that tail.  A min_error_weight that a decoder does not live up to biases a
+        reported rate the other way, by an amount no bound here can speak to, since the weights that
+        such a claim excludes are never sampled.
         """
         if isinstance(error_rate, Iterable):
             values = [self.truncation_error_bound(rate) for rate in error_rate]

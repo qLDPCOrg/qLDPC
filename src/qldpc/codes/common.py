@@ -756,15 +756,20 @@ class ClassicalCode(AbstractCode):
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        In addition to the logical error rate, the constructed function returns an uncertainty in
-        that logical error rate: a posterior standard deviation (see ErrorRateFunc).
+        Alongside the logical error rate, the constructed function returns two more numbers: a
+        statistical uncertainty in that rate, which is a posterior standard deviation, and the part
+        of the rate contributed by errors too heavy for the sample budget to have reached.  Such
+        errors are charged as certain failures, so the rate is an upper estimate, and the interval
+        covering the true rate is wider below the estimate than above it.  A budget too small to
+        reach the bulk of the weight distribution therefore yields a rate that is mostly that
+        charge, which the third number is what makes visible.  See help(qldpc.codes.ErrorRateFunc).
 
         If the decoder is known to correct every error of weight below min_error_weight, saying so
         skips sampling those weights and drops their contribution to the reported uncertainty,
         which otherwise dominates that uncertainty at small physical error rates while carrying no
         information.  The claim is taken on trust and understates the error rate if it is false; it
         is a claim about the decoder rather than about the code, and cannot be read off the code
-        distance.  See ErrorRateFunc for the full caveats.
+        distance.  See help(qldpc.codes.ErrorRateFunc) for the full caveats.
 
         The physical error rate provided to the constructed function is the probability with which
         each bit experiences a bit-flip error.  The constructed function will throw an error if
@@ -797,7 +802,10 @@ class ClassicalCode(AbstractCode):
 
             ``F(p) = q_0(p) + sum_(k>0) q_k(p) F_k``.
 
-        We thereby only need to sample errors of weight ``k > 0``.
+        We thereby only need to sample errors of weight ``k > 0``, or of weight
+        ``k >= min_error_weight`` when a caller sets that higher, since ``F_k = 1`` for every weight
+        declared to be decoded perfectly.  The sum runs only as far as the heaviest weight the
+        budget reached, and ``F_k = 0`` is assumed above that.
         """
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
 
@@ -2152,7 +2160,12 @@ class QuditCode(AbstractCode):
         decoder tailored to the code.
 
         Errors of weight below min_error_weight are taken to be decoded perfectly and are not
-        sampled; the claim is taken on trust.
+        sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
+        acts on, so a single-qudit error has weight one whichever Pauli it applies.
+
+        Errors heavier than the sample budget could reach are charged as certain failures, so the
+        reported rate is an upper estimate, and the constructed function returns the size of that
+        charge as its third value.  See help(qldpc.codes.ErrorRateFunc).
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
@@ -3385,7 +3398,12 @@ class CSSCode(QuditCode):
         decoder tailored to the code.
 
         Errors of weight below min_error_weight are taken to be decoded perfectly and are not
-        sampled; the claim is taken on trust.
+        sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
+        acts on, so a single-qudit error has weight one whichever Pauli it applies.
+
+        Errors heavier than the sample budget could reach are charged as certain failures, so the
+        reported rate is an upper estimate, and the constructed function returns the size of that
+        charge as its third value.  See help(qldpc.codes.ErrorRateFunc).
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
