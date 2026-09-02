@@ -75,7 +75,8 @@ def test_get_max_error_weight() -> None:
         probs = _monte_carlo._get_error_probs_by_weight(block_length, max_error_rate, max_weight)
         return float(1 - probs.sum())
 
-    # a weight is covered exactly while its share of the budget rounds up to a sample
+    # coverage reaches the heaviest weight whose share of the budget reaches half a sample, and no
+    # weight above it comes that close
     num_samples = 10**4
     max_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
     envelope = _monte_carlo._get_max_error_probs_by_weight(
@@ -83,7 +84,7 @@ def test_get_max_error_weight() -> None:
     )
     envelope[0] = 0
     shares = envelope / envelope.sum() * num_samples
-    assert shares[max_weight] >= 0.5 > shares[max_weight + 1]
+    assert shares[max_weight] >= 0.5 and np.all(shares[max_weight + 1 :] < 0.5)
 
     # a larger budget covers more weights, leaving less probability above them
     weights = [
@@ -99,16 +100,19 @@ def test_get_max_error_weight() -> None:
     assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1) == 1
     assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1, 7) == 7
 
-    # a zero error rate, an empty code, or a claim that every possible weight decodes perfectly all
-    # leave nothing to sample at all
-    assert _monte_carlo._get_max_error_weight(block_length, 0.0, 10**9) == 0
-    assert _monte_carlo._get_max_error_weight(0, max_error_rate, 10**9) == 0
+    # a zero error rate, or a claim that every possible weight decodes perfectly, leaves nothing
+    # that can fail in range, so the whole range is covered and nothing in it is charged as failure
+    assert _monte_carlo._get_max_error_weight(block_length, 0.0, 10**9) == block_length
     assert (
         _monte_carlo._get_max_error_weight(
             block_length, max_error_rate, 10**9, min_error_weight=block_length + 1
         )
-        == 0
+        == block_length
     )
+
+    # an empty code has no error weights to cover, and no budget reaches past the block length
+    assert _monte_carlo._get_max_error_weight(0, max_error_rate, 10**9) == 0
+    assert _monte_carlo._get_max_error_weight(block_length, 1.0, 10**9) == block_length
 
 
 def test_get_sample_allocation() -> None:
@@ -153,15 +157,18 @@ def test_get_sample_allocation() -> None:
     with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
         _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_error_weight=0)
 
-    # every way of having nothing to sample yields the same lone weight-0 bin, which covers nothing,
-    # so that every error of weight >= 1 is charged as a failure: nothing measured is pessimistic
+    # an empty budget covers nothing, leaving every error of weight >= 1 charged as a failure: with
+    # nothing measured, the whole reported rate is truncation
+    assert np.array_equal(_monte_carlo._get_sample_allocation(0, 10, 0.2), [0])
+    assert np.array_equal(_monte_carlo._get_sample_allocation(1000, 0, 0.2), [0])  # no locations
+
+    # nothing worth sampling is a different statement: it says the weights in range do not fail, so
+    # the range is covered without spending anything on it, and nothing in it is charged as failure
     for allocation in [
-        _monte_carlo._get_sample_allocation(0, 10, 0.2),  # no budget
         _monte_carlo._get_sample_allocation(1000, 10, 0.0),  # no error possible
-        _monte_carlo._get_sample_allocation(1000, 0, 0.2),  # no error locations
         _monte_carlo._get_sample_allocation(1000, 10, 0.05, min_error_weight=20),  # none can fail
     ]:
-        assert np.array_equal(allocation, [0])
+        assert np.array_equal(allocation, np.zeros(11))
 
     # an error rate outside [0, 1] is rejected rather than building a nonsense weight distribution
     for max_error_rate in [-0.1, 1.5, float("nan")]:

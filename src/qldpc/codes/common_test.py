@@ -1171,3 +1171,10 @@ def test_capacity_min_error_weight() -> None:
 
         # declaring the claim is what the feature is for: the reported uncertainty drops
         assert func(0.1)[1] < baseline(0.1)[1]
+
+    # a min_error_weight past every weight a code can carry leaves nothing that can fail, which is
+    # reported as a zero rate rather than as certain failure
+    func = codes.RepetitionCode(5).get_logical_error_rate_func(
+        num_samples=100, max_error_rate=0.2, min_error_weight=6
+    )
+    assert func(0.1) == (0, 0, 0)

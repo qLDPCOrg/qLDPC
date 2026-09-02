@@ -280,20 +280,22 @@ def _get_sample_allocation(
         raise ValueError("max_error_rate must lie in [0, 1]")
     if min_error_weight < 1:
         raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
-    # nothing to sample, whether for want of a budget, because no error of weight >= 1 is possible
-    # (an empty code or a zero error rate), or because every possible weight is taken to decode
-    # perfectly.  The lone weight-0 bin covers nothing, leaving every error of weight >= 1 above the
-    # covered range, where ErrorRateFunc charges it as a certain failure: nothing measured is
-    # reported pessimistically.
+    # an empty budget measures nothing, so cover nothing: the lone weight-0 bin leaves every error
+    # of weight >= 1 above the covered range, where ErrorRateFunc charges it as a certain failure.
+    # Knowing nothing is then reported as a rate lost entirely to truncation.
     if num_samples <= 0:
         return np.zeros(1, dtype=int)
-    max_weight = _get_max_error_weight(block_length, max_error_rate, num_samples, min_error_weight)
-    if max_weight == 0:
-        return np.zeros(1, dtype=int)
 
+    max_weight = _get_max_error_weight(block_length, max_error_rate, num_samples, min_error_weight)
     probs = _get_max_error_probs_by_weight(block_length, max_error_rate, max_weight)
     probs[:min_error_weight] = 0
-    probs /= np.sum(probs)
+    total = np.sum(probs)
+    if total == 0:
+        # nothing in range is worth sampling, either because no error of weight >= 1 is possible or
+        # because every weight in range is taken to decode perfectly.  Unlike an empty budget, both
+        # say that the weights in range do not fail, so cover the range and spend nothing on it.
+        return np.zeros(max_weight + 1, dtype=int)
+    probs /= total
 
     # apportion the budget by the method of largest remainders: hand each weight its floored share,
     # then give the leftover samples to the weights with the largest discarded fractions
@@ -315,32 +317,48 @@ def _get_max_error_weight(
 ) -> int:
     """Largest error weight to sample, given a maximum error rate that we care about.
 
-    A weight is included as long as its share of the budget rounds up to a sample, that share being
-    the one the allocation would hand it (see _get_max_error_probs_by_weight).  Such a weight does
-    receive a sample, so including it measures the weight, whereas a lighter weight would be carried
-    by the floor of one sample alone.  Weights above the largest included one are charged as certain
-    failures (see ErrorRateFunc.truncation_error_bound).
+    Weights are included from min_error_weight upward for as long as each one's share of the budget
+    reaches half a sample, that share being the one the allocation would hand it (see
+    _get_max_error_probs_by_weight).  Half a sample is the point at which a share rounds to a whole
+    one, which makes it a rounding convention rather than a derived threshold.  An included weight
+    is guaranteed a sample by the floor in _get_sample_allocation, whether or not its own share is
+    large enough to have earned one outright.
 
-    Charging them so is not the pessimistic reading it appears to be, because the budget runs out
-    around the mean weight of an error at max_error_rate, which for any error rate worth plotting is
-    far above the weight at which a decoder starts failing on essentially everything.  On a
-    [[144,12,12]] bivariate bicycle code at max_error_rate 0.1, a thousand samples reach weight 25,
-    where the decoder already fails on 998 errors in 1000, and every heavier weight fails on all of
-    them; the reported rate is then high by 7e-6 where the bound on that error is 2e-3, and by less
-    than one part in 10^14 at larger budgets.  Whether the charge is exact is visible in the
-    collected counts: it is, to the extent that the heaviest sampled weight already fails always.
+    The heaviest weight anywhere above the threshold is taken, rather than the last of an unbroken
+    run of them.  The two differ only when the envelope is not monotonic in weight, which happens
+    above a maximum error rate of one half: the envelope of a weight below block_length / 2 is a
+    peak height that falls as weight grows, and past that midpoint it rises again, so weights over
+    the threshold can sit beyond a run of weights under it.  Those heavy weights carry most of the
+    probability at the top of the range of error rates served, so excluding them would truncate
+    exactly what matters most there.  Including them costs samples, because every weight between
+    them and min_error_weight is then guaranteed one by the floor in _get_sample_allocation: that is
+    how a request for a handful of samples can return an allocation of hundreds.
+
+    Weights above the largest included one are charged as certain failures (see
+    ErrorRateFunc.truncation_error_bound).  That is an upper bound on what they contribute, since a
+    failure rate cannot exceed one, so a reported rate is never too small on this account.  How
+    loose the bound is depends on the code: the failure rate at large weight approaches
+    1 - 4**-dimension, because a heavy error is corrected to a near-uniform choice among the logical
+    classes.  So the charge is near-exact for a code carrying many logical qudits -- on a
+    [[144,12,12]] bivariate bicycle code at max_error_rate 0.1 a thousand samples reach weight 25,
+    where the decoder fails on 998 errors in 1000 and every heavier weight fails on all of them --
+    and loose by a factor of 4/3 for a code carrying one, where a [[81,1,9]] surface code measures a
+    failure rate of 0.75 at every weight from 23 up.  Rather than rest on an assumption either way,
+    the charge is reported with every rate, so a caller can see its size.
 
     At least one weight the decoder can fail on is always included, so that a small budget yields a
     poor estimate rather than no estimate at all.
     """
     envelope = _get_max_error_probs_by_weight(block_length, max_error_rate, block_length)
     envelope[:min_error_weight] = 0
-    if not envelope.any():
-        # no error of weight >= 1 is possible, or every possible weight decodes perfectly
-        return 0
-    shares = envelope / envelope.sum() * num_samples
-    rounds_up_to_a_sample = np.nonzero(shares >= 0.5)[0]
-    weight_from_budget = int(rounds_up_to_a_sample[-1]) if rounds_up_to_a_sample.size else 0
+    total = envelope.sum()
+    if total == 0:
+        # no error of weight >= 1 is possible, or every weight in range is taken to decode
+        # perfectly.  Nothing anywhere in range can fail, so cover all of it and charge nothing.
+        return block_length
+    shares = envelope / total * num_samples
+    reaches_a_sample = np.nonzero(shares >= 0.5)[0]
+    weight_from_budget = int(reaches_a_sample[-1]) if reaches_a_sample.size else 0
     return max(weight_from_budget, min_error_weight)
 
 
