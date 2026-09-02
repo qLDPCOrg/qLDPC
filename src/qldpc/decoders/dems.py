@@ -173,6 +173,12 @@ class DetectorErrorModelArrays:
             dem_arrays.error_probs = np.asarray(error_probs)
 
         dem_arrays.suggested_decompositions = suggested_decompositions or {}
+        if dem_arrays.suggested_decompositions:
+            _validate_decompositions(
+                dem_arrays.suggested_decompositions,
+                dem_arrays.detector_flip_matrix,
+                dem_arrays.observable_flip_matrix,
+            )
         return dem_arrays.simplified() if simplify else dem_arrays
 
     def copy(self) -> DetectorErrorModelArrays:
@@ -370,8 +376,9 @@ class DetectorErrorModelArrays:
             return self.copy()
         old_to_new = np.cumsum(keep) - 1
         suggested_decompositions = {
-            error_index: _remap_decomposition_detectors(components, keep, old_to_new)
+            error_index: remapped
             for error_index, components in self.suggested_decompositions.items()
+            if (remapped := _remap_decomposition_detectors(components, keep, old_to_new))
         }
         return DetectorErrorModelArrays.from_arrays(
             self.detector_flip_matrix[keep],
@@ -427,10 +434,11 @@ class DetectorErrorModelArrays:
             old_to_new_err = np.cumsum(errors_to_keep) - 1
             for old_err_idx, components in self.suggested_decompositions.items():
                 if errors_to_keep[old_err_idx]:
-                    new_err_idx = int(old_to_new_err[old_err_idx])
-                    suggested_decompositions[new_err_idx] = _remap_decomposition_detectors(
+                    remapped = _remap_decomposition_detectors(
                         components, detectors_to_keep, old_to_new_det
                     )
+                    if remapped:
+                        suggested_decompositions[int(old_to_new_err[old_err_idx])] = remapped
 
         # build the post-selected arrays
         detector_flip_matrix = self.detector_flip_matrix[detectors_to_keep][:, errors_to_keep]
@@ -499,15 +507,56 @@ def _remap_decomposition_detectors(
     """Remap detector indices within decomposition components, dropping removed detectors.
 
     Detectors not in detectors_to_keep are omitted rather than remapped, since old_to_new_det has no
-    valid new index for them.
+    valid new index for them.  Components that coincide once their detectors are dropped cancel in
+    pairs, and components left with nothing to flip are discarded, so the surviving components still
+    flip exactly what the error they decompose flips.
+
+    A decomposition is only informative if at least two components survive, and a component that
+    flips no detectors cannot be an edge of a matching graph, so an empty frozenset is returned in
+    both of those cases to indicate that the decomposition should be dropped.
     """
-    return frozenset(
+    remapped = _xor_reduce(
         FlipPattern.from_data(
             frozenset(int(old_to_new_det[dd]) for dd in targets.detectors if detectors_to_keep[dd]),
             targets.observables,
         )
         for targets in components
     )
+    surviving = frozenset(filter(None, remapped))
+    if len(surviving) < 2 or not all(component.detectors for component in surviving):
+        return frozenset()
+    return surviving
+
+
+def _validate_decompositions(
+    suggested_decompositions: dict[int, frozenset[FlipPattern]],
+    detector_flip_matrix: scipy.sparse.csc_matrix,
+    observable_flip_matrix: scipy.sparse.csc_matrix,
+) -> None:
+    """Check that each suggested decomposition flips exactly what its error mechanism flips.
+
+    The components of a decomposition are alternative ways for one error to manifest, so their
+    combined flips must agree with the error's column of the flip matrices.
+    """
+    num_errors = detector_flip_matrix.shape[1]
+    for error_index, components in suggested_decompositions.items():
+        if not 0 <= error_index < num_errors:
+            raise ValueError(
+                f"Suggested decomposition given for error {error_index} of a detector error model"
+                f" with {num_errors} error mechanisms"
+            )
+        combined = FlipPattern()
+        for component in components:
+            combined ^= component
+        detectors = frozenset(detector_flip_matrix[:, error_index].nonzero()[0].tolist())
+        observables = frozenset(observable_flip_matrix[:, error_index].nonzero()[0].tolist())
+        if combined.detectors != detectors or combined.observables != observables:
+            raise ValueError(
+                f"The suggested decomposition of error {error_index} flips detectors"
+                f" {sorted(combined.detectors)} and observables {sorted(combined.observables)},"
+                f" but that error flips detectors {sorted(detectors)}"
+                f" and observables {sorted(observables)}"
+            )
 
 
 def _canonicalize_mod2(matrix: scipy.sparse.csc_matrix) -> scipy.sparse.csc_matrix:
