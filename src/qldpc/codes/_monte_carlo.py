@@ -301,7 +301,7 @@ def _get_sample_allocation(
     # then give the leftover samples to the weights with the largest discarded fractions
     shares = probs * num_samples
     sample_allocation = np.floor(shares).astype(int)
-    leftovers = num_samples - sample_allocation.sum()
+    leftovers = int(num_samples - sample_allocation.sum())
     ranked = (
         min_error_weight
         + np.argsort(shares[min_error_weight:] - sample_allocation[min_error_weight:])[::-1]
