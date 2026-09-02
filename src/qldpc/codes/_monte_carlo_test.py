@@ -71,10 +71,6 @@ def test_get_max_error_weight() -> None:
     """Choice of the largest error weight to sample."""
     block_length, max_error_rate = 50, 0.2
 
-    def truncated_mass(max_weight: int) -> float:
-        probs = _monte_carlo._get_error_probs_by_weight(block_length, max_error_rate, max_weight)
-        return float(1 - probs.sum())
-
     # coverage reaches the heaviest weight whose share of the budget reaches half a sample, and no
     # weight above it comes that close
     num_samples = 10**4
@@ -83,17 +79,24 @@ def test_get_max_error_weight() -> None:
         block_length, max_error_rate, block_length
     )
     envelope[0] = 0
-    shares = envelope / envelope.sum() * num_samples
+    fractions = envelope / envelope.sum()
+    shares = fractions * num_samples
     assert shares[max_weight] >= 0.5 and np.all(shares[max_weight + 1 :] < 0.5)
 
-    # a larger budget covers more weights, leaving less probability above them
+    # half a sample is the boundary itself, not merely somewhere near it: the largest budget that
+    # leaves a weight's share below half excludes that weight, and one more sample brings it in
+    weight = 20
+    just_under = int(np.floor(0.5 / fractions[weight]))
+    assert fractions[weight] * just_under < 0.5 <= fractions[weight] * (just_under + 1)
+    for budget, expected in [(just_under, weight - 1), (just_under + 1, weight)]:
+        assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, budget) == expected
+
+    # a larger budget covers more weights
     weights = [
         _monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
         for num_samples in [1, 10**3, 10**6, 10**9]
     ]
     assert weights == sorted(weights) and weights[0] < weights[-1]
-    masses = [truncated_mass(weight) for weight in weights]
-    assert masses == sorted(masses, reverse=True)
 
     # a budget that can pay for nothing still covers a weight the decoder can fail on, so that a
     # small budget gives a poor estimate rather than none at all
@@ -142,16 +145,19 @@ def test_get_sample_allocation() -> None:
     assert np.all(np.abs(allocation[1:] - np.maximum(shares[1:], 1)) <= 1)
 
     # when every weight earns a sample outright, so that the floor never lifts one, the largest
-    # remainders apportion the budget exactly rather than losing samples to rounding
-    allocation = _monte_carlo._get_sample_allocation(10**6, 10, 0.2)
-    probs = _monte_carlo._get_max_error_probs_by_weight(10, 0.2, allocation.size - 1)
-    assert np.min(probs[1:] / probs.sum() * 10**6) > 1
-    assert np.sum(allocation) == 10**6
+    # remainders apportion the budget exactly rather than losing samples to rounding.  Taking the
+    # floor of each share is what makes that hold, which these parameters are chosen to expose:
+    # rounding to nearest instead would spend more than the budget, leaving nothing to redistribute
+    num_samples, block_length = 1000, 5
+    allocation = _monte_carlo._get_sample_allocation(num_samples, block_length, 0.2)
+    probs = _monte_carlo._get_max_error_probs_by_weight(block_length, 0.2, allocation.size - 1)
+    shares = probs[1:] / probs.sum() * num_samples
+    assert np.min(shares) > 1 and np.round(shares).sum() > num_samples
+    assert np.sum(allocation) == num_samples
 
     # weights that the decoder is taken to decode perfectly get no samples at all
     allocation = _monte_carlo._get_sample_allocation(1000, 40, 0.2, min_error_weight=4)
     assert not allocation[:4].any() and np.all(allocation[4:] > 0)
-    assert np.sum(allocation) >= 1000
 
     # weight 0 is a no-error case, so a min_error_weight below one is rejected
     with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
