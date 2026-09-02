@@ -169,18 +169,18 @@ class ErrorRateFunc:
                 f" {self.max_error_rate}.  Try calling <YOUR_CODE>.get_logical_error_rate_func with"
                 " a larger max_error_rate."
             )
-        weight_probs = _get_error_probs_by_weight(
-            self.num_error_locations, error_rate, self.max_error_weight
-        )
+        weight_probs, truncated_mass = self._split_weight_probs(error_rate)
         if discard_rate:
-            values = 1 - self.discard_rates
+            rates = self.discard_rates
             variances = self.discard_rate_variances
         else:
-            values = 1 - self.infidelities
+            rates = self.infidelities
             variances = self.infidelity_variances
-        value = weight_probs @ values
-        error = np.sqrt(weight_probs**2 @ variances)
-        return 1 - float(value), float(error)
+        # errors heavier than max_error_weight are charged as certain failures, so their probability
+        # enters the rate in full
+        value = float(weight_probs @ rates) + truncated_mass
+        error = float(np.sqrt(weight_probs**2 @ variances))
+        return value, error
 
     def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
         """Upper bound on the truncation error in the infidelity or discard rate estimate.
@@ -193,10 +193,26 @@ class ErrorRateFunc:
         if isinstance(error_rate, Iterable):
             values = [self.truncation_error_bound(rate) for rate in error_rate]
             return np.array(values)  # type:ignore[return-value]
-        weight_probs = _get_error_probs_by_weight(
-            self.num_error_locations, error_rate, self.max_error_weight
+        return self._split_weight_probs(error_rate)[1]
+
+    def _split_weight_probs(self, error_rate: float) -> tuple[npt.NDArray[np.floating], float]:
+        """Weight probabilities of the covered weights, and the probability mass above them.
+
+        The mass above the covered weights is summed over those weights directly, rather than taken
+        as one minus the mass below them.  The complement cancels catastrophically once the covered
+        weights hold nearly all of the probability, which is the ordinary case at a small physical
+        error rate: for a block length of 9 covering weights up to 8, at an error rate of 1e-5 the
+        complement evaluates to -4.4e-16 where the true mass is 1.3e-23, so a rate built from it
+        comes out negative.  Summing the omitted weights costs one term per error location and
+        holds a relative accuracy of 1e-14 across the whole range of error rates.
+        """
+        probs = _get_error_probs_by_weight(
+            self.num_error_locations,
+            error_rate,
+            max(self.max_error_weight, self.num_error_locations),
         )
-        return float(1.0 - weight_probs.sum())
+        covered = probs[: self.max_error_weight + 1]
+        return covered, float(probs[self.max_error_weight + 1 :].sum())
 
 
 def _jeffreys_variance(

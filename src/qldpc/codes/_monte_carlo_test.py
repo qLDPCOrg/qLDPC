@@ -17,6 +17,9 @@ limitations under the License.
 
 from __future__ import annotations
 
+import math
+from fractions import Fraction
+
 import galois
 import numpy as np
 import pytest
@@ -284,6 +287,35 @@ def test_error_bar_survives_zero_failures() -> None:
     # so the aggregate error bar is positive at a physical error rate that weights those bins
     _, uncertainty = func(0.1)
     assert uncertainty > 0
+
+
+def test_error_rate_estimate_against_closed_form() -> None:
+    """A rate whose exact value is known is reproduced to full precision at every error rate.
+
+    The counts below describe a decoder that corrects every error of weight at most four and fails
+    on every heavier one, so the logical error rate is exactly the probability of an error of weight
+    five or more, and neither statistical noise nor truncation bias enters.  Building the estimate
+    from one minus the covered probability instead loses every significant digit at a small physical
+    error rate, where the covered weights hold nearly all of the probability.
+    """
+    block_length = 9
+    num_samples = np.full(block_length, 10)
+    num_samples[0] = 0
+    func = _monte_carlo.ErrorRateFunc(
+        num_samples=num_samples,
+        num_failures=np.where(np.arange(block_length) > 4, num_samples, 0),
+        num_discards=np.zeros(block_length, dtype=int),
+        num_error_locations=block_length,
+        max_error_rate=0.05,
+    )
+    for error_rate in np.logspace(-9, np.log10(0.05), 50):
+        rate = Fraction(float(error_rate))
+        expected = sum(
+            math.comb(block_length, weight) * rate**weight * (1 - rate) ** (block_length - weight)
+            for weight in range(5, block_length + 1)
+        )
+        assert func(error_rate)[0] == pytest.approx(float(expected), rel=1e-12)
+        assert func.truncation_error_bound(error_rate) >= 0
 
 
 def test_error_rate_func_min_error_weight() -> None:
