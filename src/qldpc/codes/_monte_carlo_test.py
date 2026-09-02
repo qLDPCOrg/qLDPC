@@ -285,7 +285,7 @@ def test_error_bar_survives_zero_failures() -> None:
     assert np.all(func.infidelity_variances[1:] > 0)
 
     # so the aggregate error bar is positive at a physical error rate that weights those bins
-    _, uncertainty = func(0.1)
+    _, uncertainty, _ = func(0.1)
     assert uncertainty > 0
 
 
@@ -367,17 +367,16 @@ def test_error_rate_func() -> None:
     # sample discarded)
     assert np.isclose(func.infidelity_variances[2], 1 / 8)
 
-    # a scalar physical error rate yields a (rate, uncertainty) pair, for errors and discards alike
-    error_rate, uncertainty = func(0.1)
-    assert 0 <= error_rate <= 1 and uncertainty >= 0
-    discard_rate, uncertainty = func(0.1, discard_rate=True)
-    assert 0 <= discard_rate <= 1 and uncertainty >= 0
+    # a scalar error rate yields a (rate, uncertainty, truncation) triple, for discards alike
+    error_rate, uncertainty, truncation = func(0.1)
+    assert 0 <= error_rate <= 1 and uncertainty >= 0 and 0 <= truncation <= error_rate
+    discard_rate, uncertainty, truncation = func(0.1, discard_rate=True)
+    assert 0 <= discard_rate <= 1 and uncertainty >= 0 and 0 <= truncation <= discard_rate
 
-    # an iterable of physical error rates yields arrays of rates and uncertainties
-    rates, uncertainties = func([0.0, 0.1])
-    rates, uncertainties = np.asarray(rates), np.asarray(uncertainties)
-    assert rates.shape == (2,) and uncertainties.shape == (2,)
-    assert rates[0] == 0  # a zero physical error rate gives a zero logical error rate
+    # an iterable of physical error rates yields an array for each of the three
+    arrays = [np.asarray(values) for values in func([0.0, 0.1])]
+    assert all(values.shape == (2,) for values in arrays)
+    assert arrays[0][0] == 0  # a zero physical error rate gives a zero logical error rate
 
     # physical error rates beyond the constructed range are rejected
     with pytest.raises(ValueError, match="does not cover"):
@@ -400,7 +399,8 @@ def test_error_rate_func_single_weight() -> None:
     assert func.max_error_weight == 0
 
     # every error of weight >= 1 lies outside the covered range, so it is fully truncated: the
-    # reported rate is 1 - P(weight 0) with zero uncertainty
-    error_rate, uncertainty = func(0.1)
+    # reported rate is 1 - P(weight 0), charged entirely by truncation, and nothing was sampled so
+    # there is no statistical uncertainty to report
+    error_rate, uncertainty, truncation = func(0.1)
     assert np.isclose(error_rate, 1 - 0.9**5) and uncertainty == 0
-    assert np.isclose(func.truncation_error_bound(0.1), 1 - 0.9**5)
+    assert truncation == error_rate == func.truncation_error_bound(0.1)

@@ -44,11 +44,20 @@ class ErrorRateFunc:
 
         func = code.get_logical_error_rate_func(...),
 
-    then "func" takes a physical error rate "p" as an argument, and returns two numbers:
+    then "func" takes a physical error rate "p" as an argument, and returns three numbers:
     (1) A logical error rate.
-    (2) An uncertainty in the logical error rate: the standard deviation propagated from the
+    (2) A statistical uncertainty in that rate: the standard deviation propagated from the
         per-weight Jeffreys posterior variances.
-    If called with an array of physical error rates, this function returns two arrays.
+    (3) The truncation charge that (1) includes.  Errors heavier than the heaviest sampled weight
+        are charged as certain failures, so the true rate is lower than (1) by somewhere between
+        zero and this amount.
+    If called with an array of physical error rates, this function returns three arrays.
+
+    The rate is therefore an upper estimate, and the interval covering the true rate runs from
+    ``value - truncation - error`` to ``value + error``.  The truncation charge is reported apart
+    from the statistical uncertainty because it is a one-sided systematic rather than a standard
+    deviation, and because the two shrink for different reasons: the uncertainty with the number of
+    samples, the truncation charge only as the sampled range of weights widens.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
     error rate.
@@ -155,13 +164,14 @@ class ErrorRateFunc:
 
     def __call__(
         self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
-    ) -> tuple[OneOrManyFloats, OneOrManyFloats]:
+    ) -> tuple[OneOrManyFloats, OneOrManyFloats, OneOrManyFloats]:
         """Compute the logical error rate (or discard rate) at a given physical error rate."""
         if isinstance(error_rate, Iterable):
             results = [self(rate, discard_rate=discard_rate) for rate in error_rate]
             return (  # type:ignore[return-value]
                 np.array([result[0] for result in results]),
                 np.array([result[1] for result in results]),
+                np.array([result[2] for result in results]),
             )
         if error_rate > self.max_error_rate:
             raise ValueError(
@@ -177,10 +187,10 @@ class ErrorRateFunc:
             rates = self.infidelities
             variances = self.infidelity_variances
         # errors heavier than max_error_weight are charged as certain failures, so their probability
-        # enters the rate in full
+        # enters the rate in full, and is reported alongside it as the extent of that charge
         value = float(weight_probs @ rates) + truncated_mass
         error = float(np.sqrt(weight_probs**2 @ variances))
-        return value, error
+        return value, error, truncated_mass
 
     def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
         """Upper bound on the truncation error in the infidelity or discard rate estimate.

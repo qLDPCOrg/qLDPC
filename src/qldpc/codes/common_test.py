@@ -233,14 +233,14 @@ def test_classical_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.RepetitionCode(2)
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=1)
-    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0) == (0, 0, 0)  # no error, no uncertainty, no truncation
     assert logical_error_rate_func([1])[0] == 1  # guaranteed logical error
 
     # with an erasure-enabled decoder, unrecognised syndromes are discarded
     logical_error_rate_func = code.get_logical_error_rate_func(
         num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
     )
-    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
     assert logical_error_rate_func.truncation_error_bound(0.5) < 1
     assert logical_error_rate_func.truncation_error_bound([1]) == 0
@@ -771,7 +771,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     code = codes.FiveQubitCode()
 
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
-    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0) == (0, 0, 0)  # no error, no uncertainty, no truncation
 
     # guaranteed logical X and Z errors
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
@@ -782,7 +782,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(
         num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
     )
-    assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func(0, discard_rate=True) == (0, 0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
 
     # a subsystem code is decoded against its stabilizer generators rather than its more numerous,
@@ -804,7 +804,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     logical_error_rate_func = qudit_code.get_logical_error_rate_func(
         num_samples=100, max_error_rate=0.2
     )
-    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0) == (0, 0, 0)  # no error, no uncertainty, no truncation
     assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
 
 
@@ -1096,7 +1096,7 @@ def test_css_capacity() -> None:
     code = codes.SteaneCode()
 
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
-    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0) == (0, 0, 0)  # no error, no uncertainty, no truncation
 
     # guaranteed logical X and Z errors
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
@@ -1113,7 +1113,7 @@ def test_css_capacity() -> None:
         max_weight=0,
         add_erasure_bit=True,
     )
-    assert logical_error_rate_func_z(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func_z(0, discard_rate=True) == (0, 0, 0)  # no errors at p=0
     assert logical_error_rate_func_z(0.5, discard_rate=True)[0] > 0  # Z syndromes → erasure
 
     # (1 ,0, 0) = pure X: Z syndromes are always zero so samples reach the X decoder
@@ -1125,7 +1125,7 @@ def test_css_capacity() -> None:
         max_weight=0,
         add_erasure_bit=True,
     )
-    assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
+    assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0, 0)  # no errors at p=0
     assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
 
     # a subsystem code is decoded against its stabilizer generators, whose number differs from the
@@ -1135,7 +1135,7 @@ def test_css_capacity() -> None:
     logical_error_rate_func = subsystem_code.get_logical_error_rate_func(
         num_samples=200, max_error_rate=0.3
     )
-    assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
+    assert logical_error_rate_func(0) == (0, 0, 0)  # no error, no uncertainty, no truncation
     assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
 
 
