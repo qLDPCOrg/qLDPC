@@ -458,11 +458,6 @@ def test_hypergraph_product(
     code_a = codes.ClassicalCode.random(*bits_checks_a, field=field, seed=np.random.randint(2**31))
     code_b = codes.ClassicalCode.random(*bits_checks_b, field=field, seed=np.random.randint(2**31))
 
-    # keep only independent parity checks, which the closed-form distances below assume.  Row
-    # reduction preserves the row space of a parity check matrix, and hence the code it defines.
-    code_a = codes.ClassicalCode(code_a.matrix.row_reduce()[: code_a.rank], field)
-    code_b = codes.ClassicalCode(code_b.matrix.row_reduce()[: code_b.rank], field)
-
     code = codes.HGPCode(code_a, code_b, set_logicals=True)
     graph = codes.HGPCode.get_graph_product(code_a.graph, code_b.graph)
     chain = ChainComplex.tensor_product(code_a.matrix, code_b.matrix.T)
@@ -481,9 +476,9 @@ def test_hypergraph_product(
     # Both cache layers have to be bypassed: get_distance_exact caches into _distance_x/_distance_z
     # on its first call, and get_distance_if_known would then short-circuit on that cached value
     # before ever reaching _get_distance_exact.
-    dist_x = code.get_distance(Pauli.X)
-    dist_z = code.get_distance(Pauli.Z)
     if field == 2:  # the brute-force kernel behind the generic route is binary
+        dist_x = code.get_distance(Pauli.X)
+        dist_z = code.get_distance(Pauli.Z)
         with (
             unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
             unittest.mock.patch(
@@ -493,6 +488,24 @@ def test_hypergraph_product(
         ):
             assert dist_x == code.get_distance(Pauli.X)
             assert dist_z == code.get_distance(Pauli.Z)
+
+
+def test_hypergraph_product_distance_with_dependent_checks() -> None:
+    """A dependent parity check in a seed code does not spoil a hypergraph product distance."""
+    # the same [4, 1, 4] code, presented with one parity check repeated
+    matrix = codes.RepetitionCode(4).matrix
+    seed_a = codes.ClassicalCode(np.vstack([matrix, matrix[:1]]))
+    assert seed_a.rank < len(seed_a.matrix)
+    assert codes.ClassicalCode.equiv(seed_a, codes.RepetitionCode(4))
+
+    code = codes.HGPCode(seed_a, codes.RepetitionCode(3))
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+        distances = (code.get_distance(Pauli.X), code.get_distance(Pauli.Z))
+
+    # the same distances that a code carrying no closed form of its own computes
+    plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+        assert distances == (plain.get_distance(Pauli.X), plain.get_distance(Pauli.Z))
 
 
 def test_hypergraph_product_syndrome_subgraphs() -> None:
@@ -874,13 +887,19 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
         code = codes.QTCode.random(group, subcode, seed=seed, one_subset=one_subset)
         return np.asarray(code.matrix).tobytes()
 
-    # the same seed gives the same code every time
+    # the same seed gives the same code every time, and different seeds give different codes
     assert len({matrix_for(seed=7) for _ in range(4)}) == 1
+    assert matrix_for(seed=7) != matrix_for(seed=8)
+
+    # a seed of any magnitude is accepted
+    assert matrix_for(seed=2**40) == matrix_for(seed=2**40)
 
     # reusing one subset for both sides is likewise reproducible
     assert len({matrix_for(seed=7, one_subset=True) for _ in range(3)}) == 1
 
-    # without a seed the code is still random
+    # without a seed the code is still drawn at random.  Seeding sympy's own generator, which the
+    # unseeded draw consumes, keeps this check from depending on chance.
+    sympy.core.random.seed(0)
     assert len({matrix_for() for _ in range(4)}) > 1
 
     # the code is also independent of the hash seed, which sets the iteration order of the sets of
@@ -894,12 +913,18 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
     matrices = {
         subprocess.run(
             [sys.executable, "-c", script],
-            env={**os.environ, "PYTHONHASHSEED": hash_seed},
+            # hand the child this interpreter's import path, so that it builds the code from the
+            # same sources rather than from whatever qldpc its environment happens to resolve
+            env={
+                **os.environ,
+                "PYTHONHASHSEED": hash_seed,
+                "PYTHONPATH": os.pathsep.join(path for path in sys.path if path),
+            },
             capture_output=True,
             check=True,
             text=True,
         ).stdout
-        for hash_seed in ["0", "1"]
+        for hash_seed in ["0", "1", "2", "3"]
     }
     assert len(matrices) == 1
 
@@ -1059,11 +1084,10 @@ def test_cached_parameters_are_genuine() -> None:
     """Families that cache their parameters agree with a computation that ignores the cache.
 
     Several constructors assign a dimension and distance taken from the literature rather than
-    computing them, and the public getters then return those values verbatim.  Compare what each
-    family reports against a recomputation that bypasses the cache, so that a constant which
-    disagrees with the code it describes cannot pass unnoticed.  get_distance_if_known has to be
-    bypassed as well as the cached values themselves, since it short-circuits on
-    _distance_x/_distance_z before any calculation happens.
+    computing them, and the public getters then return those values verbatim.  Rebuild each family
+    from its parity check matrices alone, which carry no cached parameters at all, and compare what
+    the family reports against what the rebuilt code computes, so that a constant which disagrees
+    with the code it describes cannot pass unnoticed.
     """
     expected = [
         (codes.IcebergCode(4), (4, 2, 2)),
@@ -1082,18 +1106,17 @@ def test_cached_parameters_are_genuine() -> None:
         (codes.SHYPSCode(2), (9, 4, 2)),
     ]
     for code, params in expected:
-        reported = code.get_code_params()
-        code._dimension = None
-        with (
-            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
-            unittest.mock.patch(
-                "qldpc.codes.SHPCode._get_distance_exact", return_value=NotImplemented
-            ),
-            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        ):
-            computed = code.get_code_params()
-        assert reported == params
-        assert computed == params
+        rebuilt = codes.CSSCode(
+            code.matrix_x, code.matrix_z, is_subsystem_code=code.is_subsystem_code
+        )
+        with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+            assert code.get_code_params() == params
+            assert rebuilt.get_code_params() == params
+
+            # compare the X and Z distances separately, since the parameters above report only the
+            # smaller of the two
+            assert code.get_distance(Pauli.X) == rebuilt.get_distance(Pauli.X)
+            assert code.get_distance(Pauli.Z) == rebuilt.get_distance(Pauli.Z)
 
 
 def test_4d_toric_code_lattices() -> None:

@@ -1558,9 +1558,21 @@ class HGPCode(CSSCode):
         These calculations are based on arXiv:2308.15520, but additionally allow for the separate
         calculation of X-distance and Z-distance.  The basic idea is to identify the size of
         minimum-weight string operators in the (0, 0) and (1, 1) sectors of the HGPCode.
+
+        A dependent parity check in a seed code gives its transpose code words of its own, and those
+        extend to logical operators in the (1, 1) sector only when the other transpose code has code
+        words as well.  When exactly one of the two does, the weight identified below belongs to no
+        logical operator and can fall short of the true distance, so defer to a generic calculation.
         """
         if pauli is None:
             # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
+            return NotImplemented
+
+        dependent_a = self.code_a.rank < len(self.code_a.matrix)
+        dependent_b = self.code_b.rank < len(self.code_b.matrix)
+        if (dependent_a and pauli is Pauli.X and not dependent_b) or (
+            dependent_b and pauli is Pauli.Z and not dependent_a
+        ):
             return NotImplemented
 
         if pauli is Pauli.X:
@@ -2233,8 +2245,9 @@ class QTCode(CSSCode):
             subset_b = subset_a
         else:
             # scramble the seed so that the second subset is drawn independently of the first, while
-            # keeping the construction as a whole reproducible from the given seed
-            seed_b = get_scrambled_seed(seed) if seed is not None else None
+            # keeping the construction as a whole reproducible from the given seed.  Reduce it
+            # first, so that a seed of any magnitude is accepted, as it is for the first subset.
+            seed_b = get_scrambled_seed(seed % 2**32) if seed is not None else None
             subset_b = group.random_symmetric_subset(code_b.num_bits, seed=seed_b)
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
 
