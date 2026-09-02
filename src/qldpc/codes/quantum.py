@@ -1559,29 +1559,27 @@ class HGPCode(CSSCode):
         calculation of X-distance and Z-distance.  The basic idea is to identify the size of
         minimum-weight string operators in the (0, 0) and (1, 1) sectors of the HGPCode.
 
-        A dependent parity check in a seed code gives its transpose code words of its own, and those
-        extend to logical operators in the (1, 1) sector only when the other transpose code has code
-        words as well.  When exactly one of the two does, the weight identified below belongs to no
-        logical operator and can fall short of the true distance, so defer to a generic calculation.
+        Each sector only carries logical operators when both of the codes whose code words build it
+        are nontrivial: the (0, 0) sector needs code words in both seed codes, and the (1, 1) sector
+        needs them in both transpose seed codes, which is to say a dependent parity check in each
+        seed code.  A sector that carries none contributes no weight, and folding its weight in
+        anyway would report a distance below the true one, so skip it.
         """
         if pauli is None:
             # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
             return NotImplemented
 
+        # a transpose seed code has code words exactly when that seed code has a dependent check
         dependent_a = self.code_a.rank < len(self.code_a.matrix)
         dependent_b = self.code_b.rank < len(self.code_b.matrix)
-        if (dependent_a and pauli is Pauli.X and not dependent_b) or (
-            dependent_b and pauli is Pauli.Z and not dependent_a
-        ):
-            return NotImplemented
 
         if pauli is Pauli.X:
-            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance()
-            dist_b = self.code_b.get_distance()
+            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance() if dependent_b else np.nan
+            dist_b = self.code_b.get_distance() if self.code_a.dimension else np.nan
         else:
             assert pauli is Pauli.Z
-            dist_a = self.code_a.get_distance()
-            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance()
+            dist_a = self.code_a.get_distance() if self.code_b.dimension else np.nan
+            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance() if dependent_a else np.nan
 
         return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
 

@@ -90,6 +90,15 @@ def test_special_codes() -> None:
         codes.HammingCode(4), codes.ExtendedHammingCode(4).punctured([0])
     )
 
+    # Hamming and extended Hamming codes report the parameters their parity checks bear out
+    for size in [2, 3, 4]:
+        for code, params in [
+            (codes.HammingCode(size), (2**size - 1, 2**size - 1 - size, 3)),
+            (codes.ExtendedHammingCode(size), (2**size, 2**size - 1 - size, 4)),
+        ]:
+            assert code.get_code_params() == params
+            assert codes.ClassicalCode(code.matrix).get_code_params() == params
+
     # classical simplex codes.  Rebuilding a code from its parity check matrix alone carries none of
     # the parameters that its constructor caches, so the rebuilt code has to compute them.
     for dimension in [2, 3, 8]:
@@ -171,8 +180,10 @@ def test_bch_block_lengths() -> None:
     for length, order in [(-4, 2), (-1, 2), (0, 2), (6, 2), (14, 2), (7, 3), (119, 11)]:
         assert not codes.classical._is_valid_bch_length(length, order)
 
-    # a valid length over a field of order greater than 10 builds a code of the asked-for dimension
-    assert codes.BCHCode(120, 100, field=11).dimension == 100
+    # a valid length over a field of order greater than 10 builds a code of the asked-for dimension,
+    # which its parity checks have to agree with
+    code = codes.BCHCode(120, 100, field=11)
+    assert code.dimension == len(code) - code.rank == 100
 
 
 def test_tanner_code_preserves_input_graph() -> None:

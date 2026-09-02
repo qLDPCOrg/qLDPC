@@ -85,8 +85,6 @@ def test_small_codes() -> None:
 
     # the quantum Golay code is a [[23, 1, 7]] CSS code with weight-8 stabilizers
     golay_code = codes.QuantumGolayCode()
-    golay_code._dimension = None
-    golay_code.forget_distance()
     assert golay_code.get_code_params() == (23, 1, 7)
     assert set(golay_code.matrix_x.view(np.ndarray).sum(axis=1)) == {8}
 
@@ -490,22 +488,40 @@ def test_hypergraph_product(
             assert dist_z == code.get_distance(Pauli.Z)
 
 
-def test_hypergraph_product_distance_with_dependent_checks() -> None:
-    """A dependent parity check in a seed code does not spoil a hypergraph product distance."""
-    # the same [4, 1, 4] code, presented with one parity check repeated
-    matrix = codes.RepetitionCode(4).matrix
-    seed_a = codes.ClassicalCode(np.vstack([matrix, matrix[:1]]))
-    assert seed_a.rank < len(seed_a.matrix)
-    assert codes.ClassicalCode.equiv(seed_a, codes.RepetitionCode(4))
+@pytest.mark.parametrize(
+    "seed_a, seed_b",
+    [
+        # the same [4, 1, 4] code, presented with one parity check repeated: only its transpose code
+        # gains code words, so the (1, 1) sector of the product carries no logical operator
+        (codes.ClassicalCode(np.vstack([codes.RepetitionCode(4).matrix] * 2)[:5]), None),
+        # a seed code of dimension zero, so that the (0, 0) sector carries no logical operator,
+        # in each of the two positions
+        (codes.ClassicalCode([[1, 0], [0, 1], [1, 1]]), codes.ClassicalCode([[1, 1], [1, 1]])),
+        (codes.ClassicalCode([[1, 1], [1, 1]]), codes.ClassicalCode([[1, 0], [0, 1], [1, 1]])),
+        # and a dependent check in only the second seed code, the mirror of the first case
+        (
+            codes.RepetitionCode(3),
+            codes.ClassicalCode(np.vstack([codes.RepetitionCode(4).matrix] * 2)[:5]),
+        ),
+    ],
+)
+def test_hypergraph_product_distance_by_sector(
+    seed_a: codes.ClassicalCode, seed_b: codes.ClassicalCode | None
+) -> None:
+    """A sector carrying no logical operator contributes no weight to a hypergraph product distance.
 
-    code = codes.HGPCode(seed_a, codes.RepetitionCode(3))
-    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
-        distances = (code.get_distance(Pauli.X), code.get_distance(Pauli.Z))
+    Each seed code here either has a dependent parity check or has dimension zero, so the closed
+    form has to decide, sector by sector, which candidate weight belongs to a logical operator.
+    """
+    seed_b = seed_b if seed_b is not None else codes.RepetitionCode(3)
+    assert seed_a.rank < len(seed_a.matrix) or seed_b.rank < len(seed_b.matrix)
 
-    # the same distances that a code carrying no closed form of its own computes
+    code = codes.HGPCode(seed_a, seed_b)
     plain = codes.CSSCode(code.matrix_x, code.matrix_z)
     with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
-        assert distances == (plain.get_distance(Pauli.X), plain.get_distance(Pauli.Z))
+        # the same distances that a code carrying no closed form of its own computes
+        assert code.get_distance(Pauli.X) == plain.get_distance(Pauli.X)
+        assert code.get_distance(Pauli.Z) == plain.get_distance(Pauli.Z)
 
 
 def test_hypergraph_product_syndrome_subgraphs() -> None:
@@ -898,9 +914,11 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
     assert len({matrix_for(seed=7, one_subset=True) for _ in range(3)}) == 1
 
     # without a seed the code is still drawn at random.  Seeding sympy's own generator, which the
-    # unseeded draw consumes, keeps this check from depending on chance.
-    sympy.core.random.seed(0)
-    assert len({matrix_for() for _ in range(4)}) > 1
+    # unseeded draw consumes, keeps this check from depending on chance, and restoring it afterwards
+    # keeps the fixed stream out of everything that runs later.
+    with abstract.groups._preserve_sympy_rng():
+        sympy.core.random.seed(0)
+        assert len({matrix_for() for _ in range(4)}) > 1
 
     # the code is also independent of the hash seed, which sets the iteration order of the sets of
     # group members that the construction is built from
@@ -1097,8 +1115,10 @@ def test_cached_parameters_are_genuine() -> None:
         (codes.QuantumHammingCode(4), (15, 7, 3)),
         (codes.ManyHypercubeCode(1), (6, 4, 2)),
         (codes.ManyHypercubeCode(2), (36, 16, 4)),
+        (codes.QuantumGolayCode(), (23, 1, 7)),
         (codes.SurfaceCode(3, 5), (15, 1, 3)),
         (codes.ToricCode(4), (16, 2, 4)),
+        (codes.GeneralizedSurfaceCode(2, 3), (12, 1, 2)),
         # the subsystem families additionally route their distance through a closed form, which is
         # itself expressed in terms of cached classical distances
         (codes.BaconShorCode(2, 3), (6, 1, 2)),
@@ -1106,9 +1126,7 @@ def test_cached_parameters_are_genuine() -> None:
         (codes.SHYPSCode(2), (9, 4, 2)),
     ]
     for code, params in expected:
-        rebuilt = codes.CSSCode(
-            code.matrix_x, code.matrix_z, is_subsystem_code=code.is_subsystem_code
-        )
+        rebuilt = codes.CSSCode(code.matrix_x, code.matrix_z)
         with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
             assert code.get_code_params() == params
             assert rebuilt.get_code_params() == params
