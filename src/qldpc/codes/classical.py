@@ -37,7 +37,7 @@ def _is_valid_bch_length(length: int, field_order: int) -> bool:
     BCH codes over ``F_q`` are defined for block lengths ``q**m - 1`` with integer ``m >= 1``.
     """
     power, exponent = length + 1, 0
-    while power % field_order == 0:
+    while power > 1 and power % field_order == 0:
         power //= field_order
         exponent += 1
     return power == 1 and bool(exponent)

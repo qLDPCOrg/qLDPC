@@ -90,20 +90,18 @@ def test_special_codes() -> None:
         codes.HammingCode(4), codes.ExtendedHammingCode(4).punctured([0])
     )
 
-    # classical simplex codes
+    # classical simplex codes.  Rebuilding a code from its parity check matrix alone carries none of
+    # the parameters that its constructor caches, so the rebuilt code has to compute them.
     for dimension in [2, 3, 8]:
         code = codes.SimplexCode(dimension)
         params = (2**dimension - 1, dimension, 2 ** (dimension - 1))
         assert code.get_code_params() == params
-        code._dimension = None
-        code.forget_distance()
-        assert code.get_code_params() == params
+        assert codes.ClassicalCode(code.matrix).get_code_params() == params
 
     # the Golay code is a [23, 12, 7] code with minimum-weight (weight-8) parity checks
     code = codes.GolayCode()
-    code._dimension = None
-    code.forget_distance()
     assert code.get_code_params() == (23, 12, 7)
+    assert codes.ClassicalCode(code.matrix).get_code_params() == (23, 12, 7)
     assert set(code.matrix.view(np.ndarray).sum(axis=1)) == {8}
 
 
@@ -120,13 +118,10 @@ def test_simplex_codes_over_fields() -> None:
             code = codes.SimplexCode(dim, field)
             params = ((field**dim - 1) // (field - 1), dim, field ** (dim - 1))
 
-            # the parameters the constructor reports
+            # the parameters the constructor reports, and the same parameters computed by a code
+            # rebuilt from the parity check matrix alone, which caches nothing
             assert code.get_code_params() == params
-
-            # and the same parameters, recomputed with the cached values discarded
-            code._dimension = None
-            code.forget_distance()
-            assert code.get_code_params() == params
+            assert codes.ClassicalCode(code.matrix).get_code_params() == params
 
             # over a larger field the code is built as, and equals, the dual of a Hamming code;
             # the binary cyclic presentation is the same code only up to a permutation of bits
@@ -166,15 +161,18 @@ def test_degenerate_code_sizes() -> None:
 
 
 def test_bch_block_lengths() -> None:
-    """BCH codes accept exactly the block lengths field_order**m - 1 with integer m >= 1."""
+    """A BCH block length is valid exactly when it is field_order**m - 1 for an integer m >= 1."""
     # valid: q**m - 1.  Digits of these lengths are non-decimal in base q > 10, which a
     # string-based check on the base-q representation would reject.
     for length, order in [(1, 2), (15, 2), (8, 3), (120, 11), (168, 13), (16, 17)]:
         assert codes.classical._is_valid_bch_length(length, order)
 
-    # invalid: not one less than a power of the field order, or m == 0
-    for length, order in [(0, 2), (6, 2), (14, 2), (7, 3), (119, 11)]:
+    # invalid: negative, or not one less than a power of the field order, or m == 0
+    for length, order in [(-4, 2), (-1, 2), (0, 2), (6, 2), (14, 2), (7, 3), (119, 11)]:
         assert not codes.classical._is_valid_bch_length(length, order)
+
+    # a valid length over a field of order greater than 10 builds a code of the asked-for dimension
+    assert codes.BCHCode(120, 100, field=11).dimension == 100
 
 
 def test_tanner_code_preserves_input_graph() -> None:
