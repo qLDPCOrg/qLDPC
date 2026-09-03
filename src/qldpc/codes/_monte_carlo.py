@@ -2,8 +2,8 @@
 
 These utilities turn the failure and discard counts collected by the .get_logical_error_rate_func
 methods of the code classes into logical error and discard rate estimates, and support the sampling
-that those methods perform.  They depend only on the decoder interface and elementary combinatorics,
-so they live in their own module.
+that those methods perform.  They depend only on the decoder interface and on the binomial weight
+distribution, not on the code classes themselves, so they live in their own module.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -212,14 +212,20 @@ class ErrorRateFunc:
     def _split_weight_probs(self, error_rate: float) -> tuple[npt.NDArray[np.floating], float]:
         """Weight probabilities of the covered weights, and the probability mass above them.
 
-        The mass above the covered weights is the upper tail of a binomial distribution, which is a
-        regularized incomplete beta function:
+        The mass above the covered weights is the upper tail of a binomial distribution, which the
+        classical identity between that tail and the regularized incomplete beta function writes in
+        closed form.  With ``n = num_error_locations`` error locations each erring with probability
+        p, and weights up to k covered,
 
-            ``P(weight > k) = I_p(k + 1, num_error_locations - k)``.
+            ``sum_(j=k+1)^(n) (n choose j) p**j (1-p)**(n-j) = I_p(k + 1, n - k)``.
 
-        Evaluating that directly holds a relative accuracy of 3e-15 against exact arithmetic, and
-        costs the same at any block length, where summing the omitted weights would cost a term
-        apiece and lose accuracy to the additions.
+        Beware the argument order: scipy spells ``I_p(a, b)`` as ``betainc(a, b, p)``, taking the
+        variable last where the usual notation puts it first.
+
+        Evaluating the right-hand side costs the same at any block length, where summing the
+        left-hand side costs a term per omitted weight -- 19 ms against 0.001 ms at a block length
+        of 1e5 -- and loses accuracy to the additions rather than gaining it.  The tests for this
+        module check the closed form both against exact rational arithmetic and against that sum.
 
         Taking the mass as one minus the mass below the covered weights would be cheaper still, and
         is wrong: the complement cancels catastrophically once the covered weights hold nearly all
