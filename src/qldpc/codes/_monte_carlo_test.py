@@ -330,6 +330,34 @@ def test_error_rate_estimate_against_closed_form() -> None:
         assert func(error_rate)[0] == pytest.approx(float(expected), rel=1e-12)
         assert func.truncation_error_bound(error_rate) >= 0
 
+    # the truncated mass agrees with a direct sum over the omitted weights, in the regime where it
+    # holds most of the probability as well as where it is a vanishing tail
+    for locations, max_weight, tail_rate in [(50, 5, 0.2), (50, 40, 0.2), (200, 10, 0.05)]:
+        counts = np.zeros(max_weight + 1, dtype=int)
+        func = _monte_carlo.ErrorRateFunc(
+            num_samples=counts,
+            num_failures=counts,
+            num_discards=counts,
+            num_error_locations=locations,
+            max_error_rate=tail_rate,
+        )
+        probs = _monte_carlo._get_error_probs_by_weight(locations, tail_rate, locations)
+        expected_tail = probs[max_weight + 1 :].sum()
+        assert func.truncation_error_bound(tail_rate) == pytest.approx(expected_tail, rel=1e-9)
+
+    # a covered range reaching the block length leaves no weight above it to charge, including at an
+    # error rate of one, where every location errs and the closed form has an empty range to report
+    counts = np.zeros(6, dtype=int)
+    func = _monte_carlo.ErrorRateFunc(
+        num_samples=counts,
+        num_failures=counts,
+        num_discards=counts,
+        num_error_locations=5,
+        max_error_rate=1.0,
+    )
+    assert func.max_error_weight == 5
+    assert func.truncation_error_bound(0.5) == 0 and func.truncation_error_bound(1.0) == 0
+
 
 def test_error_rate_func_min_error_weight() -> None:
     """Weights taken to be decoded perfectly contribute no uncertainty.
