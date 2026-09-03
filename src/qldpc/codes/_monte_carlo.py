@@ -337,12 +337,11 @@ def _get_max_error_weight(
 ) -> int:
     """Largest error weight to sample, given a maximum error rate that we care about.
 
-    Weights are included from min_error_weight upward for as long as each one's share of the budget
-    reaches half a sample, that share being the one the allocation would hand it (see
-    _get_max_error_probs_by_weight).  Half a sample is the point at which a share rounds to a whole
-    one, which makes it a rounding convention rather than a derived threshold.  An included weight
-    is guaranteed a sample by the floor in _get_sample_allocation, whether or not its own share is
-    large enough to have earned one outright.
+    A weight qualifies when its share of the budget reaches half a sample, that share being the one
+    the allocation would hand it (see _get_max_error_probs_by_weight).  Half a sample is the point at
+    which a share rounds to a whole one, which makes it a rounding convention rather than a derived
+    threshold.  Every weight up to the heaviest that qualifies is then sampled, and is guaranteed a
+    sample by the floor in _get_sample_allocation whether or not its own share earned one outright.
 
     The heaviest weight anywhere above the threshold is taken, rather than the last of an unbroken
     run of them.  The two differ only when the envelope is not monotonic in weight, which happens
