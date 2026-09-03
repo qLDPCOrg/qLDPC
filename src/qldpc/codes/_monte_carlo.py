@@ -203,31 +203,19 @@ class ErrorRateFunc:
         Errors heavier than max_error_weight are charged as certain failures, so this is the
         probability of such an error: the amount by which truncation inflates a reported rate.
         Subtract it from a rate to get the low end of an error bar that covers the true rate, as
-        described in the class docstring.
-
-        It covers only that tail.  A min_error_weight that a decoder does not live up to biases a
-        reported rate the other way, by an amount no bound here can speak to, since the weights that
-        such a claim excludes are never sampled.
+        described in the class docstring.  It covers only that tail: a min_error_weight that a
+        decoder does not live up to biases a reported rate the other way, by an amount no bound here
+        can speak to, since the weights that such a claim excludes are never sampled.
 
         The probability of an error heavier than a given weight is the upper tail of a binomial
-        distribution, which the classical identity between that tail and the regularized incomplete
-        beta function writes in closed form.  With ``n = num_error_locations`` error locations each
-        erring with probability p, and weights up to k covered,
+        distribution, which the regularized incomplete beta function gives in closed form.  With
+        ``n = num_error_locations`` error locations each erring with probability p, and weights up
+        to k covered,
 
             ``sum_(j=k+1)^(n) (n choose j) p**j (1-p)**(n-j) = I_p(k + 1, n - k)``.
 
         Beware the argument order: scipy spells ``I_p(a, b)`` as ``betainc(a, b, p)``, taking the
         variable last where the usual notation puts it first.
-
-        Evaluating the right-hand side costs the same at any block length, where summing the
-        left-hand side costs a term per omitted weight -- 19 ms against 0.001 ms at a block length
-        of 1e5 -- and loses accuracy to the additions rather than gaining it.
-
-        Taking the tail as one minus the probability of the covered weights would be cheaper still,
-        and is wrong: the complement cancels catastrophically once the covered weights hold nearly
-        all of the probability, which is the ordinary case at a small physical error rate.  For a
-        block length of 9 covering weights up to 8, at an error rate of 1e-5 it evaluates to
-        -4.4e-16 where the true tail is 1.3e-23, so a rate built from it comes out negative.
         """
         if isinstance(error_rate, Iterable):
             values = [self.truncation_error_bound(rate) for rate in error_rate]

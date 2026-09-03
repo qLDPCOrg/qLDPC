@@ -766,9 +766,9 @@ class ClassicalCode(AbstractCode):
         If the decoder is known to correct every error of weight below min_error_weight, saying so
         skips sampling those weights and drops their contribution to the reported uncertainty,
         which otherwise dominates that uncertainty at small physical error rates while carrying no
-        information.  The claim is taken on trust and understates the error rate if it is false; it
-        is a claim about the decoder rather than about the code, and cannot be read off the code
-        distance.  See help(qldpc.codes.ErrorRateFunc) for the full caveats.
+        information.  The claim is taken on trust and understates the reported failure or discard
+        rate if it is false; it is a claim about the decoder rather than about the code, and cannot
+        be read off the code distance.  See help(qldpc.codes.ErrorRateFunc) for the full caveats.
 
         The physical error rate provided to the constructed function is the probability with which
         each bit experiences a bit-flip error.  The constructed function will throw an error if
