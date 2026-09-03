@@ -45,20 +45,23 @@ class ErrorRateFunc:
 
         func = code.get_logical_error_rate_func(...),
 
-    then "func" takes a physical error rate "p" as an argument, and returns three numbers:
+    then "func" takes a physical error rate "p" as an argument, and returns two numbers:
     (1) A logical error rate.
     (2) A statistical uncertainty in that rate: the standard deviation propagated from the
         per-weight Jeffreys posterior variances.
-    (3) The truncation charge that (1) includes.  Errors heavier than the heaviest sampled weight
-        are charged as certain failures, so the true rate is lower than (1) by somewhere between
-        zero and this amount.
-    If called with an array of physical error rates, this function returns three arrays.
+    If called with an array of physical error rates, this function returns two arrays.
 
-    The rate is therefore an upper estimate, and the interval covering the true rate runs from
-    ``value - truncation - error`` to ``value + error``.  The truncation charge is reported apart
-    from the statistical uncertainty because it is a one-sided systematic rather than a standard
-    deviation, and because the two shrink for different reasons: the uncertainty with the number of
-    samples, the truncation charge only as the sampled range of weights widens.
+    An error bar covering the true rate is asymmetric.  Given ``value, error = func(p)``, draw it as
+
+        ``lower = value - error - func.truncation_error_bound(p)``,
+        ``upper = value + error``.
+
+    The asymmetry is there because errors heavier than the heaviest sampled weight are charged as
+    certain failures, which makes (1) an upper estimate: the true rate is lower by somewhere between
+    zero and that bound.  The charge is a one-sided systematic rather than a standard deviation, so
+    it is deliberately not part of (2).  A symmetric bar drawn from (2) alone understates what is
+    not known: where the sample budget could not reach the bulk of the weight distribution, the
+    charge can be the whole of the reported rate, leaving (2) a tight bar around pure artifact.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
     error rate.
@@ -165,14 +168,13 @@ class ErrorRateFunc:
 
     def __call__(
         self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
-    ) -> tuple[OneOrManyFloats, OneOrManyFloats, OneOrManyFloats]:
+    ) -> tuple[OneOrManyFloats, OneOrManyFloats]:
         """Compute the logical error rate (or discard rate) at a given physical error rate."""
         if isinstance(error_rate, Iterable):
             results = [self(rate, discard_rate=discard_rate) for rate in error_rate]
             return (  # type:ignore[return-value]
                 np.array([result[0] for result in results]),
                 np.array([result[1] for result in results]),
-                np.array([result[2] for result in results]),
             )
         if error_rate > self.max_error_rate:
             raise ValueError(
@@ -180,7 +182,9 @@ class ErrorRateFunc:
                 f" {self.max_error_rate}.  Try calling <YOUR_CODE>.get_logical_error_rate_func with"
                 " a larger max_error_rate."
             )
-        weight_probs, truncated_mass = self._split_weight_probs(error_rate)
+        weight_probs = _get_error_probs_by_weight(
+            self.num_error_locations, error_rate, self.max_error_weight
+        )
         if discard_rate:
             rates = self.discard_rates
             variances = self.discard_rate_variances
@@ -188,34 +192,27 @@ class ErrorRateFunc:
             rates = self.infidelities
             variances = self.infidelity_variances
         # errors heavier than max_error_weight are charged as certain failures, so their probability
-        # enters the rate in full, and is reported alongside it as the extent of that charge
-        value = float(weight_probs @ rates) + truncated_mass
+        # enters the rate in full
+        value = float(weight_probs @ rates) + self.truncation_error_bound(error_rate)
         error = float(np.sqrt(weight_probs**2 @ variances))
-        return value, error, truncated_mass
+        return value, error
 
     def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
         """Upper bound on the truncation error in the infidelity or discard rate estimate.
 
         Errors heavier than max_error_weight are charged as certain failures, so this is the
-        probability of such an error: the amount by which truncation can inflate a reported rate.
-        It is also the third value that calling this instance returns, at the same error rate.
+        probability of such an error: the amount by which truncation inflates a reported rate.
+        Subtract it from a rate to get the low end of an error bar that covers the true rate, as
+        described in the class docstring.
 
         It covers only that tail.  A min_error_weight that a decoder does not live up to biases a
         reported rate the other way, by an amount no bound here can speak to, since the weights that
         such a claim excludes are never sampled.
-        """
-        if isinstance(error_rate, Iterable):
-            values = [self.truncation_error_bound(rate) for rate in error_rate]
-            return np.array(values)  # type:ignore[return-value]
-        return self._split_weight_probs(error_rate)[1]
 
-    def _split_weight_probs(self, error_rate: float) -> tuple[npt.NDArray[np.floating], float]:
-        """Weight probabilities of the covered weights, and the probability mass above them.
-
-        The mass above the covered weights is the upper tail of a binomial distribution, which the
-        classical identity between that tail and the regularized incomplete beta function writes in
-        closed form.  With ``n = num_error_locations`` error locations each erring with probability
-        p, and weights up to k covered,
+        The probability of an error heavier than a given weight is the upper tail of a binomial
+        distribution, which the classical identity between that tail and the regularized incomplete
+        beta function writes in closed form.  With ``n = num_error_locations`` error locations each
+        erring with probability p, and weights up to k covered,
 
             ``sum_(j=k+1)^(n) (n choose j) p**j (1-p)**(n-j) = I_p(k + 1, n - k)``.
 
@@ -224,28 +221,28 @@ class ErrorRateFunc:
 
         Evaluating the right-hand side costs the same at any block length, where summing the
         left-hand side costs a term per omitted weight -- 19 ms against 0.001 ms at a block length
-        of 1e5 -- and loses accuracy to the additions rather than gaining it.  The tests for this
-        module check the closed form both against exact rational arithmetic and against that sum.
+        of 1e5 -- and loses accuracy to the additions rather than gaining it.
 
-        Taking the mass as one minus the mass below the covered weights would be cheaper still, and
-        is wrong: the complement cancels catastrophically once the covered weights hold nearly all
-        of the probability, which is the ordinary case at a small physical error rate.  For a block
-        length of 9 covering weights up to 8, at an error rate of 1e-5 it evaluates to -4.4e-16
-        where the true mass is 1.3e-23, so a rate built from it comes out negative.
+        Taking the tail as one minus the probability of the covered weights would be cheaper still,
+        and is wrong: the complement cancels catastrophically once the covered weights hold nearly
+        all of the probability, which is the ordinary case at a small physical error rate.  For a
+        block length of 9 covering weights up to 8, at an error rate of 1e-5 it evaluates to
+        -4.4e-16 where the true tail is 1.3e-23, so a rate built from it comes out negative.
         """
-        covered = _get_error_probs_by_weight(
-            self.num_error_locations, error_rate, self.max_error_weight
-        )
+        if isinstance(error_rate, Iterable):
+            values = [self.truncation_error_bound(rate) for rate in error_rate]
+            return np.array(values)  # type:ignore[return-value]
         if self.max_error_weight >= self.num_error_locations:
             # no error is heavier than the number of error locations, so nothing is truncated.  The
             # closed form has no range left to integrate here and reports all of the mass instead.
-            return covered, 0.0
-        truncated_mass = scipy.special.betainc(
-            self.max_error_weight + 1,
-            self.num_error_locations - self.max_error_weight,
-            error_rate,
+            return 0.0
+        return float(
+            scipy.special.betainc(
+                self.max_error_weight + 1,
+                self.num_error_locations - self.max_error_weight,
+                error_rate,
+            )
         )
-        return covered, float(truncated_mass)
 
 
 def _jeffreys_variance(

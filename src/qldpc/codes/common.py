@@ -756,13 +756,12 @@ class ClassicalCode(AbstractCode):
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        Alongside the logical error rate, the constructed function returns two more numbers: a
-        statistical uncertainty in that rate, which is a posterior standard deviation, and the part
-        of the rate contributed by errors too heavy for the sample budget to have reached.  Such
-        errors are charged as certain failures, so the rate is an upper estimate, and the interval
-        covering the true rate is wider below the estimate than above it.  A budget too small to
-        reach the bulk of the weight distribution therefore yields a rate that is mostly that
-        charge, which the third number is what makes visible.  See help(qldpc.codes.ErrorRateFunc).
+        Alongside the logical error rate, the constructed function returns an uncertainty in that
+        rate: a posterior standard deviation covering statistical error alone.  An error bar that
+        also covers the errors too heavy for the sample budget to have reached is asymmetric, and
+        should be drawn from ``value - error - func.truncation_error_bound(p)`` up to
+        ``value + error``, because such errors are charged as certain failures and so make the rate
+        an upper estimate.  See help(qldpc.codes.ErrorRateFunc).
 
         If the decoder is known to correct every error of weight below min_error_weight, saying so
         skips sampling those weights and drops their contribution to the reported uncertainty,
@@ -2164,8 +2163,8 @@ class QuditCode(AbstractCode):
         acts on, so a single-qudit error has weight one whichever Pauli it applies.
 
         Errors heavier than the sample budget could reach are charged as certain failures, so the
-        reported rate is an upper estimate, and the constructed function returns the size of that
-        charge as its third value.  See help(qldpc.codes.ErrorRateFunc).
+        reported rate is an upper estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
@@ -3402,8 +3401,8 @@ class CSSCode(QuditCode):
         acts on, so a single-qudit error has weight one whichever Pauli it applies.
 
         Errors heavier than the sample budget could reach are charged as certain failures, so the
-        reported rate is an upper estimate, and the constructed function returns the size of that
-        charge as its third value.  See help(qldpc.codes.ErrorRateFunc).
+        reported rate is an upper estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.

