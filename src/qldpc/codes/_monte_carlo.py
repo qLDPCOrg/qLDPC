@@ -358,12 +358,16 @@ def _get_max_error_weight(
     """
     envelope = _get_max_error_probs_by_weight(block_length, max_error_rate, block_length)
     envelope[:min_error_weight] = 0
-    total = envelope.sum()
-    if total == 0:
+    if envelope.sum() == 0:
         # no error of weight >= 1 is possible, or every weight in range is taken to decode
         # perfectly.  Nothing anywhere in range can fail, so cover all of it and charge nothing.
         return block_length
-    shares = envelope / total * num_samples
+    # a weight's share is measured against the weights covered when it is the heaviest one, which is
+    # the range _get_sample_allocation apportions over, so the share tested is the one that weight
+    # would receive.  The cumulative sum is zero below min_error_weight, where nothing is eligible.
+    covered = np.cumsum(envelope)
+    fractions = np.divide(envelope, covered, out=np.zeros_like(envelope), where=covered > 0)
+    shares = fractions * num_samples
     reaches_a_sample = np.nonzero(shares >= 0.5)[0]
     weight_from_budget = int(reaches_a_sample[-1]) if reaches_a_sample.size else 0
     return max(weight_from_budget, min_error_weight)

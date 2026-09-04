@@ -68,15 +68,16 @@ def test_get_max_error_weight() -> None:
     """Choice of the largest error weight to sample."""
     block_length, max_error_rate = 50, 0.2
 
-    # coverage reaches the heaviest weight whose share of the budget reaches half a sample, and no
-    # weight above it comes that close
+    # coverage reaches the heaviest weight whose share of the budget reaches half a sample -- that
+    # share taken over the weights it would cover -- and no weight above it comes that close
     num_samples = 10**4
     max_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
     envelope = _monte_carlo._get_max_error_probs_by_weight(
         block_length, max_error_rate, block_length
     )
     envelope[0] = 0
-    fractions = envelope / envelope.sum()
+    covered = np.cumsum(envelope)
+    fractions = np.divide(envelope, covered, out=np.zeros_like(envelope), where=covered > 0)
     shares = fractions * num_samples
     assert shares[max_weight] >= 0.5 and np.all(shares[max_weight + 1 :] < 0.5)
 
