@@ -807,6 +807,17 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
     assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
 
+    # a syndrome is the symplectic product of an error with each stabilizer generator, namely
+    # ``-symplectic_conjugate(stabilizer_ops) @ error``, and the decoder is built to invert that
+    # same matrix.  The sign is invisible in characteristic two but not over an odd characteristic,
+    # so check it where it shows: paired with a decoder that corrects every symplectic-weight-2
+    # error, a distance-3 code leaves no single-qudit error uncorrected, whatever Paulis it applies.
+    qudit_code = codes.QuditCode(codes.SurfaceCode(3, field=3).matrix)
+    logical_error_rate_func = qudit_code.get_logical_error_rate_func(
+        num_samples=400, max_error_rate=1 / len(qudit_code), with_lookup=True, max_weight=2
+    )
+    assert logical_error_rate_func.infidelities[1] == 0
+
 
 def test_qudit_to_css() -> None:
     """Convert a QuditCode to a CSSCode."""

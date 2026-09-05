@@ -2178,10 +2178,14 @@ class QuditCode(AbstractCode):
         else:
             pauli_bias_zxy = None
 
-        # construct a decoder from the stabilizer generators of the code; the syndrome matrix is a
-        # field array, from which get_decoder selects a decoder appropriate to the field
-        stabilizer_ops = self.get_stabilizer_ops()
-        decoder = decoders.get_decoder(math.symplectic_conjugate(stabilizer_ops), **decoder_kwargs)
+        # build the matrix that takes an error to its syndrome against the stabilizer generators of
+        # the code.  The syndrome of an error e against a generator s is their symplectic product
+        # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``.  The
+        # decoder is built to invert this same matrix, so a decoded error is a solution to the
+        # syndrome it was handed.  The matrix is a field array, from which get_decoder selects a
+        # decoder appropriate to the field.
+        syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
+        decoder = decoders.get_decoder(syndrome_matrix, **decoder_kwargs)
 
         # identify logical operators
         logical_ops = self.get_logical_ops()
@@ -2197,7 +2201,7 @@ class QuditCode(AbstractCode):
                 weight,
                 sample_allocation[weight],
                 decoder,
-                stabilizer_ops,
+                syndrome_matrix,
                 logical_ops,
                 pauli_bias_zxy,
             )
@@ -2215,22 +2219,22 @@ class QuditCode(AbstractCode):
         error_weight: int,
         num_samples: int,
         decoder: decoders.Decoder,
-        stabilizer_ops: npt.NDArray[np.int_],
+        syndrome_matrix: npt.NDArray[np.int_],
         logical_ops: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
-        Syndromes are computed against the stabilizer generators in stabilizer_ops, which is the
-        matrix that the decoder is built to invert.  For a subsystem code the stabilizer generators
-        are a strict subset of the parity checks (the gauge generators), so a syndrome vector has
-        one entry per stabilizer generator rather than one per gauge generator.
+        Syndromes are computed with syndrome_matrix, which is the matrix that the decoder is built
+        to invert, so that a decoded error is a solution to the syndrome it was handed.  It is built
+        from the stabilizer generators of the code, which for a subsystem code are a strict subset
+        of the parity checks (the gauge generators), so a syndrome vector has one entry per
+        stabilizer generator rather than one per gauge generator.
 
         Return logical error and discard counts.
         """
         num_failures = 0
         num_discards = 0
-        syndrome_matrix = -math.symplectic_conjugate(stabilizer_ops)
         for _ in range(num_samples):
             # construct an error
             error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
