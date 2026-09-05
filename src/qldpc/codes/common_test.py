@@ -1114,8 +1114,8 @@ def test_css_capacity() -> None:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
 
-    # pauli_bias convention is (X, Y, Z); (0, 0, 1) = pure Z
-    # if the max_weight for lookup is 0, any Z syndrome triggers erasure
+    # a pure-Z bias makes every sampled error carry a Z component, and a lookup max_weight of 0
+    # recognises no nonzero syndrome, so every sampled error is erased
     logical_error_rate_func_z = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
@@ -1139,6 +1139,22 @@ def test_css_capacity() -> None:
     assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
 
+    # a Z-sector failure counts even when the X sector is decoded after it.  Without post-selection
+    # the sampler stops at the first failure, but an erasure-enabled decoder has to decode both
+    # sectors before it knows whether the sample is discarded, so the Z-sector verdict has to be
+    # carried forward.  A pure-Z bias leaves the X sector error-free, making that verdict the only
+    # thing a sample can record, and a max_weight of 1 leaves the heavier Z errors uncorrected.
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=20,
+        max_error_rate=1,
+        pauli_bias=(0, 0, 1),
+        with_lookup=True,
+        max_weight=1,
+        add_erasure_bit=True,
+    )
+    assert logical_error_rate_func(0.5)[0] > 0  # Z-sector failures are recorded
+    assert logical_error_rate_func(0.5, discard_rate=True)[0] == 0  # and nothing is discarded
+
     # a subsystem code is decoded against its stabilizer generators, whose number differs from the
     # number of parity checks (gauge generators), so a syndrome has one entry per stabilizer
     subsystem_code = codes.BaconShorCode(3)
@@ -1148,6 +1164,42 @@ def test_css_capacity() -> None:
     )
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
     assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
+
+
+def test_capacity_pauli_bias_convention() -> None:
+    """The pauli_bias argument is ordered (X, Y, Z).
+
+    A hypergraph product of two repetition codes of unequal length has unequal X-type and Z-type
+    distances, which is what lets each slot be told apart by what it does.  Paired with a decoder
+    that corrects every single-qubit error in each sector, this code corrects every X-type error of
+    weight one but not every Z-type one, so the X slot is the only one that leaves the logical error
+    rate at zero.  Decoding the X sector instead with a decoder that erases on any nonzero syndrome,
+    the Z slot is the only one whose errors have no X component and so escape being discarded.
+    Between them the two identify all three slots, which a code with equal distances cannot do.
+    """
+    code = codes.HGPCode(codes.RepetitionCode(2), codes.RepetitionCode(4))
+    error_rate = 1 / len(code)
+
+    signatures: dict[tuple[int, int, int], tuple[bool, bool]] = {}
+    for pauli_bias in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
+        fails = code.get_logical_error_rate_func(
+            300, error_rate, pauli_bias, with_lookup=True, max_weight=1
+        )
+        discards = code.get_logical_error_rate_func(
+            300,
+            error_rate,
+            pauli_bias,
+            decoder_x_kwargs={"with_lookup": True, "max_weight": 0, "add_erasure_bit": True},
+            decoder_z_kwargs={"with_lookup": True, "max_weight": 1},
+        )
+        signatures[pauli_bias] = (
+            bool(fails.infidelities[1] > 0),
+            bool(discards.discard_rates[1] > 0),
+        )
+
+    assert signatures[(1, 0, 0)] == (False, True)  # X: corrected here, and carries an X component
+    assert signatures[(0, 1, 0)] == (True, True)  # Y: uncorrected, and carries an X component
+    assert signatures[(0, 0, 1)] == (True, False)  # Z: uncorrected, and carries no X component
 
 
 def test_capacity_min_error_weight() -> None:
