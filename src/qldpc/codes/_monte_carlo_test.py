@@ -96,8 +96,9 @@ def test_get_max_error_weight() -> None:
     ]
     assert weights == sorted(weights) and weights[0] < weights[-1]
 
-    # a budget that can pay for nothing still covers a weight the decoder can fail on, so that a
-    # small budget gives a poor estimate rather than none at all
+    # the smallest budget still covers a weight the decoder can fail on, so that a small budget
+    # gives a poor estimate rather than none at all.  The lightest eligible weight is measured
+    # against itself alone, so its share is the whole budget and it qualifies however small that is.
     assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1) == 1
     assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1, 7) == 7
 

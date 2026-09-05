@@ -245,8 +245,10 @@ def _jeffreys_variance(
     a weight with no data at all.
 
     See Brown, Cai & DasGupta, "Interval Estimation for a Binomial Proportion," Statist. Sci. 16
-    (2001) 101-133, https://doi.org/10.1214/ss/1009213286, which recommends this Jeffreys interval
-    for its coverage in the small-count regime.
+    (2001) 101-133, https://doi.org/10.1214/ss/1009213286, for this posterior and its behaviour at
+    small counts.  What that work recommends is the interval between two quantiles of the posterior,
+    which is not what is built from this variance: callers propagate it into a symmetric half-width
+    about a plug-in rate, and such a half-width does not inherit the quantile interval's coverage.
     """
     smoothed_rate = (num_events + 0.5) / (num_trials + 1)
     return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
@@ -326,10 +328,11 @@ def _get_max_error_weight(
     """Largest error weight to sample, given a maximum error rate that we care about.
 
     A weight qualifies when its share of the budget reaches half a sample, that share being the one
-    the allocation would hand it (see _get_max_error_probs_by_weight).  Half a sample is the point
-    at which a share rounds to a whole one, which makes it a rounding convention rather than a
-    derived threshold.  Every weight up to the heaviest that qualifies is then sampled, and is
-    guaranteed a sample by the floor in _get_sample_allocation whether or not its share earned one.
+    the allocation would hand it were it the heaviest weight covered (see
+    _get_max_error_probs_by_weight).  Half a sample is the point at which a share rounds to a whole
+    one, which makes it a rounding convention rather than a derived threshold.  Every weight up to
+    the heaviest that qualifies is then sampled, and is guaranteed a sample by the floor in
+    _get_sample_allocation whether or not its share earned one.
 
     The heaviest weight anywhere above the threshold is taken, rather than the last of an unbroken
     run of them.  The two differ only when the envelope is not monotonic in weight, which happens
@@ -344,17 +347,24 @@ def _get_max_error_weight(
     Weights above the largest included one are charged as certain failures (see
     ErrorRateFunc.truncation_error_bound).  That is an upper bound on what they contribute, since a
     failure rate cannot exceed one, so a reported rate is never too small on this account.  How
-    loose the bound is depends on the code: the failure rate at large weight approaches
-    1 - 4**-dimension, because a heavy error is corrected to a near-uniform choice among the logical
-    classes.  So the charge is near-exact for a code carrying many logical qudits -- on a
-    [[144,12,12]] bivariate bicycle code at max_error_rate 0.1 a thousand samples reach weight 25,
-    where the decoder fails on 998 errors in 1000 and every heavier weight fails on all of them --
-    and loose by a factor of 4/3 for a code carrying one, where a [[81,1,9]] surface code measures a
-    failure rate of 0.75 at every weight from 23 up.  Rather than rest on an assumption either way,
-    the charge is reported with every rate, so a caller can see its size.
+    loose the bound is depends on the code and on how far the budget reached.  For a qubit
+    stabilizer code the failure rate at large weight approaches 1 - 4**-dimension, because a heavy
+    Pauli error is corrected to a near-uniform choice among the 4**dimension logical classes.  So
+    the charge is near-exact for a code carrying many logical qubits -- on a [[144,12,12]] bivariate
+    bicycle code at max_error_rate 0.1 a thousand samples reach weight 25, where the decoder fails
+    on 998 errors in 1000 and every heavier weight fails on all of them.  A code carrying one
+    approaches 4/3, but only well above the weights a budget of any usual size stops at: an
+    [[81,1,9]] surface code measures 0.71 at weight 23 and settles at 0.75 by about weight 28, and
+    at max_error_rate 0.1 the charge exceeds what the omitted weights truly contribute by 1.7 times
+    at the weight a thousand samples reach and 2.2 times at the weight a hundred reach.  A classical
+    code is the opposite case, since a heavy binary error carries no per-location randomness and
+    simply fails: there the charge is tight.  Rather than rest on an assumption either way, the
+    charge is reported with every rate, so a caller can see its size.
 
     At least one weight the decoder can fail on is always included, so that a small budget yields a
-    poor estimate rather than no estimate at all.
+    poor estimate rather than no estimate at all.  That follows from the criterion itself: the
+    lightest eligible weight is the only one covered when it is the heaviest, so its share is the
+    whole budget and it qualifies for any budget at all.
     """
     envelope = _get_max_error_probs_by_weight(block_length, max_error_rate, block_length)
     envelope[:min_error_weight] = 0
@@ -376,7 +386,11 @@ def _get_max_error_weight(
 def _get_max_error_probs_by_weight(
     block_length: int, max_error_rate: float, max_weight: int
 ) -> npt.NDArray[np.floating]:
-    """Build an array whose k-th entry is ``max_(p <= max_error_rate) q_k(p)``.
+    """Build an array whose k-th entry, for k >= 1, is ``max_(p <= max_error_rate) q_k(p)``.
+
+    Entry 0 is held at zero rather than at the one that ``q_0(0)`` attains, because the no-error
+    case is never sampled and callers apportion a budget across these entries, where it must take
+    no share.
 
     Here ``q_k(p)`` is the probability of a weight-k error at physical error rate p, as built by
     _get_error_probs_by_weight.  As a function of p, ``q_k(p)`` peaks at ``p = k / block_length``,
