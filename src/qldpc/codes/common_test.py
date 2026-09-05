@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import random
 import unittest.mock
 from collections.abc import Iterator, Sequence
 
@@ -249,6 +250,21 @@ def test_classical_capacity() -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.5)
     with pytest.raises(ValueError, match="error rates greater than"):
         logical_error_rate_func(1)
+
+    # both the error locations and the values placed there are drawn from numpy, as they are on the
+    # quantum paths, so seeding numpy alone reproduces a classical curve.  Drawing the locations
+    # from Python's own generator instead would leave a curve depending on state that np.random.seed
+    # does not reach, which the tests throughout this repository assume it does.  Checking that
+    # generator goes untouched pins this exactly, where comparing two runs pins it only with high
+    # probability: the counts compared are sums over samples, which collide often enough to pass by
+    # luck
+    hamming_code = codes.HammingCode(3)
+    generator_state = random.getstate()
+    np.random.seed(1)
+    curve = hamming_code.get_logical_error_rate_func(200, 0.3)(0.1)
+    assert random.getstate() == generator_state
+    np.random.seed(1)
+    assert hamming_code.get_logical_error_rate_func(200, 0.3)(0.1) == curve
 
 
 ####################################################################################################

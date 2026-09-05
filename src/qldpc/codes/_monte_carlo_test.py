@@ -17,9 +17,12 @@ limitations under the License.
 
 from __future__ import annotations
 
+from typing import Any
+
 import galois
 import numpy as np
 import pytest
+import scipy.stats
 
 from qldpc.codes import _monte_carlo
 
@@ -33,6 +36,11 @@ def test_get_error_probs_by_weight() -> None:
     # a unit error rate puts all probability on the maximum weight
     probs = _monte_carlo._get_error_probs_by_weight(5, 1.0)
     assert probs.shape == (6,) and probs[5] == 1 and probs[:5].sum() == 0
+
+    # if that weight lies above the covered range, its probability is truncated away entirely rather
+    # than written past the end of the array, leaving a distribution that carries no mass at all
+    probs = _monte_carlo._get_error_probs_by_weight(5, 1.0, max_weight=3)
+    assert probs.shape == (4,) and probs.sum() == 0
 
     # an intermediate error rate gives a normalized truncated binomial distribution
     probs = _monte_carlo._get_error_probs_by_weight(5, 0.3, max_weight=3)
@@ -81,8 +89,10 @@ def test_get_max_error_weight() -> None:
     shares = fractions * num_samples
     assert shares[max_weight] >= 0.5 and np.all(shares[max_weight + 1 :] < 0.5)
 
-    # half a sample is the boundary itself, not merely somewhere near it: the largest budget that
-    # leaves a weight's share below half excludes that weight, and one more sample brings it in
+    # one sample either side of the boundary changes the answer: the largest budget that leaves a
+    # weight's share below half excludes that weight, and one more sample brings it in.  That
+    # brackets the threshold to within one share, about 3% of a sample here, rather than pinning it
+    # at exactly half -- which is a rounding choice rather than a derived quantity
     weight = 20
     just_under = int(np.floor(0.5 / fractions[weight]))
     assert fractions[weight] * just_under < 0.5 <= fractions[weight] * (just_under + 1)
@@ -137,10 +147,17 @@ def test_get_sample_allocation() -> None:
     probs = _monte_carlo._get_max_error_probs_by_weight(
         block_length, max_error_rate, allocation.size - 1
     )
-    # each weight gets its exact share, up to the one sample that integer apportionment can shift
-    # and the floor of one sample that keeps a lightly weighted tail weight from going unsampled
+    # each weight takes the floor of its share and the leftover samples go to the weights whose
+    # discarded fractions were largest, with a floor of one sample keeping a lightly weighted tail
+    # weight from going unsampled.  Spelling that rule out here, rather than allowing every weight a
+    # sample either way, is what pins which weights the leftovers land on
     shares = probs / probs.sum() * num_samples
-    assert np.all(np.abs(allocation[1:] - np.maximum(shares[1:], 1)) <= 1)
+    expected = np.floor(shares).astype(int)
+    leftovers = num_samples - int(expected.sum())
+    largest_remainders = 1 + np.argsort(shares[1:] - expected[1:])[::-1]
+    expected[largest_remainders[:leftovers]] += 1
+    expected[1:] = np.maximum(expected[1:], 1)
+    assert leftovers > 0 and np.array_equal(allocation, expected)
 
     # when every weight earns a sample outright, so that the floor never lifts one, the largest
     # remainders apportion the budget exactly rather than losing samples to rounding.  Taking the
@@ -161,18 +178,38 @@ def test_get_sample_allocation() -> None:
     with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
         _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_error_weight=0)
 
-    # an empty budget covers nothing, leaving every error of weight >= 1 charged as a failure: with
-    # nothing measured, the whole reported rate is truncation
+    # a whole number is taken however it is spelled, but a fractional weight is refused rather than
+    # rounded, since rounding would move the boundary of a claim the caller is trusted on
+    whole: Any = 3.0
+    fractional: Any = 2.5
+    assert np.array_equal(
+        _monte_carlo._get_sample_allocation(1000, 10, 0.2, whole),
+        _monte_carlo._get_sample_allocation(1000, 10, 0.2, 3),
+    )
+    with pytest.raises(ValueError, match="whole number"):
+        _monte_carlo._get_sample_allocation(1000, 10, 0.2, fractional)
+
+    # an empty budget measures nothing, so it covers exactly the weights a caller has declared
+    # cannot fail and charges every heavier error as a failure: the whole reported rate is then
+    # truncation, and the declared weights stay out of it
     assert np.array_equal(_monte_carlo._get_sample_allocation(0, 10, 0.2), [0])
-    assert np.array_equal(_monte_carlo._get_sample_allocation(1000, 0, 0.2), [0])  # no locations
+    assert np.array_equal(_monte_carlo._get_sample_allocation(0, 10, 0.2, 4), np.zeros(4))
+
+    # a claim reaching past the block length covers the same weights as one that stops there, and is
+    # clamped to it rather than sizing the returned array by the claim
+    assert np.array_equal(
+        _monte_carlo._get_sample_allocation(0, 10, 0.2, 10**8),
+        _monte_carlo._get_sample_allocation(1000, 10, 0.2, 10**8),
+    )
 
     # nothing worth sampling is a different statement: it says the weights in range do not fail, so
     # the range is covered without spending anything on it, and nothing in it is charged as failure
-    for allocation in [
-        _monte_carlo._get_sample_allocation(1000, 10, 0.0),  # no error possible
-        _monte_carlo._get_sample_allocation(1000, 10, 0.05, min_error_weight=20),  # none can fail
+    for allocation, covered in [
+        (_monte_carlo._get_sample_allocation(1000, 10, 0.0), 11),  # no error possible
+        (_monte_carlo._get_sample_allocation(1000, 10, 0.05, 20), 11),  # none of them can fail
+        (_monte_carlo._get_sample_allocation(1000, 0, 0.2), 1),  # no error locations to err
     ]:
-        assert np.array_equal(allocation, np.zeros(11))
+        assert np.array_equal(allocation, np.zeros(covered))
 
     # an error rate outside [0, 1] is rejected rather than building a nonsense weight distribution
     for max_error_rate in [-0.1, 1.5, float("nan")]:
@@ -245,9 +282,11 @@ def test_error_rate_func_validation() -> None:
     with pytest.raises(ValueError, match="at least one error weight"):
         make([], [], [])
 
-    # counts cannot be negative
+    # counts cannot be negative, on either the failure or the discard path
     with pytest.raises(ValueError, match="non-negative"):
         make([10], [-1], [0])
+    with pytest.raises(ValueError, match="non-negative"):
+        make([0, 10], [0, 0], [0, -1])
 
     # failures plus discards cannot exceed the samples at any weight
     with pytest.raises(ValueError, match="cannot exceed"):
@@ -301,13 +340,13 @@ def test_error_bar_survives_zero_failures() -> None:
 
 
 def test_error_rate_rises_from_zero() -> None:
-    """A reported rate stays positive and grows with the physical error rate.
+    """A reported rate, and the bound above it, both stay positive and grow with the error rate.
 
-    Taking the probability above the covered weights as one minus the probability below them loses
-    every significant digit once the covered weights hold nearly all of it, which is the ordinary
-    case at a small physical error rate.  The reported rate then flattens onto zero and goes
-    negative, which no probability may do.  The counts below describe a decoder that corrects every
-    error of weight at most four and fails on every heavier one.
+    The bound is the probability of an error heavier than the covered weights.  Taking it as one
+    minus the probability of the weights below loses every significant digit once those weights hold
+    nearly all of it, which is the ordinary case at a small physical error rate: the bound flattens
+    onto zero and then goes negative, which no probability may do.  The counts below describe a
+    decoder that corrects every error of weight at most four and fails on every heavier one.
     """
     num_samples = np.full(9, 10)
     num_samples[0] = 0
@@ -318,11 +357,17 @@ def test_error_rate_rises_from_zero() -> None:
         num_error_locations=9,
         max_error_rate=0.05,
     )
-    rates = np.asarray(func(np.logspace(-9, np.log10(0.05), 50))[0])
+    error_rates = np.logspace(-9, np.log10(0.05), 50)
+    rates = np.asarray(func(error_rates)[0])
     assert np.all(rates > 0) and np.all(np.diff(rates) > 0)
 
-    # a covered range reaching the block length has no weight above it left to charge, including at
-    # an error rate of one, where the closed form for that charge has an empty range to report
+    # the cancelling form reaches -2e-16 at the light end of this range, where the closed form
+    # correctly reports 1e-81
+    bounds = np.asarray(func.truncation_error_bound(error_rates))
+    assert np.all(bounds > 0) and np.all(np.diff(bounds) > 0)
+
+    # a covered range reaching the block length has no weight above it left to bound, including at
+    # an error rate of one, where the closed form has an empty range to report
     counts = np.zeros(2, dtype=int)
     func = _monte_carlo.ErrorRateFunc(counts, counts, counts, 1, 1.0)
     assert func(1.0)[0] == 0 and func.truncation_error_bound(1.0) == 0
@@ -398,6 +443,84 @@ def test_error_rate_func() -> None:
     assert np.asarray(func.truncation_error_bound([0.1, 0.2])).shape == (2,)
 
 
+def _expected_rate_and_error(
+    func: _monte_carlo.ErrorRateFunc, error_rate: float, *, discard_rate: bool = False
+) -> tuple[float, float]:
+    """Recompute a reported rate and uncertainty by an independent route.
+
+    Everything here comes from scipy rather than from the module under test: the weight distribution
+    from a binomial mass function, and each per-weight posterior variance from a beta distribution.
+    Only the final propagation is spelled the same way, and spelling it separately is what pins it.
+    """
+    weights = np.arange(func.num_samples.size)
+    weight_probs = scipy.stats.binom.pmf(weights, func.num_error_locations, error_rate)
+    if discard_rate:
+        events, trials = func.num_discards, func.num_samples
+    else:
+        events, trials = func.num_failures, func.num_samples - func.num_discards
+
+    # a weight with no trials is recorded with a zero rate, but keeps the prior's variance
+    safe_trials = np.where(trials > 0, trials, 1)
+    rates = np.where(trials > 0, events / safe_trials, 0.0)
+    variances = scipy.stats.beta(events + 0.5, trials - events + 0.5).var()
+    variances = np.where(weights < func.min_error_weight, 0.0, variances)
+
+    # weights above the covered range are left out of the rate entirely, on both paths
+    return float(weight_probs @ rates), float(np.sqrt(weight_probs**2 @ variances))
+
+
+def test_reported_uncertainty_is_the_propagated_posterior() -> None:
+    """A reported rate and uncertainty match an independent computation of both.
+
+    The counts below are chosen so that the two paths cannot be confused for one another: the
+    infidelity is taken over kept samples while the discard rate is taken over all of them, so
+    swapping either the rates or the variances between the paths changes both answers.  They also
+    put a weight at each extreme -- one that always fails, one whose every sample is discarded and
+    which therefore has no kept samples at all -- and leave weights above the covered range for the
+    truncation charge to act on.
+    """
+    cases = [
+        _monte_carlo.ErrorRateFunc(
+            num_samples=np.array([0, 8, 5, 4]),
+            num_failures=np.array([0, 3, 5, 0]),
+            num_discards=np.array([0, 2, 0, 4]),
+            num_error_locations=6,
+            max_error_rate=0.5,
+        ),
+        # the same counts held to be perfectly decoded below weight two, so that the weights
+        # min_error_weight excludes are the ones carrying the most probability
+        _monte_carlo.ErrorRateFunc(
+            num_samples=np.array([0, 0, 8, 5, 4]),
+            num_failures=np.array([0, 0, 3, 5, 0]),
+            num_discards=np.array([0, 0, 2, 0, 4]),
+            num_error_locations=7,
+            max_error_rate=0.5,
+            min_error_weight=2,
+        ),
+    ]
+    error_rates = [0.05, 0.25, 0.5]
+    for func in cases:
+        for discards in [False, True]:
+            for error_rate in error_rates:
+                expected = _expected_rate_and_error(func, error_rate, discard_rate=discards)
+                assert np.allclose(func(error_rate, discard_rate=discards), expected, rtol=1e-12)
+
+        # an array argument gives the same numbers as the scalar calls, and carries discard_rate
+        # through with it rather than silently reporting infidelities
+        for discards in [False, True]:
+            values, errors = func(error_rates, discard_rate=discards)
+            expected_pairs = [
+                _expected_rate_and_error(func, rate, discard_rate=discards) for rate in error_rates
+            ]
+            assert np.allclose(np.asarray(values), [pair[0] for pair in expected_pairs], rtol=1e-12)
+            assert np.allclose(np.asarray(errors), [pair[1] for pair in expected_pairs], rtol=1e-12)
+
+    # the two paths genuinely differ, so the checks above would catch them being exchanged
+    func = cases[0]
+    assert not np.allclose(func(0.25), func(0.25, discard_rate=True))
+    assert not np.allclose(func.infidelity_variances, func.discard_rate_variances)
+
+
 def test_error_rate_func_single_weight() -> None:
     """A degenerate func covering only the weight-0 bin evaluates without crashing."""
     func = _monte_carlo.ErrorRateFunc(
@@ -409,8 +532,8 @@ def test_error_rate_func_single_weight() -> None:
     )
     assert func.max_error_weight == 0
 
-    # every error of weight >= 1 lies outside the covered range, so it is fully truncated: the
-    # reported rate is the whole of that charge, with no statistical uncertainty behind it
+    # every error of weight >= 1 lies outside the covered range, so nothing measured contributes:
+    # the rate is zero with no uncertainty, and the whole of what it could have been is bounded
     error_rate, uncertainty = func(0.1)
-    assert np.isclose(error_rate, 1 - 0.9**5) and uncertainty == 0
-    assert error_rate == func.truncation_error_bound(0.1)
+    assert error_rate == 0 and uncertainty == 0
+    assert np.isclose(func.truncation_error_bound(0.1), 1 - 0.9**5)
