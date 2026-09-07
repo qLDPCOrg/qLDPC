@@ -789,8 +789,9 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.2)
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
-    # guaranteed logical X and Z errors
-    for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
+    # guaranteed logical X and Z errors.  The last bias does not sum to one, which the sampler only
+    # accepts because the bias is normalized on the way in
+    for pauli_bias in [(1, 0, 0), (0, 0, 1), (2, 0, 0)]:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
 

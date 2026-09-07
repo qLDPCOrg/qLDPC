@@ -121,6 +121,16 @@ def test_get_max_error_weight() -> None:
         == block_length
     )
 
+    # the heaviest qualifying weight is taken, not the end of the first unbroken run: above a
+    # maximum error rate of one half the envelope turns, so weight 6 qualifies while 4 and 5 do not
+    envelope = monte_carlo._get_max_error_probs_by_weight(6, 0.95, 6)
+    envelope[0] = 0
+    covered = np.cumsum(envelope)
+    fractions = np.divide(envelope, covered, out=np.zeros_like(envelope), where=covered > 0)
+    assert np.array_equal(np.nonzero(fractions * 2 >= 0.5)[0], [1, 2, 3, 6])
+    # this is also the share rule reaching block_length, rather than the no-failure shortcut above
+    assert monte_carlo._get_max_error_weight(6, 0.95, 2) == 6
+
     # an empty code has no error weights to cover at all
     assert monte_carlo._get_max_error_weight(0, max_error_rate, 10**9) == 0
 
@@ -224,10 +234,16 @@ def test_get_error_and_erasure() -> None:
     error, erasure = monte_carlo.get_error_and_erasure(decoder, syndrome)
     assert not erasure and isinstance(error, field) and np.array_equal(error, field([1, 1, 0, 0]))
 
-    # an erasure-enabled decoder strips the last (erasure) bit and reports it
-    decoder = _Decoder(np.array([1, 1, 0, 0, 1], dtype=np.uint8), has_erasure_bit=True)
+    # an erasure-enabled decoder strips the last (erasure) bit and reports it.  The first and last
+    # entries differ, so reading the wrong end of the vector fails here
+    decoder = _Decoder(np.array([0, 1, 1, 0, 1], dtype=np.uint8), has_erasure_bit=True)
     error, erasure = monte_carlo.get_error_and_erasure(decoder, syndrome)
-    assert erasure and np.array_equal(error, field([1, 1, 0, 0]))
+    assert erasure and np.array_equal(error, field([0, 1, 1, 0]))
+
+    # the same decoder reports no erasure when the syndrome was recognized
+    decoder = _Decoder(np.array([1, 1, 0, 0, 0], dtype=np.uint8), has_erasure_bit=True)
+    error, erasure = monte_carlo.get_error_and_erasure(decoder, syndrome)
+    assert not erasure and np.array_equal(error, field([1, 1, 0, 0]))
 
 
 def test_jeffreys_variance() -> None:
