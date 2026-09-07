@@ -51,31 +51,29 @@ class ErrorRateFunc:
         per-weight Jeffreys posterior variances.
     If called with an array of physical error rates, this function returns two arrays.
 
-    Errors heavier than the heaviest sampled weight go unmeasured, so what they contribute is
-    bounded rather than estimated: func.truncation_error_bound(p) is the probability of such an
-    error, and hence the most they can add.  That makes (1) a low estimate, short of the true rate
-    by somewhere between zero and that bound, and makes the error bar to draw asymmetric.  Given
-    ``value, error = func(p)``, draw it as
+    Errors heavier than the heaviest sampled weight go unmeasured, and are charged to (1) as certain
+    failures: func.truncation_error_bound(p) is the probability of such an error, and (1) includes
+    all of it.  That keeps (1) on the high side of the true rate, above it by at most that bound,
+    and makes the error bar to draw asymmetric.  Given ``value, error = func(p)``, draw it as
 
-        ``lower = max(value - error, 0)``,
-        ``upper = value + error + func.truncation_error_bound(p)``.
+        ``lower = max(value - error - func.truncation_error_bound(p), 0)``,
+        ``upper = value + error``.
 
-    That bound is kept out of both returned numbers rather than folded into either.  Putting it into
-    (1) would report a bound as an estimate: where the sample budget could not reach the bulk of the
-    weight distribution the bound is the whole of the rate, so (1) would be pure artifact with (2) a
-    tight bar around it.  Putting it into (2) would claim the true rate could lie as far below (1)
-    as above it, when it can only lie above.
+    The bound is offered separately as well, because where the budget cannot reach the bulk of the
+    weight distribution the charge is the whole of (1), which is then artifact rather than
+    measurement.  A weight inside the covered range whose every sample was discarded is recorded
+    failure-free, which pulls (1) the other way by an amount no bound here reports.
 
-    The lower edge needs its clamp because a rate cannot be negative while the uncertainty alone can
-    exceed it: at a small physical error rate few sampled errors fail, and one posterior standard
-    deviation is then wider than the estimate it accompanies.  Left unclamped that edge goes below
-    zero, which a log-scaled plot hides by dropping the point rather than showing anything amiss.
+    The lower edge is clamped because a rate cannot be negative while the uncertainty alone can
+    exceed the measured part of it, and a log-scaled plot drops a non-positive edge rather than
+    showing anything amiss.
 
-    This bar is not a confidence interval at any stated level.  Its lower edge is one posterior
-    standard deviation, so what fraction of repetitions would contain the true rate depends on the
-    code, on the budget, on the physical error rate, and most of all on how large the bound happens
-    to be, since the bound widens the upper edge alone.  Read the bar as an indication of how much
-    is not known rather than as a probability statement.
+    A discard rate takes no such charge, an error charged as a failure not being a discard, so its
+    bar is symmetric: ``value - error`` up to ``value + error``.
+
+    This bar is not a confidence interval at any stated level: its lower edge mixes one posterior
+    standard deviation with a charge that is not statistical at all.  Read it as an indication of
+    how much is not known rather than as a probability statement.
 
     If called with the keyword argument discard_rate=True, compute a discard rate rather than an
     error rate.
@@ -198,30 +196,33 @@ class ErrorRateFunc:
         weight_probs = _get_error_probs_by_weight(
             self.num_error_locations, error_rate, self.max_error_weight
         )
+        value: OneOrManyFloats
         if discard_rate:
-            rates = self.discard_rates
+            # an error charged as a failure is not a discard, so no charge applies on this path
+            value = float(weight_probs @ self.discard_rates)
             variances = self.discard_rate_variances
         else:
-            rates = self.infidelities
+            # errors heavier than max_error_weight are charged as certain failures, so their
+            # probability enters the rate in full
+            charge = self.truncation_error_bound(error_rate)
+            value = float(weight_probs @ self.infidelities) + charge
             variances = self.infidelity_variances
-        # errors heavier than max_error_weight went unsampled, so they are left out of the estimate
-        # rather than guessed at; truncation_error_bound reports the most they could have added
-        value = float(weight_probs @ rates)
         error = float(np.sqrt(weight_probs**2 @ variances))
         return value, error
 
     def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
-        """Upper bound on the truncation error in the infidelity or discard rate estimate.
+        """Amount of the reported infidelity that is charged rather than measured.
 
         Takes one physical error rate or an iterable of them, and returns one bound or an array of
         them to match, as the constructed function itself does.
 
-        Errors heavier than max_error_weight go unsampled and are left out of a reported rate, so
-        this is the probability of such an error: the most they could have added to that rate.  Add
-        it to a rate to get the high end of the error bar described in the class docstring.  It
-        covers only that tail: a min_error_weight that a decoder does not live up to biases a
-        reported rate the same way, by a further amount no bound here can speak to, since the
-        weights that such a claim excludes are never sampled either.
+        Errors heavier than max_error_weight go unsampled and are charged as certain failures, so
+        this is the probability of such an error: how much of a reported infidelity is that charge.
+        Subtract it to get the low end of the error bar described in the class docstring.  A discard
+        rate carries no charge, so this does not apply to one.  It covers only the heavy tail: a
+        min_error_weight that a decoder does not live up to biases a reported rate the other way, by
+        an amount no bound here can speak to, since the weights that such a claim excludes are never
+        sampled either.
 
         The probability of an error heavier than a given weight is the upper tail of a binomial
         distribution, which the regularized incomplete beta function gives in closed form.  With
@@ -251,20 +252,12 @@ class ErrorRateFunc:
         )
 
 
-def _as_error_weight(min_error_weight: int) -> int:
-    """Validate a minimum failing error weight, returning it as an integer.
-
-    A whole number that arrives as a float is taken as that whole number, in the same spirit as a
-    sample count that arrives as one, since either is how a number gets written where no type
-    checker sees it.  A fractional value is refused rather than rounded: the weight carries a claim
-    about what a decoder corrects, and rounding one would silently extend that claim to a weight the
-    caller never vouched for, or retract it from one they did.
-    """
-    if min_error_weight != int(min_error_weight):
-        raise ValueError("min_error_weight must be a whole number of error locations")
+def _as_error_weight(min_error_weight: float) -> int:
+    """Round a minimum failing error weight to a whole number, rejecting anything below one."""
+    min_error_weight = round(min_error_weight)
     if min_error_weight < 1:
         raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
-    return int(min_error_weight)
+    return min_error_weight
 
 
 def _jeffreys_variance(
@@ -289,7 +282,7 @@ def _jeffreys_variance(
 
 
 def _get_sample_allocation(
-    num_samples: int, block_length: int, max_error_rate: float, min_error_weight: int = 1
+    num_samples: float, block_length: int, max_error_rate: float, min_error_weight: float = 1
 ) -> npt.NDArray[np.int_]:
     """Construct an allocation of samples by error weight.
 
@@ -305,8 +298,7 @@ def _get_sample_allocation(
     The heaviest weight sampled is the heaviest whose share of the budget reaches half a sample (see
     _get_max_error_weight), so a larger budget covers more weights and leaves less probability above
     them.  Covering a weight costs at least one sample, so a budget spread thinly over many weights
-    can be overspent: a request for 100 over a block length of 1000 at max_error_rate 0.3 covers 112
-    weights and spends 127.
+    can be overspent.
 
     Apportioning by that envelope, rather than by the weight distribution at max_error_rate alone,
     trades precision at the top of the range of p for precision below it.  The quantity it improves
@@ -315,12 +307,11 @@ def _get_sample_allocation(
     assigns little weight and therefore barely samples, so an allocation built from that
     distribution is least precise, relative to the rate, exactly where the rate is smallest.  The
     price is at ``p = max_error_rate`` itself, where the samples moved to lighter weights are no
-    longer available.  The two are nowhere near equal in size.  Measured on an [[81,1,9]] surface
-    code against an allocation apportioned by the distribution at max_error_rate alone, the price is
-    some tens of percent -- 42% at a max_error_rate of 0.1, rising to 82% at 0.3 -- while below the
-    top of the range the gain is one to two orders of magnitude, from 8 times to over 400 times, and
-    grows with the budget.  So the trade is worth making unless a caller reads the top of the range
-    and nothing else.
+    longer available.  The two are nowhere near equal in size: what is given up at the top is a
+    bounded fraction of the budget, while what is gained below grows without bound as p falls, since
+    an allocation built at max_error_rate alone gives a light weight a share that vanishes with it
+    while the rate at small p comes almost entirely from such weights.  So the trade is worth making
+    unless a caller reads the top of the range and nothing else.
 
     Weights below min_error_weight are taken to be decoded perfectly and get no samples: there is
     nothing to learn about them, so spending samples there would only take samples away from the
@@ -329,15 +320,17 @@ def _get_sample_allocation(
     """
     if not 0 <= max_error_rate <= 1:
         raise ValueError("max_error_rate must lie in [0, 1]")
+    # counts arrive rounded, so that a budget or a weight written as a float is taken at face value
+    num_samples = round(num_samples)
     min_error_weight = _as_error_weight(min_error_weight)
     # an empty budget measures nothing, so cover only the weights a caller has declared cannot fail.
-    # Every heavier error lies above the covered range, where ErrorRateFunc leaves it out of the
-    # rate and bounds it instead, so knowing nothing is reported as a rate of zero whose whole
-    # possible size is that bound.  The weights below min_error_weight stay out of the bound too,
+    # Every heavier error lies above the covered range, where ErrorRateFunc charges it as a certain
+    # failure, so knowing nothing is reported as a rate that is entirely charge.  The weights below
+    # min_error_weight stay out of that charge too,
     # since nothing was measured to contradict the claim that they decode perfectly.  A
-    # min_error_weight past the block length is clamped to it,
-    # as every other return path here is: no error can be heavier than the block length, so a larger
-    # claim covers the same weights, and taking it at face value would size the array by the claim.
+    # min_error_weight past the block length is clamped to it, as every other return path here is:
+    # no error can be heavier than the block length, so a larger claim covers the same weights, and
+    # taking it at face value would size the array by the claim.
     if num_samples <= 0:
         return np.zeros(min(min_error_weight, block_length + 1), dtype=int)
 
@@ -359,7 +352,7 @@ def _get_sample_allocation(
     # then give the leftover samples to the weights with the largest discarded fractions
     shares = probs * num_samples
     sample_allocation = np.floor(shares).astype(int)
-    leftovers = int(num_samples - sample_allocation.sum())
+    leftovers = num_samples - sample_allocation.sum()
     ranked = (
         min_error_weight
         + np.argsort(shares[min_error_weight:] - sample_allocation[min_error_weight:])[::-1]
@@ -387,9 +380,9 @@ def _get_max_error_weight(
     maximum error rate above one half: the envelope of a weight below block_length / 2 is a peak
     height that falls as weight grows, and past that midpoint it rises again, so weights over the
     threshold can sit beyond a run of weights under it.  A rate above one half is necessary but not
-    sufficient: the rise begins at the first integer weight above block_length / 2, so there is one
-    only when ``block_length * max_error_rate`` reaches that weight.  At a block length of 20 the
-    envelope is still monotonic at a maximum rate of 0.51, and turns only by 0.6.
+    sufficient, and where the turn falls does not follow from the midpoint alone: that weight's
+    envelope is truncated at max_error_rate rather than taken at its own peak, so it can pass the
+    weight below it while still short of that peak.
 
     Those heavy weights carry most of the probability at the top of the range of error rates served,
     so excluding them would truncate exactly what matters most there.  Including them costs samples,
@@ -401,25 +394,24 @@ def _get_max_error_weight(
     have contributed is bounded by their total probability (see
     ErrorRateFunc.truncation_error_bound), since a failure rate cannot exceed one.  A reported rate
     is therefore never too large on this account, and never short of the truth by more than that
-    bound.  How loose the bound is depends on the code and on how far the budget reached.  For a
-    qubit stabilizer code the failure rate at large weight approaches 1 - 4**-dimension, since a
-    heavy Pauli error is corrected to a near-uniform choice among the 4**dimension logical
-    classes.  So
-    the bound is near-exact for a code carrying many logical qubits -- on a [[144,12,12]] bivariate
-    bicycle code at max_error_rate 0.1 a thousand samples reach weight 25, where the decoder fails
-    on 998 errors in 1000 and every heavier weight fails on all of them.  A code carrying one
-    approaches 4/3, but only well above the weights a budget of any usual size stops at: an
-    [[81,1,9]] surface code measures 0.71 at weight 23 and settles at 0.75 by about weight 28, and
-    at max_error_rate 0.1 the bound exceeds what the omitted weights truly contribute by 1.7 times
-    at the weight a thousand samples reach and 2.2 times at the weight a hundred reach.  A classical
-    code is the opposite case, since a heavy binary error carries no per-location randomness and
-    simply fails: there the bound is tight.  Rather than rest on an assumption either way, the bound
-    is offered alongside every rate, so a caller can see its size.
+    bound.  How loose the bound is depends on where the largest included weight falls relative to
+    the weights on which the decoder starts failing reliably.  For a qubit stabilizer code the
+    failure rate at large weight approaches 1 - 4**-dimension, since a heavy Pauli error is
+    corrected to a near-uniform choice among the 4**dimension logical classes, only one of which is
+    trivial.  Charging such a weight as a certain failure therefore overstates its contribution by a
+    factor of 1 / (1 - 4**-dimension) in that limit, which is 4/3 at dimension one and falls rapidly
+    toward one as the dimension grows.  That limit is approached only well above the weight an
+    ordinary budget reaches, so what the bound overstates in practice is set by that gap rather than
+    by the limit.  A decoder that corrects every error below some radius makes the gap decisive:
+    where the largest included weight falls below that radius, the omitted weights carrying most of
+    the probability are corrected rather than failed, and the bound exceeds their true contribution
+    without limit.  Rather than rest on an assumption either way, the bound is offered alongside
+    every rate, so a caller can see its size.
 
     At least one weight the decoder can fail on is always included, so that a small budget yields a
     poor estimate rather than no estimate at all.  That follows from the criterion itself: the
     lightest eligible weight is the only one covered when it is the heaviest, so its share is the
-    whole budget and it qualifies for any budget at all.
+    whole budget, which reaches half a sample for every budget of one or more.
     """
     envelope = _get_max_error_probs_by_weight(block_length, max_error_rate, block_length)
     envelope[:min_error_weight] = 0
@@ -434,8 +426,7 @@ def _get_max_error_weight(
     fractions = np.divide(envelope, covered, out=np.zeros_like(envelope), where=covered > 0)
     shares = fractions * num_samples
     reaches_a_sample = np.nonzero(shares >= 0.5)[0]
-    weight_from_budget = int(reaches_a_sample[-1]) if reaches_a_sample.size else 0
-    return max(weight_from_budget, min_error_weight)
+    return int(reaches_a_sample[-1])
 
 
 def _get_max_error_probs_by_weight(

@@ -759,9 +759,9 @@ class ClassicalCode(AbstractCode):
         Alongside the logical error rate, the constructed function returns an uncertainty in that
         rate: a posterior standard deviation covering statistical error alone.  An error bar that
         also covers the errors too heavy for the sample budget to have reached is asymmetric, and
-        should be drawn from ``value - error`` up to
-        ``value + error + func.truncation_error_bound(p)``, because such errors go unsampled and are
-        left out of the rate, which makes it a low estimate.  See help(qldpc.codes.ErrorRateFunc).
+        should be drawn from ``max(value - error - func.truncation_error_bound(p), 0)`` up to
+        ``value + error``, because such errors are charged as certain failures, which makes the rate
+        a high estimate.  See help(qldpc.codes.ErrorRateFunc).
 
         If the decoder is known to correct every error of weight below min_error_weight, saying so
         skips sampling those weights and drops their contribution to the reported uncertainty,
@@ -2163,21 +2163,14 @@ class QuditCode(AbstractCode):
         sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
         acts on, so a single-qudit error has weight one whichever Pauli it applies.
 
-        Errors heavier than the sample budget could reach go unsampled and are left out of the
-        reported rate, making it a low estimate by an amount the constructed function's
-        truncation_error_bound method bounds.  See help(qldpc.codes.ErrorRateFunc).
+        Errors heavier than the sample budget could reach go unsampled and are charged as certain
+        failures, making the reported rate a high estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        # collect relative probabilities of Z, X, and Y errors
-        pauli_bias_zxy: npt.NDArray[np.floating] | None
-        if pauli_bias is not None:
-            assert len(pauli_bias) == 3
-            pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
-            pauli_bias_zxy /= np.sum(pauli_bias_zxy)
-        else:
-            pauli_bias_zxy = None
+        pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
         # build the matrix that takes an error to its syndrome against the stabilizer generators of
         # the code.  The syndrome of an error e against a generator s is their symplectic product
@@ -3406,21 +3399,14 @@ class CSSCode(QuditCode):
         sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
         acts on, so a single-qudit error has weight one whichever Pauli it applies.
 
-        Errors heavier than the sample budget could reach go unsampled and are left out of the
-        reported rate, making it a low estimate by an amount the constructed function's
-        truncation_error_bound method bounds.  See help(qldpc.codes.ErrorRateFunc).
+        Errors heavier than the sample budget could reach go unsampled and are charged as certain
+        failures, making the reported rate a high estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        # collect relative probabilities of Z, X, and Y errors
-        pauli_bias_zxy: npt.NDArray[np.floating] | None
-        if pauli_bias is not None:
-            assert len(pauli_bias) == 3
-            pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
-            pauli_bias_zxy /= np.sum(pauli_bias_zxy)
-        else:
-            pauli_bias_zxy = None
+        pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
@@ -3536,6 +3522,21 @@ class CSSCode(QuditCode):
                 num_failures += 1
 
         return num_failures, num_discards
+
+
+def _as_pauli_bias_zxy(
+    pauli_bias: Sequence[float] | None,
+) -> npt.NDArray[np.floating] | None:
+    """Normalize an (X, Y, Z) error bias into the (Z, X, Y) order the samplers draw in.
+
+    That order is the one the Pauli enum assigns, reading each Pauli's (x, z) components as a
+    two-bit number.
+    """
+    if pauli_bias is None:
+        return None
+    assert len(pauli_bias) == 3
+    pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
+    return pauli_bias_zxy / np.sum(pauli_bias_zxy)
 
 
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:

@@ -17,8 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-from typing import Any
-
 import galois
 import numpy as np
 import pytest
@@ -108,7 +106,8 @@ def test_get_max_error_weight() -> None:
 
     # the smallest budget still covers a weight the decoder can fail on, so that a small budget
     # gives a poor estimate rather than none at all.  The lightest eligible weight is measured
-    # against itself alone, so its share is the whole budget and it qualifies however small that is.
+    # against itself alone, so its share is the whole budget, which reaches half a sample whenever
+    # that budget is one or more
     assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1) == 1
     assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1, 7) == 7
 
@@ -177,17 +176,6 @@ def test_get_sample_allocation() -> None:
     # weight 0 is a no-error case, so a min_error_weight below one is rejected
     with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
         _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_error_weight=0)
-
-    # a whole number is taken however it is spelled, but a fractional weight is refused rather than
-    # rounded, since rounding would move the boundary of a claim the caller is trusted on
-    whole: Any = 3.0
-    fractional: Any = 2.5
-    assert np.array_equal(
-        _monte_carlo._get_sample_allocation(1000, 10, 0.2, whole),
-        _monte_carlo._get_sample_allocation(1000, 10, 0.2, 3),
-    )
-    with pytest.raises(ValueError, match="whole number"):
-        _monte_carlo._get_sample_allocation(1000, 10, 0.2, fractional)
 
     # an empty budget measures nothing, so it covers exactly the weights a caller has declared
     # cannot fail and charges every heavier error as a failure: the whole reported rate is then
@@ -465,8 +453,13 @@ def _expected_rate_and_error(
     variances = scipy.stats.beta(events + 0.5, trials - events + 0.5).var()
     variances = np.where(weights < func.min_error_weight, 0.0, variances)
 
-    # weights above the covered range are left out of the rate entirely, on both paths
-    return float(weight_probs @ rates), float(np.sqrt(weight_probs**2 @ variances))
+    # weights above the covered range are charged as certain failures, and only on that path
+    charge = 0.0
+    if not discard_rate:
+        charge = float(
+            scipy.stats.binom.sf(func.max_error_weight, func.num_error_locations, error_rate)
+        )
+    return float(weight_probs @ rates) + charge, float(np.sqrt(weight_probs**2 @ variances))
 
 
 def test_reported_uncertainty_is_the_propagated_posterior() -> None:
@@ -503,7 +496,10 @@ def test_reported_uncertainty_is_the_propagated_posterior() -> None:
         for discards in [False, True]:
             for error_rate in error_rates:
                 expected = _expected_rate_and_error(func, error_rate, discard_rate=discards)
-                assert np.allclose(func(error_rate, discard_rate=discards), expected, rtol=1e-12)
+                # atol=0 so that rtol is what gets enforced; its 1e-8 default would dominate here
+                assert np.allclose(
+                    func(error_rate, discard_rate=discards), expected, rtol=1e-12, atol=0
+                )
 
         # an array argument gives the same numbers as the scalar calls, and carries discard_rate
         # through with it rather than silently reporting infidelities
@@ -512,8 +508,10 @@ def test_reported_uncertainty_is_the_propagated_posterior() -> None:
             expected_pairs = [
                 _expected_rate_and_error(func, rate, discard_rate=discards) for rate in error_rates
             ]
-            assert np.allclose(np.asarray(values), [pair[0] for pair in expected_pairs], rtol=1e-12)
-            assert np.allclose(np.asarray(errors), [pair[1] for pair in expected_pairs], rtol=1e-12)
+            expected_values = [pair[0] for pair in expected_pairs]
+            expected_errors = [pair[1] for pair in expected_pairs]
+            assert np.allclose(np.asarray(values), expected_values, rtol=1e-12, atol=0)
+            assert np.allclose(np.asarray(errors), expected_errors, rtol=1e-12, atol=0)
 
     # the two paths genuinely differ, so the checks above would catch them being exchanged
     func = cases[0]
@@ -532,8 +530,10 @@ def test_error_rate_func_single_weight() -> None:
     )
     assert func.max_error_weight == 0
 
-    # every error of weight >= 1 lies outside the covered range, so nothing measured contributes:
-    # the rate is zero with no uncertainty, and the whole of what it could have been is bounded
-    error_rate, uncertainty = func(0.1)
-    assert error_rate == 0 and uncertainty == 0
-    assert np.isclose(func.truncation_error_bound(0.1), 1 - 0.9**5)
+    # every error of weight >= 1 lies outside the covered range, so nothing measured contributes and
+    # the reported rate is the charge alone, with no uncertainty around it.  A discard rate takes no
+    # charge, so it stays at zero
+    charge = func.truncation_error_bound(0.1)
+    assert np.isclose(charge, 1 - 0.9**5)
+    assert func(0.1) == (charge, 0)
+    assert func(0.1, discard_rate=True) == (0, 0)
