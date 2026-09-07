@@ -1246,7 +1246,7 @@ def test_capacity_min_error_weight() -> None:
             max_weight=max_weight,
         )
         assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
-        assert np.all(func.infidelity_variances[:2] == 0)  # and no uncertainty charged there
+        assert np.all(func.infidelity_variances[:2] == 0)  # and no uncertainty there
 
         # declaring the claim is what the feature is for: the reported uncertainty drops
         assert func(0.1)[1] < baseline(0.1)[1]

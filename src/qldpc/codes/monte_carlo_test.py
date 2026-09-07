@@ -1,4 +1,4 @@
-"""Unit tests for _monte_carlo.py.
+"""Unit tests for monte_carlo.py.
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -22,50 +22,50 @@ import numpy as np
 import pytest
 import scipy.stats
 
-from qldpc.codes import _monte_carlo
+from qldpc.codes import monte_carlo
 
 
 def test_get_error_probs_by_weight() -> None:
     """Probability of a weight-k error under an i.i.d. error model."""
     # a zero error rate puts all probability on the weight-0 error
-    probs = _monte_carlo._get_error_probs_by_weight(5, 0.0)
+    probs = monte_carlo._get_error_probs_by_weight(5, 0.0)
     assert probs[0] == 1 and probs[1:].sum() == 0
 
     # a unit error rate puts all probability on the maximum weight
-    probs = _monte_carlo._get_error_probs_by_weight(5, 1.0)
+    probs = monte_carlo._get_error_probs_by_weight(5, 1.0)
     assert probs.shape == (6,) and probs[5] == 1 and probs[:5].sum() == 0
 
     # if that weight lies above the covered range, its probability is truncated away entirely rather
     # than written past the end of the array, leaving a distribution that carries no mass at all
-    probs = _monte_carlo._get_error_probs_by_weight(5, 1.0, max_weight=3)
+    probs = monte_carlo._get_error_probs_by_weight(5, 1.0, max_weight=3)
     assert probs.shape == (4,) and probs.sum() == 0
 
     # an intermediate error rate gives a normalized truncated binomial distribution
-    probs = _monte_carlo._get_error_probs_by_weight(5, 0.3, max_weight=3)
+    probs = monte_carlo._get_error_probs_by_weight(5, 0.3, max_weight=3)
     assert probs.shape == (4,) and np.all(probs >= 0)
-    assert np.isclose(probs.sum(), sum(_monte_carlo._get_error_probs_by_weight(5, 0.3)[:4]))
+    assert np.isclose(probs.sum(), sum(monte_carlo._get_error_probs_by_weight(5, 0.3)[:4]))
 
     # max_weight=0 keeps only the weight-0 entry rather than being treated as "unset"
-    probs = _monte_carlo._get_error_probs_by_weight(5, 0.3, max_weight=0)
+    probs = monte_carlo._get_error_probs_by_weight(5, 0.3, max_weight=0)
     assert probs.shape == (1,) and np.isclose(probs[0], 0.7**5)
 
 
 def test_get_max_error_probs_by_weight() -> None:
     """Envelope of the weight distribution over a range of physical error rates."""
     block_length, max_error_rate = 20, 0.1
-    probs = _monte_carlo._get_max_error_probs_by_weight(block_length, max_error_rate, 8)
+    probs = monte_carlo._get_max_error_probs_by_weight(block_length, max_error_rate, 8)
     assert probs.shape == (9,) and probs[0] == 0  # weight 0 carries no weight in an allocation
 
     # each entry bounds its weight's probability at every error rate in range, and is attained
     for weight in range(1, 9):
         scanned = max(
-            _monte_carlo._get_error_probs_by_weight(block_length, rate, weight)[weight]
+            monte_carlo._get_error_probs_by_weight(block_length, rate, weight)[weight]
             for rate in np.linspace(0, max_error_rate, 200)
         )
         assert scanned <= probs[weight] <= scanned * (1 + 1e-4)
 
     # the top weight's envelope is one: q_n(p) peaks at p = 1, where every location errs
-    probs = _monte_carlo._get_max_error_probs_by_weight(5, 1.0, 5)
+    probs = monte_carlo._get_max_error_probs_by_weight(5, 1.0, 5)
     assert probs[5] == 1
     assert probs[1] == pytest.approx(5 * 0.2 * 0.8**4)  # q_1 peaks at p = 1/5
 
@@ -77,8 +77,8 @@ def test_get_max_error_weight() -> None:
     # coverage reaches the heaviest weight whose share of the budget reaches half a sample -- that
     # share taken over the weights it would cover -- and no weight above it comes that close
     num_samples = 10**4
-    max_weight = _monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
-    envelope = _monte_carlo._get_max_error_probs_by_weight(
+    max_weight = monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
+    envelope = monte_carlo._get_max_error_probs_by_weight(
         block_length, max_error_rate, block_length
     )
     envelope[0] = 0
@@ -95,11 +95,11 @@ def test_get_max_error_weight() -> None:
     just_under = int(np.floor(0.5 / fractions[weight]))
     assert fractions[weight] * just_under < 0.5 <= fractions[weight] * (just_under + 1)
     for budget, expected in [(just_under, weight - 1), (just_under + 1, weight)]:
-        assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, budget) == expected
+        assert monte_carlo._get_max_error_weight(block_length, max_error_rate, budget) == expected
 
     # a larger budget covers more weights
     weights = [
-        _monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
+        monte_carlo._get_max_error_weight(block_length, max_error_rate, num_samples)
         for num_samples in [1, 10**3, 10**6, 10**9]
     ]
     assert weights == sorted(weights) and weights[0] < weights[-1]
@@ -108,42 +108,42 @@ def test_get_max_error_weight() -> None:
     # gives a poor estimate rather than none at all.  The lightest eligible weight is measured
     # against itself alone, so its share is the whole budget, which reaches half a sample whenever
     # that budget is one or more
-    assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1) == 1
-    assert _monte_carlo._get_max_error_weight(block_length, max_error_rate, 1, 7) == 7
+    assert monte_carlo._get_max_error_weight(block_length, max_error_rate, 1) == 1
+    assert monte_carlo._get_max_error_weight(block_length, max_error_rate, 1, 7) == 7
 
     # a zero error rate, or a claim that every possible weight decodes perfectly, leaves nothing
-    # that can fail in range, so the whole range is covered and nothing in it is charged as failure
-    assert _monte_carlo._get_max_error_weight(block_length, 0.0, 10**9) == block_length
+    # that can fail in range, so the whole range is covered and nothing in it is a failure
+    assert monte_carlo._get_max_error_weight(block_length, 0.0, 10**9) == block_length
     assert (
-        _monte_carlo._get_max_error_weight(
+        monte_carlo._get_max_error_weight(
             block_length, max_error_rate, 10**9, min_error_weight=block_length + 1
         )
         == block_length
     )
 
     # an empty code has no error weights to cover at all
-    assert _monte_carlo._get_max_error_weight(0, max_error_rate, 10**9) == 0
+    assert monte_carlo._get_max_error_weight(0, max_error_rate, 10**9) == 0
 
 
 def test_get_sample_allocation() -> None:
     """Allocation of samples across error weights."""
-    allocation = _monte_carlo._get_sample_allocation(1000, block_length=10, max_error_rate=0.2)
+    allocation = monte_carlo.get_sample_allocation(1000, block_length=10, max_error_rate=0.2)
     assert allocation[0] == 0  # weight 0 (no error) is not sampled
     assert np.sum(allocation) >= 1000  # every requested sample is allocated
     assert np.all(allocation[1:] > 0)  # no sampled weight is left without data
 
     # a larger budget covers more weights, so that spending more samples also shrinks the mass
-    # charged as certain failure above them (see _get_max_error_weight)
+    # treated as failures above them (see _get_max_error_weight)
     sizes = [
-        _monte_carlo._get_sample_allocation(num_samples, 40, 0.2).size
+        monte_carlo.get_sample_allocation(num_samples, 40, 0.2).size
         for num_samples in [10, 1000, 100000, 10**9]
     ]
     assert sizes == sorted(sizes) and sizes[0] < sizes[-1]
 
     # the budget is apportioned in proportion to the envelope of the weight distribution
     num_samples, block_length, max_error_rate = 10**6, 40, 0.2
-    allocation = _monte_carlo._get_sample_allocation(num_samples, block_length, max_error_rate)
-    probs = _monte_carlo._get_max_error_probs_by_weight(
+    allocation = monte_carlo.get_sample_allocation(num_samples, block_length, max_error_rate)
+    probs = monte_carlo._get_max_error_probs_by_weight(
         block_length, max_error_rate, allocation.size - 1
     )
     # each weight takes the floor of its share and the leftover samples go to the weights whose
@@ -163,46 +163,46 @@ def test_get_sample_allocation() -> None:
     # floor of each share is what makes that hold, which these parameters are chosen to expose:
     # rounding to nearest instead would spend more than the budget, leaving nothing to redistribute
     num_samples, block_length = 1000, 5
-    allocation = _monte_carlo._get_sample_allocation(num_samples, block_length, 0.2)
-    probs = _monte_carlo._get_max_error_probs_by_weight(block_length, 0.2, allocation.size - 1)
+    allocation = monte_carlo.get_sample_allocation(num_samples, block_length, 0.2)
+    probs = monte_carlo._get_max_error_probs_by_weight(block_length, 0.2, allocation.size - 1)
     shares = probs[1:] / probs.sum() * num_samples
     assert np.min(shares) > 1 and np.round(shares).sum() > num_samples
     assert np.sum(allocation) == num_samples
 
     # weights that the decoder is taken to decode perfectly get no samples at all
-    allocation = _monte_carlo._get_sample_allocation(1000, 40, 0.2, min_error_weight=4)
+    allocation = monte_carlo.get_sample_allocation(1000, 40, 0.2, min_error_weight=4)
     assert not allocation[:4].any() and np.all(allocation[4:] > 0)
 
     # weight 0 is a no-error case, so a min_error_weight below one is rejected
     with pytest.raises(ValueError, match="min_error_weight must be at least 1"):
-        _monte_carlo._get_sample_allocation(1000, 10, 0.2, min_error_weight=0)
+        monte_carlo.get_sample_allocation(1000, 10, 0.2, min_error_weight=0)
 
     # an empty budget measures nothing, so it covers exactly the weights a caller has declared
-    # cannot fail and charges every heavier error as a failure: the whole reported rate is then
+    # cannot fail and treats every heavier error as a failure: the whole reported rate is then
     # truncation, and the declared weights stay out of it
-    assert np.array_equal(_monte_carlo._get_sample_allocation(0, 10, 0.2), [0])
-    assert np.array_equal(_monte_carlo._get_sample_allocation(0, 10, 0.2, 4), np.zeros(4))
+    assert np.array_equal(monte_carlo.get_sample_allocation(0, 10, 0.2), [0])
+    assert np.array_equal(monte_carlo.get_sample_allocation(0, 10, 0.2, 4), np.zeros(4))
 
     # a claim reaching past the block length covers the same weights as one that stops there, and is
     # clamped to it rather than sizing the returned array by the claim
     assert np.array_equal(
-        _monte_carlo._get_sample_allocation(0, 10, 0.2, 10**8),
-        _monte_carlo._get_sample_allocation(1000, 10, 0.2, 10**8),
+        monte_carlo.get_sample_allocation(0, 10, 0.2, 10**8),
+        monte_carlo.get_sample_allocation(1000, 10, 0.2, 10**8),
     )
 
     # nothing worth sampling is a different statement: it says the weights in range do not fail, so
-    # the range is covered without spending anything on it, and nothing in it is charged as failure
+    # the range is covered without spending anything on it, and nothing in it is a failure
     for allocation, covered in [
-        (_monte_carlo._get_sample_allocation(1000, 10, 0.0), 11),  # no error possible
-        (_monte_carlo._get_sample_allocation(1000, 10, 0.05, 20), 11),  # none of them can fail
-        (_monte_carlo._get_sample_allocation(1000, 0, 0.2), 1),  # no error locations to err
+        (monte_carlo.get_sample_allocation(1000, 10, 0.0), 11),  # no error possible
+        (monte_carlo.get_sample_allocation(1000, 10, 0.05, 20), 11),  # none of them can fail
+        (monte_carlo.get_sample_allocation(1000, 0, 0.2), 1),  # no error locations to err
     ]:
         assert np.array_equal(allocation, np.zeros(covered))
 
     # an error rate outside [0, 1] is rejected rather than building a nonsense weight distribution
     for max_error_rate in [-0.1, 1.5, float("nan")]:
         with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
-            _monte_carlo._get_sample_allocation(1000, 10, max_error_rate)
+            monte_carlo.get_sample_allocation(1000, 10, max_error_rate)
 
 
 def test_get_error_and_erasure() -> None:
@@ -221,12 +221,12 @@ def test_get_error_and_erasure() -> None:
 
     # a plain decoder returns the inferred error and no erasure
     decoder = _Decoder(np.array([1, 1, 0, 0], dtype=np.uint8))
-    error, erasure = _monte_carlo._get_error_and_erasure(decoder, syndrome)
+    error, erasure = monte_carlo.get_error_and_erasure(decoder, syndrome)
     assert not erasure and isinstance(error, field) and np.array_equal(error, field([1, 1, 0, 0]))
 
     # an erasure-enabled decoder strips the last (erasure) bit and reports it
     decoder = _Decoder(np.array([1, 1, 0, 0, 1], dtype=np.uint8), has_erasure_bit=True)
-    error, erasure = _monte_carlo._get_error_and_erasure(decoder, syndrome)
+    error, erasure = monte_carlo.get_error_and_erasure(decoder, syndrome)
     assert erasure and np.array_equal(error, field([1, 1, 0, 0]))
 
 
@@ -234,7 +234,7 @@ def test_jeffreys_variance() -> None:
     """Posterior variance of a binomial rate under a Jeffreys prior."""
     events = np.array([0, 0, 5])
     trials = np.array([0, 100, 100])
-    variances = _monte_carlo._jeffreys_variance(events, trials)
+    variances = monte_carlo.jeffreys_variance(events, trials)
 
     # no data reverts to the prior variance 1/8 (Beta(1/2, 1/2))
     assert np.isclose(variances[0], 1 / 8)
@@ -253,7 +253,7 @@ def test_error_rate_func_validation() -> None:
     def make(
         samples: list[int], failures: list[int], discards: list[int], min_error_weight: int = 1
     ) -> None:
-        _monte_carlo.ErrorRateFunc(
+        monte_carlo.ErrorRateFunc(
             min_error_weight=min_error_weight,
             num_samples=np.array(samples),
             num_failures=np.array(failures),
@@ -296,7 +296,7 @@ def test_error_rate_func_validation() -> None:
 
     # the maximum error rate must be a probability
     with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
-        _monte_carlo.ErrorRateFunc(
+        monte_carlo.ErrorRateFunc(
             num_samples=np.array([0, 10]),
             num_failures=np.array([0, 1]),
             num_discards=np.array([0, 0]),
@@ -312,7 +312,7 @@ def test_error_bar_survives_zero_failures() -> None:
     zero at every weight with no observed failures, so the aggregate error bar collapses to zero
     in precisely the rare-event regime the estimate exists to measure.
     """
-    func = _monte_carlo.ErrorRateFunc(
+    func = monte_carlo.ErrorRateFunc(
         num_samples=np.array([1, 100, 100]),
         num_failures=np.array([0, 0, 0]),  # no observed failures at any weight
         num_discards=np.array([0, 0, 0]),
@@ -338,7 +338,7 @@ def test_error_rate_rises_from_zero() -> None:
     """
     num_samples = np.full(9, 10)
     num_samples[0] = 0
-    func = _monte_carlo.ErrorRateFunc(
+    func = monte_carlo.ErrorRateFunc(
         num_samples=num_samples,
         num_failures=np.where(np.arange(9) > 4, num_samples, 0),
         num_discards=np.zeros(9, dtype=int),
@@ -357,7 +357,7 @@ def test_error_rate_rises_from_zero() -> None:
     # a covered range reaching the block length has no weight above it left to bound, including at
     # an error rate of one, where the closed form has an empty range to report
     counts = np.zeros(2, dtype=int)
-    func = _monte_carlo.ErrorRateFunc(counts, counts, counts, 1, 1.0)
+    func = monte_carlo.ErrorRateFunc(counts, counts, counts, 1, 1.0)
     assert func(1.0)[0] == 0 and func.truncation_error_bound(1.0) == 0
 
 
@@ -368,7 +368,7 @@ def test_error_rate_func_min_error_weight() -> None:
     variance 1/8, and at a small physical error rate they carry the largest weight probabilities,
     so they would dominate the reported uncertainty while carrying no information at all.
     """
-    func = _monte_carlo.ErrorRateFunc(
+    func = monte_carlo.ErrorRateFunc(
         num_samples=np.array([0, 0, 0, 100]),
         num_failures=np.array([0, 0, 0, 5]),
         num_discards=np.array([0, 0, 0, 0]),
@@ -383,7 +383,7 @@ def test_error_rate_func_min_error_weight() -> None:
 
 def test_error_rate_func() -> None:
     """Convert raw failure and discard counts into error and discard rate estimates."""
-    func = _monte_carlo.ErrorRateFunc(
+    func = monte_carlo.ErrorRateFunc(
         num_samples=np.array([1, 100, 100]),
         num_failures=np.array([0, 10, 0]),
         num_discards=np.array([0, 0, 100]),  # every weight-2 sample is discarded
@@ -432,7 +432,7 @@ def test_error_rate_func() -> None:
 
 
 def _expected_rate_and_error(
-    func: _monte_carlo.ErrorRateFunc, error_rate: float, *, discard_rate: bool = False
+    func: monte_carlo.ErrorRateFunc, error_rate: float, *, discard_rate: bool = False
 ) -> tuple[float, float]:
     """Recompute a reported rate and uncertainty by an independent route.
 
@@ -453,13 +453,13 @@ def _expected_rate_and_error(
     variances = scipy.stats.beta(events + 0.5, trials - events + 0.5).var()
     variances = np.where(weights < func.min_error_weight, 0.0, variances)
 
-    # weights above the covered range are charged as certain failures, and only on that path
-    charge = 0.0
+    # weights above the covered range are all treated as failures, and only on that path
+    truncation = 0.0
     if not discard_rate:
-        charge = float(
+        truncation = float(
             scipy.stats.binom.sf(func.max_error_weight, func.num_error_locations, error_rate)
         )
-    return float(weight_probs @ rates) + charge, float(np.sqrt(weight_probs**2 @ variances))
+    return float(weight_probs @ rates) + truncation, float(np.sqrt(weight_probs**2 @ variances))
 
 
 def test_reported_uncertainty_is_the_propagated_posterior() -> None:
@@ -470,10 +470,10 @@ def test_reported_uncertainty_is_the_propagated_posterior() -> None:
     swapping either the rates or the variances between the paths changes both answers.  They also
     put a weight at each extreme -- one that always fails, one whose every sample is discarded and
     which therefore has no kept samples at all -- and leave weights above the covered range for the
-    truncation charge to act on.
+    truncation term to act on.
     """
     cases = [
-        _monte_carlo.ErrorRateFunc(
+        monte_carlo.ErrorRateFunc(
             num_samples=np.array([0, 8, 5, 4]),
             num_failures=np.array([0, 3, 5, 0]),
             num_discards=np.array([0, 2, 0, 4]),
@@ -482,7 +482,7 @@ def test_reported_uncertainty_is_the_propagated_posterior() -> None:
         ),
         # the same counts held to be perfectly decoded below weight two, so that the weights
         # min_error_weight excludes are the ones carrying the most probability
-        _monte_carlo.ErrorRateFunc(
+        monte_carlo.ErrorRateFunc(
             num_samples=np.array([0, 0, 8, 5, 4]),
             num_failures=np.array([0, 0, 3, 5, 0]),
             num_discards=np.array([0, 0, 2, 0, 4]),
@@ -521,7 +521,7 @@ def test_reported_uncertainty_is_the_propagated_posterior() -> None:
 
 def test_error_rate_func_single_weight() -> None:
     """A degenerate func covering only the weight-0 bin evaluates without crashing."""
-    func = _monte_carlo.ErrorRateFunc(
+    func = monte_carlo.ErrorRateFunc(
         num_samples=np.array([0]),
         num_failures=np.array([0]),
         num_discards=np.array([0]),
@@ -531,9 +531,9 @@ def test_error_rate_func_single_weight() -> None:
     assert func.max_error_weight == 0
 
     # every error of weight >= 1 lies outside the covered range, so nothing measured contributes and
-    # the reported rate is the charge alone, with no uncertainty around it.  A discard rate takes no
-    # charge, so it stays at zero
-    charge = func.truncation_error_bound(0.1)
-    assert np.isclose(charge, 1 - 0.9**5)
-    assert func(0.1) == (charge, 0)
+    # the reported rate is the truncation term alone, with no uncertainty around it.  A discard
+    # rate takes no such term, so it stays at zero
+    truncation = func.truncation_error_bound(0.1)
+    assert np.isclose(truncation, 1 - 0.9**5)
+    assert func(0.1) == (truncation, 0)
     assert func(0.1, discard_rate=True) == (0, 0)

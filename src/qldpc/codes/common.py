@@ -40,8 +40,8 @@ from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
-from ._monte_carlo import ErrorRateFunc, _get_error_and_erasure, _get_sample_allocation
 from .distance import get_distance_classical, get_distance_quantum
+from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_allocation
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
@@ -760,8 +760,8 @@ class ClassicalCode(AbstractCode):
         rate: a posterior standard deviation covering statistical error alone.  An error bar that
         also covers the errors too heavy for the sample budget to have reached is asymmetric, and
         should be drawn from ``max(value - error - func.truncation_error_bound(p), 0)`` up to
-        ``value + error``, because such errors are charged as certain failures, which makes the rate
-        a high estimate.  See help(qldpc.codes.ErrorRateFunc).
+        ``value + error``, because such errors are all treated as failures, which makes the rate a
+        high estimate.  See help(qldpc.codes.ErrorRateFunc).
 
         If the decoder is known to correct every error of weight below min_error_weight, saying so
         skips sampling those weights and drops their contribution to the reported uncertainty,
@@ -809,7 +809,7 @@ class ClassicalCode(AbstractCode):
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(
+        sample_allocation = get_sample_allocation(
             num_samples, len(self), max_error_rate, min_error_weight
         )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
@@ -844,7 +844,7 @@ class ClassicalCode(AbstractCode):
 
             # decode the error
             syndrome = self.matrix @ error
-            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            decoded_error, erasure = get_error_and_erasure(decoder, syndrome)
             if erasure:
                 num_discards += 1
             elif np.any(decoded_error - error):
@@ -2163,7 +2163,7 @@ class QuditCode(AbstractCode):
         sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
         acts on, so a single-qudit error has weight one whichever Pauli it applies.
 
-        Errors heavier than the sample budget could reach go unsampled and are charged as certain
+        Errors heavier than the sample budget could reach go unsampled and are all treated as
         failures, making the reported rate a high estimate by an amount the constructed function's
         truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
 
@@ -2185,7 +2185,7 @@ class QuditCode(AbstractCode):
         logical_ops = self.get_logical_ops()
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(
+        sample_allocation = get_sample_allocation(
             num_samples, len(self), max_error_rate, min_error_weight
         )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
@@ -2248,7 +2248,7 @@ class QuditCode(AbstractCode):
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
-            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            decoded_error, erasure = get_error_and_erasure(decoder, syndrome)
             if erasure:
                 num_discards += 1
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
@@ -3399,7 +3399,7 @@ class CSSCode(QuditCode):
         sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
         acts on, so a single-qudit error has weight one whichever Pauli it applies.
 
-        Errors heavier than the sample budget could reach go unsampled and are charged as certain
+        Errors heavier than the sample budget could reach go unsampled and are all treated as
         failures, making the reported rate a high estimate by an amount the constructed function's
         truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
 
@@ -3431,7 +3431,7 @@ class CSSCode(QuditCode):
         logicals_z = self.get_logical_ops(Pauli.Z)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(
+        sample_allocation = get_sample_allocation(
             num_samples, len(self), max_error_rate, min_error_weight
         )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
@@ -3495,7 +3495,7 @@ class CSSCode(QuditCode):
                 range(1, self.field.order), size=len(error_locs_z)
             )
             syndrome_z = stabilizer_ops_x @ error_z
-            decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
+            decoded_error_z, erasure = get_error_and_erasure(decoder_z, syndrome_z)
             if erasure:
                 num_discards += 1
                 continue
@@ -3514,7 +3514,7 @@ class CSSCode(QuditCode):
                 range(1, self.field.order), size=len(error_locs_x)
             )
             syndrome_x = stabilizer_ops_z @ error_x
-            decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
+            decoded_error_x, erasure = get_error_and_erasure(decoder_x, syndrome_x)
             if erasure:
                 num_discards += 1
                 continue
