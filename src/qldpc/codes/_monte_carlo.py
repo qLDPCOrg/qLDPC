@@ -119,7 +119,7 @@ class ErrorRateFunc:
             raise ValueError("failures plus discards cannot exceed the samples at any weight")
         if not 0 <= self.max_error_rate <= 1:
             raise ValueError("max_error_rate must lie in [0, 1]")
-        self.min_error_weight = _as_error_weight(self.min_error_weight)
+        _check_error_weight(self.min_error_weight)
         # the weight-0 case is the min_error_weight=1 instance of this check: a no-error sample can
         # neither fail nor be discarded
         below = slice(None, self.min_error_weight)
@@ -252,12 +252,10 @@ class ErrorRateFunc:
         )
 
 
-def _as_error_weight(min_error_weight: float) -> int:
-    """Round a minimum failing error weight to a whole number, rejecting anything below one."""
-    min_error_weight = round(min_error_weight)
+def _check_error_weight(min_error_weight: int) -> None:
+    """Reject a minimum failing error weight below one."""
     if min_error_weight < 1:
         raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
-    return min_error_weight
 
 
 def _jeffreys_variance(
@@ -282,7 +280,7 @@ def _jeffreys_variance(
 
 
 def _get_sample_allocation(
-    num_samples: float, block_length: int, max_error_rate: float, min_error_weight: float = 1
+    num_samples: int, block_length: int, max_error_rate: float, min_error_weight: int = 1
 ) -> npt.NDArray[np.int_]:
     """Construct an allocation of samples by error weight.
 
@@ -320,9 +318,7 @@ def _get_sample_allocation(
     """
     if not 0 <= max_error_rate <= 1:
         raise ValueError("max_error_rate must lie in [0, 1]")
-    # counts arrive rounded, so that a budget or a weight written as a float is taken at face value
-    num_samples = round(num_samples)
-    min_error_weight = _as_error_weight(min_error_weight)
+    _check_error_weight(min_error_weight)
     # an empty budget measures nothing, so cover only the weights a caller has declared cannot fail.
     # Every heavier error lies above the covered range, where ErrorRateFunc charges it as a certain
     # failure, so knowing nothing is reported as a rate that is entirely charge.  The weights below
