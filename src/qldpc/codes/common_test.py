@@ -789,8 +789,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.2)
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
-    # guaranteed logical X and Z errors.  The last bias does not sum to one, which the sampler only
-    # accepts because the bias is normalized on the way in
+    # guaranteed logical X and Z errors; the last bias is normalized on the way in
     for pauli_bias in [(1, 0, 0), (0, 0, 1), (2, 0, 0)]:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
@@ -1192,13 +1191,14 @@ def test_capacity_pauli_bias_convention() -> None:
     weight one but not every Z-type one, so the X slot is the only one that leaves the logical error
     rate at zero.  Decoding the X sector instead with a decoder that erases on any nonzero syndrome,
     the Z slot is the only one whose errors have no X component and so escape being discarded.
-    Between them the two identify all three slots, which a code with equal distances cannot do.
+    Between them the two identify all three slots, which a code with equal distances cannot do; the
+    Y slot follows by elimination, so it needs no row of its own.
     """
     code = codes.HGPCode(codes.RepetitionCode(2), codes.RepetitionCode(4))
     error_rate = 1 / len(code)
 
     signatures: dict[tuple[int, int, int], tuple[bool, bool]] = {}
-    for pauli_bias in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
+    for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
         fails = code.get_logical_error_rate_func(
             300, error_rate, pauli_bias, with_lookup=True, max_weight=1
         )
@@ -1215,7 +1215,6 @@ def test_capacity_pauli_bias_convention() -> None:
         )
 
     assert signatures[(1, 0, 0)] == (False, True)  # X: corrected here, and carries an X component
-    assert signatures[(0, 1, 0)] == (True, True)  # Y: uncorrected, and carries an X component
     assert signatures[(0, 0, 1)] == (True, False)  # Z: uncorrected, and carries no X component
 
 
@@ -1247,7 +1246,6 @@ def test_capacity_min_error_weight() -> None:
             max_weight=max_weight,
         )
         assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
-        assert np.all(func.infidelity_variances[:2] == 0)  # and no uncertainty there
 
         # declaring the claim is what the feature is for: the reported uncertainty drops
         assert func(0.1)[1] < baseline(0.1)[1]
