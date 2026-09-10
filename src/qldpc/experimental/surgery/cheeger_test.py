@@ -8,7 +8,7 @@ import pytest
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
-from ._webster_fixture import (
+from .conftest import (
     _webster_x_bar_operator,
     build_generalised_bicycle_code,
     load_webster_seed_set,
@@ -90,7 +90,7 @@ def test_boost_gadget_preserves_css_commutation_both_bases(basis: PauliXZ) -> No
         build_gadget,
     )
 
-    from ._webster_fixture import _webster_z_bar_operator
+    from .conftest import _webster_z_bar_operator
 
     d = load_webster_seed_set(0)
     c = build_generalised_bicycle_code(d["l"], d["A"], d["B"])

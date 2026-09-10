@@ -8,7 +8,7 @@ import pytest
 from qldpc import codes
 from qldpc.objects import Pauli
 
-from ._webster_fixture import (
+from .conftest import (
     _webster_z_bar_operator,
     build_generalised_bicycle_code,
     load_webster_seed_set,
