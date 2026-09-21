@@ -174,11 +174,11 @@ def test_bch_block_lengths() -> None:
     # valid: q**m - 1.  Digits of these lengths are non-decimal in base q > 10, which a
     # string-based check on the base-q representation would reject.
     for length, order in [(1, 2), (15, 2), (8, 3), (120, 11), (168, 13), (16, 17)]:
-        assert codes.classical._is_valid_bch_length(length, order)
+        assert codes.BCHCode._is_valid_bch_length(length, order)
 
     # invalid: negative, or not one less than a power of the field order, or m == 0
     for length, order in [(-4, 2), (-1, 2), (0, 2), (6, 2), (14, 2), (7, 3), (119, 11)]:
-        assert not codes.classical._is_valid_bch_length(length, order)
+        assert not codes.BCHCode._is_valid_bch_length(length, order)
 
     # a valid length over a field of order greater than 10 builds a code of the asked-for dimension,
     # which its parity checks have to agree with
