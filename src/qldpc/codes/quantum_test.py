@@ -546,6 +546,12 @@ def test_hypergraph_product_syndrome_subgraphs() -> None:
     # a seed code with no parity checks contributes no vertical edges at all
     assert_valid_subgraphs(codes.HGPCode(codes.RepetitionCode(1), codes.RepetitionCode(3)))
 
+    # a check that addresses no bits of a seed code still addresses qudits of the product, so the
+    # subgraphs have to cover its edges
+    assert_valid_subgraphs(
+        codes.HGPCode(codes.ClassicalCode([[1, 1, 0], [0, 0, 0]]), codes.RepetitionCode(3))
+    )
+
 
 def test_cyclic_hypergraph_product_codes() -> None:
     """CHGPCode and CRCode."""

@@ -310,13 +310,19 @@ class ClassicalCode(AbstractCode):
         The Tanner graph is a bipartite graph with (num_checks, num_bits) vertices, respectively
         identified with the checks and bits of the code.  The check vertex c and the bit vertex b
         share an edge iff c addresses b; that is, edge (c, b) is in the graph iff ``H[c, b] != 0``.
+
+        A check that addresses no bits, as an all-zero row of H defines, is an isolated vertex of
+        the graph.  Seeding a vertex for every row keeps the check vertices in correspondence with
+        the rows of H, which is what lets ClassicalCode.graph_to_matrix recover H.
         """
         matrix = np.asanyarray(matrix)
 
-        # initialize graph with nodes
+        # initialize graph with nodes, data before checks
         graph = nx.DiGraph()
         for bit in range(matrix.shape[-1]):
             graph.add_node(Node(index=bit, is_data=True))
+        for check in range(len(matrix)):
+            graph.add_node(Node(index=check, is_data=False))
 
         # add edges
         for row, col in zip(*np.nonzero(matrix)):
