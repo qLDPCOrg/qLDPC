@@ -5,7 +5,7 @@ methods of the code classes into logical error and discard rate estimates, and s
 that those methods perform.  They depend only on the decoder interface and on the binomial weight
 distribution, not on the code classes themselves, so they live in their own module.
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
+Copyright 2025 The qLDPC Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

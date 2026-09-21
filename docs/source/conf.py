@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.abspath("../../src"))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "qLDPC"
-copyright = "2023 The qLDPC Authors and Infleqtion Inc."  # pylint:disable=redefined-builtin
+# Sphinx renders this as "(c) Copyright {copyright}.", so "Inc" takes no period of its own.
+copyright = "2023-2026 The qLDPC Authors and Infleqtion Inc"  # pylint:disable=redefined-builtin
 author = "Michael A. Perlin"
 
 # -- General configuration ---------------------------------------------------
