@@ -49,63 +49,28 @@ class ErrorRateFunc:
     (1) A logical error rate, estimated over the error weights that were sampled.
     (2) A statistical uncertainty in that rate: the standard deviation propagated from the
         per-weight Jeffreys posterior variances.
-    If called with an array of physical error rates, this function returns two arrays.
+    If called with an array of physical error rates, this function returns two arrays.  If called
+    with discard_rate=True, it computes a discard rate instead of an error rate.
 
-    Errors heavier than max_error_weight go unmeasured, and are all treated as failures:
-    func.truncation_error_bound(p) is the probability of such an error, and (1) includes all of it.
-    That puts (1) above the true rate on this account, by at most that bound, and makes the error
-    bar to draw asymmetric.  Given ``value, error = func(p)``, draw it as
+    Errors of weight above the max_error_weight are never sampled, and this class counts every one
+    of them as a failure.  The reported error rate therefore sits above the true error rate, by at
+    most func.truncation_error_bound(p), which is the probability of drawing such a heavy error.
+    A plot of the reported rate usually carries a vertical bar spanning the range in which the true
+    rate might lie.  That bar is asymmetric here: the statistical uncertainty spreads in both
+    directions, but counting the unsampled errors as failures only pushes the reported rate up.
+    Writing ``value, error = func(p)``, the bottom and top of the bar are
 
         ``lower = max(value - error - func.truncation_error_bound(p), 0)``,
         ``upper = value + error``.
 
-    Two effects pull (1) the other way, by amounts nothing here reports: a weight inside the covered
-    range whose every sample was discarded is recorded failure-free, and a min_error_weight the
-    decoder does not live up to leaves out weights that can fail.  So (1) is high on the truncation
-    account alone, not overall.
+    The error bar defined by ``lower`` and ``upper`` is almost, but not exactly a confidence
+    interval: its lower edge mixes a posterior standard deviation with a bound that is not statistical at all.  Read it as a rough indication of what is unknown.
 
-    The bound is offered separately as well, because where the budget cannot reach the bulk of the
-    weight distribution (1) is almost entirely that bound, and so is artifact rather than
-    measurement.
+    No truncation bound enters a discard rate, because an error counted as a failure is not counted
+    as a discard.  A discard rate's bar runs from ``value - error`` to ``value + error``.
 
-    How much treating those weights as failures overstates their true contribution depends on where
-    max_error_weight falls relative to the weights on which the decoder starts failing reliably.
-    For a qubit stabilizer code the failure rate at large weight approaches 1 - 4**-dimension, a
-    heavy Pauli error being corrected to a near-uniform choice among the 4**dimension logical
-    classes, only one of which is trivial; treating such a weight as a certain failure overstates it
-    by a factor of 1 / (1 - 4**-dimension), which is 4/3 at dimension one and falls rapidly toward
-    one as the dimension grows.  That limit sits well above the weight an ordinary budget reaches,
-    and a decoder whose correction radius exceeds max_error_weight makes the gap decisive: the
-    omitted weights are then corrected rather than failed, and the bound exceeds their true
-    contribution without limit.
-
-    The lower edge is clamped because a rate cannot be negative while the uncertainty alone can
-    exceed the measured part of it.
-
-    A discard rate is not subject to any of this, an error treated as a failure not being a discard,
-    so its bar is ``value - error`` up to ``value + error``.  It is still truncated at
-    max_error_weight, which leaves out the discard behaviour of heavier errors.
-
-    This bar is not a confidence interval at any stated level: its lower edge mixes one posterior
-    standard deviation with a term that is not statistical at all.  Read it as an indication of how
-    much is not known rather than as a probability statement.
-
-    If called with the keyword argument discard_rate=True, compute a discard rate rather than an
-    error rate.
-
-    Errors of weight below min_error_weight are taken to be decoded perfectly, so they contribute
-    no uncertainty at all rather than the uncertainty that finitely many samples would leave
-    behind.  This matters because the weight distribution puts most of its mass on light errors
-    when the physical error rate is small, so at small error rates those weights would otherwise
-    dominate the reported uncertainty while carrying no information.
-
-    A min_error_weight above one is taken on trust.  Those weights are not sampled, so nothing
-    here can test the claim, and a claim that is false makes the reported error rate too small --
-    unboundedly so at small physical error rates, where the weights it excludes are the ones that
-    carry the error rate.  The claim is about a particular decoder rather than about the code: a
-    decoder that does not return a minimum-weight correction can fail on errors far lighter than
-    half the code distance, so min_error_weight cannot be read off the distance.  Establishing it
-    means checking the decoder, for example by enumerating every error of the weights in question.
+    Errors of weight below min_error_weight are assumed to decode perfectly, which keeps light
+    errors from dominating the reported uncertainty at small physical error rates.
     """
 
     # number of times we sampled each error weight
