@@ -65,7 +65,9 @@ class ErrorRateFunc:
 
     The error bar defined by ``lower`` and ``upper`` is almost, but not exactly a confidence
     interval: its lower edge mixes a posterior standard deviation with a bound that is not
-    statistical at all.  Read it as a rough indication of what is unknown.
+    statistical at all, and its center is the observed failure rate rather than the mean of the
+    posterior that supplies its width (see infidelities).  Read it as a rough indication of what is
+    unknown.
 
     No truncation bound enters a discard rate, because an error counted as a failure is not counted
     as a discard.  A discard rate's bar runs from ``value - error`` to ``value + error``.
@@ -117,7 +119,12 @@ class ErrorRateFunc:
 
     @property
     def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight."""
+        """Mean infidelity at each error weight.
+
+        This is the observed failure rate.  The posterior whose variance infidelity_variances
+        reports sits above it, by 1/(2n + 2) at a weight with n kept samples and no observed
+        failure, so the reported rate and its uncertainty do not come from the same estimator.
+        """
         return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
 
     @property
