@@ -64,7 +64,8 @@ class ErrorRateFunc:
         ``upper = value + error``.
 
     The error bar defined by ``lower`` and ``upper`` is almost, but not exactly a confidence
-    interval: its lower edge mixes a posterior standard deviation with a bound that is not statistical at all.  Read it as a rough indication of what is unknown.
+    interval: its lower edge mixes a posterior standard deviation with a bound that is not
+    statistical at all.  Read it as a rough indication of what is unknown.
 
     No truncation bound enters a discard rate, because an error counted as a failure is not counted
     as a discard.  A discard rate's bar runs from ``value - error`` to ``value + error``.
