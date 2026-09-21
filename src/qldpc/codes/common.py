@@ -40,8 +40,8 @@ from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
-from ._monte_carlo import ErrorRateFunc, _get_error_and_erasure, _get_sample_allocation
 from .distance import get_distance_classical, get_distance_quantum
+from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_allocation
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
@@ -747,12 +747,28 @@ class ClassicalCode(AbstractCode):
         return self.shortened(bits)
 
     def get_logical_error_rate_func(
-        self, num_samples: int, max_error_rate: float = 0.3, **decoder_kwargs: Any
+        self,
+        num_samples: int,
+        max_error_rate: float = 0.1,
+        *,
+        min_error_weight: int = 1,
+        **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        In addition to the logical error rate, the constructed function returns an uncertainty in
-        that logical error rate: a posterior standard deviation (see ErrorRateFunc).
+        Alongside the logical error rate, the constructed function returns an uncertainty in that
+        rate: a posterior standard deviation covering statistical error alone.  An error bar that
+        also covers the errors too heavy for the sample budget to have reached is asymmetric, and
+        should be drawn from ``max(value - error - func.truncation_error_bound(p), 0)`` up to
+        ``value + error``, because such errors are all treated as failures, which makes the rate a
+        high estimate.  See help(qldpc.codes.ErrorRateFunc).
+
+        If the decoder is known to correct every error of weight below min_error_weight, saying so
+        skips sampling those weights and drops their contribution to the reported uncertainty,
+        which otherwise dominates that uncertainty at small physical error rates while carrying no
+        information.  The claim is taken on trust and understates the reported failure or discard
+        rate if it is false; it is a claim about the decoder rather than about the code, and cannot
+        be read off the code distance.  See help(qldpc.codes.ErrorRateFunc) for the full caveats.
 
         The physical error rate provided to the constructed function is the probability with which
         each bit experiences a bit-flip error.  The constructed function will throw an error if
@@ -785,20 +801,30 @@ class ClassicalCode(AbstractCode):
 
             ``F(p) = q_0(p) + sum_(k>0) q_k(p) F_k``.
 
-        We thereby only need to sample errors of weight ``k > 0``.
+        We thereby only need to sample errors of weight ``k > 0``, or of weight
+        ``k >= min_error_weight`` when a caller sets that higher, since ``F_k = 1`` for every weight
+        declared to be decoded perfectly.  The sum runs only as far as the heaviest weight the
+        budget reached, and ``F_k = 0`` is assumed above that.
         """
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
+        for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
                 weight, sample_allocation[weight], decoder
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
     def _sample_failure_and_discard_counts(
@@ -812,13 +838,13 @@ class ClassicalCode(AbstractCode):
         num_discards = 0
         for _ in range(num_samples):
             # construct an error
-            error_locations = random.sample(range(len(self)), error_weight)
+            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
             error = self.field.Zeros(len(self))
             error[error_locations] = np.random.choice(self.field.elements[1:], size=error_weight)
 
             # decode the error
             syndrome = self.matrix @ error
-            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            decoded_error, erasure = get_error_and_erasure(decoder, syndrome)
             if erasure:
                 num_discards += 1
             elif np.any(decoded_error - error):
@@ -2104,14 +2130,17 @@ class QuditCode(AbstractCode):
     def get_logical_error_rate_func(
         self,
         num_samples: int,
-        max_error_rate: float = 0.3,
+        max_error_rate: float = 0.1,
         pauli_bias: Sequence[float] | None = None,
+        *,
+        min_error_weight: int = 1,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty in
-        that logical error rate: a posterior standard deviation (see ErrorRateFunc).
+        that logical error rate: a posterior standard deviation covering statistical error alone
+        (see help(qldpc.codes.ErrorRateFunc)).
 
         The physical error rate provided to the constructed function is the probability with which
         each qubit experiences a Pauli error.  The constructed function will throw an error if
@@ -2130,41 +2159,53 @@ class QuditCode(AbstractCode):
         computed correctly, but it can overestimate the logical error rate achievable with a
         decoder tailored to the code.
 
+        Errors of weight below min_error_weight are taken to be decoded perfectly and are not
+        sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
+        acts on, so a single-qudit error has weight one whichever Pauli it applies.
+
+        Errors heavier than the sample budget could reach go unsampled and are all treated as
+        failures, making the reported rate a high estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
+
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        # collect relative probabilities of Z, X, and Y errors
-        pauli_bias_zxy: npt.NDArray[np.floating] | None
-        if pauli_bias is not None:
-            assert len(pauli_bias) == 3
-            pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
-            pauli_bias_zxy /= np.sum(pauli_bias_zxy)
-        else:
-            pauli_bias_zxy = None
+        pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
-        # construct a decoder from the stabilizer generators of the code; the syndrome matrix is a
-        # field array, from which get_decoder selects a decoder appropriate to the field
-        stabilizer_ops = self.get_stabilizer_ops()
-        decoder = decoders.get_decoder(math.symplectic_conjugate(stabilizer_ops), **decoder_kwargs)
+        # build the matrix that takes an error to its syndrome against the stabilizer generators of
+        # the code.  The syndrome of an error e against a generator s is their symplectic product
+        # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``.  The
+        # decoder is built to invert this same matrix, so a decoded error is a solution to the
+        # syndrome it was handed.  The matrix is a field array, from which get_decoder selects a
+        # decoder appropriate to the field.
+        syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
+        decoder = decoders.get_decoder(syndrome_matrix, **decoder_kwargs)
 
         # identify logical operators
         logical_ops = self.get_logical_ops()
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
+        for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
                 weight,
                 sample_allocation[weight],
                 decoder,
-                stabilizer_ops,
+                syndrome_matrix,
                 logical_ops,
                 pauli_bias_zxy,
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
     def _sample_failure_and_discard_counts(
@@ -2172,22 +2213,22 @@ class QuditCode(AbstractCode):
         error_weight: int,
         num_samples: int,
         decoder: decoders.Decoder,
-        stabilizer_ops: npt.NDArray[np.int_],
+        syndrome_matrix: npt.NDArray[np.int_],
         logical_ops: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
-        Syndromes are computed against the stabilizer generators in stabilizer_ops, which is the
-        matrix that the decoder is built to invert.  For a subsystem code the stabilizer generators
-        are a strict subset of the parity checks (the gauge generators), so a syndrome vector has
-        one entry per stabilizer generator rather than one per gauge generator.
+        Syndromes are computed with syndrome_matrix, which is the matrix that the decoder is built
+        to invert, so that a decoded error is a solution to the syndrome it was handed.  It is built
+        from the stabilizer generators of the code, which for a subsystem code are a strict subset
+        of the parity checks (the gauge generators), so a syndrome vector has one entry per
+        stabilizer generator rather than one per gauge generator.
 
         Return logical error and discard counts.
         """
         num_failures = 0
         num_discards = 0
-        syndrome_matrix = -math.symplectic_conjugate(stabilizer_ops)
         for _ in range(num_samples):
             # construct an error
             error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
@@ -2207,7 +2248,7 @@ class QuditCode(AbstractCode):
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
-            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            decoded_error, erasure = get_error_and_erasure(decoder, syndrome)
             if erasure:
                 num_discards += 1
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
@@ -3323,9 +3364,10 @@ class CSSCode(QuditCode):
     def get_logical_error_rate_func(
         self,
         num_samples: int,
-        max_error_rate: float = 0.3,
+        max_error_rate: float = 0.1,
         pauli_bias: Sequence[float] | None = None,
         *,
+        min_error_weight: int = 1,
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
@@ -3333,7 +3375,8 @@ class CSSCode(QuditCode):
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty in
-        that logical error rate: a posterior standard deviation (see ErrorRateFunc).
+        that logical error rate: a posterior standard deviation covering statistical error alone
+        (see help(qldpc.codes.ErrorRateFunc)).
 
         The physical error rate provided to the constructed function is the probability with which
         each qubit experiences a Pauli error.  The constructed function will throw an error if
@@ -3352,17 +3395,18 @@ class CSSCode(QuditCode):
         computed correctly, but it can overestimate the logical error rate achievable with a
         decoder tailored to the code.
 
+        Errors of weight below min_error_weight are taken to be decoded perfectly and are not
+        sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
+        acts on, so a single-qudit error has weight one whichever Pauli it applies.
+
+        Errors heavier than the sample budget could reach go unsampled and are all treated as
+        failures, making the reported rate a high estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
+
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        # collect relative probabilities of Z, X, and Y errors
-        pauli_bias_zxy: npt.NDArray[np.floating] | None
-        if pauli_bias is not None:
-            assert len(pauli_bias) == 3
-            pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
-            pauli_bias_zxy /= np.sum(pauli_bias_zxy)
-        else:
-            pauli_bias_zxy = None
+        pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
@@ -3387,10 +3431,12 @@ class CSSCode(QuditCode):
         logicals_z = self.get_logical_ops(Pauli.Z)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
+        for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = (
                 self._sample_css_failure_and_discard_counts(
                     weight,
@@ -3405,7 +3451,12 @@ class CSSCode(QuditCode):
                 )
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
     def _sample_css_failure_and_discard_counts(
@@ -3444,7 +3495,7 @@ class CSSCode(QuditCode):
                 range(1, self.field.order), size=len(error_locs_z)
             )
             syndrome_z = stabilizer_ops_x @ error_z
-            decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
+            decoded_error_z, erasure = get_error_and_erasure(decoder_z, syndrome_z)
             if erasure:
                 num_discards += 1
                 continue
@@ -3463,7 +3514,7 @@ class CSSCode(QuditCode):
                 range(1, self.field.order), size=len(error_locs_x)
             )
             syndrome_x = stabilizer_ops_z @ error_x
-            decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
+            decoded_error_x, erasure = get_error_and_erasure(decoder_x, syndrome_x)
             if erasure:
                 num_discards += 1
                 continue
@@ -3471,6 +3522,21 @@ class CSSCode(QuditCode):
                 num_failures += 1
 
         return num_failures, num_discards
+
+
+def _as_pauli_bias_zxy(
+    pauli_bias: Sequence[float] | None,
+) -> npt.NDArray[np.floating] | None:
+    """Normalize an (X, Y, Z) error bias into the (Z, X, Y) order the samplers draw in.
+
+    That order is the one the Pauli enum assigns, reading each Pauli's (x, z) components as a
+    two-bit number.
+    """
+    if pauli_bias is None:
+        return None
+    assert len(pauli_bias) == 3
+    pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
+    return pauli_bias_zxy / np.sum(pauli_bias_zxy)
 
 
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:

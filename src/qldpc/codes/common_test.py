@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import random
 import unittest.mock
 from collections.abc import Iterator, Sequence
 
@@ -249,6 +250,21 @@ def test_classical_capacity() -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.5)
     with pytest.raises(ValueError, match="error rates greater than"):
         logical_error_rate_func(1)
+
+    # both the error locations and the values placed there are drawn from numpy, as they are on the
+    # quantum paths, so seeding numpy alone reproduces a classical curve.  Drawing the locations
+    # from Python's own generator instead would leave a curve depending on state that np.random.seed
+    # does not reach, which the tests throughout this repository assume it does.  Checking that
+    # generator goes untouched pins this exactly, where comparing two runs pins it only with high
+    # probability: the counts compared are sums over samples, which collide often enough to pass by
+    # luck
+    hamming_code = codes.HammingCode(3)
+    generator_state = random.getstate()
+    np.random.seed(1)
+    curve = hamming_code.get_logical_error_rate_func(200, 0.3)(0.1)
+    assert random.getstate() == generator_state
+    np.random.seed(1)
+    assert hamming_code.get_logical_error_rate_func(200, 0.3)(0.1) == curve
 
 
 ####################################################################################################
@@ -770,11 +786,11 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     """Logical error rates in a code capacity model."""
     code = codes.FiveQubitCode()
 
-    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.2)
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
-    # guaranteed logical X and Z errors
-    for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
+    # guaranteed logical X and Z errors; the last bias is normalized on the way in
+    for pauli_bias in [(1, 0, 0), (0, 0, 1), (2, 0, 0)]:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
 
@@ -806,6 +822,17 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     )
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
     assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
+
+    # a syndrome is the symplectic product of an error with each stabilizer generator, namely
+    # ``-symplectic_conjugate(stabilizer_ops) @ error``, and the decoder is built to invert that
+    # same matrix.  The sign is invisible in characteristic two but not over an odd characteristic,
+    # so check it where it shows: paired with a decoder that corrects every symplectic-weight-2
+    # error, a distance-3 code leaves no single-qudit error uncorrected, whatever Paulis it applies.
+    qudit_code = codes.QuditCode(codes.SurfaceCode(3, field=3).matrix)
+    logical_error_rate_func = qudit_code.get_logical_error_rate_func(
+        num_samples=400, max_error_rate=1 / len(qudit_code), with_lookup=True, max_weight=2
+    )
+    assert logical_error_rate_func.infidelities[1] == 0
 
 
 def test_qudit_to_css() -> None:
@@ -1095,7 +1122,7 @@ def test_css_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.SteaneCode()
 
-    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1)
+    logical_error_rate_func = code.get_logical_error_rate_func(num_samples=1, max_error_rate=0.2)
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
 
     # guaranteed logical X and Z errors
@@ -1103,8 +1130,8 @@ def test_css_capacity() -> None:
         logical_error_rate_func = code.get_logical_error_rate_func(10, 1, pauli_bias)
         assert logical_error_rate_func(1)[0] == 1
 
-    # pauli_bias convention is (X, Y, Z); (0, 0, 1) = pure Z
-    # if the max_weight for lookup is 0, any Z syndrome triggers erasure
+    # a pure-Z bias makes every sampled error carry a Z component, and a lookup max_weight of 0
+    # recognises no nonzero syndrome, so every sampled error is erased
     logical_error_rate_func_z = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
@@ -1128,6 +1155,22 @@ def test_css_capacity() -> None:
     assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
 
+    # a Z-sector failure counts even when the X sector is decoded after it.  Without post-selection
+    # the sampler stops at the first failure, but an erasure-enabled decoder has to decode both
+    # sectors before it knows whether the sample is discarded, so the Z-sector verdict has to be
+    # carried forward.  A pure-Z bias leaves the X sector error-free, making that verdict the only
+    # thing a sample can record, and a max_weight of 1 leaves the heavier Z errors uncorrected.
+    logical_error_rate_func = code.get_logical_error_rate_func(
+        num_samples=20,
+        max_error_rate=1,
+        pauli_bias=(0, 0, 1),
+        with_lookup=True,
+        max_weight=1,
+        add_erasure_bit=True,
+    )
+    assert logical_error_rate_func(0.5)[0] > 0  # Z-sector failures are recorded
+    assert logical_error_rate_func(0.5, discard_rate=True)[0] == 0  # and nothing is discarded
+
     # a subsystem code is decoded against its stabilizer generators, whose number differs from the
     # number of parity checks (gauge generators), so a syndrome has one entry per stabilizer
     subsystem_code = codes.BaconShorCode(3)
@@ -1137,3 +1180,79 @@ def test_css_capacity() -> None:
     )
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
     assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
+
+
+def test_capacity_pauli_bias_convention() -> None:
+    """The pauli_bias argument is ordered (X, Y, Z).
+
+    A hypergraph product of two repetition codes of unequal length has unequal X-type and Z-type
+    distances, which is what lets each slot be told apart by what it does.  Paired with a decoder
+    that corrects every single-qubit error in each sector, this code corrects every X-type error of
+    weight one but not every Z-type one, so the X slot is the only one that leaves the logical error
+    rate at zero.  Decoding the X sector instead with a decoder that erases on any nonzero syndrome,
+    the Z slot is the only one whose errors have no X component and so escape being discarded.
+    Between them the two identify all three slots, which a code with equal distances cannot do; the
+    Y slot follows by elimination, so it needs no row of its own.
+    """
+    code = codes.HGPCode(codes.RepetitionCode(2), codes.RepetitionCode(4))
+    error_rate = 1 / len(code)
+
+    signatures: dict[tuple[int, int, int], tuple[bool, bool]] = {}
+    for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
+        fails = code.get_logical_error_rate_func(
+            300, error_rate, pauli_bias, with_lookup=True, max_weight=1
+        )
+        discards = code.get_logical_error_rate_func(
+            300,
+            error_rate,
+            pauli_bias,
+            decoder_x_kwargs={"with_lookup": True, "max_weight": 0, "add_erasure_bit": True},
+            decoder_z_kwargs={"with_lookup": True, "max_weight": 1},
+        )
+        signatures[pauli_bias] = (
+            bool(fails.infidelities[1] > 0),
+            bool(discards.discard_rates[1] > 0),
+        )
+
+    assert signatures[(1, 0, 0)] == (False, True)  # X: corrected here, and carries an X component
+    assert signatures[(0, 0, 1)] == (True, False)  # Z: uncorrected, and carries no X component
+
+
+def test_capacity_min_error_weight() -> None:
+    """Declaring a minimum failing error weight skips those weights and their uncertainty.
+
+    Each code below is paired with a lookup decoder that corrects every weight-1 error, so that
+    min_error_weight=2 is a true claim; the test checks that premise rather than assuming it, since
+    nothing in the library can (see ErrorRateFunc).  The lookup decoder's max_weight counts
+    symplectic weight, so a qudit code decoded against its stabilizers needs two to cover a
+    single-qubit Y error, whereas a CSS code decoded sector by sector needs only one.
+    """
+    all_codes: list[codes.ClassicalCode | codes.QuditCode] = [
+        codes.RepetitionCode(5),
+        codes.QuditCode(codes.SteaneCode()),
+        codes.SteaneCode(),
+    ]
+    for code, max_weight in zip(all_codes, [1, 2, 1]):
+        baseline = code.get_logical_error_rate_func(
+            num_samples=1000, max_error_rate=0.2, with_lookup=True, max_weight=max_weight
+        )
+        assert baseline.num_failures[1] == 0  # the premise: weight-1 errors are always corrected
+
+        func = code.get_logical_error_rate_func(
+            num_samples=1000,
+            max_error_rate=0.2,
+            min_error_weight=2,
+            with_lookup=True,
+            max_weight=max_weight,
+        )
+        assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
+
+        # declaring the claim is what the feature is for: the reported uncertainty drops
+        assert func(0.1)[1] < baseline(0.1)[1]
+
+    # a min_error_weight past every weight a code can carry leaves nothing that can fail, which is
+    # reported as a zero rate rather than as certain failure
+    func = codes.RepetitionCode(5).get_logical_error_rate_func(
+        num_samples=100, max_error_rate=0.2, min_error_weight=6
+    )
+    assert func(0.1) == (0, 0)
