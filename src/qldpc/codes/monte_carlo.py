@@ -242,9 +242,11 @@ def jeffreys_variance(
 
     See Brown, Cai & DasGupta, "Interval Estimation for a Binomial Proportion," Statist. Sci. 16
     (2001) 101-133, https://doi.org/10.1214/ss/1009213286, for this posterior and its behaviour at
-    small counts.  What that work recommends is the interval between two quantiles of the posterior,
-    which is not what is built from this variance: callers propagate it into a symmetric half-width
-    about a plug-in rate, and such a half-width does not inherit the quantile interval's coverage.
+    small counts.  That work recommends quoting an interval between two quantiles of the posterior,
+    which callers here cannot use: they need one uncertainty on a weighted sum over error weights,
+    and variances add in quadrature across that sum while quantiles do not.  A variance is therefore
+    what this function returns, at the price of a symmetric half-width that does not inherit the
+    coverage of the recommended interval.
     """
     smoothed_rate = (num_events + 0.5) / (num_trials + 1)
     return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
