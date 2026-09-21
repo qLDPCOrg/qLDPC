@@ -31,18 +31,6 @@ from qldpc._util import networkx as nx
 from .common import ClassicalCode
 
 
-def _is_valid_bch_length(length: int, field_order: int) -> bool:
-    """Is the given block length valid for a BCH code over a field of the given order?
-
-    BCH codes over ``F_q`` are defined for block lengths ``q**m - 1`` with integer ``m >= 1``.
-    """
-    power, exponent = length + 1, 0
-    while power > 1 and power % field_order == 0:
-        power //= field_order
-        exponent += 1
-    return power == 1 and bool(exponent)
-
-
 class RepetitionCode(ClassicalCode):
     """Classical repetition code: the ``[n, 1, n]`` code whose code words are constant vectors.
 
@@ -301,13 +289,25 @@ class BCHCode(ClassicalCode):
         self, length: int, dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> None:
         field = abstract.resolve_field(field)
-        if not _is_valid_bch_length(length, field.order):
+        if not BCHCode._is_valid_bch_length(length, field.order):
             raise ValueError(
                 f"BCH codes over F_{field.order} are only defined for block lengths"
                 f" {field.order}^m - 1 with integer m."
             )
         super().__init__(galois.BCH(length, dimension, field=field).H)
         self._dimension = dimension
+
+    @staticmethod
+    def _is_valid_bch_length(length: int, field_order: int) -> bool:
+        """Is the given block length valid for a BCH code over a field of the given order?
+
+        BCH codes over ``F_q`` are defined for block lengths ``q**m - 1`` with integer ``m >= 1``.
+        """
+        power, exponent = length + 1, 0
+        while power > 1 and power % field_order == 0:
+            power //= field_order
+            exponent += 1
+        return power == 1 and bool(exponent)
 
 
 class SimplexCode(ClassicalCode):
@@ -485,10 +485,7 @@ class TannerCode(ClassicalCode):
 
     @staticmethod
     def as_directed_subgraph(subgraph: nx.Graph) -> nx.DiGraph:
-        """Convert an undirected graph for a Tanner code into a directed graph for the same code.
-
-        The given graph is left unmodified.
-        """
+        """Convert an undirected graph for a Tanner code into a directed graph for the same code."""
         directed_subgraph = nx.DiGraph()
         for node_a, node_b, edge_data in subgraph.edges(data=True):
             edge = frozenset([node_a, node_b])
