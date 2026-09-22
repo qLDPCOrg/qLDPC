@@ -210,23 +210,31 @@ def build_gadget(
 ) -> GadgetLayout:
     """Webster §II.1 L=1 gadget: restriction, gauge fix, assembly. Deterministic in its arguments.
 
-    gadget notation: κ qubits → ancilla_qubits; G → gauge.
+    gadget notation: κ qubits → rows of incidence; G → gauge.
 
     basis=Pauli.X: measures a logical X (PPM of X̄). Validates H_Z @ x == 0.
     basis=Pauli.Z: measures a logical Z (PPM of Z̄). Validates H_X @ x == 0.
 
     Raises:
-        ValueError: basis is neither Pauli.X nor Pauli.Z, x fails the complementary check equation
-            (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z), or x is the zero vector. The check
-            equation admits the whole normalizer, so a stabilizer support also passes.
+        ValueError: code is not over GF(2); basis is neither Pauli.X nor Pauli.Z; x fails the
+            complementary check equation (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z); x is
+            the zero vector; or x lies in the row space of the measured basis's check matrix, making
+            it a stabilizer rather than a logical operator.
     """
+    if code.field.order != 2:
+        raise ValueError(
+            f"build_gadget requires a qubit code, got one over GF({code.field.order}). The gauge "
+            f"fix, the Cheeger boost and the merged-code assembly are all mod 2."
+        )
     x = np.asarray(x).astype(np.uint8)
     if basis is Pauli.X:
         H_check = np.asarray(code.matrix_z).astype(np.uint8)
+        H_same = np.asarray(code.matrix_x).astype(np.uint8)
         if ((H_check @ x) % 2).any():
             raise ValueError("x is not a logical-X support (H_Z @ x != 0).")
     elif basis is Pauli.Z:
         H_check = np.asarray(code.matrix_x).astype(np.uint8)
+        H_same = np.asarray(code.matrix_z).astype(np.uint8)
         if ((H_check @ x) % 2).any():
             raise ValueError("x is not a logical-Z support (H_X @ x != 0).")
     else:
@@ -236,6 +244,18 @@ def build_gadget(
     # 0x0 incidence, for which cheeger_constant reports inf.
     if not x.any():
         raise ValueError("x is the zero vector, which measures no logical operator.")
+
+    # The check equation above admits the whole normalizer, so every stabilizer of the measured
+    # basis passes it too. Such an x measures the identity, so reject it: x must not lie in the row
+    # space of the measured basis's check matrix.
+    H_same_gf2 = galois.GF2(H_same.astype(np.int_).tolist())
+    x_gf2 = galois.GF2(x.astype(np.int_).tolist())
+    if np.linalg.matrix_rank(np.vstack([H_same_gf2, x_gf2])) == np.linalg.matrix_rank(H_same_gf2):
+        H_name = "H_X" if basis is Pauli.X else "H_Z"
+        raise ValueError(
+            f"x lies in the row space of {H_name}, so it is a stabilizer rather than a logical "
+            f"operator, and the gadget would measure the identity."
+        )
 
     support, data_checks, incidence = _step1_restriction(code, x, basis=basis)
     gauge = _step2_gauge_fix(incidence)

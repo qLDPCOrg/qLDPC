@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from qldpc import codes
-from qldpc.objects import Pauli
+from qldpc.objects import Pauli, PauliXZ
 
 from .conftest import (
     _webster_x_bar_operator,
@@ -630,3 +630,49 @@ def test_build_gadget_rejects_zero_x() -> None:
     zero = np.zeros(code.num_qudits, dtype=np.uint8)
     with pytest.raises(ValueError, match="zero vector"):
         build_gadget(code, zero, basis=Pauli.X)
+
+
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
+def test_build_gadget_rejects_a_stabilizer_support(basis: PauliXZ) -> None:
+    """A stabilizer of the measured basis satisfies the check equation but measures the identity."""
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    H_same = np.asarray(code.matrix_x if basis is Pauli.X else code.matrix_z).astype(np.uint8)
+    stabilizer = H_same[0]
+    # The guard the gadget relies on cannot catch this: a stabilizer does commute with everything in
+    # the complementary basis.
+    H_check = np.asarray(code.matrix_z if basis is Pauli.X else code.matrix_x).astype(np.uint8)
+    assert not ((H_check @ stabilizer) % 2).any()
+    with pytest.raises(ValueError, match="row space"):
+        build_gadget(code, stabilizer, basis=basis)
+
+
+def test_build_gadget_rejects_a_non_qubit_code() -> None:
+    """Every stage of the gadget construction is mod 2, so a qudit code is rejected up front."""
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SurfaceCode(2, field=3)
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    with pytest.raises(ValueError, match="qubit code"):
+        build_gadget(code, x, basis=Pauli.X)
+
+
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
+def test_single_ppm_merged_code_is_css_and_drops_one_logical(basis: PauliXZ) -> None:
+    """The merged code commutes and carries one logical fewer than the data code.
+
+    Measuring one logical operator of the data code fixes it, so the merged code's dimension is
+    code.dimension - 1. Steane has k = 1, so its merged code has k = 0.
+    """
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(basis)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=basis)
+
+    product = (g.HX_merged.astype(int) @ g.HZ_merged.astype(int).T) % 2
+    assert np.array_equal(product, np.zeros_like(product)), "merged code violates CSS commutation"
+
+    merged = codes.CSSCode(g.HX_merged, g.HZ_merged, is_subsystem_code=False)
+    assert merged.dimension == code.dimension - 1

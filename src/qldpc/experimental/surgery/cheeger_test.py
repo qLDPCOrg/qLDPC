@@ -487,9 +487,10 @@ def test_boost_combinatorial_single_column_incidence_is_a_no_op() -> None:
     from qldpc.experimental.surgery import build_gadget
     from qldpc.experimental.surgery.cheeger import _boost_gadget_cheeger_combinatorial
 
-    # build_gadget accepts any x in ker(H_Z), so a weight-1 X-stabilizer reaches |V_0| = 1.
-    code = codes.CSSCode([[1, 0]], [[0, 1]])
-    g = build_gadget(code, np.array([1, 0], dtype=np.uint8), basis=Pauli.X)
+    # A distance-1 code has a weight-1 logical X, which reaches |V_0| = 1.
+    code = codes.CSSCode([[1, 1]], np.zeros((0, 2), dtype=int))
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=Pauli.X)
     assert g.incidence.shape[1] == 1, f"expected |V_0| = 1, got {g.incidence.shape}"
 
     out = _boost_gadget_cheeger_combinatorial(g, target_h=1.0)
