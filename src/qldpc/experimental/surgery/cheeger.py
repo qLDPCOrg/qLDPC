@@ -26,17 +26,18 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
 
     gadget notation: V → support; C → data_checks; F → incidence.
 
-    Helper / sanity-check tool. Used by ``boost_gadget_cheeger_combinatorial`` (which follows
-    Williamson & Yoder / Webster, Smith, Cohen: random edge addition + distance verification). Also
-    kept for diagnostic use to debug the cut structure when a boost run is unexpectedly long.
+    Backs ``cheeger_constant``, and is useful on its own when the worst cut itself is wanted: it
+    returns the cut attaining h(F), which ``cheeger_constant`` discards.
 
-    For bipartite incidence F: V -> C (V = X-check χ_i indices, C = κ_j indices), the boundary ∂v of
-    v ⊆ V is the subset of C with an odd number of neighbours in v. The boundary Cheeger constant is
+    For bipartite incidence F: V -> C (V indexes the measured logical's support, C the
+    complementary-basis checks touching it), the boundary ∂v of v ⊆ V is the subset of C with an odd
+    number of neighbours in v. The boundary Cheeger constant is
 
         h(F) = min_{v ⊆ V, 1 ≤ |v| ≤ |V|/2} |∂v| / |v|.
 
-    Computes h(F) exactly by Gray-code enumeration over all subsets v. Tractable for |V| ≤ 26 (≈ 67M
-    subsets; ~5-30 s in numpy). Raises if |V| > 26.
+    Computes h(F) exactly by Gray-code enumeration over all subsets v, as a pure-Python loop over
+    bit-packed columns. Tractable for |V| ≤ 26 (≈ 67M subsets, a few seconds; cost scales ~4x per
+    additional 2 columns). Raises if |V| > 26.
 
     Args:
         incidence: GF(2) restriction matrix of shape (|C|, |V|).
@@ -97,25 +98,27 @@ def cheeger_constant(g: GadgetLayout) -> float:
 
     Computed exactly by Gray-code subset enumeration, which is tractable only for |V_0| ≤ 26.
 
-        h(g) ≥ 1   ⇒   surgery on this gadget preserves code distance
-                       (Cross et al. arXiv:2407.18393 Thm 6; structural
-                       argument, no decoder).
-        h(g) <  1   ⇒   distance may degrade; consider boost_gadget(g, target=1.0).
+        h(g) ≥ 1   is the condition under which Cross et al. arXiv:2407.18393 Thm 6 applies, giving
+                   d_merged ≥ d_data by a structural argument with no decoder. The theorem's own
+                   hypotheses on the gadget still have to hold; h alone is not a proof that this
+                   library's merged code preserves distance, and no fault-distance test covers it.
+        h(g) <  1  puts the gadget outside Thm 6, so distance may degrade; consider
+                   boost_gadget(g, target=1.0).
 
     Use as a pre-flight check before deciding whether to call boost_gadget.
 
     Raises:
-        ValueError: if |V_0| > 26. Exact enumeration is infeasible at that size and no valid lower
-            bound on h(F) is available, so returning a number would be unsound; compute the exact
+        ValueError: if |V_0| > 26. Exact enumeration is infeasible at that size, and no valid bound
+            on h(F) is computed instead, so returning a number would be unsound; compute the exact
             code distance instead.
     """
     incidence = galois.GF2(np.asarray(g.incidence).astype(int))
     if incidence.shape[1] > 26:
         raise ValueError(
-            f"cheeger_constant requires |V_0| ≤ 26 for an exact, certifying value; "
-            f"got |V_0|={incidence.shape[1]}. Exact enumeration is infeasible and the "
-            f"spectral proxy is not a valid bound on h(F), so no distance certificate "
-            f"can be issued; compute the exact code distance instead."
+            f"cheeger_constant requires |V_0| ≤ 26 for an exact value; got "
+            f"|V_0|={incidence.shape[1]}. Exact enumeration is infeasible beyond this size and no "
+            f"valid bound on h(F) is computed in its place, so no value can be returned; compute "
+            f"the exact code distance instead."
         )
     h, _ = _exact_boundary_cheeger(incidence)
     return h
@@ -182,11 +185,11 @@ def boost_gadget_cheeger_combinatorial(
     with one endpoint in v* and one outside, which monotonically increases |∂v*| by 1 without
     decreasing any other |∂v|.
 
-    By Cross et al. arXiv:2407.18393 Thm 6, h(F) >= 1 implies d_merged >= d_data, so reaching
-    target_h = 1.0 guarantees distance preservation. The guarantee is enforced: if the qubit budget
-    is exhausted before target_h is reached, this raises RuntimeError rather than silently returning
-    an under-target (distance-degraded) gadget. Tractable for |V_0| <= 26 (Webster's family up to
-    l=255).
+    Reaching target_h = 1.0 puts the gadget in the regime where Cross et al. arXiv:2407.18393 Thm 6
+    gives d_merged >= d_data, subject to that theorem's own hypotheses; it is not by itself a proof
+    that this library's merged code preserves distance. What is enforced is the target: if the qubit
+    budget is exhausted before target_h is reached, this raises RuntimeError rather than returning
+    an under-target gadget. Tractable for |V_0| <= 26 (Webster's family up to l=255).
 
     Args:
         g: input gadget produced by build_gadget.
@@ -219,10 +222,9 @@ def boost_gadget_cheeger_combinatorial(
             f"Use boost_gadget_distance (BP+OSD) instead."
         )
     if n_V < 2:
-        # Nothing to boost; return identity GadgetLayout (no incidence_extra rows).
-        # pragma: no cover  -- requires a logical operator of weight < 2, which no
-        # tested code admits (Steane d=3, Webster d>=4, BBCode d>=6).
-        return build_gadget_augmented(  # pragma: no cover
+        # A single-column F admits no cut, so there is nothing to boost: rebuild the gadget
+        # unchanged. Reached only for a weight-1 logical, i.e. a distance-1 code.
+        return build_gadget_augmented(
             g.code,
             g.x,
             np.zeros((0, n_V), dtype=np.uint8),
@@ -276,11 +278,11 @@ def boost_gadget_cheeger_combinatorial(
         if extra >= max_extra_qubits:
             break
 
+        # Both sides are non-empty: worst_mask comes from the enumeration above, which only kept
+        # subsets with 1 <= |v| <= n_V // 2, and n_V >= 2 here.
         v_star_arr = np.array([(worst_mask >> i) & 1 for i in range(n_V)], dtype=np.int8)
         inside = np.flatnonzero(v_star_arr).tolist()
         outside = np.flatnonzero(1 - v_star_arr).tolist()
-        if not inside or not outside:  # pragma: no cover  -- v* spans all V_0 (rare)
-            break
 
         rng.shuffle(inside)
         rng.shuffle(outside)

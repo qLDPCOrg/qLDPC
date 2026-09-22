@@ -251,16 +251,15 @@ def test_cheeger_constant_raises_for_n_V_above_26() -> None:
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
-    # Synthesize a gadget with wide incidence (n_V = 27) to exceed the exact-
-    # enumeration limit; cheeger_constant must refuse to certify (raise) rather
-    # than fall back to a spectral proxy that is not a valid bound on h.
+    # Synthesize a gadget with wide incidence (n_V = 27) to exceed the exact-enumeration limit;
+    # cheeger_constant must raise rather than substitute an approximation for h.
     wide_incidence = np.zeros((2, 27), dtype=np.uint8)
     wide_incidence[0, 0] = 1
     wide_incidence[0, 1] = 1
     wide_incidence[1, 0] = 1
     wide_incidence[1, 2] = 1
     g_wide = dataclasses.replace(g, incidence=wide_incidence)
-    with pytest.raises(ValueError, match="certifying"):
+    with pytest.raises(ValueError, match="requires \\|V_0\\| ≤ 26 for an exact value"):
         cheeger_constant(g_wide)
 
 
@@ -455,3 +454,17 @@ def test_boost_distance_skips_augmentation_that_fails_validation(
             num_trials_per_step=1,
             seed=0,
         )
+
+
+def test_boost_combinatorial_single_column_incidence_is_a_no_op() -> None:
+    """A weight-1 logical gives a single-column F, which admits no cut, so boost adds nothing."""
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
+
+    # Distance-1 code, so the logical X support has weight 1 and |V_0| = 1.
+    code = codes.CSSCode([[1, 0]], [[0, 1]])
+    g = build_gadget(code, np.array([1, 0], dtype=np.uint8), basis=Pauli.X)
+    assert g.incidence.shape[1] == 1, f"expected |V_0| = 1, got {g.incidence.shape}"
+
+    out = boost_gadget_cheeger_combinatorial(g, target_h=1.0)
+    assert out.incidence.shape == g.incidence.shape, "single-column boost must add no rows"
