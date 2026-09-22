@@ -25,8 +25,6 @@ import numpy as np
 from qldpc.codes.common import CSSCode
 from qldpc.objects import Pauli, PauliXZ
 
-GF2 = galois.GF(2)
-
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class GadgetLayout:
@@ -85,7 +83,7 @@ def _step2_gauge_fix(incidence: np.ndarray) -> np.ndarray:
     """
     if incidence.size == 0:
         return np.zeros((0, incidence.shape[0]), dtype=np.uint8)
-    gauge = GF2(incidence.astype(np.int_).tolist()).left_null_space()
+    gauge = galois.GF2(incidence.astype(np.int_).tolist()).left_null_space()
     return np.asarray(gauge).astype(np.uint8)
 
 

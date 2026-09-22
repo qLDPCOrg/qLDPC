@@ -91,7 +91,7 @@ def test_step2_gauge_fix_basis_property() -> None:
     # rank(G) = |C_0| - rank(F)
     import galois
 
-    r_expected = incidence.shape[0] - int(np.linalg.matrix_rank(galois.GF(2)(incidence.tolist())))
+    r_expected = incidence.shape[0] - int(np.linalg.matrix_rank(galois.GF2(incidence.tolist())))
     assert gauge.shape[0] == r_expected
 
 
@@ -448,7 +448,7 @@ def test_step2_gauge_fix_rows_linearly_independent() -> None:
 
     from qldpc.experimental.surgery.gadget import build_gadget
 
-    F2 = galois.GF(2)
+    F2 = galois.GF2
     xs, ys = sympy.symbols("x y")
 
     cases: list[tuple[str, codes.CSSCode, np.ndarray]] = []

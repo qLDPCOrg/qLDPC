@@ -73,7 +73,7 @@ def test_classify_reliable_round1_checks_basis_x() -> None:
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
-    F2 = galois.GF(2)
+    F2 = galois.GF2
     merged = CSSCode(
         F2(g.HX_merged.astype(np.int_).tolist()),
         F2(g.HZ_merged.astype(np.int_).tolist()),
@@ -106,7 +106,7 @@ def test_classify_reliable_round1_checks_basis_z() -> None:
     code = codes.SteaneCode()
     z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
     g = build_gadget(code, z, basis=Pauli.Z)
-    F2 = galois.GF(2)
+    F2 = galois.GF2
     merged = CSSCode(
         F2(g.HX_merged.astype(np.int_).tolist()),
         F2(g.HZ_merged.astype(np.int_).tolist()),
@@ -135,7 +135,7 @@ def test_surgery_state_prep_basis_x_resets() -> None:
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
-    F2 = galois.GF(2)
+    F2 = galois.GF2
     merged = CSSCode(
         F2(g.HX_merged.astype(np.int_).tolist()),
         F2(g.HZ_merged.astype(np.int_).tolist()),
@@ -163,7 +163,7 @@ def test_surgery_state_prep_basis_z_resets() -> None:
     code = codes.SteaneCode()
     z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
     g = build_gadget(code, z, basis=Pauli.Z)
-    F2 = galois.GF(2)
+    F2 = galois.GF2
     merged = CSSCode(
         F2(g.HX_merged.astype(np.int_).tolist()),
         F2(g.HZ_merged.astype(np.int_).tolist()),
@@ -194,7 +194,7 @@ def test_surgery_qec_cycle_round_1_detectors_classified() -> None:
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
-    F2 = galois.GF(2)
+    F2 = galois.GF2
     merged = CSSCode(
         F2(g.HX_merged.astype(np.int_).tolist()),
         F2(g.HZ_merged.astype(np.int_).tolist()),
@@ -570,7 +570,7 @@ def test_stitch_intercode_basis_x_joint_logical_in_stabilizer() -> None:
     merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
     import galois
 
-    GF2 = galois.GF(2)
+    GF2 = galois.GF2
     HX = np.asarray(merged.matrix_x).astype(np.int_)
     n_l = code1.num_qudits
     n_r = code2.num_qudits
@@ -595,7 +595,7 @@ def test_stitch_intercode_basis_x_singletons_excluded() -> None:
     merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
     import galois
 
-    GF2 = galois.GF(2)
+    GF2 = galois.GF2
     HX = np.asarray(merged.matrix_x).astype(np.int_)
     n_l = code.num_qudits
     base = np.linalg.matrix_rank(GF2(HX.tolist()))
@@ -657,7 +657,7 @@ def test_stitch_intercode_both_bases_commute_and_singletons_excluded(basis: Paul
     from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
     from qldpc.experimental.surgery.gadget import build_gadget
 
-    GF2 = galois.GF(2)
+    GF2 = galois.GF2
     code = codes.SteaneCode()
     if basis is Pauli.X:
         x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -820,7 +820,7 @@ def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
         build_gadget,
     )
 
-    GF2 = galois.GF(2)
+    GF2 = galois.GF2
     data = load_webster_seed_set(code_index)
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
     x1 = _webster_x_bar_operator(data, "X_bar_1")
