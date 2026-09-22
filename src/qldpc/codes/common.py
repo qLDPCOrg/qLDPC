@@ -977,7 +977,9 @@ class QuditCode(AbstractCode):
         """Convert a parity check matrix into a Tanner graph.
 
         A check that addresses no qudits, as an all-zero row defines, is an isolated vertex of the
-        graph, which keeps the check vertices in one-to-one correspondence with the rows.
+        graph.  Seeding a vertex for every row puts the check vertices in one-to-one correspondence
+        with the rows, so the graph records how many checks there are even when some of them address
+        no qudits.
         """
         matrix = np.asanyarray(matrix)
         matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
@@ -1076,7 +1078,7 @@ class QuditCode(AbstractCode):
         1. Any pair of subgraphs must be edge-disjoint.
         2. Every edge of the Tanner graph of the code must belong to one of the subgraphs.  Vertices
            need not be covered: an isolated vertex, be it a check that addresses no qudits or a
-           qudit that no check addresses, has no gate to schedule.
+           qudit that no check addresses, has no two-qubit gate to schedule.
         3. For every subgraph, all two-qubit gates associated with its edges must commute.
         4. The sequence of subgraphs must correspond to a valid syndrome extraction circuit.
 

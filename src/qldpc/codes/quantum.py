@@ -1443,9 +1443,9 @@ class HGPCode(CSSCode):
         field = getattr(graph_a, "field", galois.GF2)
         _Pauli = Pauli if field is galois.GF2 else QuditPauli
 
-        # this map's keys enumerate the vertices of the product, so seed a vertex for each of them
+        # the keys of this map are the vertices of the product, before relabeling
         node_map = HGPCode.get_product_node_map(graph_a.nodes, graph_b.nodes)
-        graph.add_nodes_from(node_map)
+        graph.add_nodes_from(node_map.keys())
 
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
