@@ -426,6 +426,42 @@ def test_cellulation_caps_aug_aux_cycle_length_on_webster() -> None:
         )
 
 
+def test_cellulate_max_len_defaults_to_the_max_basis_stabilizer_weight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default cap is read off the data codes rather than fixed at a constant.
+
+    Steane's H_X rows have weight 4, so a cap derived from the code is distinguishable from any
+    hardcoded value. The cap reaches cellulation once per side.
+    """
+    from typing import Any
+
+    from qldpc.experimental.surgery import bridge as bridge_module
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g_l = build_gadget(code, x, basis=Pauli.X)
+    g_r = build_gadget(code, x, basis=Pauli.X)
+    assert bridge_module._max_basis_stabilizer_weight(code, Pauli.X) == 4
+
+    real_cellulate = bridge_module._cellulate_port_subgraph
+    seen: list[int] = []
+
+    def _record(G_aux: Any, ports: tuple[int, ...], *, max_len: int) -> list[tuple[int, int]]:
+        seen.append(max_len)
+        return real_cellulate(G_aux, ports, max_len=max_len)
+
+    monkeypatch.setattr(bridge_module, "_cellulate_port_subgraph", _record)
+
+    bridge_module.build_bridge(g_l, g_r)
+    assert seen == [4, 4]
+
+    seen.clear()
+    bridge_module.build_bridge(g_l, g_r, cellulate_max_len=5)
+    assert seen == [5, 5]
+
+
 def test_canonical_H_R_rejects_w_below_2() -> None:
     """_canonical_H_R(w=1) raises (rep-code needs w >= 2)."""
     from qldpc.experimental.surgery.bridge import _canonical_H_R

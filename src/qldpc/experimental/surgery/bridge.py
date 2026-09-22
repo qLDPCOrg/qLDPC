@@ -26,7 +26,8 @@ import itertools
 import numpy as np
 
 from qldpc._util import networkx as nx
-from qldpc.objects import PauliXZ
+from qldpc.codes.common import CSSCode
+from qldpc.objects import Pauli, PauliXZ
 
 from .gadget import GadgetLayout
 
@@ -170,7 +171,7 @@ def _cellulate_port_subgraph(
     G_aux: nx.Graph,
     ports: tuple[int, ...],
     *,
-    max_len: int = 6,
+    max_len: int,
 ) -> list[tuple[int, int]]:
     """Break port-subgraph cycles longer than ``max_len`` by adding chords.
 
@@ -374,6 +375,12 @@ def _run_skiptree_on_port_subgraph(
     return T_full.astype(np.int_), labels
 
 
+def _max_basis_stabilizer_weight(code: CSSCode, basis: PauliXZ) -> int:
+    """Largest row weight of the data code's check matrix in the measured basis."""
+    H = code.matrix_x if basis is Pauli.X else code.matrix_z
+    return int(np.asarray(H).astype(int).sum(axis=1).max())
+
+
 def build_bridge(
     g_l: GadgetLayout,
     g_r: GadgetLayout,
@@ -382,7 +389,7 @@ def build_bridge(
     port_subset_r: tuple[int, ...] | None = None,
     spanning_tree_root_l: int = 0,
     spanning_tree_root_r: int = 0,
-    cellulate_max_len: int = 6,
+    cellulate_max_len: int | None = None,
 ) -> Bridge:
     """Universal-adapter bridge between two gadgets (Swaroop et al. arXiv:2410.03628 §IV).
 
@@ -400,9 +407,11 @@ def build_bridge(
             Defaults to all of it.
         spanning_tree_root_l: index INTO the left port tuple of the SkipTree root vertex.
         spanning_tree_root_r: index INTO the right port tuple of the SkipTree root vertex.
-        cellulate_max_len: cap on port-subgraph cycle length, enforced by adding chords. Lowering it
-            trades qubits for a sparser gauge: on the bb_18 intra-code pair, the default 6 cuts max
-            gauge row weight from 34 to 13 at a cost of +314 qubits.
+        cellulate_max_len: cap on port-subgraph cycle length, enforced by adding chords. Defaults to
+            the larger of the two data codes' maximum measured-basis stabilizer row weight, so that
+            the cap follows the code rather than a constant. Lowering it trades qubits for a sparser
+            gauge: on the bb_18 intra-code pair, whose default is 6, capping at 6 cuts max gauge row
+            weight from 34 to 13 at a cost of +314 qubits.
 
     Returns:
         A Bridge of width min(|ports_l|, |ports_r|).
@@ -419,6 +428,11 @@ def build_bridge(
             f"build_bridge requires g_l.basis == g_r.basis, got {g_l.basis!r} vs {g_r.basis!r}"
         )
     basis = g_l.basis
+    if cellulate_max_len is None:
+        cellulate_max_len = max(
+            _max_basis_stabilizer_weight(g_l.code, basis),
+            _max_basis_stabilizer_weight(g_r.code, basis),
+        )
 
     # Step 1: auxiliary graphs
     G_l_aux, _ = _build_aux_graph_strict(g_l.incidence)
