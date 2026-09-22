@@ -386,7 +386,8 @@ def get_logical_error_and_discard_rate(
     # compute logical error rate: fraction of shots with incorrectly predicted observable flips
     failures = np.any(incorrectly_predicted_flips, axis=1)
     logical_error_rate = np.sum(failures) / len(failures) if len(failures) else np.nan
-    return logical_error_rate, num_discards / num_samples
+    discard_rate = num_discards / num_samples if num_samples else 0.0
+    return logical_error_rate, discard_rate
 
 
 def _get_postselection_masks(

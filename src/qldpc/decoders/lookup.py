@@ -431,9 +431,10 @@ class LookupDecoder:
         """
         syndrome = syndrome.view(np.ndarray)
         if self.syndrome_mask is not None:
-            if np.any(syndrome[~self.syndrome_mask]):
+            retained_syndrome = syndrome[self.syndrome_mask]
+            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
                 return self.default_correction.copy()  # a post-selected bit is nontrivial
-            syndrome = syndrome[self.syndrome_mask]
+            syndrome = retained_syndrome
         return self.syndrome_to_error.get(tuple(syndrome.tolist()), self.default_correction).copy()
 
 
@@ -508,9 +509,10 @@ class WeightedLookupDecoder(LookupDecoder):
         """Decode an error syndrome and return an inferred error."""
         syndrome = syndrome.view(np.ndarray)
         if self.syndrome_mask is not None:
-            if np.any(syndrome[~self.syndrome_mask]):
+            retained_syndrome = syndrome[self.syndrome_mask]
+            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
                 return self.default_correction.copy()  # a post-selected bit is nontrivial
-            syndrome = syndrome[self.syndrome_mask]
+            syndrome = retained_syndrome
         key = tuple(syndrome.tolist())
         if key not in self.syndrome_to_candidates:
             return self.default_correction.copy()

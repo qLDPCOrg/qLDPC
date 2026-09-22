@@ -99,14 +99,33 @@ def get_decoder(
         )
     if decoder_names:
         decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{decoder_names[0]}")
-        return decoder_constructor(pcm_or_dem, **decoder_args)
+        return _checked_for_erasure_bit(
+            decoder_constructor(pcm_or_dem, **decoder_args), decoder_args
+        )
 
     # use GUF by default for codes over non-binary fields
     if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
-        return get_decoder_GUF(pcm_or_dem, **decoder_args)
+        return _checked_for_erasure_bit(get_decoder_GUF(pcm_or_dem, **decoder_args), decoder_args)
 
     # use BP+OSD by default otherwise
-    return get_decoder_BP_OSD(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
+    return _checked_for_erasure_bit(
+        get_decoder_BP_OSD(pcm_or_dem, **decoder_args),  # type:ignore[arg-type]
+        decoder_args,
+    )
+
+
+def _checked_for_erasure_bit(decoder: Decoder, decoder_args: dict[str, object]) -> Decoder:
+    """Return a decoder, rejecting a request for an erasure bit that it cannot signal.
+
+    A decoder that has no erasure bit takes no notice of a request for one, so without this check a
+    caller who asked for erasure would be handed a decoder that never erases anything.
+    """
+    if decoder_args.get("add_erasure_bit") and not getattr(decoder, "has_erasure_bit", False):
+        raise ValueError(
+            f"{type(decoder).__name__} cannot signal erasure, so it does not accept the"
+            " add_erasure_bit argument"
+        )
+    return decoder
 
 
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)

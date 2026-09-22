@@ -178,8 +178,9 @@ class RelayBPDecoder:
         if observable_error_matrix is None:
             observable_error_matrix = np.empty((0, 0), dtype=np.uint8)
 
-        # build the decoder
+        # build the decoder, retaining the parity checks that judge an inferred error
         self.has_erasure_bit = add_erasure_bit
+        self.pcm_transposed = scipy.sparse.csr_matrix(pcm, dtype=np.uint8).T.tocsr()
         self.decoder = relay_bp.ObservableDecoderRunner(
             getattr(relay_bp, name)(pcm, np.asarray(error_priors), **decoder_args),
             observable_error_matrix,
@@ -192,10 +193,11 @@ class RelayBPDecoder:
         Typecast detectors to np.uint8 for compatibility with the relay_bp package.
         """
         detectors = np.asarray(detectors, dtype=np.uint8)
+        error = self.decoder.decode(detectors)
         if not self.has_erasure_bit:
-            return self.decoder.decode(detectors)
-        result = self.decoder.decode_detailed(detectors)
-        return np.append(result.decoding, not result.success)
+            return error
+        erased = self._misses_syndrome(np.asarray(error)[None, :], detectors[None, :])
+        return np.append(error, erased[0])
 
     def decode_batch(
         self,
@@ -210,13 +212,26 @@ class RelayBPDecoder:
         Typecast detectors to np.uint8 for compatibility with the relay_bp package.
         """
         detectors = np.asarray(detectors, dtype=np.uint8)
-        args = (parallel, progress_bar, leave_progress_bar_on_finish)
-        if not self.has_erasure_bit:
-            return self.decoder.decode_batch(detectors, *args)
-        results = self.decoder.decode_detailed_batch(detectors, *args)
-        return np.array(
-            [np.append(result.decoding, not result.success) for result in results], dtype=np.uint8
+        errors = self.decoder.decode_batch(
+            detectors, parallel, progress_bar, leave_progress_bar_on_finish
         )
+        if not self.has_erasure_bit:
+            return errors
+        erased = self._misses_syndrome(np.asarray(errors), detectors)
+        return np.hstack([errors, erased[:, None].astype(errors.dtype)])
+
+    def _misses_syndrome(
+        self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]
+    ) -> npt.NDArray[np.bool_]:
+        """Whether each inferred error fails to reproduce the syndrome it was inferred from.
+
+        Relay-BP settles on its best guess whether or not it converges, and a guess that does not
+        reproduce the syndrome is an erasure.  Overflow of the unsigned accumulator is a reduction
+        modulo 256, which preserves parity, so the products need no wider type, and multiplying by
+        the transposed checks keeps the inferred errors in the layout they arrive in.
+        """
+        residuals = np.asarray(errors.astype(np.uint8, copy=False) @ self.pcm_transposed) & 1
+        return np.any(residuals != detectors, axis=1)
 
     def __getattr__(self, name: str) -> Any:
         """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.

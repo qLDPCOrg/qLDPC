@@ -612,14 +612,16 @@ def test_sequential_window_decoder_erasure_with_merged_window_errors() -> None:
     An erasure bit is not an error mechanism, so it cannot count toward the width that decides
     whether a window decoder merged equivalent errors and needs its output expanded.
     """
-    # restricted to detectors 0 and 1, the first two errors both flip D0 and L0, so they merge
+    # restricted to detectors 0, 1 and 4, the first two errors both flip D0 and L0, so they merge,
+    # and no error at all flips detector 4, so a syndrome there is explained by nothing
     dem = stim.DetectorErrorModel("""
         error(0.3) D0 D2 L0
         error(0.2) D0 D3 L0
         error(0.1) D1 L1
+        detector D4
     """)
     compiled = decoders.SequentialWindowDecoder(
-        [[0, 1], [2, 3]], with_GUF=True, add_erasure_bit=True
+        [[0, 1, 4], [2, 3]], with_GUF=True, add_erasure_bit=True
     ).compile_decoder_for_dem(dem)
 
     window_decoder = compiled.window_decoders[0]
@@ -627,16 +629,18 @@ def test_sequential_window_decoder_erasure_with_merged_window_errors() -> None:
     assert window_decoder.has_erasure_bit
 
     # the expanded error spans every error of the window, followed by the erasure bit
-    decoded = window_decoder.decode(np.array([1, 1]))
-    assert len(decoded) == dem.num_errors + 1
-    assert decoded[-1] == 0
-    trivial_error = np.zeros(dem.num_errors + 1, dtype=int)
+    explained = window_decoder.decode(np.array([1, 1, 0]))
+    assert len(explained) == dem.num_errors + 1
+    assert explained[-1] == 0
+
+    # the erasure bit survives the expansion, rather than being scattered over the errors
+    erased = window_decoder.decode(np.array([0, 0, 1]))
+    assert np.array_equal(erased, [0] * dem.num_errors + [1])
     assert np.array_equal(
-        window_decoder.decode_batch(np.array([[1, 1], [0, 0]])), [decoded, trivial_error]
+        window_decoder.decode_batch(np.array([[1, 1, 0], [0, 0, 1]])), [explained, erased]
     )
 
-    # the two equivalent errors flip different later detectors, so which one a window commits to
-    # decides whether a later window can explain what is left; either way the widths line up
-    predicted_flips = compiled.decode_shots(np.array([[1, 1, 1, 0]], dtype=np.uint8))
+    # and it reaches the erasure bit that the whole decoder reports
+    predicted_flips = compiled.decode_shots(np.array([[0, 0, 0, 0, 1]], dtype=np.uint8))
     assert predicted_flips.shape == (1, dem.num_observables + 1)
-    assert np.array_equal(predicted_flips[:, :-1], [[1, 1]])
+    assert np.array_equal(predicted_flips, [[0, 0, 1]])

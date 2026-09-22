@@ -800,6 +800,9 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
     ) -> npt.NDArray[np.uint8]:
         """Predicts a net circuit error from the given detection events.
 
+        The error predicted for an erased shot is a guess, and this method reports no erasures, so
+        use .decode_shots_to_error_and_erasure to tell the two apart.
+
         This method accepts and returns boolean data.
         """
         return self.decode_shots_to_error_and_erasure(detection_event_data)[0]
@@ -810,8 +813,9 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
         """Predicts a net circuit error, and whether any window erased, per shot.
 
         A shot is erased if any of its windows is, and an erased shot still commits whatever error
-        its windows inferred: the shot is bound to be discarded, so what it commits to later windows
-        cannot affect any reported result.
+        its windows inferred, which no window could explain and which the windows after it are then
+        decoded against.  Sinter and qldpc.circuits.get_logical_error_and_discard_rate discard an
+        erased shot, so the error committed for it does not reach a rate either of them reports.
 
         This method accepts and returns boolean data.
         """

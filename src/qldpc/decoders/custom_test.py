@@ -217,9 +217,11 @@ def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) 
             explained = np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
             assert bool(decoded[-1]) == (not explained)
 
+    num_erasures = 0
     for _ in range(4):
         num_checks, num_bits = int(rng.integers(2, 4)), int(rng.integers(2, 5))
         matrix = rng.integers(2, size=(num_checks, num_bits))
+        matrix[0] = 0  # a trivial check row, so that some syndrome is always unexplainable
         syndromes = np.array(
             [[(bits >> cc) & 1 for cc in range(num_checks)] for bits in range(2**num_checks)],
             dtype=int,
@@ -238,6 +240,10 @@ def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) 
         decoded_batch = relay_bp_decoder.decode_batch(syndromes)
         assert decoded_batch.shape == (len(syndromes), num_bits + 1)
         check_erasure_bits(matrix, syndromes, decoded_batch)
+
+        num_erasures += int(guf_errors[:, -1].sum()) + int(relay_bp_errors[:, -1].sum())
+
+    assert num_erasures  # a run in which nothing is erased checks nothing
 
 
 def test_composite_erasure() -> None:
@@ -260,6 +266,26 @@ def test_composite_erasure() -> None:
     decoded_batch = composite_decoder.decode_batch(syndromes)
     assert decoded_batch.shape == (len(syndromes), 2 * matrix.shape[1] + 1)
     assert np.array_equal(decoded_batch[:, -1], expected_erasures)
+
+    # a block that cannot erase contributes all of its entries, and none of them is an erasure bit
+    plain_decoder = decoders.RelayBPDecoder(matrix)
+    assert not getattr(plain_decoder, "has_erasure_bit", False)
+
+    # the second bit of a block's syndrome is the one its trivial check row cannot explain, so only
+    # the erasing block's half of each composite syndrome can erase the composite
+    for blocks, expected in [
+        (((plain_decoder, 2), (block_decoder, 2)), syndromes[:, 3]),
+        (((block_decoder, 2), (plain_decoder, 2)), syndromes[:, 1]),
+    ]:
+        mixed_decoder = decoders.CompositeDecoder(*blocks)
+        assert mixed_decoder.has_erasure_bit
+        for syndrome, erased in zip(syndromes, expected):
+            decoded = mixed_decoder.decode(syndrome)
+            assert len(decoded) == 2 * matrix.shape[1] + 1
+            assert decoded[-1] == erased
+        mixed_batch = mixed_decoder.decode_batch(syndromes)
+        assert mixed_batch.shape == (len(syndromes), 2 * matrix.shape[1] + 1)
+        assert np.array_equal(mixed_batch[:, -1], expected)
 
 
 def test_augmented_decoders(toy_problem: ToyProblem) -> None:
