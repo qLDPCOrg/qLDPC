@@ -41,6 +41,41 @@ def _check_decodes_errors(decoder: Decoder) -> None:
         )
 
 
+def _warn_about_subgraph_partition(
+    flip_errors: npt.NDArray[np.int_],
+    flip_observables: npt.NDArray[np.int_],
+    flip_predictors: npt.NDArray[np.int_],
+    uncovered_detectors: npt.NDArray[np.int_],
+) -> None:
+    """Warn about a partition into subgraphs whose predictions do not add up.
+
+    Args:
+        flip_errors: The error mechanism of each observable flip in a detector error model.
+        flip_observables: The observable of each of those flips.
+        flip_predictors: The number of subgraphs that can predict each of those flips.
+        uncovered_detectors: The detectors that belong to no subgraph.
+    """
+    contested = np.flatnonzero(flip_predictors > 1)
+    if contested.size:
+        first = contested[0]
+        warnings.warn(
+            f"{contested.size} observable flips of this detector error model can be predicted by"
+            " more than one subgraph, and predictions are combined by exclusive or, so two"
+            " subgraphs predicting the same flip cancel each other.  Assign each observable only to"
+            " subgraphs whose detectors witness its flips.  For example, error mechanism"
+            f" {flip_errors[first]} flips observable {flip_observables[first]}, which"
+            f" {flip_predictors[first]} subgraphs can predict",
+            stacklevel=2,
+        )
+    if uncovered_detectors.size:
+        warnings.warn(
+            f"{uncovered_detectors.size} detectors of this detector error model belong to no"
+            " subgraph, so no decoder ever sees their detection events:"
+            f" {uncovered_detectors[:10].tolist()}",
+            stacklevel=2,
+        )
+
+
 class DecoderNotCompiledError(Exception):
     pass
 
@@ -88,9 +123,10 @@ class SinterDecoder(Decoder, sinter.Decoder):
         )
         decoder = get_decoder(dem_arrays.to_dem(), **self.decoder_kwargs)
         _check_decodes_errors(decoder)
-        if getattr(decoder, "has_erasure_bit", False):
-            dem_arrays = dem_arrays.with_erasure()
-        return CompiledSinterDecoder(dem_arrays, decoder)
+        num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
+        if num_erasure_bits:
+            dem_arrays = dem_arrays.with_erasure(num_erasure_bits)
+        return CompiledSinterDecoder(dem_arrays, decoder, num_erasure_bits)
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
@@ -105,14 +141,29 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
 
     Instances of this class are meant to be constructed by a SinterDecoder, whose
     .compile_decoder_for_dem method returns a CompiledSinterDecoder.
+
+    When the decoder being wrapped signals erasure with an erasure bit, .decode_shots appends one
+    erasure bit to the observable flips of every shot, and .decode_shots_bit_packed reports those
+    erasure bits in one whole byte added past the packed observable flips.  Sinter reads that added
+    byte as a request to discard the shot, so an erasure becomes a discarded shot rather than a
+    predicted flip of an observable that the sampled circuit does not have.
     """
 
     num_detectors: int
+    num_observables: int
+    num_erasure_bits: int = 0
 
-    def __init__(self, dem_arrays: DetectorErrorModelArrays, decoder: Decoder) -> None:
+    def __init__(
+        self,
+        dem_arrays: DetectorErrorModelArrays,
+        decoder: Decoder,
+        num_erasure_bits: int = 0,
+    ) -> None:
         self.dem_arrays = dem_arrays
         self.decoder = decoder
         self.num_detectors = dem_arrays.num_detectors
+        self.num_erasure_bits = num_erasure_bits
+        self.num_observables = dem_arrays.num_observables - num_erasure_bits
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -125,7 +176,23 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
         """
         detection_event_data = self.unpack_detection_event_data(bit_packed_detection_event_data)
         observable_flips = self.decode_shots(detection_event_data)
-        return self.packbits(observable_flips)
+        return self.pack_observable_flips(observable_flips)
+
+    def pack_observable_flips(
+        self, observable_flips: npt.NDArray[np.uint8]
+    ) -> npt.NDArray[np.uint8]:
+        """Bit-pack predicted observable flips, signalling erasure in one whole added byte.
+
+        Sinter discards a shot whose bit-packed prediction is exactly one byte wider than the
+        observables of the sampled circuit require, and whose extra byte is nonzero.  Erasure is
+        signalled in that byte, which keeps the packed predictions aligned with the observables
+        that the circuit actually reports.  A shot is erased if any erasure bit is set.
+        """
+        if not self.num_erasure_bits:
+            return self.packbits(observable_flips)
+        erased = np.any(observable_flips[:, self.num_observables :], axis=1)
+        packed_flips = self.packbits(observable_flips[:, : self.num_observables])
+        return np.hstack([packed_flips, erased.astype(np.uint8)[:, None]])
 
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         """Predicts observable flips from the given detection events.
@@ -237,8 +304,15 @@ class SubgraphDecoder(SinterDecoder):
     case the subgraph detector error model ``D_S`` only considers (and predicts corrections for) the
     observables in ``O_S``.
 
+    The subgraphs predict observable flips independently, and their predictions are combined by
+    exclusive or.  Every observable therefore has to be assigned to the subgraphs in a way that lets
+    exactly one of them predict each of its flips: if two subgraphs both witness an error mechanism
+    and both own an observable that the mechanism flips, then both predict that flip and the two
+    predictions cancel.  Compiling a SubgraphDecoder warns when a detector error model and a
+    partition permit that, and when a detector belongs to no subgraph at all.
+
     As an example, a SubgraphDecoder is useful for independently decoding the X and Z sectors of a
-    CSS code.
+    CSS code, where each sector owns the observables of the opposite type.
     """
 
     def __init__(
@@ -299,7 +373,12 @@ class SubgraphDecoder(SinterDecoder):
             if self.subgraph_observables is None
             else [list(obs) for obs in self.subgraph_observables]
         )
-        num_observables = dem.num_observables
+        num_erasure_bits = 0
+
+        # count, for every observable flip, the subgraphs that can predict it
+        flip_observables, flip_errors = dem_arrays.observable_flip_matrix.nonzero()
+        flip_predictors = np.zeros(len(flip_errors), dtype=int)
+        covered_detectors = np.zeros(dem.num_detectors, dtype=bool)
 
         # build a decoder for each subgraph
         subgraph_decoders = []
@@ -308,6 +387,12 @@ class SubgraphDecoder(SinterDecoder):
         ):
             # identify the error mechanisms that flip these detectors
             errors = dem_arrays.detector_flip_matrix[detectors].getnnz(axis=0) != 0
+
+            # this subgraph can predict a flip if it owns the observable and witnesses the error
+            owned = np.zeros(dem.num_observables, dtype=bool)
+            owned[observables] = True
+            flip_predictors += owned[flip_observables] & errors[flip_errors]
+            covered_detectors[detectors] = True
 
             # build the detector error model for this subgraph
             subgraph_dem = DetectorErrorModelArrays.from_arrays(
@@ -320,16 +405,22 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_decoder = SinterDecoder.compile_decoder_for_dem(self, subgraph_dem)
             subgraph_decoders.append(subgraph_decoder)
 
+            # collect the erasure bit of this subgraph past the observables of the whole model
             if getattr(subgraph_decoder.decoder, "has_erasure_bit", False):
-                subgraph_observables[ss].append(num_observables)
-                num_observables += 1
+                subgraph_observables[ss].append(dem.num_observables + num_erasure_bits)
+                num_erasure_bits += 1
+
+        _warn_about_subgraph_partition(
+            flip_errors, flip_observables, flip_predictors, np.flatnonzero(~covered_detectors)
+        )
 
         return CompiledSubgraphDecoder(
             self.subgraph_detectors,
             subgraph_observables,
             subgraph_decoders,
             dem.num_detectors,
-            num_observables,
+            dem.num_observables,
+            num_erasure_bits,
         )
 
 
@@ -362,6 +453,7 @@ class CompiledSubgraphDecoder(CompiledSinterDecoder):
         subgraph_decoders: Sequence[CompiledSinterDecoder],
         num_detectors: int,
         num_observables: int,
+        num_erasure_bits: int = 0,
     ) -> None:
         if not len(subgraph_detectors) == len(subgraph_observables) == len(subgraph_decoders):
             raise ValueError(
@@ -374,6 +466,7 @@ class CompiledSubgraphDecoder(CompiledSinterDecoder):
         self.subgraph_decoders = subgraph_decoders
         self.num_detectors = num_detectors
         self.num_observables = num_observables
+        self.num_erasure_bits = num_erasure_bits
 
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         """Predicts observable flips from the given detection events.
@@ -388,9 +481,10 @@ class CompiledSubgraphDecoder(CompiledSinterDecoder):
                 f" this decoder was compiled for {self.num_detectors} detectors"
             )
 
-        # initialize predicted observable flips
+        # initialize predicted observable flips, followed by one erasure bit per erasing subgraph
         observable_flips = np.zeros(
-            (len(detection_event_data), self.num_observables), dtype=np.uint8
+            (len(detection_event_data), self.num_observables + self.num_erasure_bits),
+            dtype=np.uint8,
         )
 
         # decode segments independently
@@ -635,6 +729,7 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
         self.window_decoders = window_decoders
 
         self.num_detectors = dem_arrays.num_detectors
+        self.num_observables = dem_arrays.num_observables
 
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         """Predicts observable flips from the given detection events.

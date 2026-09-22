@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 import typing
+import warnings
 from collections.abc import Callable, Sequence
 
 import numpy as np
@@ -437,8 +438,54 @@ def test_sinter_decoder_with_erasure() -> None:
     assert compiled.decode_shots(np.array([[1, 1]], dtype=np.uint8))[0, -1] == 1
 
 
+@pytest.mark.parametrize("num_observables", [2, 7, 8, 9, 16])
+def test_erasure_signalled_in_an_added_byte(num_observables: int) -> None:
+    """An erasure bit is bit-packed into one whole byte added past the observable flips."""
+    dem = stim.DetectorErrorModel(
+        "\n".join(f"error(0.1) D{oo} L{oo}" for oo in range(num_observables))
+    )
+    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=1, add_erasure_bit=True)
+    compiled = decoder.compile_decoder_for_dem(dem)
+
+    # no weight-one error explains a syndrome of weight two, so that shot is erased
+    erased_syndrome = np.zeros(num_observables, dtype=np.uint8)
+    erased_syndrome[:2] = 1
+    shots = np.array([np.zeros(num_observables, dtype=np.uint8), erased_syndrome])
+    packed_flips = compiled.decode_shots_bit_packed(compiled.packbits(shots))
+
+    # sinter discards a shot whose prediction is one byte wider than the observables require
+    assert packed_flips.shape == (2, (num_observables + 7) // 8 + 1)
+    assert packed_flips[0, -1] == 0
+    assert packed_flips[1, -1] == 1
+
+
+def test_subgraph_partition_warnings() -> None:
+    """Compiling a SubgraphDecoder warns about a partition whose predictions do not add up."""
+    # both subgraphs witness error 0, and by default both own the observable that it flips
+    contested_dem = stim.DetectorErrorModel("error(0.1) D0 D1 L0")
+    with pytest.warns(UserWarning, match="can be predicted by more than one subgraph"):
+        decoders.SubgraphDecoder(
+            [[0], [1]], with_lookup=True, max_weight=1
+        ).compile_decoder_for_dem(contested_dem)
+
+    # detector 1 belongs to no subgraph, so error 1 is never witnessed
+    uncovered_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L0")
+    with pytest.warns(UserWarning, match="belong to no subgraph"):
+        decoders.SubgraphDecoder(
+            [[0]], [[0]], with_lookup=True, max_weight=1
+        ).compile_decoder_for_dem(uncovered_dem)
+
+    # a partition that gives each subgraph only the observables its own detectors witness is silent
+    sound_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        decoders.SubgraphDecoder(
+            [[0], [1]], [[0], [1]], with_lookup=True, max_weight=1
+        ).compile_decoder_for_dem(sound_dem)
+
+
 def test_subgraph_decoder_with_erasure() -> None:
-    """SubgraphDecoder appends one erasure observable per subgraph that has_erasure_bit."""
+    """SubgraphDecoder collects one erasure bit per subgraph past the observables of the model."""
     # error 0 flips both D0 and D1 (so D0-alone is an unknown syndrome for subgraph 0)
     dem = stim.DetectorErrorModel("""
         error(0.1) D0 D1 L0
@@ -449,8 +496,9 @@ def test_subgraph_decoder_with_erasure() -> None:
     )
     compiled = decoder.compile_decoder_for_dem(dem)
 
-    # two original observables plus one erasure observable per subgraph
-    assert compiled.num_observables == dem.num_observables + 2
+    # the erasure bits sit past the observables of the model, which they do not add to
+    assert compiled.num_observables == dem.num_observables
+    assert compiled.num_erasure_bits == 2
 
     # known syndromes: correct logical observables, both erasure bits = 0
     shots = np.array([[1, 1, 0], [0, 0, 1], [0, 0, 0]], dtype=np.uint8)
@@ -464,6 +512,15 @@ def test_subgraph_decoder_with_erasure() -> None:
     unknown_result = compiled.decode_shots(np.array([[1, 0, 0]], dtype=np.uint8))
     assert unknown_result[0, 2] == 1  # erasure for subgraph 0
     assert unknown_result[0, 3] == 0  # no erasure for subgraph 1
+
+    # every subgraph signals erasure in one shared added byte
+    packed_flips = compiled.decode_shots_bit_packed(compiled.packbits(shots))
+    assert packed_flips.shape == (3, 1 + 1)
+    assert np.all(packed_flips[:, -1] == 0)
+    packed_unknown = compiled.decode_shots_bit_packed(
+        compiled.packbits(np.array([[1, 0, 0]], dtype=np.uint8))
+    )
+    assert packed_unknown[0, -1] == 1
 
 
 def test_sequential_window_decoder_erasure_not_implemented() -> None:
