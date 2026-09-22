@@ -73,9 +73,9 @@ class LookupDecoder:
     post-selects on those bits being trivial: when constructing the lookup table, it ignores
     syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
     keys in the lookup table.  For consistency with the post-selection options in sinter, syndromes
-    passed to ``LookupDecoder.decode`` should still contain all syndrome bits; the post-selected
-    bits are stripped before the lookup, so a syndrome that is nonzero on them decodes as though
-    they were trivial.
+    passed to ``LookupDecoder.decode`` should still contain all syndrome bits.  A syndrome that is
+    nonzero on a post-selected bit is one that the lookup table was never given, so it decodes
+    identically to a syndrome that was never enumerated.
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors.
     If asked to decode a syndrome that was not observed when constructing the lookup table, the
@@ -431,6 +431,8 @@ class LookupDecoder:
         """
         syndrome = syndrome.view(np.ndarray)
         if self.syndrome_mask is not None:
+            if np.any(syndrome[~self.syndrome_mask]):
+                return self.default_correction.copy()  # a post-selected bit is nontrivial
             syndrome = syndrome[self.syndrome_mask]
         return self.syndrome_to_error.get(tuple(syndrome.tolist()), self.default_correction).copy()
 
@@ -506,6 +508,8 @@ class WeightedLookupDecoder(LookupDecoder):
         """Decode an error syndrome and return an inferred error."""
         syndrome = syndrome.view(np.ndarray)
         if self.syndrome_mask is not None:
+            if np.any(syndrome[~self.syndrome_mask]):
+                return self.default_correction.copy()  # a post-selected bit is nontrivial
             syndrome = syndrome[self.syndrome_mask]
         key = tuple(syndrome.tolist())
         if key not in self.syndrome_to_candidates:

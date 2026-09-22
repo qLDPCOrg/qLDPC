@@ -520,21 +520,17 @@ class CompositeDecoder:
     When asked to decode a syndrome, a CompositeDecoder splits the syndrome into segments of
     appropriate lengths, and decodes these segments independently with their corresponding decoders.
 
-    Decoded segments are concatenated, so only the last decoder may have an erasure bit, which the
-    CompositeDecoder then advertises as its own.
+    Decoded segments are concatenated.  Any number of the decoders may have an erasure bit; a
+    CompositeDecoder collects them into the single erasure bit that it advertises as its own, which
+    is set whenever any code block is erased.
     """
 
     def __init__(self, *decoders_and_syndrome_lengths: tuple[Decoder, int]) -> None:
-        if any(
-            getattr(decoder, "has_erasure_bit", False)
-            for decoder, _ in decoders_and_syndrome_lengths[:-1]
-        ):
-            raise ValueError(
-                "Only the last decoder of a CompositeDecoder may have an erasure bit, which must be"
-                " the last entry of the composite decoded vector"
-            )
         self.decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
-        self.has_erasure_bit = getattr(self.decoders[-1], "has_erasure_bit", False)
+        self.erasing_decoders = tuple(
+            bool(getattr(decoder, "has_erasure_bit", False)) for decoder in self.decoders
+        )
+        self.has_erasure_bit = any(self.erasing_decoders)
         self.slices = tuple(
             slice(sum(syndrome_lengths[:ss]), sum(syndrome_lengths[: ss + 1]))
             for ss in range(len(syndrome_lengths))
@@ -553,18 +549,33 @@ class CompositeDecoder:
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome by parts."""
-        return np.hstack(
+        return self._join_segments(
             [decoder.decode(syndrome[slice]) for decoder, slice in zip(self.decoders, self.slices)]
         )
 
     def _decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes by parts."""
-        return np.hstack(
+        return self._join_segments(
             [
                 decoder.decode_batch(syndromes[:, slice])
                 for decoder, slice in zip(self.decoders, self.slices)
             ]
         )
+
+    def _join_segments(self, segments: Sequence[npt.NDArray[np.int_]]) -> npt.NDArray[np.int_]:
+        """Concatenate decoded segments, collecting their erasure bits into one trailing bit."""
+        if not self.has_erasure_bit:
+            return np.concatenate(segments, axis=-1)
+
+        errors = []
+        erased = np.zeros(segments[0].shape[:-1], dtype=bool)
+        for segment, erasing in zip(segments, self.erasing_decoders):
+            if erasing:
+                erased = erased | (segment[..., -1] != 0)
+                segment = segment[..., :-1]
+            errors.append(segment)
+        errors.append(erased[..., None].astype(segments[0].dtype))
+        return np.concatenate(errors, axis=-1)
 
 
 class DirectDecoder:

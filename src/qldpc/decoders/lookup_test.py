@@ -154,6 +154,26 @@ def test_tie_breaking() -> None:
     )
 
 
+def test_lookup_post_selection_violation() -> None:
+    """A syndrome that a LookupDecoder post-selects against decodes as one never enumerated."""
+    matrix = np.eye(3, dtype=int)  # syndrome bit kk is flipped by error kk alone
+    decoder = decoders.LookupDecoder(matrix, max_weight=1, post_select=[0], add_erasure_bit=True)
+
+    # a syndrome trivial on bit 0 is decoded from the table, unerased
+    assert np.array_equal([0, 1, 0, 0], decoder.decode(np.array([0, 1, 0])))
+
+    # a syndrome nontrivial on bit 0 was never enumerated, so it is erased
+    assert np.array_equal([0, 0, 0, 1], decoder.decode(np.array([1, 1, 0])))
+    assert np.array_equal([0, 0, 0, 1], decoder.decode(np.array([1, 0, 0])))
+
+    # a WeightedLookupDecoder post-selects identically
+    weighted_decoder = decoders.WeightedLookupDecoder(
+        matrix, max_weight=1, post_select=[0], add_erasure_bit=True
+    )
+    assert np.array_equal([0, 1, 0, 0], weighted_decoder.decode(np.array([0, 1, 0])))
+    assert np.array_equal([0, 0, 0, 1], weighted_decoder.decode(np.array([1, 1, 0])))
+
+
 def test_invalid_arguments() -> None:
     """A LookupDecoder rejects contradictory or insufficient arguments."""
     pcm = np.eye(2, dtype=int)

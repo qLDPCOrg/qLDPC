@@ -240,6 +240,28 @@ def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) 
         check_erasure_bits(matrix, syndromes, decoded_batch)
 
 
+def test_composite_erasure() -> None:
+    """A CompositeDecoder is erased when any of its code blocks is erased."""
+    # row 1 of this matrix is trivial, so no error explains a syndrome that is nonzero there
+    matrix = np.array([[1, 1, 0], [0, 0, 0]])
+    block_decoder = decoders.RelayBPDecoder(matrix, add_erasure_bit=True)
+    composite_decoder = decoders.CompositeDecoder.from_copies(block_decoder, 2, 2)
+    assert composite_decoder.has_erasure_bit
+    assert composite_decoder.erasing_decoders == (True, True)
+
+    # one erasure bit for the composite, not one per block
+    syndromes = np.array([[1, 0, 1, 0], [0, 1, 1, 0], [1, 0, 0, 1], [0, 1, 0, 1]])
+    expected_erasures = [0, 1, 1, 1]
+    for syndrome, erased in zip(syndromes, expected_erasures):
+        decoded = composite_decoder.decode(syndrome)
+        assert len(decoded) == 2 * matrix.shape[1] + 1
+        assert decoded[-1] == erased
+
+    decoded_batch = composite_decoder.decode_batch(syndromes)
+    assert decoded_batch.shape == (len(syndromes), 2 * matrix.shape[1] + 1)
+    assert np.array_equal(decoded_batch[:, -1], expected_erasures)
+
+
 def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     """Composite and direct decoders, built from other decoders."""
     matrix, error, syndrome = toy_problem
@@ -264,12 +286,10 @@ def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     composite_syndromes = np.array([composite_syndrome] * 3)
     assert np.array_equal(composite_errors, composite_decoder.decode_batch(composite_syndromes))
 
-    # an erasure bit is only meaningful as the last entry of a composite decoded vector
+    # every code block can carry an erasure bit, and any one of them erases the composite
     erasure_decoder = decoders.get_decoder(
         matrix, with_lookup=True, max_weight=1, add_erasure_bit=True
     )
-    with pytest.raises(ValueError, match="Only the last decoder"):
-        decoders.CompositeDecoder.from_copies(erasure_decoder, syndrome.size, 2)
     assert decoders.CompositeDecoder(
         (decoder, syndrome.size), (erasure_decoder, syndrome.size)
     ).has_erasure_bit
