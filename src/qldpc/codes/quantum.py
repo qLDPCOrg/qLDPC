@@ -48,7 +48,10 @@ from .classical import (
     SimplexCode,
     TannerCode,
 )
-from .common import ClassicalCode, CSSCode, QuditCode
+from .common import ClassicalCode, CSSCode, QuditCode, get_scrambled_seed
+
+####################################################################################################
+# small named codes
 
 
 class TrivialCode(CSSCode):
@@ -403,7 +406,7 @@ class QuantumGolayCode(CSSCode):
 
 
 class IcebergCode(CSSCode):
-    """A quantum error detecting code: ``[n, n - 2, 2]``.
+    """A quantum error detecting code: ``[[n, n - 2, 2]]``.
 
     References:
 
@@ -422,7 +425,7 @@ class IcebergCode(CSSCode):
 
 
 class C4Code(IcebergCode):
-    """A [4, 2, 2] code, commonly known as the "C4" code.
+    """A [[4, 2, 2]] code, commonly known as the "C4" code.
 
     References:
 
@@ -434,7 +437,7 @@ class C4Code(IcebergCode):
 
 
 class C6Code(CSSCode):
-    """A [6, 2, 2] code, commonly known as the "C6" code.
+    """A [[6, 2, 2]] code, commonly known as the "C6" code.
 
     References:
 
@@ -446,6 +449,44 @@ class C6Code(CSSCode):
         super().__init__(checks, checks, is_subsystem_code=False)
         logical_ops_xz = scipy.linalg.block_diag([1, 1, 1], [1, 1, 1])
         self.set_logical_ops_xz(logical_ops_xz, logical_ops_xz)
+
+
+class ManyHypercubeCode(CSSCode):
+    """The ``[[6**level, 4**level, 2**level]]`` concatenated many-hypercubes code.
+
+    References:
+
+    - https://arxiv.org/abs/2403.16054
+    - https://errorcorrectionzoo.org/c/stab_6_4_2
+    """
+
+    def __init__(self, level: int = 1) -> None:
+        if level < 1:
+            raise ValueError(
+                f"The many-hypercubes code requires a level of at least 1 (provided: {level})"
+            )
+
+        code: CSSCode
+        if level == 1:
+            # construct a [6, 4, 2] Iceberg code
+            code = IcebergCode(6)
+            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
+
+            # split the four logical qubits into pairs with disjoint support on the physical qubits
+            sector_ops_x = [[1, 1, 0], [0, 1, 1]]
+            sector_ops_z = sector_ops_x[::-1]
+            ops_x = scipy.linalg.block_diag(sector_ops_x, sector_ops_x)
+            ops_z = scipy.linalg.block_diag(sector_ops_z, sector_ops_z)
+            self.set_logical_ops_xz(ops_x, ops_z)
+
+        else:
+            code = ManyHypercubeCode(1)
+            base_code = ManyHypercubeCode(1)
+            for _ in range(level - 1):
+                code = CSSCode.concatenate(code, base_code)
+            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
+            self._dimension = 4**level
+            self._distance_x = self._distance_z = 2**level
 
 
 ####################################################################################################
@@ -515,7 +556,7 @@ class GALACode(CSSCode):
     element, or a polynomial sum of group elements.  GALA codes are currently supported only over
     GF(2).
 
-    The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by
+    The compact self-dual [[132, 30, 12]] code of arXiv:2608.07431 can be constructed by
 
         from qldpc import abstract, codes
 
@@ -526,11 +567,16 @@ class GALACode(CSSCode):
             generators_g=[x**9, x**2, x**8, x**5, x**8, x**7],
             num_active_rows=5,
         )
-        assert code.num_qubits == 132
-        assert code.dimension == 30
-        assert code.get_weight() == 12  # maximum stabilizer weight
+        assert code.num_qubits == 132  # the block length n
+        assert code.dimension == 30  # the number of logical qubits k
+
+        # the maximum stabilizer weight, which for this code coincides numerically with the
+        # distance d = 12 reported in arXiv:2608.07431; computing the distance itself is
+        # intractable at this block length, so it is taken from the reference rather than checked
+        assert code.get_weight() == 12
 
     References:
+
     - https://arxiv.org/abs/2608.07431
     """
 
@@ -676,6 +722,7 @@ class QCCode(TBCode):
     References:
 
     - https://errorcorrectionzoo.org/c/quantum_quasi_cyclic
+    - https://arxiv.org/abs/2109.14609
 
     Univariate quasi-cyclic codes are generalized bicycle codes:
 
@@ -720,10 +767,13 @@ class QCCode(TBCode):
                 assert isinstance(symbol, sympy.Symbol), f"Invalid symbol: {symbol}"
                 symbol_to_order[symbol] = order
 
-        # add more placeholder symbols if necessary
+        # add placeholder symbols for any orders that the polynomials do not account for
+        # the "~" prefix and the index keep each placeholder distinct from the others and from the
+        # symbols appearing in the polynomials; sorting makes the names deterministic
+        placeholder_prefix = "~" + "".join(sorted(map(str, symbols)))
         while len(symbol_to_order) < len(orders):
-            unique_symbol = sympy.Symbol("~" + "".join(map(str, symbols)))
-            symbol_to_order[unique_symbol] = orders[len(symbol_to_order)]
+            index = len(symbol_to_order)
+            symbol_to_order[sympy.Symbol(f"{placeholder_prefix}_{index}")] = orders[index]
 
         self.symbols = tuple(symbol_to_order.keys())
         self.orders = tuple(symbol_to_order.values())
@@ -1234,6 +1284,13 @@ class HGPCode(CSSCode):
     - https://arxiv.org/abs/1202.0928
     - https://arxiv.org/abs/2202.01702
     - https://www.youtube.com/watch?v=iehMcUr2saM
+
+    Syndrome extraction, canonical logical operators, and exact distances additionally follow:
+
+    - https://arxiv.org/abs/2109.14609
+    - https://arxiv.org/abs/2204.10812
+    - https://arxiv.org/abs/2502.07150
+    - https://arxiv.org/abs/2308.15520
     """
 
     code_a: ClassicalCode
@@ -1299,7 +1356,7 @@ class HGPCode(CSSCode):
 
         The sequence here is essentially the sequence used for hypergraph product codes in Algorithm
         2 of arXiv:2109.14609, modified to obviate the need to find a balanced ordering of Tanner
-        graph vertices.
+        graph vertices, and to group horizontal edges more coarsely than vertical ones.
 
         More specifically, this method constructs Tanner subgraphs as follows:
 
@@ -1308,8 +1365,20 @@ class HGPCode(CSSCode):
         2. Even edges get assigned a "north" or "south" direction if they are associated,
             respectively, with X-type or Z-type parity checks.  Odd edges get assigned the opposite
             direction.
-        3. Steps 1 and 2 are repeated for (horizontal, self.code_b, east, west) in place of
-            (vertical, self.code_a, north, south).
+        3. Step 1 is repeated for the classical seed code that defines horizontal edges of this
+            HGPCode (self.code_b), but the resulting edges get an "east" or "west" direction
+            according to the parity of their color alone: even colors go east and odd colors go
+            west, irrespective of parity check type.
+
+        Any two overlapping X-type and Z-type parity checks of an HGPCode share exactly two data
+        qubits, so the induced circuit measures the correct syndrome only if the X-type gate comes
+        before the Z-type gate on both of those qubits, or after it on both.  The check-type term in
+        step 2 is what enforces that, sending vertical edges of one color but opposite check type to
+        opposite ends of the returned sequence; grouping vertical edges by color alone breaks it.
+        Horizontal edges need no such term, and grouping them by color alone halves the number of
+        subgraphs they require.  Each color class of an edge coloring is a matching, so every
+        subgraph, horizontal or vertical, addresses each qubit at most once and is therefore
+        realizable as a single layer of gates.
 
         Args:
             strategy: The strategy used by nx.greedy_color to color edges of the Tanner graph.
@@ -1326,6 +1395,7 @@ class HGPCode(CSSCode):
                 node_0 = node_map[check_a, node_b]
                 node_1 = node_map[data_a, node_b]
                 data, check = sorted([node_0, node_1])
+                # node_b.is_data selects whether this edge's parity check is X-type or Z-type
                 edges_ns = edges_s if (color + node_b.is_data) % 2 == 0 else edges_n
                 edges_ns[color].append((check, data))
         graphs_n = tuple(self.graph.edge_subgraph(edges) for edges in edges_n.values())
@@ -1340,7 +1410,8 @@ class HGPCode(CSSCode):
                 node_0 = node_map[node_a, check_b]
                 node_1 = node_map[node_a, data_b]
                 data, check = sorted([node_0, node_1])
-                edges_ew = edges_e if (color + node_b.is_data) % 2 == 0 else edges_w
+                # the check-type term of the vertical edges is deliberately absent here
+                edges_ew = edges_e if color % 2 == 0 else edges_w
                 edges_ew[color].append((check, data))
         graphs_e = tuple(self.graph.edge_subgraph(edges) for edges in edges_e.values())
         graphs_w = tuple(self.graph.edge_subgraph(edges) for edges in edges_w.values())
@@ -1487,18 +1558,28 @@ class HGPCode(CSSCode):
         These calculations are based on arXiv:2308.15520, but additionally allow for the separate
         calculation of X-distance and Z-distance.  The basic idea is to identify the size of
         minimum-weight string operators in the (0, 0) and (1, 1) sectors of the HGPCode.
+
+        Each sector only carries logical operators when both of the codes whose code words build it
+        are nontrivial: the (0, 0) sector needs code words in both seed codes, and the (1, 1) sector
+        needs them in both transpose seed codes, which is to say a dependent parity check in each
+        seed code.  A sector that carries none contributes no weight, and folding its weight in
+        anyway would report a distance below the true one, so skip it.
         """
         if pauli is None:
             # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
             return NotImplemented
 
+        # a transpose seed code has code words exactly when that seed code has a dependent check
+        dependent_a = self.code_a.rank < len(self.code_a.matrix)
+        dependent_b = self.code_b.rank < len(self.code_b.matrix)
+
         if pauli is Pauli.X:
-            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance()
-            dist_b = self.code_b.get_distance()
+            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance() if dependent_b else np.nan
+            dist_b = self.code_b.get_distance() if self.code_a.dimension else np.nan
         else:
             assert pauli is Pauli.Z
-            dist_a = self.code_a.get_distance()
-            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance()
+            dist_a = self.code_a.get_distance() if self.code_b.dimension else np.nan
+            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance() if dependent_a else np.nan
 
         return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
 
@@ -1510,7 +1591,7 @@ class CHGPCode(HGPCode):
 
     References:
 
-    - https://arxiv.org/pdf/2511.09683v2 (Definition 1)
+    - https://arxiv.org/abs/2511.09683 (Definition 1)
     """
 
     def __init__(
@@ -1540,7 +1621,7 @@ class CRCode(HGPCode):
 
     References:
 
-    - https://arxiv.org/pdf/2511.09683v2 (Definition 3)
+    - https://arxiv.org/abs/2511.09683 (Definition 3)
     """
 
     def __init__(
@@ -1652,6 +1733,61 @@ class SHPCode(CSSCode):
                 return min(self.code_a.get_distance(), self.code_b.get_distance())
 
 
+class BaconShorCode(SHPCode):
+    """Bacon-Shor code on a square grid, implemented as a subsystem hypergraph product code.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/bacon_shor
+    """
+
+    def __init__(
+        self,
+        rows: int,
+        cols: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
+        code_x = RepetitionCode(rows, field)
+        code_z = RepetitionCode(cols, field) if cols is not None else None
+        super().__init__(code_x, code_z, field, set_logicals=set_logicals)
+
+        self._distance_x = cols if cols is not None else rows
+        self._distance_z = rows
+
+
+class SHYPSCode(SHPCode):
+    """Subsystem hypergraph product simplex (SHYPS) code.
+
+    Subsystem hypergraph product codes naturally inherit the automorphisms (symmetries) of the
+    classical codes that they are built from.  The SHYPSCode is built from classical SimplexCodes
+    that have a very large automorphism group, which gives SHYPSCodes a large set of
+    SWAP-transversal Clifford operations.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/shyps
+    - https://arxiv.org/abs/2502.07150
+    """
+
+    def __init__(
+        self,
+        dim_x: int,
+        dim_z: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
+        dim_z = dim_z if dim_z is not None else dim_x
+
+        code_x = SimplexCode(dim_x, field)
+        code_z = SimplexCode(dim_z, field)
+        super().__init__(code_x, code_z, set_logicals=set_logicals)
+
+        self._dimension = dim_x * dim_z
+
+
 class LPCode(CSSCode):
     """Lifted product code.
 
@@ -1704,6 +1840,7 @@ class LPCode(CSSCode):
     - https://arxiv.org/abs/2202.01702
     - https://arxiv.org/abs/2012.04068
     - https://arxiv.org/abs/2306.16400
+    - https://arxiv.org/abs/2401.02911
     """
 
     matrix_a: abstract.RingArray
@@ -1832,13 +1969,13 @@ class SLPCode(CSSCode):
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
     constructed by
 
-        from qldpc.abstract import CyclicGroup, GroupRing, RingMember, RingArray
+        from qldpc.abstract import CyclicGroup, GroupRing, RingArray
         from qldpc.codes import SLPCode
 
         group = CyclicGroup(2)
         ring = GroupRing(group)
-        x = group.generators[0]  # generator of the cyclic group
-        matrix = abstract.RingArray.build([[1, x, x], [x, x, 1]])  # Eq. 21 of arXiv:2404.18302v1
+        x = ring.generators[0]  # generator of the cyclic group
+        matrix = RingArray.build([[1, x, x], [x, x, 1]], ring)  # Eq. 21 of arXiv:2404.18302v1
         code = SLPCode(matrix)
         assert code.get_code_params() == (18, 4, 2)
 
@@ -1947,7 +2084,7 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ab, gb, agb}``.  We define two
+    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ag, gb, agb}``.  We define two
     (directed) subgraphs on the Cayley complex:
 
     - subgraph_x with edges ``( g, f(g,a,b))``, and
@@ -2034,7 +2171,7 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-        where ``f(g,a,b) = {g, ab, gb, agb}``.  Specifically, the (directed) subgraphs are:
+        where ``f(g,a,b) = {g, ag, gb, agb}``.  Specifically, the (directed) subgraphs are:
 
         - subgraph_x with edges ``( g, f(g,a,b))``, and
         - subgraph_z with edges ``(ag, f(g,a,b))``.
@@ -2048,12 +2185,13 @@ class QTCode(CSSCode):
         then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by
         defining ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
         """
-        subset_a = cayplex.cover_subset_a
-        subset_b = cayplex.cover_subset_b
+        # sort the subsets by the total order on the group, which fixes the order in which faces are
+        # added below, and thereby the qudit that each face of the Cayley complex is identified with
+        subset_a = sorted(cayplex.cover_subset_a)
+        subset_b = sorted(cayplex.cover_subset_b)
 
         # identify the identity element
-        member = next(iter(subset_a))
-        identity = member * ~member
+        identity = subset_a[0] * ~subset_a[0]
 
         # identify the set of nodes for which we still need to add faces
         nodes_to_add = {identity}
@@ -2062,7 +2200,8 @@ class QTCode(CSSCode):
         subgraph_x = nx.DiGraph()
         subgraph_z = nx.DiGraph()
         while nodes_to_add:
-            gg = nodes_to_add.pop()
+            gg = min(nodes_to_add)
+            nodes_to_add.remove(gg)
 
             # identify nodes we have already covered, and new nodes we may need to cover
             old_nodes = set(subgraph_x.nodes())
@@ -2100,7 +2239,14 @@ class QTCode(CSSCode):
         code_a = ClassicalCode(code_a, field)
         code_b = ClassicalCode(code_b if code_b is not None else ~code_a, field)
         subset_a = group.random_symmetric_subset(code_a.num_bits, seed=seed)
-        subset_b = group.random_symmetric_subset(code_b.num_bits) if not one_subset else subset_a
+        if one_subset:
+            subset_b = subset_a
+        else:
+            # scramble the seed so that the second subset is drawn independently of the first, while
+            # keeping the construction as a whole reproducible from the given seed.  Reduce it
+            # first, so that a seed of any magnitude is accepted, as it is for the first subset.
+            seed_b = get_scrambled_seed(seed % 2**32) if seed is not None else None
+            subset_b = group.random_symmetric_subset(code_b.num_bits, seed=seed_b)
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
 
     def save(self, path: str, *headers: str) -> None:
@@ -2167,6 +2313,15 @@ class QTCode(CSSCode):
 
 ####################################################################################################
 # surface code and friends
+
+
+def _get_check_pauli(row: int, col: int) -> PauliXZ:
+    """What type of stabilizer does the check at the given coordinates measure?
+
+    Checks of a rotated surface or toric code alternate between X and Z type in a checkerboard
+    pattern, so the type is fixed by the parity of the sum of the coordinates.
+    """
+    return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
 
 
 class SurfaceCode(CSSCode):
@@ -2256,16 +2411,12 @@ class SurfaceCode(CSSCode):
         - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
         """
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def check_is_used(row: int, col: int) -> bool:
             """Is the check qubit with these coordinates used?"""
             if row == 0 or row == rows:
-                return 0 < col < cols and get_check_pauli(row, col) is Pauli.Z
+                return 0 < col < cols and _get_check_pauli(row, col) is Pauli.Z
             if col == 0 or col == cols:
-                return 0 < row < rows and get_check_pauli(row, col) is Pauli.X
+                return 0 < row < rows and _get_check_pauli(row, col) is Pauli.X
             return 0 < row < rows and 0 < col < cols
 
         def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
@@ -2283,7 +2434,7 @@ class SurfaceCode(CSSCode):
         for row, col in itertools.product(range(rows + 1), range(cols + 1)):
             if check_is_used(row, col):
                 check = get_check(row, col)
-                if get_check_pauli(row, col) is Pauli.X:
+                if _get_check_pauli(row, col) is Pauli.X:
                     checks_x.append(check)
                 else:
                     checks_z.append(check)
@@ -2308,16 +2459,12 @@ class SurfaceCode(CSSCode):
         if not self.rotated:
             return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def check_is_used(row: int, col: int) -> bool:
             """Is the check qubit with these coordinates used?"""
             if row == 0 or row == self.rows:
-                return 0 < col < self.cols and get_check_pauli(row, col) is Pauli.Z
+                return 0 < col < self.cols and _get_check_pauli(row, col) is Pauli.Z
             if col == 0 or col == self.cols:
-                return 0 < row < self.rows and get_check_pauli(row, col) is Pauli.X
+                return 0 < row < self.rows and _get_check_pauli(row, col) is Pauli.X
             return 0 < row < self.rows and 0 < col < self.cols
 
         # identify all coordinates of check qubits, and a map from coordinates to a Node
@@ -2327,7 +2474,7 @@ class SurfaceCode(CSSCode):
                 for row, col in itertools.product(range(self.rows + 1), range(self.cols + 1))
                 if check_is_used(row, col)
             ],
-            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+            key=lambda row_col: (int(_get_check_pauli(*row_col)), *row_col),
         )
         node_map = {
             (row, col): Node(index, is_data=False)
@@ -2344,19 +2491,19 @@ class SurfaceCode(CSSCode):
             check_sw = (row + 1, col)
             check_se = (row + 1, col + 1)
             if check_is_used(*check_nw):
-                check_pauli = get_check_pauli(*check_nw)
+                check_pauli = _get_check_pauli(*check_nw)
                 check_node = node_map[check_nw]
                 edges[check_pauli, "nw"].append((check_node, data_node))
             if check_is_used(*check_ne):
-                check_pauli = get_check_pauli(*check_ne)
+                check_pauli = _get_check_pauli(*check_ne)
                 check_node = node_map[check_ne]
                 edges[check_pauli, "ne"].append((check_node, data_node))
             if check_is_used(*check_sw):
-                check_pauli = get_check_pauli(*check_sw)
+                check_pauli = _get_check_pauli(*check_sw)
                 check_node = node_map[check_sw]
                 edges[check_pauli, "sw"].append((check_node, data_node))
             if check_is_used(*check_se):
-                check_pauli = get_check_pauli(*check_se)
+                check_pauli = _get_check_pauli(*check_se)
                 check_node = node_map[check_se]
                 edges[check_pauli, "se"].append((check_node, data_node))
 
@@ -2451,10 +2598,6 @@ class ToricCode(CSSCode):
         Same as in SurfaceCode.get_rotated_checks, but with periodic boundary conditions.
         """
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
             """Check on the qubits with the given indices, dropping any that are out of bounds."""
             row_indices = np.array([row - 1, row, row - 1, row]) % rows
@@ -2468,7 +2611,7 @@ class ToricCode(CSSCode):
         checks_z = []
         for row, col in itertools.product(range(rows), range(cols)):
             check = get_check(row, col)
-            if get_check_pauli(row, col) is Pauli.X:
+            if _get_check_pauli(row, col) is Pauli.X:
                 checks_x.append(check)
             else:
                 checks_z.append(check)
@@ -2489,14 +2632,10 @@ class ToricCode(CSSCode):
         if not self.rotated:
             return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         # identify all coordinates of check qubits, and a map from coordinates to a Node
         check_node_coords = sorted(
             [(row, col) for row, col in itertools.product(range(self.rows), range(self.cols))],
-            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+            key=lambda row_col: (int(_get_check_pauli(*row_col)), *row_col),
         )
         node_map = {
             (row, col): Node(index, is_data=False)
@@ -2577,8 +2716,8 @@ class T4Code(CSSCode):
 
     References:
 
-    - https://arxiv.org/pdf/2506.15130v1
-    - https://arxiv.org/pdf/2505.10403
+    - https://arxiv.org/abs/2506.15130
+    - https://arxiv.org/abs/2505.10403
     """
 
     def __init__(
@@ -2588,8 +2727,20 @@ class T4Code(CSSCode):
         *,
         skip_validation: bool = False,
     ) -> None:
-        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
+        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice.
+
+        The lattice must have at least two unit cells per period, that is ``abs(det(matrix)) >= 2``.
+        A unimodular basis tiles the torus with a single cell, for which every boundary operator
+        vanishes identically and the resulting code has no parity checks at all.
+        """
         self._field = abstract.resolve_field(field)
+
+        determinant = int(sympy.Matrix(matrix).det())
+        if abs(determinant) < 2:
+            raise ValueError(
+                "A T4Code requires a lattice basis with abs(determinant) >= 2"
+                f" (provided a basis with determinant {determinant})"
+            )
 
         self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
         self.num_vertices = self.lattice_basis.det()
@@ -2669,97 +2820,3 @@ class T4Code(CSSCode):
         return self._ones_vec(
             self.num_faces, [top_face, back_face, left_face], [bottom_face, front_face, right_face]
         )
-
-
-####################################################################################################
-# miscellaneous codes
-
-
-class ManyHypercubeCode(CSSCode):
-    """The ``[6**r, 4**r, 2**r]`` concatenated many-hypercubes code of arXiv:2403.16054.
-
-    References:
-
-    - https://arxiv.org/abs/2403.16054
-    - https://errorcorrectionzoo.org/c/stab_6_4_2
-    """
-
-    def __init__(self, level: int = 1) -> None:
-        assert level >= 1
-
-        code: CSSCode
-        if level == 1:
-            # construct a [6, 4, 2] Iceberg code
-            code = IcebergCode(6)
-            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
-
-            # split the four logical qubits into pairs with disjoint support on the physical qubits
-            sector_ops_x = [[1, 1, 0], [0, 1, 1]]
-            sector_ops_z = sector_ops_x[::-1]
-            ops_x = scipy.linalg.block_diag(sector_ops_x, sector_ops_x)
-            ops_z = scipy.linalg.block_diag(sector_ops_z, sector_ops_z)
-            self.set_logical_ops_xz(ops_x, ops_z)
-
-        else:
-            code = ManyHypercubeCode(1)
-            base_code = ManyHypercubeCode(1)
-            for _ in range(level - 1):
-                code = CSSCode.concatenate(code, base_code)
-            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
-            self._dimension = 4**level
-            self._distance_x = self._distance_z = 2**level
-
-
-class BaconShorCode(SHPCode):
-    """Bacon-Shor code on a square grid, implemented as a subsystem hypergraph product code.
-
-    References:
-
-    - https://errorcorrectionzoo.org/c/bacon_shor
-    """
-
-    def __init__(
-        self,
-        rows: int,
-        cols: int | None = None,
-        field: int | type[galois.FieldArray] | None = None,
-        *,
-        set_logicals: bool = True,
-    ) -> None:
-        code_x = RepetitionCode(rows, field)
-        code_z = RepetitionCode(cols, field) if cols is not None else None
-        super().__init__(code_x, code_z, field, set_logicals=set_logicals)
-
-        self._distance_x = cols
-        self._distance_z = rows
-
-
-class SHYPSCode(SHPCode):
-    """Subsystem hypergraph product simplex (SHYPS) code.
-
-    Subsystem hypergraph product codes naturally inherit the automorphisms (symmetries) of the
-    classical codes that they are built from.  The SHYPSCode is built from classical SimplexCodes
-    that have a very large automorphism group, which gives SHYPSCodes a large set of
-    SWAP-transversal Clifford operations.
-
-    References:
-
-    - https://errorcorrectionzoo.org/c/shyps
-    - https://arxiv.org/abs/2502.07150
-    """
-
-    def __init__(
-        self,
-        dim_x: int,
-        dim_z: int | None = None,
-        field: int | type[galois.FieldArray] | None = None,
-        *,
-        set_logicals: bool = True,
-    ) -> None:
-        dim_z = dim_z if dim_z is not None else dim_x
-
-        code_x = SimplexCode(dim_x, field)
-        code_z = SimplexCode(dim_z, field)
-        super().__init__(code_x, code_z, set_logicals=set_logicals)
-
-        self._dimension = dim_x * dim_z

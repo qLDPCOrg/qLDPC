@@ -32,7 +32,12 @@ from .common import ClassicalCode
 
 
 class RepetitionCode(ClassicalCode):
-    """Classical repetition code."""
+    """Classical repetition code: the ``[n, 1, n]`` code whose code words are constant vectors.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/repetition
+    """
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
         self._field = abstract.resolve_field(field)
@@ -46,7 +51,15 @@ class RepetitionCode(ClassicalCode):
 
 
 class RingCode(ClassicalCode):
-    """Classical ring code: repetition code with periodic boundary conditions."""
+    """Classical ring code: repetition code with periodic boundary conditions.
+
+    The periodic boundary adds one (redundant) parity check, so a RingCode has the same code words
+    as a RepetitionCode of the same block length, and hence the same ``[n, 1, n]`` parameters.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/repetition
+    """
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
         self._field = abstract.resolve_field(field)
@@ -69,6 +82,10 @@ class CyclicCode(ClassicalCode):
     matrices.
 
     The CyclicCode with polynomial ``1 - x`` is a RingCode.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/cyclic
     """
 
     def __init__(
@@ -120,11 +137,17 @@ class HammingCode(ClassicalCode):
     built by stacking together (as columns) all nonzero bitstrings.  More generally, the parity
     check matrix is built from a maximal set of linearly independent nonzero vectors over a finite
     field; equivalently, from all vectors whose first nonzero element is a 1.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/hamming
+    - https://errorcorrectionzoo.org/c/q-ary_hamming
     """
 
     def __init__(self, size: int, field: int | type[galois.FieldArray] | None = None) -> None:
         """Construct a Hamming code of a given rank."""
-        self._distance = 3
+        if size < 2:
+            raise ValueError(f"Hamming codes require a rank of at least 2 (provided: {size})")
         self._field = abstract.resolve_field(field)
         if self.field is galois.GF2:
             # collect all nonzero bitstrings
@@ -148,10 +171,18 @@ class ExtendedHammingCode(ClassicalCode):
     """Classical extended Hamming code: the ordinary Hamming code with an extra parity bit.
 
     The extended Hamming code of size m is also equal to ``ReedMullerCode(m - 2, m)``.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/extended_hamming
     """
 
     def __init__(self, size: int) -> None:
         """Construct an extended Hamming code of a given rank."""
+        if size < 2:
+            raise ValueError(
+                f"Extended Hamming codes require a rank of at least 2 (provided: {size})"
+            )
         matrix: npt.NDArray[np.int_] = HammingCode(size).matrix
         matrix = np.column_stack([np.zeros(matrix.shape[0], dtype=int), matrix])
         matrix = np.vstack([np.ones(matrix.shape[1], dtype=int), matrix])
@@ -209,7 +240,7 @@ class ReedMullerCode(ClassicalCode):
         ReedMullerCode._assert_valid_params(order, size)
 
         if order == 0:
-            return np.ones(2**size, dtype=int)
+            return np.ones((1, 2**size), dtype=int)
         if order == size:
             return np.identity(2**size, dtype=int)
 
@@ -258,8 +289,7 @@ class BCHCode(ClassicalCode):
         self, length: int, dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> None:
         field = abstract.resolve_field(field)
-        length_in_base = np.base_repr(length, base=field.order)
-        if length_in_base != str(field.order - 1) * len(length_in_base):
+        if not BCHCode._is_valid_bch_length(length, field.order):
             raise ValueError(
                 f"BCH codes over F_{field.order} are only defined for block lengths"
                 f" {field.order}^m - 1 with integer m."
@@ -267,42 +297,90 @@ class BCHCode(ClassicalCode):
         super().__init__(galois.BCH(length, dimension, field=field).H)
         self._dimension = dimension
 
+    @staticmethod
+    def _is_valid_bch_length(length: int, field_order: int) -> bool:
+        """Is the given block length valid for a BCH code over a field of the given order?
+
+        BCH codes over ``F_q`` are defined for block lengths ``q**m - 1`` with integer ``m >= 1``.
+        """
+        power, exponent = length + 1, 0
+        while power > 1 and power % field_order == 0:
+            power //= field_order
+            exponent += 1
+        return power == 1 and bool(exponent)
+
 
 class SimplexCode(ClassicalCode):
-    """Classical simplex code.
+    """Classical simplex code: the dual of the Hamming code.
 
-    A binary simplex code with dimension k has code parameters ``[2**k - 1, k, 2 ** (k - 1)]``.
-    The automorphism of this code is the general linear group ``GL(k, 2)``.
+    A simplex code of dimension k over a field of order q has code parameters
+
+        ``[(q**k - 1) / (q - 1), k, q ** (k - 1)]``.
+
+    Its generator matrix has one column for each point of the projective space ``PG(k - 1, q)``,
+    that is, one representative of each family of nonzero vectors of ``F_q**k`` that are scalar
+    multiples of one another.  Those columns are precisely the parity checks of a Hamming code of
+    the same rank, which is what makes a simplex code the dual of a Hamming code.
+
+    Over the binary field the scalar multiples of a nonzero vector are just the vector itself, so
+    the block length is ``2**k - 1`` and the code has a cyclic presentation: its parity checks are
+    the cyclic shifts of a three-term polynomial, and therefore all have weight 3.  That
+    presentation is used here for binary codes, since low-weight parity checks are what make simplex
+    codes attractive as the building blocks of a SHYPSCode.  It does not carry over to ``q > 2``,
+    where a cyclic code of length ``q**k - 1`` would instead be the ``(q - 1)``-fold repetition of
+    the simplex code.
+
+    Over the binary field the automorphism group of this code is the general linear group
+    ``GL(k, 2)``.
 
     References:
 
     - https://errorcorrectionzoo.org/c/simplex
+    - https://errorcorrectionzoo.org/c/hamming
     - https://arxiv.org/abs/2502.07150
     """
 
     def __init__(self, dim: int, field: int | type[galois.FieldArray] | None = None) -> None:
         field = abstract.resolve_field(field)
-        polynomial = SimplexCode.get_defining_polynomial(dim, field)
-        coefficients = polynomial.coefficients(size=field.order**dim - 1, order="asc")
-        matrix = np.array([np.roll(coefficients, jj) for jj in range(len(coefficients))])
-        super().__init__(matrix, field=field)
+        if dim < 2:
+            raise ValueError(f"Simplex codes require a dimension of at least 2 (provided: {dim})")
+
+        if field is galois.GF2:
+            # the cyclic presentation, whose parity checks all have weight 3
+            polynomial = SimplexCode.get_defining_polynomial(dim, field)
+            coefficients = polynomial.coefficients(size=2**dim - 1, order="asc")
+            matrix = np.array([np.roll(coefficients, shift) for shift in range(len(coefficients))])
+            super().__init__(matrix, field=field)
+        else:
+            # one generator column per point of PG(dim - 1, q), i.e. the dual of a Hamming code
+            generator = HammingCode(dim, field).matrix
+            super().__init__(ClassicalCode.from_generator(generator, field), field)
 
         self._dimension = dim
-        self._distance = field.order ** (dim - 1) * (field.order - 1)
+        self._distance = field.order ** (dim - 1)
 
     @staticmethod
     def get_defining_polynomial(
         dim: int, field: int | type[galois.FieldArray] | None = None
     ) -> galois.Poly:
-        """The polynomial that defines a SimplexCode of a given dimension and base field.
+        """The polynomial defining the cyclic presentation of a simplex code.
+
+        The cyclic code of length ``field.order**dim - 1`` with this check polynomial is a simplex
+        code when ``field.order == 2``, and the ``(field.order - 1)``-fold repetition of one
+        otherwise.
 
         Returns a three-term polynomial of the form ``h(x) = 1 + a * x**c + b * x**d``, where
 
         - the coefficients a and b are elements of a finite field,
         - the exponents c and d are integers, and
         - ``gcd(h(x), x ** (field**dim - 1) - 1)`` is a primitive polynomial of degree dim.
+
+        A dimension of at least 2 is required: a one-dimensional simplex code has block length
+        ``field.order - 1 == 1``, for which no nontrivial check polynomial exists.
         """
         field = abstract.resolve_field(field)
+        if dim < 2:
+            raise ValueError(f"Simplex codes require a dimension of at least 2 (provided: {dim})")
 
         # first try finding a primitive three-term polynomial of degree dim
         try:
@@ -336,7 +414,7 @@ class SimplexCode(ClassicalCode):
 
 
 class TannerCode(ClassicalCode):
-    """Classical Tanner code, as described in DOI:10.1109/TIT.1981.1056404.
+    """Classical Tanner code.
 
     A Tanner code ``T(G,C)`` is constructed from:
     [1] A bipartite "half-regular" graph G.  That is, a graph...
@@ -363,6 +441,10 @@ class TannerCode(ClassicalCode):
 
     - If the subcode C has m checks, its parity matrix has shape ``(m,n)``.
     - The code ``T(G,C)`` has ``|W|`` bits and ``|V|m`` checks.
+
+    References:
+
+    - https://doi.org/10.1109/TIT.1981.1056404
     """
 
     subgraph: nx.DiGraph
@@ -385,6 +467,12 @@ class TannerCode(ClassicalCode):
         for idx, source in enumerate(sorted(sources)):
             checks = range(subcode.num_checks * idx, subcode.num_checks * (idx + 1))
             bits = [sink_indices[sink] for sink in self._get_sorted_neighbors(source)]
+            if len(bits) != len(subcode):
+                raise ValueError(
+                    f"Node {source} has degree {len(bits)}, but the subcode of this Tanner code is"
+                    f" defined on {len(subcode)} bits.  Every source node of the subgraph must have"
+                    " degree equal to the block length of the subcode."
+                )
             matrix[np.ix_(checks, bits)] = subcode.matrix
         super().__init__(matrix, subcode.field)
 
@@ -403,7 +491,7 @@ class TannerCode(ClassicalCode):
             edge = frozenset([node_a, node_b])
             directed_subgraph.add_edge(node_a, edge)
             directed_subgraph.add_edge(node_b, edge)
-            if (sort_data := edge_data.pop("sort", None)) is not None:
+            if (sort_data := edge_data.get("sort")) is not None:
                 directed_subgraph[node_a][edge]["sort"] = sort_data[node_a]
                 directed_subgraph[node_b][edge]["sort"] = sort_data[node_b]
         return directed_subgraph

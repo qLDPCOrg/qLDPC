@@ -645,7 +645,10 @@ def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_dist
     )
     assert min(distance_x, distance_z, distance_all) == expected_distance
 
-    code._distance = None
+    # forget_distance clears the X and Z caches as well, which assigning to _distance would not:
+    # get_distance_if_known(None) returns min(_distance_x, _distance_z) whenever both are known,
+    # so the recomputation below would otherwise read back a value it never verified
+    code.forget_distance()
     assert code.get_distance_exact() == expected_distance
 
 
@@ -668,3 +671,27 @@ def test_get_distance_quantum_noncss_codes(
 
     code._distance = None
     assert code.get_distance_exact() == expected_distance
+
+
+def test_distance_requires_binary_input() -> None:
+    """Distance calculations reject non-binary input rather than silently truncating it.
+
+    The enumeration packs each row into the bits of uint64 words, so a non-binary entry would
+    otherwise be reinterpreted and yield a wrong distance with no indication of a problem.
+    """
+    # a field of order > 2 is rejected on the strength of its type alone
+    ternary_code = qldpc.codes.classical.HammingCode(3, 3)
+    with pytest.raises(ValueError, match="only support binary codes.*GF\\(3\\)"):
+        qldpc.codes.distance.get_distance_classical(ternary_code.generator)
+
+    # an untyped array is rejected on the strength of its entries
+    with pytest.raises(ValueError, match="entries other than 0 and 1"):
+        qldpc.codes.distance.get_distance_classical(np.array([[1, 2, 0], [0, 1, 1]]))
+    with pytest.raises(ValueError, match="entries other than 0 and 1"):
+        qldpc.codes.distance.get_distance_quantum(
+            np.array([[1, 1, 0, 0]]), np.array([[0, 0, 2, 0]]), homogeneous=True
+        )
+
+    # binary input still works, whether or not it carries a field type
+    assert qldpc.codes.distance.get_distance_classical(np.array([[1, 1, 1]])) == 3
+    assert qldpc.codes.distance.get_distance_classical(qldpc.codes.HammingCode(4).generator) == 3
