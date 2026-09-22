@@ -313,8 +313,8 @@ class ClassicalCode(AbstractCode):
 
         A check that addresses no bits, as an all-zero row of H defines, is an isolated vertex of
         the graph.  Seeding a vertex for every row puts the check vertices in one-to-one
-        correspondence with the rows of H, which anything that identifies a check by its vertex
-        relies on: dropping such a vertex shifts the indices of the checks that follow it.
+        correspondence with the rows of H, so the graph records how many checks there are even when
+        some of them address no bits.
         """
         matrix = np.asanyarray(matrix)
 
@@ -1075,7 +1075,8 @@ class QuditCode(AbstractCode):
 
         1. Any pair of subgraphs must be edge-disjoint.
         2. Every edge of the Tanner graph of the code must belong to one of the subgraphs.  Vertices
-           need not be covered: a check that addresses no qudits contributes no gate to measure.
+           need not be covered: an isolated vertex, be it a check that addresses no qudits or a
+           qudit that no check addresses, has no gate to schedule.
         3. For every subgraph, all two-qubit gates associated with its edges must commute.
         4. The sequence of subgraphs must correspond to a valid syndrome extraction circuit.
 

@@ -325,10 +325,9 @@ def test_qudit_codes() -> None:
     assert_valid_subgraphs(codes.QuditCode.from_strings(["Y Y I I", "I I Z Z"]))
     assert_valid_subgraphs(codes.QuditCode.from_strings(["X X X"]))
     assert_valid_subgraphs(codes.QuditCode.from_strings(["X X X", "I I I"]))
-    assert_valid_subgraphs(codes.QuditCode.from_strings(["I I I"]))
 
-    # a check that addresses no qudits is still a row of the parity check matrix
-    trivial_code = codes.QuditCode.from_strings(["X X X", "I I I"])
+    # a check that addresses no qudits is still a row of the parity check matrix, at either end
+    trivial_code = codes.QuditCode.from_strings(["I I I", "X X X", "I I I"])
     assert np.array_equal(trivial_code.matrix, codes.QuditCode.graph_to_matrix(trivial_code.graph))
 
     # equivalence to code with redundant stabilizers
