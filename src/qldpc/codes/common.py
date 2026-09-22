@@ -312,8 +312,9 @@ class ClassicalCode(AbstractCode):
         share an edge iff c addresses b; that is, edge (c, b) is in the graph iff ``H[c, b] != 0``.
 
         A check that addresses no bits, as an all-zero row of H defines, is an isolated vertex of
-        the graph.  Seeding a vertex for every row keeps the check vertices in correspondence with
-        the rows of H, which is what lets ClassicalCode.graph_to_matrix recover H.
+        the graph.  Seeding a vertex for every row puts the check vertices in one-to-one
+        correspondence with the rows of H, so the graph records how many checks there are even when
+        some of them address no bits.
         """
         matrix = np.asanyarray(matrix)
 
@@ -973,7 +974,13 @@ class QuditCode(AbstractCode):
 
     @staticmethod
     def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
-        """Convert a parity check matrix into a Tanner graph."""
+        """Convert a parity check matrix into a Tanner graph.
+
+        A check that addresses no qudits, as an all-zero row defines, is an isolated vertex of the
+        graph.  Seeding a vertex for every row puts the check vertices in one-to-one correspondence
+        with the rows, so the graph records how many checks there are even when some of them address
+        no qudits.
+        """
         matrix = np.asanyarray(matrix)
         matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
 
@@ -982,6 +989,8 @@ class QuditCode(AbstractCode):
         graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         for qudit in range(matrix.shape[-1]):
             graph.add_node(Node(index=qudit, is_data=True))
+        for check in range(len(matrix)):
+            graph.add_node(Node(index=check, is_data=False))
 
         # add edges
         _Pauli = Pauli if graph.field is galois.GF2 else QuditPauli
@@ -1067,7 +1076,9 @@ class QuditCode(AbstractCode):
         measurement sequence, so long as the following requirements are satisfied:
 
         1. Any pair of subgraphs must be edge-disjoint.
-        2. The union of all subgraphs (with nx.compose) must equal the Tanner graph of the code.
+        2. Every edge of the Tanner graph of the code must belong to one of the subgraphs.  Vertices
+           need not be covered: an isolated vertex, be it a check that addresses no qudits or a
+           qudit that no check addresses, has no two-qubit gate to schedule.
         3. For every subgraph, all two-qubit gates associated with its edges must commute.
         4. The sequence of subgraphs must correspond to a valid syndrome extraction circuit.
 

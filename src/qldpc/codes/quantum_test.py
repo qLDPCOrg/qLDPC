@@ -487,6 +487,13 @@ def test_hypergraph_product(
             assert dist_x == code.get_distance(Pauli.X)
             assert dist_z == code.get_distance(Pauli.Z)
 
+    # a random seed code addresses every bit.  Check a seed code that leaves one unaddressed, whose
+    # product therefore has a data qudit that no check addresses.
+    seed = codes.ClassicalCode([[1, 1, 0], [0, 0, 0]], field=field)
+    assert nx.utils.graphs_equal(
+        codes.HGPCode(seed, seed).graph, codes.HGPCode.get_graph_product(seed.graph, seed.graph)
+    )
+
 
 @pytest.mark.parametrize(
     "seed_a, seed_b",
@@ -547,9 +554,13 @@ def test_hypergraph_product_syndrome_subgraphs() -> None:
     assert_valid_subgraphs(codes.HGPCode(codes.RepetitionCode(1), codes.RepetitionCode(3)))
 
     # a check that addresses no bits of a seed code still addresses qudits of the product, so the
-    # subgraphs have to cover its edges
+    # subgraphs have to cover its edges.  Horizontal and vertical edges are collected in separate
+    # loops, so place such a check in each seed code in turn.
     assert_valid_subgraphs(
         codes.HGPCode(codes.ClassicalCode([[1, 1, 0], [0, 0, 0]]), codes.RepetitionCode(3))
+    )
+    assert_valid_subgraphs(
+        codes.HGPCode(codes.RepetitionCode(3), codes.ClassicalCode([[1, 1, 0], [0, 0, 0]]))
     )
 
 

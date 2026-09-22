@@ -1443,6 +1443,10 @@ class HGPCode(CSSCode):
         field = getattr(graph_a, "field", galois.GF2)
         _Pauli = Pauli if field is galois.GF2 else QuditPauli
 
+        # the keys of this map are the vertices of the product, before relabeling
+        node_map = HGPCode.get_product_node_map(graph_a.nodes, graph_b.nodes)
+        graph.add_nodes_from(node_map.keys())
+
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
 
@@ -1475,7 +1479,6 @@ class HGPCode(CSSCode):
             graph[node_check][node_qudit][Pauli] = op
 
         # relabel nodes, from (node_a, node_b) --> node_combined
-        node_map = HGPCode.get_product_node_map(graph_a.nodes, graph_b.nodes)
         graph = nx.relabel_nodes(graph, node_map)
         graph.field = field
         return graph
