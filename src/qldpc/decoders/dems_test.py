@@ -17,6 +17,7 @@ limitations under the License.
 
 import numpy as np
 import pytest
+import scipy.sparse
 import stim
 
 from qldpc import decoders
@@ -116,6 +117,14 @@ def test_simplify() -> None:
     """)
     assert dem == dem_arrays.to_detector_error_model()
     assert simplified_dem == dem_arrays.simplified().to_detector_error_model()
+
+    # a decomposition whose components cancel leaves nothing to flip, so the error is dropped
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 D1 ^ D0 D2 ^ D1 D2
+        error(0.2) D0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=True)
+    assert error_instructions(dem_arrays.to_dem()) == ["error(0.2) D0"]
 
 
 def test_with_erasure() -> None:
@@ -245,6 +254,34 @@ def test_post_selection() -> None:
     with pytest.raises(ValueError, match="order"):
         decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=0)
 
+    # two identical errors that trigger a post-selected detector cancel completely, so their
+    # co-occurrence flips nothing and is not added back
+    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+        np.array([[1, 1, 0], [0, 0, 1]]), None, 0.1
+    )
+    assert error_instructions(dem_arrays.post_selected_on([0], order=2).to_dem()) == [
+        "error(0.1) D0"
+    ]
+
+    # keep_detectors retains the post-selected detectors, leaving them untriggered
+    dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        detector D2
+        error(0.1) D1 ^ D2
+        error(0.2) D0 D1
+    """)
+    kept_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        detector D2
+        error(0.1) D1 ^ D2
+    """)
+    assert (
+        decoders.DetectorErrorModelArrays(dem).post_selected_on([0], keep_detectors=True).to_dem()
+        == kept_dem
+    )
+
 
 def test_without_untriggered_detectors() -> None:
     """Drop detectors that no error mechanism triggers."""
@@ -330,6 +367,47 @@ def test_dropping_untriggered_decomposed_detectors() -> None:
     original = dem.compile_sampler(seed=1).sample(shots)[0].mean(axis=0)
     reduced = pruned.to_dem().compile_sampler(seed=1).sample(shots)[0].mean(axis=0)
     assert np.allclose(original[1:], reduced, atol=0.02)
+
+
+def test_validating_arrays() -> None:
+    """from_arrays checks that its arrays describe the same error mechanisms."""
+    matrix = np.eye(2, dtype=np.uint8)
+
+    # an integer probability is broadcast to all error mechanisms
+    assert np.array_equal(
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1).error_probs, [1.0, 1.0]
+    )
+
+    with pytest.raises(ValueError, match="observable flip matrix addresses"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, np.ones((1, 3), dtype=np.uint8), 0.1)
+
+    with pytest.raises(ValueError, match="error probabilities of shape"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, np.array([0.1, 0.2, 0.3]))
+
+
+def test_from_arrays_copies_its_inputs() -> None:
+    """A DetectorErrorModelArrays built from arrays shares no state with them."""
+    matrix = scipy.sparse.csc_matrix(np.eye(2, dtype=np.uint8))
+    error_probs = np.array([0.1, 0.2])
+    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(matrix, matrix, error_probs)
+    matrix.data[:] = 0
+    error_probs[:] = 0.5
+    expected_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        logical_observable L0
+        logical_observable L1
+        error(0.1) D0 L0
+        error(0.2) D1 L1
+    """)
+    assert expected_dem.approx_equals(dem_arrays.to_dem(), atol=1e-10)
+
+    # the dictionary of suggested decompositions is copied as well
+    decompositions = {0: frozenset([decoders.FlipPattern([0]), decoders.FlipPattern([1])])}
+    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+        np.array([[1], [1]], dtype=np.uint8), None, 0.1, decompositions
+    )
+    assert dem_arrays.suggested_decompositions is not decompositions
 
 
 def test_validating_suggested_decompositions() -> None:
