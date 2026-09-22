@@ -1,7 +1,10 @@
 """Shared reference data and helpers for the surgery tests.
 
 The seed sets are from Webster, Smith, and Cohen, arXiv:2511.15989 Appendix A. The `expected_*`
-entries are derived counts, not values from that appendix.
+entries come from Table 1 of the same paper: `expected_bare_gadget_qubits_per_seed` and
+`expected_cheeger_boost_qubits` are the two terms of its "Gadget Qubits" column, written there as
+e.g. (49+8), and `expected_bridge_qubits_per_pair` is its "Bridge Qubits" column. They are reference
+values recorded alongside the seeds; the tests that check those counts carry their own copies.
 
 These helpers exist for the surgery tests. Nothing outside them should rely on the module: it is a
 pytest conftest, so pytest imports it for every collection under this directory, and it ships inside
@@ -198,7 +201,7 @@ def load_webster_seed_set(code_index: int) -> dict[str, Any]:
 
     Returns:
         The seed-set dict for that code: ell, the A and B exponent sets, the code parameters, the
-        named seed operators, and the derived `expected_*` counts.
+        named seed operators, and the `expected_*` reference counts from Webster Table 1.
 
     Raises:
         IndexError: code_index is out of range.

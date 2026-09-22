@@ -295,7 +295,7 @@ def test_surgery_observable_emits_two_observable_include() -> None:
     """Direct unit test on _surgery_observable: emits two OBSERVABLE_INCLUDE entries.
 
     Observable 0 = XOR of the last QEC round's meas-check records (Webster, Smith, Cohen
-    single-round identity Z̄ = ∏_v A_v, arXiv:2511.15989 §II.A).
+    single-round identity Z̄ = ∏_v A_v, arXiv:2511.15989 §II.1).
     Observable 1 = XOR of data records on support (destructive cross-check).
     Asserts exactly two OBSERVABLE_INCLUDE lines are emitted with distinct observable indices."""
     from qldpc.circuits.bookkeeping import MeasurementRecord
@@ -490,9 +490,9 @@ def test_single_ppm_ler_monotone_in_p() -> None:
 def test_single_ppm_ler_with_final_detectors_below_threshold() -> None:
     """With final detectors wired, LER at p=0.001 should be ≤ 0.01.
 
-    Reference: before the final-detector wiring, LER at p=0.001 was ~0.024 (from
-    test_single_ppm_ler_monotone_in_p in the surgery-circuit-rewrite plan). Adding the inferred
-    detectors should drop it significantly.
+    The final inferred detectors give the decoder the last round's information, without which errors
+    there are invisible. The threshold sits a few times above the rate this configuration actually
+    reaches, so it tolerates Monte-Carlo scatter while still catching a regression of that wiring.
     """
     import sinter
 
@@ -525,7 +525,7 @@ def test_single_ppm_ler_with_final_detectors_below_threshold() -> None:
     ler = results[0].errors / max(results[0].shots, 1)
     assert ler <= 0.01, (
         f"LER at p=0.001 = {ler:.4f} (errors={results[0].errors}/{results[0].shots} shots). "
-        f"Expected ≤ 0.01 with final detectors wired. Was ~0.024 without them."
+        f"Expected ≤ 0.01 with the final inferred detectors wired."
     )
 
 
@@ -819,7 +819,7 @@ def test_joint_ppm_ler_monotone_steane_intercode() -> None:
 def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
     """Webster BB codes 0..3 intra-code: (x_1, x_2 padded, 0...) is in rowspan(H_X^merged).
 
-    Pins the SkipTree adapter construction across the full Webster Table I code family rather
+    Pins the SkipTree adapter construction across the full Webster Table 1 code family rather
     than just code 0.
     """
     import galois
@@ -1167,23 +1167,23 @@ def test_qubit_coords_layout_steane() -> None:
         4: (4, 0),
         5: (5, 0),
         6: (6, 0),
-        # κ ancillas on y=1 (was y=3)
+        # κ ancillas on y=1
         7: (0, 1),
         8: (1, 1),
         9: (2, 1),
-        # data H_X ancillas on y=2 (was y=1)
+        # data H_X ancillas on y=2
         10: (0, 2),
         11: (1, 2),
         12: (2, 2),
-        # χ ancillas on y=3 (was y=4)
+        # χ ancillas on y=3
         13: (0, 3),
         14: (1, 3),
         15: (2, 3),
-        # data H_Z ancillas on y=4 (was y=2)
+        # data H_Z ancillas on y=4
         16: (0, 4),
         17: (1, 4),
         18: (2, 4),
-        # G ancilla on y=5 (unchanged)
+        # G ancilla on y=5
         19: (0, 5),
     }
     assert coord_map == expected, f"\nexpected: {expected}\ngot:      {coord_map}"
@@ -1320,7 +1320,7 @@ def test_joint_ppm_qubit_coords_intercode_layout() -> None:
         f"y=0 x positions: expected 0..13, got {[x for x, _ in y0]}"
     )
 
-    # y=1 (was y=3) must have κ_l + κ_r qubits (depends on bridge augmentation).
+    # y=1 must have κ_l + κ_r qubits (depends on bridge augmentation).
     y1 = sorted(by_y.get(1, []))
     assert len(y1) >= 2, f"y=1 expected at least 2 κ qubits, got {len(y1)}"
 
@@ -1514,7 +1514,7 @@ def test_logical_state_init_end_to_end_bbcode_basis_z(state: str, expected_obs0:
 def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
     """obs0 reads the merged Z̄ eigenvalue independently of R.
 
-    Webster, Smith, Cohen arXiv:2511.15989 §II.A gives the single-round identity
+    Webster, Smith, Cohen arXiv:2511.15989 §II.1 gives the single-round identity
     Z̄ = ∏_{v ∈ support} A_v on the merged stabilizer group: the XOR of one round's meas-check
     outcomes equals the eigenvalue bit of Z̄. Reading at the final QEC round should be
     decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D); detectors
@@ -1755,10 +1755,11 @@ def test_joint_code_dimension_webster_x_steane_equals_ten() -> None:
 def test_joint_ppm_even_rounds_truth_table() -> None:
     """obs0 must encode logical X̄_l X̄_r parity correctly at EVEN rounds.
 
-    Regression test for the bug where _surgery_observable XOR'd meas-check syndromes across all
-    rounds (R · m_v ≡ 0 mod 2 for even R) instead of using a single round's product (Webster, Smith,
-    Cohen arXiv:2511.15989 §II.A: Z̄ = ∏_v A_v). Uses ``compile_sampler`` + manual XOR so we read
-    the raw observable bit, not stim's noiseless-flip from its (possibly wrong) prediction.
+    _surgery_observable must read a single round's product of meas-check outcomes (Webster, Smith,
+    Cohen arXiv:2511.15989 §II.1: Z̄ = ∏_v A_v). XOR-ing across all R rounds instead would give
+    R · m_v ≡ 0 mod 2 at even R, so the parity would silently vanish exactly here. Uses
+    ``compile_sampler`` + manual XOR to read the raw observable bit rather than stim's noiseless
+    flip, which is derived from the same prediction under test.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
@@ -1892,12 +1893,11 @@ def test_expand_joint_data_init_rejects_non_str_non_seq_type() -> None:
 def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
     """Single-PPM DEM constructs cleanly on BB [[36, 8]] with boost.
 
-    Contract test: single-PPM does NOT call build_bridge / SkipTree, so the joint-PPM boost-drop and
-    duplicate-edge bugs (fixed in bridge.py) cannot affect it. This regression locks that property
-    in — both BB [[36, 8]] (duplicate weight-2 incidence rows on Z̄_0) AND a Cheeger boost (h=1→2)
-    simultaneously, the double-boundary case for the bridge bugs. If a future refactor accidentally
-    routes single-PPM through bridge code, this test will catch it via stim's
-    non-deterministic-detector rejection.
+    Contract test: single-PPM does not call build_bridge / SkipTree, so nothing in the bridge's
+    handling of boosts or of duplicate weight-2 rows can reach it. The fixture combines both of the
+    conditions the bridge is sensitive to — BB [[36, 8]] has duplicate weight-2 incidence rows on
+    Z̄_0, and the Cheeger boost takes h from 1 to 2 — so if a refactor ever routes single-PPM through
+    bridge code, stim's non-deterministic-detector rejection catches it here.
     """
     import sympy
 

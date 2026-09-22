@@ -23,9 +23,9 @@ from __future__ import annotations
 import dataclasses
 import itertools
 
-import networkx as nx
 import numpy as np
 
+from qldpc._util import networkx as nx
 from qldpc.objects import PauliXZ
 
 from .gadget import GadgetLayout
@@ -128,11 +128,18 @@ def _skip_tree_fullrank(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute SkipTree (T, P) satisfying T · G · P == H_R (full-rank rep code).
 
-    Uses a spanning tree of S for the DFS vertex labeling (paper Algorithm 1 is defined on a tree),
-    then expresses each T row as the XOR of shortest-path edges in the full graph S. This lets S be
-    any connected graph; the direct _skip_tree call would IndexError on cyclic inputs.
+    Swaroop et al. arXiv:2410.03628 Algorithm 1 takes a connected graph and computes a spanning tree
+    as its first step, then reads each T row off the tree path between consecutively labelled
+    vertices. Here the spanning tree supplies the DFS vertex labeling, but each T row is the XOR of
+    shortest-path edges in the full graph S. This lets S be any connected graph; the direct
+    _skip_tree call would IndexError on cyclic inputs.
 
-    Sparsity (paper Theorem 7): row weight ≤ 3, column weight ≤ 2.
+    Sparsity: row weight ≤ 3 still holds, since a shortest path in S is no longer than the tree path
+    between the same endpoints, which Theorem 7 bounds at 3 edges. Theorem 7's column-weight-2 half
+    does NOT carry over: its proof counts each *tree* edge's reuse via sub-tree exhaustion, and a
+    full-graph path may route over non-tree edges for which the paper gives no reuse bound. Column
+    weight ≤ 2 is checked empirically instead, in
+    ``bridge_test.py::test_skip_tree_fullrank_on_K4_matches_H_R``.
 
     Returns (T, P) of shapes (n-1, |E|) and (n, n).
     """
@@ -170,13 +177,14 @@ def _cellulate_port_subgraph(
     SkipTree runs on G_aux.subgraph(ports); cycles entirely outside the port subgraph never enter
     T_s, so we cellulate only there.
 
-    Theorem 7 (Swaroop et al. arXiv:2410.03628) already bounds T_s row weight at ≤ 3 regardless of
-    cycle length, so this step is not load-bearing for correctness. It caps basis cycle lengths,
-    which keeps the cycle basis sparse.
+    T_s row weight is already ≤ 3 regardless of cycle length (see _skip_tree_fullrank), so this step
+    is not load-bearing for correctness. Capping basis cycle length is the cellulation of Swaroop et
+    al. arXiv:2410.03628 §II.3 — their desideratum 3a, distinct from the decongestion of their
+    Lemma 6, which instead bounds how many basis cycles a single edge belongs to.
 
-    Cellulating only the port subgraph, not the full graph, matters when |V_0| > w and a long cycle
-    threads through non-port vertices: there may be no port-port chord available even though the
-    port subgraph on its own needs no repair.
+    The scope is the port subgraph because that is what SkipTree sees. When |V_0| > w, a long cycle
+    of G_aux can thread non-port vertices; such a cycle contributes no basis cycle to the port
+    subgraph, and it need not admit a port-port chord at all.
 
     Chords are added to ``G_aux`` (the full graph). For port-subgraph cycles, chord endpoints are
     necessarily ports (cycle vertices = port vertices), so no port-membership filter is needed in
@@ -225,10 +233,18 @@ def _build_aux_graph_strict(incidence: np.ndarray) -> tuple[nx.Graph, dict[tuple
                             = H_R[c, label(v)] · [v ∈ port]      (SkipTree identity)
     and the hyperedge rows contribute 0 regardless of F_aug[r, v]. χ_v · cycle_c on the κ side
     cancels the adapter side, CSS commutation holds. The hyperedge κ qubit itself stays in F_aug,
-    so the gadget (G_aug = ker(F_aug^T), deformed check c → c · X(κ_r), χ_v) is untouched. Paper
-    Eq. 9's perfect-matching decomposition (§II.C) is not applied, and no structural distance
-    argument is claimed for the joint merge; what covers it is an empirical LER smoke test
-    (``circuit_test.py::test_joint_ppm_ler_monotone_steane_intercode``).
+    so the gadget (G_aug = ker(F_aug^T), deformed check c → c · X(κ_r), χ_v) is untouched. That
+    commutation conclusion is what
+    ``bridge_test.py::test_build_bridge_bb18_hyperedge_and_long_cycle`` checks on a fixture
+    carrying a weight-4 F row.
+
+    Paper Eq. (9)'s perfect-matching decomposition (§II.3) is not applied, and no structural
+    distance argument is claimed for the joint merge. Swaroop et al. Thm 11 (§IV) does give one for
+    the adapter — the deformed code for the joint measurement keeps distance d — but only if the
+    individual deformed codes are LDPC with distance d, which this library does not establish. The
+    only empirical evidence here is the LER trend in
+    ``circuit_test.py::test_joint_ppm_ler_monotone_steane_intercode``, whose Steane fixture has
+    all-weight-2 F rows and so does not exercise the hyperedge path.
 
     Raises:
         ValueError: if any row of F has weight 1 (defensive — F · 1_{V_0} = 0 mod 2 forbids odd
@@ -309,7 +325,7 @@ def _run_skiptree_on_port_subgraph(
     new_of_orig = {orig: new for new, orig in enumerate(port_sorted)}
     orig_of_new = {new: orig for orig, new in new_of_orig.items()}
     sub_relab = nx.relabel_nodes(sub_orig, new_of_orig, copy=True)
-    # Take a spanning tree (Algorithm 1 of paper expects a tree input). MST is
+    # Take a spanning tree, as Algorithm 1 of the paper does at its first step. MST is
     # deterministic; for unweighted graphs nx returns a BFS-like tree.
     sub_tree = nx.minimum_spanning_tree(sub_relab)
     tree_edges = sorted(tuple(sorted(e)) for e in sub_tree.edges())
@@ -378,12 +394,15 @@ def build_bridge(
     Args:
         g_l: left gadget.
         g_r: right gadget. Must share g_l's measurement basis.
-        port_subset_l: indices into ``g_l.support`` to use as ports. Defaults to all of it.
-        port_subset_r: indices into ``g_r.support`` to use as ports. Defaults to all of it.
+        port_subset_l: indices into ``g_l.support`` to use as ports. Must be in range and distinct;
+            out-of-range or repeated entries surface as an IndexError. Defaults to all of it.
+        port_subset_r: indices into ``g_r.support`` to use as ports, same contract as port_subset_l.
+            Defaults to all of it.
         spanning_tree_root_l: index INTO the left port tuple of the SkipTree root vertex.
         spanning_tree_root_r: index INTO the right port tuple of the SkipTree root vertex.
-        cellulate_max_len: cap on cycle length when cellulating the port subgraph, which keeps the
-            cycle basis sparse (Swaroop et al. §II.C decongestion).
+        cellulate_max_len: cap on port-subgraph cycle length, enforced by adding chords. Lowering it
+            trades qubits for a sparser gauge: on the bb_18 intra-code pair, the default 6 cuts max
+            gauge row weight from 34 to 13 at a cost of +314 qubits.
 
     Returns:
         A Bridge of width min(|ports_l|, |ports_r|).
@@ -392,6 +411,8 @@ def build_bridge(
         ValueError: the two gadgets disagree on basis; the resulting width is < 2; a spanning-tree
             root is out of range; or an explicitly supplied port subset is longer than the width, so
             that requested ports would be dropped.
+        RuntimeError: a port-subgraph cycle has no chord available to meet cellulate_max_len, which
+            a cap below 3 forces.
     """
     if g_l.basis is not g_r.basis:
         raise ValueError(
@@ -414,8 +435,8 @@ def build_bridge(
     if width < 2:
         raise ValueError(f"bridge width must be >= 2, got {width}")
     # Truncating to the narrower side is the intended adapter behaviour when both port tuples are
-    # defaulted -- supports of unequal size bridge at their minimum. Dropping ports the caller asked
-    # for by name is not, so reject that instead of silently shrinking the request.
+    # defaulted — supports of unequal size bridge at their minimum. A named port that would be
+    # truncated away is a request the caller made and cannot get, so it is an error.
     for side, subset, ports in (("l", port_subset_l, port_l_all), ("r", port_subset_r, port_r_all)):
         if subset is not None and len(ports) > width:
             raise ValueError(

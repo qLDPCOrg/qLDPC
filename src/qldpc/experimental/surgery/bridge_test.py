@@ -54,7 +54,8 @@ def test_skip_tree_fullrank_on_K4_matches_H_R() -> None:
     # SkipTree key identity: T_ind · G · P_ind == H_R over GF(2)
     product = (T_ind @ G_mat @ P_ind) % 2
     assert np.array_equal(product, H_R), f"got\n{product}\nwant\n{H_R}"
-    # Paper Theorem 7: (3,2)-sparsity is a general invariant of SkipTree.
+    # Row weight ≤ 3 follows from Swaroop et al. arXiv:2410.03628 Thm 7 even with full-graph paths;
+    # column weight ≤ 2 does not (see _skip_tree_fullrank), so K_4 checks it directly.
     assert T_ind.sum(axis=1).max() <= 3
     assert T_ind.sum(axis=0).max() <= 2
 
@@ -414,8 +415,8 @@ def test_cellulation_caps_aug_aux_cycle_length_on_webster() -> None:
     g_l = build_gadget(code, x, basis=Pauli.Z)
     g_r = build_gadget(code, x, basis=Pauli.Z)
     bridge = build_bridge(g_l, g_r, cellulate_max_len=6)
-    # Cellulation is now scoped to the port subgraph (where SkipTree runs).
-    # Inspect cycles on the induced port subgraph, not the full graph.
+    # Cellulation is scoped to the port subgraph, where SkipTree runs, so the cap applies to cycles
+    # of the induced port subgraph rather than of the full graph.
     G_aux, _ = _build_aux_graph_strict(bridge.g_l_aug.incidence)
     sub = G_aux.subgraph(bridge.port_l)
     cycles = nx.cycle_basis(sub)
@@ -490,7 +491,7 @@ def test_build_bridge_rejects_spanning_tree_root_out_of_range_right() -> None:
 
 
 def _bb_72_12() -> codes.BBCode:
-    """Cain et al. arXiv:2603.28627 Table I `[[72, 12]]` BB code (cheeger h<1)."""
+    """Bravyi et al. arXiv:2308.07915 `[[72, 12]]` bivariate-bicycle code (cheeger h<1)."""
     import sympy
 
     xs, ys = sympy.symbols("x y")
@@ -500,11 +501,11 @@ def _bb_72_12() -> codes.BBCode:
 def test_build_bridge_skiptree_invariant_holds_after_boost() -> None:
     """T_s · F_aug · P_s = H_R must hold even when g_l/g_r are boosted.
 
-    Regression: build_bridge rebuilds g_l_aug via _step1_restriction on the ORIGINAL (un-boosted)
-    code+x+basis, dropping boost-added κ' rows from g_l.incidence. SkipTree T_l is computed against
-    the boosted G_aux but embedded into unboosted g_l_aug.incidence → tree edges through boost-κ'
-    are silently zeroed in T_full → invariant fails → joint_code cycle stabilizers are bogus →
-    non-deterministic detector in joint PPM DEM.
+    The boost adds κ' rows to g.incidence, so g_l_aug must be rebuilt from the boosted incidence:
+    SkipTree computes T_l against the boosted G_aux, and embedding it into an unboosted
+    g_l_aug.incidence would zero the tree edges running through boost-κ'. That breaks the invariant,
+    which makes the joint code's cycle stabilizers wrong and leaves a non-deterministic detector in
+    the joint PPM DEM.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.cheeger import boost_gadget
@@ -547,12 +548,11 @@ def _bb_36_8() -> codes.BBCode:
 def test_build_bridge_skiptree_invariant_holds_with_duplicate_incidence_rows() -> None:
     """T_s · F_aug · P_s = H_R must hold when F_aug has duplicate weight-2 rows.
 
-    Regression: BBCode [[36, 8]] restricted to Z̄_0 has h(F)=1 (no boost needed) but the restricted
-    incidence has two κ rows sharing the same (u, v) support — _build_aux_graph_strict dedups them
-    to one G_aux edge. Pre-fix, _run_skiptree_on_port_subgraph assigned the *same* T_relab column to
-    both duplicate κ rows, so their contributions to T · F_aug cancel mod 2 → invariant fails →
-    joint_code cycle stabilizer non-trivially anti-commutes with the gauge → non-deterministic
-    detector.
+    BBCode [[36, 8]] restricted to Z̄_0 has h(F)=1 (no boost needed) but the restricted incidence has
+    two κ rows sharing the same (u, v) support, which _build_aux_graph_strict dedups to one G_aux
+    edge. Each duplicate κ row therefore needs its own T_relab column: sharing one column makes
+    their contributions to T · F_aug cancel mod 2, which breaks the invariant, makes the joint
+    code's cycle stabilizer anti-commute with the gauge, and leaves a non-deterministic detector.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -655,11 +655,13 @@ def test_build_joint_ppm_circuit_dem_deterministic_after_boost_bb() -> None:
     assert dem.num_detectors > 0
 
 
-def test_build_bridge_rejects_oversized_explicit_port_subset() -> None:
+@pytest.mark.parametrize("oversized_side", ["l", "r"])
+def test_build_bridge_rejects_oversized_explicit_port_subset(oversized_side: str) -> None:
     """An explicit port subset longer than the bridge width is rejected, not silently truncated.
 
     Truncating to the narrower side is intended when both subsets are defaulted, but dropping ports
-    the caller named is a silent change of request.
+    the caller named is a silent change of request. Each side carries its own check, so both are
+    exercised.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -671,10 +673,26 @@ def test_build_bridge_rejects_oversized_explicit_port_subset() -> None:
     n_ports = len(g.support)
     assert n_ports >= 4, f"fixture needs >= 4 ports, got {n_ports}"
 
-    with pytest.raises(ValueError, match="would be dropped"):
-        build_bridge(
-            g,
-            g,
-            port_subset_l=tuple(range(n_ports)),
-            port_subset_r=tuple(range(n_ports - 1)),
-        )
+    full = tuple(range(n_ports))
+    short = tuple(range(n_ports - 1))
+    subset_l, subset_r = (full, short) if oversized_side == "l" else (short, full)
+    with pytest.raises(ValueError, match=f"port_subset_{oversized_side} lists"):
+        build_bridge(g, g, port_subset_l=subset_l, port_subset_r=subset_r)
+
+
+def test_build_bridge_accepts_explicit_port_subsets_of_equal_length() -> None:
+    """Explicit port subsets exactly as long as the width are accepted.
+
+    Only a subset that would lose a named port is rejected, so the equal-length case — the remedy
+    the error message recommends — has to go through.
+    """
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    data = load_webster_seed_set(0)
+    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    g = build_gadget(code, _webster_x_bar_operator(data), basis=Pauli.X)
+    ports = tuple(range(len(g.support)))
+
+    bridge = build_bridge(g, g, port_subset_l=ports, port_subset_r=ports)
+    assert bridge.width == len(ports)

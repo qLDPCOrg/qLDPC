@@ -2,7 +2,7 @@
 
 References:
     Cain et al. arXiv:2603.28627 §B.1  — single-PPM measurement protocol.
-    Webster, Smith, Cohen arXiv:2511.15989  — gadget Eq. 1 observable.
+    Webster, Smith, Cohen arXiv:2511.15989  — gadget Eq. 4 observable.
 
 Copyright 2026 The qLDPC Authors
 
@@ -48,7 +48,7 @@ def keep_only_observable(circuit: stim.Circuit, keep_idx: int) -> stim.Circuit:
     Keeps only the observable whose first argument equals ``keep_idx``. Recurses into REPEAT blocks
     so observables inside loops are filtered the same way.
 
-    For surgery PPM circuits, pass ``keep_idx=0`` to retain only obs0 (Webster Eq. 1, the physical
+    For surgery PPM circuits, pass ``keep_idx=0`` to retain only obs0 (Webster Eq. 4, the physical
     syndrome-based readout). obs1 is an implementation cross-check that directly measures the data
     on V_0 and is NOT part of any physical protocol — keeping it for an LER run would sample the
     wrong distribution.
@@ -105,12 +105,9 @@ def logical_state_init(code: CSSCode, state: str, *, log_idx: int) -> str:
     ``build_single_ppm_circuit(..., data_init=...)`` or wrap with a tuple for
     ``build_joint_ppm_circuit(..., data_init=(s_l, s_r))``.
 
-    Raises
-    ------
-    ValueError
-        If ``state`` is not one of "0", "1", "+", "-".
-    IndexError
-        If ``log_idx`` is out of range for ``code.dimension``.
+    Raises:
+        ValueError: ``state`` is not one of "0", "1", "+", "-".
+        IndexError: ``log_idx`` is out of range for ``code.dimension``.
     """
     if state not in ("0", "1", "+", "-"):
         raise ValueError(f"state must be one of '0', '1', '+', '-'; got {state!r}")
@@ -359,7 +356,7 @@ def build_single_ppm_circuit(
     Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 
       * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout (Webster, Smith, Cohen arXiv:2511.15989
-        §II.A, gadget Eq. 1). XOR of the **last** QEC round's meas-check outcomes. The repeated
+        §II.1, gadget Eq. 4). XOR of the **last** QEC round's meas-check outcomes. The repeated
         rounds give FT distance via the detector layer. Reading the eigenvalue at the final round
         should be decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App.
         D): the interface detectors telescope, so the observable's fault distance should be
@@ -373,7 +370,8 @@ def build_single_ppm_circuit(
     character-to-state mapping.
 
     Raises:
-        ValueError: rounds < 1.
+        ValueError: rounds < 1; or ``data_init`` is neither length 1 nor length
+            ``gadget.code.num_qudits``, or contains a character outside "01+-".
     """
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
@@ -684,7 +682,7 @@ def build_joint_ppm_circuit(
 
       * obs0 — Single-round joint readout via Webster's identity
         ∏_{v ∈ support_l ∪ support_r} A_v = X̄_l ⊗ X̄_r (or Z̄_l ⊗ Z̄_r for basis=Z). See Webster,
-        Smith, Cohen arXiv:2511.15989 §II.A. XOR of the **last** QEC round's meas-check outcomes on
+        Smith, Cohen arXiv:2511.15989 §II.1. XOR of the **last** QEC round's meas-check outcomes on
         both patches. Detectors carry the FT load. Reading at the final round should be
         decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D) because
         the interface detectors telescope, so the observable's fault distance should be unchanged.
@@ -702,7 +700,10 @@ def build_joint_ppm_circuit(
         ``data_init=("0", "+")`` → c_l in |0⟩_L, c_r in |+⟩_L.
 
     Raises:
-        ValueError: rounds < 1.
+        ValueError: rounds < 1; a tuple ``data_init`` on an intracode pair, which has a single data
+            set; a tuple of length != 2; or a per-code spec whose length matches neither 1 nor that
+            code's data-qubit count.
+        TypeError: ``data_init`` is not a str, tuple, list, or None, or a tuple entry is not a str.
     """
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
@@ -783,7 +784,7 @@ def build_joint_ppm_circuit(
     meas_r_offset = meas_l_offset + n_V_l
     meas_l_ids = tuple(check_ids[meas_l_offset : meas_l_offset + n_V_l])
     meas_r_ids = tuple(check_ids[meas_r_offset : meas_r_offset + n_V_r])
-    meas_check_ids = meas_l_ids + meas_r_ids  # NO U_B / no adapter cycle-check ids
+    meas_check_ids = meas_l_ids + meas_r_ids  # χ rows of both gadgets; no adapter cycle checks
 
     circuit += _surgery_observable(
         g_l,
@@ -1110,7 +1111,7 @@ def _surgery_observable(
 
     obs0 — physical readout of the logical Pauli. The merged stabilizer group satisfies the
         single-round identity Z̄ = ∏_{v ∈ support} A_v (Webster, Smith, Cohen arXiv:2511.15989
-        §II.A, gadget Eq. 1). We point ``OBSERVABLE_INCLUDE`` at the **last** QEC round's meas-check
+        §II.1, gadget Eq. 4). We point ``OBSERVABLE_INCLUDE`` at the **last** QEC round's meas-check
         (S'_meas) outcomes — their XOR is the eigenvalue bit of Z̄ (or X̄ for basis=X). Detectors
         carry the FT load via round-to-round consistency. Reading at the final round should be
         decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D) because
@@ -1192,7 +1193,7 @@ def _surgery_detach_and_readout(
     bridge_ids: tuple[int, ...],
     measurement_record: MeasurementRecord,
 ) -> stim.Circuit:
-    """Cain step 3 + final data measure. Mκ then SHIFT_COORDS then Mdata."""
+    """Cain App. B.1 step 3 + final data measure. Mκ then SHIFT_COORDS then Mdata."""
     circuit = stim.Circuit()
     detach_qubits = list(ancilla_ids) + list(bridge_ids)
     ancilla_op = "M" if gadget.basis is Pauli.X else "MX"

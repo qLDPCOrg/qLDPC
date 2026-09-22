@@ -1,9 +1,13 @@
-"""L=1 gadget construction (Webster, Smith, Cohen arXiv:2511.15989 §II.A).
+"""L=1 gadget construction (Webster, Smith, Cohen arXiv:2511.15989 §II.1).
 
-Three explicit named steps that map 1:1 to the paper:
-    _step1_restriction  — Webster §II.A step 1 (restriction)
-    _step2_gauge_fix    — Webster §II.A step 2 (gauge fix)
-    _step3_assemble     — Webster §II.A step 3 (block assembly)
+Three named stages. The first two carry out Webster §II.1's construction; the third writes its
+result into check matrices and has no counterpart in the paper:
+    _step1_restriction  — the restriction F that Webster §II.1 steps 1-2 define: a κ_j per Z-check
+                          S_j ∈ S_L, a χ_i per qubit q_i ∈ supp(L), with κ_j ∈ supp(χ_i) iff
+                          q_i ∈ supp(S_j)
+    _step2_gauge_fix    — Webster §II.1 step 3: the |S_L| - wt(L) + 1 gauge-fixing checks spanning a
+                          basis of ker(H_X,gadget)
+    _step3_assemble     — block assembly of HX_merged, HZ_merged
 
 Notation (used throughout the surgery package; the symbols follow Webster/Cohen/Cross, not Cain).
 For a logical measured on support V_0:
@@ -44,34 +48,25 @@ from qldpc.objects import Pauli, PauliXZ
 class GadgetLayout:
     """An L=1 surgery gadget for measuring one logical operator of a CSS code.
 
-    Built by ``build_gadget``. The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II.A
+    Built by ``build_gadget``. The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II.1
     as V_0 → support, C_0 → data_checks, F → incidence, G → gauge, κ → ancilla_qubits.
 
-    Attributes:
-        code: the data code being operated on.
-        x: the measured logical operator, as a length-``code.num_qudits`` binary support vector.
-        support: V_0, the data-qubit indices where x is 1.
-        data_checks: C_0, the indices of complementary-basis checks touching V_0. A boosted gadget
-            (``build_gadget_augmented``) appends one -1 per added κ row, since those rows correspond
-            to no check of the data code, so entries are not all valid indices.
-        incidence: F, the complementary check matrix restricted to (data_checks, support).
-        gauge: G, rows spanning ker(F^T) over GF(2), the gauge-fixing checks.
-        HX_merged: X-check matrix of the merged code, over data plus ancilla qubits.
-        HZ_merged: Z-check matrix of the merged code, same qubit ordering.
-        ancilla_qubits: the κ qubit indices added by the gadget, numbered after the data qubits.
-        basis: Pauli.X if a logical X is measured, Pauli.Z for a logical Z.
+    A boosted gadget (``build_gadget_augmented``) appends one row to ``incidence`` per added κ
+    qubit. Those rows belong to no check of the data code, so ``data_checks`` holds a -1 in each
+    corresponding position and is then not a tuple of valid check indices, and ``incidence`` is then
+    not a plain restriction of the complementary check matrix.
     """
 
-    code: CSSCode
-    x: np.ndarray
-    support: tuple[int, ...]
-    data_checks: tuple[int, ...]
-    incidence: np.ndarray
-    gauge: np.ndarray
-    HX_merged: np.ndarray
-    HZ_merged: np.ndarray
-    ancilla_qubits: tuple[int, ...]
-    basis: PauliXZ
+    code: CSSCode  # the data code being operated on
+    x: np.ndarray  # measured logical operator, a length-code.num_qudits binary support vector
+    support: tuple[int, ...]  # V_0: data-qubit indices where x is 1
+    data_checks: tuple[int, ...]  # C_0: indices of complementary-basis checks touching V_0
+    incidence: np.ndarray  # F: complementary check matrix restricted to (data_checks, support)
+    gauge: np.ndarray  # G: rows spanning ker(F^T) over GF(2), the gauge-fixing checks
+    HX_merged: np.ndarray  # X checks of the merged code, over data qubits then ancilla qubits
+    HZ_merged: np.ndarray  # Z checks of the merged code, same qubit ordering
+    ancilla_qubits: tuple[int, ...]  # κ qubit indices, numbered after the data qubits
+    basis: PauliXZ  # Pauli.X to measure a logical X, Pauli.Z for a logical Z
 
 
 def _step1_restriction(
@@ -80,7 +75,7 @@ def _step1_restriction(
     *,
     basis: PauliXZ = Pauli.X,
 ) -> tuple[tuple[int, ...], tuple[int, ...], np.ndarray]:
-    """Webster §II.A step 1 — V_0 = supp(x); C_0 = checks touching V_0; F = H_complement[C_0, V_0].
+    """Webster §II.1 steps 1-2 — V_0 = supp(x); C_0 = checks on V_0; F = H_complement[C_0, V_0].
 
     gadget notation: V_0 → support; C_0 → data_checks; F → incidence.
 
@@ -109,7 +104,7 @@ def _step1_restriction(
 
 
 def _step2_gauge_fix(incidence: np.ndarray) -> np.ndarray:
-    """Webster §II.A step 2 — G whose rows form a canonical basis of ker(F.T) over GF(2).
+    """Webster §II.1 step 3 — G whose rows form a canonical basis of ker(F.T) over GF(2).
 
     gadget notation: F → incidence; G → gauge.
 
@@ -131,9 +126,8 @@ def _assemble_HX_L1(
     gadget notation: V_0 → support; F → incidence.
 
     This builds the side carrying the χ measurement checks, which is the X side for basis=X and the
-    Z side for basis=Z; callers pass the matching data check matrix. Shared by _step3_assemble and
-    build_gadget_augmented. The complementary side is assembled separately, because a boost rebuild
-    treats new κ' qubits as pure-gauge with no data extension.
+    Z side for basis=Z; callers pass the matching data check matrix. The complementary side has a
+    different block shape and is assembled directly in _step3_assemble.
 
     Args:
         HX_data: the measured basis's data check matrix, shape (mX, n), uint8.
@@ -162,7 +156,7 @@ def _step3_assemble(
     *,
     basis: PauliXZ = Pauli.X,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Webster §II.A step 3 — block assembly of HX_merged, HZ_merged.
+    """Block assembly of HX_merged, HZ_merged from the Webster §II.1 pieces.
 
     gadget notation: χ → S'_meas (meas-basis ancilla rows); G → gauge.
 
@@ -216,7 +210,7 @@ def build_gadget(
     *,
     basis: PauliXZ,
 ) -> GadgetLayout:
-    """Webster L=1 gadget = steps 1+2+3 composed. Deterministic in (code, x, basis).
+    """Webster §II.1 L=1 gadget: restriction, gauge fix, assembly. Deterministic in its arguments.
 
     gadget notation: κ qubits → ancilla_qubits; G → gauge.
 
@@ -224,8 +218,9 @@ def build_gadget(
     basis=Pauli.Z: measures a logical Z (PPM of Z̄). Validates H_X @ x == 0.
 
     Raises:
-        ValueError: basis is neither Pauli.X nor Pauli.Z, x is not a logical support in that basis,
-            or x is the zero vector.
+        ValueError: basis is neither Pauli.X nor Pauli.Z, x fails the complementary check equation
+            (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z), or x is the zero vector. The check
+            equation admits the whole normalizer, so a stabilizer support also passes.
     """
     x = np.asarray(x).astype(np.uint8)
     if basis is Pauli.X:
@@ -239,8 +234,8 @@ def build_gadget(
     else:
         raise ValueError(f"basis must be Pauli.X or Pauli.Z, got {basis!r}")
 
-    # The zero vector satisfies H @ x == 0 but measures nothing: it yields an empty support, a
-    # 0x0 incidence, and h(F) = inf, which would read as an arbitrarily good Cheeger constant.
+    # The zero vector satisfies H @ x == 0 but measures nothing: it yields an empty support and a
+    # 0x0 incidence, for which cheeger_constant reports inf.
     if not x.any():
         raise ValueError("x is the zero vector, which measures no logical operator.")
 

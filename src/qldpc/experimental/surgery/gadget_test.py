@@ -31,7 +31,7 @@ from .conftest import (
     load_webster_seed_set,
 )
 
-WEBSTER_TABLE_I_ANCILLA_MEAS_COMP = [(0, 19), (1, 31), (2, 49), (3, 79)]
+WEBSTER_TABLE_1_BARE_GADGET_QUBITS = [(0, 19), (1, 31), (2, 49), (3, 79)]
 
 
 def test_gadget_layout_is_frozen_dataclass() -> None:
@@ -87,7 +87,7 @@ def test_step1_restriction_steane() -> None:
     # F = H_Z[C_0, V_0]
     assert incidence.shape == (len(data_checks), len(support))
     assert np.array_equal(incidence, HZ[np.ix_(data_checks, support)])
-    # F @ 1_{V0} == 0 (Webster §II.A step 1 invariant)
+    # F @ 1_{V0} == 0 (invariant of the Webster §II.1 restriction)
     ones = np.ones(len(support), dtype=np.uint8)
     assert np.array_equal((incidence @ ones) % 2, np.zeros(len(data_checks), dtype=np.uint8))
 
@@ -99,7 +99,7 @@ def test_step2_gauge_fix_basis_property() -> None:
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     _, _, incidence = _step1_restriction(code, x)
     gauge = _step2_gauge_fix(incidence)
-    # Webster §II.A step 2: G F = 0 over GF(2)
+    # Webster §II.1 step 3: G F = 0 over GF(2)
     assert gauge.shape[1] == incidence.shape[0]
     GF = (gauge @ incidence) % 2
     assert np.array_equal(GF, np.zeros_like(GF))
@@ -165,18 +165,18 @@ def test_step3_assemble_steane_css_commutes() -> None:
     n, mX, mZ = code.num_qudits, code.matrix_x.shape[0], code.matrix_z.shape[0]
     assert HX_m.shape == (mX + len(support), n + len(data_checks))
     assert HZ_m.shape == (mZ + gauge.shape[0], n + len(data_checks))
-    # Webster §II.A: H_X^merged @ H_Z^merged.T == 0 over GF(2) (CSS commutation)
+    # Webster §II.1: H_X^merged @ H_Z^merged.T == 0 over GF(2) (CSS commutation)
     product = (HX_m @ HZ_m.T) % 2
     assert np.array_equal(product, np.zeros_like(product))
 
 
 def test_step3_assemble_csscode_with_distinct_nV_nC() -> None:
-    """Synthetic CSS code where nV != nC — catches F_tilde shape bug.
+    """Synthetic CSS code where nV != nC — pins F_tilde's shape.
 
     Uses a 5-qubit CSS code with k=1, picking a logical-X representative whose support size (nV=4)
-    differs from the number of Z-checks it touches (nC=2). With the buggy F_tilde[j] = F[k] form,
-    numpy raises ValueError because F[k] has shape (nV=4,) but the row width is (nC=2). The fix
-    (F_tilde[j, k] = 1) is the correct indicator/selection matrix.
+    differs from the number of Z-checks it touches (nC=2). F_tilde is an indicator matrix, set
+    entrywise as F_tilde[j, k] = 1; assigning a whole row of F instead would make numpy raise, since
+    F[k] has shape (nV=4,) against a row width of (nC=2).
 
     Verifies:
     1. CSS commutation: HX_merged @ HZ_merged.T == 0 over GF(2).
@@ -299,11 +299,14 @@ def test_build_generalised_bicycle_code_constructs_css() -> None:
     assert np.array_equal((HX @ HZ.T) % 2, np.zeros((HX.shape[0], HZ.shape[0]), dtype=np.uint8))
 
 
-@pytest.mark.parametrize("code_index,n_anc", WEBSTER_TABLE_I_ANCILLA_MEAS_COMP)
-def test_webster_table_i_ancilla_meas_comp_exact(code_index: int, n_anc: int) -> None:
-    """Webster Table I in Cain notation: |Q'| + |S'_meas| + |S'_comp| matches each code.
+@pytest.mark.parametrize("code_index,n_anc", WEBSTER_TABLE_1_BARE_GADGET_QUBITS)
+def test_webster_table_1_bare_gadget_qubits_exact(code_index: int, n_anc: int) -> None:
+    """Bare-gadget qubit count matches Webster Table 1 for each of the 4 codes.
 
-    Matches each of the 4 generalised-bicycle codes; reproduces Webster Table I exactly.
+    Webster's "Gadget Qubits" column counts qubits including ancillae, which for an L=1 gadget is
+    |Q'| + |S'_meas| + |S'_comp|: κ ancillas, χ measurement checks, and gauge checks. For codes 2
+    and 3 the table writes that cell as a sum, (49+8) and (79+20), whose second term is the
+    Cheeger-boost addition; the bare count checked here is the first term. Seed X̄_1 only.
     """
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
@@ -350,7 +353,7 @@ def test_step1_restriction_basis_z_uses_HX() -> None:
     assert data_checks == tuple(touched)
     # F = H_X[C_0, V_0]
     assert np.array_equal(incidence, HX[np.ix_(data_checks, support)])
-    # Webster §II.A step 1 invariant: F @ 1_{V0} = 0 (since H_X @ z = 0 for a logical Z)
+    # Webster §II.1 restriction invariant: F @ 1_{V0} = 0 (since H_X @ z = 0 for a logical Z)
     ones = np.ones(len(support), dtype=np.uint8)
     assert np.array_equal((incidence @ ones) % 2, np.zeros(len(data_checks), dtype=np.uint8))
 
@@ -397,10 +400,11 @@ def test_build_gadget_z_basis_dual_matches_x_basis_on_dual_code() -> None:
     )
 
 
-def test_webster_table_i_z_basis_ancilla_meas_comp_exact() -> None:
-    """Webster Z̄_1 seed in Cain notation: |Q'| + |S'_meas| + |S'_comp| matches.
+def test_webster_table_1_bare_gadget_qubits_z_basis() -> None:
+    """The Z̄_1 seed reaches the same bare-gadget qubit count as the X̄_1 seed.
 
-    Basis-symmetric dual; reproduces Webster Table I.
+    Basis-symmetric dual of test_webster_table_1_bare_gadget_qubits_exact, against the same first
+    terms of Webster Table 1's "Gadget Qubits" column.
     """
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
@@ -451,12 +455,12 @@ def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None
 def test_step2_gauge_fix_rows_linearly_independent() -> None:
     """G rows from _step2_gauge_fix are linearly independent over GF(2).
 
-    Webster §II.A step 3 requires |S_L| - wt(L) + 1 INDEPENDENT gauge constraints. The existing
+    Webster §II.1 step 3 requires |S_L| - wt(L) + 1 INDEPENDENT gauge constraints. The existing
     test verifies G @ F == 0 (i.e. G is in ker(F.T)) but not that G has full row rank.
 
     A degenerate F could let the gauge fix return redundant rows, inflating g.gauge.shape[0]
-    without changing the actual gauge structure. The Cain Table III bb_18 G=20 reproduction would
-    catch the final count but not the underlying rank degeneracy.
+    without changing the actual gauge structure. The Cain Extended Data Table 3 bb_18 G=20
+    reproduction would catch the final count but not the underlying rank degeneracy.
     """
     import galois
     import sympy

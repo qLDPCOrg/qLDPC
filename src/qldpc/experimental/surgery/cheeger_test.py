@@ -125,12 +125,9 @@ def test_boost_gadget_preserves_css_commutation_both_bases(basis: PauliXZ) -> No
 def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
     """After basis=Z combinatorial boost, χ rows must live in HZ_merged.
 
-    Basis routing is delegated to build_gadget_augmented rather than done by swapping HX↔HZ around
-    the call, so this pins that χ rows land in HZ_merged and not HX_merged.
-
-    Distance-strategy basis=Z is not tested here because the Webster JSON fixture only ships X̄
-    operators; the basis=X path of distance boost is covered by
-    test_boost_gadget_preserves_css_commutation[distance].
+    build_gadget_augmented carries the basis through the rebuild, so this pins that χ rows land in
+    HZ_merged and not HX_merged. Scope is the combinatorial path; the distance path's basis=X is
+    covered by test_boost_gadget_preserves_css_commutation[distance].
     """
     from qldpc.experimental.surgery.cheeger import boost_gadget
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -388,8 +385,8 @@ def _stub_distance_bound(monkeypatch: pytest.MonkeyPatch, bounds: list[int]) -> 
 def test_boost_distance_raises_when_target_unreachable_in_budget() -> None:
     """boost_gadget_distance raises RuntimeError when nothing clears the BP+OSD screen.
 
-    Raising keeps the contract honest, mirroring the combinatorial path: it must not hand back the
-    bare gadget that just failed the screen. Webster0 cannot reach target_distance=999.
+    A returned gadget has always met target_distance, so exhausting the budget is an error rather
+    than a result. Webster0 cannot reach target_distance=999.
     """
     from qldpc.experimental.surgery.cheeger import boost_gadget_distance
 
@@ -404,10 +401,10 @@ def test_boost_distance_raises_when_target_unreachable_in_budget() -> None:
         )
 
 
-def test_boost_distance_returns_first_augmentation_that_passes(
+def test_boost_distance_returns_an_augmentation_that_passes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """boost_gadget_distance returns the first augmented candidate that clears the screen.
+    """boost_gadget_distance returns an augmented candidate that clears the screen.
 
     The bound is scripted so the bare gadget fails and the next candidate passes, which exercises
     the accept path without paying for BP+OSD.
@@ -425,21 +422,36 @@ def test_boost_distance_returns_first_augmentation_that_passes(
 def test_boost_distance_skips_unusable_augmentation_sample(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A sample that yields no fresh degree-2 rows is skipped instead of being built."""
+    """A sample yielding no fresh degree-2 rows is skipped, and the search moves to the next sample.
+
+    The first sample returns None and the second delegates to the real sampler, so a boosted gadget
+    comes back only if the unusable sample is skipped rather than ending the search.
+    """
     from qldpc.experimental.surgery import cheeger as cheeger_module
 
-    _stub_distance_bound(monkeypatch, [0])
-    monkeypatch.setattr(
-        cheeger_module, "_augment_incidence_with_random_edges", lambda *_a, **_k: None
+    real_augment = cheeger_module._augment_incidence_with_random_edges
+    calls = [0]
+
+    def _augment(
+        incidence_base: np.ndarray, n_new_edges: int, rng: np.random.Generator
+    ) -> np.ndarray | None:
+        calls[0] += 1
+        if calls[0] == 1:
+            return None
+        return real_augment(incidence_base, n_new_edges, rng)
+
+    g = _webster0_gadget()
+    _stub_distance_bound(monkeypatch, [0, 999])
+    monkeypatch.setattr(cheeger_module, "_augment_incidence_with_random_edges", _augment)
+    boosted = cheeger_module.boost_gadget_distance(
+        g,
+        target_distance=5,
+        max_extra_qubits=1,
+        num_trials_per_step=2,
+        seed=0,
     )
-    with pytest.raises(RuntimeError, match="could not reach target_distance"):
-        cheeger_module.boost_gadget_distance(
-            _webster0_gadget(),
-            target_distance=5,
-            max_extra_qubits=1,
-            num_trials_per_step=1,
-            seed=0,
-        )
+    assert calls[0] >= 2, "the unusable first sample must not end the search"
+    assert boosted.incidence.shape[0] > g.incidence.shape[0]
 
 
 def test_boost_distance_skips_augmentation_that_fails_validation(
@@ -471,14 +483,51 @@ def test_boost_distance_skips_augmentation_that_fails_validation(
 
 
 def test_boost_combinatorial_single_column_incidence_is_a_no_op() -> None:
-    """A weight-1 logical gives a single-column F, which admits no cut, so boost adds nothing."""
+    """A weight-1 support gives a single-column F, which admits no cut, so boost adds nothing."""
     from qldpc.experimental.surgery import build_gadget
     from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
 
-    # Distance-1 code, so the logical X support has weight 1 and |V_0| = 1.
+    # build_gadget accepts any x in ker(H_Z), so a weight-1 X-stabilizer reaches |V_0| = 1.
     code = codes.CSSCode([[1, 0]], [[0, 1]])
     g = build_gadget(code, np.array([1, 0], dtype=np.uint8), basis=Pauli.X)
     assert g.incidence.shape[1] == 1, f"expected |V_0| = 1, got {g.incidence.shape}"
 
     out = boost_gadget_cheeger_combinatorial(g, target_h=1.0)
     assert out.incidence.shape == g.incidence.shape, "single-column boost must add no rows"
+
+
+def test_boost_combinatorial_stops_when_every_cut_edge_is_already_a_row() -> None:
+    """The greedy search ends when no degree-2 row can raise |∂v*|.
+
+    Steane's F is the weight-2 complement of the identity on 3 columns, so all three cut pairs are
+    already present. The budget is left generous to pin that the pair supply, not the budget, is
+    what stops the search: h is reported unchanged at its bare value of 2.0.
+    """
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.cheeger import boost_gadget_cheeger_combinatorial
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=Pauli.X)
+
+    with pytest.raises(RuntimeError, match=r"reached h=2\.0"):
+        boost_gadget_cheeger_combinatorial(g, target_h=10.0, max_extra_qubits=50, seed=0)
+
+
+def test_boost_distance_screen_consults_the_z_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A candidate clearing the X screen but failing the Z screen is rejected.
+
+    The bare gadget is scripted to pass on X and fail on Z with no augmentation budget, so the only
+    way to reach the screen's verdict is through the Z bound.
+    """
+    from qldpc.experimental.surgery.cheeger import boost_gadget_distance
+
+    _stub_distance_bound(monkeypatch, [999, 0])
+    with pytest.raises(RuntimeError, match="could not reach target_distance"):
+        boost_gadget_distance(
+            _webster0_gadget(),
+            target_distance=5,
+            max_extra_qubits=0,
+            num_trials_per_step=1,
+            seed=0,
+        )
