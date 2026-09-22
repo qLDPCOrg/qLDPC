@@ -32,6 +32,15 @@ from .dems import DetectorErrorModelArrays
 from .retrieval import Decoder, get_decoder
 
 
+def _check_decodes_errors(decoder: Decoder) -> None:
+    """Reject a decoder whose output is observable flips rather than an inferred error."""
+    if getattr(decoder, "predict_observable_flips", False):
+        raise ValueError(
+            "A sinter decoder maps decoded circuit errors to observable flips itself, so the decoder"
+            " that it wraps must predict errors rather than observable flips"
+        )
+
+
 class DecoderNotCompiledError(Exception):
     pass
 
@@ -78,11 +87,7 @@ class SinterDecoder(Decoder, sinter.Decoder):
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
         decoder = get_decoder(dem_arrays.to_dem(), **self.decoder_kwargs)
-        if getattr(decoder, "predict_observable_flips", False):
-            raise ValueError(
-                "A SinterDecoder maps decoded circuit errors to observable flips itself, so the"
-                " decoder that it wraps must predict errors rather than observable flips"
-            )
+        _check_decodes_errors(decoder)
         if getattr(decoder, "has_erasure_bit", False):
             dem_arrays = dem_arrays.with_erasure()
         return CompiledSinterDecoder(dem_arrays, decoder)
@@ -500,6 +505,7 @@ class SequentialWindowDecoder(SinterDecoder):
             )
             window_dem = window_dem_arrays.to_dem()
             window_decoder = get_decoder(window_dem, **self.decoder_kwargs)
+            _check_decodes_errors(window_decoder)
             if getattr(window_decoder, "has_erasure_bit", False):
                 raise NotImplementedError(
                     f"{type(self)} does not yet support decoding with erasure.\n"
@@ -746,8 +752,9 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 read from its coordinates in DetectorErrorModel.get_detector_coordinates(): the
                 first coordinate, unless that coordinate decreases from one detector to the next --
                 which a coordinate indexing time cannot do -- in which case a later coordinate that
-                varies and never decreases is read instead.  Detectors with no coordinates at all
-                are rejected, since there is nothing to read a time index from.
+                varies and never decreases is read instead, provided exactly one does.  Only the
+                detectors that get windowed are consulted, and one of those with no coordinates at
+                all is rejected, since there is nothing to read a time index from.
                 WARNING: if a detector_to_time mapping is not None, it will be assumed to be
                 both valid and compatible with any detector error model that this decoder is later
                 compiled to with SlidingWindowDecoder.compile_decoder_for_dem.
@@ -786,7 +793,14 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         # the time index mapping is specific to the given model, so keep it out of self
         detector_to_time = self.detector_to_time
         if detector_to_time is None:
-            dem_coords = dem.get_detector_coordinates()
+            # only the detectors that get windowed need a time index, so ignore the rest
+            windowed_detectors = sorted(
+                {detector for detectors in self.detector_subsets for detector in detectors}
+                if self.detector_subsets
+                else range(dem.num_detectors)
+            )
+            all_coords = dem.get_detector_coordinates()
+            dem_coords = {det: all_coords.get(det, []) for det in windowed_detectors}
             uncoordinated = [det for det, coords in dem_coords.items() if not coords]
             if uncoordinated:
                 raise ValueError(

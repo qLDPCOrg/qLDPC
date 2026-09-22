@@ -24,6 +24,7 @@ import unittest.mock
 
 import galois
 import numpy as np
+import numpy.typing as npt
 import pytest
 import scipy.sparse
 
@@ -145,6 +146,28 @@ def test_ilp_decoder_early_termination() -> None:
     assert np.array_equal(matrix @ decoded % 2, syndrome)
 
 
+def test_ilp_decoder_near_integral_values() -> None:
+    """A mixed integer solver's near-integral values are rounded, not truncated toward zero."""
+    import cvxpy
+
+    matrix = np.array([[1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 0]])
+    syndrome = np.array([1, 0, 1])
+    decoder = decoders.ILPDecoder(matrix)
+    expected = decoder.decode(syndrome)
+    assert np.any(expected)  # the answer is nontrivial, so truncation would change it
+
+    solve = cvxpy.Problem.solve
+
+    def solve_then_perturb(problem: cvxpy.Problem, **kwargs: object) -> float:
+        """Solve, then report the solution the way a solver at its tolerance would."""
+        result = solve(problem, **kwargs)
+        decoder.variables.value = np.asarray(decoder.variables.value) - 4e-16
+        return float(result)
+
+    with unittest.mock.patch.object(cvxpy.Problem, "solve", solve_then_perturb):
+        assert np.array_equal(expected, decoder.decode(syndrome))
+
+
 def test_invalid_ilp() -> None:
     """Fail to solve an invalid integer linear programming problem."""
     matrix = np.ones((2, 2), dtype=int)
@@ -208,10 +231,24 @@ def test_augmented_decoders(toy_problem: ToyProblem) -> None:
         (decoder, syndrome.size), (erasure_decoder, syndrome.size)
     ).has_erasure_bit
 
-    # a decoder whose output is wider than the code word cannot correct that word
+    # a decoder whose output is wider than the code word cannot correct that word, in either
+    # single-shot or batch form
     direct_decoder = decoders.DirectDecoder.from_indirect(erasure_decoder, matrix)
     with pytest.raises(ValueError, match="cannot be subtracted"):
         direct_decoder.decode(error)
+
+    class WideDecoder:
+        """A decoder that appends an extra entry to every error it infers."""
+
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.zeros(error.size + 1, dtype=int)
+
+        def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.zeros((len(syndromes), error.size + 1), dtype=int)
+
+    direct_decoder = decoders.DirectDecoder.from_indirect(WideDecoder(), matrix)
+    with pytest.raises(ValueError, match="cannot be subtracted"):
+        direct_decoder.decode_batch(errors)
 
 
 def test_quantum_decoding_from_plain_matrix() -> None:

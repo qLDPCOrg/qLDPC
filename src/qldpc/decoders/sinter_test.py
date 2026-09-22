@@ -299,6 +299,13 @@ def test_rejected_decoder_arguments() -> None:
     with pytest.raises(ValueError, match="must predict errors"):
         decoder.compile_decoder_for_dem(dem)
 
+    # window decoders are built the same way, so they reject it too
+    window_decoder = decoders.SequentialWindowDecoder(
+        [[0], [1]], with_lookup=True, max_weight=1, predict_observable_flips=True
+    )
+    with pytest.raises(ValueError, match="must predict errors"):
+        window_decoder.compile_decoder_for_dem(dem)
+
 
 def test_window_region_validation() -> None:
     """A SequentialWindowDecoder rejects window regions that it cannot decode."""
@@ -356,6 +363,28 @@ def test_sliding_window_time_gaps() -> None:
     decoder = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1], [2]]
+
+
+def test_sliding_window_ignores_undecoded_detectors() -> None:
+    """Only the detectors that get windowed need a time index."""
+    # D2 has no coordinates, and D3's coordinates would disqualify the first as a time index
+    dem = stim.DetectorErrorModel("""
+        detector(0) D0
+        detector(1) D1
+        detector D2
+        detector(0, 5) D3
+        error(0.1) D0 D1
+        error(0.1) D1 D2
+        error(0.1) D3
+    """)
+    decoder = decoders.SlidingWindowDecoder(1, 1, [[0, 1]], with_lookup=True, max_weight=1)
+    compiled = decoder.compile_decoder_for_dem(dem)
+    assert list(compiled.window_detectors) == [[0], [1]]
+
+    # a coordinate-less detector that does get windowed is still rejected
+    decoder = decoders.SlidingWindowDecoder(1, 1, [[1, 2]], with_lookup=True, max_weight=1)
+    with pytest.raises(ValueError, match="no coordinates"):
+        decoder.compile_decoder_for_dem(dem)
 
 
 def test_sliding_window_validation() -> None:

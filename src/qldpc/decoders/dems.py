@@ -112,10 +112,12 @@ class DetectorErrorModelArrays:
             simplify: If True, merge equivalent error mechanisms (see
                 DetectorErrorModelArrays.simplified).  Defaults to True.
             decompose_errors: If True, split every error into the components that the error model
-                suggests for it, leaving errors with no suggestion alone.  Splitting keeps the
-                probability of each component but discards the correlation between components, so a
-                split model addresses fewer detectors per error -- as a matching decoder requires --
-                at the cost of no longer sampling like the model it came from.  Defaults to False.
+                suggests for it, leaving errors with no suggestion alone.  Each component inherits
+                the probability of the error it came from, and the correlation between components is
+                discarded, so a split model addresses fewer detectors per error -- as a matching
+                decoder requires -- at the cost of no longer sampling like the model it came from.
+                Simplifying afterwards then merges components that coincide, combining their
+                probabilities.  Defaults to False.
         """
         dem = (
             circuit_or_dem.detector_error_model()
@@ -379,9 +381,9 @@ class DetectorErrorModelArrays:
         OBSERVABLE_INCLUDE instructions then reference those measurements.
 
         The detector error model of that circuit reproduces this DEM up to reordering of error
-        mechanisms, merging of mechanisms with identical flips, and omission of zero-probability
-        mechanisms, whose ``M(0)`` is deterministic.  Error indices and suggested decompositions are
-        not preserved.
+        mechanisms, merging of mechanisms with identical flips, and omission of mechanisms that
+        cannot be observed -- those with zero probability, whose ``M(0)`` is deterministic, and
+        those that flip nothing.  Error indices and suggested decompositions are not preserved.
         """
         circuit = stim.Circuit()
 
@@ -515,8 +517,9 @@ class DetectorErrorModelArrays:
         erasure by flipping the erasure bit.
 
         Zero probability makes an erasure mechanism inconsequential to sampling, so simplification
-        drops it.  Add erasure bits after simplified, without_detectors, with_decomposed_errors,
-        post_selected_on with order > 1, and to_circuit.
+        drops it.  Add erasure bits after simplified, without_detectors,
+        without_untriggered_detectors, with_decomposed_errors, post_selected_on with order > 1, and
+        to_circuit.
         """
         detector_flip_stack = [
             self.detector_flip_matrix,
@@ -597,16 +600,30 @@ def _validate_decompositions(
                 f"Suggested decomposition given for error {error_index} of a detector error model"
                 f" with {num_errors} error mechanisms"
             )
-        combined = _combined_flips(components)
-        detectors = frozenset(detector_flip_matrix[:, error_index].nonzero()[0].tolist())
-        observables = frozenset(observable_flip_matrix[:, error_index].nonzero()[0].tolist())
-        if combined.detectors != detectors or combined.observables != observables:
+        combined_detectors: frozenset[int] = frozenset()
+        combined_observables: frozenset[int] = frozenset()
+        for component in components:
+            combined_detectors ^= component.detectors
+            combined_observables ^= component.observables
+        detectors = _column_support(detector_flip_matrix, error_index)
+        observables = _column_support(observable_flip_matrix, error_index)
+        if combined_detectors != detectors or combined_observables != observables:
             raise ValueError(
                 f"The suggested decomposition of error {error_index} flips detectors"
-                f" {sorted(combined.detectors)} and observables {sorted(combined.observables)},"
+                f" {sorted(combined_detectors)} and observables {sorted(combined_observables)},"
                 f" but that error flips detectors {sorted(detectors)}"
                 f" and observables {sorted(observables)}"
             )
+
+
+def _column_support(matrix: scipy.sparse.csc_matrix, column: int) -> frozenset[int]:
+    """Rows in which one column of a compressed-column matrix is nonzero.
+
+    Read from the compressed arrays directly, which is much cheaper than slicing out the column.
+    """
+    start, stop = matrix.indptr[column], matrix.indptr[column + 1]
+    rows, values = matrix.indices[start:stop], matrix.data[start:stop]
+    return frozenset(int(row) for row, value in zip(rows, values) if value)
 
 
 def _canonicalize_mod2(matrix: scipy.sparse.csc_matrix) -> scipy.sparse.csc_matrix:

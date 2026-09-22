@@ -206,7 +206,8 @@ class RelayBPDecoder:
     def __getattr__(self, name: str) -> Any:
         """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.
 
-        Always typecast the first argument to np.uint8 for compatibility with the relay_bp package.
+        Typecast the first argument, if there is one, to np.uint8 for compatibility with the
+        relay_bp package.
         """
         if name == "decoder":
             raise AttributeError(name)  # the inner decoder is not set, so do not recurse for it
@@ -304,8 +305,8 @@ class ILPDecoder:
         ``expression = val + q t``.
 
         Since the variables are nonnegative and val is reduced mod q, ``expression - val`` is a
-        nonnegative multiple of q, which bounds t below by 0 and above by the largest value that
-        ``expression`` can take, less val, divided by q.
+        nonnegative multiple of q, so t is nonnegative, and it is bounded above by the largest value
+        that ``expression`` can take, less val, in units of q.
         """
         import cvxpy
 
@@ -320,7 +321,8 @@ class ILPDecoder:
                 # no nonzero multiple of q is within reach, so val itself has to be hit
                 zero_mod_q: Any = 0
             else:
-                slack = cvxpy.Variable(integer=True, bounds=[0, max_offset // self.modulus])
+                slack = cvxpy.Variable(integer=True, nonneg=True)
+                constraints.append(slack <= max_offset // self.modulus)
                 zero_mod_q = self.modulus * slack
 
             constraint = check @ self.variables == syndrome_bit + zero_mod_q
@@ -382,8 +384,9 @@ class GUFDecoder:
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error.
 
-        If no error reproduces the given syndrome, return the all-zero error, which is
-        indistinguishable from the error inferred for a trivial syndrome.
+        If the search exhausts without finding an error that reproduces the given syndrome, return
+        the all-zero error, which is indistinguishable from the error inferred for a trivial
+        syndrome.
         """
         max_weight = max_weight if max_weight is not None else self.default_max_weight
         syndrome = syndrome.view(self.code.field)
@@ -571,17 +574,21 @@ class DirectDecoder:
         field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         field_matrix = matrix.view(field)
 
+        def check_subtractable(errors: npt.NDArray[np.int_], words: npt.NDArray[np.int_]) -> None:
+            """Reject inferred errors that cannot be subtracted from candidate code words."""
+            if errors.shape != words.shape:
+                raise ValueError(
+                    f"The given decoder inferred errors of shape {errors.shape}, which cannot be"
+                    f" subtracted from candidate code words of shape {words.shape}.  A decoder that"
+                    " appends an erasure bit, or that predicts observable flips rather than an"
+                    " error, cannot be used to decode code words directly."
+                )
+
         def decode_func(candidate_word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             candidate_word = candidate_word.view(field)
             syndrome = field_matrix @ candidate_word
             error = decoder.decode(syndrome.view(np.ndarray)).view(field)
-            if error.shape != candidate_word.shape:
-                raise ValueError(
-                    f"The given decoder inferred an error of shape {error.shape}, which cannot be"
-                    f" subtracted from a candidate code word of shape {candidate_word.shape}.  A"
-                    " decoder that appends an erasure bit, or that predicts observable flips rather"
-                    " than an error, cannot be used to decode code words directly."
-                )
+            check_subtractable(error, candidate_word)
             return (candidate_word - error).view(np.ndarray)
 
         decode_batch_func: Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]] | None = None
@@ -592,6 +599,7 @@ class DirectDecoder:
                 candidate_words = candidate_words.view(field)
                 syndromes = candidate_words @ field_matrix.T
                 errors = decoder.decode_batch(syndromes.view(np.ndarray)).view(field)
+                check_subtractable(errors, candidate_words)
                 return (candidate_words - errors).view(np.ndarray)
 
         return DirectDecoder(decode_func, decode_batch_func)
