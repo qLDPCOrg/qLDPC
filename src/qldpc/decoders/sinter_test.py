@@ -20,7 +20,9 @@ import warnings
 from collections.abc import Callable, Sequence
 
 import numpy as np
+import numpy.typing as npt
 import pytest
+import sinter
 import stim
 
 from qldpc import decoders
@@ -457,6 +459,55 @@ def test_erasure_signalled_in_an_added_byte(num_observables: int) -> None:
     assert packed_flips.shape == (2, (num_observables + 7) // 8 + 1)
     assert packed_flips[0, -1] == 0
     assert packed_flips[1, -1] == 1
+
+
+@pytest.mark.parametrize("num_observables", [7, 8])
+def test_predict_observables_with_erasure(num_observables: int) -> None:
+    """Predictions written to a file report observable flips alone, without the discard byte."""
+    dem = stim.DetectorErrorModel(
+        "\n".join(f"error(0.2) D{oo} L{oo}" for oo in range(num_observables))
+    )
+    detection_events = np.zeros((3, num_observables), dtype=bool)
+    detection_events[1, 0] = True
+    detection_events[2, :2] = True  # no weight-one error explains this syndrome, so it is erased
+
+    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=1, add_erasure_bit=True)
+    predictions = sinter.predict_observables(
+        dem=dem, dets=detection_events, decoder="qldpc", custom_decoders={"qldpc": decoder}
+    )
+
+    # an erased shot is reported with the flips its decoder predicts for it, which are trivial
+    expected_flips = np.zeros((3, num_observables), dtype=int)
+    expected_flips[1, 0] = 1
+    assert np.array_equal(np.asarray(predictions, dtype=int), expected_flips)
+
+    # predictions that fit neither the observables nor one added byte cannot be written
+    class WideCompiledDecoder(decoders.CompiledSinterDecoder):
+        """A compiled decoder whose bit-packed predictions are two bytes too wide."""
+
+        def pack_observable_flips(
+            self, observable_flips: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            packed_flips = super().pack_observable_flips(observable_flips)
+            padding = np.zeros((len(packed_flips), 2), dtype=np.uint8)
+            return np.hstack([packed_flips, padding])
+
+    class WideDecoder(decoders.SinterDecoder):
+        """A decoder whose bit-packed predictions are two bytes too wide."""
+
+        def compile_decoder_for_dem(
+            self, dem: stim.DetectorErrorModel
+        ) -> decoders.CompiledSinterDecoder:
+            compiled = super().compile_decoder_for_dem(dem)
+            return WideCompiledDecoder(compiled.dem_arrays, compiled.decoder)
+
+    with pytest.raises(ValueError, match="bytes of observable flips per shot"):
+        sinter.predict_observables(
+            dem=dem,
+            dets=detection_events,
+            decoder="qldpc",
+            custom_decoders={"qldpc": WideDecoder(with_lookup=True, max_weight=1)},
+        )
 
 
 def test_subgraph_partition_warnings() -> None:

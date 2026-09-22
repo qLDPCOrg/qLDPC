@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import collections
 import itertools
+import pathlib
 import warnings
 from collections.abc import Callable, Collection, Sequence
 from typing import Any
@@ -127,6 +128,44 @@ class SinterDecoder(Decoder, sinter.Decoder):
         if num_erasure_bits:
             dem_arrays = dem_arrays.with_erasure(num_erasure_bits)
         return CompiledSinterDecoder(dem_arrays, decoder, num_erasure_bits)
+
+    def decode_via_files(
+        self,
+        *,
+        num_shots: int,
+        num_dets: int,
+        num_obs: int,
+        dem_path: pathlib.Path,
+        dets_b8_in_path: pathlib.Path,
+        obs_predictions_b8_out_path: pathlib.Path,
+        tmp_dir: pathlib.Path,
+    ) -> None:
+        """Predict observable flips for detection events read from a file, and write them to a file.
+
+        See help(sinter.Decoder) for additional information.
+
+        A file of predictions holds exactly one observable flip per observable, with no room for the
+        byte in which a decoder asks for a shot to be discarded, so an erased shot is reported here
+        with the observable flips that its decoder predicts for it anyway.  Sample with
+        sinter.collect or with qldpc.circuits.get_logical_error_and_discard_rate to have erased
+        shots discarded instead of predicted.
+        """
+        num_detector_bytes = -(-num_dets // 8)
+        num_observable_bytes = -(-num_obs // 8)
+        detection_event_data = np.fromfile(
+            dets_b8_in_path, dtype=np.uint8, count=num_shots * num_detector_bytes
+        ).reshape(num_shots, num_detector_bytes)
+
+        compiled_decoder = self.compile_decoder_for_dem(stim.DetectorErrorModel.from_file(dem_path))
+        predicted_flips = compiled_decoder.decode_shots_bit_packed(detection_event_data)
+        if predicted_flips.shape[1] not in (num_observable_bytes, num_observable_bytes + 1):
+            raise ValueError(
+                f"This decoder predicted {predicted_flips.shape[1]} bytes of observable flips per"
+                f" shot, but {num_obs} observables take {num_observable_bytes} bytes, or"
+                f" {num_observable_bytes + 1} bytes with a byte added to signal discards"
+            )
+        observable_flips = predicted_flips[:, :num_observable_bytes]
+        np.ascontiguousarray(observable_flips).tofile(obs_predictions_b8_out_path)
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
