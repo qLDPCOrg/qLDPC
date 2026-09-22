@@ -128,6 +128,45 @@ def test_observable_lookup_decoding() -> None:
         decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
 
 
+def test_tie_breaking() -> None:
+    """Equally likely errors for one syndrome resolve in favor of the lightest."""
+    # every error of this code is equally likely, so every candidate ties on probability
+    pcm = np.array([[1, 1, 1]], dtype=int)
+    error_channel = [0.5, 0.5, 0.5]
+    syndrome = np.array([1], dtype=int)
+
+    decoder = decoders.LookupDecoder(pcm, 3, error_channel=error_channel)
+    assert np.count_nonzero(decoder.decode(syndrome)) == 1
+
+    # grouping errors by observable flip must break ties the same way
+    decoder = decoders.LookupDecoder(
+        pcm, 3, error_channel=error_channel, observable_flip_matrix=np.array([[1, 0, 0]])
+    )
+    assert np.count_nonzero(decoder.decode(syndrome)) == 1
+
+    # a penalty function that reports no preference likewise leaves weight to decide
+    weighted_decoder = decoders.WeightedLookupDecoder(np.array([[1, 1, 1, 1]], dtype=int), 4)
+    assert (
+        np.count_nonzero(
+            weighted_decoder.decode(np.array([1], dtype=int), penalty_func=lambda _: 0.0)
+        )
+        == 1
+    )
+
+
+def test_invalid_arguments() -> None:
+    """A LookupDecoder rejects contradictory or insufficient arguments."""
+    pcm = np.eye(2, dtype=int)
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+
+    with pytest.raises(ValueError, match="providing a stim.DetectorErrorModel"):
+        decoders.LookupDecoder(dem, 1, error_channel=[0.1])
+    with pytest.raises(ValueError, match="both an error_channel and a penalty_func"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], penalty_func=lambda _: 0.0)
+    with pytest.raises(ValueError, match="requires providing a stim.DetectorErrorModel"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], predict_observable_flips=True)
+
+
 def test_confidence_ratio() -> None:
     """A confidence_ratio omits ambiguous syndromes so they decode to erasure."""
     pcm = np.eye(1, dtype=int)

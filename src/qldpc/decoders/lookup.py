@@ -48,7 +48,9 @@ class LookupDecoder:
     mechanism (which associated with one column of a PCM, or one entry in a DEM), this method
     constructs a penalty function, ``penalty_func``, that penalizes unlikely errors.  In this case,
     a candidate ``syndrome -> new_error`` entry encountered during enumeration will only override a
-    past entry in the lookup table if ``penalty_func(new_error) < penalty_func(old_error)``.
+    past entry in the lookup table if ``penalty_func(new_error) <= penalty_func(old_error)``.
+    Errors are enumerated in decreasing weight, so an equal penalty resolves in favor of the
+    lighter error.
     Alternatively, this decoder supports the use of a user-provided ``penalty_func``, which must map
     an error (represented as a binary vector of length ``num_primitive_error_mechanisms``) to a real
     number (i.e., a penalty).
@@ -69,9 +71,11 @@ class LookupDecoder:
 
     If provided a ``post_select`` collection of syndrome-bit (i.e., detector) indices, this decoder
     post-selects on those bits being trivial: when constructing the lookup table, it ignores
-    syndromes that are nonzero on the post-selected bits. and it drops those bits from the syndrome
+    syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
     keys in the lookup table.  For consistency with the post-selection options in sinter, syndromes
-    passed to ``LookupDecoder.decode`` should still contain all syndrome bits.
+    passed to ``LookupDecoder.decode`` should still contain all syndrome bits; the post-selected
+    bits are stripped before the lookup, so a syndrome that is nonzero on them decodes as though
+    they were trivial.
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors.
     If asked to decode a syndrome that was not observed when constructing the lookup table, the
@@ -87,8 +91,8 @@ class LookupDecoder:
     prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
     erasure, identically to a syndrome that was never enumerated.  A positive ``confidence_ratio``
     therefore auto-enables the erasure bit, setting ``add_erasure_bit=True``.  At the extreme,
-    ``confidence_ratio=np.inf`` keeps only syndromes with a single consistent observable flip,
-    erasing every syndrome that has any competing flip.
+    ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
+    probability, erasing every syndrome with a competing flip that can actually occur.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
@@ -238,9 +242,17 @@ class LookupDecoder:
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
             )
             # Record the first error for each key (so it always has a representative, even when all
-            # of its errors have zero probability), then keep the most likely one thereafter.
+            # of its errors have zero probability), then keep the most likely one thereafter,
+            # breaking a tie in probability toward the error with the fewest nonzero entries.
             key = (syndrome, obs_flip)
-            if key not in most_likely_errors or log_prob > most_likely_error_log_probs[key]:
+            if (
+                key not in most_likely_errors
+                or log_prob > most_likely_error_log_probs[key]
+                or (
+                    log_prob == most_likely_error_log_probs[key]
+                    and np.count_nonzero(error) < np.count_nonzero(most_likely_errors[key])
+                )
+            ):
                 most_likely_error_log_probs[key] = log_prob
                 most_likely_errors[key] = error
 
@@ -262,7 +274,10 @@ class LookupDecoder:
                 log_prob_rest = (
                     float(np.logaddexp.reduce(other_log_probs)) if other_log_probs else -np.inf
                 )
-                # confident iff prob_top >= confidence_ratio * prob_rest (compared in log-space)
+                # confident iff prob_top >= confidence_ratio * prob_rest (compared in log-space).
+                # Competing flips of zero net probability leave log_prob_rest at -inf, which keeps
+                # the syndrome at every ratio: at a finite ratio because the inequality holds, and
+                # at an infinite one because the comparison against nan is False.
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
                     continue  # omit the ambiguous syndrome, leaving it to decode as erasure
             if predict_observable_flips:
@@ -293,7 +308,7 @@ class LookupDecoder:
                 error_channel is not None
                 or penalty_func is not None
                 or observable_flip_matrix is not None
-            ):  # pragma: no cover
+            ):
                 raise ValueError(
                     "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
                     " providing a stim.DetectorErrorModel to a LookupDecoder"
@@ -305,7 +320,7 @@ class LookupDecoder:
                 observable_flip_matrix = dem_arrays.observable_flip_matrix
         else:
             pcm = pcm_or_dem
-            if error_channel is not None and penalty_func is not None:  # pragma: no cover
+            if error_channel is not None and penalty_func is not None:
                 raise ValueError(
                     "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
                 )
@@ -323,7 +338,7 @@ class LookupDecoder:
 
         # build the default output returned for syndromes absent from the lookup table
         if predict_observable_flips:
-            if observable_flip_matrix is None:  # pragma: no cover
+            if observable_flip_matrix is None:
                 raise ValueError(
                     "Predicting observable flips with a LookupDecoder requires providing a"
                     " stim.DetectorErrorModel with observables or an observable_flip_matrix"
@@ -500,5 +515,12 @@ class WeightedLookupDecoder(LookupDecoder):
         if penalty_func is None:
             output = candidates[-1][1]
         else:
-            output = min(candidates, key=lambda candidate: penalty_func(candidate[0]))[1]
+            # an equal penalty resolves in favor of the candidate with the fewest nonzero entries
+            output = min(
+                candidates,
+                key=lambda candidate: (
+                    penalty_func(candidate[0]),
+                    int(np.count_nonzero(candidate[0])),
+                ),
+            )[1]
         return output.copy()
