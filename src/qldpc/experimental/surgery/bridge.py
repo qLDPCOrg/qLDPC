@@ -358,8 +358,25 @@ def build_bridge(
     gadget notation: V_0^(l) → support^(l); F → incidence; extra_kappa → extra_ancilla.
 
     Implements the repetition-code adapter of Swaroop et al. arXiv:2410.03628 §IV, built on their
-    SkipTree basis transform (§III). ``spanning_tree_root_s`` is the index INTO the port tuple of
-    the SkipTree root vertex on side s.
+    SkipTree basis transform (§III).
+
+    Args:
+        g_l: left gadget.
+        g_r: right gadget. Must share g_l's measurement basis.
+        port_subset_l: indices into ``g_l.support`` to use as ports. Defaults to all of it.
+        port_subset_r: indices into ``g_r.support`` to use as ports. Defaults to all of it.
+        spanning_tree_root_l: index INTO the left port tuple of the SkipTree root vertex.
+        spanning_tree_root_r: index INTO the right port tuple of the SkipTree root vertex.
+        cellulate_max_len: cap on cycle length when cellulating the port subgraph, which keeps the
+            cycle basis sparse (Swaroop et al. §II.C decongestion).
+
+    Returns:
+        A Bridge of width min(|ports_l|, |ports_r|).
+
+    Raises:
+        ValueError: the two gadgets disagree on basis; the resulting width is < 2; a spanning-tree
+            root is out of range; or an explicitly supplied port subset is longer than the width, so
+            that requested ports would be dropped.
     """
     if g_l.basis is not g_r.basis:
         raise ValueError(
@@ -381,6 +398,16 @@ def build_bridge(
     width = min(len(port_l_all), len(port_r_all))
     if width < 2:
         raise ValueError(f"bridge width must be >= 2, got {width}")
+    # Truncating to the narrower side is the intended adapter behaviour when both port tuples are
+    # defaulted -- supports of unequal size bridge at their minimum. Dropping ports the caller asked
+    # for by name is not, so reject that instead of silently shrinking the request.
+    for side, subset, ports in (("l", port_subset_l, port_l_all), ("r", port_subset_r, port_r_all)):
+        if subset is not None and len(ports) > width:
+            raise ValueError(
+                f"port_subset_{side} lists {len(ports)} ports but the bridge width is {width}, so "
+                f"{len(ports) - width} requested port(s) would be dropped. Supply port subsets of "
+                f"equal length, or leave both unset to bridge at min(|support_l|, |support_r|)."
+            )
     port_l = port_l_all[:width]
     port_r = port_r_all[:width]
     if not (0 <= spanning_tree_root_l < width):

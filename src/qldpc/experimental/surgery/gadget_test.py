@@ -600,3 +600,17 @@ def test_build_gadget_augmented_rejects_non_weight_2_rows() -> None:
     bad_extra = np.array([[1, 0, 0]], dtype=np.uint8)
     with pytest.raises(ValueError, match="weight"):
         build_gadget_augmented(code, x, bad_extra, basis=Pauli.X)
+
+
+def test_build_gadget_rejects_zero_x() -> None:
+    """build_gadget rejects x = 0, which satisfies H @ x == 0 but measures no logical operator.
+
+    Left unchecked it yields an empty support and a 0x0 incidence, for which cheeger_constant
+    reports inf -- an arbitrarily good Cheeger constant for a gadget that measures nothing.
+    """
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    zero = np.zeros(code.num_qudits, dtype=np.uint8)
+    with pytest.raises(ValueError, match="zero vector"):
+        build_gadget(code, zero, basis=Pauli.X)

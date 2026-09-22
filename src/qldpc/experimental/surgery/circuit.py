@@ -357,7 +357,12 @@ def build_single_ppm_circuit(
 
     ``data_init`` (optional): per-data-qubit init override; see ``_surgery_state_prep`` for the
     character-to-state mapping.
+
+    Raises:
+        ValueError: rounds < 1.
     """
+    if rounds < 1:
+        raise ValueError(f"rounds must be >= 1, got {rounds}.")
     merged_code = _gadget_merged_csscode(gadget)
     qubit_ids = QubitIDs.from_code(merged_code)
     n_data = gadget.code.num_qudits
@@ -681,7 +686,12 @@ def build_joint_ppm_circuit(
         the char-to-state mapping.
       * ``tuple[str, str]`` (intercode only) — per-code logical-init spec.
         ``data_init=("0", "+")`` → c_l in |0⟩_L, c_r in |+⟩_L.
+
+    Raises:
+        ValueError: rounds < 1.
     """
+    if rounds < 1:
+        raise ValueError(f"rounds must be >= 1, got {rounds}.")
     joint_code = _stitch_to_joint_csscode(g_l, g_r, bridge)
     qubit_ids = QubitIDs.from_code(joint_code)
     intercode = g_l.code is not g_r.code

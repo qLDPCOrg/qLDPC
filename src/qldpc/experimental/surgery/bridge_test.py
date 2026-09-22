@@ -9,6 +9,7 @@ from qldpc import codes
 from qldpc.objects import Pauli
 
 from .conftest import (
+    _webster_x_bar_operator,
     _webster_z_bar_operator,
     build_generalised_bicycle_code,
     load_webster_seed_set,
@@ -640,3 +641,28 @@ def test_build_joint_ppm_circuit_dem_deterministic_after_boost_bb() -> None:
     # raises ValueError("non-deterministic detectors") if the bug regressed
     dem = stripped.detector_error_model(approximate_disjoint_errors=True)
     assert dem.num_detectors > 0
+
+
+def test_build_bridge_rejects_oversized_explicit_port_subset() -> None:
+    """An explicit port subset longer than the bridge width is rejected, not silently truncated.
+
+    Truncating to the narrower side is intended when both subsets are defaulted, but dropping ports
+    the caller named is a silent change of request.
+    """
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    data = load_webster_seed_set(0)
+    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    x = _webster_x_bar_operator(data)
+    g = build_gadget(code, x, basis=Pauli.X)
+    n_ports = len(g.support)
+    assert n_ports >= 4, f"fixture needs >= 4 ports, got {n_ports}"
+
+    with pytest.raises(ValueError, match="would be dropped"):
+        build_bridge(
+            g,
+            g,
+            port_subset_l=tuple(range(n_ports)),
+            port_subset_r=tuple(range(n_ports - 1)),
+        )

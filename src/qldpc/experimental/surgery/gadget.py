@@ -187,6 +187,10 @@ def build_gadget(
 
     basis=Pauli.X: measures a logical X (PPM of X̄). Validates H_Z @ x == 0.
     basis=Pauli.Z: measures a logical Z (PPM of Z̄). Validates H_X @ x == 0.
+
+    Raises:
+        ValueError: basis is neither Pauli.X nor Pauli.Z, x is not a logical support in that basis,
+            or x is the zero vector.
     """
     x = np.asarray(x).astype(np.uint8)
     if basis is Pauli.X:
@@ -199,6 +203,11 @@ def build_gadget(
             raise ValueError("x is not a logical-Z support (H_X @ x != 0).")
     else:
         raise ValueError(f"basis must be Pauli.X or Pauli.Z, got {basis!r}")
+
+    # The zero vector satisfies H @ x == 0 but measures nothing: it yields an empty support, a
+    # 0x0 incidence, and h(F) = inf, which would read as an arbitrarily good Cheeger constant.
+    if not x.any():
+        raise ValueError("x is the zero vector, which measures no logical operator.")
 
     support, data_checks, incidence = _step1_restriction(code, x, basis=basis)
     gauge = _step2_gauge_fix(incidence)

@@ -1918,3 +1918,31 @@ def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
     stripped = keep_only_observable(circuit, keep_idx=0)
     dem = stripped.detector_error_model(approximate_disjoint_errors=True)
     assert dem.num_detectors > 0
+
+
+@pytest.mark.parametrize("rounds", [0, -3])
+def test_build_single_ppm_circuit_rejects_non_positive_rounds(rounds: int) -> None:
+    """rounds < 1 is rejected rather than silently yielding the rounds=1 circuit."""
+    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=Pauli.X)
+    with pytest.raises(ValueError, match="rounds must be >= 1"):
+        build_single_ppm_circuit(g, rounds=rounds, noise_model=None)
+
+
+def test_build_joint_ppm_circuit_rejects_non_positive_rounds() -> None:
+    """rounds < 1 is rejected on the joint-PPM path too."""
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    data = load_webster_seed_set(0)
+    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    x = _webster_x_bar_operator(data)
+    g = build_gadget(code, x, basis=Pauli.X)
+    bridge = build_bridge(g, g)
+    with pytest.raises(ValueError, match="rounds must be >= 1"):
+        build_joint_ppm_circuit(g, g, bridge, rounds=0, noise_model=None)
