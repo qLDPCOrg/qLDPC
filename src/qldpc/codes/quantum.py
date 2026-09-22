@@ -1443,6 +1443,11 @@ class HGPCode(CSSCode):
         field = getattr(graph_a, "field", galois.GF2)
         _Pauli = Pauli if field is galois.GF2 else QuditPauli
 
+        # seed a vertex for every data qudit of the product
+        for nodes in itertools.product(sorted(graph_a.nodes), sorted(graph_b.nodes)):
+            if HGPCode.get_sector(*nodes) in [(0, 0), (1, 1)]:
+                graph.add_node(nodes)
+
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
 

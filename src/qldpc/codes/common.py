@@ -312,8 +312,9 @@ class ClassicalCode(AbstractCode):
         share an edge iff c addresses b; that is, edge (c, b) is in the graph iff ``H[c, b] != 0``.
 
         A check that addresses no bits, as an all-zero row of H defines, is an isolated vertex of
-        the graph.  Seeding a vertex for every row keeps the check vertices in correspondence with
-        the rows of H, which is what lets ClassicalCode.graph_to_matrix recover H.
+        the graph.  Seeding a vertex for every row puts the check vertices in one-to-one
+        correspondence with the rows of H, which anything that identifies a check by its vertex
+        relies on: dropping such a vertex shifts the indices of the checks that follow it.
         """
         matrix = np.asanyarray(matrix)
 

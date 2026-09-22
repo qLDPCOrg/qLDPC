@@ -190,8 +190,8 @@ def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
     assert np.array_equal(code.matrix, codes.ClassicalCode.graph_to_matrix(code.graph))
 
     # a check that addresses no bits is an isolated vertex of the graph, so the round trip recovers
-    # the all-zero row rather than dropping it
-    code = codes.ClassicalCode([[1, 1, 0], [0, 0, 0], [0, 1, 1]])
+    # every row, including an all-zero one at either end of the matrix
+    code = codes.ClassicalCode([[0, 0, 0], [1, 1, 0], [0, 1, 1], [0, 0, 0]])
     assert np.array_equal(code.matrix, codes.ClassicalCode.graph_to_matrix(code.graph))
 
 
