@@ -852,9 +852,10 @@ class QCCode(TBCode):
             f" (provided: {strategy})"
         )
 
-        # build matrices for each term in A and B
-        terms_a = abstract.iter_monomial_terms(self.poly_a)
-        terms_b = abstract.iter_monomial_terms(self.poly_b)
+        # build matrices for each term in A and B.  Canonicalizing merges monomials that name the
+        # same group element, which would otherwise contribute one Tanner edge to several subgraphs.
+        terms_a = abstract.iter_monomial_terms(self.get_canonical_form(self.poly_a))
+        terms_b = abstract.iter_monomial_terms(self.get_canonical_form(self.poly_b))
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
         matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
 

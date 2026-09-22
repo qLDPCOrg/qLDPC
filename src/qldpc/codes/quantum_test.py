@@ -430,6 +430,9 @@ def test_quasi_cyclic_codes() -> None:
     # a symbol whose cyclic group is trivial acts as the identity, so all of its powers agree
     assert np.array_equal(code.matrix, codes.QCCode([1, 2, 3], x**2, x * y).matrix)
 
+    # distinct monomials can name the same group element, and so contribute the same Tanner edge
+    assert_valid_subgraphs(codes.QCCode([3], 1 + x**3 + x**6, 1 + x))
+
     # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
     for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
         code = codes.QCCode(orders, poly_a, poly_b)
