@@ -44,12 +44,10 @@ def test_gadget_layout_is_frozen_dataclass() -> None:
         "code",
         "x",
         "support",
-        "data_checks",
         "incidence",
         "gauge",
         "HX_merged",
         "HZ_merged",
-        "ancilla_qubits",
         "basis",
     }
     # Verify actually frozen: mutation must raise. None placeholders are fine here
@@ -58,12 +56,10 @@ def test_gadget_layout_is_frozen_dataclass() -> None:
         code=None,  # type: ignore[arg-type]
         x=None,  # type: ignore[arg-type]
         support=(),
-        data_checks=(),
         incidence=None,  # type: ignore[arg-type]
         gauge=None,  # type: ignore[arg-type]
         HX_merged=None,  # type: ignore[arg-type]
         HZ_merged=None,  # type: ignore[arg-type]
-        ancilla_qubits=(),
         basis=Pauli.X,
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -251,8 +247,11 @@ def test_build_gadget_steane_returns_valid_layout() -> None:
     assert isinstance(g, GadgetLayout)
     assert g.code is code
     assert np.array_equal(g.x, x)
-    # κ qubits indexed contiguously after data qubits
-    assert g.ancilla_qubits == tuple(range(code.num_qudits, code.num_qudits + len(g.data_checks)))
+    # One κ qubit per row of F, indexed contiguously after the data qubits: the merged matrices
+    # carry a column per data qubit plus a column per κ qubit, which is how the circuit layer sizes
+    # the ancilla register.
+    assert g.HX_merged.shape[1] == code.num_qudits + g.incidence.shape[0]
+    assert g.HZ_merged.shape[1] == g.HX_merged.shape[1]
 
 
 def test_build_gadget_deterministic() -> None:
@@ -263,12 +262,10 @@ def test_build_gadget_deterministic() -> None:
     g1 = build_gadget(code, x, basis=Pauli.X)
     g2 = build_gadget(code, x, basis=Pauli.X)
     assert g1.support == g2.support
-    assert g1.data_checks == g2.data_checks
     assert np.array_equal(g1.incidence, g2.incidence)
     assert np.array_equal(g1.gauge, g2.gauge)
     assert np.array_equal(g1.HX_merged, g2.HX_merged)
     assert np.array_equal(g1.HZ_merged, g2.HZ_merged)
-    assert g1.ancilla_qubits == g2.ancilla_qubits
 
 
 def test_build_gadget_rejects_non_x_logical() -> None:
@@ -316,7 +313,7 @@ def test_webster_table_1_bare_gadget_qubits_exact(code_index: int, n_anc: int) -
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
     x1 = _webster_x_bar_operator(data)
     g1 = build_gadget(code, x1, basis=Pauli.X)
-    n_ancilla = len(g1.ancilla_qubits)
+    n_ancilla = g1.incidence.shape[0]
     n_meas_checks = int(g1.x.sum())  # |support|
     n_comp_checks = g1.gauge.shape[0]
     assert n_ancilla + n_meas_checks + n_comp_checks == n_anc, (
@@ -417,7 +414,7 @@ def test_webster_table_1_bare_gadget_qubits_z_basis() -> None:
         c = build_generalised_bicycle_code(d["l"], d["A"], d["B"])
         z = _webster_z_bar_operator(d)
         g = build_gadget(c, z, basis=Pauli.Z)
-        n_ancilla = len(g.ancilla_qubits)
+        n_ancilla = g.incidence.shape[0]
         n_meas_checks = len(g.support)
         n_comp_checks = g.gauge.shape[0]
         assert n_ancilla + n_meas_checks + n_comp_checks == expected, (

@@ -246,7 +246,7 @@ def test_surgery_detach_and_readout_basis_x_measures_ancilla_then_data() -> None
     g = build_gadget(code, x, basis=Pauli.X)
     n_data = code.num_qudits
     data_ids = tuple(range(n_data))
-    ancilla_ids = tuple(range(n_data, n_data + len(g.ancilla_qubits)))
+    ancilla_ids = tuple(range(n_data, n_data + g.incidence.shape[0]))
     bridge_ids = ()
     meas_rec = MeasurementRecord()
     circuit = _surgery_detach_and_readout(
@@ -275,7 +275,7 @@ def test_surgery_detach_and_readout_basis_z_measures_ancilla_in_x_then_data_in_z
     g = build_gadget(code, z, basis=Pauli.Z)
     n_data = code.num_qudits
     data_ids = tuple(range(n_data))
-    ancilla_ids = tuple(range(n_data, n_data + len(g.ancilla_qubits)))
+    ancilla_ids = tuple(range(n_data, n_data + g.incidence.shape[0]))
     meas_rec = MeasurementRecord()
     circuit = _surgery_detach_and_readout(
         g,

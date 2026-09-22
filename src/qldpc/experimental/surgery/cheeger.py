@@ -38,7 +38,7 @@ from .gadget import GadgetLayout
 def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.ndarray]:
     """Exact boundary Cheeger constant of F per Webster §II.1 Definition 1.
 
-    gadget notation: V → support; C → data_checks; F → incidence.
+    gadget notation: V → support; C → rows of incidence; F → incidence.
 
     Backs ``cheeger_constant``, and additionally returns the cut attaining h(F), which
     ``cheeger_constant`` discards.
@@ -472,8 +472,7 @@ def boost_gadget(
         **kwargs: forwarded to the underlying boost function.
 
     Returns:
-        A NEW GadgetLayout with boosted incidence, gauge, HX_merged, HZ_merged,
-        ancilla_qubits.
+        A NEW GadgetLayout with boosted incidence, gauge, HX_merged, HZ_merged.
 
     Raises:
         ValueError: method is neither 'combinatorial' nor 'distance', target is not positive, or

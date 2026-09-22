@@ -172,7 +172,7 @@ def _surgery_qubit_coordinates(
     m_Z_l = g_l.code.matrix_z.shape[0]
     n_meas_l = len(g_l.support)
     n_gauge_l = g_l.gauge.shape[0]
-    k_l = len(g_l.ancilla_qubits)
+    k_l = g_l.incidence.shape[0]
 
     # Sizes for right side (joint+intercode only — intracode shares data).
     if joint is not None and intercode:

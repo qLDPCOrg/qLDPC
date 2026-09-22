@@ -12,9 +12,9 @@ result into check matrices and has no counterpart in the paper:
 Notation (used throughout the surgery package; the symbols follow Webster/Cohen/Cross, not Cain).
 For a logical measured on support V_0:
     V_0  — logical support (measured qubits)                 → ``support``
-    C_0  — data-code checks touching V_0                     → ``data_checks``
+    C_0  — data-code checks touching V_0                     → rows of ``incidence``
     F    — restriction (incidence) matrix on (C_0, V_0)      → ``incidence``
-    κ    — gadget ancilla qubits (one per touched check)     → ``ancilla_qubits``
+    κ    — gadget ancilla qubits (one per row of F)
     χ    — added meas-basis checks (one per support qubit)
     G    — a basis of ker(F^T); the gadget gauge checks      → ``gauge``
 
@@ -49,23 +49,21 @@ class GadgetLayout:
     """An L=1 surgery gadget for measuring one logical operator of a CSS code.
 
     Built by ``build_gadget``. The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II.1
-    as V_0 → support, C_0 → data_checks, F → incidence, G → gauge, κ → ancilla_qubits.
+    as V_0 → support, F → incidence, G → gauge.
 
-    A boosted gadget (``_build_gadget_augmented``) appends one row to ``incidence`` per added κ
-    qubit. Those rows belong to no check of the data code, so ``data_checks`` holds a -1 in each
-    corresponding position and is then not a tuple of valid check indices, and ``incidence`` is then
-    not a plain restriction of the complementary check matrix.
+    ``incidence`` carries one row per κ ancilla qubit, and the κ qubits occupy the merged-code qubit
+    indices from ``code.num_qudits`` onward, so ``incidence.shape[0]`` is the κ count. A boosted
+    gadget appends one row per added κ qubit; those rows belong to no check of the data code, so
+    ``incidence`` is then not a plain restriction of the complementary check matrix.
     """
 
     code: CSSCode  # the data code being operated on
     x: np.ndarray  # measured logical operator, a length-code.num_qudits binary support vector
     support: tuple[int, ...]  # V_0: data-qubit indices where x is 1
-    data_checks: tuple[int, ...]  # C_0: indices of complementary-basis checks touching V_0
-    incidence: np.ndarray  # F: complementary check matrix restricted to (data_checks, support)
+    incidence: np.ndarray  # F: complementary check matrix restricted to (checks on V_0, support)
     gauge: np.ndarray  # G: rows spanning ker(F^T) over GF(2), the gauge-fixing checks
     HX_merged: np.ndarray  # X checks of the merged code, over data qubits then ancilla qubits
     HZ_merged: np.ndarray  # Z checks of the merged code, same qubit ordering
-    ancilla_qubits: tuple[int, ...]  # κ qubit indices, numbered after the data qubits
     basis: PauliXZ  # Pauli.X to measure a logical X, Pauli.Z for a logical Z
 
 
@@ -242,17 +240,14 @@ def build_gadget(
     support, data_checks, incidence = _step1_restriction(code, x, basis=basis)
     gauge = _step2_gauge_fix(incidence)
     HX_m, HZ_m = _step3_assemble(code, support, data_checks, incidence, gauge, basis=basis)
-    ancilla_qubits = tuple(range(code.num_qudits, code.num_qudits + len(data_checks)))
     return GadgetLayout(
         code=code,
         x=x,
         support=support,
-        data_checks=data_checks,
         incidence=incidence,
         gauge=gauge,
         HX_merged=HX_m,
         HZ_merged=HZ_m,
-        ancilla_qubits=ancilla_qubits,
         basis=basis,
     )
 
@@ -277,8 +272,8 @@ def _build_gadget_augmented(
        The extra columns of tilde_F are all zero (no original check sits on the
        new κ qubits).
 
-    The returned ``GadgetLayout.data_checks`` and ``ancilla_qubits`` are extended to cover the new κ
-    qubits; the new κ indices come after the original ones.
+    The returned ``incidence`` covers the new κ qubits, whose merged-code qubit indices come after
+    the original ones.
     """
     x = np.asarray(x).astype(np.uint8)
     support, data_checks, incidence = _step1_restriction(code, x, basis=basis)
@@ -308,16 +303,13 @@ def _build_gadget_augmented(
         gauge_aug,
         basis=basis,
     )
-    ancilla_qubits_aug = tuple(range(code.num_qudits, code.num_qudits + len(data_checks_aug)))
     return GadgetLayout(
         code=code,
         x=x,
         support=support,
-        data_checks=data_checks_aug,
         incidence=incidence_aug,
         gauge=gauge_aug,
         HX_merged=HX_aug,
         HZ_merged=HZ_aug,
-        ancilla_qubits=ancilla_qubits_aug,
         basis=basis,
     )
