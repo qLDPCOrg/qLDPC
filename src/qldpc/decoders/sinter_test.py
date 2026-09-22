@@ -15,7 +15,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from collections.abc import Sequence
+import typing
+from collections.abc import Callable, Sequence
 
 import numpy as np
 import pytest
@@ -268,6 +269,120 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
     # decode the first detector: 0 syndrome -> no errors, 1 syndrome -> E1
     assert np.array_equal(compiled_sinter_decoder.window_decoders[0].decode(np.array([0])), [0, 0])
     assert np.array_equal(compiled_sinter_decoder.window_decoders[0].decode(np.array([1])), [0, 1])
+
+    # an error that cannot occur is absent from the merged errors of a window
+    dem = stim.DetectorErrorModel("""
+        error(0.3) D0 D1 L0
+        error(0.2) D0 D2 L0
+        error(0) D0 D3 L1
+    """)
+    compiled_sinter_decoder = decoders.SequentialWindowDecoder(
+        [[0], [1, 2, 3]], simplify=False, with_BP_OSD=True
+    ).compile_decoder_for_dem(dem)
+    # the decoded error is one that can occur, not the zero-probability error
+    assert np.array_equal(
+        compiled_sinter_decoder.window_decoders[0].decode(np.array([1])), [0, 1, 0]
+    )
+
+
+def test_rejected_decoder_arguments() -> None:
+    """Decoder arguments that a SinterDecoder cannot honor are rejected."""
+    with pytest.raises(ValueError, match="DEFUNCT"):
+        decoders.SinterDecoder(priors_arg="error_channel")
+
+    # a SinterDecoder converts decoded errors into observable flips itself
+    dem = stim.DetectorErrorModel("""
+        error(0.3) D0 L0 L1
+        error(0.1) D1 L1
+    """)
+    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=2, predict_observable_flips=True)
+    with pytest.raises(ValueError, match="must predict errors"):
+        decoder.compile_decoder_for_dem(dem)
+
+
+def test_window_region_validation() -> None:
+    """A SequentialWindowDecoder rejects window regions that it cannot decode."""
+    with pytest.raises(ValueError, match="inconsistent"):
+        decoders.SequentialWindowDecoder([[0], [1]], [[0]])
+
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 D1 L0
+        error(0.1) D1 D2 L1
+        error(0.1) D2 L2
+    """)
+    decoder = decoders.SequentialWindowDecoder(
+        [[0], [1, 2]], [[0, 1], [2]], with_lookup=True, max_weight=1
+    )
+    with pytest.raises(ValueError, match="cannot be decoded before"):
+        decoder.compile_decoder_for_dem(dem)
+
+
+def test_compiled_decoder_input_validation() -> None:
+    """Compiled decoders reject inconsistent numbers of regions and detectors."""
+    dem = stim.DetectorErrorModel("""
+        detector(0) D0
+        detector(1) D1
+        error(0.1) D0 L0
+        error(0.1) D1 L1
+    """)
+    wide_shots = np.zeros((1, dem.num_detectors + 1), dtype=np.uint8)
+
+    with pytest.raises(ValueError, match="per subgraph"):
+        decoders.CompiledSubgraphDecoder([[0]], [[0], [1]], [], 2, 2)
+    subgraph_decoder = decoders.SubgraphDecoder(
+        [[0], [1]], with_lookup=True, max_weight=1
+    ).compile_decoder_for_dem(dem)
+    with pytest.raises(ValueError, match="detectors per shot"):
+        subgraph_decoder.decode_shots(wide_shots)
+
+    window_decoder = decoders.SequentialWindowDecoder(
+        [[0], [1]], with_lookup=True, max_weight=1
+    ).compile_decoder_for_dem(dem)
+    with pytest.raises(ValueError, match="per window"):
+        decoders.CompiledSequentialWindowDecoder(window_decoder.dem_arrays, [[0]], [], [])
+    with pytest.raises(ValueError, match="detectors per shot"):
+        window_decoder.decode_shots_to_error(wide_shots)
+
+
+def test_sliding_window_time_gaps() -> None:
+    """A gap between time indices contributes no window of its own."""
+    dem = stim.DetectorErrorModel("""
+        detector(0) D0
+        detector(2) D1
+        detector(4) D2
+        error(0.1) D0 D1
+        error(0.1) D1 D2
+    """)
+    decoder = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
+    compiled = decoder.compile_decoder_for_dem(dem)
+    assert list(compiled.window_detectors) == [[0], [1], [2]]
+
+
+def test_sliding_window_validation() -> None:
+    """A SlidingWindowDecoder rejects window shapes and time indices that it cannot use."""
+    with pytest.raises(ValueError, match="window_size >= stride"):
+        decoders.SlidingWindowDecoder(1, 2)
+
+    dem = stim.DetectorErrorModel("""
+        detector(0) D0
+        detector(1) D1
+        error(0.1) D0 D1
+    """)
+    # a mapping that violates its annotation by handing back a non-integer time index
+    detector_to_time = typing.cast("Callable[[int], int]", lambda detector: detector / 2)
+    decoder = decoders.SlidingWindowDecoder(
+        1, 1, detector_to_time=detector_to_time, with_lookup=True, max_weight=1
+    )
+    with pytest.raises(TypeError, match="non-integer"):
+        decoder.compile_decoder_for_dem(dem)
+
+
+def test_deprecated_aliases() -> None:
+    """The deprecated aliases of the sinter decoders warn when they are used."""
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        assert decoders.SubgraphSinterDecoder([[0]]).simplify
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        assert decoders.SequentialSinterDecoder([[0]]).simplify
 
 
 def test_sinter_decoder_with_erasure() -> None:

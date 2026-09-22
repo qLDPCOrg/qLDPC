@@ -62,9 +62,7 @@ class SinterDecoder(Decoder, sinter.Decoder):
         self.simplify = simplify
         self.decompose_errors = decompose_errors
         self.decoder_kwargs = decoder_kwargs
-        if (
-            "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs
-        ):  # pragma: no cover
+        if "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs:
             raise ValueError(
                 "The 'priors_arg' and 'log_likelihood_priors' arguments to a SinterDecoder are"
                 " DEFUNCT and should no longer be necessary.\nIf you need these arguments restored,"
@@ -80,6 +78,11 @@ class SinterDecoder(Decoder, sinter.Decoder):
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
         decoder = get_decoder(dem_arrays.to_dem(), **self.decoder_kwargs)
+        if getattr(decoder, "predict_observable_flips", False):
+            raise ValueError(
+                "A SinterDecoder maps decoded circuit errors to observable flips itself, so the"
+                " decoder that it wraps must predict errors rather than observable flips"
+            )
         if getattr(decoder, "has_erasure_bit", False):
             dem_arrays = dem_arrays.with_erasure()
         return CompiledSinterDecoder(dem_arrays, decoder)
@@ -325,7 +328,7 @@ class SubgraphDecoder(SinterDecoder):
         )
 
 
-class SubgraphSinterDecoder(SubgraphDecoder):  # pragma: no cover
+class SubgraphSinterDecoder(SubgraphDecoder):
     """Deprecated alias for SubgraphDecoder."""
 
     def __getattribute__(self, name: str) -> Any:
@@ -355,7 +358,12 @@ class CompiledSubgraphDecoder(CompiledSinterDecoder):
         num_detectors: int,
         num_observables: int,
     ) -> None:
-        assert len(subgraph_detectors) == len(subgraph_observables) == len(subgraph_decoders)
+        if not len(subgraph_detectors) == len(subgraph_observables) == len(subgraph_decoders):
+            raise ValueError(
+                "A CompiledSubgraphDecoder needs one detector set, one observable set, and one"
+                f" decoder per subgraph (provided: {len(subgraph_detectors)},"
+                f" {len(subgraph_observables)}, {len(subgraph_decoders)})"
+            )
         self.subgraph_detectors = subgraph_detectors
         self.subgraph_observables = subgraph_observables
         self.subgraph_decoders = subgraph_decoders
@@ -369,7 +377,11 @@ class CompiledSubgraphDecoder(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        assert detection_event_data.shape[1] == self.num_detectors
+        if detection_event_data.shape[1] != self.num_detectors:
+            raise ValueError(
+                f"Detection event data has {detection_event_data.shape[1]} detectors per shot, but"
+                f" this decoder was compiled for {self.num_detectors} detectors"
+            )
 
         # initialize predicted observable flips
         observable_flips = np.zeros(
@@ -432,7 +444,9 @@ class SequentialWindowDecoder(SinterDecoder):
             detection_regions: A sequence containing a set of detectors for each window.
             commit_regions: A sequence containing a set of detectors for each window, or None, in
                 which case the commit region of each window is equal to its detection regions.
-                Default: None.
+                Default: None.  The errors triggered by a commit region must also be triggered by
+                the detection region of the same window, which holds whenever the commit region is
+                a subset of the detection region.
             simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
@@ -444,7 +458,11 @@ class SequentialWindowDecoder(SinterDecoder):
             self, simplify=simplify, decompose_errors=decompose_errors, **decoder_kwargs
         )
 
-        assert commit_regions is None or len(detection_regions) == len(commit_regions)
+        if commit_regions is not None and len(detection_regions) != len(commit_regions):
+            raise ValueError(
+                f"The number of detection regions ({len(detection_regions)}) is inconsistent with"
+                f" the number of commit regions ({len(commit_regions)})"
+            )
         self.windows = [
             (list(d_detectors), list(c_detectors))
             for d_detectors, c_detectors in zip(
@@ -500,6 +518,12 @@ class SequentialWindowDecoder(SinterDecoder):
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
             c_errors[addressed_errors] = False
+            if (c_errors & ~d_errors).any():
+                raise ValueError(
+                    f"The commit region of a window (detectors {c_detectors}) is triggered by"
+                    f" errors that its detection region (detectors {d_detectors}) is not, so those"
+                    " errors cannot be decoded before they are committed"
+                )
             c_errors_in_detection_region = np.isin(np.where(d_errors), np.where(c_errors))[0]
 
             # save detection region detectors, committed error data, and decoders
@@ -538,19 +562,11 @@ class _ExpandedWindowDecoder(Decoder):
             for original_error_index, (_, signature) in enumerate(original_errors)
         }
 
-        # map each detector/observable signature to a simplified error index
-        signature_to_simplified_error_index = {
-            signature: simplified_error_index
-            for simplified_error_index, (_, signature) in enumerate(simplified_errors)
-        }
-
-        if signature_to_simplified_error_index.keys() != signature_to_original_error_index.keys():
-            raise ValueError("Incompatible error sets")  # pragma: no cover
-
-        self._simplified_to_original_index = np.full(len(simplified_errors), -1, dtype=np.intp)
-        for signature, original_error_index in signature_to_original_error_index.items():
-            simplified_error_index = signature_to_simplified_error_index[signature]
-            self._simplified_to_original_index[simplified_error_index] = original_error_index
+        # locate each simplified error among the original errors
+        self._simplified_to_original_index = np.array(
+            [signature_to_original_error_index[signature] for _, signature in simplified_errors],
+            dtype=np.intp,
+        )
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         simplified_error = self._decoder.decode(syndrome)
@@ -571,7 +587,7 @@ class _ExpandedWindowDecoder(Decoder):
         return original_errors
 
 
-class SequentialSinterDecoder(SequentialWindowDecoder):  # pragma: no cover
+class SequentialSinterDecoder(SequentialWindowDecoder):
     """Deprecated alias for SequentialWindowDecoder."""
 
     def __getattribute__(self, name: str) -> Any:
@@ -601,7 +617,12 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
         window_errors: Sequence[tuple[Sequence[int] | slice, Sequence[int] | slice]],
         window_decoders: Sequence[Decoder],
     ) -> None:
-        assert len(window_detectors) == len(window_errors) == len(window_decoders)
+        if not len(window_detectors) == len(window_errors) == len(window_decoders):
+            raise ValueError(
+                "A CompiledSequentialWindowDecoder needs one detector set, one set of committed"
+                f" errors, and one decoder per window (provided: {len(window_detectors)},"
+                f" {len(window_errors)}, {len(window_decoders)})"
+            )
         self.dem_arrays = dem_arrays
         self.window_detectors = window_detectors
         self.window_errors = window_errors
@@ -630,7 +651,11 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
         This method accepts and returns boolean data.
         """
         num_samples, num_detectors = detection_event_data.shape
-        assert num_detectors == self.dem_arrays.num_detectors
+        if num_detectors != self.dem_arrays.num_detectors:
+            raise ValueError(
+                f"Detection event data has {num_detectors} detectors per shot, but this decoder was"
+                f" compiled for {self.dem_arrays.num_detectors} detectors"
+            )
 
         # identify the net circuit error predicted by decoding one window at a time
         net_error = np.zeros((num_samples, self.dem_arrays.num_errors), dtype=np.uint8)
@@ -737,7 +762,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             self, simplify=simplify, decompose_errors=decompose_errors, **decoder_kwargs
         )
 
-        if not window_size >= stride > 0:  # pragma: no cover
+        if not window_size >= stride > 0:
             raise ValueError(
                 f"{type(self).__name__} must have window_size >= stride > 0"
                 f" (provided window_size, stride: {window_size}, {stride})"
@@ -783,7 +808,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             time_to_dets: dict[int, list[int]] = collections.defaultdict(list)
             for detector in detectors:
                 time = detector_to_time(detector)
-                if not isinstance(time, int):  # pragma: no cover
+                if not isinstance(time, int):
                     raise TypeError(
                         f"detector {detector} has an invalid (non-integer) time index: {time}"
                     )
@@ -808,6 +833,9 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             window_time_to_dets = [time_to_dets[tt] for tt in range(start_time, end_time)]
             last_dets = [det for dets in window_time_to_dets for det in dets]
             self.windows.append((last_dets, last_dets))
+
+        # drop windows with nothing to commit, which arise from gaps between time indices
+        self.windows = [(d_dets, c_dets) for d_dets, c_dets in self.windows if c_dets]
 
         return SequentialWindowDecoder.compile_decoder_for_dem(self, dem)
 
