@@ -42,6 +42,26 @@ from qldpc.objects import Pauli, PauliXZ
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class GadgetLayout:
+    """An L=1 surgery gadget for measuring one logical operator of a CSS code.
+
+    Built by ``build_gadget``. The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II.A
+    as V_0 → support, C_0 → data_checks, F → incidence, G → gauge, κ → ancilla_qubits.
+
+    Attributes:
+        code: the data code being operated on.
+        x: the measured logical operator, as a length-``code.num_qudits`` binary support vector.
+        support: V_0, the data-qubit indices where x is 1.
+        data_checks: C_0, the indices of complementary-basis checks touching V_0. A boosted gadget
+            (``build_gadget_augmented``) appends one -1 per added κ row, since those rows correspond
+            to no check of the data code, so entries are not all valid indices.
+        incidence: F, the complementary check matrix restricted to (data_checks, support).
+        gauge: G, rows spanning ker(F^T) over GF(2), the gauge-fixing checks.
+        HX_merged: X-check matrix of the merged code, over data plus ancilla qubits.
+        HZ_merged: Z-check matrix of the merged code, same qubit ordering.
+        ancilla_qubits: the κ qubit indices added by the gadget, numbered after the data qubits.
+        basis: Pauli.X if a logical X is measured, Pauli.Z for a logical Z.
+    """
+
     code: CSSCode
     x: np.ndarray
     support: tuple[int, ...]
@@ -106,16 +126,17 @@ def _assemble_HX_L1(
     support_indices: np.ndarray,
     incidence: np.ndarray,
 ) -> np.ndarray:
-    """L=1 HX-side block assembly: [[HX_data, 0], [E_V0, F^T]] over GF(2).
+    """L=1 measured-basis block assembly: [[H_data, 0], [E_V0, F^T]] over GF(2).
 
     gadget notation: V_0 → support; F → incidence.
 
-    Used by _step3_assemble (initial gadget assembly) and build_gadget_augmented (post-boost
-    rebuild). The Z-side assembly is NOT shared — the boost rebuild treats new κ' qubits as
-    pure-gauge (no data-Z extension), unlike the initial assembly.
+    This builds the side carrying the χ measurement checks, which is the X side for basis=X and the
+    Z side for basis=Z; callers pass the matching data check matrix. Shared by _step3_assemble and
+    build_gadget_augmented. The complementary side is assembled separately, because a boost rebuild
+    treats new κ' qubits as pure-gauge with no data extension.
 
     Args:
-        HX_data: original code's X-check matrix, shape (mX, n), uint8.
+        HX_data: the measured basis's data check matrix, shape (mX, n), uint8.
         support_indices: indices of V_0 within the n data qubits, shape (|V_0|,).
         incidence: restriction matrix, shape (|C_0|, |V_0|), uint8.
 

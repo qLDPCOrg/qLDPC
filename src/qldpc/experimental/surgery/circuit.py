@@ -678,7 +678,7 @@ def build_joint_ppm_circuit(
     noise_model: NoiseModel | None = None,
     data_init: str | tuple[str, ...] | list[str] | None = None,
 ) -> tuple[stim.Circuit, CSSCode]:
-    """Joint-PPM circuit (universal adapter; no U_B in α*).
+    """Joint-PPM circuit measuring a logical Pauli product across two gadgets via a bridge.
 
     Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 

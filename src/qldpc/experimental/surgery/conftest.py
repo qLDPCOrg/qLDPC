@@ -1,7 +1,11 @@
 """Shared reference data and helpers for the surgery tests.
 
-The seed sets are from Webster, Smith, and Cohen, arXiv:2511.15989 Appendix A.
-These helpers are private to the test suite; the example notebook carries its own inputs.
+The seed sets are from Webster, Smith, and Cohen, arXiv:2511.15989 Appendix A. The `expected_*`
+entries are derived counts, not values from that appendix.
+
+These helpers exist for the surgery tests. Nothing outside them should rely on the module: it is a
+pytest conftest, so pytest imports it for every collection under this directory, and it ships inside
+the wheel, which makes the names reachable but not supported.
 
 Copyright 2026 The qLDPC Authors
 
@@ -187,13 +191,21 @@ _WEBSTER_APP_A: dict[str, Any] = {
 
 
 def load_webster_seed_set(code_index: int) -> dict[str, Any]:
-    """Return a fresh copy of Webster Appendix A data for code index 0..3.
+    """Return a fresh, independently mutable copy of one code's Webster Appendix A data.
+
+    Args:
+        code_index: index into the Appendix A code list, in [0, len(_WEBSTER_APP_A["codes"])).
+
+    Returns:
+        The seed-set dict for that code: ell, the A and B exponent sets, the code parameters, the
+        named seed operators, and the derived `expected_*` counts.
 
     Raises:
-        IndexError: if code_index is not in 0..3.
+        IndexError: code_index is out of range.
     """
-    if not 0 <= code_index < len(_WEBSTER_APP_A["codes"]):
-        raise IndexError(f"code_index must be in 0..3, got {code_index}")
+    n_codes = len(_WEBSTER_APP_A["codes"])
+    if not 0 <= code_index < n_codes:
+        raise IndexError(f"code_index must be in [0, {n_codes}), got {code_index}")
     return copy.deepcopy(_WEBSTER_APP_A["codes"][code_index])
 
 
