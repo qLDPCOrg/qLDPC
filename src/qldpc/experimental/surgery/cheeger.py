@@ -187,7 +187,7 @@ def _augment_incidence_with_random_edges(
     return np.vstack([incidence, np.stack(new_rows)])
 
 
-def boost_gadget_cheeger_combinatorial(
+def _boost_gadget_cheeger_combinatorial(
     g: GadgetLayout,
     *,
     target_h: float = 1.0,
@@ -220,13 +220,13 @@ def boost_gadget_cheeger_combinatorial(
 
     Returns:
         A new GadgetLayout with F augmented until h(F) >= target_h, rebuilt via
-        build_gadget_augmented (basis=X/Z handled symmetrically).
+        _build_gadget_augmented (basis=X/Z handled symmetrically).
 
     Raises:
         ValueError: |V_0| > 26 (enumeration infeasible) or target_h <= 0.
         RuntimeError: target_h could not be reached within max_extra_qubits.
     """
-    from .gadget import build_gadget_augmented
+    from .gadget import _build_gadget_augmented
 
     if target_h <= 0:
         raise ValueError(f"target_h must be positive, got {target_h}.")
@@ -240,12 +240,12 @@ def boost_gadget_cheeger_combinatorial(
     if n_V > 26:
         raise ValueError(
             f"|V_0| = {n_V} > 26; exact Cheeger enumeration infeasible. "
-            f"Use boost_gadget_distance (BP+OSD) instead."
+            f"Use boost_gadget(method='distance') (BP+OSD) instead."
         )
     if n_V < 2:
         # F has at most one column, so there is no cut to improve: rebuild the gadget unchanged.
         # Reached whenever the measured support has weight ≤ 1.
-        return build_gadget_augmented(
+        return _build_gadget_augmented(
             g.code,
             g.x,
             np.zeros((0, n_V), dtype=np.uint8),
@@ -339,10 +339,10 @@ def boost_gadget_cheeger_combinatorial(
             f"max_extra_qubits or lower target_h."
         )
     incidence_extra = incidence[n_orig_rows:].astype(np.uint8)
-    return build_gadget_augmented(g.code, g.x, incidence_extra, basis=g.basis)
+    return _build_gadget_augmented(g.code, g.x, incidence_extra, basis=g.basis)
 
 
-def boost_gadget_distance(
+def _boost_gadget_distance(
     g: GadgetLayout,
     *,
     target_distance: int,
@@ -389,7 +389,7 @@ def boost_gadget_distance(
     """
     from qldpc.objects import Pauli as _Pauli
 
-    from .gadget import build_gadget_augmented
+    from .gadget import _build_gadget_augmented
 
     if target_distance <= 0:
         raise ValueError(f"target_distance must be positive, got {target_distance}.")
@@ -415,7 +415,7 @@ def boost_gadget_distance(
         return bz >= target_distance
 
     # n_extra = 0: bare gadget first.
-    bare = build_gadget_augmented(g.code, g.x, np.zeros((0, n_V), dtype=np.uint8), basis=g.basis)
+    bare = _build_gadget_augmented(g.code, g.x, np.zeros((0, n_V), dtype=np.uint8), basis=g.basis)
     if _passes_decoder(bare):
         return bare
 
@@ -426,15 +426,15 @@ def boost_gadget_distance(
             if incidence_extra is None:
                 continue
             # _augment_incidence_with_random_edges returns F_aug = incidence_base + extra rows;
-            # extract just the new rows for build_gadget_augmented.
+            # extract just the new rows for _build_gadget_augmented.
             incidence_extra_rows = np.asarray(incidence_extra[incidence_base.shape[0] :]).astype(
                 np.uint8
             )
             # Best-effort heuristic search: skip augmentations that fail row-weight/shape
-            # validation (the only failure build_gadget_augmented raises); let anything
+            # validation (the only failure _build_gadget_augmented raises); let anything
             # unexpected propagate rather than silently swallowing it.
             try:
-                candidate = build_gadget_augmented(
+                candidate = _build_gadget_augmented(
                     g.code,
                     g.x,
                     incidence_extra_rows,
@@ -483,14 +483,14 @@ def boost_gadget(
             since its screen is not seeded.
     """
     if method == "combinatorial":
-        return boost_gadget_cheeger_combinatorial(
+        return _boost_gadget_cheeger_combinatorial(
             gadget,
             target_h=target,
             seed=seed,
             **kwargs,
         )
     if method == "distance":
-        return boost_gadget_distance(
+        return _boost_gadget_distance(
             gadget,
             target_distance=int(target),
             seed=seed,

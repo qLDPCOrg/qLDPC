@@ -51,7 +51,7 @@ class GadgetLayout:
     Built by ``build_gadget``. The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II.1
     as V_0 → support, C_0 → data_checks, F → incidence, G → gauge, κ → ancilla_qubits.
 
-    A boosted gadget (``build_gadget_augmented``) appends one row to ``incidence`` per added κ
+    A boosted gadget (``_build_gadget_augmented``) appends one row to ``incidence`` per added κ
     qubit. Those rows belong to no check of the data code, so ``data_checks`` holds a -1 in each
     corresponding position and is then not a tuple of valid check indices, and ``incidence`` is then
     not a plain restriction of the complementary check matrix.
@@ -177,7 +177,7 @@ def _step3_assemble(
         incidence_tilde = np.zeros((mX, nC), dtype=np.uint8)
     for k, j in enumerate(data_checks):
         if j < 0:
-            continue  # sentinel for extra-κ rows from build_gadget_augmented
+            continue  # sentinel for extra-κ rows from _build_gadget_augmented
         incidence_tilde[j, k] = 1
 
     support_arr = np.asarray(support, dtype=np.int_)
@@ -257,7 +257,7 @@ def build_gadget(
     )
 
 
-def build_gadget_augmented(
+def _build_gadget_augmented(
     code: CSSCode,
     x: np.ndarray,
     incidence_extra: np.ndarray,

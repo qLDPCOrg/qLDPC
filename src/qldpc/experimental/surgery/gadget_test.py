@@ -427,7 +427,7 @@ def test_webster_table_1_bare_gadget_qubits_z_basis() -> None:
 
 def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None:
     """Augmenting with one weight-2 row adds a column to merged matrices and recomputes G."""
-    from qldpc.experimental.surgery.gadget import build_gadget, build_gadget_augmented
+    from qldpc.experimental.surgery.gadget import _build_gadget_augmented, build_gadget
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -439,7 +439,7 @@ def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None
     idx_b = g.support.index(support_b)
     extra_incidence[0, idx_a] = 1
     extra_incidence[0, idx_b] = 1
-    g_aug = build_gadget_augmented(code, x, extra_incidence, basis=Pauli.X)
+    g_aug = _build_gadget_augmented(code, x, extra_incidence, basis=Pauli.X)
 
     # incidence_aug = [incidence | extra_incidence] vertically stacked
     assert g_aug.incidence.shape == (g.incidence.shape[0] + 1, g.incidence.shape[1])
@@ -598,27 +598,27 @@ def test_build_gadget_rejects_invalid_basis() -> None:
 
 
 def test_build_gadget_augmented_rejects_wrong_width() -> None:
-    """build_gadget_augmented rejects incidence_extra with wrong column count."""
-    from qldpc.experimental.surgery.gadget import build_gadget_augmented
+    """_build_gadget_augmented rejects incidence_extra with wrong column count."""
+    from qldpc.experimental.surgery.gadget import _build_gadget_augmented
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     # support has 3 columns (Steane X-logical weight 3); pass 2-column incidence_extra.
     bad_extra = np.array([[1, 1]], dtype=np.uint8)
     with pytest.raises(ValueError, match="columns"):
-        build_gadget_augmented(code, x, bad_extra, basis=Pauli.X)
+        _build_gadget_augmented(code, x, bad_extra, basis=Pauli.X)
 
 
 def test_build_gadget_augmented_rejects_non_weight_2_rows() -> None:
-    """build_gadget_augmented rejects incidence_extra rows with weight != 2."""
-    from qldpc.experimental.surgery.gadget import build_gadget_augmented
+    """_build_gadget_augmented rejects incidence_extra rows with weight != 2."""
+    from qldpc.experimental.surgery.gadget import _build_gadget_augmented
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     # Width 3 (Steane X-logical), but a row with weight 1 (not 2)
     bad_extra = np.array([[1, 0, 0]], dtype=np.uint8)
     with pytest.raises(ValueError, match="weight"):
-        build_gadget_augmented(code, x, bad_extra, basis=Pauli.X)
+        _build_gadget_augmented(code, x, bad_extra, basis=Pauli.X)
 
 
 def test_build_gadget_rejects_zero_x() -> None:

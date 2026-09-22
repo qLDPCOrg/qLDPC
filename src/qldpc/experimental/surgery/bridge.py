@@ -467,7 +467,7 @@ def build_bridge(
     # Rebuild the augmented gadgets before SkipTree so that g_l_aug.incidence can be threaded in as
     # its column space. This ordering is safe because F_aug.shape[0] is fixed by extra_ancilla_*,
     # not by SkipTree.
-    from .gadget import _step1_restriction, build_gadget_augmented
+    from .gadget import _build_gadget_augmented, _step1_restriction
 
     # boost_gadget appends weight-2 κ' rows to g_l.incidence beyond the original
     # _step1_restriction output. These rows must be preserved when assembling
@@ -482,8 +482,8 @@ def build_bridge(
     combined_extras_l = np.vstack([boost_extras_l, extra_ancilla_l.astype(np.uint8)])
     combined_extras_r = np.vstack([boost_extras_r, extra_ancilla_r.astype(np.uint8)])
 
-    g_l_aug = build_gadget_augmented(g_l.code, g_l.x, combined_extras_l, basis=basis)
-    g_r_aug = build_gadget_augmented(g_r.code, g_r.x, combined_extras_r, basis=basis)
+    g_l_aug = _build_gadget_augmented(g_l.code, g_l.x, combined_extras_l, basis=basis)
+    g_r_aug = _build_gadget_augmented(g_r.code, g_r.x, combined_extras_r, basis=basis)
 
     # Step 5: SkipTree on induced port subgraph; embed back into full F_aug rows
     T_l, label_l = _run_skiptree_on_port_subgraph(
