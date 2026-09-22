@@ -263,6 +263,29 @@ def test_post_selection() -> None:
         "error(0.1) D0"
     ]
 
+    # order=4 also recovers four error mechanisms that all trigger the same post-selected detector
+    prob = 0.1
+    dem = stim.DetectorErrorModel(f"""
+        detector D0
+        detector D1
+        detector D2
+        logical_observable L0
+        error({prob}) D0 L0
+        error({prob}) D0 D1
+        error({prob}) D0 D2
+        error({prob}) D0 D1 D2
+    """)
+    post_selected_dem = stim.DetectorErrorModel(f"""
+        logical_observable L0
+        error({prob**4}) L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    assert (
+        dem_arrays.post_selected_on([0, 1, 2], order=4)
+        .to_dem()
+        .approx_equals(post_selected_dem, atol=1e-10)
+    )
+
     # an error whose components cancel on a post-selected detector survives, but loses a whole
     # decomposition component along with that detector, leaving no decomposition to suggest
     dem = stim.DetectorErrorModel("""

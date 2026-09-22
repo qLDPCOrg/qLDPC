@@ -681,6 +681,17 @@ def _with_higher_order_corrections(
                         if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
                             combinations_to_add.add(frozenset(removed_error_indices[comb]))
 
+            # A combination cancels on this detector only if an even number of its errors flip it,
+            # and the errors of a later group flip no earlier detector, so the errors this detector
+            # contributes come in even numbers: four, six, and so on, as well as the pairs above.
+            for num_head in range(4, min(len(triggering_errors), order) + 1, 2):
+                for head in itertools.combinations(triggering_errors, num_head):
+                    for num_rest in range(order - num_head + 1):
+                        for rest in itertools.combinations(other_errors, num_rest):
+                            comb = [*head, *rest]
+                            if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
+                                combinations_to_add.add(frozenset(removed_error_indices[comb]))
+
     new_errors: dict[bytes, tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, float]] = {}
     for comb_to_add in combinations_to_add:
         comb = sorted(comb_to_add)
