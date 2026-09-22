@@ -197,6 +197,49 @@ def test_generalized_union_find() -> None:
     )
 
 
+def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) -> None:
+    """Generalized Union-Find and Relay-BP set an erasure bit iff their error misses the syndrome.
+
+    Both decoders answer a syndrome that no error explains, so without the bit the answer is
+    indistinguishable from the error inferred for a syndrome that is explained.  Every syndrome of
+    every matrix is checked, so a trivial syndrome -- which the all-zero error does explain -- has
+    to come back unerased.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+
+    def check_erasure_bits(
+        matrix: npt.NDArray[np.int_],
+        syndromes: npt.NDArray[np.int_],
+        decoded_errors: npt.NDArray[np.int_],
+    ) -> None:
+        """Assert that each erasure bit is set exactly when its error misses its syndrome."""
+        for decoded, syndrome in zip(decoded_errors, syndromes):
+            explained = np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
+            assert bool(decoded[-1]) == (not explained)
+
+    for _ in range(4):
+        num_checks, num_bits = int(rng.integers(2, 4)), int(rng.integers(2, 5))
+        matrix = rng.integers(2, size=(num_checks, num_bits))
+        syndromes = np.array(
+            [[(bits >> cc) & 1 for cc in range(num_checks)] for bits in range(2**num_checks)],
+            dtype=int,
+        )
+
+        guf_decoder = decoders.GUFDecoder(galois.GF(2)(matrix), add_erasure_bit=True)
+        relay_bp_decoder = decoders.RelayBPDecoder(matrix, add_erasure_bit=True)
+        assert guf_decoder.has_erasure_bit and relay_bp_decoder.has_erasure_bit
+
+        guf_errors = np.array([guf_decoder.decode(syndrome) for syndrome in syndromes])
+        relay_bp_errors = np.array([relay_bp_decoder.decode(syndrome) for syndrome in syndromes])
+        check_erasure_bits(matrix, syndromes, guf_errors)
+        check_erasure_bits(matrix, syndromes, relay_bp_errors)
+
+        # decoding a batch appends one erasure bit per shot, under the same rule
+        decoded_batch = relay_bp_decoder.decode_batch(syndromes)
+        assert decoded_batch.shape == (len(syndromes), num_bits + 1)
+        check_erasure_bits(matrix, syndromes, decoded_batch)
+
+
 def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     """Composite and direct decoders, built from other decoders."""
     matrix, error, syndrome = toy_problem

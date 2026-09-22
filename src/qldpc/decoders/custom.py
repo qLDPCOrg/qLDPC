@@ -90,6 +90,9 @@ class RelayBPDecoder:
 
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
+
+    If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
+    set to 1 when Relay-BP does not converge on a syndrome and to 0 otherwise.
     """
 
     def __init__(
@@ -100,6 +103,7 @@ class RelayBPDecoder:
         name: str = "RelayDecoderF32",
         observable_error_matrix: IntegerArray | None = None,
         include_decode_result: bool = False,
+        add_erasure_bit: bool = False,
         **decoder_args: object,
     ) -> None:
         """Initialize a RelayBP decoder from the relay_bp package.
@@ -116,6 +120,10 @@ class RelayBPDecoder:
                 constructed RelayBPDecoder will not be able to predict observable flips (or logical
                 error rates).
             include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
+            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when Relay-BP
+                does not converge on a syndrome and to 0 otherwise.  Without that bit, a
+                non-converged shot is reported as the error that Relay-BP settled on, which need
+                not reproduce the syndrome at all.
             **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
                 relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
                 for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
@@ -171,6 +179,7 @@ class RelayBPDecoder:
             observable_error_matrix = np.empty((0, 0), dtype=np.uint8)
 
         # build the decoder
+        self.has_erasure_bit = add_erasure_bit
         self.decoder = relay_bp.ObservableDecoderRunner(
             getattr(relay_bp, name)(pcm, np.asarray(error_priors), **decoder_args),
             observable_error_matrix,
@@ -182,7 +191,11 @@ class RelayBPDecoder:
 
         Typecast detectors to np.uint8 for compatibility with the relay_bp package.
         """
-        return self.decoder.decode(np.asarray(detectors, dtype=np.uint8))
+        detectors = np.asarray(detectors, dtype=np.uint8)
+        if not self.has_erasure_bit:
+            return self.decoder.decode(detectors)
+        result = self.decoder.decode_detailed(detectors)
+        return np.append(result.decoding, not result.success)
 
     def decode_batch(
         self,
@@ -196,11 +209,13 @@ class RelayBPDecoder:
 
         Typecast detectors to np.uint8 for compatibility with the relay_bp package.
         """
-        return self.decoder.decode_batch(
-            np.asarray(detectors, dtype=np.uint8),
-            parallel,
-            progress_bar,
-            leave_progress_bar_on_finish,
+        detectors = np.asarray(detectors, dtype=np.uint8)
+        args = (parallel, progress_bar, leave_progress_bar_on_finish)
+        if not self.has_erasure_bit:
+            return self.decoder.decode_batch(detectors, *args)
+        results = self.decoder.decode_detailed_batch(detectors, *args)
+        return np.array(
+            [np.append(result.decoding, not result.success) for result in results], dtype=np.uint8
         )
 
     def __getattr__(self, name: str) -> Any:
@@ -344,6 +359,11 @@ class GUFDecoder:
     and Z support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
     support by the first and second half of their entries.
 
+    If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
+    set to 1 when its search exhausts without finding an error that reproduces the syndrome, and to
+    0 otherwise.  Without that bit, an exhausted search is reported as the all-zero error, which is
+    indistinguishable from the error inferred for a trivial syndrome.
+
     Warning: this implementation of the generalized Union-Find decoder is highly unoptimized.  For
     one, it is written entirely in Python.  Moreover, this implementation does not factor an error
     set into connected components.
@@ -355,11 +375,13 @@ class GUFDecoder:
         *,
         max_weight: int | None = None,
         symplectic: bool = False,
+        add_erasure_bit: bool = False,
     ) -> None:
         matrix = np.asanyarray(matrix)
 
         self.default_max_weight = max_weight
         self.symplectic = symplectic
+        self.has_erasure_bit = add_erasure_bit
 
         # get_weight returns the weight of one error vector; the concrete type depends on the
         # backend: np.count_nonzero yields a scalar np.intp, while math.symplectic_weight yields an
@@ -385,8 +407,7 @@ class GUFDecoder:
         """Decode an error syndrome and return an inferred error.
 
         If the search exhausts without finding an error that reproduces the given syndrome, return
-        the all-zero error, which is indistinguishable from the error inferred for a trivial
-        syndrome.
+        the all-zero error, whose appended erasure bit is set if this decoder tracks one.
         """
         max_weight = max_weight if max_weight is not None else self.default_max_weight
         syndrome = syndrome.view(self.code.field)
@@ -402,10 +423,14 @@ class GUFDecoder:
 
             # if the error set has not grown, there is no valid solution, so exit now
             if len(error_set) == last_error_set_size:
-                return np.zeros(
-                    len(self.code) * (2 if self.symplectic else 1),
+                exhausted = np.zeros(
+                    len(self.code) * (2 if self.symplectic else 1) + self.has_erasure_bit,
                     dtype=syndrome.dtype,
                 )
+                # the all-zero error does reproduce a trivial syndrome, so that is not an erasure
+                if self.has_erasure_bit and syndrome_bits.size:
+                    exhausted[-1] = 1
+                return exhausted
             last_error_set_size = len(error_set)
 
             # check whether the syndrome can be induced by errors in the interior of the error_set
@@ -451,10 +476,13 @@ class GUFDecoder:
                     if weight <= max_weight:
                         break
 
-        # construct the full error
+        # construct the full error, with a trivial erasure bit if this decoder tracks one
         error = self.code.field.Zeros(len(self.code) * (2 if self.symplectic else 1))
         error[bits] = min_weight_solution
-        return error.view(np.ndarray).astype(syndrome.dtype)
+        decoded_error = error.view(np.ndarray).astype(syndrome.dtype)
+        if self.has_erasure_bit:
+            decoded_error = np.append(decoded_error, syndrome.dtype.type(0))
+        return decoded_error
 
     def get_sub_problem_indices(
         self, syndrome: npt.NDArray[np.int_], error_set: set[Node]
