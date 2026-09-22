@@ -974,7 +974,11 @@ class QuditCode(AbstractCode):
 
     @staticmethod
     def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
-        """Convert a parity check matrix into a Tanner graph."""
+        """Convert a parity check matrix into a Tanner graph.
+
+        A check that addresses no qudits, as an all-zero row defines, is an isolated vertex of the
+        graph, which keeps the check vertices in one-to-one correspondence with the rows.
+        """
         matrix = np.asanyarray(matrix)
         matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
 
@@ -983,6 +987,8 @@ class QuditCode(AbstractCode):
         graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         for qudit in range(matrix.shape[-1]):
             graph.add_node(Node(index=qudit, is_data=True))
+        for check in range(len(matrix)):
+            graph.add_node(Node(index=check, is_data=False))
 
         # add edges
         _Pauli = Pauli if graph.field is galois.GF2 else QuditPauli
@@ -1068,7 +1074,8 @@ class QuditCode(AbstractCode):
         measurement sequence, so long as the following requirements are satisfied:
 
         1. Any pair of subgraphs must be edge-disjoint.
-        2. The union of all subgraphs (with nx.compose) must equal the Tanner graph of the code.
+        2. Every edge of the Tanner graph of the code must belong to one of the subgraphs.  Vertices
+           need not be covered: a check that addresses no qudits contributes no gate to measure.
         3. For every subgraph, all two-qubit gates associated with its edges must commute.
         4. The sequence of subgraphs must correspond to a valid syndrome extraction circuit.
 
