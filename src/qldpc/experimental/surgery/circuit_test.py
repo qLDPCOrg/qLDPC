@@ -17,6 +17,8 @@ limitations under the License.
 
 from __future__ import annotations
 
+import collections
+
 import numpy as np
 import pytest
 import stim
@@ -1981,3 +1983,69 @@ def test_build_joint_ppm_circuit_rejects_non_positive_rounds() -> None:
     bridge = build_bridge(g, g)
     with pytest.raises(ValueError, match="rounds must be >= 1"):
         build_joint_ppm_circuit(g, g, bridge, rounds=0, noise_model=None)
+
+
+def _lightest_undetectable_logical_fault(circuit: stim.Circuit) -> int | None:
+    """Weight of the lightest undetectable fault flipping observable 0, when that weight is 1 or 2.
+
+    Returns None when every undetectable observable-flipping fault has weight 3 or more.
+
+    A set of circuit faults goes undetected exactly when its detector flips cancel. One mechanism
+    qualifies when it flips no detector at all; two qualify when they flip the same detectors.
+    Grouping the detector error model's mechanisms by their detector column therefore settles
+    weights 1 and 2 in a single pass, without enumerating pairs.
+    """
+    from qldpc.decoders.dems import DetectorErrorModelArrays
+    from qldpc.experimental.surgery.circuit import keep_only_observable
+
+    arrays = DetectorErrorModelArrays(keep_only_observable(circuit, 0))
+    detector_flips, observable_flips, _ = arrays.get_arrays()
+    flips = np.asarray(observable_flips.todense()).astype(np.uint8)[0]
+    columns = np.asarray(detector_flips.todense()).astype(np.uint8)
+
+    groups: dict[bytes, list[int]] = collections.defaultdict(list)
+    for index in range(columns.shape[1]):
+        groups[columns[:, index].tobytes()].append(index)
+
+    silent = np.zeros(columns.shape[0], dtype=np.uint8).tobytes()
+    if any(flips[index] for index in groups.get(silent, ())):
+        return 1
+    for members in groups.values():
+        if any(flips[index] for index in members) and any(not flips[index] for index in members):
+            return 2
+    return None
+
+
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
+def test_repeated_rounds_close_the_single_fault_readout_path(basis: PauliXZ) -> None:
+    """One fault flips the PPM outcome undetectably at rounds=1, but never at rounds=3.
+
+    obs0 is the XOR of the measured-basis check outcomes of the final QEC round, so at rounds=1
+    nothing compares that round against another and a single mechanism on the readout suffices. The
+    repeated rounds are what supply the detector redundancy, which is the circuit's whole
+    fault-tolerance argument; this pins that they deliver it.
+
+    The weight-2 search is exhaustive, so a rounds=3 result of 2 is a genuine pair and a result of
+    None means the fault distance is at least 3. Steane's Z̄ gadget reaches only 2: its F is 2x3
+    with an empty gauge, leaving almost no redundancy, and a prep X error on one support qubit flips
+    Z̄ = Z_1 Z_3 Z_5 outright while a second fault masks its detectors. Distance preservation is
+    therefore not asserted here -- see ``cheeger_constant`` for what is and is not established.
+    """
+    from qldpc.circuits.noise_model import DepolarizingNoiseModel
+    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    operator = np.asarray(code.get_logical_ops(basis)[0]).astype(np.uint8)
+    gadget = build_gadget(code, operator, basis=basis)
+    noise = DepolarizingNoiseModel(p=1e-3)
+
+    single_round = build_single_ppm_circuit(gadget, rounds=1, noise_model=noise)
+    assert _lightest_undetectable_logical_fault(single_round) == 1, (
+        "rounds=1 should admit a single-fault readout path; the contrast below is otherwise vacuous"
+    )
+
+    repeated = build_single_ppm_circuit(gadget, rounds=3, noise_model=noise)
+    assert _lightest_undetectable_logical_fault(repeated) != 1, (
+        "no single fault may flip the PPM outcome undetectably once the rounds repeat"
+    )
