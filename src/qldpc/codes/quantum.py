@@ -781,8 +781,8 @@ class QCCode(TBCode):
         # identify the group generator associated with each symbol
         self.group = abstract.AbelianGroup(*self.orders)
         self.ring = abstract.GroupRing(self.group, field)
-        # an abelian group provides a generator for each of its nontrivial factors only, so a symbol
-        # whose cyclic group is trivial takes the identity rather than the next factor's generator
+        # an abelian group provides a generator only for a nontrivial factor, so generators go to
+        # the factors that have them, and a symbol whose cyclic group is trivial takes the identity
         generators = iter(self.group.generators)
         self.symbol_gens = {}
         for symbol, order in zip(self.symbols, self.orders):
@@ -852,12 +852,24 @@ class QCCode(TBCode):
             f" (provided: {strategy})"
         )
 
-        # build matrices for each term in A and B.  Canonicalizing merges monomials that name the
-        # same group element, which would otherwise contribute one Tanner edge to several subgraphs.
-        terms_a = abstract.iter_monomial_terms(self.get_canonical_form(self.poly_a))
-        terms_b = abstract.iter_monomial_terms(self.get_canonical_form(self.poly_b))
-        matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
-        matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
+        def lift_terms(poly: sympy.Basic) -> list[galois.FieldArray]:
+            """Lift each term of a polynomial, merging terms that name the same group element.
+
+            Distinct monomials can name the same group element, whose Tanner edges then belong to
+            one subgraph rather than several.  Merging sums the terms in the field of this code,
+            keyed by the group element, and a sum of zero contributes no edge at all.
+            """
+            matrices: dict[bytes, galois.FieldArray] = {}
+            for term in abstract.iter_monomial_terms(poly):
+                monomial = term.as_coeff_Mul()[1]
+                key = self.ring.eval(monomial, self.symbol_gens).lift().tobytes()
+                matrix = self.ring.eval(term, self.symbol_gens).lift().T
+                matrices[key] = matrices[key] + matrix if key in matrices else matrix
+            return [matrix for matrix in matrices.values() if matrix.any()]
+
+        # build matrices for each term in A and B; transpose the lift by convention
+        matrices_a = lift_terms(self.poly_a)
+        matrices_b = lift_terms(self.poly_b)
 
         # collect edges by type and index of a term in A or B
         edges_XL: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)

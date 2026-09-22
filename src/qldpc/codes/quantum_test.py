@@ -422,16 +422,19 @@ def test_quasi_cyclic_codes() -> None:
         codes.QCCode([], x, y)
 
     # add placeholder symbols if necessary
-    code = codes.QCCode([1, 2, 3], x, x * y)
+    code = codes.QCCode([2, 1, 3], x, x * y)
     assert len(code.symbols) == 3
 
     assert_valid_subgraphs(code)
 
     # a symbol whose cyclic group is trivial acts as the identity, so all of its powers agree
-    assert np.array_equal(code.matrix, codes.QCCode([1, 2, 3], x**2, x * y).matrix)
+    assert np.array_equal(code.matrix, codes.QCCode([2, 1, 3], x, x * y**2).matrix)
 
-    # distinct monomials can name the same group element, and so contribute the same Tanner edge
+    # distinct monomials can name the same group element, and so contribute the same Tanner edge.
+    # Merging them is arithmetic in the field of the code, which integer coefficients do not respect
+    # over an extension field, so check one of those too.
     assert_valid_subgraphs(codes.QCCode([3], 1 + x**3 + x**6, 1 + x))
+    assert_valid_subgraphs(codes.QCCode([3], 1 + x**3 - 2 * x**6, 1 + x, field=4))
 
     # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
     for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
