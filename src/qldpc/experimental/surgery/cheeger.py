@@ -109,7 +109,7 @@ def cheeger_constant(g: GadgetLayout) -> float:
             bound on h(F) is available, so returning a number would be unsound; compute the exact
             code distance instead.
     """
-    incidence = galois.GF(2)(np.asarray(g.incidence).astype(int))
+    incidence = galois.GF2(np.asarray(g.incidence).astype(int))
     if incidence.shape[1] > 26:
         raise ValueError(
             f"cheeger_constant requires |V_0| ≤ 26 for an exact, certifying value; "
@@ -347,11 +347,13 @@ def boost_gadget_distance(
         seed: RNG seed for reproducibility.
 
     Returns:
-        A new GadgetLayout whose merged code passes BP+OSD at target_distance, or the bare input
-        gadget if max_extra_qubits is exhausted.
+        A new GadgetLayout whose merged code passes the BP+OSD screen at target_distance.
 
     Raises:
         ValueError: target_distance <= 0 or max_extra_qubits < 0.
+        RuntimeError: neither the bare gadget nor any augmentation within max_extra_qubits passed
+            the screen. Raising keeps the contract honest: a returned gadget always met
+            target_distance. Increase max_extra_qubits or lower target_distance.
 
     Notes:
         BP+OSD gives an UPPER bound on distance. ``d_bound >= target_distance`` is a strong
@@ -375,12 +377,12 @@ def boost_gadget_distance(
         # Reconstruct the merged CSSCode from layout.HX_merged / HZ_merged
         # to feed the existing decoder.
         merged = CSSCode(
-            galois.GF(2)(np.asarray(layout.HX_merged).astype(np.int_).tolist()),
-            galois.GF(2)(np.asarray(layout.HZ_merged).astype(np.int_).tolist()),
+            galois.GF2(np.asarray(layout.HX_merged).astype(np.int_).tolist()),
+            galois.GF2(np.asarray(layout.HZ_merged).astype(np.int_).tolist()),
             is_subsystem_code=False,
         )
         bx = merged.get_distance_bound_with_decoder(_Pauli.X, num_trials=decoder_trials)
-        if bx < target_distance:  # pragma: no cover  -- BP+OSD hangs on tested fixtures
+        if bx < target_distance:
             return False
         bz = merged.get_distance_bound_with_decoder(_Pauli.Z, num_trials=decoder_trials)
         return bz >= target_distance
@@ -390,12 +392,8 @@ def boost_gadget_distance(
     if _passes_decoder(bare):
         return bare
 
-    # Augmentation loop: only runs when bare fails the BP+OSD distance check.
-    # All tested fixtures pass on bare, and forcing failure requires either a
-    # low-distance code (which BP+OSD hangs on) or a high target_distance (also
-    # hangs on smaller codes). Excluded from coverage rather than added as a
-    # flaky/slow test.
-    for n_extra in range(1, max_extra_qubits + 1):  # pragma: no cover
+    # Augmentation loop: only runs when the bare gadget fails the BP+OSD screen.
+    for n_extra in range(1, max_extra_qubits + 1):
         for _trial in range(num_trials_per_step):
             incidence_extra = _augment_incidence_with_random_edges(incidence_base, n_extra, rng)
             if incidence_extra is None:
@@ -420,8 +418,12 @@ def boost_gadget_distance(
             if _passes_decoder(candidate):
                 return candidate
 
-    # Exhausted: return bare gadget unchanged.
-    return bare  # pragma: no cover  -- only reached after exhaustion
+    raise RuntimeError(
+        f"distance boost could not reach target_distance={target_distance} within "
+        f"max_extra_qubits={max_extra_qubits}: neither the bare gadget nor any sampled "
+        f"augmentation passed the BP+OSD screen. Increase max_extra_qubits or "
+        f"num_trials_per_step, or lower target_distance."
+    )
 
 
 def boost_gadget(
