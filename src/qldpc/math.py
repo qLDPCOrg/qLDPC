@@ -1,6 +1,6 @@
 """Miscellaneous mathematical and linear algebra methods.
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
+Copyright 2025 The qLDPC Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -69,6 +69,7 @@ def string_to_op(string: stim.PauliString, num_qubits: int | None = None) -> npt
     The (first, second) half the array indicates the support of (X, Z) Paulis.
     """
     num_qubits = num_qubits or len(string)
+    string = stim.PauliString(string)  # copy: avoid mutating the caller's input via *=
     string *= stim.PauliString(f"I{num_qubits - 1}")
     return np.hstack(string.to_numpy()).astype(int)
 
@@ -87,10 +88,11 @@ def symplectic_conjugate(vectors: DenseIntegerArrayType) -> DenseIntegerArrayTyp
     return conjugated_vectors.reshape(vectors.shape).view(type(vectors))
 
 
-def symplectic_weight(vectors: npt.NDArray[np.int_]) -> int:
+def symplectic_weight(vectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
     """The symplectic weight of vectors.
 
     The symplectic weight of a Pauli string is the number of qudits that it addresses nontrivially.
+    Returns one weight per input vector (a 0-dimensional array for a single vector).
     """
     assert vectors.shape[-1] % 2 == 0
     vectors_xz = vectors.reshape(-1, 2, vectors.shape[-1] // 2)
@@ -116,8 +118,9 @@ def first_nonzero_cols(
     ``not np.any(matrix[r])``).
     """
     _matrix = np.atleast_2d(np.asarray(matrix))
-    if _matrix.size == 0:
-        return np.array([], dtype=int)
+    if _matrix.shape[1] == 0:
+        # no columns: every row is all-zero, so its first-nonzero column is the column count (0)
+        return np.zeros(_matrix.shape[0], dtype=int)
     nonzero_mask = np.any(_matrix.view(np.ndarray).astype(bool), axis=tuple(range(2, _matrix.ndim)))
     has_any_nonzero_in_row = np.any(nonzero_mask, axis=1)
     first_nonzero_col_index = np.argmax(nonzero_mask, axis=1)
@@ -166,8 +169,9 @@ def block_matrix(
                 matrix[row_slice, col_slice] = block
             elif block == 1:
                 matrix[row_slice, col_slice] = np.eye(row_nums[rr], col_nums[cc], dtype=dtype)
-            else:
-                assert block == 0, f"Unrecognized block: {block}"
+            elif block != 0:
+                # a literal 0 leaves the already-zero block; any other literal is an error
+                raise ValueError(f"Unrecognized block: {block}")
     return matrix
 
 
@@ -176,7 +180,17 @@ def block_matrix(
 
 
 def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois.FieldArray:
-    """Construct a dual basis, for which ``dual_basis @ basis.T = identity_matrix``."""
+    """Construct a dual basis, for which ``dual_basis @ basis.T = identity_matrix``.
+
+    The rows of ``basis`` must be linearly independent, and it must have at least as many columns
+    as rows; a dual basis exists only in that case.
+
+    Args:
+        basis: A full-row-rank matrix with at least as many columns as rows, whose rows form the
+            basis to dualize.
+        validate: If True (default), check the precondition above and raise a ``ValueError`` when
+            it fails.  Pass False to skip the check when the precondition is already guaranteed.
+    """
     if validate and (
         basis.shape[0] > basis.shape[1] or np.linalg.matrix_rank(basis) != basis.shape[0]
     ):
@@ -209,7 +223,7 @@ def get_orthonormal_basis(
       basis of V have a self-overlap with no square root in ``GF(q)``.
 
     The construction is a variant of Gram-Schmidt orthogonalization; the characteristic-2 case
-    follows Algorithm 1 and Lemma 2 of arXiv:2503.19790.
+    follows Algorithm 1 and Lemma 2 of https://arxiv.org/abs/2503.19790.
     """
     field = type(matrix)
     dimension = matrix.shape[1]
@@ -230,11 +244,11 @@ def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldA
     """Try to orthonormalize linearly independent vectors over a field of characteristic 2.
 
     Reduce the row space to mutually orthogonal "unit" vectors u with ``u @ u = 1`` and "hyperbolic
-    pairs" (b, c) with ``b @ b = c @ c = 0`` and ``b @ c = 1``
-    (Algorithm 1 of arXiv:2503.19790).  Every element of a characteristic-2 field is a square, so
+    pairs" (b, c) with ``b @ b = c @ c = 0`` and ``b @ c = 1`` (Algorithm 1 of
+    https://arxiv.org/abs/2503.19790).  Every element of a characteristic-2 field is a square, so
     any vector with nonzero self-overlap can be rescaled to a unit vector.  Lemma 2 of
-    arXiv:2503.19790 then rewrites one unit vector and one hyperbolic pair into three unit vectors,
-    eliminating every hyperbolic pair.
+    https://arxiv.org/abs/2503.19790 then rewrites one unit vector and one hyperbolic pair into
+    three unit vectors, eliminating every hyperbolic pair.
     """
     units: list[galois.FieldArray] = []  # vectors u with u @ u = 1
     pairs: list[tuple[galois.FieldArray, galois.FieldArray]] = []  # (b, c) with b @ c = 1
@@ -361,3 +375,64 @@ def _sqrt(value: galois.FieldArray) -> galois.FieldArray:
     than a 0-dimensional scalar (which it rejects over some extension fields).
     """
     return np.sqrt(np.atleast_1d(value))[0]
+
+
+def symplectic_gram_schmidt(
+    vectors: galois.FieldArray, *, promise_full_rank: bool = False
+) -> tuple[galois.FieldArray, galois.FieldArray]:
+    """Reduce vectors to symplectic hyperbolic pairs and a symplectic radical.
+
+    The rows of ``vectors`` span a subspace V of ``GF(q)^(2n)`` equipped with the symplectic inner
+    product ``⟨a, b⟩_s = a @ symplectic_conjugate(b)`` (see symplectic_conjugate).  Return a pair
+    ``(hyperbolic, radical)``:
+
+    - ``hyperbolic`` has shape ``(2m, 2n)`` and holds ``m`` mutually orthogonal hyperbolic pairs.
+      Its rows are ordered ``[b_0, ..., b_{m-1}, c_0, ..., c_{m-1}]``, so that
+      ``hyperbolic @ symplectic_conjugate(hyperbolic).T`` is the block matrix ``[[0, I], [-I, 0]]``:
+      ``⟨b_i, c_j⟩_s = δ_ij`` and all other products vanish.
+    - ``radical`` spans the symplectic radical of V -- the vectors of V that are orthogonal to all
+      of V.  Its rows are isotropic and orthogonal to every row of ``hyperbolic`` and ``radical``.
+
+    Together the rows of ``hyperbolic`` and ``radical`` form a basis for V.  The rows of ``vectors``
+    may be linearly dependent; they are first reduced to a basis of V.  Pass promise_full_rank=True
+    to skip this reduction when the rows are already independent; passing it for dependent rows
+    leaves the dependent directions in ``radical`` as spurious (possibly zero) rows, though the
+    ``hyperbolic`` pairs stay correct.
+
+    Because the symplectic form is alternating, ``⟨v, v⟩_s = 0`` for every vector in every
+    characteristic, so -- unlike get_orthonormal_basis -- there is no unit-vector case: the
+    construction peels off one hyperbolic pair at a time and collects the leftover radical.
+    """
+    field = type(vectors)
+    dimension = vectors.shape[1]
+    if not promise_full_rank:
+        vectors = vectors.row_space()  # reduce to a basis, discarding linearly dependent rows
+    words = list(vectors)
+
+    firsts: list[galois.FieldArray] = []  # the b_j
+    partners: list[galois.FieldArray] = []  # the c_j, with ⟨b_j, c_j⟩_s = 1
+    radical: list[galois.FieldArray] = []
+    while words:
+        first = words.pop(0)
+        index = next(
+            (ii for ii, word in enumerate(words) if first @ symplectic_conjugate(word) != 0), None
+        )
+        if index is None:
+            # "first" is orthogonal to every remaining word (and, by prior projections, to the
+            # extracted pairs and radical), so it belongs to the symplectic radical
+            radical.append(first)
+            continue
+        partner = words.pop(index)
+        # rescale so that ⟨first, partner⟩_s = 1
+        partner = partner / (first @ symplectic_conjugate(partner))
+        # project the remaining words to be symplectically orthogonal to both "first" and "partner"
+        conj_first = symplectic_conjugate(first)
+        conj_partner = symplectic_conjugate(partner)
+        words = [
+            word - (word @ conj_partner) * first + (word @ conj_first) * partner for word in words
+        ]
+        firsts.append(first)
+        partners.append(partner)
+
+    hyperbolic = field(firsts + partners) if firsts else field.Zeros((0, dimension))
+    return hyperbolic, field(radical) if radical else field.Zeros((0, dimension))

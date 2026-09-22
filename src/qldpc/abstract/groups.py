@@ -8,10 +8,12 @@ a subgroup of the symmetric group.  Group members subclass the SymPy Permutation
 This module does not promise to be performant.  If you need to do heavy numerical abstract algebra,
 you're probably better served by GAP or MAGMA (or maybe SageMath).
 
-This module only supports representations of group members by orthogonal matrices over finite
-fields.  The restriction to orthogonal representations allows identifying the "transpose" of a group
-member p with respect to a representation (lift) L, which is defined by enforcing L(p.T) = L(p).T.
-If the representation is orthogonal, then p.T is equal to the inverse ~p = p**-1.
+This module represents group members by matrices over a finite field via a lift L, a homomorphism
+with L(g . h) = L(g) @ L(h).  The default lift is the regular representation, whose matrices are
+permutation matrices and hence orthogonal; for an orthogonal lift the "transpose" of a group member
+p satisfies L(p.T) = L(p).T, and p.T equals the inverse ~p = p**-1.  Some custom lifts
+(SpecialLinearGroup, ProjectiveSpecialLinearGroup, QuaternionGroup) are generally not orthogonal, so
+that transpose/inverse identity does not hold for them.
 
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
@@ -31,6 +33,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import itertools
 import math
@@ -48,10 +51,12 @@ import sympy.core
 
 from qldpc import external
 
+from ._monomials import get_coefficient_and_exponents
+
 
 def resolve_field(
     field: int | type[galois.FieldArray] | None,
-) -> type[galois.FieldArray]:  # pragma: no cover
+) -> type[galois.FieldArray]:
     """Parse a finite field argument to obtain an actual finite field."""
     if field is None:
         return galois.GF2
@@ -61,6 +66,23 @@ def resolve_field(
 
 
 NestedSequence = Sequence[object | Sequence["NestedSequence"]]
+
+
+@contextlib.contextmanager
+def _preserve_sympy_rng() -> Iterator[None]:
+    """Restore SymPy's global RNG state on exit, so a local reseed leaves other consumers intact.
+
+    ``sympy.core.random.seed`` reseeds both the main RNG and the separate "assumptions" RNG, so
+    both are saved and restored.
+    """
+    rng_state = sympy.core.random.rng.getstate()
+    assumptions_state = sympy.core.random._assumptions_rng.getstate()
+    try:
+        yield
+    finally:
+        sympy.core.random.rng.setstate(rng_state)
+        sympy.core.random._assumptions_rng.setstate(assumptions_state)
+
 
 ################################################################################
 # groups and group members
@@ -142,8 +164,9 @@ class Group:
     representation of a group represents group members by how they act on the group itself.
     See https://en.wikipedia.org/wiki/Regular_representation.
 
-    A group may additionally be equipped with a custom lift to an orthogonal matrix over a finite
-    field, for which the group action corresponds to matrix multiplication.  If no lift is provided,
+    A group may additionally be equipped with a custom lift to a matrix over a finite field, for
+    which the group action corresponds to matrix multiplication.  Custom lifts are not required to
+    be orthogonal (some, such as SpecialLinearGroup, are not).  If no lift is provided,
     group.lift(member) will default to the regular lift of the group.
     """
 
@@ -182,10 +205,27 @@ class Group:
             self._lift = lift or group._lift
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Group) and self._group == other._group
+        # Two groups are equal only if they share a representation as well as an underlying group:
+        # equality is consistent with __hash__ (which also mixes in the generation function and
+        # lift).  Use ``equiv`` to compare the underlying groups alone, ignoring the representation.
+        return (
+            isinstance(other, Group)
+            and self._group == other._group
+            and self._generate_func == other._generate_func
+            and self._lift == other._lift
+        )
 
     def __hash__(self) -> int:
         return hash((self._group, self._generate_func, self._lift))
+
+    def equiv(self, other: object) -> bool:
+        """Do these share the same underlying group, ignoring their representations (lifts)?
+
+        Unlike ``==``, this compares only the underlying SymPy permutation groups, so groups that
+        differ solely in their custom lift (e.g. the same group built twice, hence carrying
+        distinct lift closures) compare as equivalent.
+        """
+        return isinstance(other, Group) and self._group == other._group
 
     @property
     def name(self) -> str:
@@ -206,6 +246,16 @@ class Group:
         new_group._group = group
         return new_group
 
+    def with_natural_lift(self) -> Group:
+        """Copy this group with its natural permutation representation as the lift.
+
+        The natural lift has the dimension of the set acted on by the group, rather than the order
+        of the group as in the regular representation.
+        """
+        group = Group()
+        group._init_from_group(self, name=self.name, lift=GroupMember.to_matrix)
+        return group
+
     def __contains__(self, member: GroupMember) -> bool:
         return member in self._group
 
@@ -213,6 +263,11 @@ class Group:
     def order(self) -> int:
         """Number of members in this group."""
         return int(self._group.order())
+
+    @property
+    def degree(self) -> int:
+        """Number of points that this group's permutation representation acts on."""
+        return self._group.degree
 
     @property
     def is_commutative(self) -> bool:
@@ -272,16 +327,45 @@ class Group:
         """Direct product of Groups."""
         return functools.reduce(operator.mul, groups * repeat)
 
+    @staticmethod
+    def tensor_product(*groups: Group, repeat: int = 1) -> Group:
+        """Direct product of Groups with lifts combined by Kronecker products.
+
+        The underlying group is the same as ``Group.product``, while the selected lift of a product
+        element is the Kronecker product of its factor lifts.  The ``repeat`` argument repeats the
+        entire sequence of factors.
+        """
+        groups = groups * repeat
+        product = Group.product(*groups)
+        degrees = [group.degree for group in groups]
+
+        def lift(member: GroupMember) -> npt.NDArray[np.int_]:
+            matrices = []
+            offset = 0
+            for group, degree in zip(groups, degrees):
+                array_form = [
+                    value - offset for value in member.array_form[offset : offset + degree]
+                ]
+                matrices.append(group.lift(GroupMember(array_form)))
+                offset += degree
+            return functools.reduce(np.kron, matrices)
+
+        return Group.from_sympy(product.to_sympy(), lift=lift)
+
     def random(self, *, seed: int | None = None) -> GroupMember:
         """A random element this group."""
-        if seed is not None:
-            sympy.core.random.seed(seed)
+        with contextlib.ExitStack() as stack:
+            # A seed reseeds SymPy's global RNG; confine that reseed to this call (SymPy exposes no
+            # per-call random stream) by restoring the RNG state on the way out.
+            if seed is not None:
+                stack.enter_context(_preserve_sympy_rng())
+                sympy.core.random.seed(seed)
 
-        # HACK to circumvent an error thrown by sympy when "unranking" an empty Permutation
-        if self.generators == [GroupMember()]:
-            return self.identity
+            # HACK to circumvent an error thrown by sympy when "unranking" an empty Permutation
+            if self.generators == [GroupMember()]:
+                return self.identity
 
-        return GroupMember.from_sympy(self._group.random())
+            return GroupMember.from_sympy(self._group.random())
 
     def regular_lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
         """Lift a group member to its regular representation.
@@ -361,7 +445,7 @@ class Group:
         return matrix
 
     def lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
-        """Lift a group member to a representation by an orthogonal matrix.
+        """Lift a group member to a representation by a matrix.
 
         A representation satisfies
 
@@ -374,6 +458,12 @@ class Group:
         if self._lift is None:
             return self.regular_lift(member, right=right)
         if not right or self.is_commutative:
+            # SymPy stores a permutation only up to its largest moved point, so a member built
+            # directly (e.g. from cycle notation) can have an image list shorter than this group's
+            # degree.  Custom lifts read the full image list, so re-append the omitted fixed tail
+            # points before lifting.
+            if member.size < self.degree:
+                member = GroupMember(member, size=self.degree)
             return self._lift(member)
         raise ValueError(
             "Anti-representations for non-commutative groups with custom lifts are not supported"
@@ -413,7 +503,13 @@ class Group:
 
     @staticmethod
     def from_generating_mats(*matrices: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> Group:
-        """Constructs a Group from a given set of generating matrices."""
+        """Construct a Group from a set of generating matrices.
+
+        The matrices should be over a finite field (e.g. a ``galois.FieldArray``); their products
+        then stay bounded and the generated group is finite.  Plain integer matrices multiply with
+        unbounded integer arithmetic, so a group that is infinite as an integer matrix group will
+        not terminate here.
+        """
         if not matrices:
             return TrivialGroup()
 
@@ -457,8 +553,17 @@ class Group:
         permutation_to_index = {tuple(row): idx for idx, row in enumerate(table)}
 
         def lift(member: GroupMember) -> npt.NDArray[np.int_]:
-            """Lift a member to its matrix representation."""
-            return index_to_member[permutation_to_index[tuple(member.array_form)]]
+            """Lift a member to its (transposed) matrix representation.
+
+            Each member g is identified with the matrix M_g that it came from.  If we returned M_g
+            directly, the lift would not be a homomorphism: SymPy multiplies permutations in the
+            order opposite to matrix multiplication, so the product g . h corresponds to M_h @ M_g
+            rather than M_g @ M_h.  Transposing swaps the order back, since (M_h @ M_g).T equals
+            M_g.T @ M_h.T, giving lift(g . h) = lift(g) @ lift(h) as desired.
+
+            These matrices are generally not orthogonal, so lift(g.T) == lift(g).T may not hold.
+            """
+            return index_to_member[permutation_to_index[tuple(member.array_form)]].T
 
         # identify generating permutations and build the group itself
         generators = [GroupMember(table[row]) for row in range(len(matrices))]
@@ -469,7 +574,7 @@ class Group:
     ) -> set[GroupMember]:
         """Construct a random symmetric subset of a given size.
 
-        Note: this is not a uniformaly random subset, only a "sufficiently random" one.
+        Note: this is not a uniformly random subset, only a "sufficiently random" one.
 
         WARNING: if excluding the identity element, not all groups have symmetric subsets of
         arbitrary size.  If called with a poor choice of group and subset size, this method may
@@ -480,40 +585,44 @@ class Group:
                 "A random symmetric subset of this group must have a size between 1 and"
                 f" {self.order} (provided: {size})"
             )
-        if seed is not None:
-            sympy.core.random.seed(seed)
+        with contextlib.ExitStack() as stack:
+            # A seed reseeds SymPy's global RNG; confine that reseed to this call (SymPy exposes no
+            # per-call random stream) by restoring the RNG state on the way out.
+            if seed is not None:
+                stack.enter_context(_preserve_sympy_rng())
+                sympy.core.random.seed(seed)
 
-        singles = set()  # group members equal to their own inverse
-        doubles = set()  # pairs of group members and their inverses
-        while True:  # sounds dangerous, but bear with me...
-            member = self.random()
-            if exclude_identity and member == self.identity:
-                continue  # pragma: no cover
+            singles = set()  # group members equal to their own inverse
+            doubles = set()  # pairs of group members and their inverses
+            while True:  # sounds dangerous, but bear with me...
+                member = self.random()
+                if exclude_identity and member == self.identity:
+                    continue  # pragma: no cover
 
-            # always add group members and their inverses
-            if member == ~member:
-                singles.add(member)
-            else:
-                doubles.add(member)
-                doubles.add(~member)
+                # always add group members and their inverses
+                if member == ~member:
+                    singles.add(member)
+                else:
+                    doubles.add(member)
+                    doubles.add(~member)
 
-            # count how many extra group members we have found
-            num_extra = len(singles) + len(doubles) - size
+                # count how many extra group members we have found
+                num_extra = len(singles) + len(doubles) - size
 
-            if not num_extra:
-                # if we have the correct number of group members, we are done
-                return singles | doubles
+                if not num_extra:
+                    # if we have the correct number of group members, we are done
+                    return singles | doubles
 
-            elif num_extra > 0 and len(singles):
-                # we have overshot, so throw away members to get down to the right size
-                for _ in range(num_extra // 2):
-                    member = sorted(doubles)[sympy.core.random.randint(0, len(doubles) - 1)]
-                    doubles.remove(member)
-                    doubles.remove(~member)
-                if num_extra % 2:
-                    member = sorted(singles)[sympy.core.random.randint(0, len(singles) - 1)]
-                    singles.remove(member)
-                return singles | doubles
+                elif num_extra > 0 and len(singles):
+                    # we have overshot, so throw away members to get down to the right size
+                    for _ in range(num_extra // 2):
+                        member = sorted(doubles)[sympy.core.random.randint(0, len(doubles) - 1)]
+                        doubles.remove(member)
+                        doubles.remove(~member)
+                    if num_extra % 2:
+                        member = sorted(singles)[sympy.core.random.randint(0, len(singles) - 1)]
+                        singles.remove(member)
+                    return singles | doubles
 
     @staticmethod
     def from_name(
@@ -556,6 +665,77 @@ class Group:
         for base, exponent in exponents:
             output *= symbols[base] ** exponent
         return output
+
+
+class WreathProductGroup(Group):
+    """Permutational wreath product of a top group and copies of a bottom group.
+
+    If the top group acts on ``k`` points and the bottom group acts on ``m`` points, an element
+    ``(h; c_0, ..., c_{k-1})`` acts on ``k * m`` points by
+    ``(i, j) -> (h(i), c_i(j))``.  The selected lift is the natural permutation representation on
+    these ``k * m`` points.
+    """
+
+    top: Group
+    bottom: Group
+    top_degree: int
+    bottom_degree: int
+
+    def __init__(self, top: Group, bottom: Group) -> None:
+        self.top = top
+        self.bottom = bottom
+        self.top_degree = top.degree
+        self.bottom_degree = bottom.degree
+        if not self.top_degree or not self.bottom_degree:
+            raise ValueError("Wreath-product groups must act on nonempty sets")
+
+        top_identity = self.top.identity
+        bottom_identity = self.bottom.identity
+        generators = [
+            self.element(generator, [bottom_identity] * self.top_degree)
+            for generator in self.top.generators
+        ]
+        generators += [
+            self.element(
+                top_identity,
+                [
+                    generator if index == block else bottom_identity
+                    for index in range(self.top_degree)
+                ],
+            )
+            for block in range(self.top_degree)
+            for generator in self.bottom.generators
+        ]
+        super().__init__(*generators, lift=GroupMember.to_matrix)
+
+    def element(
+        self,
+        top_member: GroupMember,
+        bottom_members: Sequence[GroupMember],
+    ) -> GroupMember:
+        """Construct a wreath-product element from its top and bottom components.
+
+        Args:
+            top_member: An element of the top group.
+            bottom_members: One bottom-group element for each point acted on by the top group.
+        """
+        bottom_members = tuple(bottom_members)
+        if top_member not in self.top:
+            raise ValueError("The top member must belong to the top group")
+        if len(bottom_members) != self.top_degree:
+            raise ValueError(
+                f"Expected {self.top_degree} bottom members (provided: {len(bottom_members)})"
+            )
+        if any(member not in self.bottom for member in bottom_members):
+            raise ValueError("All bottom members must belong to the bottom group")
+
+        return GroupMember(
+            [
+                top_member.apply(row) * self.bottom_degree + bottom_members[row].apply(col)
+                for row in range(self.top_degree)
+                for col in range(self.bottom_degree)
+            ]
+        )
 
 
 ################################################################################
@@ -669,7 +849,12 @@ class SymmetricGroup(Group):
 
 
 class QuaternionGroup(Group):
-    """Quaternion group: 1, i, j, k, -1, -i, -j, -k."""
+    """Quaternion group: 1, i, j, k, -1, -i, -j, -k.
+
+    The 2-dimensional lift is a faithful homomorphism, but over GF(3) it is not orthogonal --
+    lift(i) and lift(j) satisfy ``M.T @ M == -I`` -- so the transpose/inverse identity
+    ``lift(g.T) == lift(g).T`` does not hold for this group.
+    """
 
     # multiplication table for this group
 
@@ -759,7 +944,11 @@ class SmallGroup(Group):
 
 
 class SpecialLinearGroup(Group):
-    """Special linear group (SL): square matrices with determinant 1."""
+    """Special linear group (SL): square matrices with determinant 1.
+
+    The linear-representation lift is a homomorphism, but its matrices are generally not orthogonal,
+    so the transpose/inverse identity ``lift(g.T) == lift(g).T`` does not hold here.
+    """
 
     _dimension: int
     _field: type[galois.FieldArray]
@@ -808,7 +997,9 @@ class SpecialLinearGroup(Group):
                     out_idx = member(inp_idx)
                     out_vec = np.frombuffer(target_space[out_idx], dtype=np.uint8)
                     cols.append(out_vec)
-                return np.vstack(cols, dtype=int).T
+                # stacking the images as rows yields the transpose of the acting matrix; that
+                # transpose (not the matrix itself) is the homomorphism lift(g.h) = lift(g) lift(h)
+                return self.field(np.vstack(cols, dtype=int))
 
             super()._init_from_group(comb.PermutationGroup(generators), lift=lift)
 
@@ -832,7 +1023,7 @@ class SpecialLinearGroup(Group):
     def get_generating_mats(
         dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Generating matrices for the Special Linear group, based on arXiv:2201.09155."""
+        """Generating matrices for the Special Linear group, based on https://arxiv.org/abs/2201.09155."""
         field = resolve_field(field)
         minus_one = -field(1)
         gen_w = minus_one * np.diag(np.ones(dimension - 1, dtype=int), k=-1).view(field)
@@ -868,6 +1059,14 @@ class ProjectiveSpecialLinearGroup(Group):
     ``scalar**d == 1``.
 
     Altogether, we construct ``PSL(d,q)`` by ``SL(d,q)`` mod [d-th roots of unity over ``F_q``].
+
+    There are two ways to represent ``PSL`` by matrices.  The ``d``-dimensional linear
+    representation (inherited from ``SL``) only works when ``gcd(d, q - 1) == 1`` (e.g. ``PSL(2,4)``
+    but not ``PSL(2,5)``); otherwise we fall back to a permutation representation, which always
+    works.  The ``linear_rep`` argument chooses between them: ``None`` (default) uses the linear
+    representation when it exists and the permutation representation otherwise; ``True`` forces the
+    linear representation, raising an error when it does not exist; ``False`` always uses the
+    permutation representation.
     """
 
     _dimension: int
@@ -877,43 +1076,45 @@ class ProjectiveSpecialLinearGroup(Group):
         self,
         dimension: int,
         field: int | type[galois.FieldArray] | None = None,
-        linear_rep: bool = True,
+        linear_rep: bool | None = None,
     ) -> None:
         self._name = f"PSL({dimension},{field})"
         self._dimension = dimension
         self._field = resolve_field(field)
 
+        # The linear representation of PSL exists only when SL has a trivial center.  The center is
+        # the scalar matrices in SL, of size gcd(d, q - 1), so this happens exactly when that gcd
+        # is 1.  See the class docstring for how linear_rep selects the representation.
+        num_roots = math.gcd(self.dimension, self.field.order - 1)
+        has_linear_rep = num_roots == 1
+        if linear_rep and not has_linear_rep:
+            raise ValueError(
+                f"PSL({self.dimension}, {self.field.order}) has a nontrivial center "
+                f"(gcd(d, q - 1) = {num_roots} > 1), so the {self.dimension}-dimensional linear "
+                "representation of SL does not descend to PSL; use linear_rep=False."
+            )
+        if linear_rep is None:
+            linear_rep = has_linear_rep
+
         if linear_rep:
-            # Construct a linear representation of this group, in which group elements permute
-            # elements of the vector space that the generating matrices act on.
-
-            # identify multiplicative roots of unity
-            num_roots = math.gcd(self.dimension, self.field.order - 1)
-            primitive_root = self.field.primitive_element ** ((self.field.order - 1) // num_roots)
-            roots = [primitive_root**kk for kk in range(num_roots)]
-
-            # Identify the target space that group members (as matrices) act on:
-            # all nonzero vectors, modded out by roots of unity.
-            target_orbits = [
-                frozenset([(root * self.field(vec)).tobytes() for root in roots])
-                for vec in itertools.product(range(self.field.order), repeat=self.dimension)
+            # with a trivial center, PSL(d, q) = SL(d, q): represent members by their action on all
+            # nonzero vectors, exactly as SpecialLinearGroup does
+            target_space = [
+                self.field(vec).tobytes()
+                for vec in itertools.product(self.field.elements, repeat=self.dimension)
             ]
-            del target_orbits[0]  # remove the orbit of the zero vector
-            target_space = [next(iter(orbit)) for orbit in set(target_orbits)]
+            del target_space[0]  # remove the zero vector
 
             # identify how the generators permute elements of the target space
             generators = []
             for member in SpecialLinearGroup.get_generating_mats(self.dimension, self.field.order):
                 perm = np.empty(len(target_space), dtype=int)
                 for index, vec_bytes in enumerate(target_space):
-                    vec = np.frombuffer(vec_bytes, dtype=np.uint8).view(self.field)
-                    next_orbit = [root * member @ vec for root in roots]
-                    next_vec = next(vec for vec in next_orbit if vec.tobytes() in target_space)
-                    next_index = target_space.index(next_vec.tobytes())
+                    next_vec = member @ np.frombuffer(vec_bytes, dtype=np.uint8).view(self.field)
+                    next_index = target_space.index(next_vec.view(np.ndarray).tobytes())
                     perm[index] = next_index
                 generators.append(GroupMember(perm))
 
-            # construct a lift identical to that for the linear representation of SL
             def lift(member: GroupMember) -> npt.NDArray[np.int_]:
                 """Lift a group member to a square matrix.
 
@@ -927,7 +1128,8 @@ class ProjectiveSpecialLinearGroup(Group):
                     out_idx = member(inp_idx)
                     out_vec = np.frombuffer(target_space[out_idx], dtype=np.uint8)
                     cols.append(out_vec)
-                return np.vstack(cols, dtype=int).T
+                # see SpecialLinearGroup: the transpose of the acting matrix is the homomorphism
+                return self.field(np.vstack(cols, dtype=int))
 
             super()._init_from_group(comb.PermutationGroup(generators), lift=lift)
 
@@ -980,43 +1182,3 @@ class ProjectiveSpecialLinearGroup(Group):
 
 SL = SpecialLinearGroup
 PSL = ProjectiveSpecialLinearGroup
-
-
-################################################################################
-# miscellaneous helper methods that don't quite belong in qldpc.math
-
-
-def iter_monomial_terms(polynomial: sympy.Basic | int | np.int_) -> tuple[sympy.Expr, ...]:
-    """Split a SymPy polynomial into its monomial terms, distributing any products of sums.
-
-    Accepts a sympy.Expr, a sympy.Poly, or a (Python or NumPy) integer, and always returns a tuple
-    of single-term monomials.  For example, (1 + x) * (1 + y) becomes (1, x, y, x*y), while a lone
-    monomial or constant such as 2 * x or 5 becomes a one-element tuple.
-    """
-    if isinstance(polynomial, sympy.Poly):
-        polynomial = polynomial.as_expr()
-    # sympify integers into SymPy objects, then expand so that make_args sees a sum of monomials
-    return sympy.Add.make_args(sympy.sympify(polynomial).expand())
-
-
-def get_coefficient_and_exponents(
-    monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
-) -> tuple[int, list[tuple[sympy.Symbol, int]]]:
-    """Extract the coefficients and exponents in a SymPy monomial expression.
-
-    For example, this method takes 5 * x**3 * y**2 to (5, [(x, 3), (y, 2)]).
-    """
-    if isinstance(monomial, (sympy.Integer, int, np.int_)):
-        return int(monomial), []
-    coeff, monomial = monomial.as_coeff_Mul()
-    exponents = []
-    if isinstance(monomial, sympy.Symbol):
-        exponents.append((monomial, 1))
-    elif isinstance(monomial, sympy.Pow):
-        base, exponent = monomial.as_base_exp()
-        exponents.append((base, exponent))
-    elif isinstance(monomial, sympy.Mul):
-        for factor in monomial.args:
-            base, exponent = factor.as_base_exp()
-            exponents.append((base, exponent))
-    return int(coeff), exponents

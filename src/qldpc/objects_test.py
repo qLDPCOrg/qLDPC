@@ -56,7 +56,7 @@ def test_qudit_operator() -> None:
     assert -objects.QuditPauli((0, 1)) == objects.QuditPauli((0, -1))
     for op in ["I", "Y(1)", "X(1)*Z(2)"]:
         assert str(objects.QuditPauli.from_string(op)) == op
-    for op in ["a*b*c", "a(1)"]:
+    for op in ["a*b*c", "a(1)", "*", "X(1)*", "", "X(²)"]:
         with pytest.raises(ValueError, match="Invalid qudit operator"):
             objects.QuditPauli.from_string(op)
 
@@ -136,6 +136,19 @@ def test_chain_complex(field: int = 3) -> None:
     two_chain = objects.ChainComplex.tensor_product(ring_matrix, ring_matrix)
     assert not np.any(two_chain.op(0))
     assert not np.any(two_chain.op(two_chain.num_links + 1))
+
+    # a tensor product over a nontrivial commutative group algebra must yield boundary operators
+    # whose entries are all ring members (and can therefore be lifted to matrices), including the
+    # three-or-more-link case where some operator blocks are entirely zero
+    cyclic_ring = abstract.GroupRing(abstract.CyclicGroup(3), field)
+    cyclic_matrix = abstract.RingArray.build(matrix, cyclic_ring)
+    ring_chain = objects.ChainComplex.tensor_product(cyclic_matrix, cyclic_matrix)
+    ring_chain = objects.ChainComplex.tensor_product(ring_chain, cyclic_matrix)
+    ring_chain._validate_ops()
+    for ring_op in ring_chain.ops:
+        # every op of a ring-valued chain is a RingArray; assert narrows the union type for .lift()
+        assert isinstance(ring_op, abstract.RingArray)
+        ring_op.lift()
 
     # invalid chain complex constructions
     with pytest.raises(ValueError, match="inconsistent operator types"):

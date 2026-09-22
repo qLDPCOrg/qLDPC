@@ -91,6 +91,13 @@ def test_maybe_get_generators_from_groupnames() -> None:
     ):
         external.groups.maybe_get_generators_from_groupnames(GROUP)
 
+    # group webpage is unreachable
+    with (
+        unittest.mock.patch("qldpc.external.groups.get_group_url", return_value=GROUP_URL),
+        unittest.mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("message")),
+    ):
+        assert external.groups.maybe_get_generators_from_groupnames(GROUP) is None
+
     # everything works as expected
     mock_page = get_mock_page(MOCK_GROUP_HTML)
     with (
@@ -98,6 +105,14 @@ def test_maybe_get_generators_from_groupnames() -> None:
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
     ):
         assert external.groups.maybe_get_generators_from_groupnames(GROUP) == GENERATORS
+
+
+def test_parse_gap_permutations() -> None:
+    """Parse GAP permutations, tolerating blank lines and the identity."""
+    # a blank line between permutations must not create a spurious identity generator
+    assert external.groups.parse_gap_permutations("(1,2)\n\n(3,4)") == [[(0, 1)], [(2, 3)]]
+    # the identity permutation parses to a generator with no cycles
+    assert external.groups.parse_gap_permutations("()") == [[]]
 
 
 def test_maybe_get_generators_from_gap() -> None:
@@ -213,9 +228,19 @@ def test_get_small_group_number() -> None:
     order, number = 16, 14
     text = rf"<td>{order},{number}</td>"
 
-    # fail to determine group number
+    # fail to determine group number: webpage is unreachable
     with (
         unittest.mock.patch("qldpc.external.groups.maybe_get_webpage", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        pytest.raises(ValueError, match="Cannot determine"),
+    ):
+        external.groups.get_small_group_number(order)
+
+    # fail to determine group number: webpage has no matching entries
+    with (
+        unittest.mock.patch(
+            "qldpc.external.groups.maybe_get_webpage", return_value="<html></html>"
+        ),
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
         pytest.raises(ValueError, match="Cannot determine"),
     ):
@@ -289,4 +314,42 @@ def test_idempotents() -> None:
         unittest.mock.patch("qldpc.external.gap.get_output", return_value=fake_output),
     ):
         idempotents = external.groups.get_primitive_central_idempotents("fake_group", field.order)
+        assert idempotents == expected_idempotents
+
+
+def test_idempotents_over_intermediate_subfield() -> None:
+    """Coefficients whose GAP field is a proper intermediate subfield are embedded, not reindexed.
+
+    Over GF(16) the primitive central idempotents of the cyclic group of order 3 have coefficients
+    that are cube roots of unity, which GAP reports as powers of Z(2^2) -- the generator of the
+    subfield GF(4).  The generator of GF(4) must be mapped into GF(16) through the subfield
+    embedding (a power of the GF(16) primitive element), not by reinterpreting the integer that
+    galois uses to store the GF(4) generator (which is a primitive element of GF(16), of order 15).
+    """
+    field = galois.GF(16)
+    gap_output = (
+        "[ (Z(2)^0)*()+(Z(2)^0)*(1,2,3)+(Z(2)^0)*(1,3,2), "
+        "(Z(2)^0)*()+(Z(2^2))*(1,2,3)+(Z(2^2)^2)*(1,3,2), "
+        "(Z(2)^0)*()+(Z(2^2)^2)*(1,2,3)+(Z(2^2))*(1,3,2) ]"
+    )
+
+    # Z(2^2) is the GF(4) generator; its image in GF(16) is primitive_element ** ((16-1)//(4-1)).
+    z4 = field.primitive_element ** ((field.order - 1) // (galois.GF(4).order - 1))
+    # {1, z4, z4**2} are the cube roots of unity in GF(16).  Computing them here without the
+    # embedding formula pins the expected coefficients to the characters of the cyclic group of
+    # order 3, the property that makes each nontrivial idempotent square to itself.  Reusing the
+    # integers galois stores the GF(4) coefficients as -- {1, 2, 3} -- would be wrong: 2 has
+    # order 15 in GF(16), so it is not a cube root of unity.
+    assert {int(root) for root in field.elements if root**3 == field(1)} == {1, int(z4), int(z4**2)}
+    expected_idempotents = [
+        ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+        ((1, ((),)), (int(z4), ((0, 1, 2),)), (int(z4**2), ((0, 2, 1),))),
+        ((1, ((),)), (int(z4**2), ((0, 1, 2),)), (int(z4), ((0, 2, 1),))),
+    ]
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value=gap_output),
+    ):
+        idempotents = external.groups.get_primitive_central_idempotents("group", field.order)
         assert idempotents == expected_idempotents

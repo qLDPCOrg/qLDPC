@@ -1,6 +1,6 @@
 """Unit tests for gap.py.
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
+Copyright 2025 The qLDPC Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -86,6 +86,14 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
             pytest.raises(ValueError, match="Error encountered when running GAP"),
         ):
             assert external.gap.get_output()
+
+        # GAP is callable, but exits with a nonzero return code (even with empty stderr)
+        with (
+            unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process(returncode=1)),
+            pytest.raises(ValueError, match="Error encountered when running GAP"),
+        ):
+            external.gap.get_output()
 
         # GAP is callable, and succeeds
         with (

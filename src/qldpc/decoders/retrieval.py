@@ -1,6 +1,6 @@
 """Methods to decode, or retrieve various decoders.
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
+Copyright 2025 The qLDPC Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,10 +36,10 @@ from .custom import (
     Decoder,
     GUFDecoder,
     ILPDecoder,
-    LookupDecoder,
     RelayBPDecoder,
 )
 from .dems import DetectorErrorModelArrays
+from .lookup import LookupDecoder
 
 
 def decode(

@@ -47,6 +47,7 @@ dependencies = [
 optional-dependencies.dev = [
   "checks-superstaq>=0.5.67",
   "jupyter>=1.1.1",
+  "numba>=0.61",                  # exercises the use_numba weight-function path in distance_test.py
   "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
   "pyproject-fmt>=2",             # pyproject.toml formatting, run by checks/format_.py
   "python-lsp-server[all]>=1.14",
@@ -103,7 +104,8 @@ ini_options.filterwarnings = [
 
 [tool.coverage]
 run.include = [ "./*" ]
-report.exclude_lines = [ "if TYPE_CHECKING:", "pragma: no cover" ]
+run.parallel = true
 report.fail_under = 100
-report.show_missing = true
+report.exclude_lines = [ "if TYPE_CHECKING:", "pragma: no cover" ]
 report.skip_covered = true
+report.show_missing = true
