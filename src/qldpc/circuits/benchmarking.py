@@ -348,14 +348,14 @@ def get_logical_error_and_discard_rate(
     postselection_mask, postselected_observables_mask = _get_postselection_masks(
         post_select, post_select_observables, detector_record, dem.num_observables
     )
-    discard_rate = 0.0
+    num_discards = 0
 
     # if applicable, post-select on flag detectors
     if postselection_mask is not None:
         shot_mask = ~np.any(det_data & postselection_mask, axis=1)
         det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
-        discard_rate += np.sum(~shot_mask) / num_samples
+        num_discards += int(np.sum(~shot_mask))
 
     # decode and identify incorrectly predicted observable flips
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
@@ -366,7 +366,7 @@ def get_logical_error_and_discard_rate(
         discarded = predicted_flips[:, -1] != 0
         obs_data = obs_data[~discarded]
         predicted_flips = predicted_flips[~discarded, :-1]
-        discard_rate += np.sum(discarded) / num_samples
+        num_discards += int(np.sum(discarded))
     elif predicted_flips.shape[1] != obs_data.shape[1]:
         raise ValueError(
             f"The decoder predicted {predicted_flips.shape[1]} bytes of observable flips per shot,"
@@ -381,12 +381,12 @@ def get_logical_error_and_discard_rate(
     if postselected_observables_mask is not None:
         shot_mask = ~np.any(incorrectly_predicted_flips & postselected_observables_mask, axis=1)
         incorrectly_predicted_flips = incorrectly_predicted_flips[shot_mask]
-        discard_rate += np.sum(~shot_mask) / num_samples
+        num_discards += int(np.sum(~shot_mask))
 
     # compute logical error rate: fraction of shots with incorrectly predicted observable flips
     failures = np.any(incorrectly_predicted_flips, axis=1)
     logical_error_rate = np.sum(failures) / len(failures) if len(failures) else np.nan
-    return logical_error_rate, discard_rate
+    return logical_error_rate, num_discards / num_samples
 
 
 def _get_postselection_masks(
