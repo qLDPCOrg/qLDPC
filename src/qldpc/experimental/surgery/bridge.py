@@ -157,12 +157,12 @@ def _cellulate_port_subgraph(
     T_s, so we cellulate only there.
 
     Theorem 7 (Swaroop et al. arXiv:2410.03628) already bounds T_s row weight at ≤ 3 regardless of
-    cycle length, so this step is not load-bearing for correctness — it tightens the structural
-    distance argument (Theorem 12) by capping basis cycle lengths.
+    cycle length, so this step is not load-bearing for correctness. It caps basis cycle lengths,
+    which keeps the cycle basis sparse.
 
-    The full-graph version (the previous _cellulate_strict) failed spuriously on real BB codes when
-    |V_0| > w and a long cycle threaded through non-port vertices: no available port-port chord
-    existed despite the port subgraph being fine on its own.
+    Cellulating only the port subgraph, not the full graph, matters when |V_0| > w and a long cycle
+    threads through non-port vertices: there may be no port-port chord available even though the
+    port subgraph on its own needs no repair.
 
     Chords are added to ``G_aux`` (the full graph). For port-subgraph cycles, chord endpoints are
     necessarily ports (cycle vertices = port vertices), so no port-membership filter is needed in
@@ -212,8 +212,9 @@ def _build_aux_graph_strict(incidence: np.ndarray) -> tuple[nx.Graph, dict[tuple
     and the hyperedge rows contribute 0 regardless of F_aug[r, v]. χ_v · cycle_c on the κ side
     cancels the adapter side, CSS commutation holds. The hyperedge κ qubit itself stays in F_aug,
     so the gadget (G_aug = ker(F_aug^T), deformed check c → c · X(κ_r), χ_v) is untouched. Paper
-    Eq. 9's perfect-matching decomposition (§II.C) is not applied; structural Theorem 12 distance
-    argument is replaced by empirical LER smoke tests.
+    Eq. 9's perfect-matching decomposition (§II.C) is not applied, and no structural distance
+    argument is claimed for the joint merge; what covers it is an empirical LER smoke test
+    (``circuit_test.py::test_joint_ppm_ler_monotone_steane_intercode``).
 
     Raises:
         ValueError: if any row of F has weight 1 (defensive — F · 1_{V_0} = 0 mod 2 forbids odd
@@ -428,9 +429,9 @@ def build_bridge(
     extra_ancilla_l = _edges_to_incidence_extra(extras_l_edges, len(g_l.support))
     extra_ancilla_r = _edges_to_incidence_extra(extras_r_edges, len(g_r.support))
 
-    # Spec §2 lists step 7 last, but rebuilding the augmented gadgets here lets
-    # us thread g_l_aug.incidence as the column space for SkipTree (step 5). Reordering
-    # is safe: F_aug.shape[0] is determined by extra_ancilla_*, not by SkipTree.
+    # Rebuild the augmented gadgets before SkipTree so that g_l_aug.incidence can be threaded in as
+    # its column space. This ordering is safe because F_aug.shape[0] is fixed by extra_ancilla_*,
+    # not by SkipTree.
     from .gadget import _step1_restriction, build_gadget_augmented
 
     # boost_gadget appends weight-2 κ' rows to g_l.incidence beyond the original

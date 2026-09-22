@@ -465,7 +465,6 @@ def test_single_ppm_ler_monotone_in_p() -> None:
     by_p = {r.json_metadata["p"]: r.errors / max(r.shots, 1) for r in results}
     sorted_p = sorted(by_p.keys())
     ler_vals = [by_p[p] for p in sorted_p]
-    print(f"LER values: {list(zip(sorted_p, ler_vals))}")
     # Monotonically non-decreasing (allow small statistical noise)
     for i in range(len(ler_vals) - 1):
         assert ler_vals[i] <= ler_vals[i + 1] * 1.5, (
@@ -741,11 +740,10 @@ def test_build_joint_ppm_circuit_meas_check_ids_no_UB() -> None:
 def test_build_joint_ppm_circuit_intercode_noiseless_observables_zero() -> None:
     """Cross-check obs0 == obs1 per shot across all 4 parity inits.
 
-    Previously asserted only ``obs.sum() == 0`` (via compile_detector_sampler) for a single |+⟩^n
-    init, which was vacuous: noiseless flips are 0 regardless of obs0's correctness, and parity=+1
-    trivially gave the expected 0. Now uses compile_sampler + raw XOR so noiseless obs0 and obs1 are
-    the actual eigenvalue bits, and sweeps non-trivial parity inits so a regression in obs0 is
-    caught.
+    Uses compile_sampler + raw XOR, so noiseless obs0 and obs1 are the actual eigenvalue bits
+    rather than flip indicators, and sweeps non-trivial parity inits. Asserting ``obs.sum() == 0``
+    from compile_detector_sampler on a single |+⟩^n init would instead be vacuous: noiseless flips
+    are 0 whether or not obs0 is correct, and parity=+1 gives the expected 0 for free.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
@@ -779,7 +777,7 @@ def test_build_joint_ppm_circuit_intercode_noiseless_observables_zero() -> None:
 
 @pytest.mark.slow
 def test_joint_ppm_ler_monotone_steane_intercode() -> None:
-    """LER non-increasing in p across {1e-4, 3e-4, 1e-3} for Steane × Steane."""
+    """LER non-decreasing in p across {1e-4, 3e-4, 1e-3} for Steane × Steane."""
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
@@ -809,8 +807,8 @@ def test_joint_ppm_ler_monotone_steane_intercode() -> None:
 def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
     """Webster BB codes 0..3 intra-code: (x_1, x_2 padded, 0...) is in rowspan(H_X^merged).
 
-    Replaces deleted path-graph tests; pins the SkipTree adapter construction across the full
-    Webster Table I code family rather than just code 0.
+    Pins the SkipTree adapter construction across the full Webster Table I code family rather
+    than just code 0.
     """
     import galois
 
@@ -840,7 +838,7 @@ def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
 def test_build_joint_ppm_circuit_intracode_noiseless_observables_zero() -> None:
     """Intra-code Webster joint X̄_1·X̄_{k/2+1}: noiseless detectors + observables = 0.
 
-    Replaces deleted path-graph noiseless intracode tests.
+    Covers the intra-code path on a real Webster fixture.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
@@ -1230,8 +1228,8 @@ def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
       - reliable_x = G rows (empty)
       - reliable_z = data H_Z rows (3 of them, lane=4)
 
-    DETECTOR coord order is ``(idx, lane, t)`` per stim convention; lane is at index 1 of the tuple,
-    unchanged from the previous ordering.
+    DETECTOR coord order is ``(idx, lane, t)`` per stim convention, so lane is at index 1 of the
+    tuple.
     """
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -1420,9 +1418,8 @@ def test_logical_state_init_log_idx_out_of_range_raises(log_idx: int) -> None:
 def test_logical_state_init_end_to_end_steane_basis_z(state: str, expected_obs0: int) -> None:
     """Steane single-PPM (basis=Z) reads obs0 = int(state) deterministically.
 
-    Steane has wt(Z̄_0) = 3 (odd), so naive broadcast `"1" * n` ALSO works — this test pins the
-    helper to the textbook expectation on the historically-working code, catching any regression
-    where the helper accidentally diverges from naive on this code.
+    Steane has wt(Z̄_0) = 3 (odd), so a naive broadcast of `"1" * n` also works here. Pinning the
+    helper to the textbook expectation on this code therefore catches any divergence from naive.
     """
     from qldpc.experimental.surgery.circuit import (
         build_single_ppm_circuit,
@@ -1517,8 +1514,8 @@ def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
 
     This R-invariance is exactly what the single-round identity guarantees; any round-index drift in
     _surgery_qec_cycle, _surgery_observable, or MeasurementRecord.get_target_rec would break it for
-    some R. The previous XOR-across-R-rounds formula collapsed to R·m_v mod 2, which was silently 0
-    for every even R — the bug this test now guards against.
+    some R. It also rules out reading the observable as an XOR across all R rounds, which collapses
+    to R·m_v mod 2 and is silently 0 for every even R.
     """
     from qldpc.experimental.surgery.circuit import (
         build_single_ppm_circuit,

@@ -170,10 +170,9 @@ def test_cellulate_raises_when_port_cycle_has_no_available_chord() -> None:
         for j in range(i + 2, 7):
             if not G.has_edge(i, j) and (i, j) != (0, 6):
                 G.add_edge(i, j)
-    # Now every (i, j) with j >= i+2 in the 7-cycle is already an edge.
-    # A length-7 basis cycle no longer exists (it's broken into triangles),
-    # so max_len=6 finds no long cycle and returns []. Use max_len=2 to force
-    # the failure path:
+    # Now every (i, j) with j >= i+2 in the 7-cycle is already an edge, so the cycle basis is all
+    # triangles and max_len=6 would find no long cycle and return []. max_len=2 forces the
+    # failure path:
     with pytest.raises(RuntimeError, match=r"No chord found"):
         _cellulate_port_subgraph(G, ports, max_len=2)
 
@@ -314,14 +313,15 @@ def test_build_bridge_rejects_basis_mismatch() -> None:
 
 
 def test_build_bridge_bb18_hyperedge_and_long_cycle() -> None:
-    """End-to-end: Cain bb_18 BBCode triggers both Bug 1 (hyperedge) and Bug 2 (long cycle).
+    """End-to-end: Cain bb_18 exercises both a hyperedge in F and a long port-subgraph cycle.
 
-    Bug 2 is a long port-subgraph cycle. build_bridge must succeed and produce a merged code with
-    k_merged = k_orig - 1 (intra-code joint Z̄_1 ⊗ Z̄_2).
+    build_bridge must succeed and produce a merged code with k_merged = k_orig - 1 (intra-code joint
+    Z̄_1 ⊗ Z̄_2).
 
-    Two *distinct* Z-logicals are used so that the joint measurement reduces k by exactly
-    1.  Z-logical 0 has a weight-4 F row (triggers Bug 1); the pair together exercises the full
-    _cellulate_port_subgraph path (Bug 2)."""
+    Two *distinct* Z-logicals are used so that the joint measurement reduces k by exactly 1.
+    Z-logical 0 has a weight-4 F row, which is the hyperedge case; the pair together drives the full
+    _cellulate_port_subgraph path.
+    """
     import sympy
 
     from qldpc.experimental.surgery import build_bridge, build_gadget
@@ -334,14 +334,13 @@ def test_build_bridge_bb18_hyperedge_and_long_cycle() -> None:
         y**2 + x**15 * y**3 + x**24,
     )
     z_ops = code.get_logical_ops(Pauli.Z)
-    z0 = np.asarray(z_ops[0]).astype(np.uint8)  # hyperedge logical (Bug 1)
+    z0 = np.asarray(z_ops[0]).astype(np.uint8)  # hyperedge logical (weight-4 F row)
     z1 = np.asarray(z_ops[1]).astype(np.uint8)  # distinct second logical
     g_l = build_gadget(code, z0, basis=Pauli.Z)
     g_r = build_gadget(code, z1, basis=Pauli.Z)
-    # Confirm we are actually exercising Bug 1 (hyperedge in left gadget):
+    # Confirm the left gadget really does carry a hyperedge:
     row_weights = np.asarray(g_l.incidence.sum(axis=1)).ravel().astype(int).tolist()
-    assert max(row_weights) >= 4, "Test no longer triggers Bug 1 (no hyperedge)"
-    # Build bridge (this used to raise NotImplementedError or RuntimeError)
+    assert max(row_weights) >= 4, "fixture must carry a hyperedge (F row of weight >= 4)"
     bridge = build_bridge(g_l, g_r)
     # Merged code construction must succeed
     merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
@@ -574,9 +573,9 @@ def test_build_bridge_skiptree_invariant_holds_with_duplicate_incidence_rows() -
 def test_build_joint_ppm_circuit_dem_deterministic_bb_36_8() -> None:
     """Joint PPM DEM constructs without non-deterministic detectors on BB [[36, 8]].
 
-    End-to-end regression for the duplicate-edge bug: BB [[36, 8]] Z̄⊗Z̄ joint PPM (h=1, no boost)
-    previously crashed stim DEM with non-deterministic detectors because the SkipTree invariant
-    failed on duplicate incidence rows.
+    Duplicate incidence rows are the stressor: if the SkipTree invariant fails on them, stim
+    reports non-deterministic detectors. BB [[36, 8]] Z̄⊗Z̄ joint PPM at h=1 (no boost) has such
+    rows.
     """
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.bridge import build_bridge
@@ -602,11 +601,9 @@ def test_build_joint_ppm_circuit_dem_deterministic_bb_36_8() -> None:
 def test_build_joint_ppm_circuit_dem_deterministic_after_boost_bb() -> None:
     """Joint PPM DEM must construct without non-deterministic detectors after boost.
 
-    End-to-end regression: BB Z̄⊗Z̄ joint PPM with boost (required to reach
-    Webster threshold h(F)≥1). Before fix, stim raised
-    ``ValueError: The circuit contains non-deterministic detectors``
-    because cycle stabilizers in joint_code didn't actually commute with
-    the round-1 initial state.
+    BB Z̄⊗Z̄ joint PPM with the boost needed to reach the Webster threshold h(F) >= 1. If the
+    cycle stabilizers in joint_code do not commute with the round-1 initial state, stim raises
+    ``ValueError: The circuit contains non-deterministic detectors``.
     """
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.bridge import build_bridge

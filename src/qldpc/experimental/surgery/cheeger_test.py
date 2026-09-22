@@ -110,9 +110,8 @@ def test_boost_gadget_preserves_css_commutation_both_bases(basis: PauliXZ) -> No
 def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
     """After basis=Z combinatorial boost, χ rows must live in HZ_merged.
 
-    The legacy adapter handled basis=Z by swapping HX↔HZ on entry and back on exit; the
-    GadgetLayout-native path delegates basis routing to build_gadget_augmented. This test catches a
-    regression where χ rows end up in HX_merged instead of HZ_merged.
+    Basis routing is delegated to build_gadget_augmented rather than done by swapping HX↔HZ around
+    the call, so this pins that χ rows land in HZ_merged and not HX_merged.
 
     Distance-strategy basis=Z is not tested here because the Webster JSON fixture only ships X̄
     operators; the basis=X path of distance boost is covered by
