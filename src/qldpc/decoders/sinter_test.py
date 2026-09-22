@@ -173,6 +173,58 @@ def test_sliding_window_recompilation() -> None:
     assert list(compiled.window_detectors) == [[0], [1], [2], [3], [4]]
 
 
+def test_sliding_window_time_coordinate() -> None:
+    """SlidingWindowDecoder reads time from a detector coordinate that can be indexing time.
+
+    Coordinates are assigned as a circuit is built, so a coordinate that indexes time never
+    decreases from one detector to the next.  The first coordinate is read whenever it has that
+    property; a first coordinate that decreases somewhere is spatial, and a later coordinate is
+    read instead.  The circuits that stim generates place time last.
+    """
+
+    def dem_with_coords(coords: Sequence[Sequence[float]]) -> stim.DetectorErrorModel:
+        """A chain of two-detector errors whose detectors carry the given coordinates."""
+        dem = stim.DetectorErrorModel()
+        for detector, detector_coords in enumerate(coords):
+            dem.append(
+                "detector", list(detector_coords), [stim.DemTarget.relative_detector_id(detector)]
+            )
+        for detector in range(len(coords) - 1):
+            targets = [stim.DemTarget.relative_detector_id(dd) for dd in [detector, detector + 1]]
+            dem.append("error", 0.1, targets)
+        return dem
+
+    decoder = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
+
+    # the first coordinate counts rounds, so it is read
+    compiled = decoder.compile_decoder_for_dem(dem_with_coords([(0, 7), (0, 7), (1, 7), (1, 7)]))
+    assert list(compiled.window_detectors) == [[0, 1], [2, 3]]
+
+    # the first coordinate is a position that repeats each round, so the second is read
+    compiled = decoder.compile_decoder_for_dem(dem_with_coords([(0, 0), (1, 0), (0, 1), (1, 1)]))
+    assert list(compiled.window_detectors) == [[0, 1], [2, 3]]
+
+    # two later coordinates could each be indexing time, so the first is read after all
+    compiled = decoder.compile_decoder_for_dem(dem_with_coords([(1, 0, 0), (0, 1, 1), (1, 2, 2)]))
+    assert list(compiled.window_detectors) == [[1], [0, 2]]
+
+    # the only later coordinate never varies, so the first is read after all
+    compiled = decoder.compile_decoder_for_dem(dem_with_coords([(1, 5), (0, 5), (1, 5)]))
+    assert list(compiled.window_detectors) == [[1], [0, 2]]
+
+    # a detector with no coordinates has nothing to read a time index from
+    dem = stim.DetectorErrorModel("error(0.1) D0 D1")
+    with pytest.raises(ValueError, match="no coordinates"):
+        decoder.compile_decoder_for_dem(dem)
+
+    # an explicit mapping is used regardless of what the coordinates say
+    decoder = decoders.SlidingWindowDecoder(
+        1, 1, detector_to_time=lambda det: det // 2, with_lookup=True, max_weight=1
+    )
+    compiled = decoder.compile_decoder_for_dem(dem_with_coords([(0, 0), (1, 0), (0, 1), (1, 1)]))
+    assert list(compiled.window_detectors) == [[0, 1], [2, 3]]
+
+
 def test_sequential_decoding_with_merged_window_errors() -> None:
     """SequentialWindowDecoder wraps with _ExpandedWindowDecoder when window errors merge.
 

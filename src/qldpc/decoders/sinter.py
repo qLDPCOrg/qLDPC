@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import collections
+import itertools
 import warnings
 from collections.abc import Callable, Collection, Sequence
 from typing import Any
@@ -717,9 +718,13 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 containing the set of all detectors.  Default: None.
             detector_to_time: A function that maps each detector to a time coordinate that is used
                 to decide window boundaries, or None.  If None, the time index of each detector is
-                its first coordinate in DetectorErrorModel.get_detector_coordinates().
+                read from its coordinates in DetectorErrorModel.get_detector_coordinates(): the
+                first coordinate, unless that coordinate decreases from one detector to the next --
+                which a coordinate indexing time cannot do -- in which case a later coordinate that
+                varies and never decreases is read instead.  Detectors with no coordinates at all
+                are rejected, since there is nothing to read a time index from.
                 WARNING: if a detector_to_time mapping is not None, it will be assumed to be
-                both valid compatible with any detector error model that this decoder is later
+                both valid and compatible with any detector error model that this decoder is later
                 compiled to with SlidingWindowDecoder.compile_decoder_for_dem.
             simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
                 that DEM.
@@ -757,10 +762,17 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         detector_to_time = self.detector_to_time
         if detector_to_time is None:
             dem_coords = dem.get_detector_coordinates()
+            uncoordinated = [det for det, coords in dem_coords.items() if not coords]
+            if uncoordinated:
+                raise ValueError(
+                    f"detector {uncoordinated[0]} has no coordinates to read a time index from."
+                    "  Pass detector_to_time to assign time indices explicitly."
+                )
+            coordinate = _time_coordinate(dem_coords)
 
             def coordinate_to_time(detector: int) -> int:
-                """Read a detector's time index from its first coordinate in this model."""
-                return int(dem_coords[detector][0])
+                """Read a detector's time index from its coordinates in this model."""
+                return int(dem_coords[detector][coordinate])
 
             detector_to_time = coordinate_to_time
 
@@ -798,3 +810,33 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             self.windows.append((last_dets, last_dets))
 
         return SequentialWindowDecoder.compile_decoder_for_dem(self, dem)
+
+
+def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
+    """Which detector coordinate of a detector error model indexes time.
+
+    Detector coordinates are assigned as a circuit is built, and a circuit runs forward, so a
+    coordinate that indexes time never decreases from one detector to the next.  The first
+    coordinate is used whenever it has that property.  Otherwise the first coordinate cannot be
+    indexing time, and a later coordinate that varies and never decreases is used instead -- the
+    circuits that stim generates place time last, for example.  If no later coordinate qualifies,
+    or if several do, the first coordinate is used anyway.
+    """
+    detectors = sorted(dem_coords)
+
+    def never_decreases(coordinate: int) -> bool:
+        values = [dem_coords[det][coordinate] for det in detectors]
+        return all(before <= after for before, after in itertools.pairwise(values))
+
+    def varies(coordinate: int) -> bool:
+        return len({dem_coords[det][coordinate] for det in detectors}) > 1
+
+    if never_decreases(0):
+        return 0
+    num_coordinates = min(len(dem_coords[det]) for det in detectors)
+    candidates = [
+        coordinate
+        for coordinate in range(1, num_coordinates)
+        if varies(coordinate) and never_decreases(coordinate)
+    ]
+    return candidates[0] if len(candidates) == 1 else 0
