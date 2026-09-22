@@ -268,38 +268,54 @@ class ILPDecoder:
             message = "Optimal solution to integer linear program could not be found!"
             raise ValueError(message + f"\nSolver output: {result}")
 
+        # round the solver's near-integral values, reducing before the cast so that a syndrome of
+        # boolean or unsigned type does not turn a negative value into a large positive one
+        values = np.rint(self.variables.value) % self.modulus
+
+        # a solver that stops before proving optimality can report a finite objective for a point
+        # that does not address the syndrome at all, so check the solution before returning it
+        if not np.array_equal(
+            self.matrix @ values.astype(int) % self.modulus,
+            np.asarray(syndrome, dtype=int) % self.modulus,
+        ):
+            raise ValueError(
+                "Integer linear program returned an error that does not address the syndrome!"
+                f"\nSolver status: {problem.status}"
+            )
+
         # return solution to the problem variables
-        return self.variables.value.astype(syndrome.dtype)
+        return values.astype(syndrome.dtype)
 
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]
     ) -> list[cvxpy.Constraint]:
         """Build cvxpy constraints of the form ``matrix @ variables == syndrome (mod q)``.
 
-        This method uses boolean slack variables {s_j} to relax each constraint of the form
+        This method uses one nonnegative integer slack variable t to relax each constraint of the
+        form
         ``expression = val mod q``
         to
-        ``expression = val + sum_j q^j s_j``.
+        ``expression = val + q t``.
+
+        Since the variables are nonnegative and val is reduced mod q, ``expression - val`` is a
+        nonnegative multiple of q, which bounds t below by 0 and above by the largest value that
+        ``expression`` can take, less val, divided by q.
         """
         import cvxpy
 
         syndrome = np.asarray(syndrome, dtype=int) % self.modulus
 
         constraints = []
-        for idx, (check, syndrome_bit) in enumerate(zip(self.matrix, syndrome)):
-            # identify the largest power of q needed for the relaxation
-            max_zero = int(sum(check) * (self.modulus - 1) - syndrome_bit)
-            if max_zero == 0 or self.modulus == 2:
-                max_power_of_q = max_zero.bit_length() - 1
-            else:
-                max_power_of_q = int(np.log2(max_zero) / np.log2(self.modulus))
+        for check, syndrome_bit in zip(self.matrix, syndrome):
+            # the largest value that expression - val can take
+            max_offset = int(sum(check) * (self.modulus - 1) - syndrome_bit)
 
-            if max_power_of_q > 0:
-                powers_of_q = [self.modulus**jj for jj in range(1, max_power_of_q + 1)]
-                slack_variables = cvxpy.Variable(max_power_of_q, boolean=True)
-                zero_mod_q = powers_of_q @ slack_variables
+            if max_offset < self.modulus:
+                # no nonzero multiple of q is within reach, so val itself has to be hit
+                zero_mod_q: Any = 0
             else:
-                zero_mod_q = 0
+                slack = cvxpy.Variable(integer=True, bounds=[0, max_offset // self.modulus])
+                zero_mod_q = self.modulus * slack
 
             constraint = check @ self.variables == syndrome_bit + zero_mod_q
             constraints.append(constraint)

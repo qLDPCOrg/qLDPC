@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import functools
+import itertools
 import unittest.mock
 
 import galois
@@ -80,6 +81,55 @@ def test_ilp_decoder(toy_problem: ToyProblem) -> None:
     error = -error.view(field)
     decoder = decoders.ILPDecoder(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
+
+
+def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:
+    """An integer linear program returns an error of minimum weight that addresses the syndrome.
+
+    Both properties are checked against exhaustive search.  The particular minimum-weight error
+    that gets returned is up to the solver, so it is not checked.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+
+    for order in [2, 3, 5]:
+        field = galois.GF(order)
+        for _ in range(4):
+            num_checks, num_bits = rng.integers(2, 4), rng.integers(2, 4)
+            matrix = field(rng.integers(order, size=(num_checks, num_bits)))
+            error = field(rng.integers(order, size=num_bits))
+            syndrome = matrix @ error
+
+            candidates = [
+                field(vector)
+                for vector in itertools.product(range(order), repeat=int(num_bits))
+                if np.array_equal(matrix @ field(vector), syndrome)
+            ]
+            min_weight = min(np.count_nonzero(candidate) for candidate in candidates)
+
+            decoded = decoders.ILPDecoder(matrix).decode(np.asarray(syndrome, dtype=int))
+            assert np.array_equal(matrix @ field(decoded), syndrome)
+            assert np.count_nonzero(decoded) == min_weight
+
+
+def test_ilp_decoder_early_termination() -> None:
+    """An integer linear program that stops early does not return an unusable error.
+
+    A solver told to give up immediately can report a finite objective for a point that addresses
+    no syndrome at all, which has to be rejected rather than returned.
+    """
+    matrix = np.array([[1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 0]])
+    syndrome = np.array([1, 0, 1])
+
+    decoder = decoders.ILPDecoder(matrix, time_limit=1e-9)
+    with (
+        pytest.warns(UserWarning, match="inaccurate"),
+        pytest.raises(ValueError, match="does not address the syndrome"),
+    ):
+        decoder.decode(syndrome)
+
+    # without the time limit, the same problem is solved
+    decoded = decoders.ILPDecoder(matrix).decode(syndrome)
+    assert np.array_equal(matrix @ decoded % 2, syndrome)
 
 
 def test_invalid_ilp() -> None:
