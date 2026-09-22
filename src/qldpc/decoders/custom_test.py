@@ -17,6 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import copy
 import functools
 import itertools
 import unittest.mock
@@ -39,6 +40,13 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     decoder = decoders.get_decoder_RBP(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
+
+    # copying a decoder does not recurse looking for the inner decoder
+    assert np.array_equal(error, copy.copy(decoder).decode(syndrome))
+
+    # a call with no arguments is forwarded to the inner decoder
+    with pytest.raises(TypeError, match="missing 1 required positional argument"):
+        decoder.compute_observables()
 
     # decode from a sparse parity check matrix
     decoder = decoders.get_decoder_RBP(scipy.sparse.dok_matrix(matrix))
@@ -67,6 +75,11 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     # passing explicit error_priors alongside a DEM emits a warning
     with pytest.warns(UserWarning, match="will override"):
         decoders.RelayBPDecoder(dem, error_priors=[0.1, 0.1])
+
+    # an observable_error_matrix conflicts with the observables of a detector error model, which
+    # must be rejected under `python -O` as well
+    with pytest.raises(ValueError, match="Cannot specify an observable_error_matrix"):
+        decoders.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
 
 
 def test_ilp_decoder(toy_problem: ToyProblem) -> None:
@@ -184,6 +197,33 @@ def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     composite_errors = np.array([composite_error] * 3)
     composite_syndromes = np.array([composite_syndrome] * 3)
     assert np.array_equal(composite_errors, composite_decoder.decode_batch(composite_syndromes))
+
+    # an erasure bit is only meaningful as the last entry of a composite decoded vector
+    erasure_decoder = decoders.get_decoder(
+        matrix, with_lookup=True, max_weight=1, add_erasure_bit=True
+    )
+    with pytest.raises(ValueError, match="Only the last decoder"):
+        decoders.CompositeDecoder.from_copies(erasure_decoder, syndrome.size, 2)
+    assert decoders.CompositeDecoder(
+        (decoder, syndrome.size), (erasure_decoder, syndrome.size)
+    ).has_erasure_bit
+
+    # a decoder whose output is wider than the code word cannot correct that word
+    direct_decoder = decoders.DirectDecoder.from_indirect(erasure_decoder, matrix)
+    with pytest.raises(ValueError, match="cannot be subtracted"):
+        direct_decoder.decode(error)
+
+
+def test_quantum_decoding_from_plain_matrix() -> None:
+    """A parity check matrix that is not a FieldArray is interpreted over GF(2)."""
+    code = codes.FiveQubitCode()
+    error = code.field.Zeros(2 * len(code))
+    error[2] = 1
+    syndrome = np.asarray(code.matrix @ math.symplectic_conjugate(error), dtype=int)
+
+    decoder = decoders.GUFDecoder(np.asarray(code.matrix, dtype=int), symplectic=True)
+    decoded_error = code.field(decoder.decode(syndrome))
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
 
 
 def test_quantum_decoding(surface_code_problem: SurfaceCodeProblem) -> None:

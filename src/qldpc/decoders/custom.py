@@ -140,9 +140,11 @@ class RelayBPDecoder:
 
         # extract relevant data from a detector error model
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            assert observable_error_matrix is None, (
-                "Cannot specify an observable_error_matrix when providing a detector error model"
-            )
+            if observable_error_matrix is not None:
+                raise ValueError(
+                    "Cannot specify an observable_error_matrix when providing a detector error"
+                    " model"
+                )
             dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
             pcm = dem_arrays.detector_flip_matrix
             observable_error_matrix = dem_arrays.observable_flip_matrix
@@ -206,11 +208,15 @@ class RelayBPDecoder:
 
         Always typecast the first argument to np.uint8 for compatibility with the relay_bp package.
         """
+        if name == "decoder":
+            raise AttributeError(name)  # the inner decoder is not set, so do not recurse for it
         inner_func = getattr(self.decoder, name)
 
         @functools.wraps(inner_func)
         def outer_func(*args: object, **kwargs: object) -> Any:
-            return inner_func(np.asarray(args[0], dtype=np.uint8), *args[1:], **kwargs)
+            if args:
+                args = (np.asarray(args[0], dtype=np.uint8), *args[1:])
+            return inner_func(*args, **kwargs)
 
         return outer_func
 
@@ -366,14 +372,19 @@ class GUFDecoder:
         else:
             # decoding a quantum code: the "weight" of an error vector is its symplectic weight
             self.get_weight = math.symplectic_weight
-            self.code = codes.QuditCode(-math.symplectic_conjugate(matrix))
+            field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
+            self.code = codes.QuditCode(-math.symplectic_conjugate(matrix.view(field)))
 
         self.graph = self.code.graph.to_undirected()
 
     def decode(
         self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
     ) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
+        """Decode an error syndrome and return an inferred error.
+
+        If no error reproduces the given syndrome, return the all-zero error, which is
+        indistinguishable from the error inferred for a trivial syndrome.
+        """
         max_weight = max_weight if max_weight is not None else self.default_max_weight
         syndrome = syndrome.view(self.code.field)
         syndrome_bits = np.flatnonzero(syndrome)
@@ -477,10 +488,22 @@ class CompositeDecoder:
 
     When asked to decode a syndrome, a CompositeDecoder splits the syndrome into segments of
     appropriate lengths, and decodes these segments independently with their corresponding decoders.
+
+    Decoded segments are concatenated, so only the last decoder may have an erasure bit, which the
+    CompositeDecoder then advertises as its own.
     """
 
     def __init__(self, *decoders_and_syndrome_lengths: tuple[Decoder, int]) -> None:
+        if any(
+            getattr(decoder, "has_erasure_bit", False)
+            for decoder, _ in decoders_and_syndrome_lengths[:-1]
+        ):
+            raise ValueError(
+                "Only the last decoder of a CompositeDecoder may have an erasure bit, which must be"
+                " the last entry of the composite decoded vector"
+            )
         self.decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
+        self.has_erasure_bit = getattr(self.decoders[-1], "has_erasure_bit", False)
         self.slices = tuple(
             slice(sum(syndrome_lengths[:ss]), sum(syndrome_lengths[: ss + 1]))
             for ss in range(len(syndrome_lengths))
@@ -505,15 +528,11 @@ class CompositeDecoder:
 
     def _decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes by parts."""
-        return (
-            np.hstack(
-                [
-                    decoder.decode_batch(syndromes[:, slice])
-                    for decoder, slice in zip(self.decoders, self.slices)
-                ]
-            )
-            if self.decode_batch_implemented
-            else NotImplemented
+        return np.hstack(
+            [
+                decoder.decode_batch(syndromes[:, slice])
+                for decoder, slice in zip(self.decoders, self.slices)
+            ]
         )
 
 
@@ -540,17 +559,11 @@ class DirectDecoder:
         self.decode_func = decode_func
         self.decode_batch_func = decode_batch_func
         if decode_batch_func is not None:
-            self.decode_batch = self._decode_batch
+            self.decode_batch = decode_batch_func
 
     def decode(self, word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a corrupted code word and return a corrected code word."""
         return self.decode_func(word)
-
-    def _decode_batch(self, words: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode a batch of corrupted code words and return a batch of corrected code words."""
-        return (
-            self.decode_batch_func(words) if self.decode_batch_func is not None else NotImplemented
-        )
 
     @staticmethod
     def from_indirect(decoder: Decoder, matrix: IntegerArray) -> DirectDecoder:
@@ -562,6 +575,13 @@ class DirectDecoder:
             candidate_word = candidate_word.view(field)
             syndrome = field_matrix @ candidate_word
             error = decoder.decode(syndrome.view(np.ndarray)).view(field)
+            if error.shape != candidate_word.shape:
+                raise ValueError(
+                    f"The given decoder inferred an error of shape {error.shape}, which cannot be"
+                    f" subtracted from a candidate code word of shape {candidate_word.shape}.  A"
+                    " decoder that appends an erasure bit, or that predicts observable flips rather"
+                    " than an error, cannot be used to decode code words directly."
+                )
             return (candidate_word - error).view(np.ndarray)
 
         decode_batch_func: Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]] | None = None
