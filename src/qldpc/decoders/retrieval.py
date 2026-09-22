@@ -61,7 +61,10 @@ def get_decoder(
     """Retrieve a decoder.
 
     This method looks for a keyword "with_<DECODER_NAME>: bool" argument, and returns
-    ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.
+    ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.  At most one such argument may be
+    truthy, and a ValueError is raised otherwise.  All remaining keyword arguments go to that
+    constructor, so a decoder-specific option (such as the decompose_errors argument of
+    get_decoder_MWPM) is only accepted when its decoder is selected.
 
     This method also recognizes the following keyword arguments for injecting a custom decoder:
 
@@ -73,27 +76,36 @@ def get_decoder(
     """
     # optionally inject a decoder constructor
     if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
-        assert callable(decoder_constructor)
+        if not callable(decoder_constructor):
+            raise TypeError("The decoder_constructor argument must be callable")
         return decoder_constructor(pcm_or_dem, **decoder_args)
 
     # optionally inject a static decoder, ignoring all other arguments
     if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
-        assert hasattr(static_decoder, "decode") and callable(static_decoder.decode)
-        assert not decoder_args, "If passed a static decoder, we cannot process decoding arguments"
+        if not hasattr(static_decoder, "decode") or not callable(static_decoder.decode):
+            raise TypeError("A static decoder must have a callable decode method")
+        if decoder_args:
+            raise ValueError("If passed a static decoder, we cannot process decoding arguments")
         return static_decoder
 
-    # look for and construct a recognized decoder
-    for name in DECODER_CONSTRUCTORS:
-        if decoder_args.pop(f"with_{name}", False):
-            decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{name}")
-            return decoder_constructor(pcm_or_dem, **decoder_args)
+    # look for and construct a recognized decoder, consuming every request
+    decoder_names = [
+        name for name in DECODER_CONSTRUCTORS if decoder_args.pop(f"with_{name}", False)
+    ]
+    if len(decoder_names) > 1:
+        raise ValueError(
+            "Only one decoder can be requested at a time, but received requests for: "
+            + ", ".join(decoder_names)
+        )
+    if decoder_names:
+        decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{decoder_names[0]}")
+        return decoder_constructor(pcm_or_dem, **decoder_args)
 
     # use GUF by default for codes over non-binary fields
     if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
         return get_decoder_GUF(pcm_or_dem, **decoder_args)
 
     # use BP+OSD by default otherwise
-    decoder_args.pop("with_BP_OSD", None)
     return get_decoder_BP_OSD(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
 
 
@@ -251,14 +263,14 @@ def get_decoder_MWPM(
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem, decompose_errors=decompose_errors)
         pcm = dem_arrays.detector_flip_matrix
-        if decoder_args.get("weights") is not None:  # pragma: no cover
+        if decoder_args.get("weights") is not None:
             raise ValueError("Cannot set error weights when initializing a MWPM decoder from a DEM")
         decoder_args["weights"] = np.log((1 - dem_arrays.error_probs) / dem_arrays.error_probs)
     else:
         pcm = pcm_or_dem
 
-    # possibly ignore non-graphlike errors
-    detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
+    # possibly ignore non-graphlike errors, counting the detectors that each error addresses
+    detectors_per_error = np.asarray((pcm != 0).sum(axis=0)).ravel()
     error_is_not_graphlike = detectors_per_error > 2
     if ignore_non_graphlike_errors:
         if np.any(error_is_not_graphlike):
@@ -266,13 +278,17 @@ def get_decoder_MWPM(
             mask[error_is_not_graphlike] = 0
             pcm = pcm @ scipy.sparse.diags(mask)
     elif np.any(error_is_not_graphlike):
+        column = int(np.argmax(error_is_not_graphlike))
         raise ValueError(
             "The provided parity check matrix or detector error model contains a non-graphlike"
-            " error, meaning some column of the parity check matrix contains more than two ones,"
-            " which may occur (for example) due to the presence of a Pauli-Y error that flips both"
-            " X and Z detectors.  Try decomposing non-graphlike errors by passing"
-            " 'decompose_errors=True' to the decoder.  If that does not work either, you can try"
-            " 'ignore_non_graphlike_errors=True'"
+            f" error: column {column} of the parity check matrix addresses"
+            f" {detectors_per_error[column]} detectors, which may occur (for example) due to the"
+            " presence of a Pauli-Y error that flips both X and Z detectors.  Try decomposing"
+            " non-graphlike errors by passing 'decompose_errors=True' to the decoder, which splits"
+            " errors along the decompositions that the detector error model suggests; stim provides"
+            " those suggestions for a circuit via"
+            " circuit.detector_error_model(decompose_errors=True).  If that does not work either,"
+            " you can try 'ignore_non_graphlike_errors=True'"
         )
 
     # retrieve a matching decoder from pymatching
@@ -318,9 +334,12 @@ def get_decoder_GUF(
 
 
 def _to_pcm(pcm_or_dem: IntegerArray | stim.DetectorErrorModel) -> IntegerArray:
-    """Convert the input to a parity check matrix."""
+    """Convert the input to a parity check matrix.
+
+    The consumers of this method build dense decoders, so a detector error model is densified here.
+    """
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        return DetectorErrorModelArrays(pcm_or_dem).detector_flip_matrix
+        return DetectorErrorModelArrays(pcm_or_dem).detector_flip_matrix.toarray()
     return pcm_or_dem
 
 
