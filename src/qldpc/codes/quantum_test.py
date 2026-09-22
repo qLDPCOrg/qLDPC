@@ -18,6 +18,9 @@ limitations under the License.
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import sys
 import unittest.mock
 
 import networkx as nx
@@ -82,8 +85,6 @@ def test_small_codes() -> None:
 
     # the quantum Golay code is a [[23, 1, 7]] CSS code with weight-8 stabilizers
     golay_code = codes.QuantumGolayCode()
-    golay_code._dimension = None
-    golay_code.forget_distance()
     assert golay_code.get_code_params() == (23, 1, 7)
     assert set(golay_code.matrix_x.view(np.ndarray).sum(axis=1)) == {8}
 
@@ -426,6 +427,21 @@ def test_quasi_cyclic_codes() -> None:
 
     assert_valid_subgraphs(code)
 
+    # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
+    for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
+        code = codes.QCCode(orders, poly_a, poly_b)
+        assert len(code.symbols) == len(orders)
+        assert len(set(code.symbols)) == len(orders)  # every placeholder is distinct
+        assert len(code) == 2 * np.prod(orders)
+
+    # placeholder names do not depend on the iteration order of a set of symbols
+    assert [str(symbol) for symbol in codes.QCCode([3, 4, 5, 6], 1 + x, 1 + y).symbols] == [
+        "x",
+        "y",
+        "~xy_2",
+        "~xy_3",
+    ]
+
 
 @pytest.mark.parametrize("field", [2, 3])
 def test_hypergraph_product(
@@ -454,12 +470,87 @@ def test_hypergraph_product(
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
-    # verify X and Z distance
-    dist_x = code.get_distance(Pauli.X)
-    dist_z = code.get_distance(Pauli.Z)
-    code._get_distance_exact = lambda _: NotImplemented  # type:ignore[method-assign,assignment]
-    assert dist_x == code.get_distance(Pauli.X)
-    assert dist_z == code.get_distance(Pauli.Z)
+    # the closed-form X and Z distances agree with a generic computation that ignores them.
+    # Both cache layers have to be bypassed: get_distance_exact caches into _distance_x/_distance_z
+    # on its first call, and get_distance_if_known would then short-circuit on that cached value
+    # before ever reaching _get_distance_exact.
+    if field == 2:  # the brute-force kernel behind the generic route is binary
+        dist_x = code.get_distance(Pauli.X)
+        dist_z = code.get_distance(Pauli.Z)
+        with (
+            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
+            unittest.mock.patch(
+                "qldpc.codes.HGPCode._get_distance_exact", return_value=NotImplemented
+            ),
+            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        ):
+            assert dist_x == code.get_distance(Pauli.X)
+            assert dist_z == code.get_distance(Pauli.Z)
+
+
+@pytest.mark.parametrize(
+    "seed_a, seed_b",
+    [
+        # the same [4, 1, 4] code, presented with one parity check repeated: only its transpose code
+        # gains code words, so the (1, 1) sector of the product carries no logical operator
+        (codes.ClassicalCode(np.vstack([codes.RepetitionCode(4).matrix] * 2)[:5]), None),
+        # a seed code of dimension zero, so that the (0, 0) sector carries no logical operator,
+        # in each of the two positions
+        (codes.ClassicalCode([[1, 0], [0, 1], [1, 1]]), codes.ClassicalCode([[1, 1], [1, 1]])),
+        (codes.ClassicalCode([[1, 1], [1, 1]]), codes.ClassicalCode([[1, 0], [0, 1], [1, 1]])),
+        # and a dependent check in only the second seed code, the mirror of the first case
+        (
+            codes.RepetitionCode(3),
+            codes.ClassicalCode(np.vstack([codes.RepetitionCode(4).matrix] * 2)[:5]),
+        ),
+    ],
+)
+def test_hypergraph_product_distance_by_sector(
+    seed_a: codes.ClassicalCode, seed_b: codes.ClassicalCode | None
+) -> None:
+    """A sector carrying no logical operator contributes no weight to a hypergraph product distance.
+
+    Each seed code here either has a dependent parity check or has dimension zero, so the closed
+    form has to decide, sector by sector, which candidate weight belongs to a logical operator.
+    """
+    seed_b = seed_b if seed_b is not None else codes.RepetitionCode(3)
+    assert seed_a.rank < len(seed_a.matrix) or seed_b.rank < len(seed_b.matrix)
+
+    code = codes.HGPCode(seed_a, seed_b)
+    plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+        # the same distances that a code carrying no closed form of its own computes
+        assert code.get_distance(Pauli.X) == plain.get_distance(Pauli.X)
+        assert code.get_distance(Pauli.Z) == plain.get_distance(Pauli.Z)
+
+
+def test_hypergraph_product_syndrome_subgraphs() -> None:
+    """Horizontal syndrome subgraphs of an HGPCode merge X-type and Z-type parity checks."""
+    # a seed code with more than two edge colors, so that merging color classes is detectable
+    code = codes.HGPCode(codes.RepetitionCode(3), codes.HammingCode(3))
+    subgraphs = code.get_syndrome_subgraphs()
+
+    # each subgraph is a matching, so it is realizable as a single layer of gates
+    assert all(subgraph.degree(node) == 1 for subgraph in subgraphs for node in subgraph.nodes)
+
+    # the horizontal subgraphs address X-type and Z-type parity checks together, while the vertical
+    # subgraphs that open and close the sequence keep the two check types apart
+    addresses_both_check_types = [
+        len({node in code.graph_x for node in subgraph.nodes if not node.is_data}) == 2
+        for subgraph in subgraphs
+    ]
+    assert any(addresses_both_check_types)
+    assert not addresses_both_check_types[0]
+    assert not addresses_both_check_types[-1]
+
+    # a seed code with no parity checks contributes no vertical edges at all
+    assert_valid_subgraphs(codes.HGPCode(codes.RepetitionCode(1), codes.RepetitionCode(3)))
+
+    # a check that addresses no bits of a seed code still addresses qudits of the product, so the
+    # subgraphs have to cover its edges
+    assert_valid_subgraphs(
+        codes.HGPCode(codes.ClassicalCode([[1, 1, 0], [0, 0, 0]]), codes.RepetitionCode(3))
+    )
 
 
 def test_cyclic_hypergraph_product_codes() -> None:
@@ -809,6 +900,59 @@ def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
         assert code_copy == code
 
 
+def test_random_quantum_tanner_code_is_reproducible() -> None:
+    """A seed fixes both of the random subsets that define a random quantum Tanner code."""
+    group = abstract.CyclicGroup(8)
+    subcode = codes.RepetitionCode(2)
+
+    def matrix_for(seed: int | None = None, one_subset: bool = False) -> bytes:
+        code = codes.QTCode.random(group, subcode, seed=seed, one_subset=one_subset)
+        return np.asarray(code.matrix).tobytes()
+
+    # the same seed gives the same code every time, and different seeds give different codes
+    assert len({matrix_for(seed=7) for _ in range(4)}) == 1
+    assert matrix_for(seed=7) != matrix_for(seed=8)
+
+    # a seed of any magnitude is accepted
+    assert matrix_for(seed=2**40) == matrix_for(seed=2**40)
+
+    # reusing one subset for both sides is likewise reproducible
+    assert len({matrix_for(seed=7, one_subset=True) for _ in range(3)}) == 1
+
+    # without a seed the code is still drawn at random.  Seeding sympy's own generator, which the
+    # unseeded draw consumes, keeps this check from depending on chance, and restoring it afterwards
+    # keeps the fixed stream out of everything that runs later.
+    with abstract.groups._preserve_sympy_rng():
+        sympy.core.random.seed(0)
+        assert len({matrix_for() for _ in range(4)}) > 1
+
+    # the code is also independent of the hash seed, which sets the iteration order of the sets of
+    # group members that the construction is built from
+    script = (
+        "import numpy as np;"
+        "from qldpc import abstract, codes;"
+        "code = codes.QTCode.random(abstract.CyclicGroup(8), codes.RepetitionCode(2), seed=7);"
+        "print(np.asarray(code.matrix).tobytes().hex())"
+    )
+    matrices = {
+        subprocess.run(
+            [sys.executable, "-c", script],
+            # hand the child this interpreter's import path, so that it builds the code from the
+            # same sources rather than from whatever qldpc its environment happens to resolve
+            env={
+                **os.environ,
+                "PYTHONHASHSEED": hash_seed,
+                "PYTHONPATH": os.pathsep.join(path for path in sys.path if path),
+            },
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+        for hash_seed in ["0", "1", "2", "3"]
+    }
+    assert len(matrices) == 1
+
+
 def test_toric_tanner_code(size: int = 4) -> None:
     """Rotated toric code as a quantum Tanner code."""
     group = abstract.Group.product(abstract.CyclicGroup(size), repeat=2)
@@ -960,11 +1104,71 @@ def test_4d_toric_codes() -> None:
     assert (len(code), code.dimension) == (96, 6)
 
 
+def test_cached_parameters_are_genuine() -> None:
+    """Families that cache their parameters agree with a computation that ignores the cache.
+
+    Several constructors assign a dimension and distance taken from the literature rather than
+    computing them, and the public getters then return those values verbatim.  Rebuild each family
+    from its parity check matrices alone, which carry no cached parameters at all, and compare what
+    the family reports against what the rebuilt code computes, so that a constant which disagrees
+    with the code it describes cannot pass unnoticed.
+    """
+    expected = [
+        (codes.IcebergCode(4), (4, 2, 2)),
+        (codes.IcebergCode(6), (6, 4, 2)),
+        (codes.IcebergCode(8), (8, 6, 2)),
+        (codes.QuantumHammingCode(3), (7, 1, 3)),
+        (codes.QuantumHammingCode(4), (15, 7, 3)),
+        (codes.ManyHypercubeCode(1), (6, 4, 2)),
+        (codes.ManyHypercubeCode(2), (36, 16, 4)),
+        (codes.QuantumGolayCode(), (23, 1, 7)),
+        (codes.SurfaceCode(3, 5), (15, 1, 3)),
+        (codes.ToricCode(4), (16, 2, 4)),
+        (codes.GeneralizedSurfaceCode(2, 3), (12, 1, 2)),
+        # the subsystem families additionally route their distance through a closed form, which is
+        # itself expressed in terms of cached classical distances
+        (codes.BaconShorCode(2, 3), (6, 1, 2)),
+        (codes.BaconShorCode(3, 5), (15, 1, 3)),
+        (codes.SHYPSCode(2), (9, 4, 2)),
+    ]
+    for code, params in expected:
+        rebuilt = codes.CSSCode(code.matrix_x, code.matrix_z)
+        with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+            assert code.get_code_params() == params
+            assert rebuilt.get_code_params() == params
+
+            # compare the X and Z distances separately, since the parameters above report only the
+            # smaller of the two
+            assert code.get_distance(Pauli.X) == rebuilt.get_distance(Pauli.X)
+            assert code.get_distance(Pauli.Z) == rebuilt.get_distance(Pauli.Z)
+
+
+def test_4d_toric_code_lattices() -> None:
+    """A T4Code lattice must tile its torus with more than one cell.
+
+    A unimodular basis leaves a single vertex, for which every boundary operator vanishes and the
+    resulting code would have no parity checks whatsoever.
+    """
+    degenerate_lattices = [
+        [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # determinant 1
+        [[1, 1, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # a shear
+        [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # determinant -1
+        [[1, 0, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # singular
+    ]
+    for lattice in degenerate_lattices:
+        with pytest.raises(ValueError, match="abs\\(determinant\\) >= 2"):
+            codes.T4Code(lattice)
+
+
 def test_many_hypercube_code() -> None:
     """Goto's many-hypercube code."""
     for level in range(1, 5):
         params = (6**level, 4**level, 2**level)
         assert codes.ManyHypercubeCode(level).get_code_params() == params
+
+    for level in [-1, 0]:
+        with pytest.raises(ValueError, match="level of at least 1"):
+            codes.ManyHypercubeCode(level)
 
 
 def test_bacon_shor_code() -> None:
@@ -973,6 +1177,12 @@ def test_bacon_shor_code() -> None:
     assert all(np.count_nonzero(row) == 2 for row in code.matrix)
     assert code.get_distance(Pauli.X) == 3
     assert code.get_distance(Pauli.Z) == 2
+
+    # a square Bacon-Shor code knows both of its distances without computing them
+    for rows in [2, 3, 4]:
+        code = codes.BaconShorCode(rows)
+        assert code.get_distance_if_known(Pauli.X) == rows
+        assert code.get_distance_if_known(Pauli.Z) == rows
 
 
 def test_shyps_code() -> None:

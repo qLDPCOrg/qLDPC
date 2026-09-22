@@ -90,21 +90,122 @@ def test_special_codes() -> None:
         codes.HammingCode(4), codes.ExtendedHammingCode(4).punctured([0])
     )
 
-    # classical simplex codes
+    # Hamming and extended Hamming codes report the parameters their parity checks bear out
+    for size in [2, 3, 4]:
+        for code, params in [
+            (codes.HammingCode(size), (2**size - 1, 2**size - 1 - size, 3)),
+            (codes.ExtendedHammingCode(size), (2**size, 2**size - 1 - size, 4)),
+        ]:
+            assert code.get_code_params() == params
+            assert codes.ClassicalCode(code.matrix).get_code_params() == params
+
+    # classical simplex codes.  Rebuilding a code from its parity check matrix alone carries none of
+    # the parameters that its constructor caches, so the rebuilt code has to compute them.
     for dimension in [2, 3, 8]:
         code = codes.SimplexCode(dimension)
         params = (2**dimension - 1, dimension, 2 ** (dimension - 1))
         assert code.get_code_params() == params
-        code._dimension = None
-        code.forget_distance()
-        assert code.get_code_params() == params
+        assert codes.ClassicalCode(code.matrix).get_code_params() == params
 
     # the Golay code is a [23, 12, 7] code with minimum-weight (weight-8) parity checks
     code = codes.GolayCode()
-    code._dimension = None
-    code.forget_distance()
     assert code.get_code_params() == (23, 12, 7)
+    assert codes.ClassicalCode(code.matrix).get_code_params() == (23, 12, 7)
     assert set(code.matrix.view(np.ndarray).sum(axis=1)) == {8}
+
+
+def test_simplex_codes_over_fields() -> None:
+    """A simplex code is the dual of a Hamming code: [(q**k - 1)/(q - 1), k, q**(k - 1)].
+
+    Over F_2 the code has a cyclic presentation whose parity checks all have weight 3, which makes
+    simplex codes useful as the building blocks of a SHYPSCode, so binary codes use it.  A cyclic
+    code of length q**k - 1 over a larger field would instead be the (q - 1)-fold repetition of a
+    simplex code, with (q - 1) times the block length and distance.
+    """
+    for field in [2, 3, 4, 5]:
+        for dim in [2, 3]:
+            code = codes.SimplexCode(dim, field)
+            params = ((field**dim - 1) // (field - 1), dim, field ** (dim - 1))
+
+            # the parameters the constructor reports, and the same parameters computed by a code
+            # rebuilt from the parity check matrix alone, which caches nothing
+            assert code.get_code_params() == params
+            assert codes.ClassicalCode(code.matrix).get_code_params() == params
+
+            # over a larger field the code is built as, and equals, the dual of a Hamming code;
+            # the binary cyclic presentation is the same code only up to a permutation of bits
+            if field > 2:
+                assert codes.ClassicalCode.equiv(
+                    codes.SimplexCode(dim, field), ~codes.HammingCode(dim, field)
+                )
+
+    # the binary presentation has weight-3 parity checks, which SHYPS codes inherit
+    for dim in [2, 3, 4, 5]:
+        matrix = codes.SimplexCode(dim).matrix.view(np.ndarray)
+        assert np.all(np.count_nonzero(matrix, axis=1) == 3)
+
+
+def test_reed_muller_order_zero() -> None:
+    """The order-zero Reed-Muller code RM(0, m) is the [2**m, 1, 2**m] repetition code."""
+    for size in range(5):
+        generator = codes.ReedMullerCode.get_generator(0, size)
+        assert np.asarray(generator).ndim == 2  # a single row, not a flat vector
+        assert codes.ReedMullerCode(0, size).get_code_params() == (2**size, 1, 2**size)
+
+    # the documented duality RM(r, m)^perp == RM(m - r - 1, m) reaches order zero at r == m - 1
+    assert codes.ClassicalCode.equiv(~codes.ReedMullerCode(2, 3), codes.ReedMullerCode(0, 3))
+
+
+def test_degenerate_code_sizes() -> None:
+    """Code families reject parameters for which they are not defined."""
+    for size in [-1, 0, 1]:
+        with pytest.raises(ValueError, match="rank of at least 2"):
+            codes.HammingCode(size)
+        with pytest.raises(ValueError, match="rank of at least 2"):
+            codes.ExtendedHammingCode(size)
+        with pytest.raises(ValueError, match="dimension of at least 2"):
+            codes.SimplexCode(size)
+        with pytest.raises(ValueError, match="dimension of at least 2"):
+            codes.SimplexCode.get_defining_polynomial(size)
+
+
+def test_bch_block_lengths() -> None:
+    """A BCH block length is valid exactly when it is field_order**m - 1 for an integer m >= 1."""
+    # valid: q**m - 1.  Digits of these lengths are non-decimal in base q > 10, which a
+    # string-based check on the base-q representation would reject.
+    for length, order in [(1, 2), (15, 2), (8, 3), (120, 11), (168, 13), (16, 17)]:
+        assert codes.BCHCode._is_valid_bch_length(length, order)
+
+    # invalid: negative, or not one less than a power of the field order, or m == 0
+    for length, order in [(-4, 2), (-1, 2), (0, 2), (6, 2), (14, 2), (7, 3), (119, 11)]:
+        assert not codes.BCHCode._is_valid_bch_length(length, order)
+
+    # a valid length over a field of order greater than 10 builds a code of the asked-for dimension,
+    # which its parity checks have to agree with
+    code = codes.BCHCode(120, 100, field=11)
+    assert code.dimension == len(code) - code.rank == 100
+
+
+def test_tanner_code_preserves_input_graph() -> None:
+    """Building a Tanner code leaves the given graph, and hence the resulting code, unchanged."""
+    # a subcode whose automorphism group cannot absorb a relabeling of the subgraph edges
+    subcode = codes.ClassicalCode([[0, 0, 1], [1, 1, 0]])
+    subgraph = nx.complete_graph(4)
+    for node_a, node_b in subgraph.edges:
+        subgraph[node_a][node_b]["sort"] = {node_a: -node_b, node_b: -node_a}
+
+    code = codes.TannerCode(subgraph, subcode)
+    assert all("sort" in subgraph[node_a][node_b] for node_a, node_b in subgraph.edges)
+
+    # a second code built from the same graph is the same code
+    assert codes.ClassicalCode.equiv(code, codes.TannerCode(subgraph, subcode))
+
+
+def test_tanner_code_requires_matching_degree() -> None:
+    """A Tanner code requires every source node to have degree equal to the subcode block length."""
+    subgraph = nx.Graph([(0, 3), (1, 3), (0, 4)])
+    with pytest.raises(ValueError, match="but the subcode of this Tanner code"):
+        codes.TannerCode(subgraph, codes.RepetitionCode(3))
 
 
 def test_tanner_code() -> None:
