@@ -124,10 +124,9 @@ class SinterDecoder(Decoder, sinter.Decoder):
         )
         decoder = get_decoder(dem_arrays.to_dem(), **self.decoder_kwargs)
         _check_decodes_errors(decoder)
-        num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
-        if num_erasure_bits:
-            dem_arrays = dem_arrays.with_erasure(num_erasure_bits)
-        return CompiledSinterDecoder(dem_arrays, decoder, num_erasure_bits)
+        if getattr(decoder, "has_erasure_bit", False):
+            dem_arrays = dem_arrays.with_erasure()
+        return CompiledSinterDecoder(dem_arrays, decoder)
 
     def decode_via_files(
         self,
@@ -192,17 +191,12 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
     num_observables: int
     num_erasure_bits: int = 0
 
-    def __init__(
-        self,
-        dem_arrays: DetectorErrorModelArrays,
-        decoder: Decoder,
-        num_erasure_bits: int = 0,
-    ) -> None:
+    def __init__(self, dem_arrays: DetectorErrorModelArrays, decoder: Decoder) -> None:
         self.dem_arrays = dem_arrays
         self.decoder = decoder
         self.num_detectors = dem_arrays.num_detectors
-        self.num_erasure_bits = num_erasure_bits
-        self.num_observables = dem_arrays.num_observables - num_erasure_bits
+        self.num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
+        self.num_observables = dem_arrays.num_observables - self.num_erasure_bits
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
