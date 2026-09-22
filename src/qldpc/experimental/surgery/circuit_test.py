@@ -1190,14 +1190,15 @@ def test_qubit_coords_layout_steane() -> None:
 
 
 def test_detector_coords_steane_round_1_reliable() -> None:
-    """Steane single-PPM round-1 reliable detectors have lane ∈ {2, 5}.
+    """Steane single-PPM detector coordinates are (round, lane, check_id).
 
-    Round-1 reliable for basis=X gadget: 3 data H_X checks (lane=2) + 1 G check (lane=5). No χ or
-    data H_Z because those aren't deterministic on the protocol-default |+⟩ init.
+    Round-1 reliable for a basis=X gadget: 3 data H_X checks (lane=2) + 1 G check (lane=5). No χ or
+    data H_Z because those aren't deterministic on the protocol-default |+⟩ init. The final readout
+    re-checks the same four after one SHIFT_COORDS, so they reappear at round 1.
 
-    DETECTOR coord order is ``(idx, lane, t)`` per stim convention (time last). The first two
-    components ``(idx, lane)`` exactly match the QUBIT_COORDS ``(x, y)`` of the ancilla being
-    measured.
+    Coordinate 0 is the round, which is the time index the sliding-window decoders read by default.
+    Coordinate 2 is the check ancilla's qubit id, and coordinate 1 is that ancilla's QUBIT_COORDS
+    lane.
     """
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -1207,20 +1208,19 @@ def test_detector_coords_steane_round_1_reliable() -> None:
     g = build_gadget(code, x, basis=Pauli.X)
     circuit = build_single_ppm_circuit(g, rounds=1, noise_model=None)
 
-    detector_coords: set[tuple[int, int, int]] = set()
-    for line in str(circuit).splitlines():
-        line = line.strip()
-        if not line.startswith("DETECTOR"):
-            continue
-        # "DETECTOR(idx, lane, t) rec[-N] ..." — extract the tuple
-        head = line.split(")")[0]
-        tup = head[len("DETECTOR(") :]
-        parts = [int(p.strip()) for p in tup.split(",")]
-        assert len(parts) == 3
-        detector_coords.add((parts[0], parts[1], parts[2]))
-
-    expected = {(0, 2, 0), (1, 2, 0), (2, 2, 0), (0, 5, 0)}
+    detector_coords = {
+        tuple(int(v) for v in coords) for coords in circuit.get_detector_coordinates().values()
+    }
+    reliable = {(2, 10), (2, 11), (2, 12), (5, 19)}
+    expected = {(round_, lane, cid) for round_ in (0, 1) for lane, cid in reliable}
     assert detector_coords == expected, f"\nexpected: {expected}\ngot:      {detector_coords}"
+
+    # Coordinate 1 really is the lane of the ancilla that coordinate 2 names.
+    qubit_lane = {
+        qid: int(coords[1]) for qid, coords in circuit.get_final_qubit_coordinates().items()
+    }
+    for _round, lane, check_id in detector_coords:
+        assert qubit_lane[check_id] == lane, f"check {check_id} is on lane {qubit_lane[check_id]}"
 
 
 def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
@@ -1229,7 +1229,7 @@ def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
     For Steane logical-Z under basis=Pauli.Z, G happens to be empty (F = H_X[C_0, V_0] is invertible
     for this specific fixture), so lane 5 does not actually appear. What this test pins down is the
     **negative-direction basis symmetry**: the lane map must NOT route G ancillas to lane 2 (data
-    H_X) nor χ ancillas to lane 3 in the basis=Z basis-swap. If `_check_lane_index_map`
+    H_X) nor χ ancillas to lane 3 in the basis=Z basis-swap. If `_check_lane_map`
     mis-classified G as data H_X when basis=Z, lane 2 would appear in the reliable detectors (since
     G ancillas live in checks_x[m_X:] for basis=Z and ARE deterministically +1 on the |0⟩^n
     protocol-default init — but G is empty in this fixture, so the leak would also be empty; we use
@@ -1240,8 +1240,7 @@ def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
       - reliable_x = G rows (empty)
       - reliable_z = data H_Z rows (3 of them, lane=4)
 
-    DETECTOR coord order is ``(idx, lane, t)`` per stim convention, so lane is at index 1 of the
-    tuple.
+    DETECTOR coord order is ``(round, lane, check_id)``, so lane is at index 1 of the tuple.
     """
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -1274,6 +1273,33 @@ def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
     assert 3 not in detector_lanes, (
         f"basis=Z must NOT route any check to lane=3 (χ); got {detector_lanes}"
     )
+
+
+@pytest.mark.parametrize("joint", [False, True])
+def test_detector_round_coordinate_advances_once_per_round(joint: bool) -> None:
+    """Coordinate 0 of every detector is its round, spanning 0 through ``rounds``.
+
+    Each builder advances it at the top of its repeat block, and both share the advance before the
+    final data readout, so rounds is set above 1 to reach the repeat-block site.
+    """
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.circuit import (
+        build_joint_ppm_circuit,
+        build_single_ppm_circuit,
+    )
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g_l = build_gadget(code, x, basis=Pauli.X)
+    if joint:
+        g_r = build_gadget(codes.SteaneCode(), x, basis=Pauli.X)
+        circuit, _merged = build_joint_ppm_circuit(g_l, g_r, build_bridge(g_l, g_r), rounds=3)
+    else:
+        circuit = build_single_ppm_circuit(g_l, rounds=3, noise_model=None)
+
+    rounds_seen = {int(coords[0]) for coords in circuit.get_detector_coordinates().values()}
+    assert rounds_seen == {0, 1, 2, 3}
 
 
 def test_joint_ppm_qubit_coords_intercode_layout() -> None:
@@ -1634,10 +1660,10 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
     events = detection_events[0]
 
     # Identify ROUND-1 reliable Z-side detectors via the clean reference:
-    # deterministic-0 detectors emitted in the round-1 slab (time-coord
-    # 0, before SHIFT_COORDS). Steane basis=Z rounds=1 emits 6 such
-    # detectors total — 3 reliable round-1 Z-checks (time=0) and 3
-    # final-readout cross-checks (time=1, after SHIFT_COORDS). We want
+    # deterministic-0 detectors emitted in the round-1 slab (round
+    # coordinate 0, before SHIFT_COORDS). Steane basis=Z rounds=1 emits 6
+    # such detectors total — 3 reliable round-1 Z-checks (round=0) and 3
+    # final-readout cross-checks (round=1, after SHIFT_COORDS). We want
     # only the round-1 set: those are the ones flipped by X errors
     # injected before the first CZ extraction (the post-SHIFT detectors
     # check (round-1 syndrome) XOR (data-derived syndrome), which is
@@ -1655,7 +1681,7 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
     all_det_zero = np.where(clean_events.sum(axis=0) == 0)[0]
     det_coords = clean_circuit.get_detector_coordinates()
     deterministic_zero = np.array(
-        [d for d in all_det_zero if det_coords[d][2] == 0.0],
+        [d for d in all_det_zero if det_coords[d][0] == 0.0],
         dtype=int,
     )
 
