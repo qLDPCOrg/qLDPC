@@ -554,6 +554,9 @@ class SequentialWindowDecoder(SinterDecoder):
 
     The net circuit error inferred by decoding all windows is used to predict observable flips.
 
+    A window decoder that signals erasure erases the whole shot, and all the windows share the one
+    erasure bit that the compiled decoder reports.
+
     A SequentialWindowDecoder initialized without specifying commit regions sets the commit region
     of each window to the corresponding detection region.
 
@@ -639,19 +642,15 @@ class SequentialWindowDecoder(SinterDecoder):
             window_dem = window_dem_arrays.to_dem()
             window_decoder = get_decoder(window_dem, **self.decoder_kwargs)
             _check_decodes_errors(window_decoder)
-            if getattr(window_decoder, "has_erasure_bit", False):
-                raise NotImplementedError(
-                    f"{type(self)} does not yet support decoding with erasure.\n"
-                    "If you would like to see this feature, please file an issue at "
-                    "https://github.com/qLDPCOrg/qLDPC/issues"
-                )
 
             # Restricting the DEM to this window may result in several error mechanisms that are
             # equivalent, which the window_decoder will merge into one error mechanism.  In this
             # case, wrap the decoder into an _ExpandedWindowDecoder that maps decoded errors in the
-            # simplified DEM to errors in the full DEM.
+            # simplified DEM to errors in the full DEM.  An erasure bit is not an error mechanism,
+            # so it does not count toward the width being compared here.
+            num_erasure_bits = int(getattr(window_decoder, "has_erasure_bit", False))
             test_error = window_decoder.decode(np.zeros(window_dem.num_detectors, dtype=int))
-            if len(test_error) < window_dem.num_errors:
+            if len(test_error) - num_erasure_bits < window_dem.num_errors:
                 window_decoder = _ExpandedWindowDecoder(window_decoder, window_dem)
 
             # identify errors in the commit region
@@ -685,11 +684,12 @@ class _ExpandedWindowDecoder(Decoder):
     for that window.  Restricting a DEM may result in equivalent error mechanisms that end up
     getting merged, which causes the restricted + simplified DEM to have fewer errors in the window
     than the un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM to
-    equivalent errors in the original DEM.
+    equivalent errors in the original DEM, and passes any erasure bit through as the last entry.
     """
 
     def __init__(self, decoder: Decoder, window_dem: stim.DetectorErrorModel) -> None:
         self._decoder = decoder
+        self.has_erasure_bit = bool(getattr(decoder, "has_erasure_bit", False))
 
         original_errors = DetectorErrorModelArrays.get_circuit_errors(window_dem)
         simplified_errors = DetectorErrorModelArrays.get_merged_circuit_errors(original_errors)
@@ -709,7 +709,12 @@ class _ExpandedWindowDecoder(Decoder):
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         simplified_error = self._decoder.decode(syndrome)
-        original_error = np.zeros(self._num_original_errors, dtype=syndrome.dtype)
+        original_error = np.zeros(
+            self._num_original_errors + self.has_erasure_bit, dtype=syndrome.dtype
+        )
+        if self.has_erasure_bit:
+            original_error[-1] = simplified_error[-1]
+            simplified_error = simplified_error[:-1]
         original_error[self._simplified_to_original_index] = simplified_error
         return np.asarray(original_error, dtype=syndrome.dtype)
 
@@ -720,8 +725,12 @@ class _ExpandedWindowDecoder(Decoder):
             else np.array([self._decoder.decode(syndrome) for syndrome in syndromes])
         )
         original_errors = np.zeros(
-            (len(syndromes), self._num_original_errors), dtype=syndromes.dtype
+            (len(syndromes), self._num_original_errors + self.has_erasure_bit),
+            dtype=syndromes.dtype,
         )
+        if self.has_erasure_bit:
+            original_errors[:, -1] = simplified_errors[:, -1]
+            simplified_errors = simplified_errors[:, :-1]
         original_errors[:, self._simplified_to_original_index] = simplified_errors
         return original_errors
 
@@ -769,6 +778,9 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
 
         self.num_detectors = dem_arrays.num_detectors
         self.num_observables = dem_arrays.num_observables
+        self.num_erasure_bits = int(
+            any(getattr(decoder, "has_erasure_bit", False) for decoder in window_decoders)
+        )
 
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         """Predicts observable flips from the given detection events.
@@ -777,16 +789,29 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        return (
-            self.decode_shots_to_error(detection_event_data)
-            @ self.dem_arrays.observable_flip_matrix.T
-            % 2
-        )
+        net_error, erased = self.decode_shots_to_error_and_erasure(detection_event_data)
+        observable_flips = net_error @ self.dem_arrays.observable_flip_matrix.T % 2
+        if not self.num_erasure_bits:
+            return observable_flips
+        return np.hstack([observable_flips, erased[:, None].astype(observable_flips.dtype)])
 
     def decode_shots_to_error(
         self, detection_event_data: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
         """Predicts a net circuit error from the given detection events.
+
+        This method accepts and returns boolean data.
+        """
+        return self.decode_shots_to_error_and_erasure(detection_event_data)[0]
+
+    def decode_shots_to_error_and_erasure(
+        self, detection_event_data: npt.NDArray[np.uint8]
+    ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.bool_]]:
+        """Predicts a net circuit error, and whether any window erased, per shot.
+
+        A shot is erased if any of its windows is, and an erased shot still commits whatever error
+        its windows inferred: the shot is bound to be discarded, so what it commits to later windows
+        cannot affect any reported result.
 
         This method accepts and returns boolean data.
         """
@@ -799,6 +824,7 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
 
         # identify the net circuit error predicted by decoding one window at a time
         net_error = np.zeros((num_samples, self.dem_arrays.num_errors), dtype=np.uint8)
+        erased = np.zeros(num_samples, dtype=bool)
         detector_flip_matrix_T = self.dem_arrays.detector_flip_matrix.T
         for detectors, (errors, error_locs), decoder in zip(
             self.window_detectors, self.window_errors, self.window_decoders
@@ -815,9 +841,12 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
                 if hasattr(decoder, "decode_batch")
                 else np.array([decoder.decode(syndrome) for syndrome in syndromes])
             )
+            if getattr(decoder, "has_erasure_bit", False):
+                erased |= decoded_error[:, -1] != 0
+                decoded_error = decoded_error[:, :-1]
             net_error[:, errors] = decoded_error[:, error_locs]
 
-        return net_error
+        return net_error, erased
 
 
 class SlidingWindowDecoder(SequentialWindowDecoder):
