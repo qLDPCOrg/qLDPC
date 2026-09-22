@@ -436,7 +436,6 @@ def test_build_single_ppm_circuit_noiseless_no_detector_fires(basis: PauliXZ) ->
     )
 
 
-@pytest.mark.slow
 def test_single_ppm_ler_monotone_in_p() -> None:
     """Tiny sinter sweep: PPM LER monotonically increasing in p.
 
@@ -488,7 +487,6 @@ def test_single_ppm_ler_monotone_in_p() -> None:
         )
 
 
-@pytest.mark.slow
 def test_single_ppm_ler_with_final_detectors_below_threshold() -> None:
     """With final detectors wired, LER at p=0.001 should be ≤ 0.01.
 
@@ -790,7 +788,6 @@ def test_build_joint_ppm_circuit_intercode_noiseless_observables_zero() -> None:
         )
 
 
-@pytest.mark.slow
 def test_joint_ppm_ler_monotone_steane_intercode() -> None:
     """LER non-decreasing in p across {1e-4, 3e-4, 1e-3} for Steane × Steane."""
     from qldpc.circuits.noise_model import DepolarizingNoiseModel

@@ -86,6 +86,8 @@ Notable features include:
   - Various pre-defined groups (mostly borrowed from [SymPy](https://docs.sympy.org/latest/modules/combinatorics/named_groups.html)).
   - Communication with the [GAP](https://www.gap-system.org) computer algebra system and [GroupNames.org](https://people.maths.bris.ac.uk/~matyd/GroupNames) for constructing [even more groups](https://docs.gap-system.org/doc/ref/chap50.html).
 - `qldpc.objects`: module for constructing helper objects such as Cayley complexes and chain complexes, which are instrumental for the construction of various quantum codes.
+- `qldpc.experimental`: module for constructions that are under active development.  (Warning: everything here has an unstable public API that may change without notice or deprecation.)
+  - `qldpc.experimental.surgery`: fault-tolerant logical Pauli-product measurement (PPM) by code surgery, as in [arXiv:2110.10794](https://arxiv.org/abs/2110.10794), [arXiv:2407.18393](https://arxiv.org/abs/2407.18393), and [arXiv:2511.15989](https://arxiv.org/abs/2511.15989).  Includes `build_gadget` for single-PPM gadgets, `build_bridge` for the joint-PPM universal adapter of [arXiv:2410.03628](https://arxiv.org/abs/2410.03628), `cheeger_constant` / `boost_gadget` for the boundary Cheeger check and distance boost, and `stim` circuit assembly.  See also [`examples/lattice_surgery.ipynb`](https://github.com/qLDPCOrg/qLDPC/blob/main/examples/lattice_surgery.ipynb).
 
 ## 🤔 Questions and issues
 
