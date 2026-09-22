@@ -781,7 +781,12 @@ class QCCode(TBCode):
         # identify the group generator associated with each symbol
         self.group = abstract.AbelianGroup(*self.orders)
         self.ring = abstract.GroupRing(self.group, field)
-        self.symbol_gens = dict(zip(self.symbols, self.group.generators))
+        # an abelian group provides a generator for each of its nontrivial factors only, so a symbol
+        # whose cyclic group is trivial takes the identity rather than the next factor's generator
+        generators = iter(self.group.generators)
+        self.symbol_gens = {}
+        for symbol, order in zip(self.symbols, self.orders):
+            self.symbol_gens[symbol] = next(generators) if order > 1 else self.group.identity
 
         # build defining matrices of a quasi-cyclic code; transpose the lift by convention
         matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
