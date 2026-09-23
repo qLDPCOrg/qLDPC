@@ -377,9 +377,11 @@ def test_observable_flip_matrix_arithmetic() -> None:
     """An observable flip matrix is read over the field of the parity check matrix.
 
     Entries outside that field are reduced into it, so a plain integer matrix predicts the same
-    flips as the galois.FieldArray holding the same operators.  An extension field is not the
-    integers modulo its order -- over GF(4), 2 * 2 is 3 rather than 0 -- so the product there has to
-    be taken with field arithmetic, which reports flips that an integer product does not.
+    flips as the galois.FieldArray holding the same operators.  galois stores a small field in a
+    narrow dtype, whose wrap-around at 256 does not commute with reducing modulo an odd order, so
+    the product needs a wider one.  And an extension field is not the integers modulo its order --
+    over GF(4), 2 * 2 is 3 rather than 0 -- so the product there has to be taken with field
+    arithmetic, which reports flips that an integer product does not.
     """
 
     def predict(pcm: math.IntegerArray, observable_flip_matrix: math.IntegerArray) -> list[int]:
@@ -401,8 +403,20 @@ def test_observable_flip_matrix_arithmetic() -> None:
     assert any(expected)  # a rule that predicted nothing would not distinguish any arithmetic
     assert predict(pcm, np.array(observables)) == expected
     assert predict(pcm, np.array(observables) + field.order) == expected
-    # a narrow dtype wraps at 256, which is not a multiple of 3, so it must be widened first
-    assert predict(pcm, np.full((1, 3), 200, dtype=np.uint8)) == predict(pcm, field([[2, 2, 2]]))
+    # A syndrome of (16, 0) over GF(17) is induced by the single error [16, 0, 0], so the flip that
+    # the observable [16, 0, 0] takes from it is 16 * 16 = 1.  Every entry is in the field, and the
+    # product still overflows the uint8 that galois stores GF(17) in.
+    field = galois.GF(17)
+    observable_flip_matrix = field([[16, 0, 0]])
+    assert observable_flip_matrix.dtype == np.uint8  # the premise of the check below
+    decoder = decoders.LookupDecoder(
+        field([[1, 1, 0], [0, 1, 1]]),
+        max_weight=1,
+        observable_flip_matrix=observable_flip_matrix,
+        predict_observable_flips=True,
+        penalty_func=lambda vec: int(np.count_nonzero(vec)),
+    )
+    assert int(decoder.decode(np.array([16, 0], dtype=int))[0]) == 16 * 16 % field.order
 
     field = galois.GF(4)
     pcm = field([[1, 1, 0], [0, 1, 1]])
