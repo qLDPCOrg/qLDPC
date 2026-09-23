@@ -124,6 +124,13 @@ def test_state_prep_benchmarks() -> None:
     assert np.isnan(logical_error_rate)
     assert discard_rate == 1
 
+    # sampling nothing reports no rates rather than dividing by zero
+    logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
+        circuit, sinter_decoder=decoders.TrivialDecoder(), num_samples=0
+    )
+    assert np.isnan(logical_error_rate)
+    assert discard_rate == 0
+
     # incompatible DEMs for sampling and decoding
     with pytest.raises(ValueError, match="Incompatible detector error models"):
         circuits.get_logical_error_and_discard_rate(
