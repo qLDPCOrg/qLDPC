@@ -1089,7 +1089,9 @@ class BBCode(QCCode):
             ``poly_b = 1 + y + ...``,
 
         We say that two BBCodes are "equivalent" if they can be obtained from one another by a
-        permutation of data and check qubits.
+        permutation of data and check qubits.  For qudit codes, we also allow "equivalent" BBCodes
+        to differ by an overall sign of their Z-type parity checks, which does not change the code
+        that these checks define.
 
         To find an equivalent BBCode with a manifestly toric layout, we take
 
