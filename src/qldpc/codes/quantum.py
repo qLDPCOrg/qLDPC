@@ -878,7 +878,7 @@ class QCCode(TBCode):
             f" (provided: {strategy})"
         )
 
-        # build matrices for each term in A and B; transpose the lift by convention
+        # build matrices for each term in A and B, transposed to match the lift in __init__
         terms_a = abstract.iter_monomial_terms(self.poly_a)
         terms_b = abstract.iter_monomial_terms(self.poly_b)
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
