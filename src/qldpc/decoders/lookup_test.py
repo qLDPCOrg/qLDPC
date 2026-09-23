@@ -23,6 +23,7 @@ import itertools
 import galois
 import numpy as np
 import pytest
+import scipy.sparse
 import stim
 
 from qldpc import codes, decoders, math
@@ -342,6 +343,24 @@ def test_quantum_observable_flip_prediction() -> None:
                 prediction = decoder.decode(np.array(syndrome, dtype=int))
                 assert tuple(prediction.tolist()) in flips
 
+        # the same operators given as a sparse matrix, or as a plain array whose entries have to be
+        # reduced into the field, name the same logical operators and so predict the same flips
+        plain_logicals = logicals.view(np.ndarray).astype(int)
+        for equivalent in [
+            scipy.sparse.csc_matrix(plain_logicals),
+            plain_logicals + order,
+        ]:
+            same = decoders.LookupDecoder(
+                code.matrix,
+                max_weight=1,
+                observable_flip_matrix=equivalent,
+                predict_observable_flips=True,
+                symplectic=True,
+                penalty_func=lambda vec: int(np.count_nonzero(vec)),
+            )
+            for syndrome, flips in achievable_flips.items():
+                assert tuple(same.decode(np.array(syndrome, dtype=int)).tolist()) in flips
+
     # the errors that a lookup table enumerates live over the field of its parity check matrix, so
     # an observable flip matrix over any other field cannot say what they flip
     with pytest.raises(ValueError, match="cannot be paired with"):
@@ -382,6 +401,8 @@ def test_observable_flip_matrix_arithmetic() -> None:
     assert any(expected)  # a rule that predicted nothing would not distinguish any arithmetic
     assert predict(pcm, np.array(observables)) == expected
     assert predict(pcm, np.array(observables) + field.order) == expected
+    # a narrow dtype wraps at 256, which is not a multiple of 3, so it must be widened first
+    assert predict(pcm, np.full((1, 3), 200, dtype=np.uint8)) == predict(pcm, field([[2, 2, 2]]))
 
     field = galois.GF(4)
     pcm = field([[1, 1, 0], [0, 1, 1]])
