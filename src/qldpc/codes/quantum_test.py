@@ -422,10 +422,21 @@ def test_quasi_cyclic_codes() -> None:
         codes.QCCode([], x, y)
 
     # add placeholder symbols if necessary
-    code = codes.QCCode([1, 2, 3], x, x * y)
+    code = codes.QCCode([2, 1, 3], x, x * y)
     assert len(code.symbols) == 3
 
     assert_valid_subgraphs(code)
+
+    # a symbol whose cyclic group is trivial acts as the identity, so all of its powers agree
+    assert np.array_equal(code.matrix, codes.QCCode([2, 1, 3], x, x * y**2).matrix)
+
+    # distinct monomials can name the same group element, and are simplified into a single term
+    assert_valid_subgraphs(codes.QCCode([3], 1 + x**3 + x**6, 1 + x))
+
+    # the coefficients of such monomials are summed in the base field, each denoting a field element
+    # rather than a multiplicity: over GF(4) the elements 1, 1 and -2 sum to 2, not to the 0 that
+    # the same integers give
+    assert codes.QCCode([3], 1 + x**3 - 2 * x**6, 1 + x, field=4).poly_a.as_expr() == 2
 
     # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
     for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
