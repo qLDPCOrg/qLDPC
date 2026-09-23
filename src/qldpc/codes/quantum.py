@@ -750,9 +750,6 @@ class QCCode(TBCode):
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a generalized bicycle code."""
-        self.poly_a = sympy.Poly(poly_a)
-        self.poly_b = sympy.Poly(poly_b)
-
         # identify the symbols used to denote cyclic group generators
         symbols = poly_a.free_symbols | poly_b.free_symbols
         if len(orders) < len(symbols):
@@ -788,12 +785,42 @@ class QCCode(TBCode):
         for symbol, order in zip(self.symbols, self.orders):
             self.symbol_gens[symbol] = next(generators) if order > 1 else self.group.identity
 
+        # simplify the polynomials, whose monomials can denote the same group element
+        self.poly_a = self.get_simplified_form(poly_a)
+        self.poly_b = self.get_simplified_form(poly_b)
+
         # build defining matrices of a quasi-cyclic code; transpose the lift by convention
         matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
         matrix_b = self.ring.eval(self.poly_b, self.symbol_gens).lift().T
         super().__init__(
             matrix_a, matrix_b, field, promise_equal_distance_xz=True, skip_validation=True
         )
+
+    def get_simplified_form(self, poly: sympy.Basic) -> sympy.Poly:
+        """Simplify the given polynomial with the relations satisfied by the cyclic generators.
+
+        A generator of a cyclic group of order R satisfies x**R = 1, so the exponent of a symbol
+        matters only modulo its order, and two monomials whose exponents agree modulo the orders
+        denote the same group element.  Reducing the exponents therefore collects such monomials
+        into a single term, whose coefficient is the sum of theirs in the base field, and a
+        coefficient that sums to zero leaves no term at all.
+        """
+        # the ring adds the coefficients of terms that denote the same group element, in its field
+        coefficients = {member: coeff for coeff, member in self.ring.eval(poly, self.symbol_gens)}
+
+        # reduce the exponents of each term, pairing each monomial with the element it denotes
+        monomials: dict[sympy.Expr, abstract.GroupMember] = {}
+        for term in abstract.iter_monomial_terms(poly):
+            _, _exponents = abstract.get_coefficient_and_exponents(term)
+            exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
+            monomial = sympy.prod(
+                symbol ** (exponents.get(symbol, 0) % order)
+                for symbol, order in zip(self.symbols, self.orders)
+            )
+            monomials[monomial] = self.group.eval(monomial, self.symbol_gens)
+
+        terms = [int(coefficients[member]) * monomial for monomial, member in monomials.items()]
+        return sympy.Poly(sum(terms), *self.symbols)
 
     def get_canonical_form(
         self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
@@ -852,24 +879,11 @@ class QCCode(TBCode):
             f" (provided: {strategy})"
         )
 
-        def lift_terms(poly: sympy.Basic) -> list[galois.FieldArray]:
-            """Lift each term of a polynomial, merging terms that name the same group element.
-
-            Distinct monomials can name the same group element, whose Tanner edges then belong to
-            one subgraph rather than several.  Merging sums the terms in the field of this code,
-            keyed by the group element, and a sum of zero contributes no edge at all.
-            """
-            matrices: dict[bytes, galois.FieldArray] = {}
-            for term in abstract.iter_monomial_terms(poly):
-                monomial = term.as_coeff_Mul()[1]
-                key = self.ring.eval(monomial, self.symbol_gens).lift().tobytes()
-                matrix = self.ring.eval(term, self.symbol_gens).lift().T
-                matrices[key] = matrices[key] + matrix if key in matrices else matrix
-            return [matrix for matrix in matrices.values() if matrix.any()]
-
-        # build matrices for each term in A and B; transpose the lift by convention
-        matrices_a = lift_terms(self.poly_a)
-        matrices_b = lift_terms(self.poly_b)
+        # build matrices for each term in A and B
+        terms_a = abstract.iter_monomial_terms(self.poly_a)
+        terms_b = abstract.iter_monomial_terms(self.poly_b)
+        matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
+        matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
 
         # collect edges by type and index of a term in A or B
         edges_XL: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
