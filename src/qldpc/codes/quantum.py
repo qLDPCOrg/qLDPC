@@ -796,7 +796,9 @@ class QCCode(TBCode):
             matrix_a, matrix_b, field, promise_equal_distance_xz=True, skip_validation=True
         )
 
-    def get_simplified_form(self, poly: sympy.Basic) -> sympy.Poly:
+    def get_simplified_form(
+        self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
+    ) -> sympy.Poly:
         """Simplify the given polynomial with the relations satisfied by the cyclic generators.
 
         A generator of a cyclic group of order R satisfies x**R = 1, so the exponent of a symbol
@@ -806,13 +808,16 @@ class QCCode(TBCode):
         and a coefficient that sums to zero leaves no term at all.  The polynomial is returned over
         all of the symbols of this code, including any that it does not address.
         """
+        orders = orders or self.orders
+        assert len(orders) == len(self.symbols)
+
         coefficients: dict[sympy.Expr, galois.FieldArray] = {}
         for term in abstract.iter_monomial_terms(poly):
             _, _exponents = abstract.get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
             monomial = sympy.prod(
                 symbol ** (exponents.get(symbol, 0) % order)
-                for symbol, order in zip(self.symbols, self.orders)
+                for symbol, order in zip(self.symbols, orders)
             )
             # a monomial term evaluates to a single group element, whose coefficient is in the field
             [(coefficient, _group_member)] = self.ring.eval(term, self.symbol_gens)
@@ -824,19 +829,23 @@ class QCCode(TBCode):
     def get_canonical_form(
         self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
     ) -> sympy.Expr:
-        """Canonicalize the given polynomial, shifting exponents to (-order/2, order/2]."""
-        orders = orders or self.orders
-        assert len(orders) == len(self.symbols)
+        """Canonicalize the given polynomial, shifting exponents to (-order/2, order/2].
 
-        # canonicalize and add one monomial term at a time
+        The polynomial is simplified first, so that its monomials denote distinct group elements and
+        carry the coefficients that the base field gives them.  Shifting the exponents of distinct
+        simplified monomials leaves them distinct, so the terms below combine by addition alone.
+        """
+        orders = orders or self.orders
+
+        # shift the exponents of one simplified monomial term at a time
         new_poly: sympy.Expr = sympy.Integer(0)
-        for term in abstract.iter_monomial_terms(poly):
+        for term in abstract.iter_monomial_terms(self.get_simplified_form(poly, orders)):
             coeff, _exponents = abstract.get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
             new_term = sympy.Integer(coeff)
             for symbol, order in zip(self.symbols, orders):
-                new_exponent = exponents.get(symbol, 0) % order
+                new_exponent = exponents.get(symbol, 0)
                 if new_exponent > order / 2:
                     new_exponent -= order
                 new_term *= symbol**new_exponent
