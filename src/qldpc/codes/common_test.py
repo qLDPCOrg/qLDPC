@@ -17,7 +17,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-import functools
 import itertools
 import random
 import unittest.mock
@@ -190,8 +189,8 @@ def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
     assert np.array_equal(code.matrix, codes.ClassicalCode.graph_to_matrix(code.graph))
 
     # a check that addresses no bits is an isolated vertex of the graph, so the round trip recovers
-    # the all-zero row rather than dropping it
-    code = codes.ClassicalCode([[1, 1, 0], [0, 0, 0], [0, 1, 1]])
+    # every row, including an all-zero one at either end of the matrix
+    code = codes.ClassicalCode([[0, 0, 0], [1, 1, 0], [0, 1, 1], [0, 0, 0]])
     assert np.array_equal(code.matrix, codes.ClassicalCode.graph_to_matrix(code.graph))
 
 
@@ -306,10 +305,10 @@ def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
 
 
 def assert_valid_subgraphs(code: codes.QuditCode) -> None:
-    """The union of subgraphs used for syndrome measurement is the entire Tanner graph."""
-    assert nx.utils.graphs_equal(
-        code.graph, functools.reduce(nx.compose, code.get_syndrome_subgraphs())
-    )
+    """Every edge of the Tanner graph occurs in exactly one syndrome measurement subgraph."""
+    edges = [edge for graph in code.get_syndrome_subgraphs() for edge in graph.edges]
+    assert len(edges) == len(set(edges))
+    assert set(edges) == set(code.graph.edges)
 
 
 def test_qudit_codes() -> None:
@@ -321,11 +320,15 @@ def test_qudit_codes() -> None:
     assert code.is_equiv_to(codes.QuditCode(code))
     assert_valid_subgraphs(code)
 
-    # parity checks whose support overlaps no other check still appear in the subgraphs, and a
-    # check with no support at all is simply omitted (it contributes no edges to the Tanner graph)
+    # parity checks whose support overlaps no other check still appear in the subgraphs, and a check
+    # with no support at all is a vertex of the Tanner graph that contributes no edge to cover
     assert_valid_subgraphs(codes.QuditCode.from_strings(["Y Y I I", "I I Z Z"]))
     assert_valid_subgraphs(codes.QuditCode.from_strings(["X X X"]))
     assert_valid_subgraphs(codes.QuditCode.from_strings(["X X X", "I I I"]))
+
+    # a check that addresses no qudits is still a row of the parity check matrix, at either end
+    trivial_code = codes.QuditCode.from_strings(["I I I", "X X X", "I I I"])
+    assert np.array_equal(trivial_code.matrix, codes.QuditCode.graph_to_matrix(trivial_code.graph))
 
     # equivalence to code with redundant stabilizers
     redundant_code = codes.QuditCode(np.vstack([code.matrix, code.matrix]))
