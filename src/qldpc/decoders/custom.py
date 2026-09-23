@@ -343,15 +343,17 @@ class ILPDecoder:
     ) -> list[cvxpy.Constraint]:
         """Build cvxpy constraints of the form ``matrix @ variables == syndrome (mod q)``.
 
-        This method uses one nonnegative integer slack variable t to relax each constraint of the
-        form
+        This method relaxes each constraint of the form
         ``expression = val mod q``
         to
-        ``expression = val + q t``.
+        ``expression = val + q t``,
+        where t is a nonnegative integer built out of boolean variables {b_j} as
+        ``t = sum_j 2^j b_j``.
 
         Since the variables are nonnegative and val is reduced mod q, ``expression - val`` is a
         nonnegative multiple of q, so t is nonnegative, and it is bounded above by the largest value
-        that ``expression`` can take, less val, in units of q.
+        that ``expression`` can take, less val, in units of q.  Enough bits to reach that bound
+        reach every value below it too, since a binary expansion represents every integer in range.
         """
         import cvxpy
 
@@ -362,13 +364,13 @@ class ILPDecoder:
             # the largest value that expression - val can take
             max_offset = int(sum(check) * (self.modulus - 1) - syndrome_bit)
 
-            if max_offset < self.modulus:
+            num_bits = (max_offset // self.modulus).bit_length() if max_offset > 0 else 0
+            if not num_bits:
                 # no nonzero multiple of q is within reach, so val itself has to be hit
                 zero_mod_q: Any = 0
             else:
-                slack = cvxpy.Variable(integer=True, nonneg=True)
-                constraints.append(slack <= max_offset // self.modulus)
-                zero_mod_q = self.modulus * slack
+                slack_bits = cvxpy.Variable(num_bits, boolean=True)
+                zero_mod_q = [self.modulus * 2**jj for jj in range(num_bits)] @ slack_bits
 
             constraint = check @ self.variables == syndrome_bit + zero_mod_q
             constraints.append(constraint)
