@@ -999,7 +999,7 @@ class BBCode(QCCode):
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a bivariate bicycle code."""
-        symbols = sympy.Poly(poly_a).free_symbols | sympy.Poly(poly_b).free_symbols
+        symbols = poly_a.free_symbols | poly_b.free_symbols
         if len(orders) != 2 or len(symbols) != 2:
             raise ValueError(
                 "BBCodes should have exactly two cyclic group orders and two symbols, not "
