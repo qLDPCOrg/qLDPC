@@ -246,6 +246,34 @@ def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) 
     assert num_erasures  # a run in which nothing is erased checks nothing
 
 
+def test_symplectic_erasure() -> None:
+    """A qudit syndrome that no error can induce is erased rather than answered.
+
+    A trivial row of a parity check matrix witnesses no error at all, so a syndrome bit on it is
+    exactly what an erasure bit reports.  Reaching that conclusion requires the Tanner graph to
+    carry a node for the trivial check.
+    """
+    code = codes.FiveQubitCode()
+    matrix = np.vstack([np.asarray(code.matrix, dtype=int), np.zeros(2 * len(code), dtype=int)])
+    decoder = decoders.GUFDecoder(matrix, symplectic=True, add_erasure_bit=True)
+
+    # only the trivial check fires, which no error can do
+    syndrome = np.zeros(matrix.shape[0], dtype=int)
+    syndrome[-1] = 1
+    decoded = decoder.decode(syndrome)
+    assert len(decoded) == 2 * len(code) + 1
+    assert decoded[-1] == 1
+    assert not np.any(decoded[:-1])
+
+    # a syndrome that an error does induce is answered, and not erased
+    error = code.field.Zeros(2 * len(code))
+    error[2] = 1
+    induced = np.append(np.asarray(code.matrix @ math.symplectic_conjugate(error), dtype=int), 0)
+    decoded = decoder.decode(induced)
+    assert decoded[-1] == 0
+    assert np.any(decoded[:-1])
+
+
 def test_composite_erasure() -> None:
     """A CompositeDecoder is erased when any of its code blocks is erased."""
     # row 1 of this matrix is trivial, so no error explains a syndrome that is nonzero there
