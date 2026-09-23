@@ -801,15 +801,12 @@ class QCCode(TBCode):
 
         A generator of a cyclic group of order R satisfies x**R = 1, so the exponent of a symbol
         matters only modulo its order, and two monomials whose exponents agree modulo the orders
-        denote the same group element.  Reducing the exponents therefore collects such monomials
-        into a single term, whose coefficient is the sum of theirs in the base field, and a
-        coefficient that sums to zero leaves no term at all.
+        denote the same group element.  Reducing every exponent into [0, order) therefore collects
+        such monomials into a single term, whose coefficient is the sum of theirs in the base field,
+        and a coefficient that sums to zero leaves no term at all.  The polynomial is returned over
+        all of the symbols of this code, including any that it does not address.
         """
-        # the ring adds the coefficients of terms that denote the same group element, in its field
-        coefficients = {member: coeff for coeff, member in self.ring.eval(poly, self.symbol_gens)}
-
-        # reduce the exponents of each term, pairing each monomial with the element it denotes
-        monomials: dict[sympy.Expr, abstract.GroupMember] = {}
+        coefficients: dict[sympy.Expr, galois.FieldArray] = {}
         for term in abstract.iter_monomial_terms(poly):
             _, _exponents = abstract.get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
@@ -817,9 +814,11 @@ class QCCode(TBCode):
                 symbol ** (exponents.get(symbol, 0) % order)
                 for symbol, order in zip(self.symbols, self.orders)
             )
-            monomials[monomial] = self.group.eval(monomial, self.symbol_gens)
+            # a monomial term evaluates to a single group element, whose coefficient is in the field
+            [(coefficient, _group_member)] = self.ring.eval(term, self.symbol_gens)
+            coefficients[monomial] = coefficients.get(monomial, self.ring.field(0)) + coefficient
 
-        terms = [int(coefficients[member]) * monomial for monomial, member in monomials.items()]
+        terms = [int(coefficient) * monomial for monomial, coefficient in coefficients.items()]
         return sympy.Poly(sum(terms), *self.symbols)
 
     def get_canonical_form(
@@ -879,7 +878,7 @@ class QCCode(TBCode):
             f" (provided: {strategy})"
         )
 
-        # build matrices for each term in A and B
+        # build matrices for each term in A and B; transpose the lift by convention
         terms_a = abstract.iter_monomial_terms(self.poly_a)
         terms_b = abstract.iter_monomial_terms(self.poly_b)
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
