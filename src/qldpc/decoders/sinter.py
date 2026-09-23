@@ -33,50 +33,6 @@ from .dems import DetectorErrorModelArrays
 from .retrieval import Decoder, get_decoder
 
 
-def _check_decodes_errors(decoder: Decoder) -> None:
-    """Reject a decoder whose output is observable flips rather than an inferred error."""
-    if getattr(decoder, "predict_observable_flips", False):
-        raise ValueError(
-            "A sinter decoder maps decoded circuit errors to observable flips itself, so the decoder"
-            " that it wraps must predict errors rather than observable flips"
-        )
-
-
-def _warn_about_subgraph_partition(
-    flip_errors: npt.NDArray[np.int_],
-    flip_observables: npt.NDArray[np.int_],
-    flip_predictors: npt.NDArray[np.int_],
-    uncovered_detectors: npt.NDArray[np.int_],
-) -> None:
-    """Warn about a partition into subgraphs whose predictions do not add up.
-
-    Args:
-        flip_errors: The error mechanism of each observable flip in a detector error model.
-        flip_observables: The observable of each of those flips.
-        flip_predictors: The number of subgraphs that can predict each of those flips.
-        uncovered_detectors: The detectors that belong to no subgraph.
-    """
-    contested = np.flatnonzero(flip_predictors > 1)
-    if contested.size:
-        first = contested[0]
-        warnings.warn(
-            f"{contested.size} observable flips of this detector error model can be predicted by"
-            " more than one subgraph, and predictions are combined by exclusive or, so two"
-            " subgraphs predicting the same flip cancel each other.  Assign each observable only to"
-            " subgraphs whose detectors witness its flips.  For example, error mechanism"
-            f" {flip_errors[first]} flips observable {flip_observables[first]}, which"
-            f" {flip_predictors[first]} subgraphs can predict",
-            stacklevel=2,
-        )
-    if uncovered_detectors.size:
-        warnings.warn(
-            f"{uncovered_detectors.size} detectors of this detector error model belong to no"
-            " subgraph, so no decoder ever sees their detection events:"
-            f" {uncovered_detectors[:10].tolist()}",
-            stacklevel=2,
-        )
-
-
 class DecoderNotCompiledError(Exception):
     pass
 
@@ -1013,6 +969,50 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         self.windows = [(d_dets, c_dets) for d_dets, c_dets in self.windows if c_dets]
 
         return SequentialWindowDecoder.compile_decoder_for_dem(self, dem)
+
+
+def _check_decodes_errors(decoder: Decoder) -> None:
+    """Reject a decoder whose output is observable flips rather than an inferred error."""
+    if getattr(decoder, "predict_observable_flips", False):
+        raise ValueError(
+            "A sinter decoder maps decoded circuit errors to observable flips itself, so the decoder"
+            " that it wraps must predict errors rather than observable flips"
+        )
+
+
+def _warn_about_subgraph_partition(
+    flip_errors: npt.NDArray[np.int_],
+    flip_observables: npt.NDArray[np.int_],
+    flip_predictors: npt.NDArray[np.int_],
+    uncovered_detectors: npt.NDArray[np.int_],
+) -> None:
+    """Warn about a partition into subgraphs whose predictions do not add up.
+
+    Args:
+        flip_errors: The error mechanism of each observable flip in a detector error model.
+        flip_observables: The observable of each of those flips.
+        flip_predictors: The number of subgraphs that can predict each of those flips.
+        uncovered_detectors: The detectors that belong to no subgraph.
+    """
+    contested = np.flatnonzero(flip_predictors > 1)
+    if contested.size:
+        first = contested[0]
+        warnings.warn(
+            f"{contested.size} observable flips of this detector error model can be predicted by"
+            " more than one subgraph, and predictions are combined by exclusive or, so two"
+            " subgraphs predicting the same flip cancel each other.  Assign each observable only to"
+            " subgraphs whose detectors witness its flips.  For example, error mechanism"
+            f" {flip_errors[first]} flips observable {flip_observables[first]}, which"
+            f" {flip_predictors[first]} subgraphs can predict",
+            stacklevel=2,
+        )
+    if uncovered_detectors.size:
+        warnings.warn(
+            f"{uncovered_detectors.size} detectors of this detector error model belong to no"
+            " subgraph, so no decoder ever sees their detection events:"
+            f" {uncovered_detectors[:10].tolist()}",
+            stacklevel=2,
+        )
 
 
 def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
