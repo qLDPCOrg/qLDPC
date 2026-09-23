@@ -72,6 +72,7 @@ def test_erasure_bit_request() -> None:
         {"with_lookup": True, "max_weight": 1},
         {"with_GUF": True},
         {"with_RBP": True},
+        {"with_ILP": True},
     ]
     for decoder_args in erasing_args:
         decoder = decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
@@ -81,7 +82,6 @@ def test_erasure_bit_request() -> None:
     unerasing_args: list[dict[str, object]] = [
         {"with_MWPM": True},
         {"with_BP_LSD": True},
-        {"with_ILP": True},
     ]
     for decoder_args in unerasing_args:
         with pytest.raises(ValueError, match="cannot signal erasure"):

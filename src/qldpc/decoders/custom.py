@@ -255,11 +255,24 @@ class RelayBPDecoder:
 class ILPDecoder:
     """Decoder based on solving an integer linear program (ILP).
 
+    An integer program that is allowed to run to completion either finds an error of minimum weight
+    that reproduces the syndrome or proves that no error reproduces it, so an inferred error that
+    does not reproduce the syndrome means the solver stopped early, at a point it never proved
+    feasible.  ``time_limit`` and ``mip_max_nodes`` are the arguments that ask it to stop early.
+
+    If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
+    set to 1 when the inferred error does not reproduce the syndrome and to 0 otherwise.  Without
+    that bit there is no way to report such a syndrome, so it is rejected instead.
+
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
     """
 
-    def __init__(self, matrix: IntegerArray, **decoder_args: object) -> None:
+    def __init__(
+        self, matrix: IntegerArray, *, add_erasure_bit: bool = False, **decoder_args: object
+    ) -> None:
         import cvxpy
+
+        self.has_erasure_bit = add_erasure_bit
 
         self.modulus = type(matrix).order if isinstance(matrix, galois.FieldArray) else 2
         if not galois.is_prime(self.modulus):
@@ -310,18 +323,20 @@ class ILPDecoder:
         values = np.rint(self.variables.value) % self.modulus
 
         # a solver that stops before proving optimality can report a finite objective for a point
-        # that does not address the syndrome at all, so check the solution before returning it
-        if not np.array_equal(
+        # that reproduces no syndrome at all, so check the solution before returning it
+        reproduces_syndrome = np.array_equal(
             self.matrix @ values.astype(int) % self.modulus,
             np.asarray(syndrome, dtype=int) % self.modulus,
-        ):
-            raise ValueError(
-                "Integer linear program returned an error that does not address the syndrome!"
-                f"\nSolver status: {problem.status}"
-            )
-
-        # return solution to the problem variables
-        return values.astype(syndrome.dtype)
+        )
+        error = values.astype(syndrome.dtype)
+        if not self.has_erasure_bit:
+            if not reproduces_syndrome:
+                raise ValueError(
+                    "Integer linear program returned an error that does not reproduce the syndrome!"
+                    f"\nSolver status: {problem.status}"
+                )
+            return error
+        return np.hstack([error, np.array([not reproduces_syndrome], dtype=error.dtype)])
 
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]

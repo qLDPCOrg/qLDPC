@@ -98,7 +98,7 @@ def test_ilp_decoder(toy_problem: ToyProblem) -> None:
 
 
 def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:
-    """An integer linear program returns an error of minimum weight that addresses the syndrome.
+    """An integer linear program returns an error of minimum weight that reproduces the syndrome.
 
     Both properties are checked against exhaustive search.  The particular minimum-weight error
     that gets returned is up to the solver, so it is not checked.
@@ -128,22 +128,36 @@ def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:
 def test_ilp_decoder_early_termination() -> None:
     """An integer linear program that stops early does not return an unusable error.
 
-    A solver told to give up immediately can report a finite objective for a point that addresses
-    no syndrome at all, which has to be rejected rather than returned.
+    A solver told to give up immediately can report a finite objective for a point that reproduces
+    no syndrome at all.  With no way to report that, such a point is rejected; given an erasure bit,
+    it is reported as an erasure instead, which is what the decoders that infer errors heuristically
+    already do.
     """
     matrix = np.array([[1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 0]])
     syndrome = np.array([1, 0, 1])
 
     decoder = decoders.ILPDecoder(matrix, time_limit=1e-9)
+    assert not decoder.has_erasure_bit
     with (
         pytest.warns(UserWarning, match="inaccurate"),
-        pytest.raises(ValueError, match="does not address the syndrome"),
+        pytest.raises(ValueError, match="does not reproduce the syndrome"),
     ):
         decoder.decode(syndrome)
 
-    # without the time limit, the same problem is solved
+    # the same solver, asked for an erasure bit, erases the shot rather than refusing it
+    decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True, time_limit=1e-9)
+    assert decoder.has_erasure_bit
+    with pytest.warns(UserWarning, match="inaccurate"):
+        decoded = decoder.decode(syndrome)
+    assert len(decoded) == matrix.shape[1] + 1
+    assert decoded[-1] == 1
+
+    # without the time limit, the same problem is solved, and the erasure bit reports no erasure
     decoded = decoders.ILPDecoder(matrix).decode(syndrome)
     assert np.array_equal(matrix @ decoded % 2, syndrome)
+    decoded = decoders.ILPDecoder(matrix, add_erasure_bit=True).decode(syndrome)
+    assert decoded[-1] == 0
+    assert np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
 
 
 def test_ilp_decoder_near_integral_values() -> None:
