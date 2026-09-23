@@ -409,11 +409,11 @@ def test_observable_flip_matrix_arithmetic() -> None:
     field = galois.GF(17)
     observable_flip_matrix = field([[16, 0, 0]])
     assert observable_flip_matrix.dtype == np.uint8  # the premise of the check below
-    for observables in [observable_flip_matrix, observable_flip_matrix.view(np.ndarray)]:
+    for flip_matrix in [observable_flip_matrix, observable_flip_matrix.view(np.ndarray)]:
         decoder = decoders.LookupDecoder(
             field([[1, 1, 0], [0, 1, 1]]),
             max_weight=1,
-            observable_flip_matrix=observables,
+            observable_flip_matrix=flip_matrix,
             predict_observable_flips=True,
             penalty_func=lambda vec: int(np.count_nonzero(vec)),
         )
