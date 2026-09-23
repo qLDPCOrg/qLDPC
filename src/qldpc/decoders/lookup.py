@@ -67,8 +67,8 @@ class LookupDecoder:
 
     If initialized with ``predict_observable_flips=True``, this decoder maps each syndrome directly
     to its most likely observable flip, rather than to a representative ``error``.  In this case
-    the decoded output is a binary vector of length ``num_observables``.  Predicting observable
-    flips requires an ``observable_flip_matrix``.
+    the decoded output is a vector of length ``num_observables`` over the field of the parity check
+    matrix.  Predicting observable flips requires an ``observable_flip_matrix``.
 
     If provided a ``post_select`` collection of syndrome-bit (i.e., detector) indices, this decoder
     post-selects on those bits being trivial: when constructing the lookup table, it ignores
