@@ -339,11 +339,12 @@ def get_decoder_lookup(
 
 
 def get_decoder_ILP(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    add_erasure_bit: bool = False,
+    **decoder_args: object,
 ) -> ILPDecoder:
     """Decoder based on solving an integer linear program (ILP)."""
-    # consume the erasure bit request, which cvxpy would otherwise reject as a solver option
-    add_erasure_bit = bool(decoder_args.pop("add_erasure_bit", False))
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
