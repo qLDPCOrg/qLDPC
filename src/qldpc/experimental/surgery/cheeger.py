@@ -1,12 +1,9 @@
 """Cheeger and distance boost transformations for surgery gadgets.
 
 References:
-    Webster, Smith, Cohen arXiv:2511.15989  — boundary Cheeger constant,
-        combinatorial boost (§II.1).
-    Cross et al. arXiv:2407.18393  — Cheeger-based distance preservation
-        (§3.3 Thm 6).
-    Williamson & Yoder arXiv:2410.02213  — distance-verifying random
-        augmentation boost.
+    Webster, Smith, Cohen arXiv:2511.15989 — boundary Cheeger constant, combinatorial boost (§II.1).
+    Cross et al. arXiv:2407.18393 — Cheeger-based distance preservation (§3.3 Thm 6).
+    Williamson & Yoder arXiv:2410.02213 — distance-verifying random augmentation boost.
 
 Copyright 2026 The qLDPC Authors
 
@@ -40,18 +37,13 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
 
     gadget notation: V → support; C → rows of incidence; F → incidence.
 
-    Backs ``cheeger_constant``, and additionally returns the cut attaining h(F), which
-    ``cheeger_constant`` discards.
+    Backs ``cheeger_constant``, additionally returning the cut that attains h(F).
 
-    For bipartite incidence F: V -> C (V indexes the measured logical's support, C the
-    complementary-basis checks touching it), the boundary ∂v of v ⊆ V is the subset of C with an odd
-    number of neighbours in v. The boundary Cheeger constant is
+    For bipartite incidence F: V -> C, the boundary ∂v of v ⊆ V is the subset of C with an odd
+    number of neighbours in v, and h(F) = min |∂v| / |v| over the subsets with 1 ≤ |v| ≤ |V|/2.
 
-        h(F) = min_{v ⊆ V, 1 ≤ |v| ≤ |V|/2} |∂v| / |v|.
-
-    Computes h(F) exactly by Gray-code enumeration over all subsets v, as a pure-Python loop over
-    bit-packed columns. Cost quadruples per additional 2 columns, reaching ≈ 67M subsets and ~9 s at
-    |V| = 26, which is where the supported range stops. Raises if |V| > 26.
+    Computed by Gray-code enumeration over all subsets v, as a pure-Python loop over bit-packed
+    columns; cost quadruples per additional 2 columns, which is what puts the ceiling at |V| = 26.
 
     Args:
         incidence: GF(2) restriction matrix of shape (|C|, |V|).
@@ -112,23 +104,19 @@ def cheeger_constant(g: GadgetLayout) -> float:
 
     Computed exactly by Gray-code subset enumeration, which is tractable only for ``|V_0|`` ≤ 26.
 
-    Cross et al. arXiv:2407.18393 §3.3 Thm 6 concludes d_merged ≥ d_data, by a structural argument
-    with no decoder, when an L-layer ancilla system satisfies ceil(L/2) ≥ 1/h. This package builds
-    L=1 gadgets, where that condition reduces to h ≥ 1. So h ≥ 1 is the threshold to aim for, and
-    h < 1 leaves the gadget outside the theorem, where distance may degrade; consider
-    ``boost_gadget(g, target=1.0)``.
+    Cross et al. arXiv:2407.18393 §3.3 Thm 6 concludes d_merged ≥ d_data when an L-layer ancilla
+    system satisfies ceil(L/2) ≥ 1/h, which at the L=1 gadgets built here reduces to h ≥ 1. Below 1
+    the gadget falls outside the theorem, where distance may degrade; consider
+    ``boost_gadget(g, method="combinatorial", target=1.0)``.
 
-    Two caveats on reading h ≥ 1 as a distance guarantee. The theorem's proof also assumes the
-    measured logical is irreducible — no other logical of the same type has support contained in
-    its support — which ``build_gadget`` does not check. And no fault-distance test in this package
-    covers the conclusion.
-
-    Use as a pre-flight check before deciding whether to call boost_gadget.
+    Reaching h ≥ 1 is a screen, not a distance guarantee: the theorem bounds the merged code
+    distance rather than the circuit fault distance, it assumes the measured logical is irreducible
+    — no other logical of the same type has support inside its support — which ``build_gadget``
+    does not check, and nothing here verifies its conclusion. Nor does h track circuit fault
+    distance, so a higher h is not a reason to expect a better circuit.
 
     Raises:
-        ValueError: if |V_0| > 26, the largest support the exact enumeration covers. No bound on
-            h(F) is computed in its place, so no number can be returned; compute the exact code
-            distance instead.
+        ValueError: if |V_0| > 26, beyond which the exact enumeration is infeasible.
     """
     incidence = galois.GF2(np.asarray(g.incidence).astype(int))
     if incidence.shape[1] > 26:
@@ -203,14 +191,10 @@ def _boost_gadget_cheeger_combinatorial(
     with one endpoint in v* and one outside, which monotonically increases |∂v*| by 1 without
     decreasing any other |∂v|.
 
-    Reaching target_h = 1.0 satisfies Cross et al. arXiv:2407.18393 §3.3 Thm 6's expansion condition
-    at L=1, where ceil(L/2) >= 1/h reduces to h >= 1; the theorem then gives d_merged >= d_data. Its
-    proof additionally assumes the measured logical is irreducible, which is not checked here, so
-    reaching the target is not by itself a proof that the merged code preserves distance. What is
-    enforced is the target: a returned gadget has h(F) >= target_h, and exhausting the qubit budget
-    first raises RuntimeError.
-    Enumeration is tractable for |V_0| <= 26 (Webster's family up to l=255). Every kept subset is
-    buffered, so memory grows with it: ~0.5 GB at |V_0| = 24 and ~2 GB at 26.
+    Reaching target_h = 1.0 meets the h >= 1 condition of Cross et al. arXiv:2407.18393 §3.3 Thm 6
+    at L=1; see ``cheeger_constant`` for what that does and does not establish. Unlike
+    ``cheeger_constant``, this buffers every enumerated subset, so memory grows with |V_0| as well
+    as time.
 
     Args:
         g: input gadget produced by build_gadget.
@@ -219,12 +203,12 @@ def _boost_gadget_cheeger_combinatorial(
         seed: RNG seed for tie-breaking in edge selection.
 
     Returns:
-        A new GadgetLayout with F augmented until h(F) >= target_h, rebuilt via
-        _build_gadget_augmented (basis=X/Z handled symmetrically).
+        A new GadgetLayout with F augmented, rebuilt via _build_gadget_augmented (basis=X/Z handled
+        symmetrically). Its h(F) >= target_h when ``g`` came from build_gadget.
 
     Raises:
         ValueError: |V_0| > 26 (enumeration infeasible) or target_h <= 0.
-        RuntimeError: target_h could not be reached within max_extra_qubits.
+        RuntimeError: target_h could not be reached, either within max_extra_qubits or at all.
     """
     from .gadget import _build_gadget_augmented
 
@@ -287,6 +271,7 @@ def _boost_gadget_cheeger_combinatorial(
         return pairs
 
     extra = 0
+    exhausted_pairs = False
     while True:
         h_num = cuts.astype(np.int64)
         h_den = sizes.astype(np.int64)
@@ -318,7 +303,9 @@ def _boost_gadget_cheeger_combinatorial(
             if chosen is not None:
                 break
         if chosen is None:
-            # Every cut edge is already a row of F, so no degree-2 row can raise |∂v*|.
+            # Every pair spanning the cut already shares a row of F -- one weight-4 row blocks all
+            # six of its pairs.
+            exhausted_pairs = True
             break
 
         new_row = np.zeros(n_V, dtype=np.int_)
@@ -332,11 +319,19 @@ def _boost_gadget_cheeger_combinatorial(
         cuts += bit_i ^ bit_j
 
     if h < target_h:
+        if exhausted_pairs:
+            reason = (
+                "every pair spanning the worst cut already shares a row of F, and the search adds "
+                "no second row on a pair it already spans, so a larger budget would not help. "
+                "Lower the target"
+            )
+        else:
+            reason = (
+                f"the budget of max_extra_qubits={max_extra_qubits} is spent. Increase it or lower "
+                f"the target"
+            )
         raise RuntimeError(
-            f"combinatorial boost could not reach target_h={target_h} "
-            f"(reached h={h}) within max_extra_qubits={max_extra_qubits}, or no "
-            f"further distance-increasing edge was available. Increase "
-            f"max_extra_qubits or lower target_h."
+            f"combinatorial boost could not reach target_h={target_h} (reached h={h}): {reason}."
         )
     incidence_extra = incidence[n_orig_rows:].astype(np.uint8)
     return _build_gadget_augmented(g.code, g.x, incidence_extra, basis=g.basis)
@@ -351,15 +346,13 @@ def _boost_gadget_distance(
     decoder_trials: int = 10,
     seed: int | None = None,
 ) -> GadgetLayout:
-    """Distance-verifying gadget boost.
-
-    Williamson & Yoder arXiv:2410.02213 / Webster, Smith, Cohen arXiv:2511.15989.
+    """Distance-verifying gadget boost (Williamson & Yoder arXiv:2410.02213).
 
     gadget notation: F → incidence; κ' → new ancilla qubits.
 
-    Iteratively add small random batches of degree-2 edges to F, use BP+OSD upper bound on merged
-    code distance to fast-reject any augmentation whose deformed code falls below target. Starts
-    from n_extra = 0 (verify bare gadget already meets target).
+    Iteratively add small random batches of degree-2 edges to F, using a BP+OSD upper bound on
+    merged code distance to fast-reject any augmentation that falls below target. Starts from
+    n_extra = 0, so a bare gadget already meeting the target comes back unaugmented.
 
     Args:
         g: input gadget produced by build_gadget.
@@ -368,9 +361,8 @@ def _boost_gadget_distance(
         max_extra_qubits: cap on number of new κ' qubits to consider.
         num_trials_per_step: random augmentations per n_extra value.
         decoder_trials: trials for each get_distance_bound_with_decoder call.
-        seed: RNG seed for the edge sampling only. The BP+OSD screen draws from the global numpy
-            RNG, so identical calls with the same seed can differ in outcome when target_distance
-            sits near the bound the decoder typically reaches.
+        seed: RNG seed for the edge sampling only. The BP+OSD screen is unseeded, so identical calls
+            with the same seed can differ in outcome.
 
     Returns:
         A new GadgetLayout whose merged code passes the BP+OSD screen at target_distance.
@@ -378,14 +370,8 @@ def _boost_gadget_distance(
     Raises:
         ValueError: target_distance <= 0 or max_extra_qubits < 0.
         RuntimeError: neither the bare gadget nor any augmentation within max_extra_qubits passed
-            the screen, so no gadget meeting target_distance was found. Retry, raise
-            decoder_trials or num_trials_per_step, raise max_extra_qubits, or lower
-            target_distance.
-
-    Notes:
-        BP+OSD gives an UPPER bound on distance. ``d_bound >= target_distance`` is a strong
-        heuristic but not a proof. For exact verification, post-process accepted candidates with
-        ``merged.get_distance_exact()``.
+            the screen. Retry, raise decoder_trials or num_trials_per_step, raise max_extra_qubits,
+            or lower the target.
     """
     from qldpc.objects import Pauli as _Pauli
 
@@ -449,7 +435,7 @@ def _boost_gadget_distance(
         f"distance boost could not reach target_distance={target_distance} within "
         f"max_extra_qubits={max_extra_qubits}: neither the bare gadget nor any sampled "
         f"augmentation passed the BP+OSD screen. Increase max_extra_qubits or "
-        f"num_trials_per_step, or lower target_distance."
+        f"num_trials_per_step, or lower the target."
     )
 
 
@@ -472,14 +458,16 @@ def boost_gadget(
         **kwargs: forwarded to the underlying boost function.
 
     Returns:
-        A NEW GadgetLayout with boosted incidence, gauge, HX_merged, HZ_merged.
+        A NEW GadgetLayout with boosted incidence, gauge, HX_merged, HZ_merged. method='distance'
+        screens with a BP+OSD upper bound, so acceptance is a heuristic rather than a proof;
+        confirm it by computing the exact distance of the code HX_merged / HZ_merged define.
 
     Raises:
         ValueError: method is neither 'combinatorial' nor 'distance', target is not positive, or
             the combinatorial method is used with |V_0| > 26.
-        RuntimeError: the chosen method could not reach ``target`` within its qubit budget. Raise
-            max_extra_qubits or lower target; for method='distance', retrying can also succeed,
-            since its screen is not seeded.
+        RuntimeError: the chosen method could not reach ``target``. Lower it; raising
+            max_extra_qubits helps only when the budget is what ran out, which the message says.
+            For method='distance', retrying can also succeed, since its screen is not seeded.
     """
     if method == "combinatorial":
         return _boost_gadget_cheeger_combinatorial(
@@ -489,6 +477,13 @@ def boost_gadget(
             **kwargs,
         )
     if method == "distance":
+        # Validate before the cast, so the rejection quotes the target the caller wrote rather than
+        # the 0 that anything in (0, 1) casts to.
+        if int(target) <= 0:
+            raise ValueError(
+                f"target must be at least 1 for method='distance', which casts it with int(), "
+                f"got {target}."
+            )
         return _boost_gadget_distance(
             gadget,
             target_distance=int(target),

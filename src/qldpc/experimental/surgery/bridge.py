@@ -37,8 +37,6 @@ class Bridge:
     """Universal adapter between two GadgetLayouts (Swaroop et al. arXiv:2410.03628 §IV / §VII).
 
     gadget notation: V_0 → support; F → incidence; κ → ancilla.
-
-    Attributes follow the universal-adapter construction of Swaroop et al. arXiv:2410.03628.
     """
 
     width: int  # w = |𝒜| (adapter qubits)
@@ -110,8 +108,7 @@ def _skip_tree(
 def _canonical_H_R(w: int) -> np.ndarray:
     """Full-rank canonical rep-code parity check matrix, shape (w-1) × w.
 
-    Row i has 1s in columns i and i+1. rank == w-1; column 0 and column w-1 have weight 1, other
-    columns weight 2.
+    Row i has 1s in columns i and i+1.
     """
     if w < 2:
         raise ValueError(f"H_R requires w >= 2, got {w}")
@@ -129,18 +126,15 @@ def _skip_tree_fullrank(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute SkipTree (T, P) satisfying T · G · P == H_R (full-rank rep code).
 
-    Swaroop et al. arXiv:2410.03628 Algorithm 1 takes a connected graph and computes a spanning tree
-    as its first step, then reads each T row off the tree path between consecutively labelled
-    vertices. Here the spanning tree supplies the DFS vertex labeling, but each T row is the XOR of
-    shortest-path edges in the full graph S. This lets S be any connected graph; the direct
-    _skip_tree call would IndexError on cyclic inputs.
+    Swaroop et al. arXiv:2410.03628 Algorithm 1 reads each T row off the spanning-tree path between
+    consecutively labelled vertices. Here the spanning tree supplies only the DFS vertex labeling,
+    and each T row is the XOR of shortest-path edges in the full graph S, which lets S be any
+    connected graph; the direct _skip_tree call would IndexError on cyclic inputs.
 
-    Sparsity: row weight ≤ 3 still holds, since a shortest path in S is no longer than the tree path
-    between the same endpoints, which Theorem 7 bounds at 3 edges. Theorem 7's column-weight-2 half
-    does NOT carry over: its proof counts each *tree* edge's reuse via sub-tree exhaustion, and a
-    full-graph path may route over non-tree edges for which the paper gives no reuse bound. Column
-    weight ≤ 2 is checked empirically instead, in
-    ``bridge_test.py::test_skip_tree_fullrank_on_K4_matches_H_R``.
+    Row weight ≤ 3 still holds, since a shortest path in S is no longer than the tree path between
+    the same endpoints, which Theorem 7 bounds at 3 edges. Theorem 7's column-weight-2 half does not
+    carry over, because a full-graph path may route over non-tree edges for which the paper gives no
+    reuse bound; column weight ≤ 2 is checked empirically instead.
 
     Returns (T, P) of shapes (n-1, |E|) and (n, n).
     """
@@ -175,21 +169,14 @@ def _cellulate_port_subgraph(
 ) -> list[tuple[int, int]]:
     """Break port-subgraph cycles longer than ``max_len`` by adding chords.
 
-    SkipTree runs on G_aux.subgraph(ports); cycles entirely outside the port subgraph never enter
-    T_s, so we cellulate only there.
+    SkipTree runs on G_aux.subgraph(ports), so only cycles there enter T_s and only those are
+    cellulated; a long cycle of G_aux threading non-port vertices contributes no basis cycle to the
+    port subgraph and need not admit a port-port chord at all. Chords are added to ``G_aux``, the
+    full graph, and for a port-subgraph cycle both endpoints are necessarily ports.
 
     T_s row weight is already ≤ 3 regardless of cycle length (see _skip_tree_fullrank), so this step
     is not load-bearing for correctness. Capping basis cycle length is the cellulation of Swaroop et
-    al. arXiv:2410.03628 §II.3 — their desideratum 3a, distinct from the decongestion of their
-    Lemma 6, which instead bounds how many basis cycles a single edge belongs to.
-
-    The scope is the port subgraph because that is what SkipTree sees. When |V_0| > w, a long cycle
-    of G_aux can thread non-port vertices; such a cycle contributes no basis cycle to the port
-    subgraph, and it need not admit a port-port chord at all.
-
-    Chords are added to ``G_aux`` (the full graph). For port-subgraph cycles, chord endpoints are
-    necessarily ports (cycle vertices = port vertices), so no port-membership filter is needed in
-    the chord-search loop.
+    al. arXiv:2410.03628 §II.3.
 
     Returns the list of added (u, v) edges in insertion order. Idempotent once all port-subgraph
     basis cycles fit under the cap.
@@ -224,28 +211,19 @@ def _cellulate_port_subgraph(
 def _build_aux_graph_strict(incidence: np.ndarray) -> tuple[nx.Graph, dict[tuple[int, int], int]]:
     """Build auxiliary graph from F; weight-2 rows become edges, hyperedges are skipped.
 
-    Vertices: range(|V_0|) = range(F.shape[1]).
-    Edges: one per weight-2 row of F, between the two columns where the row has 1s.
+    Vertices are range(F.shape[1]); each weight-2 row adds the edge between its two 1-columns.
 
-    Why skipping hyperedges is safe — paired with the guard at `_run_skiptree_on_port_subgraph`
-    (search for `if len(cols) != 2: continue`), which assigns T_s zero columns on those same rows.
-    So
+    Skipping hyperedges is safe because `_run_skiptree_on_port_subgraph` assigns T_s zero columns on
+    those same rows, so they contribute 0 to
         (T_s · F_aug)[c, v] = Σ_{k: weight-2 row} T_s[c,k] · F_aug[k, v]
                             = H_R[c, label(v)] · [v ∈ port]      (SkipTree identity)
-    and the hyperedge rows contribute 0 regardless of F_aug[r, v]. χ_v · cycle_c on the κ side
-    cancels the adapter side, CSS commutation holds. The hyperedge κ qubit itself stays in F_aug,
-    so the gadget (G_aug = ker(F_aug^T), deformed check c → c · X(κ_r), χ_v) is untouched. That
-    commutation conclusion is what
-    ``bridge_test.py::test_build_bridge_bb18_hyperedge_and_long_cycle`` checks on a fixture
-    carrying a weight-4 F row.
+    and the χ_v · cycle_c overlap on the κ side cancels the adapter side, so CSS commutation holds.
+    The hyperedge κ qubit itself stays in F_aug, leaving the gadget (G_aug = ker(F_aug^T), deformed
+    check c → c · X(κ_r), χ_v) untouched.
 
-    Paper Eq. (9)'s perfect-matching decomposition (§II.3) is not applied, and no structural
-    distance argument is claimed for the joint merge. Swaroop et al. Thm 11 (§IV) does give one for
-    the adapter — the deformed code for the joint measurement keeps distance d — but only if the
-    individual deformed codes are LDPC with distance d, which this library does not establish. The
-    only empirical evidence here is the LER trend in
-    ``circuit_test.py::test_joint_ppm_ler_monotone_steane_intercode``, whose Steane fixture has
-    all-weight-2 F rows and so does not exercise the hyperedge path.
+    Eq. (9)'s perfect-matching decomposition (§II.3) is not applied, and no structural distance
+    argument is claimed for the joint merge: Swaroop et al. Thm 11 (§IV) needs the individual
+    deformed codes to be LDPC with distance d, which this library does not establish.
 
     Raises:
         ValueError: if any row of F has weight 1 (defensive — F · 1_{V_0} = 0 mod 2 forbids odd
@@ -345,23 +323,15 @@ def _run_skiptree_on_port_subgraph(
         assert len(nz) == 1, f"vertex {orig_v} (relab {new_v}) has {len(nz)} labels"
         labels[orig_v] = int(nz[0])
     T_full = np.zeros((T_relab.shape[0], incidence_aug.shape[0]), dtype=np.int_)
-    # Duplicate-edge guard: when two κ rows of F_aug share the same (u, v)
-    # support (parallel edges in the *strict* aux graph), _build_aux_graph_strict
-    # dedups them to one G_aux edge. Without this guard, both duplicate rows
-    # would receive the same T_relab column → their contributions to T·F_aug
-    # cancel mod 2 → SkipTree identity fails on codes like BB [[36, 8]] whose
-    # restricted incidence has duplicate weight-2 rows. Assigning T only to the
-    # FIRST matching row preserves T·F_aug = H_R (duplicate κ qubits remain in
-    # the gauge group, untouched by the cycle).
+    # Duplicate-edge guard: when two κ rows of F_aug share the same (u, v) support,
+    # _build_aux_graph_strict dedups them to one G_aux edge. Giving both rows the same T_relab
+    # column would cancel their contributions to T·F_aug mod 2 and break the SkipTree identity, so
+    # T goes to the first matching row only; the duplicate κ qubits stay in the gauge group.
     assigned_edges: set[tuple[int, int]] = set()
     for r in range(incidence_aug.shape[0]):
         cols = np.flatnonzero(incidence_aug[r])
-        # Load-bearing skip: T_s gets zero columns on hyperedge rows (weight ≥ 3)
-        # and on rows whose endpoints are outside the port subgraph. Paired with
-        # _build_aux_graph_strict's matching skip; together they make hyperedge κ
-        # qubits invisible to (T_s · F_aug), so χ_v · cycle_c commutation reduces
-        # to the weight-2 sub-incidence SkipTree identity. See bridge.py docstring
-        # for _build_aux_graph_strict for the proof sketch.
+        # Load-bearing skip: T_s gets zero columns on hyperedge rows (weight ≥ 3) and on rows whose
+        # endpoints leave the port subgraph. See _build_aux_graph_strict for why that is safe.
         if len(cols) != 2:
             continue
         u_orig, v_orig = sorted(int(x) for x in cols)
@@ -378,7 +348,7 @@ def _run_skiptree_on_port_subgraph(
 def _max_basis_stabilizer_weight(code: CSSCode, basis: PauliXZ) -> int:
     """Largest row weight of the data code's check matrix in the measured basis."""
     H = code.matrix_x if basis is Pauli.X else code.matrix_z
-    return int(np.asarray(H).astype(int).sum(axis=1).max())
+    return int(np.asarray(H).astype(int).sum(axis=1).max(initial=0))
 
 
 def build_bridge(
@@ -395,8 +365,7 @@ def build_bridge(
 
     gadget notation: V_0^(l) → support^(l); F → incidence; extra_kappa → extra_ancilla.
 
-    Implements the repetition-code adapter of Swaroop et al. arXiv:2410.03628 §IV, built on their
-    SkipTree basis transform (§III).
+    Built on the SkipTree basis transform of the same paper (§III).
 
     Args:
         g_l: left gadget.
@@ -407,11 +376,12 @@ def build_bridge(
             Defaults to all of it.
         spanning_tree_root_l: index INTO the left port tuple of the SkipTree root vertex.
         spanning_tree_root_r: index INTO the right port tuple of the SkipTree root vertex.
-        cellulate_max_len: cap on port-subgraph cycle length, enforced by adding chords. Defaults to
-            the larger of the two data codes' maximum measured-basis stabilizer row weight, so that
-            the cap follows the code rather than a constant. Lowering it trades qubits for a sparser
-            gauge: on the bb_18 intra-code pair, whose default is 6, capping at 6 cuts max gauge row
-            weight from 34 to 13 at a cost of +314 qubits.
+        cellulate_max_len: cap on port-subgraph cycle length, enforced by adding chords, which trade
+            qubits for a sparser gauge. Defaults to the larger of the two data codes' maximum
+            measured-basis stabilizer row weight, floored at 3: a 3-cycle has no chord, so 3 is the
+            smallest cap every port subgraph can meet. That default reads the measured basis while
+            the cycles it governs come from the complementary one, so pass the cap explicitly for a
+            code whose two check matrices differ in maximum row weight.
 
     Returns:
         A Bridge of width min(|ports_l|, |ports_r|).
@@ -430,6 +400,7 @@ def build_bridge(
     basis = g_l.basis
     if cellulate_max_len is None:
         cellulate_max_len = max(
+            3,
             _max_basis_stabilizer_weight(g_l.code, basis),
             _max_basis_stabilizer_weight(g_r.code, basis),
         )

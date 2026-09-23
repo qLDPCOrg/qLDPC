@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 from qldpc import codes
-from qldpc.objects import Pauli
+from qldpc.objects import Pauli, PauliXZ
 
 from .conftest import (
     _webster_x_bar_operator,
@@ -174,21 +174,15 @@ def test_cellulate_raises_when_port_cycle_has_no_available_chord() -> None:
 
     from qldpc.experimental.surgery.bridge import _cellulate_port_subgraph
 
-    # 7-cycle 0-1-2-3-4-5-6-0 plus ALL chords among {0..6} → complete graph K_7.
-    # cycle_basis still surfaces cycles of length > max_len in K_7 (basis cycles
-    # are length-3 triangles), so no long cycle exists in this case.
-    # Instead: make a 7-cycle without any extra edges, then call with max_len=2.
+    # A 7-cycle saturated with every chord -- i.e. K_7 -- so no chord can be added.
     G = nx.cycle_graph(7)
     ports = tuple(range(7))
-    # Already a complete graph K_7? No — cycle_graph(7) has only 7 edges.
-    # Pre-saturate with all possible chords so no chord can be added:
     for i in range(7):
         for j in range(i + 2, 7):
             if not G.has_edge(i, j) and (i, j) != (0, 6):
                 G.add_edge(i, j)
-    # Now every (i, j) with j >= i+2 in the 7-cycle is already an edge, so the cycle basis is all
-    # triangles and max_len=6 would find no long cycle and return []. max_len=2 forces the
-    # failure path:
+    # The saturated cycle basis is all triangles, so max_len=6 would find no long cycle; max_len=2
+    # forces the failure path.
     with pytest.raises(RuntimeError, match=r"No chord found"):
         _cellulate_port_subgraph(G, ports, max_len=2)
 
@@ -371,12 +365,8 @@ def test_build_bridge_bb18_hyperedge_and_long_cycle() -> None:
 def test_adapter_cycle_check_weight_bounded() -> None:
     """Each new cycle-X row has weight <= 8 (SkipTree (3,2) + H_R weight 2). Basis=Z.
 
-    For basis=Z, the new adapter cycle checks are placed in HX (the last w-1 rows).
-    Each row has the form [T_l | H_R | T_r]:
-      - T_l row: at most 3 entries on cl_ancilla (SkipTree (3,2)-sparsity)
-      - H_R row: exactly 2 entries on c_adapter (canonical rep code)
-      - T_r row: at most 3 entries on cr_ancilla (SkipTree (3,2)-sparsity)
-    Total: weight <= 3 + 2 + 3 = 8.
+    For basis=Z the new adapter cycle checks are the last w-1 rows of HX, each of the form
+    [T_l | T_r | H_R]: at most 3 entries from each SkipTree block and exactly 2 from H_R.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
@@ -426,24 +416,34 @@ def test_cellulation_caps_aug_aux_cycle_length_on_webster() -> None:
         )
 
 
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_cellulate_max_len_defaults_to_the_max_basis_stabilizer_weight(
-    monkeypatch: pytest.MonkeyPatch,
+    basis: PauliXZ, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The default cap is read off the data codes rather than fixed at a constant.
+    """The default cap is the larger of the two data codes' measured-basis max row weights.
 
-    Steane's H_X rows have weight 4, so a cap derived from the code is distinguishable from any
-    hardcoded value. The cap reaches cellulation once per side.
+    The hypergraph-product code is not self-dual -- 5 in X, 6 in Z -- while Steane is 4 in either,
+    and the bases put the heavier code on opposite sides, so the resolved cap separates reading the
+    complementary matrix, taking the smaller side, and reading one side alone. The floor of 3 is
+    inactive at these weights and has its own test.
     """
     from typing import Any
 
     from qldpc.experimental.surgery import bridge as bridge_module
     from qldpc.experimental.surgery.gadget import build_gadget
 
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g_l = build_gadget(code, x, basis=Pauli.X)
-    g_r = build_gadget(code, x, basis=Pauli.X)
-    assert bridge_module._max_basis_stabilizer_weight(code, Pauli.X) == 4
+    hgp = codes.HGPCode(codes.RepetitionCode(3), codes.HammingCode(3))
+    steane = codes.SteaneCode()
+    assert bridge_module._max_basis_stabilizer_weight(hgp, Pauli.X) == 5
+    assert bridge_module._max_basis_stabilizer_weight(hgp, Pauli.Z) == 6
+    assert bridge_module._max_basis_stabilizer_weight(steane, basis) == 4
+
+    # Heavier code on the left in the X basis, on the right in the Z basis.
+    code_l, code_r = (hgp, steane) if basis is Pauli.X else (steane, hgp)
+    x_l = np.asarray(code_l.get_logical_ops(basis)[0]).astype(np.uint8)
+    x_r = np.asarray(code_r.get_logical_ops(basis)[0]).astype(np.uint8)
+    g_l = build_gadget(code_l, x_l, basis=basis)
+    g_r = build_gadget(code_r, x_r, basis=basis)
 
     real_cellulate = bridge_module._cellulate_port_subgraph
     seen: list[int] = []
@@ -454,12 +454,66 @@ def test_cellulate_max_len_defaults_to_the_max_basis_stabilizer_weight(
 
     monkeypatch.setattr(bridge_module, "_cellulate_port_subgraph", _record)
 
+    expected = 5 if basis is Pauli.X else 6
     bridge_module.build_bridge(g_l, g_r)
-    assert seen == [4, 4]
+    assert seen == [expected, expected]
 
     seen.clear()
-    bridge_module.build_bridge(g_l, g_r, cellulate_max_len=5)
-    assert seen == [5, 5]
+    bridge_module.build_bridge(g_l, g_r, cellulate_max_len=7)
+    assert seen == [7, 7]
+
+
+def test_cellulate_max_len_default_is_floored_at_3(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The derived default never drops below 3, which every port subgraph can meet.
+
+    Every H_X row of this [[6,1]] code has weight 2, so the cap read off the code is 2 -- shorter
+    than the 3-cycle its port subgraph carries, and a 3-cycle has no chord to split.
+    """
+    from typing import Any
+
+    from qldpc.experimental.surgery import bridge as bridge_module
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    matrix_x = np.array([[0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 1, 0]])
+    matrix_z = np.array([[0, 1, 1, 1, 1, 0], [1, 1, 1, 0, 1, 1], [1, 0, 0, 1, 0, 1]])
+    code = codes.CSSCode(matrix_x, matrix_z)
+    assert bridge_module._max_basis_stabilizer_weight(code, Pauli.X) == 2
+
+    x = np.array([0, 0, 0, 1, 1, 1], dtype=np.uint8)
+    gadget = build_gadget(code, x, basis=Pauli.X)
+    assert len(gadget.support) == 3
+
+    real_cellulate = bridge_module._cellulate_port_subgraph
+    seen: list[int] = []
+
+    def _record(G_aux: Any, ports: tuple[int, ...], *, max_len: int) -> list[tuple[int, int]]:
+        seen.append(max_len)
+        return real_cellulate(G_aux, ports, max_len=max_len)
+
+    monkeypatch.setattr(bridge_module, "_cellulate_port_subgraph", _record)
+
+    bridge = bridge_module.build_bridge(gadget, gadget)
+    assert seen == [3, 3]
+    assert bridge.width == 3
+
+
+def test_cellulate_max_len_default_reads_an_empty_measured_basis_as_zero() -> None:
+    """A code with no measured-basis checks contributes 0 to the derived cap, not an error.
+
+    Only the complementary basis feeds the auxiliary graph the cap governs, so such a code bridges
+    normally -- on the floor of 3.
+    """
+    from qldpc.experimental.surgery import bridge as bridge_module
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    matrix_z = np.array([[1, 1, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1]])
+    code = codes.CSSCode(np.zeros((0, 6), dtype=int), matrix_z)
+    assert bridge_module._max_basis_stabilizer_weight(code, Pauli.X) == 0
+
+    x = np.asarray(code.get_logical_ops(Pauli.X)[2]).astype(np.uint8)
+    gadget = build_gadget(code, x, basis=Pauli.X)
+    bridge = bridge_module.build_bridge(gadget, gadget)
+    assert bridge.width == len(gadget.support)
 
 
 def test_canonical_H_R_rejects_w_below_2() -> None:

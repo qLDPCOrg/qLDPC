@@ -1228,19 +1228,10 @@ def test_detector_coords_steane_round_1_reliable() -> None:
 def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
     """basis=Z gadget: round-1 reliable detector lanes ⊆ {4, 5}; no lane 2 or 3 leakage.
 
-    For Steane logical-Z under basis=Pauli.Z, G happens to be empty (F = H_X[C_0, V_0] is invertible
-    for this specific fixture), so lane 5 does not actually appear. What this test pins down is the
-    **negative-direction basis symmetry**: the lane map must NOT route G ancillas to lane 2 (data
-    H_X) nor χ ancillas to lane 3 in the basis=Z basis-swap. If `_check_lane_map`
-    mis-classified G as data H_X when basis=Z, lane 2 would appear in the reliable detectors (since
-    G ancillas live in checks_x[m_X:] for basis=Z and ARE deterministically +1 on the |0⟩^n
-    protocol-default init — but G is empty in this fixture, so the leak would also be empty; we use
-    this test as a guard against any future regression where G becomes non-empty AND the basis-swap
-    is broken).
-
-    For Steane Z̄ (3-qubit support, 3 X-checks, F full-rank):
-      - reliable_x = G rows (empty)
-      - reliable_z = data H_Z rows (3 of them, lane=4)
+    The lane map must not route G ancillas to lane 2 (data H_X) nor χ ancillas to lane 3 when the
+    basis swaps their matrix slots. Steane's Z̄ gadget has an empty G, so lane 5 never appears and
+    the leak that would expose the misrouting is itself empty; the test stands as a guard for a
+    fixture whose G is non-empty.
 
     DETECTOR coord order is ``(round, lane, check_id)``, so lane is at index 1 of the tuple.
     """
@@ -1281,8 +1272,9 @@ def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
 def test_detector_round_coordinate_advances_once_per_round(joint: bool) -> None:
     """Coordinate 0 of every detector is its round, spanning 0 through ``rounds``.
 
-    Each builder advances it at the top of its repeat block, and both share the advance before the
-    final data readout, so rounds is set above 1 to reach the repeat-block site.
+    Each builder advances it inside its repeat block, after that round's gates and measurements and
+    immediately before its detectors, and both share the advance before the final data readout, so
+    rounds is set above 1 to reach the repeat-block site.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import (
@@ -1302,6 +1294,36 @@ def test_detector_round_coordinate_advances_once_per_round(joint: bool) -> None:
 
     rounds_seen = {int(coords[0]) for coords in circuit.get_detector_coordinates().values()}
     assert rounds_seen == {0, 1, 2, 3}
+
+
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
+def test_sliding_window_decoder_windows_a_surgery_circuit_by_round(basis: PauliXZ) -> None:
+    """A window decoder handed the DEM with no time mapping of its own recovers the rounds.
+
+    SlidingWindowDecoder's default time index is coordinate 0 of each detector, which is the reason
+    the round goes there. This exercises that end to end -- through keep_only_observable and the DEM
+    conversion -- rather than reading the coordinates off the circuit. Seven round values at
+    window_size=3, stride=1 give five windows sliding one round at a time.
+    """
+    from qldpc.circuits.noise_model import DepolarizingNoiseModel
+    from qldpc.decoders.sinter import SlidingWindowDecoder
+    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit, keep_only_observable
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(basis)[0]).astype(np.uint8)
+    gadget = build_gadget(code, x, basis=basis)
+    circuit = keep_only_observable(
+        build_single_ppm_circuit(gadget, rounds=6, noise_model=DepolarizingNoiseModel(p=1e-3)), 0
+    )
+    dem = circuit.detector_error_model(decompose_errors=False)
+    round_of = {det: int(coords[0]) for det, coords in dem.get_detector_coordinates().items()}
+
+    decoder = SlidingWindowDecoder(window_size=3, stride=1)
+    decoder.compile_decoder_for_dem(dem)
+
+    spans = [sorted({round_of[det] for det in detection}) for detection, _ in decoder.windows]
+    assert spans == [[0, 1, 2], [1, 2, 3], [2, 3, 4], [3, 4, 5], [4, 5, 6]]
 
 
 def test_joint_ppm_qubit_coords_intercode_layout() -> None:
@@ -1544,18 +1566,14 @@ def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
 
     Webster, Smith, Cohen arXiv:2511.15989 §II.1 gives the single-round identity
     Z̄ = ∏_{v ∈ support} A_v on the merged stabilizer group: the XOR of one round's meas-check
-    outcomes equals the eigenvalue bit of Z̄. Reading at the final QEC round should be
-    decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D); detectors
-    carry the FT load round-to-round.
+    outcomes equals the eigenvalue bit of Z̄.
 
-    Therefore obs0 = int(state) for every R ≥ 1:
-      * state="0" (|0⟩^n → Z̄=+1): obs0 = 0
-      * state="1" (|1⟩^n → Z̄=−1, wt(Z̄_Steane)=3 odd): obs0 = 1
+    Therefore obs0 = int(state) for every R ≥ 1, since |0⟩_L gives Z̄ = +1 and |1⟩_L gives Z̄ = −1.
 
-    This R-invariance is exactly what the single-round identity guarantees; any round-index drift in
-    _surgery_qec_cycle, _surgery_observable, or MeasurementRecord.get_target_rec would break it for
-    some R. It also rules out reading the observable as an XOR across all R rounds, which collapses
-    to R·m_v mod 2 and is silently 0 for every even R.
+    Any round-index drift in _surgery_qec_cycle, _surgery_observable, or
+    MeasurementRecord.get_target_rec would break that invariance for some R. The R sweep also rules
+    out reading the observable as an XOR across all R rounds, which collapses to R·m_v mod 2 and is
+    silently 0 for every even R.
     """
     from qldpc.experimental.surgery.circuit import (
         build_single_ppm_circuit,
@@ -1581,8 +1599,6 @@ def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
             break
     obs0 = np.bitwise_xor.reduce(raw[:, [n_meas + off for off in obs0_recs]], axis=1)
     rate = float(obs0.mean())
-    # Webster single-round identity: obs0 = last-round XOR of meas-checks
-    # = eigenvalue bit of Z̄ on the merged group, independent of R.
     expected_obs0 = int(state)
     assert rate == float(expected_obs0), (
         f"rounds={rounds}, state={state!r}: obs0 rate {rate:.3f} != "
@@ -1596,29 +1612,14 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
 ) -> None:
     """Inject X_ERROR(1.0) on data qubit ``error_qubit`` before the first QEC round.
 
-    Injected between state prep and the first QEC round of the Steane basis=Z PPM. Assert exactly
-    the round-1 Z-stab detectors whose support contains ``error_qubit`` fire (by row index, not just
-    count).
+    Injected between state prep and the first QEC round of the Steane basis=Z PPM, whose round-1
+    reliable Z-checks compare the measured syndrome to +1. An X on data qubit i flips the parity of
+    every Z-stab whose support contains i, so exactly those detectors must fire, and the assertion
+    compares the fired set by row index rather than by count.
 
-    Why X_ERROR (not data_init):
-    * Stim's detector sampler reports ``actual XOR tableau-predicted``.
-      A state-prep-only change is already known to the tableau, so
-      detectors stay 0 (no deviation from prediction).
-    * X_ERROR(1.0) is a noise channel — the tableau prediction is
-      computed without noise, so applying X always deviates the
-      measured Z-stab parities from the prediction, firing the
-      affected detectors.
-
-    Why this catches stim wiring bugs:
-    * Round-1 reliable Z-checks compare measured syndrome to +1.
-    * An X error on data qubit i flips the parity of every Z-stab whose
-      support contains i — exactly those detectors must fire, no others.
-    * CX target/control swap, wrong measurement basis, or EdgeColoring
-      delaying a check to a later round all break this exact-match
-      pattern loudly.
-    * The assertion checks the FIRED SET against the expected set of
-      Z-stab row indices (not just the count) — a bug that swaps rows
-      while preserving cardinality is caught.
+    X_ERROR rather than a data_init change because stim's detector sampler reports actual XOR
+    tableau-predicted: a prep-only change is already in the tableau prediction and fires nothing,
+    while a noise channel is not, so the affected detectors always deviate.
     """
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -1661,20 +1662,11 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
     )
     events = detection_events[0]
 
-    # Identify ROUND-1 reliable Z-side detectors via the clean reference:
-    # deterministic-0 detectors emitted in the round-1 slab (round
-    # coordinate 0, before SHIFT_COORDS). Steane basis=Z rounds=1 emits 6
-    # such detectors total — 3 reliable round-1 Z-checks (round=0) and 3
-    # final-readout cross-checks (round=1, after SHIFT_COORDS). We want
-    # only the round-1 set: those are the ones flipped by X errors
-    # injected before the first CZ extraction (the post-SHIFT detectors
-    # check (round-1 syndrome) XOR (data-derived syndrome), which is
-    # invariant under prep-time X errors and therefore stays at 0).
-    #
-    # The round-1 reliable detectors are emitted in data-H_Z row order
-    # (set by _classify_reliable_round1_checks iterating
-    # qubit_ids.checks_z[:m_Z]), so deterministic_zero_round1[j]
-    # corresponds to H_Z row j.
+    # Identify ROUND-1 reliable Z-side detectors from the clean reference: the deterministic-0
+    # detectors with round coordinate 0. Only those are flipped by a prep-time X error; the
+    # post-SHIFT detectors compare the round-1 syndrome against the data-derived one and stay at 0.
+    # They are emitted in data-H_Z row order, set by _classify_reliable_round1_checks iterating
+    # qubit_ids.checks_z[:m_Z], so deterministic_zero_round1[j] corresponds to H_Z row j.
     clean_sampler = clean_circuit.compile_detector_sampler()
     clean_events, _ = clean_sampler.sample(
         shots=256,
@@ -1698,9 +1690,6 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
 
     # Steane Z-stabs touching error_qubit (row indices)
     z_stabs_touching = {int(j) for j in np.where(HZ[:, error_qubit] == 1)[0]}
-    # Map each round-1 deterministic-zero detector position (sorted by
-    # emission order) to its corresponding Z-stab row index. The fired
-    # set is the set of row indices whose detector fired.
     fired_z_stab_rows = {j for j in range(len(deterministic_zero)) if events[deterministic_zero[j]]}
     assert fired_z_stab_rows == z_stabs_touching, (
         f"X_ERROR on qubit {error_qubit}: expected Z-stab rows "
@@ -1835,7 +1824,7 @@ def test_single_ppm_even_rounds_truth_table() -> None:
     Same regression as test_joint_ppm_even_rounds_truth_table but for the single-patch PPM
     construction. Sweeps "+" and "-" data inits in basis=X and "0", "1" in basis=Z to expose the
     cumulative-XOR bug at even rounds. Uses compile_sampler + manual XOR for the same reason as
-    Task 1.
+    that test.
     """
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit, logical_state_init
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -1922,10 +1911,9 @@ def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
     """Single-PPM DEM constructs cleanly on BB [[36, 8]] with boost.
 
     Contract test: single-PPM does not call build_bridge / SkipTree, so nothing in the bridge's
-    handling of boosts or of duplicate weight-2 rows can reach it. The fixture combines both of the
-    conditions the bridge is sensitive to — BB [[36, 8]] has duplicate weight-2 incidence rows on
-    Z̄_0, and the Cheeger boost takes h from 1 to 2 — so if a refactor ever routes single-PPM through
-    bridge code, stim's non-deterministic-detector rejection catches it here.
+    handling of boosts or of duplicate weight-2 rows can reach it. The fixture asserts both
+    conditions the bridge is sensitive to, so if a refactor ever routes single-PPM through bridge
+    code, stim's non-deterministic-detector rejection catches it here.
     """
     import sympy
 
@@ -1945,8 +1933,6 @@ def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
     assert g.incidence.shape[0] > np.unique(g.incidence, axis=0).shape[0], (
         "test premise broken: BB [[36, 8]] Z̄_0 restriction should have duplicate κ rows"
     )
-    # BB[[36, 8]] Z̄_0 has h(F) = 1.0; boost to h ≥ 2 to exercise the boosted path atop the
-    # duplicate-row interface (the double-boundary stressor for the bridge bugs).
     assert cheeger_constant(g) == 1.0
     g = boost_gadget(g, method="combinatorial", target=2.0, max_extra_qubits=20, seed=3)
 
@@ -2020,16 +2006,14 @@ def _lightest_undetectable_logical_fault(circuit: stim.Circuit) -> int | None:
 def test_repeated_rounds_close_the_single_fault_readout_path(basis: PauliXZ) -> None:
     """One fault flips the PPM outcome undetectably at rounds=1, but never at rounds=3.
 
-    obs0 is the XOR of the measured-basis check outcomes of the final QEC round, so at rounds=1
-    nothing compares that round against another and a single mechanism on the readout suffices. The
-    repeated rounds are what supply the detector redundancy, which is the circuit's whole
-    fault-tolerance argument; this pins that they deliver it.
+    obs0 is the XOR of the last QEC round's meas-check (S'_meas) outcomes, so at rounds=1 nothing
+    compares that round against another and a single mechanism on the readout suffices. The repeated
+    rounds are what supply the detector redundancy, which is the circuit's whole fault-tolerance
+    argument; this pins that they deliver it.
 
-    The weight-2 search is exhaustive, so a rounds=3 result of 2 is a genuine pair and a result of
-    None means the fault distance is at least 3. Steane's Z̄ gadget reaches only 2: its F is 2x3
-    with an empty gauge, leaving almost no redundancy, and a prep X error on one support qubit flips
-    Z̄ = Z_1 Z_3 Z_5 outright while a second fault masks its detectors. Distance preservation is
-    therefore not asserted here -- see ``cheeger_constant`` for what is and is not established.
+    The weight-2 search is exhaustive, so a rounds=3 result of 2 is a genuine pair and None means
+    the fault distance is at least 3. Steane's Z̄ gadget reaches only 2, so distance preservation is
+    not asserted here -- see ``cheeger_constant`` for what is and is not established.
     """
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit

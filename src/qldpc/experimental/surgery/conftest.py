@@ -1,14 +1,10 @@
 """Shared reference data and helpers for the surgery tests.
 
-The seed sets are from Webster, Smith, and Cohen, arXiv:2511.15989 Appendix A. The `expected_*`
-entries come from Table 1 of the same paper: `expected_bare_gadget_qubits_per_seed` and
-`expected_cheeger_boost_qubits` are the two terms of its "Gadget Qubits" column, written there as
-e.g. (49+8), and `expected_bridge_qubits_per_pair` is its "Bridge Qubits" column. They are reference
-values recorded alongside the seeds; the tests that check those counts carry their own copies.
+The seed sets and the `expected_*` counts are from Webster, Smith, and Cohen, arXiv:2511.15989
+Appendix A and Table 1; the tests that check those counts carry their own copies.
 
-These helpers exist for the surgery tests. Nothing outside them should rely on the module: it is a
-pytest conftest, so pytest imports it for every collection under this directory, and it ships inside
-the wheel, which makes the names reachable but not supported.
+Nothing outside the surgery tests should rely on this module: it ships inside the wheel, which makes
+its names reachable but not supported.
 
 Copyright 2026 The qLDPC Authors
 

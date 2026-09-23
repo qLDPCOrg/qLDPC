@@ -218,6 +218,25 @@ def test_boost_distance_rejects_negative_max_extra_qubits() -> None:
         _boost_gadget_distance(g, target_distance=2, max_extra_qubits=-1)
 
 
+@pytest.mark.parametrize("target", [0.9, -2.0])
+def test_boost_gadget_distance_rejects_too_small_a_target_by_its_own_value(
+    target: float,
+) -> None:
+    """The rejection quotes the target the caller wrote, not what int() made of it.
+
+    method='distance' casts the target to an int, and anything in (0, 1) casts to 0, so validating
+    after the cast reports a value the caller never passed. 0.9 pins that the cast is what gets
+    checked; -2.0 pins that the outer guard, not the inner one, is what answers a negative target.
+    """
+    from qldpc.experimental.surgery import boost_gadget, build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=Pauli.X)
+    with pytest.raises(ValueError, match=f"got {target}"):
+        boost_gadget(g, method="distance", target=target)
+
+
 def test_boost_gadget_rejects_unknown_method() -> None:
     """boost_gadget(method='bogus') raises ValueError."""
     from qldpc.experimental.surgery import boost_gadget, build_gadget
@@ -370,16 +389,24 @@ def _webster0_gadget() -> GadgetLayout:
     return build_gadget(code, _webster_x_bar_operator(data), basis=Pauli.X)
 
 
-def _stub_distance_bound(monkeypatch: pytest.MonkeyPatch, bounds: list[int]) -> None:
-    """Replace the BP+OSD distance bound with a scripted sequence whose last value repeats."""
-    calls = [0]
+def _stub_distance_bound(
+    monkeypatch: pytest.MonkeyPatch, bounds: list[int] | dict[PauliXZ, int]
+) -> list[PauliXZ]:
+    """Replace the BP+OSD distance bound with a scripted value, and record the paulis asked for.
+
+    A list scripts consecutive calls and its last value repeats; a mapping answers by pauli, which
+    pins which bound a verdict came from rather than which call.
+    """
+    seen: list[PauliXZ] = []
 
     def _bound(self: CSSCode, pauli: PauliXZ, **kwargs: object) -> int:
-        index = min(calls[0], len(bounds) - 1)
-        calls[0] += 1
-        return bounds[index]
+        seen.append(pauli)
+        if isinstance(bounds, dict):
+            return bounds[pauli]
+        return bounds[min(len(seen) - 1, len(bounds) - 1)]
 
     monkeypatch.setattr(CSSCode, "get_distance_bound_with_decoder", _bound)
+    return seen
 
 
 def test_boost_distance_raises_when_target_unreachable_in_budget() -> None:
@@ -401,22 +428,22 @@ def test_boost_distance_raises_when_target_unreachable_in_budget() -> None:
         )
 
 
-def test_boost_distance_returns_an_augmentation_that_passes(
+def test_boost_distance_accepts_a_bound_equal_to_the_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_boost_gadget_distance returns an augmented candidate that clears the screen.
+    """The screen accepts at equality: a bound of exactly target_distance passes rather than fails.
 
-    The bound is scripted so the bare gadget fails and the next candidate passes, which exercises
-    the accept path without paying for BP+OSD.
+    Scripting both bounds at the target leaves no augmentation budget, so the bare gadget comes back
+    only if each comparison admits equality.
     """
     from qldpc.experimental.surgery.cheeger import _boost_gadget_distance
 
     g = _webster0_gadget()
-    _stub_distance_bound(monkeypatch, [0, 999])
+    _stub_distance_bound(monkeypatch, {Pauli.X: 5, Pauli.Z: 5})
     boosted = _boost_gadget_distance(
-        g, target_distance=5, max_extra_qubits=1, num_trials_per_step=1, seed=0
+        g, target_distance=5, max_extra_qubits=0, num_trials_per_step=1, seed=0
     )
-    assert boosted.incidence.shape[0] > g.incidence.shape[0]
+    assert boosted.incidence.shape[0] == g.incidence.shape[0]
 
 
 def test_boost_distance_skips_unusable_augmentation_sample(
@@ -424,8 +451,10 @@ def test_boost_distance_skips_unusable_augmentation_sample(
 ) -> None:
     """A sample yielding no fresh degree-2 rows is skipped, and the search moves to the next sample.
 
-    The first sample returns None and the second delegates to the real sampler, so a boosted gadget
-    comes back only if the unusable sample is skipped rather than ending the search.
+    The bound is scripted so the bare gadget fails and a later candidate passes, reaching the accept
+    path without paying for BP+OSD. The first sample returns None and the second delegates to the
+    real sampler, so a boosted gadget comes back only if the unusable sample is skipped rather than
+    ending the search.
     """
     from qldpc.experimental.surgery import cheeger as cheeger_module
 
@@ -498,7 +527,7 @@ def test_boost_combinatorial_single_column_incidence_is_a_no_op() -> None:
 
 
 def test_boost_combinatorial_stops_when_every_cut_edge_is_already_a_row() -> None:
-    """The greedy search ends when no degree-2 row can raise |∂v*|.
+    """The greedy search ends when every pair spanning the worst cut already shares a row of F.
 
     Steane's F is the weight-2 complement of the identity on 3 columns, so all three cut pairs are
     already present. The budget is left generous to pin that the pair supply, not the budget, is
@@ -518,12 +547,12 @@ def test_boost_combinatorial_stops_when_every_cut_edge_is_already_a_row() -> Non
 def test_boost_distance_screen_consults_the_z_bound(monkeypatch: pytest.MonkeyPatch) -> None:
     """A candidate clearing the X screen but failing the Z screen is rejected.
 
-    The bare gadget is scripted to pass on X and fail on Z with no augmentation budget, so the only
-    way to reach the screen's verdict is through the Z bound.
+    Answering by pauli rather than by call order pins which bound each verdict came from: a screen
+    that asked for the X bound twice would pass on the value scripted for X.
     """
     from qldpc.experimental.surgery.cheeger import _boost_gadget_distance
 
-    _stub_distance_bound(monkeypatch, [999, 0])
+    seen = _stub_distance_bound(monkeypatch, {Pauli.X: 999, Pauli.Z: 0})
     with pytest.raises(RuntimeError, match="could not reach target_distance"):
         _boost_gadget_distance(
             _webster0_gadget(),
@@ -532,3 +561,4 @@ def test_boost_distance_screen_consults_the_z_bound(monkeypatch: pytest.MonkeyPa
             num_trials_per_step=1,
             seed=0,
         )
+    assert seen == [Pauli.X, Pauli.Z]

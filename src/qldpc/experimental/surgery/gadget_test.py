@@ -170,14 +170,7 @@ def test_step3_assemble_csscode_with_distinct_nV_nC() -> None:
     """Synthetic CSS code where nV != nC — pins F_tilde's shape.
 
     Uses a 5-qubit CSS code with k=1, picking a logical-X representative whose support size (nV=4)
-    differs from the number of Z-checks it touches (nC=2). F_tilde is an indicator matrix, set
-    entrywise as F_tilde[j, k] = 1; assigning a whole row of F instead would make numpy raise, since
-    F[k] has shape (nV=4,) against a row width of (nC=2).
-
-    Verifies:
-    1. CSS commutation: HX_merged @ HZ_merged.T == 0 over GF(2).
-    2. Indicator form: each Z-check in data_checks attaches to EXACTLY ONE ancilla (row-sum == 1 in
-       the ancilla block).
+    differs from the number of Z-checks it touches (nC=2).
     """
     from qldpc.experimental.surgery.gadget import (
         _step1_restriction,
@@ -185,14 +178,7 @@ def test_step3_assemble_csscode_with_distinct_nV_nC() -> None:
         _step3_assemble,
     )
 
-    # 5-qubit CSS code (k=1):
-    #   HX = [[1,1,1,0,0],[0,0,0,1,1]]
-    #   HZ = [[1,1,0,0,0],[1,0,1,0,0]]
-    # Commutativity check (each pair of rows):
-    #   row0(HX)·row0(HZ) = 1+1+0+0+0 = 0 mod 2 ✓
-    #   row0(HX)·row1(HZ) = 1+0+1+0+0 = 0 mod 2 ✓
-    #   row1(HX)·row0(HZ) = 0+0+0+0+0 = 0 mod 2 ✓
-    #   row1(HX)·row1(HZ) = 0+0+0+0+0 = 0 mod 2 ✓
+    # 5-qubit CSS code (k=1).
     HX_raw = np.array([[1, 1, 1, 0, 0], [0, 0, 0, 1, 1]], dtype=np.uint8)
     HZ_raw = np.array([[1, 1, 0, 0, 0], [1, 0, 1, 0, 0]], dtype=np.uint8)
     assert np.array_equal((HX_raw @ HZ_raw.T) % 2, np.zeros((2, 2), dtype=np.uint8)), (
@@ -201,10 +187,8 @@ def test_step3_assemble_csscode_with_distinct_nV_nC() -> None:
 
     code = codes.CSSCode(HX_raw, HZ_raw)  # type: ignore[arg-type]
 
-    # Logical X rep: x = [1,1,1,1,0].
-    #   HZ @ x = [1+1+0,1+0+1] = [0,0] mod 2  =>  x in ker(HZ) ✓
-    #   row(HX) = span{[1,1,1,0,0],[0,0,0,1,1]}: cannot produce [1,1,1,1,0]
-    #   because the last coord would require b=0 while 4th coord requires b=1 ✓ logical
+    # x is outside the row space of HX: coordinate 3 forces the second generator in, coordinate 4
+    # forces it out. So x is a logical operator, not a stabilizer.
     x_logical = np.array([1, 1, 1, 1, 0], dtype=np.uint8)
     assert np.array_equal((HZ_raw @ x_logical) % 2, np.zeros(2, dtype=np.uint8)), (
         "x_logical not in ker(HZ)"
@@ -323,10 +307,7 @@ def test_webster_table_1_bare_gadget_qubits_exact(code_index: int, n_anc: int) -
 
 
 def test_build_gadget_basis_is_required() -> None:
-    """basis has no default: a CSS code's X-logical and Z-logical can coincide.
-
-    For a self-dual code (e.g. Steane) they coincide, so the caller must declare intent explicitly.
-    """
+    """basis has no default: a CSS code's X-logical and Z-logical can coincide, as Steane's do."""
     from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
@@ -452,12 +433,9 @@ def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None
 def test_step2_gauge_fix_rows_linearly_independent() -> None:
     """G rows from _step2_gauge_fix are linearly independent over GF(2).
 
-    Webster §II.1 step 3 requires |S_L| - wt(L) + 1 INDEPENDENT gauge constraints. The existing
-    test verifies G @ F == 0 (i.e. G is in ker(F.T)) but not that G has full row rank.
-
-    A degenerate F could let the gauge fix return redundant rows, inflating g.gauge.shape[0]
-    without changing the actual gauge structure. The Cain Extended Data Table 3 bb_18 G=20
-    reproduction would catch the final count but not the underlying rank degeneracy.
+    Webster §II.1 step 3 requires |S_L| - rank(F) INDEPENDENT gauge constraints, and a degenerate F
+    could let the gauge fix return redundant rows, inflating g.gauge.shape[0] without changing the
+    gauge structure.
     """
     import galois
     import sympy
@@ -526,19 +504,13 @@ def test_step2_gauge_fix_rows_linearly_independent() -> None:
     for label, code, seed_op in cases:
         g = build_gadget(code, seed_op, basis=Pauli.X)
         gauge = g.gauge
-        # All three fixture cases have non-empty G in practice (Steane G is 1×3,
-        # Webster's growing with code size); the row-rank invariant is what's
-        # interesting. Empty-G is exercised by test_step3_assemble_steane_css_commutes
-        # via _step2_gauge_fix on a synthetic full-rank F.
+        # Empty G has its own test; the row-rank invariant is what matters here.
         assert gauge.shape[0] > 0, f"{label}: expected G to be non-empty in this fixture set"
         rank = int(np.linalg.matrix_rank(F2(gauge.astype(np.uint8).tolist())))
         assert rank == gauge.shape[0], (
             f"{label}: gauge-fix G has {gauge.shape[0]} rows but rank only "
             f"{rank}. _step2_gauge_fix returned redundant rows on this F."
         )
-        # Re-assert the existing G @ F == 0 invariant alongside.
-        # (G is a basis of ker(F.T), i.e. G F = 0 over GF(2);
-        # see gadget._step2_gauge_fix and existing test_step2_gauge_fix.)
         incidence_mat = g.incidence.astype(np.uint8)
         commute = (gauge.astype(np.uint8) @ incidence_mat) % 2
         assert not commute.any(), f"{label}: G @ F != 0 (gauge-fix output failed commutation)."
@@ -632,20 +604,56 @@ def test_build_gadget_rejects_zero_x() -> None:
         build_gadget(code, zero, basis=Pauli.X)
 
 
-@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
-def test_build_gadget_rejects_a_stabilizer_support(basis: PauliXZ) -> None:
-    """A stabilizer of the measured basis satisfies the check equation but measures the identity."""
+@pytest.mark.parametrize("entry", [2, 257])
+def test_build_gadget_rejects_a_non_binary_x(entry: int) -> None:
+    """x indicates a support, so an entry outside {0, 1} is rejected rather than reinterpreted.
+
+    The cast to uint8 wraps 257 to 1, which would otherwise pass as a different vector entirely. An
+    even entry like 2 survives the cast and is taken at face value by the check equation, which then
+    rejects x for the wrong reason.
+    """
     from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.int_)
+    x[np.flatnonzero(x)[0]] = entry
+    with pytest.raises(ValueError, match="binary support vector"):
+        build_gadget(code, x, basis=Pauli.X)
+
+
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
+@pytest.mark.parametrize(
+    "code", [codes.SteaneCode(), codes.SurfaceCode(3)], ids=["steane", "surface3"]
+)
+def test_build_gadget_rejects_a_stabilizer_support(code: codes.CSSCode, basis: PauliXZ) -> None:
+    """A stabilizer of the measured basis satisfies the check equation but measures the identity.
+
+    Steane is self-dual, so its measured-basis stabilizers lie in the complementary basis's row
+    space too and the test cannot see which of the two matrices the guard reads. The surface code is
+    not self-dual, and there they do not, so only a guard reading the measured basis rejects them.
+    """
+    from qldpc.experimental.surgery.gadget import build_gadget
+
     H_same = np.asarray(code.matrix_x if basis is Pauli.X else code.matrix_z).astype(np.uint8)
-    stabilizer = H_same[0]
-    # The guard the gadget relies on cannot catch this: a stabilizer does commute with everything in
-    # the complementary basis.
-    H_check = np.asarray(code.matrix_z if basis is Pauli.X else code.matrix_x).astype(np.uint8)
-    assert not ((H_check @ stabilizer) % 2).any()
     with pytest.raises(ValueError, match="row space"):
-        build_gadget(code, stabilizer, basis=basis)
+        build_gadget(code, H_same[0], basis=basis)
+
+
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
+def test_build_gadget_accepts_a_code_with_no_measured_basis_checks(basis: PauliXZ) -> None:
+    """An empty measured basis spans only the zero vector, so no nonzero x is a stabilizer.
+
+    TrivialCode carries no checks in either basis, so every single-qubit Pauli is a logical operator
+    and the restriction is a lone support vertex with no ancillas attached.
+    """
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.TrivialCode(3)
+    x = np.array([1, 0, 0], dtype=np.uint8)
+    gadget = build_gadget(code, x, basis=basis)
+    assert gadget.support == (0,)
+    assert gadget.incidence.shape == (0, 1)
+    assert gadget.gauge.shape == (0, 0)
 
 
 def test_build_gadget_rejects_a_non_qubit_code() -> None:

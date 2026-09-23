@@ -5,7 +5,7 @@ result into check matrices and has no counterpart in the paper:
     _step1_restriction  — the restriction F that Webster §II.1 steps 1-2 define: a κ_j per Z-check
                           S_j ∈ S_L, a χ_i per qubit q_i ∈ supp(L), with κ_j ∈ supp(χ_i) iff
                           q_i ∈ supp(S_j)
-    _step2_gauge_fix    — Webster §II.1 step 3: the |S_L| - wt(L) + 1 gauge-fixing checks spanning a
+    _step2_gauge_fix    — Webster §II.1 step 3: the |S_L| - rank(F) gauge-fixing checks spanning a
                           basis of ker(H_X,gadget)
     _step3_assemble     — block assembly of HX_merged, HZ_merged
 
@@ -75,8 +75,6 @@ def _step1_restriction(
 ) -> tuple[tuple[int, ...], tuple[int, ...], np.ndarray]:
     """Webster §II.1 steps 1-2 — V_0 = supp(x); C_0 = checks on V_0; F = H_complement[C_0, V_0].
 
-    gadget notation: V_0 → support; C_0 → data_checks; F → incidence.
-
     For basis=Pauli.X: incidence = H_Z[data_checks, support] (the complementary basis to the
     measured logical). For basis=Pauli.Z: incidence = H_X[data_checks, support].
     """
@@ -104,8 +102,6 @@ def _step1_restriction(
 def _step2_gauge_fix(incidence: np.ndarray) -> np.ndarray:
     """Webster §II.1 step 3 — G whose rows form a canonical basis of ker(F.T) over GF(2).
 
-    gadget notation: F → incidence; G → gauge.
-
     Uses galois ``left_null_space`` (row-reduced) so the basis is deterministic.
     """
     if incidence.size == 0:
@@ -120,8 +116,6 @@ def _assemble_HX_L1(
     incidence: np.ndarray,
 ) -> np.ndarray:
     """L=1 measured-basis block assembly: [[H_data, 0], [E_V0, F^T]] over GF(2).
-
-    gadget notation: V_0 → support; F → incidence.
 
     This builds the side carrying the χ measurement checks, which is the X side for basis=X and the
     Z side for basis=Z; callers pass the matching data check matrix. The complementary side has a
@@ -155,8 +149,6 @@ def _step3_assemble(
     basis: PauliXZ = Pauli.X,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Block assembly of HX_merged, HZ_merged from the Webster §II.1 pieces.
-
-    gadget notation: χ → S'_meas (meas-basis ancilla rows); G → gauge.
 
     basis=X (default): χ rows added to HX_merged, G to HZ_merged.
     basis=Z: χ rows added to HZ_merged, G to HX_merged (basis-symmetric dual).
@@ -216,17 +208,21 @@ def build_gadget(
     basis=Pauli.Z: measures a logical Z (PPM of Z̄). Validates H_X @ x == 0.
 
     Raises:
-        ValueError: code is not over GF(2); basis is neither Pauli.X nor Pauli.Z; x fails the
-            complementary check equation (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z); x is
-            the zero vector; or x lies in the row space of the measured basis's check matrix, making
-            it a stabilizer rather than a logical operator.
+        ValueError: code is not over GF(2); x has an entry outside {0, 1}; basis is neither Pauli.X
+            nor Pauli.Z; x fails the complementary check equation (H_Z @ x == 0 for basis=X,
+            H_X @ x == 0 for basis=Z); x is the zero vector; or x lies in the row space of the
+            measured basis's check matrix, making it a stabilizer rather than a logical operator.
     """
     if code.field.order != 2:
         raise ValueError(
             f"build_gadget requires a qubit code, got one over GF({code.field.order}). The gauge "
             f"fix, the Cheeger boost and the merged-code assembly are all mod 2."
         )
-    x = np.asarray(x).astype(np.uint8)
+    x = np.asarray(x)
+    # Check before the cast to uint8, which wraps 256 to 0 and 257 to 1 rather than complaining.
+    if ((x != 0) & (x != 1)).any():
+        raise ValueError(f"x must be a binary support vector, got entries outside {{0, 1}}: {x}.")
+    x = x.astype(np.uint8)
     if basis is Pauli.X:
         H_check = np.asarray(code.matrix_z).astype(np.uint8)
         H_same = np.asarray(code.matrix_x).astype(np.uint8)
@@ -248,8 +244,8 @@ def build_gadget(
     # The check equation above admits the whole normalizer, so every stabilizer of the measured
     # basis passes it too. Such an x measures the identity, so reject it: x must not lie in the row
     # space of the measured basis's check matrix.
-    H_same_gf2 = galois.GF2(H_same.astype(np.int_).tolist())
-    x_gf2 = galois.GF2(x.astype(np.int_).tolist())
+    H_same_gf2 = galois.GF2(H_same.astype(np.int_))
+    x_gf2 = galois.GF2(x.astype(np.int_))
     if np.linalg.matrix_rank(np.vstack([H_same_gf2, x_gf2])) == np.linalg.matrix_rank(H_same_gf2):
         H_name = "H_X" if basis is Pauli.X else "H_Z"
         raise ValueError(
@@ -281,16 +277,13 @@ def _build_gadget_augmented(
 ) -> GadgetLayout:
     """Rebuild a GadgetLayout with incidence augmented by extra weight-2 rows.
 
-    gadget notation: F → incidence; F_extra → incidence_extra; κ → ancilla qubits.
-
     Each row of ``incidence_extra`` has weight 2 and corresponds to a new κ qubit not backed by any
     original Z-check (basis=X) or X-check (basis=Z). The function:
 
     1. Stacks incidence_aug = [incidence; incidence_extra].
     2. Recomputes G_aug = ker(incidence_aug^T) via _step2_gauge_fix.
-    3. Calls _step3_assemble with the original V_0 / C_0 plus the new κ rows.
-       The extra columns of tilde_F are all zero (no original check sits on the
-       new κ qubits).
+    3. Calls _step3_assemble with the original V_0 / C_0 plus the new κ rows. The extra columns of
+       tilde_F are all zero, since no original check sits on the new κ qubits.
 
     The returned ``incidence`` covers the new κ qubits, whose merged-code qubit indices come after
     the original ones.
