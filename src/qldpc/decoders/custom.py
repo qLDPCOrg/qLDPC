@@ -92,7 +92,7 @@ class RelayBPDecoder:
     - Reference: https://arxiv.org/abs/2506.01779
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
-    set to 1 when Relay-BP does not converge on a syndrome and to 0 otherwise.
+    set to 1 when the error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
     """
 
     def __init__(
@@ -120,10 +120,9 @@ class RelayBPDecoder:
                 constructed RelayBPDecoder will not be able to predict observable flips (or logical
                 error rates).
             include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
-            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when Relay-BP
-                does not converge on a syndrome and to 0 otherwise.  Without that bit, a
-                non-converged shot is reported as the error that Relay-BP settled on, which need
-                not reproduce the syndrome at all.
+            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the
+                error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
+                Without that bit, such a shot is reported as an ordinary inferred error.
             **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
                 relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
                 for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
@@ -196,7 +195,7 @@ class RelayBPDecoder:
         error = self.decoder.decode(detectors)
         if not self.has_erasure_bit:
             return error
-        erased = self._misses_syndrome(np.asarray(error)[None, :], detectors[None, :])
+        erased = ~self._reproduces_syndrome(np.asarray(error)[None, :], detectors[None, :])
         return np.append(error, erased[0])
 
     def decode_batch(
@@ -217,21 +216,22 @@ class RelayBPDecoder:
         )
         if not self.has_erasure_bit:
             return errors
-        erased = self._misses_syndrome(np.asarray(errors), detectors)
+        erased = ~self._reproduces_syndrome(np.asarray(errors), detectors)
         return np.hstack([errors, erased[:, None].astype(errors.dtype)])
 
-    def _misses_syndrome(
+    def _reproduces_syndrome(
         self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]
     ) -> npt.NDArray[np.bool_]:
-        """Whether each inferred error fails to reproduce the syndrome it was inferred from.
+        """Whether each inferred error reproduces the syndrome it was inferred from.
 
-        Relay-BP settles on its best guess whether or not it converges, and a guess that does not
-        reproduce the syndrome is an erasure.  Overflow of the unsigned accumulator is a reduction
-        modulo 256, which preserves parity, so the products need no wider type, and multiplying by
-        the transposed checks keeps the inferred errors in the layout they arrive in.
+        Relay-BP settles on a best guess whether or not it converges, so checking that guess is
+        what separates a syndrome it explained from one it could not.
+
+        The parity accumulates in uint8 and overflows for a check that many error mechanisms
+        address.  That is harmless: overflow reduces modulo 256, and only the low bit is read.
         """
         residuals = np.asarray(errors.astype(np.uint8, copy=False) @ self.pcm_transposed) & 1
-        return np.any(residuals != detectors, axis=1)
+        return np.all(residuals == detectors, axis=1)
 
     def __getattr__(self, name: str) -> Any:
         """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.
