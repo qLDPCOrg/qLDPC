@@ -24,6 +24,7 @@ from collections.abc import Callable, Collection, Iterator, Sequence
 import galois
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
 import stim
 
 from qldpc import codes, math
@@ -214,14 +215,9 @@ class LookupDecoder:
         observable flips (or, if predict_observable_flips, to the observable flips themselves).
         """
 
-        def _get_obs_flip(error: npt.NDArray[np.int_]) -> tuple[int, ...]:
-            """Map an error to its induced observable flips."""
-            if isinstance(observable_flip_matrix, galois.FieldArray):  # pragma: no cover
-                error = error.view(type(observable_flip_matrix))
-                obs_flip = (observable_flip_matrix @ error).view(np.ndarray)
-            else:
-                obs_flip = (observable_flip_matrix @ error).view(np.ndarray) % 2
-            return tuple(obs_flip.tolist())
+        get_observable_flip = LookupDecoder._build_observable_flip_func(
+            pcm, observable_flip_matrix, symplectic
+        )
 
         # For each "key" = (syndrome, observable_flip) combination, identify:
         # 1. The net log-probability of each key.
@@ -236,7 +232,7 @@ class LookupDecoder:
         for error, syndrome in LookupDecoder._iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
-            obs_flip = _get_obs_flip(error)
+            obs_flip = tuple(get_observable_flip(error).tolist())
             log_prob = -penalty_func(error)
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
@@ -371,6 +367,66 @@ class LookupDecoder:
         return penalty_func
 
     @staticmethod
+    def _build_observable_flip_func(
+        pcm: IntegerArray,
+        observable_flip_matrix: IntegerArray,
+        symplectic: bool,
+    ) -> Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]]:
+        """Build the map that takes an error to the observable flips that it induces.
+
+        The observable flip matrix is interpreted over the same field as the parity check matrix,
+        which is GF(2) unless the parity check matrix is a galois.FieldArray.  Entries outside that
+        field are reduced into it, but a galois.FieldArray over a different field is rejected: the
+        errors that get enumerated take their values from the parity check matrix's field, so an
+        observable over any other field cannot say what they flip.
+
+        With symplectic=True, an error assigns both an X and a Z component to each qudit, and the
+        flip that it induces in an observable is their symplectic product,
+        ``observable @ symplectic_conjugate(error)``.  That product is obtained by multiplying the
+        error by -symplectic_conjugate(observable_flip_matrix), in the same way that
+        _iter_errors_and_syndromes obtains a syndrome from a parity check matrix.
+        """
+        field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF(2)
+        if isinstance(observable_flip_matrix, galois.FieldArray) and (
+            type(observable_flip_matrix) is not field
+        ):
+            raise ValueError(
+                f"An observable flip matrix over {type(observable_flip_matrix).name} cannot be"
+                f" paired with a parity check matrix over {field.name}"
+            )
+
+        if not symplectic and field.is_prime_field:
+            # A prime field is the integers modulo its order, so the product can be taken over the
+            # integers, which is faster than field arithmetic and keeps a sparse matrix sparse.
+            integer_matrix = (
+                observable_flip_matrix.view(np.ndarray)
+                if isinstance(observable_flip_matrix, galois.FieldArray)
+                else observable_flip_matrix
+            )
+            order = field.order
+
+            def get_integer_flip(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+                """Map an error to the observable flips that it induces."""
+                return np.asarray(integer_matrix @ error) % order
+
+            return get_integer_flip
+
+        dense_matrix = (
+            observable_flip_matrix.todense()
+            if isinstance(observable_flip_matrix, scipy.sparse.spmatrix | scipy.sparse.sparray)
+            else observable_flip_matrix
+        )
+        matrix = field(np.asarray(dense_matrix, dtype=int) % field.order)
+        if symplectic:
+            matrix = -math.symplectic_conjugate(matrix)
+
+        def get_field_flip(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            """Map an error to the observable flips that it induces."""
+            return (matrix @ error.view(field)).view(np.ndarray)
+
+        return get_field_flip
+
+    @staticmethod
     def _iter_errors_and_syndromes(
         matrix: IntegerArray,
         max_weight: int,
@@ -483,14 +539,20 @@ class WeightedLookupDecoder(LookupDecoder):
         self.syndrome_to_candidates: dict[
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
+        get_observable_flip = None
+        if predict_observable_flips:
+            assert observable_flip_matrix is not None  # primarily for type-checking reasons
+            get_observable_flip = LookupDecoder._build_observable_flip_func(
+                pcm, observable_flip_matrix, symplectic
+            )
         for error, syndrome in LookupDecoder._iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
-            if predict_observable_flips:
-                assert observable_flip_matrix is not None  # primarily for type-checking reasons
-                output = (observable_flip_matrix @ error).view(np.ndarray) % 2
-            else:
-                output = error
+            output = (
+                error
+                if get_observable_flip is None
+                else get_observable_flip(error).astype(pcm.dtype)
+            )
             self.syndrome_to_candidates[syndrome].append(
                 (error, self._maybe_add_erasure_bit(output))
             )

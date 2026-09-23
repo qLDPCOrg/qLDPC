@@ -17,11 +17,15 @@ limitations under the License.
 
 from __future__ import annotations
 
+import collections
+import itertools
+
+import galois
 import numpy as np
 import pytest
 import stim
 
-from qldpc import decoders, math
+from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
 
 
@@ -287,6 +291,115 @@ def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> No
     # passing penalty_func=None returns the last-recorded (lowest-weight) consistent candidate
     decoded_error = decoder.decode(syndrome, penalty_func=None).view(code.field)
     assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+
+
+def test_quantum_observable_flip_prediction() -> None:
+    """A predicted observable flip is one that some error consistent with the syndrome induces.
+
+    The flip that an error induces in a logical operator is their symplectic product, which pairs
+    the X sector of one with the Z sector of the other.  A plain matrix product pairs each sector
+    with itself, and exchanging the sectors is independent of the characteristic, so getting this
+    wrong predicts unachievable flips over every field rather than only in odd characteristic.
+
+    A lookup table has nothing to predict from but the errors it enumerates, so the flips induced by
+    those errors are exactly the flips it may return.  The enumeration is shared with the decoder;
+    the symplectic product it is checked against is written out here.
+    """
+    for order in [2, 3]:
+        code = codes.SurfaceCode(3, field=order)
+        logicals = code.get_logical_ops()
+        decoder: decoders.Decoder
+
+        achievable_flips: dict[tuple[int, ...], set[tuple[int, ...]]] = collections.defaultdict(set)
+        for error, syndrome in decoders.LookupDecoder._iter_errors_and_syndromes(
+            code.matrix, 1, None, True
+        ):
+            conjugate = math.symplectic_conjugate(error.view(code.field))
+            achievable_flips[syndrome].add(tuple((logicals @ conjugate).view(np.ndarray).tolist()))
+
+        # at this weight every syndrome admits exactly one flip, so the check below is an equality;
+        # this pins that, since a syndrome admitting several flips would check much less
+        assert max(map(len, achievable_flips.values())) == 1
+
+        for decoder in [
+            decoders.LookupDecoder(
+                code.matrix,
+                max_weight=1,
+                observable_flip_matrix=logicals,
+                predict_observable_flips=True,
+                symplectic=True,
+                penalty_func=lambda vec: int(np.count_nonzero(vec)),
+            ),
+            decoders.WeightedLookupDecoder(
+                code.matrix,
+                max_weight=1,
+                observable_flip_matrix=logicals,
+                predict_observable_flips=True,
+                symplectic=True,
+            ),
+        ]:
+            for syndrome, flips in achievable_flips.items():
+                prediction = decoder.decode(np.array(syndrome, dtype=int))
+                assert tuple(prediction.tolist()) in flips
+
+    # the errors that a lookup table enumerates live over the field of its parity check matrix, so
+    # an observable flip matrix over any other field cannot say what they flip
+    with pytest.raises(ValueError, match="cannot be paired with"):
+        decoders.LookupDecoder(
+            np.array([[1, 1, 0], [0, 1, 1]]),
+            max_weight=1,
+            observable_flip_matrix=galois.GF(3)([[1, 2, 1]]),
+            predict_observable_flips=True,
+            penalty_func=lambda vec: int(np.count_nonzero(vec)),
+        )
+
+
+def test_observable_flip_matrix_arithmetic() -> None:
+    """An observable flip matrix is read over the field of the parity check matrix.
+
+    Entries outside that field are reduced into it, so a plain integer matrix predicts the same
+    flips as the galois.FieldArray holding the same operators.  An extension field is not the
+    integers modulo its order -- over GF(4), 2 * 2 is 3 rather than 0 -- so the product there has to
+    be taken with field arithmetic, which reports flips that an integer product does not.
+    """
+
+    def predict(pcm: math.IntegerArray, observable_flip_matrix: math.IntegerArray) -> list[int]:
+        """Every flip predicted for a GF(3) syndrome, in a fixed order."""
+        decoder = decoders.LookupDecoder(
+            pcm,
+            max_weight=1,
+            observable_flip_matrix=observable_flip_matrix,
+            predict_observable_flips=True,
+            penalty_func=lambda vec: int(np.count_nonzero(vec)),
+        )
+        syndromes = itertools.product(range(3), repeat=pcm.shape[0])
+        return [int(decoder.decode(np.array(syndrome, dtype=int))[0]) for syndrome in syndromes]
+
+    field = galois.GF(3)
+    pcm = field([[1, 2, 0], [0, 1, 2]])
+    observables = [[1, 0, 2]]
+    expected = predict(pcm, field(observables))
+    assert any(expected)  # a rule that predicted nothing would not distinguish any arithmetic
+    assert predict(pcm, np.array(observables)) == expected
+    assert predict(pcm, np.array(observables) + field.order) == expected
+
+    field = galois.GF(4)
+    pcm = field([[1, 1, 0], [0, 1, 1]])
+    observable_flip_matrix = field([[2, 0, 2]])
+    achievable_flips: dict[tuple[int, ...], set[int]] = collections.defaultdict(set)
+    for error, syndrome in decoders.LookupDecoder._iter_errors_and_syndromes(pcm, 1, None, False):
+        achievable_flips[syndrome].add(int((observable_flip_matrix @ error.view(field))[0]))
+    assert 3 in set.union(*achievable_flips.values())  # unreachable by an integer product
+
+    decoder = decoders.LookupDecoder(
+        pcm,
+        max_weight=1,
+        observable_flip_matrix=observable_flip_matrix,
+        predict_observable_flips=True,
+        penalty_func=lambda vec: int(np.count_nonzero(vec)),
+    )
+    for syndrome, flips in achievable_flips.items():
+        assert int(decoder.decode(np.array(syndrome, dtype=int))[0]) in flips
 
 
 def test_penalty_func() -> None:
