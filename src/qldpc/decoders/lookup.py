@@ -386,7 +386,7 @@ class LookupDecoder:
         error by -symplectic_conjugate(observable_flip_matrix), in the same way that
         _iter_errors_and_syndromes obtains a syndrome from a parity check matrix.
         """
-        field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF(2)
+        field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
         if isinstance(observable_flip_matrix, galois.FieldArray) and (
             type(observable_flip_matrix) is not field
         ):

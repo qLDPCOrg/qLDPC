@@ -365,6 +365,8 @@ def test_augmented_decoders(toy_problem: ToyProblem) -> None:
 
     direct_decoder = decoders.DirectDecoder.from_indirect(WideDecoder(), matrix)
     with pytest.raises(ValueError, match="cannot be subtracted"):
+        direct_decoder.decode(error)
+    with pytest.raises(ValueError, match="cannot be subtracted"):
         direct_decoder.decode_batch(errors)
 
 
