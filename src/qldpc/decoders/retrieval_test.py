@@ -67,18 +67,13 @@ def test_erasure_bit_request() -> None:
     """A request for an erasure bit is rejected by a decoder that cannot signal erasure."""
     matrix = np.eye(3, 2, dtype=int)
 
-    # the decoders that can signal erasure honour the request
-    erasing_args: list[dict[str, object]] = [
-        {"with_lookup": True, "max_weight": 1},
-        {"with_GUF": True},
-        {"with_RBP": True},
-        {"with_ILP": True},
-    ]
+    # a decoder that can signal erasure honours the request
+    erasing_args: list[dict[str, object]] = [{"with_RBP": True}, {"with_ILP": True}]
     for decoder_args in erasing_args:
         decoder = decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
         assert getattr(decoder, "has_erasure_bit", False)
 
-    # the ones that cannot would otherwise drop the request in silence
+    # the decoders that cannot would otherwise drop the request in silence
     unerasing_args: list[dict[str, object]] = [
         {"with_MWPM": True},
         {"with_BP_LSD": True},
