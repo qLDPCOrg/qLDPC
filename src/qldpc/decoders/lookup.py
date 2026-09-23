@@ -398,8 +398,9 @@ class LookupDecoder:
         if not symplectic and field.is_prime_field:
             # A prime field is the integers modulo its order, so the product can be taken over the
             # integers, which is faster than field arithmetic and keeps a sparse matrix sparse.
-            # the cast widens a narrow dtype, whose own wrap-around does not commute with reducing
-            # modulo an odd order
+            #
+            # The cast widens a narrow dtype, whose own wrap-around does not commute with reducing
+            # modulo an odd order.
             integer_matrix = (
                 observable_flip_matrix.view(np.ndarray)
                 if isinstance(observable_flip_matrix, galois.FieldArray)
