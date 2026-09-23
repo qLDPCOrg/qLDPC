@@ -270,10 +270,8 @@ class LookupDecoder:
                 log_prob_rest = (
                     float(np.logaddexp.reduce(other_log_probs)) if other_log_probs else -np.inf
                 )
-                # confident iff prob_top >= confidence_ratio * prob_rest (compared in log-space).
-                # Competing flips of zero net probability leave log_prob_rest at -inf, which keeps
-                # the syndrome at every ratio: at a finite ratio because the inequality holds, and
-                # at an infinite one because the comparison against nan is False.
+                # confident iff prob_top >= confidence_ratio * prob_rest (compared in log-space),
+                # which ignores competing flips of zero probability at every confidence_ratio
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
                     continue  # omit the ambiguous syndrome, leaving it to decode as erasure
             if predict_observable_flips:

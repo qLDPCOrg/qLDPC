@@ -259,6 +259,23 @@ def test_confidence_ratio() -> None:
     )
     assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0])
 
+    # An infinite confidence_ratio erases every syndrome that has a competing flip which can occur,
+    # so a competing flip of zero probability is no competition.  The large finite ratio above does
+    # not cover that case.
+    syndrome = np.array([1], dtype=int)
+    for model, expected in [
+        ("error(0.1) D0 L0\nerror(0.2) D0", [0, 1]),  # both flips can occur, so erase
+        ("error(0.1) D0 L0\nerror(0) D0", [1, 0]),  # the competing flip cannot occur
+        ("error(0.1) D0 L0", [1, 0]),  # there is no competing flip
+    ]:
+        decoder = decoders.LookupDecoder(
+            stim.DetectorErrorModel(model),
+            max_weight=1,
+            predict_observable_flips=True,
+            confidence_ratio=np.inf,
+        )
+        assert np.array_equal(decoder.decode(syndrome), expected)
+
 
 def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> None:
     """Lookup-decode random weight-2 errors in a GF(3) surface code."""
