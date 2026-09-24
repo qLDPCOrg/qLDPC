@@ -113,6 +113,8 @@ def test_observable_lookup_decoding() -> None:
     weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, predict_observable_flips=True)
     assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
     assert np.array_equal(weighted.decode(np.array([0, 1], dtype=int)), [0])
+    # a table hit carries the dtype that a table miss falls back to
+    assert weighted.decode(syndrome).dtype == weighted.default_correction.dtype
 
     # ... or from a parity check matrix and an explicit observable_flip_matrix
     weighted = decoders.WeightedLookupDecoder(
