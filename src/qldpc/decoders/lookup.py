@@ -30,6 +30,7 @@ import stim
 from qldpc import codes, math
 from qldpc.math import IntegerArray
 
+from .common import with_erasure_bits
 from .dems import DetectorErrorModelArrays
 
 
@@ -476,7 +477,7 @@ class LookupDecoder:
         """Append a trivial (zero) erasure bit to an error if this decoder tracks erasure bits."""
         if not self.has_erasure_bit:
             return error
-        return np.hstack([error, np.zeros(1, dtype=error.dtype)])
+        return with_erasure_bits(error, False)
 
     def __len__(self) -> int:
         """The number of entries in this lookup table."""

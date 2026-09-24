@@ -33,6 +33,7 @@ from qldpc import codes, math
 from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
+from .common import with_erasure_bits
 from .dems import DetectorErrorModelArrays
 
 if TYPE_CHECKING:
@@ -196,7 +197,7 @@ class RelayBPDecoder:
         if not self.has_erasure_bit:
             return error
         erased = ~self._reproduces_syndrome(np.asarray(error)[None, :], detectors[None, :])
-        return np.append(error, erased[0])
+        return with_erasure_bits(error, erased[0])
 
     def decode_batch(
         self,
@@ -217,7 +218,7 @@ class RelayBPDecoder:
         if not self.has_erasure_bit:
             return errors
         erased = ~self._reproduces_syndrome(np.asarray(errors), detectors)
-        return np.hstack([errors, erased[:, None].astype(errors.dtype)])
+        return with_erasure_bits(errors, erased)
 
     def _reproduces_syndrome(
         self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]
@@ -336,7 +337,7 @@ class ILPDecoder:
                     f"\nSolver status: {problem.status}"
                 )
             return error
-        return np.hstack([error, np.array([not reproduces_syndrome], dtype=error.dtype)])
+        return with_erasure_bits(error, not reproduces_syndrome)
 
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]
@@ -513,7 +514,7 @@ class GUFDecoder:
         error[bits] = min_weight_solution
         decoded_error = error.view(np.ndarray).astype(syndrome.dtype)
         if self.has_erasure_bit:
-            decoded_error = np.append(decoded_error, syndrome.dtype.type(0))
+            decoded_error = with_erasure_bits(decoded_error, False)
         return decoded_error
 
     def get_sub_problem_indices(
