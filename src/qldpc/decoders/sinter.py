@@ -78,8 +78,19 @@ class SinterDecoder(Decoder, sinter.Decoder):
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
-        decoder = get_decoder(dem_arrays.to_dem(), **self.decoder_kwargs)
+        decoder_dem = dem_arrays.to_dem()
+        decoder = get_decoder(decoder_dem, **self.decoder_kwargs)
         _check_decodes_errors(decoder)
+
+        # A decoder that merges equivalent error mechanisms infers fewer errors than this model
+        # declares, so wrap it to map its errors back onto the model before they reach the
+        # observables.  An erasure bit is not an error mechanism, so it does not count toward the
+        # width being compared here.
+        num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
+        test_error = decoder.decode(np.zeros(decoder_dem.num_detectors, dtype=int))
+        if len(test_error) - num_erasure_bits < decoder_dem.num_errors:
+            decoder = _ExpandedDecoder(decoder, decoder_dem)
+
         if getattr(decoder, "has_erasure_bit", False):
             dem_arrays = dem_arrays.with_erasure()
         return CompiledSinterDecoder(dem_arrays, decoder)
@@ -600,13 +611,13 @@ class SequentialWindowDecoder(SinterDecoder):
 
             # Restricting the DEM to this window may result in several error mechanisms that are
             # equivalent, which the window_decoder will merge into one error mechanism.  In this
-            # case, wrap the decoder into an _ExpandedWindowDecoder that maps decoded errors in the
+            # case, wrap the decoder into an _ExpandedDecoder that maps decoded errors in the
             # simplified DEM to errors in the full DEM.  An erasure bit is not an error mechanism,
             # so it does not count toward the width being compared here.
             num_erasure_bits = int(getattr(window_decoder, "has_erasure_bit", False))
             test_error = window_decoder.decode(np.zeros(window_dem.num_detectors, dtype=int))
             if len(test_error) - num_erasure_bits < window_dem.num_errors:
-                window_decoder = _ExpandedWindowDecoder(window_decoder, window_dem)
+                window_decoder = _ExpandedDecoder(window_decoder, window_dem)
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -632,21 +643,21 @@ class SequentialWindowDecoder(SinterDecoder):
         )
 
 
-class _ExpandedWindowDecoder(Decoder):
+class _ExpandedDecoder(Decoder):
     """Wrapper for a decoder, to map decoded errors in a simplified DEM to errors in the full DEM.
 
-    The SequentialWindowDecoder restricts a DEM to a "window" before passing the DEM to a decoder
-    for that window.  Restricting a DEM may result in equivalent error mechanisms that end up
-    getting merged, which causes the restricted + simplified DEM to have fewer errors in the window
-    than the un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM to
-    equivalent errors in the original DEM, and passes any erasure bit through as the last entry.
+    A decoder that merges equivalent error mechanisms infers fewer errors than the DEM it was built
+    for declares.  That happens when a DEM restricted to a window leaves equivalent mechanisms
+    behind, and it happens when a caller asks for a model whose equivalent mechanisms are left
+    unmerged.  This wrapper expands decoded errors in the simplified DEM to equivalent errors in the
+    original DEM, and passes any erasure bit through as the last entry.
     """
 
-    def __init__(self, decoder: Decoder, window_dem: stim.DetectorErrorModel) -> None:
+    def __init__(self, decoder: Decoder, dem: stim.DetectorErrorModel) -> None:
         self._decoder = decoder
         self.has_erasure_bit = bool(getattr(decoder, "has_erasure_bit", False))
 
-        original_errors = DetectorErrorModelArrays.get_circuit_errors(window_dem)
+        original_errors = DetectorErrorModelArrays.get_circuit_errors(dem)
         simplified_errors = DetectorErrorModelArrays.get_merged_circuit_errors(original_errors)
         self._num_original_errors = len(original_errors)
 

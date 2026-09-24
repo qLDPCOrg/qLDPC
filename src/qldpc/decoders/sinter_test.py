@@ -75,6 +75,22 @@ def test_sinter_decoder() -> None:
     )
 
 
+def test_unsimplified_dense_decoder() -> None:
+    """A dense decoder is built for the error mechanisms that its model declares.
+
+    Merging equivalent mechanisms would leave the decoder inferring fewer errors than the compiled
+    decoder maps onto observables.
+    """
+    # the first two mechanisms are equivalent, so merging them would drop a column
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 L0
+        error(0.1) D0 L0
+        error(0.1) D1
+    """)
+    compiled = decoders.SinterDecoder(simplify=False, with_GUF=True).compile_decoder_for_dem(dem)
+    assert compiled.decode_shots(np.array([[1, 0]], dtype=np.uint8)).tolist() == [[1]]
+
+
 def test_subgraph_decoding() -> None:
     """Decode by parts."""
     # construct a simple detector error model and sample from it
@@ -205,7 +221,7 @@ def test_sliding_window_time_coordinate() -> None:
 
 
 def test_sequential_decoding_with_merged_window_errors() -> None:
-    """SequentialWindowDecoder wraps with _ExpandedWindowDecoder when window errors merge.
+    """SequentialWindowDecoder wraps with _ExpandedDecoder when window errors merge.
 
     Consider two globally distinct errors:
         E0: flips D0, D1, L0,
@@ -229,7 +245,7 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
     assert isinstance(
         compiled_sinter_decoder.window_decoders[0],
-        decoders.sinter._ExpandedWindowDecoder,
+        decoders.sinter._ExpandedDecoder,
     )
 
     # Check correctness on explicit shots: no error, E0, and E1 individually.
@@ -610,7 +626,7 @@ def test_sequential_window_decoder_erasure_with_merged_window_errors() -> None:
     ).compile_decoder_for_dem(dem)
 
     window_decoder = compiled.window_decoders[0]
-    assert isinstance(window_decoder, decoders.sinter._ExpandedWindowDecoder)
+    assert isinstance(window_decoder, decoders.sinter._ExpandedDecoder)
     assert window_decoder.has_erasure_bit
 
     # the expanded error spans every error of the window, followed by the erasure bit
