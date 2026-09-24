@@ -600,11 +600,9 @@ def _validate_decompositions(
                 f"Suggested decomposition given for error {error_index} of a detector error model"
                 f" with {num_errors} error mechanisms"
             )
-        combined_detectors: frozenset[int] = frozenset()
-        combined_observables: frozenset[int] = frozenset()
-        for component in components:
-            combined_detectors ^= component.detectors
-            combined_observables ^= component.observables
+        combined = _combined_flips(components)
+        combined_detectors = combined.detectors
+        combined_observables = combined.observables
         detectors = _column_support(detector_flip_matrix, error_index)
         observables = _column_support(observable_flip_matrix, error_index)
         if combined_detectors != detectors or combined_observables != observables:
