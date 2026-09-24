@@ -514,10 +514,13 @@ def test_subgraph_partition_warnings() -> None:
     """Compiling a SubgraphDecoder warns about a partition whose predictions do not add up."""
     # both subgraphs witness error 0, and by default both own the observable that it flips
     contested_dem = stim.DetectorErrorModel("error(0.1) D0 D1 L0")
-    with pytest.warns(UserWarning, match="can be predicted by more than one subgraph"):
+    with pytest.warns(UserWarning, match="can be predicted by more than one subgraph") as contested:
         decoders.SubgraphDecoder(
             [[0], [1]], with_lookup=True, max_weight=1
         ).compile_decoder_for_dem(contested_dem)
+
+    # the warning names the code that compiled the decoder, not the library that raised it
+    assert all(warning.filename == __file__ for warning in contested)
 
     # detector 1 belongs to no subgraph, so error 1 is never witnessed
     uncovered_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L0")

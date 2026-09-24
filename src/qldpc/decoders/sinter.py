@@ -1004,14 +1004,14 @@ def _warn_about_subgraph_partition(
             " subgraphs whose detectors witness its flips.  For example, error mechanism"
             f" {flip_errors[first]} flips observable {flip_observables[first]}, which"
             f" {flip_predictors[first]} subgraphs can predict",
-            stacklevel=2,
+            stacklevel=3,
         )
     if uncovered_detectors.size:
         warnings.warn(
             f"{uncovered_detectors.size} detectors of this detector error model belong to no"
             " subgraph, so no decoder ever sees their detection events:"
             f" {uncovered_detectors[:10].tolist()}",
-            stacklevel=2,
+            stacklevel=3,
         )
 
 
