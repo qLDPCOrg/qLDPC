@@ -1,3 +1,6 @@
+from .common import (
+    with_erasure_bits,
+)
 from .custom import (
     BatchDecoder,
     CompositeDecoder,
@@ -74,4 +77,5 @@ __all__ = [
     "get_decoder_MWPM",
     "get_decoder_RBP",
     "get_decoder_lookup",
+    "with_erasure_bits",
 ]

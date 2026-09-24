@@ -20,6 +20,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import itertools
+import numbers
 from collections.abc import Collection, Hashable, Iterable
 from collections.abc import Set as AbstractSet
 from typing import TypeVar
@@ -84,7 +85,8 @@ class DetectorErrorModelArrays:
     A DetectorErrorModelArrays is _almost_ one-to-one with a stim.DetectorErrorModel instance.  The
     primary differences are that a DetectorErrorModelArrays object
 
-        (a) merges equivalent circuit errors (which can be disabled with simplify=False), and
+        (a) merges circuit errors with identical targets, where an error's suggested decomposition
+            is part of its targets (which can be disabled with simplify=False), and
         (b) does not preserve detector coordinate data.
     """
 
@@ -100,7 +102,23 @@ class DetectorErrorModelArrays:
         simplify: bool = True,
         decompose_errors: bool = False,
     ) -> None:
-        """Initialize from a stim.DetectorErrorModel."""
+        """Initialize from a stim.Circuit or a stim.DetectorErrorModel.
+
+        Args:
+            circuit_or_dem: an error model, or a circuit whose error model is extracted with
+                stim.Circuit.detector_error_model.  A model extracted here carries no decomposition
+                suggestions; to obtain those, extract it yourself by calling
+                circuit.detector_error_model(decompose_errors=True) and pass the result.
+            simplify: If True, merge equivalent error mechanisms (see
+                DetectorErrorModelArrays.simplified).  Defaults to True.
+            decompose_errors: If True, split every error into the components that the error model
+                suggests for it, leaving errors with no suggestion alone.  Each component inherits
+                the probability of the error it came from, and the correlation between components is
+                discarded, so a split model addresses fewer detectors per error -- as a matching
+                decoder requires -- at the cost of no longer sampling like the model it came from.
+                Simplifying afterwards then merges components that coincide, combining their
+                probabilities.  Defaults to False.
+        """
         dem = (
             circuit_or_dem.detector_error_model()
             if isinstance(circuit_or_dem, stim.Circuit)
@@ -147,11 +165,13 @@ class DetectorErrorModelArrays:
             detector_flip_matrix: binary matrix mapping errors (columns) to detector flips (rows).
             observable_flip_matrix: binary matrix mapping errors to observable flips, or None for
                 zero observables.
-            error_probs: per-error probabilities, or a single float broadcast to all errors.
+            error_probs: per-error probabilities, or a single number broadcast to all errors.
             suggested_decompositions (optional): dictionary that maps an error (by index) into
                 a frozenset of FlipPattern, one per suggested decomposition component.
             simplify: If True, return a simplified model with equivalent error mechanisms merged
                 (see DetectorErrorModelArrays.simplified).  Defaults to False.
+
+        The returned object shares no memory with the given arrays.
         """
         dem_arrays = object.__new__(DetectorErrorModelArrays)
         dem_arrays.detector_flip_matrix = _canonicalize_mod2(
@@ -167,12 +187,30 @@ class DetectorErrorModelArrays:
                 scipy.sparse.csc_matrix(observable_flip_matrix, dtype=np.uint8)
             )
 
-        if isinstance(error_probs, float):
-            dem_arrays.error_probs = np.array([error_probs] * num_error_mechanisms)
+        if isinstance(error_probs, numbers.Real):
+            dem_arrays.error_probs = np.full(num_error_mechanisms, float(error_probs))
         else:
-            dem_arrays.error_probs = np.asarray(error_probs)
+            dem_arrays.error_probs = np.array(error_probs)
 
-        dem_arrays.suggested_decompositions = suggested_decompositions or {}
+        num_observable_columns = dem_arrays.observable_flip_matrix.shape[1]
+        if num_observable_columns != num_error_mechanisms:
+            raise ValueError(
+                f"The observable flip matrix addresses {num_observable_columns} error mechanisms,"
+                f" but the detector flip matrix addresses {num_error_mechanisms}"
+            )
+        if dem_arrays.error_probs.shape != (num_error_mechanisms,):
+            raise ValueError(
+                f"Got error probabilities of shape {dem_arrays.error_probs.shape} for a detector"
+                f" error model with {num_error_mechanisms} error mechanisms"
+            )
+
+        dem_arrays.suggested_decompositions = dict(suggested_decompositions or {})
+        if dem_arrays.suggested_decompositions:
+            _validate_decompositions(
+                dem_arrays.suggested_decompositions,
+                dem_arrays.detector_flip_matrix,
+                dem_arrays.observable_flip_matrix,
+            )
         return dem_arrays.simplified() if simplify else dem_arrays
 
     def copy(self) -> DetectorErrorModelArrays:
@@ -257,7 +295,11 @@ class DetectorErrorModelArrays:
 
     @staticmethod
     def get_merged_circuit_errors(errors: list[CircuitError]) -> list[CircuitError]:
-        """Merge circuit errors that have the same targets."""
+        """Merge circuit errors that have the same targets.
+
+        Targets include suggested decompositions, so two errors that flip the same detectors and
+        observables stay distinct if they suggest different decompositions.
+        """
         merged: dict[frozenset[FlipPattern], float] = {}
         for prob, targets in errors:
             previous_prob = merged.get(targets, 0.0)
@@ -265,7 +307,7 @@ class DetectorErrorModelArrays:
         return [
             (prob, targets)
             for targets, prob in merged.items()
-            if any(targets) and prob  # drop inconsequential errors
+            if _combined_flips(targets) and prob  # drop inconsequential errors
         ]
 
     @staticmethod
@@ -282,9 +324,7 @@ class DetectorErrorModelArrays:
 
         # iterate over and account for all circuit errors
         for error_index, (probability, components) in enumerate(errors):
-            combined = FlipPattern.from_data(frozenset(), frozenset())
-            for targets in components:
-                combined ^= targets
+            combined = _combined_flips(components)
             detector_flip_matrix[list(combined.detectors), error_index] = 1
             observable_flip_matrix[list(combined.observables), error_index] = 1
             error_probs[error_index] = probability
@@ -309,15 +349,18 @@ class DetectorErrorModelArrays:
         for error_index, prob in enumerate(self.error_probs):
             if error_index in self.suggested_decompositions:
                 targets = []
-                target_groups = sorted(
-                    (sorted(t.detectors), sorted(t.observables))
-                    for t in self.suggested_decompositions[error_index]
+                components = sorted(
+                    self.suggested_decompositions[error_index],
+                    key=lambda component: (
+                        sorted(component.detectors),
+                        sorted(component.observables),
+                    ),
                 )
-                for gg, (detectors, observables) in enumerate(target_groups):
+                for gg, component in enumerate(components):
                     if gg > 0:
                         targets.append(stim.DemTarget.separator())
-                    targets.extend(stim.DemTarget.relative_detector_id(dd) for dd in detectors)
-                    targets.extend(stim.DemTarget.logical_observable_id(oo) for oo in observables)
+                    det_targets, obs_targets = component.dem_targets()
+                    targets.extend(det_targets + obs_targets)
             else:
                 detectors = self.detector_flip_matrix[:, error_index].nonzero()[0]
                 observables = self.observable_flip_matrix[:, error_index].nonzero()[0]
@@ -332,10 +375,15 @@ class DetectorErrorModelArrays:
         return dem
 
     def to_circuit(self) -> stim.Circuit:
-        """Convert this DEM to a synthetic stim.Circuit with the same detector error model.
+        """Convert this DEM to a synthetic stim.Circuit.
 
         Each error mechanism becomes a noisy measurement ``M(p)`` on a dedicated qubit. DETECTOR and
         OBSERVABLE_INCLUDE instructions then reference those measurements.
+
+        The detector error model of that circuit reproduces this DEM up to reordering of error
+        mechanisms, merging of mechanisms with identical flips, and omission of mechanisms that
+        cannot be observed -- those with zero probability, whose ``M(0)`` is deterministic, and
+        those that flip nothing.  Error indices and suggested decompositions are not preserved.
         """
         circuit = stim.Circuit()
 
@@ -370,8 +418,9 @@ class DetectorErrorModelArrays:
             return self.copy()
         old_to_new = np.cumsum(keep) - 1
         suggested_decompositions = {
-            error_index: _remap_decomposition_detectors(components, keep, old_to_new)
+            error_index: remapped
             for error_index, components in self.suggested_decompositions.items()
+            if (remapped := _remap_decomposition_detectors(components, keep, old_to_new))
         }
         return DetectorErrorModelArrays.from_arrays(
             self.detector_flip_matrix[keep],
@@ -427,10 +476,11 @@ class DetectorErrorModelArrays:
             old_to_new_err = np.cumsum(errors_to_keep) - 1
             for old_err_idx, components in self.suggested_decompositions.items():
                 if errors_to_keep[old_err_idx]:
-                    new_err_idx = int(old_to_new_err[old_err_idx])
-                    suggested_decompositions[new_err_idx] = _remap_decomposition_detectors(
+                    remapped = _remap_decomposition_detectors(
                         components, detectors_to_keep, old_to_new_det
                     )
+                    if remapped:
+                        suggested_decompositions[int(old_to_new_err[old_err_idx])] = remapped
 
         # build the post-selected arrays
         detector_flip_matrix = self.detector_flip_matrix[detectors_to_keep][:, errors_to_keep]
@@ -465,6 +515,11 @@ class DetectorErrorModelArrays:
         Each erasure bit is essentially a zero-probability error mechanism that flips no detectors,
         but flips one newly added observable.  The erasure bit thereby allows decoders to indicate
         erasure by flipping the erasure bit.
+
+        Zero probability makes an erasure mechanism inconsequential to sampling, so simplification
+        drops it.  Add erasure bits after simplified, without_detectors,
+        without_untriggered_detectors, with_decomposed_errors, post_selected_on with order > 1, and
+        to_circuit.
         """
         detector_flip_stack = [
             self.detector_flip_matrix,
@@ -491,6 +546,14 @@ def _xor_reduce(items: Iterable[HashableType]) -> frozenset[HashableType]:
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
 
 
+def _combined_flips(components: Iterable[FlipPattern]) -> FlipPattern:
+    """Net flips of a collection of decomposition components."""
+    combined = FlipPattern()
+    for component in components:
+        combined ^= component
+    return combined
+
+
 def _remap_decomposition_detectors(
     components: frozenset[FlipPattern],
     detectors_to_keep: npt.NDArray[np.bool_],
@@ -499,19 +562,73 @@ def _remap_decomposition_detectors(
     """Remap detector indices within decomposition components, dropping removed detectors.
 
     Detectors not in detectors_to_keep are omitted rather than remapped, since old_to_new_det has no
-    valid new index for them.
+    valid new index for them.  Components that coincide once their detectors are dropped cancel in
+    pairs, and components left with nothing to flip are discarded, so the surviving components still
+    flip exactly what the error they decompose flips.
+
+    A decomposition is only informative if at least two components survive, and a component that
+    flips no detectors cannot be an edge of a matching graph, so an empty frozenset is returned in
+    both of those cases to indicate that the decomposition should be dropped.
     """
-    return frozenset(
+    remapped = _xor_reduce(
         FlipPattern.from_data(
             frozenset(int(old_to_new_det[dd]) for dd in targets.detectors if detectors_to_keep[dd]),
             targets.observables,
         )
         for targets in components
     )
+    surviving = frozenset(filter(None, remapped))
+    if len(surviving) < 2 or not all(component.detectors for component in surviving):
+        return frozenset()
+    return surviving
+
+
+def _validate_decompositions(
+    suggested_decompositions: dict[int, frozenset[FlipPattern]],
+    detector_flip_matrix: scipy.sparse.csc_matrix,
+    observable_flip_matrix: scipy.sparse.csc_matrix,
+) -> None:
+    """Check that each suggested decomposition flips exactly what its error mechanism flips.
+
+    The components of a decomposition are alternative ways for one error to manifest, so their
+    combined flips must agree with the error's column of the flip matrices.
+    """
+    num_errors = detector_flip_matrix.shape[1]
+    for error_index, components in suggested_decompositions.items():
+        if not 0 <= error_index < num_errors:
+            raise ValueError(
+                f"Suggested decomposition given for error {error_index} of a detector error model"
+                f" with {num_errors} error mechanisms"
+            )
+        combined = _combined_flips(components)
+        combined_detectors = combined.detectors
+        combined_observables = combined.observables
+        detectors = _column_support(detector_flip_matrix, error_index)
+        observables = _column_support(observable_flip_matrix, error_index)
+        if combined_detectors != detectors or combined_observables != observables:
+            raise ValueError(
+                f"The suggested decomposition of error {error_index} flips detectors"
+                f" {sorted(combined_detectors)} and observables {sorted(combined_observables)},"
+                f" but that error flips detectors {sorted(detectors)}"
+                f" and observables {sorted(observables)}"
+            )
+
+
+def _column_support(matrix: scipy.sparse.csc_matrix, column: int) -> frozenset[int]:
+    """Rows in which one column of a compressed-column matrix is nonzero.
+
+    Read from the compressed arrays directly, which is much cheaper than slicing out the column.
+    """
+    start, stop = matrix.indptr[column], matrix.indptr[column + 1]
+    return frozenset(int(row) for row in matrix.indices[start:stop])
 
 
 def _canonicalize_mod2(matrix: scipy.sparse.csc_matrix) -> scipy.sparse.csc_matrix:
-    """Collapse duplicate stored entries mod 2 and drop resulting zeros."""
+    """Collapse duplicate stored entries mod 2 and drop resulting zeros.
+
+    The given matrix is left alone, so the result shares no memory with it.
+    """
+    matrix = matrix.copy()
     matrix.sum_duplicates()
     matrix.data %= 2
     matrix.eliminate_zeros()
@@ -561,6 +678,17 @@ def _with_higher_order_corrections(
                         if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
                             combinations_to_add.add(frozenset(removed_error_indices[comb]))
 
+            # A combination cancels on this detector only if an even number of its errors flip it,
+            # and the errors of a later group flip no earlier detector, so the errors this detector
+            # contributes come in even numbers: four, six, and so on, as well as the pairs above.
+            for num_head in range(4, min(len(triggering_errors), order) + 1, 2):
+                for head in itertools.combinations(triggering_errors, num_head):
+                    for num_rest in range(order - num_head + 1):
+                        for rest in itertools.combinations(other_errors, num_rest):
+                            comb = [*head, *rest]
+                            if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
+                                combinations_to_add.add(frozenset(removed_error_indices[comb]))
+
     new_errors: dict[bytes, tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, float]] = {}
     for comb_to_add in combinations_to_add:
         comb = sorted(comb_to_add)
@@ -571,9 +699,6 @@ def _with_higher_order_corrections(
         obs_flips = scipy.sparse.csc_matrix(
             dem_arrays.observable_flip_matrix[:, comb].sum(axis=1) % 2
         )
-        if det_flips.nnz == 0 and obs_flips.nnz == 0:  # pragma: no cover
-            continue
-
         # add this combination as a new error mechanism
         flip_pattern = det_flips.toarray().tobytes() + obs_flips.toarray().tobytes()
         prob = float(np.prod(dem_arrays.error_probs[comb]))

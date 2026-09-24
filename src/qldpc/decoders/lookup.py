@@ -24,11 +24,13 @@ from collections.abc import Callable, Collection, Iterator, Sequence
 import galois
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
 import stim
 
 from qldpc import codes, math
 from qldpc.math import IntegerArray
 
+from .common import with_erasure_bits
 from .dems import DetectorErrorModelArrays
 
 
@@ -48,7 +50,9 @@ class LookupDecoder:
     mechanism (which associated with one column of a PCM, or one entry in a DEM), this method
     constructs a penalty function, ``penalty_func``, that penalizes unlikely errors.  In this case,
     a candidate ``syndrome -> new_error`` entry encountered during enumeration will only override a
-    past entry in the lookup table if ``penalty_func(new_error) < penalty_func(old_error)``.
+    past entry in the lookup table if ``penalty_func(new_error) <= penalty_func(old_error)``.
+    Errors are enumerated in decreasing weight, so an equal penalty resolves in favor of the
+    lighter error.
     Alternatively, this decoder supports the use of a user-provided ``penalty_func``, which must map
     an error (represented as a binary vector of length ``num_primitive_error_mechanisms``) to a real
     number (i.e., a penalty).
@@ -64,14 +68,16 @@ class LookupDecoder:
 
     If initialized with ``predict_observable_flips=True``, this decoder maps each syndrome directly
     to its most likely observable flip, rather than to a representative ``error``.  In this case
-    the decoded output is a binary vector of length ``num_observables``.  Predicting observable
-    flips requires an ``observable_flip_matrix``.
+    the decoded output is a vector of length ``num_observables`` over the field of the parity check
+    matrix.  Predicting observable flips requires an ``observable_flip_matrix``.
 
     If provided a ``post_select`` collection of syndrome-bit (i.e., detector) indices, this decoder
     post-selects on those bits being trivial: when constructing the lookup table, it ignores
-    syndromes that are nonzero on the post-selected bits. and it drops those bits from the syndrome
+    syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
     keys in the lookup table.  For consistency with the post-selection options in sinter, syndromes
-    passed to ``LookupDecoder.decode`` should still contain all syndrome bits.
+    passed to ``LookupDecoder.decode`` should still contain all syndrome bits.  A syndrome that is
+    nonzero on a post-selected bit is one that the lookup table was never given, so it decodes
+    identically to a syndrome that was never enumerated.
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors.
     If asked to decode a syndrome that was not observed when constructing the lookup table, the
@@ -87,8 +93,8 @@ class LookupDecoder:
     prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
     erasure, identically to a syndrome that was never enumerated.  A positive ``confidence_ratio``
     therefore auto-enables the erasure bit, setting ``add_erasure_bit=True``.  At the extreme,
-    ``confidence_ratio=np.inf`` keeps only syndromes with a single consistent observable flip,
-    erasing every syndrome that has any competing flip.
+    ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
+    probability, erasing every syndrome with a competing flip that can actually occur.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
@@ -210,14 +216,9 @@ class LookupDecoder:
         observable flips (or, if predict_observable_flips, to the observable flips themselves).
         """
 
-        def _get_obs_flip(error: npt.NDArray[np.int_]) -> tuple[int, ...]:
-            """Map an error to its induced observable flips."""
-            if isinstance(observable_flip_matrix, galois.FieldArray):  # pragma: no cover
-                error = error.view(type(observable_flip_matrix))
-                obs_flip = (observable_flip_matrix @ error).view(np.ndarray)
-            else:
-                obs_flip = (observable_flip_matrix @ error).view(np.ndarray) % 2
-            return tuple(obs_flip.tolist())
+        get_observable_flip = LookupDecoder._build_observable_flip_func(
+            pcm, observable_flip_matrix, symplectic
+        )
 
         # For each "key" = (syndrome, observable_flip) combination, identify:
         # 1. The net log-probability of each key.
@@ -232,15 +233,17 @@ class LookupDecoder:
         for error, syndrome in LookupDecoder._iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
-            obs_flip = _get_obs_flip(error)
+            obs_flip = tuple(get_observable_flip(error).tolist())
             log_prob = -penalty_func(error)
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
             )
             # Record the first error for each key (so it always has a representative, even when all
-            # of its errors have zero probability), then keep the most likely one thereafter.
+            # of its errors have zero probability), then keep the most likely one thereafter.  A tie
+            # in probability resolves toward the lighter error, since enumeration runs from heavy to
+            # light and so reaches the lightest error of a tie last.
             key = (syndrome, obs_flip)
-            if key not in most_likely_errors or log_prob > most_likely_error_log_probs[key]:
+            if key not in most_likely_errors or log_prob >= most_likely_error_log_probs[key]:
                 most_likely_error_log_probs[key] = log_prob
                 most_likely_errors[key] = error
 
@@ -262,7 +265,8 @@ class LookupDecoder:
                 log_prob_rest = (
                     float(np.logaddexp.reduce(other_log_probs)) if other_log_probs else -np.inf
                 )
-                # confident iff prob_top >= confidence_ratio * prob_rest (compared in log-space)
+                # confident iff prob_top >= confidence_ratio * prob_rest (compared in log-space),
+                # which ignores competing flips of zero probability at every confidence_ratio
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
                     continue  # omit the ambiguous syndrome, leaving it to decode as erasure
             if predict_observable_flips:
@@ -293,7 +297,7 @@ class LookupDecoder:
                 error_channel is not None
                 or penalty_func is not None
                 or observable_flip_matrix is not None
-            ):  # pragma: no cover
+            ):
                 raise ValueError(
                     "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
                     " providing a stim.DetectorErrorModel to a LookupDecoder"
@@ -305,7 +309,7 @@ class LookupDecoder:
                 observable_flip_matrix = dem_arrays.observable_flip_matrix
         else:
             pcm = pcm_or_dem
-            if error_channel is not None and penalty_func is not None:  # pragma: no cover
+            if error_channel is not None and penalty_func is not None:
                 raise ValueError(
                     "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
                 )
@@ -323,7 +327,7 @@ class LookupDecoder:
 
         # build the default output returned for syndromes absent from the lookup table
         if predict_observable_flips:
-            if observable_flip_matrix is None:  # pragma: no cover
+            if observable_flip_matrix is None:
                 raise ValueError(
                     "Predicting observable flips with a LookupDecoder requires providing a"
                     " stim.DetectorErrorModel with observables or an observable_flip_matrix"
@@ -354,6 +358,69 @@ class LookupDecoder:
             return -float(log_probability_of_error)
 
         return penalty_func
+
+    @staticmethod
+    def _build_observable_flip_func(
+        pcm: IntegerArray,
+        observable_flip_matrix: IntegerArray,
+        symplectic: bool,
+    ) -> Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]]:
+        """Build the map that takes an error to the observable flips that it induces.
+
+        The observable flip matrix is interpreted over the same field as the parity check matrix,
+        which is GF(2) unless the parity check matrix is a galois.FieldArray.  Entries outside that
+        field are reduced into it, but a galois.FieldArray over a different field is rejected: the
+        errors that get enumerated take their values from the parity check matrix's field, so an
+        observable over any other field cannot say what they flip.
+
+        With symplectic=True, an error assigns both an X and a Z component to each qudit, and the
+        flip that it induces in an observable is their symplectic product,
+        ``observable @ symplectic_conjugate(error)``.  That product is obtained by multiplying the
+        error by -symplectic_conjugate(observable_flip_matrix), in the same way that
+        _iter_errors_and_syndromes obtains a syndrome from a parity check matrix.
+        """
+        field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
+        if isinstance(observable_flip_matrix, galois.FieldArray) and (
+            type(observable_flip_matrix) is not field
+        ):
+            raise ValueError(
+                f"An observable flip matrix over {type(observable_flip_matrix).name} cannot be"
+                f" paired with a parity check matrix over {field.name}"
+            )
+
+        if not symplectic and field.is_prime_field:
+            # A prime field is the integers modulo its order, so the product can be taken over the
+            # integers, which is faster than field arithmetic and keeps a sparse matrix sparse.
+            #
+            # The cast widens a narrow dtype, whose own wrap-around does not commute with reducing
+            # modulo an odd order.
+            integer_matrix = (
+                observable_flip_matrix.view(np.ndarray)
+                if isinstance(observable_flip_matrix, galois.FieldArray)
+                else observable_flip_matrix
+            ).astype(int)
+            order = field.order
+
+            def get_integer_flip(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+                """Map an error to the observable flips that it induces."""
+                return np.asarray(integer_matrix @ error) % order
+
+            return get_integer_flip
+
+        dense_matrix = (
+            observable_flip_matrix.todense()
+            if isinstance(observable_flip_matrix, scipy.sparse.spmatrix | scipy.sparse.sparray)
+            else observable_flip_matrix
+        )
+        matrix = field(np.asarray(dense_matrix, dtype=int) % field.order)
+        if symplectic:
+            matrix = -math.symplectic_conjugate(matrix)
+
+        def get_field_flip(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            """Map an error to the observable flips that it induces."""
+            return (matrix @ error.view(field)).view(np.ndarray)
+
+        return get_field_flip
 
     @staticmethod
     def _iter_errors_and_syndromes(
@@ -403,7 +470,7 @@ class LookupDecoder:
         """Append a trivial (zero) erasure bit to an error if this decoder tracks erasure bits."""
         if not self.has_erasure_bit:
             return error
-        return np.hstack([error, np.zeros(1, dtype=error.dtype)])
+        return with_erasure_bits(error, False)
 
     def __len__(self) -> int:
         """The number of entries in this lookup table."""
@@ -416,7 +483,10 @@ class LookupDecoder:
         """
         syndrome = syndrome.view(np.ndarray)
         if self.syndrome_mask is not None:
-            syndrome = syndrome[self.syndrome_mask]
+            retained_syndrome = syndrome[self.syndrome_mask]
+            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
+                return self.default_correction.copy()  # a post-selected bit is nontrivial
+            syndrome = retained_syndrome
         return self.syndrome_to_error.get(tuple(syndrome.tolist()), self.default_correction).copy()
 
 
@@ -457,6 +527,7 @@ class WeightedLookupDecoder(LookupDecoder):
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
+        self.symplectic = symplectic
 
         # Record all errors consistent with each syndrome, together with the output to return if
         # that error is selected: an observable-flip prediction if requested (else the error
@@ -465,14 +536,20 @@ class WeightedLookupDecoder(LookupDecoder):
         self.syndrome_to_candidates: dict[
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
+        get_observable_flip = None
+        if predict_observable_flips:
+            assert observable_flip_matrix is not None  # primarily for type-checking reasons
+            get_observable_flip = LookupDecoder._build_observable_flip_func(
+                pcm, observable_flip_matrix, symplectic
+            )
         for error, syndrome in LookupDecoder._iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
-            if predict_observable_flips:
-                assert observable_flip_matrix is not None  # primarily for type-checking reasons
-                output = (observable_flip_matrix @ error).view(np.ndarray) % 2
-            else:
-                output = error
+            output = (
+                error
+                if get_observable_flip is None
+                else get_observable_flip(error).astype(pcm.dtype)
+            )
             self.syndrome_to_candidates[syndrome].append(
                 (error, self._maybe_add_erasure_bit(output))
             )
@@ -491,7 +568,10 @@ class WeightedLookupDecoder(LookupDecoder):
         """Decode an error syndrome and return an inferred error."""
         syndrome = syndrome.view(np.ndarray)
         if self.syndrome_mask is not None:
-            syndrome = syndrome[self.syndrome_mask]
+            retained_syndrome = syndrome[self.syndrome_mask]
+            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
+                return self.default_correction.copy()  # a post-selected bit is nontrivial
+            syndrome = retained_syndrome
         key = tuple(syndrome.tolist())
         if key not in self.syndrome_to_candidates:
             return self.default_correction.copy()
@@ -500,5 +580,25 @@ class WeightedLookupDecoder(LookupDecoder):
         if penalty_func is None:
             output = candidates[-1][1]
         else:
-            output = min(candidates, key=lambda candidate: penalty_func(candidate[0]))[1]
+            # an equal penalty resolves in favor of the lighter candidate error
+            output = min(
+                candidates,
+                key=lambda candidate: (
+                    penalty_func(candidate[0]),
+                    _error_weight(candidate[0], self.symplectic),
+                ),
+            )[1]
         return output.copy()
+
+
+def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
+    """The weight of an error: the number of qudits, or of bits, that it addresses nontrivially.
+
+    This is the weight that ``_iter_errors_and_syndromes`` enumerates by, so ranking errors by it
+    keeps the lighter of two that a penalty scores equally.  A symplectic error assigns both an X
+    and a Z component to each qudit, and a qudit carrying both counts once, so the number of
+    nonzero entries would count it twice.
+    """
+    if symplectic:
+        return int(math.symplectic_weight(np.asarray(error)))
+    return int(np.count_nonzero(error))
