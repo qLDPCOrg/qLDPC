@@ -297,7 +297,7 @@ def test_surgery_observable_emits_two_observable_include() -> None:
     """Direct unit test on _surgery_observable: emits two OBSERVABLE_INCLUDE entries.
 
     Observable 0 = XOR of the last QEC round's meas-check records (Webster, Smith, Cohen
-    single-round identity Z̄ = ∏_v A_v, arXiv:2511.15989 §II.1).
+    single-round identity Z̄ = ∏_v A_v, arXiv:2511.15989 §II A).
     Observable 1 = XOR of data records on support (destructive cross-check).
     Asserts exactly two OBSERVABLE_INCLUDE lines are emitted with distinct observable indices."""
     from qldpc.circuits.bookkeeping import MeasurementRecord
@@ -821,7 +821,7 @@ def test_joint_ppm_ler_monotone_steane_intercode() -> None:
 def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
     """Webster BB codes 0..3 intra-code: (x_1, x_2 padded, 0...) is in rowspan(H_X^merged).
 
-    Pins the SkipTree adapter construction across the full Webster Table 1 code family rather
+    Pins the SkipTree adapter construction across the full Webster Table I code family rather
     than just code 0.
     """
     import galois
@@ -1564,7 +1564,7 @@ def test_logical_state_init_end_to_end_bbcode_basis_z(state: str, expected_obs0:
 def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
     """obs0 reads the merged Z̄ eigenvalue independently of R.
 
-    Webster, Smith, Cohen arXiv:2511.15989 §II.1 gives the single-round identity
+    Webster, Smith, Cohen arXiv:2511.15989 §II A gives the single-round identity
     Z̄ = ∏_{v ∈ support} A_v on the merged stabilizer group: the XOR of one round's meas-check
     outcomes equals the eigenvalue bit of Z̄.
 
@@ -1773,7 +1773,7 @@ def test_joint_ppm_even_rounds_truth_table() -> None:
     """obs0 must encode logical X̄_l X̄_r parity correctly at EVEN rounds.
 
     _surgery_observable must read a single round's product of meas-check outcomes (Webster, Smith,
-    Cohen arXiv:2511.15989 §II.1: Z̄ = ∏_v A_v). XOR-ing across all R rounds instead would give
+    Cohen arXiv:2511.15989 §II A: Z̄ = ∏_v A_v). XOR-ing across all R rounds instead would give
     R · m_v ≡ 0 mod 2 at even R, so the parity would silently vanish exactly here. Uses
     ``compile_sampler`` + manual XOR to read the raw observable bit rather than stim's noiseless
     flip, which is derived from the same prediction under test.

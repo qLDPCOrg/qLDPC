@@ -126,13 +126,16 @@ def _skip_tree_fullrank(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute SkipTree (T, P) satisfying T · G · P == H_R (full-rank rep code).
 
-    Swaroop et al. arXiv:2410.03628 Algorithm 1 reads each T row off the spanning-tree path between
+    Swaroop et al. arXiv:2410.03628 Algorithm 2 (Appendix E — the flag-based variant targeting the
+    full-rank H_R, which this implements) reads each T row off the spanning-tree path between
     consecutively labelled vertices. Here the spanning tree supplies only the DFS vertex labeling,
     and each T row is the XOR of shortest-path edges in the full graph S, which lets S be any
     connected graph; the direct _skip_tree call would IndexError on cyclic inputs.
 
     Row weight ≤ 3 still holds, since a shortest path in S is no longer than the tree path between
-    the same endpoints, which Theorem 7 bounds at 3 edges. Theorem 7's column-weight-2 half does not
+    the same endpoints, which the proof of Theorem 7 bounds at 3 edges — that proof analyses
+    Algorithm 1's labeling, and the paper asserts Algorithm 2's sparsity only empirically (§VII B).
+    Theorem 7's column-weight-2 half does not
     carry over, because a full-graph path may route over non-tree edges for which the paper gives no
     reuse bound; column weight ≤ 2 is checked empirically instead.
 
@@ -176,7 +179,7 @@ def _cellulate_port_subgraph(
 
     T_s row weight is already ≤ 3 regardless of cycle length (see _skip_tree_fullrank), so this step
     is not load-bearing for correctness. Capping basis cycle length is the cellulation of Swaroop et
-    al. arXiv:2410.03628 §II.3.
+    al. arXiv:2410.03628 §II C.
 
     Returns the list of added (u, v) edges in insertion order. Idempotent once all port-subgraph
     basis cycles fit under the cap.
@@ -221,7 +224,8 @@ def _build_aux_graph_strict(incidence: np.ndarray) -> tuple[nx.Graph, dict[tuple
     The hyperedge κ qubit itself stays in F_aug, leaving the gadget (G_aug = ker(F_aug^T), deformed
     check c → c · X(κ_r), χ_v) untouched.
 
-    Eq. (9)'s perfect-matching decomposition (§II.3) is not applied, and no structural distance
+    Swaroop et al. arXiv:2410.03628 §II C Eq. (9)'s perfect-matching decomposition is not applied,
+    and no structural distance
     argument is claimed for the joint merge: Swaroop et al. Thm 11 (§IV) needs the individual
     deformed codes to be LDPC with distance d, which this library does not establish.
 
@@ -304,7 +308,7 @@ def _run_skiptree_on_port_subgraph(
     new_of_orig = {orig: new for new, orig in enumerate(port_sorted)}
     orig_of_new = {new: orig for orig, new in new_of_orig.items()}
     sub_relab = nx.relabel_nodes(sub_orig, new_of_orig, copy=True)
-    # Take a spanning tree, as Algorithm 1 of the paper does at its first step. MST is
+    # Take a spanning tree, as the paper's SkipTree algorithms do at their first step. MST is
     # deterministic; for unweighted graphs nx returns a BFS-like tree.
     sub_tree = nx.minimum_spanning_tree(sub_relab)
     tree_edges = sorted(tuple(sorted(e)) for e in sub_tree.edges())
@@ -384,7 +388,7 @@ def build_bridge(
             code whose two check matrices differ in maximum row weight.
 
     Returns:
-        A Bridge of width min(|ports_l|, |ports_r|).
+        A Bridge of width ``min(|ports_l|, |ports_r|)``.
 
     Raises:
         ValueError: the two gadgets disagree on basis; the resulting width is < 2; a spanning-tree

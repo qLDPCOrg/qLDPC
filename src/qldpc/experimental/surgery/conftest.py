@@ -1,7 +1,7 @@
 """Shared reference data and helpers for the surgery tests.
 
 The seed sets and the `expected_*` counts are from Webster, Smith, and Cohen, arXiv:2511.15989
-Appendix A and Table 1; the tests that check those counts carry their own copies.
+Appendix A and Table I; the tests that check those counts carry their own copies.
 
 Nothing outside the surgery tests should rely on this module: it ships inside the wheel, which makes
 its names reachable but not supported.
@@ -197,7 +197,7 @@ def load_webster_seed_set(code_index: int) -> dict[str, Any]:
 
     Returns:
         The seed-set dict for that code: ell, the A and B exponent sets, the code parameters, the
-        named seed operators, and the `expected_*` reference counts from Webster Table 1.
+        named seed operators, and the `expected_*` reference counts from Webster Table I.
 
     Raises:
         IndexError: code_index is out of range.
@@ -214,8 +214,8 @@ def build_generalised_bicycle_code(ell: int, A_set: list[int], B_set: list[int])
     Per Kovalev-Pryadko (arXiv:1212.6703) and Swaroop's reference implementation
     (https://github.com/eswaroop/adapters-LDPC-surgery, ext/bivariate_bicyclic.py): given subsets
     A, B of Z_ell, let A(x) = sum(x^a for a in A_set) and B(x) = sum(x^b for b in B_set) as cyclic
-    matrices in F_2[Z_ell]. Then H_X = [A | B] and H_Z = [B^T | A^T] define the bicycle code on
-    2*ell data qubits.
+    matrices in F_2[Z_ell]. Then H_X = [A | B] and H_Z = [B^T | A^T] define the generalized bicycle
+    code on 2*ell data qubits.
 
     Args:
         ell: cyclic group order.

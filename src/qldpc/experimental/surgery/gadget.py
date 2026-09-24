@@ -1,16 +1,20 @@
-"""L=1 gadget construction (Webster, Smith, Cohen arXiv:2511.15989 §II.1).
+"""L=1 gadget construction (Webster, Smith, Cohen arXiv:2511.15989 §II A).
 
-Three named stages. The first two carry out Webster §II.1's construction; the third writes its
-result into check matrices and has no counterpart in the paper:
-    _step1_restriction  — the restriction F that Webster §II.1 steps 1-2 define: a κ_j per Z-check
+Three named stages. The first two carry out Webster §II A's construction; the third writes its
+result into check matrices and has no counterpart in the paper::
+
+    _step1_restriction  — the restriction F that Webster §II A steps 1-2 define: a κ_j per Z-check
                           S_j ∈ S_L, a χ_i per qubit q_i ∈ supp(L), with κ_j ∈ supp(χ_i) iff
                           q_i ∈ supp(S_j)
-    _step2_gauge_fix    — Webster §II.1 step 3: the |S_L| - rank(F) gauge-fixing checks spanning a
-                          basis of ker(H_X,gadget)
+    _step2_gauge_fix    — Webster §II A step 3: one gauge-fixing check per element of a basis of
+                          ker(H_X,gadget) = ker(F.T). The paper writes the count as
+                          ``|S_L| - wt(L) + 1``; the general form is ``|S_L| - rank(F)``, and the
+                          two agree whenever dim ker(F) = 1, as they do for the paper's four codes
     _step3_assemble     — block assembly of HX_merged, HZ_merged
 
 Notation (used throughout the surgery package; the symbols follow Webster/Cohen/Cross, not Cain).
-For a logical measured on support V_0:
+For a logical measured on support V_0::
+
     V_0  — logical support (measured qubits)                 → ``support``
     C_0  — data-code checks touching V_0                     → rows of ``incidence``
     F    — restriction (incidence) matrix on (C_0, V_0)      → ``incidence``
@@ -48,7 +52,7 @@ from qldpc.objects import Pauli, PauliXZ
 class GadgetLayout:
     """An L=1 surgery gadget for measuring one logical operator of a CSS code.
 
-    Built by ``build_gadget``. The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II.1
+    Built by ``build_gadget``. The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II A
     as V_0 → support, F → incidence, G → gauge.
 
     ``incidence`` carries one row per κ ancilla qubit, and the κ qubits occupy the merged-code qubit
@@ -73,7 +77,7 @@ def _step1_restriction(
     *,
     basis: PauliXZ = Pauli.X,
 ) -> tuple[tuple[int, ...], tuple[int, ...], np.ndarray]:
-    """Webster §II.1 steps 1-2 — V_0 = supp(x); C_0 = checks on V_0; F = H_complement[C_0, V_0].
+    """Webster §II A steps 1-2 — V_0 = supp(x); C_0 = checks on V_0; F = H_complement[C_0, V_0].
 
     For basis=Pauli.X: incidence = H_Z[data_checks, support] (the complementary basis to the
     measured logical). For basis=Pauli.Z: incidence = H_X[data_checks, support].
@@ -100,7 +104,7 @@ def _step1_restriction(
 
 
 def _step2_gauge_fix(incidence: np.ndarray) -> np.ndarray:
-    """Webster §II.1 step 3 — G whose rows form a canonical basis of ker(F.T) over GF(2).
+    """Webster §II A step 3 — G whose rows form a canonical basis of ker(F.T) over GF(2).
 
     Uses galois ``left_null_space`` (row-reduced) so the basis is deterministic.
     """
@@ -148,7 +152,7 @@ def _step3_assemble(
     *,
     basis: PauliXZ = Pauli.X,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Block assembly of HX_merged, HZ_merged from the Webster §II.1 pieces.
+    """Block assembly of HX_merged, HZ_merged from the Webster §II A pieces.
 
     basis=X (default): χ rows added to HX_merged, G to HZ_merged.
     basis=Z: χ rows added to HZ_merged, G to HX_merged (basis-symmetric dual).
@@ -200,7 +204,7 @@ def build_gadget(
     *,
     basis: PauliXZ,
 ) -> GadgetLayout:
-    """Webster §II.1 L=1 gadget: restriction, gauge fix, assembly. Deterministic in its arguments.
+    """Webster §II A L=1 gadget: restriction, gauge fix, assembly. Deterministic in its arguments.
 
     gadget notation: κ qubits → rows of incidence; G → gauge.
 

@@ -83,7 +83,7 @@ def test_step1_restriction_steane() -> None:
     # F = H_Z[C_0, V_0]
     assert incidence.shape == (len(data_checks), len(support))
     assert np.array_equal(incidence, HZ[np.ix_(data_checks, support)])
-    # F @ 1_{V0} == 0 (invariant of the Webster §II.1 restriction)
+    # F @ 1_{V0} == 0 (invariant of the Webster §II A restriction)
     ones = np.ones(len(support), dtype=np.uint8)
     assert np.array_equal((incidence @ ones) % 2, np.zeros(len(data_checks), dtype=np.uint8))
 
@@ -95,7 +95,7 @@ def test_step2_gauge_fix_basis_property() -> None:
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     _, _, incidence = _step1_restriction(code, x)
     gauge = _step2_gauge_fix(incidence)
-    # Webster §II.1 step 3: G F = 0 over GF(2)
+    # Webster §II A step 3: G F = 0 over GF(2)
     assert gauge.shape[1] == incidence.shape[0]
     GF = (gauge @ incidence) % 2
     assert np.array_equal(GF, np.zeros_like(GF))
@@ -161,7 +161,7 @@ def test_step3_assemble_steane_css_commutes() -> None:
     n, mX, mZ = code.num_qudits, code.matrix_x.shape[0], code.matrix_z.shape[0]
     assert HX_m.shape == (mX + len(support), n + len(data_checks))
     assert HZ_m.shape == (mZ + gauge.shape[0], n + len(data_checks))
-    # Webster §II.1: H_X^merged @ H_Z^merged.T == 0 over GF(2) (CSS commutation)
+    # Webster §II A: H_X^merged @ H_Z^merged.T == 0 over GF(2) (CSS commutation)
     product = (HX_m @ HZ_m.T) % 2
     assert np.array_equal(product, np.zeros_like(product))
 
@@ -282,7 +282,7 @@ def test_build_generalised_bicycle_code_constructs_css() -> None:
 
 @pytest.mark.parametrize("code_index,n_anc", WEBSTER_TABLE_1_BARE_GADGET_QUBITS)
 def test_webster_table_1_bare_gadget_qubits_exact(code_index: int, n_anc: int) -> None:
-    """Bare-gadget qubit count matches Webster Table 1 for each of the 4 codes.
+    """Bare-gadget qubit count matches Webster Table I for each of the 4 codes.
 
     Webster's "Gadget Qubits" column counts qubits including ancillae, which for an L=1 gadget is
     |Q'| + |S'_meas| + |S'_comp|: κ ancillas, χ measurement checks, and gauge checks. For codes 2
@@ -331,7 +331,7 @@ def test_step1_restriction_basis_z_uses_HX() -> None:
     assert data_checks == tuple(touched)
     # F = H_X[C_0, V_0]
     assert np.array_equal(incidence, HX[np.ix_(data_checks, support)])
-    # Webster §II.1 restriction invariant: F @ 1_{V0} = 0 (since H_X @ z = 0 for a logical Z)
+    # Webster §II A restriction invariant: F @ 1_{V0} = 0 (since H_X @ z = 0 for a logical Z)
     ones = np.ones(len(support), dtype=np.uint8)
     assert np.array_equal((incidence @ ones) % 2, np.zeros(len(data_checks), dtype=np.uint8))
 
@@ -382,7 +382,7 @@ def test_webster_table_1_bare_gadget_qubits_z_basis() -> None:
     """The Z̄_1 seed reaches the same bare-gadget qubit count as the X̄_1 seed.
 
     Basis-symmetric dual of test_webster_table_1_bare_gadget_qubits_exact, against the same first
-    terms of Webster Table 1's "Gadget Qubits" column.
+    terms of Webster Table I's "Gadget Qubits" column.
     """
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
@@ -433,7 +433,8 @@ def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None
 def test_step2_gauge_fix_rows_linearly_independent() -> None:
     """G rows from _step2_gauge_fix are linearly independent over GF(2).
 
-    Webster §II.1 step 3 requires |S_L| - rank(F) INDEPENDENT gauge constraints, and a degenerate F
+    Webster §II A step 3 requires one INDEPENDENT gauge constraint per basis element of
+    ker(H_X,gadget), i.e. |S_L| - rank(F) of them, and a degenerate F
     could let the gauge fix return redundant rows, inflating g.gauge.shape[0] without changing the
     gauge structure.
     """

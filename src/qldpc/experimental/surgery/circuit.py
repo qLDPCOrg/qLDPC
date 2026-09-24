@@ -2,7 +2,7 @@
 
 References:
     Cain et al. arXiv:2603.28627 §B.1  — single-PPM measurement protocol.
-    Webster, Smith, Cohen arXiv:2511.15989  — gadget Eq. 4 observable.
+    Webster, Smith, Cohen arXiv:2511.15989  — gadget Eqs. (1)-(4) observable.
 
 Copyright 2026 The qLDPC Authors
 
@@ -72,12 +72,12 @@ def logical_state_init(code: CSSCode, state: str, *, log_idx: int) -> str:
     """Per-qubit ``data_init`` string preparing a Pauli logical state on logical qubit ``log_idx``.
 
     ``state`` ∈ {"0", "1", "+", "-"}:
-      * "0" → ``"0" * n``  — |0⟩^n projects to |0⟩_L^{⊗k} for any CSS code
+      * "0" → ``"0" * n``  — ``|0⟩^n`` projects to ``|0⟩_L^{⊗k}`` for any CSS code
       * "1" → "1" on supp(X̄_{log_idx}), "0" elsewhere — flips logical qubit
-        ``log_idx`` from |0⟩_L to |1⟩_L; other logical qubits stay at |0⟩_L
-      * "+" → ``"+" * n``  — |+⟩^n projects to |+⟩_L^{⊗k} for any CSS code
+        ``log_idx`` from ``|0⟩_L`` to ``|1⟩_L``; other logical qubits stay at ``|0⟩_L``
+      * "+" → ``"+" * n``  — ``|+⟩^n`` projects to ``|+⟩_L^{⊗k}`` for any CSS code
       * "-" → "-" on supp(Z̄_{log_idx}), "+" elsewhere — flips logical qubit
-        ``log_idx`` from |+⟩_L to |-⟩_L; other logical qubits stay at |+⟩_L
+        ``log_idx`` from ``|+⟩_L`` to ``|-⟩_L``; other logical qubits stay at ``|+⟩_L``
 
     X̄_{log_idx} and Z̄_{log_idx} come from ``code.get_logical_ops(Pauli.X)[log_idx]`` and
     ``[Pauli.Z][log_idx]``, which qldpc guarantees anti-commute, so the prep is correct for any CSS
@@ -344,8 +344,9 @@ def build_single_ppm_circuit(
 
     Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 
-      * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout (Webster, Smith, Cohen arXiv:2511.15989
-        §II.1, gadget Eq. 4): the XOR of the **last** QEC round's meas-check outcomes, argued but
+      * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout, or X̄ for basis=X (Webster, Smith, Cohen
+        arXiv:2511.15989 §II A, gadget Eqs. (1)-(4)): the XOR of the **last** QEC round's
+        meas-check outcomes, argued but
         not tested to be decoding-equivalent to Cain et al.'s first-cycle readout
         (arXiv:2603.28627 App. D).
       * obs1 — Direct destructive M on ``support`` qubits; noiseless cross-check, not a physical
@@ -667,8 +668,9 @@ def build_joint_ppm_circuit(
 
     Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 
-      * obs0 — Single-round joint readout via Webster, Smith, Cohen arXiv:2511.15989 §II.1's
-        identity ∏_{v ∈ support_l ∪ support_r} A_v = X̄_l ⊗ X̄_r (or Z̄_l ⊗ Z̄_r for basis=Z): the XOR
+      * obs0 — Single-round joint readout via the bridged-product identity of Webster, Smith, Cohen
+        arXiv:2511.15989 §II B 2 (prose, crediting Cross et al. arXiv:2407.18393),
+        ∏_{v ∈ support_l ∪ support_r} A_v = X̄_l ⊗ X̄_r (or Z̄_l ⊗ Z̄_r for basis=Z): the XOR
         of the **last** QEC round's meas-check outcomes on both patches, argued but not tested to be
         decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D).
       * obs1 — Direct destructive M on ``support_l ∪ support_r``; noiseless cross-check, not a
@@ -682,7 +684,7 @@ def build_joint_ppm_circuit(
         left, [n_l:n_l+n_r) are right; for intracode, length is n_l. See ``_surgery_state_prep`` for
         the char-to-state mapping.
       * ``tuple[str, str]`` (intercode only) — per-code logical-init spec.
-        ``data_init=("0", "+")`` → c_l in |0⟩_L, c_r in |+⟩_L.
+        ``data_init=("0", "+")`` → c_l in ``|0⟩_L``, c_r in ``|+⟩_L``.
 
     Raises:
         ValueError: rounds < 1; a tuple ``data_init`` on an intracode pair, which has a single data
@@ -1095,7 +1097,8 @@ def _surgery_observable(
 
     obs0 — physical readout of the logical Pauli. The merged stabilizer group satisfies the
         single-round identity Z̄ = ∏_{v ∈ support} A_v (Webster, Smith, Cohen arXiv:2511.15989
-        §II.1, gadget Eq. 4). We point ``OBSERVABLE_INCLUDE`` at the **last** QEC round's meas-check
+        §II A, gadget Eqs. (1)-(4)). We point ``OBSERVABLE_INCLUDE`` at the **last** QEC round's
+        meas-check
         (S'_meas) outcomes — their XOR is the eigenvalue bit of Z̄ (or X̄ for basis=X). Detectors
         carry the FT load via round-to-round consistency. Reading at the final round should be
         decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D) because
