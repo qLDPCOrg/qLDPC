@@ -369,6 +369,18 @@ def test_augmented_decoders(toy_problem: ToyProblem) -> None:
         direct_decoder.decode_batch(errors)
 
 
+def test_quantum_decoding_from_plain_matrix() -> None:
+    """A parity check matrix that is not a FieldArray is interpreted over GF(2)."""
+    code = codes.FiveQubitCode()
+    error = code.field.Zeros(2 * len(code))
+    error[2] = 1
+    syndrome = np.asarray(code.matrix @ math.symplectic_conjugate(error), dtype=int)
+
+    decoder = decoders.GUFDecoder(np.asarray(code.matrix, dtype=int), symplectic=True)
+    decoded_error = code.field(decoder.decode(syndrome))
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
+
+
 def test_quantum_decoding(surface_code_problem: SurfaceCodeProblem) -> None:
     """Decode random weight-2 errors in a GF(3) surface code."""
     code, _error, syndrome = surface_code_problem
