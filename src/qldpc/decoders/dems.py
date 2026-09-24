@@ -702,9 +702,6 @@ def _with_higher_order_corrections(
         obs_flips = scipy.sparse.csc_matrix(
             dem_arrays.observable_flip_matrix[:, comb].sum(axis=1) % 2
         )
-        if det_flips.nnz == 0 and obs_flips.nnz == 0:
-            continue
-
         # add this combination as a new error mechanism
         flip_pattern = det_flips.toarray().tobytes() + obs_flips.toarray().tobytes()
         prob = float(np.prod(dem_arrays.error_probs[comb]))
