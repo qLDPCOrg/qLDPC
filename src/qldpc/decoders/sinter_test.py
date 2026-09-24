@@ -342,6 +342,11 @@ def test_sliding_window_time_gaps() -> None:
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1], [2]]
 
+    # a window is dropped for committing nothing, even when it detects something
+    decoder = decoders.SlidingWindowDecoder(2, 1, with_lookup=True, max_weight=1)
+    compiled = decoder.compile_decoder_for_dem(dem)
+    assert list(compiled.window_detectors) == [[0], [1], [2]]
+
 
 def test_sliding_window_ignores_undecoded_detectors() -> None:
     """Only the detectors that get windowed need a time index."""
