@@ -176,6 +176,11 @@ class CompiledSinterDecoder(Decoder, sinter.CompiledDecoder):
         observables of the sampled circuit require, and whose extra byte is nonzero.  Erasure is
         signalled in that byte, which keeps the packed predictions aligned with the observables
         that the circuit actually reports.  A shot is erased if any erasure bit is set.
+
+        The added byte is read by the sampler that sinter runs a decoder under, and is not part of
+        the return shape that sinter documents for a compiled decoder, which is one byte per eight
+        observables.  A sinter release can therefore change how the byte is read without
+        contradicting its own documentation.
         """
         if not self.num_erasure_bits:
             return self.packbits(observable_flips)
