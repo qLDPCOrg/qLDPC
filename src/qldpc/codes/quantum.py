@@ -750,9 +750,6 @@ class QCCode(TBCode):
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a generalized bicycle code."""
-        self.poly_a = sympy.Poly(poly_a)
-        self.poly_b = sympy.Poly(poly_b)
-
         # identify the symbols used to denote cyclic group generators
         symbols = poly_a.free_symbols | poly_b.free_symbols
         if len(orders) < len(symbols):
@@ -781,7 +778,16 @@ class QCCode(TBCode):
         # identify the group generator associated with each symbol
         self.group = abstract.AbelianGroup(*self.orders)
         self.ring = abstract.GroupRing(self.group, field)
-        self.symbol_gens = dict(zip(self.symbols, self.group.generators))
+        # an abelian group provides a generator only for a nontrivial factor, so generators go to
+        # the factors that have them, and a symbol whose cyclic group is trivial takes the identity
+        generators = iter(self.group.generators)
+        self.symbol_gens = {}
+        for symbol, order in zip(self.symbols, self.orders):
+            self.symbol_gens[symbol] = next(generators) if order > 1 else self.group.identity
+
+        # simplify the polynomials, whose monomials can denote the same group element
+        self.poly_a = self.get_simplified_form(poly_a)
+        self.poly_b = self.get_simplified_form(poly_b)
 
         # build defining matrices of a quasi-cyclic code; transpose the lift by convention
         matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
@@ -790,22 +796,56 @@ class QCCode(TBCode):
             matrix_a, matrix_b, field, promise_equal_distance_xz=True, skip_validation=True
         )
 
-    def get_canonical_form(
+    def get_simplified_form(
         self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
-    ) -> sympy.Expr:
-        """Canonicalize the given polynomial, shifting exponents to (-order/2, order/2]."""
+    ) -> sympy.Poly:
+        """Simplify the given polynomial with the relations satisfied by the cyclic generators.
+
+        A generator of a cyclic group of order R satisfies x**R = 1, so the exponent of a symbol
+        matters only modulo its order, and two monomials whose exponents agree modulo the orders
+        denote the same group element.  Reducing every exponent into [0, order) therefore collects
+        such monomials into a single term, whose coefficient is the sum of theirs in the base field,
+        and a coefficient that sums to zero leaves no term at all.  The polynomial is returned over
+        all of the symbols of this code, including any that it does not address.
+        """
         orders = orders or self.orders
         assert len(orders) == len(self.symbols)
 
-        # canonicalize and add one monomial term at a time
-        new_poly: sympy.Expr = sympy.Integer(0)
+        coefficients: dict[sympy.Expr, galois.FieldArray] = {}
         for term in abstract.iter_monomial_terms(poly):
+            _, _exponents = abstract.get_coefficient_and_exponents(term)
+            exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
+            monomial = sympy.prod(
+                symbol ** (exponents.get(symbol, 0) % order)
+                for symbol, order in zip(self.symbols, orders)
+            )
+            # a monomial term evaluates to a single group element, whose coefficient is in the field
+            [(coefficient, _group_member)] = self.ring.eval(term, self.symbol_gens)
+            coefficients[monomial] = coefficients.get(monomial, self.ring.field(0)) + coefficient
+
+        terms = [int(coefficient) * monomial for monomial, coefficient in coefficients.items()]
+        return sympy.Poly(sum(terms), *self.symbols)
+
+    def get_canonical_form(
+        self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
+    ) -> sympy.Expr:
+        """Canonicalize the given polynomial, shifting exponents to (-order/2, order/2].
+
+        The polynomial is simplified first, so that its monomials denote distinct group elements and
+        carry the coefficients that the base field gives them.  Shifting the exponents of distinct
+        simplified monomials leaves them distinct, so the terms below combine by addition alone.
+        """
+        orders = orders or self.orders
+
+        # shift the exponents of one simplified monomial term at a time
+        new_poly: sympy.Expr = sympy.Integer(0)
+        for term in abstract.iter_monomial_terms(self.get_simplified_form(poly, orders)):
             coeff, _exponents = abstract.get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
             new_term = sympy.Integer(coeff)
             for symbol, order in zip(self.symbols, orders):
-                new_exponent = exponents.get(symbol, 0) % order
+                new_exponent = exponents.get(symbol, 0)
                 if new_exponent > order / 2:
                     new_exponent -= order
                 new_term *= symbol**new_exponent
@@ -847,7 +887,7 @@ class QCCode(TBCode):
             f" (provided: {strategy})"
         )
 
-        # build matrices for each term in A and B
+        # build matrices for each term in A and B, transposed to match the lift in __init__
         terms_a = abstract.iter_monomial_terms(self.poly_a)
         terms_b = abstract.iter_monomial_terms(self.poly_b)
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
@@ -968,7 +1008,7 @@ class BBCode(QCCode):
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a bivariate bicycle code."""
-        symbols = sympy.Poly(poly_a).free_symbols | sympy.Poly(poly_b).free_symbols
+        symbols = poly_a.free_symbols | poly_b.free_symbols
         if len(orders) != 2 or len(symbols) != 2:
             raise ValueError(
                 "BBCodes should have exactly two cyclic group orders and two symbols, not "
@@ -1058,7 +1098,9 @@ class BBCode(QCCode):
             ``poly_b = 1 + y + ...``,
 
         We say that two BBCodes are "equivalent" if they can be obtained from one another by a
-        permutation of data and check qubits.
+        permutation of data and check qubits.  For qudit codes, we also allow "equivalent" BBCodes
+        to differ by an overall sign of their Z-type parity checks, which does not change the code
+        that these checks define.
 
         To find an equivalent BBCode with a manifestly toric layout, we take
 
@@ -1443,6 +1485,10 @@ class HGPCode(CSSCode):
         field = getattr(graph_a, "field", galois.GF2)
         _Pauli = Pauli if field is galois.GF2 else QuditPauli
 
+        # the keys of this map are the vertices of the product, before relabeling
+        node_map = HGPCode.get_product_node_map(graph_a.nodes, graph_b.nodes)
+        graph.add_nodes_from(node_map.keys())
+
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
 
@@ -1475,7 +1521,6 @@ class HGPCode(CSSCode):
             graph[node_check][node_qudit][Pauli] = op
 
         # relabel nodes, from (node_a, node_b) --> node_combined
-        node_map = HGPCode.get_product_node_map(graph_a.nodes, graph_b.nodes)
         graph = nx.relabel_nodes(graph, node_map)
         graph.field = field
         return graph

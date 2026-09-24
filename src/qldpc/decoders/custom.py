@@ -33,6 +33,7 @@ from qldpc import codes, math
 from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
+from .common import with_erasure_bits
 from .dems import DetectorErrorModelArrays
 
 if TYPE_CHECKING:
@@ -90,6 +91,9 @@ class RelayBPDecoder:
 
     - Documentation: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
+
+    If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
+    set to 1 when the error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
     """
 
     def __init__(
@@ -100,6 +104,7 @@ class RelayBPDecoder:
         name: str = "RelayDecoderF32",
         observable_error_matrix: IntegerArray | None = None,
         include_decode_result: bool = False,
+        add_erasure_bit: bool = False,
         **decoder_args: object,
     ) -> None:
         """Initialize a RelayBP decoder from the relay_bp package.
@@ -116,6 +121,9 @@ class RelayBPDecoder:
                 constructed RelayBPDecoder will not be able to predict observable flips (or logical
                 error rates).
             include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
+            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the
+                error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
+                Without that bit, such a shot is reported as an ordinary inferred error.
             **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
                 relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
                 for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
@@ -140,9 +148,11 @@ class RelayBPDecoder:
 
         # extract relevant data from a detector error model
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            assert observable_error_matrix is None, (
-                "Cannot specify an observable_error_matrix when providing a detector error model"
-            )
+            if observable_error_matrix is not None:
+                raise ValueError(
+                    "Cannot specify an observable_error_matrix when providing a detector error"
+                    " model"
+                )
             dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
             pcm = dem_arrays.detector_flip_matrix
             observable_error_matrix = dem_arrays.observable_flip_matrix
@@ -168,7 +178,9 @@ class RelayBPDecoder:
         if observable_error_matrix is None:
             observable_error_matrix = np.empty((0, 0), dtype=np.uint8)
 
-        # build the decoder
+        # build the decoder, retaining the parity checks that judge an inferred error
+        self.has_erasure_bit = add_erasure_bit
+        self.pcm_transposed = scipy.sparse.csr_matrix(pcm, dtype=np.uint8).T.tocsr()
         self.decoder = relay_bp.ObservableDecoderRunner(
             getattr(relay_bp, name)(pcm, np.asarray(error_priors), **decoder_args),
             observable_error_matrix,
@@ -180,7 +192,12 @@ class RelayBPDecoder:
 
         Typecast detectors to np.uint8 for compatibility with the relay_bp package.
         """
-        return self.decoder.decode(np.asarray(detectors, dtype=np.uint8))
+        detectors = np.asarray(detectors, dtype=np.uint8)
+        error = self.decoder.decode(detectors)
+        if not self.has_erasure_bit:
+            return error
+        erased = ~self._reproduces_syndrome(np.asarray(error)[None, :], detectors[None, :])
+        return with_erasure_bits(error, erased[0])
 
     def decode_batch(
         self,
@@ -194,23 +211,44 @@ class RelayBPDecoder:
 
         Typecast detectors to np.uint8 for compatibility with the relay_bp package.
         """
-        return self.decoder.decode_batch(
-            np.asarray(detectors, dtype=np.uint8),
-            parallel,
-            progress_bar,
-            leave_progress_bar_on_finish,
+        detectors = np.asarray(detectors, dtype=np.uint8)
+        errors = self.decoder.decode_batch(
+            detectors, parallel, progress_bar, leave_progress_bar_on_finish
         )
+        if not self.has_erasure_bit:
+            return errors
+        erased = ~self._reproduces_syndrome(np.asarray(errors), detectors)
+        return with_erasure_bits(errors, erased)
+
+    def _reproduces_syndrome(
+        self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]
+    ) -> npt.NDArray[np.bool_]:
+        """Whether each inferred error reproduces the syndrome it was inferred from.
+
+        Relay-BP settles on a best guess whether or not it converges, so checking that guess is
+        what separates a syndrome it explained from one it could not.
+
+        The parity accumulates in uint8 and overflows for a check that many error mechanisms
+        address.  That is harmless: overflow reduces modulo 256, and only the low bit is read.
+        """
+        residuals = np.asarray(errors.astype(np.uint8, copy=False) @ self.pcm_transposed) & 1
+        return np.all(residuals == detectors, axis=1)
 
     def __getattr__(self, name: str) -> Any:
         """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.
 
-        Always typecast the first argument to np.uint8 for compatibility with the relay_bp package.
+        Typecast the first argument, if there is one, to np.uint8 for compatibility with the
+        relay_bp package.
         """
+        if name == "decoder":
+            raise AttributeError(name)  # the inner decoder is not set, so do not recurse for it
         inner_func = getattr(self.decoder, name)
 
         @functools.wraps(inner_func)
         def outer_func(*args: object, **kwargs: object) -> Any:
-            return inner_func(np.asarray(args[0], dtype=np.uint8), *args[1:], **kwargs)
+            if args:
+                args = (np.asarray(args[0], dtype=np.uint8), *args[1:])
+            return inner_func(*args, **kwargs)
 
         return outer_func
 
@@ -218,11 +256,28 @@ class RelayBPDecoder:
 class ILPDecoder:
     """Decoder based on solving an integer linear program (ILP).
 
+    An integer program that is allowed to run to completion either finds an error of minimum weight
+    that reproduces the syndrome or proves that no error reproduces it, so an inferred error that
+    does not reproduce the syndrome means the solver stopped early, at a point it never proved
+    feasible.  ``time_limit`` and ``mip_max_nodes`` are the arguments that ask it to stop early.
+
+    If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
+    set to 1 for a syndrome that it cannot explain and to 0 otherwise.  Without that bit there is no
+    way to report such a syndrome, so it is rejected instead.
+
+    A syndrome goes unexplained either because the inferred error does not reproduce it, or because
+    the program reports no solution for it at all.  The second case also warns, since a program
+    reports no solution both when it proves that no error reproduces the syndrome and when it fails.
+
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
     """
 
-    def __init__(self, matrix: IntegerArray, **decoder_args: object) -> None:
+    def __init__(
+        self, matrix: IntegerArray, *, add_erasure_bit: bool = False, **decoder_args: object
+    ) -> None:
         import cvxpy
+
+        self.has_erasure_bit = add_erasure_bit
 
         self.modulus = type(matrix).order if isinstance(matrix, galois.FieldArray) else 2
         if not galois.is_prime(self.modulus):
@@ -263,43 +318,73 @@ class ILPDecoder:
         problem = cvxpy.Problem(self.objective, constraints)
         result = problem.solve(**self.decoder_args)
 
-        # raise error if the optimization failed
+        # a program that reports no solution has either proven that no error reproduces the syndrome
+        # or failed outright, and those are indistinguishable from here, so an erasure carries a
+        # warning naming the output that the solver did report
         if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
-            message = "Optimal solution to integer linear program could not be found!"
-            raise ValueError(message + f"\nSolver output: {result}")
+            message = (
+                "Optimal solution to integer linear program could not be found!"
+                f"\nSolver output: {result}"
+            )
+            if not self.has_erasure_bit:
+                raise ValueError(message)
+            warnings.warn(message, stacklevel=2)
+            no_error = np.zeros(self.matrix.shape[1], dtype=syndrome.dtype)
+            return with_erasure_bits(no_error, True)
 
-        # return solution to the problem variables
-        return self.variables.value.astype(syndrome.dtype)
+        # round the solver's near-integral values, reducing before the cast so that a syndrome of
+        # boolean or unsigned type does not turn a negative value into a large positive one
+        values = np.rint(self.variables.value) % self.modulus
+
+        # a solver that stops before proving optimality can report a finite objective for a point
+        # that reproduces no syndrome at all, so check the solution before returning it
+        reproduces_syndrome = np.array_equal(
+            self.matrix @ values.astype(int) % self.modulus,
+            np.asarray(syndrome, dtype=int) % self.modulus,
+        )
+        error = values.astype(syndrome.dtype)
+        if not self.has_erasure_bit:
+            if not reproduces_syndrome:
+                raise ValueError(
+                    "Integer linear program returned an error that does not reproduce the syndrome!"
+                    f"\nSolver status: {problem.status}"
+                )
+            return error
+        return with_erasure_bits(error, not reproduces_syndrome)
 
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]
     ) -> list[cvxpy.Constraint]:
         """Build cvxpy constraints of the form ``matrix @ variables == syndrome (mod q)``.
 
-        This method uses boolean slack variables {s_j} to relax each constraint of the form
+        This method relaxes each constraint of the form
         ``expression = val mod q``
         to
-        ``expression = val + sum_j q^j s_j``.
+        ``expression = val + q t``,
+        where t is a nonnegative integer built out of boolean variables {b_j} as
+        ``t = sum_j 2^j b_j``.
+
+        Since the variables are nonnegative and val is reduced mod q, ``expression - val`` is a
+        nonnegative multiple of q, so t is nonnegative, and it is bounded above by the largest value
+        that ``expression`` can take, less val, in units of q.  Enough bits to reach that bound
+        reach every value below it too, since a binary expansion represents every integer in range.
         """
         import cvxpy
 
         syndrome = np.asarray(syndrome, dtype=int) % self.modulus
 
         constraints = []
-        for idx, (check, syndrome_bit) in enumerate(zip(self.matrix, syndrome)):
-            # identify the largest power of q needed for the relaxation
-            max_zero = int(sum(check) * (self.modulus - 1) - syndrome_bit)
-            if max_zero == 0 or self.modulus == 2:
-                max_power_of_q = max_zero.bit_length() - 1
-            else:
-                max_power_of_q = int(np.log2(max_zero) / np.log2(self.modulus))
+        for check, syndrome_bit in zip(self.matrix, syndrome):
+            # the largest value that expression - val can take
+            max_offset = int(sum(check) * (self.modulus - 1) - syndrome_bit)
 
-            if max_power_of_q > 0:
-                powers_of_q = [self.modulus**jj for jj in range(1, max_power_of_q + 1)]
-                slack_variables = cvxpy.Variable(max_power_of_q, boolean=True)
-                zero_mod_q = powers_of_q @ slack_variables
+            num_bits = (max_offset // self.modulus).bit_length() if max_offset > 0 else 0
+            if not num_bits:
+                # no nonzero multiple of q is within reach, so val itself has to be hit
+                zero_mod_q: Any = 0
             else:
-                zero_mod_q = 0
+                slack_bits = cvxpy.Variable(num_bits, boolean=True)
+                zero_mod_q = [self.modulus * 2**jj for jj in range(num_bits)] @ slack_bits
 
             constraint = check @ self.variables == syndrome_bit + zero_mod_q
             constraints.append(constraint)
@@ -320,6 +405,11 @@ class GUFDecoder:
     and Z support of a stabilizer.  Decoded errors are likewise vectors that indicate their X and Z
     support by the first and second half of their entries.
 
+    If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
+    set to 1 when its search exhausts without finding an error that reproduces the syndrome, and to
+    0 otherwise.  Without that bit, an exhausted search is reported as the all-zero error, which is
+    indistinguishable from the error inferred for a trivial syndrome.
+
     Warning: this implementation of the generalized Union-Find decoder is highly unoptimized.  For
     one, it is written entirely in Python.  Moreover, this implementation does not factor an error
     set into connected components.
@@ -331,11 +421,13 @@ class GUFDecoder:
         *,
         max_weight: int | None = None,
         symplectic: bool = False,
+        add_erasure_bit: bool = False,
     ) -> None:
         matrix = np.asanyarray(matrix)
 
         self.default_max_weight = max_weight
         self.symplectic = symplectic
+        self.has_erasure_bit = add_erasure_bit
 
         # get_weight returns the weight of one error vector; the concrete type depends on the
         # backend: np.count_nonzero yields a scalar np.intp, while math.symplectic_weight yields an
@@ -350,14 +442,19 @@ class GUFDecoder:
         else:
             # decoding a quantum code: the "weight" of an error vector is its symplectic weight
             self.get_weight = math.symplectic_weight
-            self.code = codes.QuditCode(-math.symplectic_conjugate(matrix))
+            field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
+            self.code = codes.QuditCode(-math.symplectic_conjugate(matrix.view(field)))
 
         self.graph = self.code.graph.to_undirected()
 
     def decode(
         self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
     ) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
+        """Decode an error syndrome and return an inferred error.
+
+        If the search exhausts without finding an error that reproduces the given syndrome, return
+        the all-zero error, whose appended erasure bit is set if this decoder tracks one.
+        """
         max_weight = max_weight if max_weight is not None else self.default_max_weight
         syndrome = syndrome.view(self.code.field)
         syndrome_bits = np.flatnonzero(syndrome)
@@ -372,10 +469,14 @@ class GUFDecoder:
 
             # if the error set has not grown, there is no valid solution, so exit now
             if len(error_set) == last_error_set_size:
-                return np.zeros(
-                    len(self.code) * (2 if self.symplectic else 1),
+                exhausted = np.zeros(
+                    len(self.code) * (2 if self.symplectic else 1) + self.has_erasure_bit,
                     dtype=syndrome.dtype,
                 )
+                # the all-zero error does reproduce a trivial syndrome, so that is not an erasure
+                if self.has_erasure_bit and syndrome_bits.size:
+                    exhausted[-1] = 1
+                return exhausted
             last_error_set_size = len(error_set)
 
             # check whether the syndrome can be induced by errors in the interior of the error_set
@@ -421,10 +522,13 @@ class GUFDecoder:
                     if weight <= max_weight:
                         break
 
-        # construct the full error
+        # construct the full error, with a trivial erasure bit if this decoder tracks one
         error = self.code.field.Zeros(len(self.code) * (2 if self.symplectic else 1))
         error[bits] = min_weight_solution
-        return error.view(np.ndarray).astype(syndrome.dtype)
+        decoded_error = error.view(np.ndarray).astype(syndrome.dtype)
+        if self.has_erasure_bit:
+            decoded_error = with_erasure_bits(decoded_error, False)
+        return decoded_error
 
     def get_sub_problem_indices(
         self, syndrome: npt.NDArray[np.int_], error_set: set[Node]
@@ -461,10 +565,18 @@ class CompositeDecoder:
 
     When asked to decode a syndrome, a CompositeDecoder splits the syndrome into segments of
     appropriate lengths, and decodes these segments independently with their corresponding decoders.
+
+    Decoded segments are concatenated.  Any number of the decoders may have an erasure bit; a
+    CompositeDecoder collects them into the single erasure bit that it advertises as its own, which
+    is set whenever any code block is erased.
     """
 
     def __init__(self, *decoders_and_syndrome_lengths: tuple[Decoder, int]) -> None:
         self.decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
+        self.erasing_decoders = tuple(
+            bool(getattr(decoder, "has_erasure_bit", False)) for decoder in self.decoders
+        )
+        self.has_erasure_bit = any(self.erasing_decoders)
         self.slices = tuple(
             slice(sum(syndrome_lengths[:ss]), sum(syndrome_lengths[: ss + 1]))
             for ss in range(len(syndrome_lengths))
@@ -483,22 +595,33 @@ class CompositeDecoder:
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome by parts."""
-        return np.hstack(
+        return self._join_segments(
             [decoder.decode(syndrome[slice]) for decoder, slice in zip(self.decoders, self.slices)]
         )
 
     def _decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes by parts."""
-        return (
-            np.hstack(
-                [
-                    decoder.decode_batch(syndromes[:, slice])
-                    for decoder, slice in zip(self.decoders, self.slices)
-                ]
-            )
-            if self.decode_batch_implemented
-            else NotImplemented
+        return self._join_segments(
+            [
+                decoder.decode_batch(syndromes[:, slice])
+                for decoder, slice in zip(self.decoders, self.slices)
+            ]
         )
+
+    def _join_segments(self, segments: Sequence[npt.NDArray[np.int_]]) -> npt.NDArray[np.int_]:
+        """Concatenate decoded segments, collecting their erasure bits into one trailing bit."""
+        if not self.has_erasure_bit:
+            return np.concatenate(segments, axis=-1)
+
+        errors = []
+        erased = np.zeros(segments[0].shape[:-1], dtype=bool)
+        for segment, erasing in zip(segments, self.erasing_decoders):
+            if erasing:
+                erased = erased | (segment[..., -1] != 0)
+                segment = segment[..., :-1]
+            errors.append(segment)
+        errors.append(erased[..., None].astype(segments[0].dtype))
+        return np.concatenate(errors, axis=-1)
 
 
 class DirectDecoder:
@@ -524,17 +647,11 @@ class DirectDecoder:
         self.decode_func = decode_func
         self.decode_batch_func = decode_batch_func
         if decode_batch_func is not None:
-            self.decode_batch = self._decode_batch
+            self.decode_batch = decode_batch_func
 
     def decode(self, word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a corrupted code word and return a corrected code word."""
         return self.decode_func(word)
-
-    def _decode_batch(self, words: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode a batch of corrupted code words and return a batch of corrected code words."""
-        return (
-            self.decode_batch_func(words) if self.decode_batch_func is not None else NotImplemented
-        )
 
     @staticmethod
     def from_indirect(decoder: Decoder, matrix: IntegerArray) -> DirectDecoder:
@@ -542,10 +659,21 @@ class DirectDecoder:
         field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         field_matrix = matrix.view(field)
 
+        def check_subtractable(errors: npt.NDArray[np.int_], words: npt.NDArray[np.int_]) -> None:
+            """Reject inferred errors that cannot be subtracted from candidate code words."""
+            if errors.shape != words.shape:
+                raise ValueError(
+                    f"The given decoder inferred errors of shape {errors.shape}, which cannot be"
+                    f" subtracted from candidate code words of shape {words.shape}.  A decoder that"
+                    " appends an erasure bit, or that predicts observable flips rather than an"
+                    " error, cannot be used to decode code words directly."
+                )
+
         def decode_func(candidate_word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             candidate_word = candidate_word.view(field)
             syndrome = field_matrix @ candidate_word
             error = decoder.decode(syndrome.view(np.ndarray)).view(field)
+            check_subtractable(error, candidate_word)
             return (candidate_word - error).view(np.ndarray)
 
         decode_batch_func: Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]] | None = None
@@ -556,6 +684,7 @@ class DirectDecoder:
                 candidate_words = candidate_words.view(field)
                 syndromes = candidate_words @ field_matrix.T
                 errors = decoder.decode_batch(syndromes.view(np.ndarray)).view(field)
+                check_subtractable(errors, candidate_words)
                 return (candidate_words - errors).view(np.ndarray)
 
         return DirectDecoder(decode_func, decode_batch_func)

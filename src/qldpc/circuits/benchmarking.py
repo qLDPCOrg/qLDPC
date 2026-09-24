@@ -318,8 +318,10 @@ def get_logical_error_and_discard_rate(
             the (simplified) DEM sampled from circuit_or_dem.
 
     Returns:
-        A fraction of samples in which at least one observable was decoded incorrectly.
-        A fraction of samples that were discarded due to post-selection.
+        A fraction of the retained samples in which at least one observable was decoded incorrectly.
+        A fraction of samples that were discarded, either by post-selection or at the request of the
+            decoder, which signals that a shot should be discarded by predicting observable flips in
+            one more byte than the observables of the sampled circuit require.
     """
     # identify and simplify the DEM to sample
     dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)
@@ -346,29 +348,45 @@ def get_logical_error_and_discard_rate(
     postselection_mask, postselected_observables_mask = _get_postselection_masks(
         post_select, post_select_observables, detector_record, dem.num_observables
     )
-    discard_rate = 0.0
+    num_discards = 0
 
     # if applicable, post-select on flag detectors
     if postselection_mask is not None:
         shot_mask = ~np.any(det_data & postselection_mask, axis=1)
         det_data = det_data[shot_mask]
         obs_data = obs_data[shot_mask]
-        discard_rate += np.sum(~shot_mask) / num_samples
+        num_discards += int(np.sum(~shot_mask))
 
     # decode and identify incorrectly predicted observable flips
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem_to_decode or dem)
     predicted_flips = compiled_sinter_decoder.decode_shots_bit_packed(det_data)
+
+    # a prediction one byte wider than the sampled observables need signals discards in that byte
+    if predicted_flips.shape[1] == obs_data.shape[1] + 1:
+        discarded = predicted_flips[:, -1] != 0
+        obs_data = obs_data[~discarded]
+        predicted_flips = predicted_flips[~discarded, :-1]
+        num_discards += int(np.sum(discarded))
+    elif predicted_flips.shape[1] != obs_data.shape[1]:
+        raise ValueError(
+            f"The decoder predicted {predicted_flips.shape[1]} bytes of observable flips per shot,"
+            f" but the {dem.num_observables} observables of the sampled detector error model take"
+            f" {obs_data.shape[1]} bytes, or {obs_data.shape[1] + 1} bytes with a byte added to"
+            " signal discards"
+        )
+
     incorrectly_predicted_flips = obs_data ^ predicted_flips
 
     # if applicable, post-select on observables
     if postselected_observables_mask is not None:
         shot_mask = ~np.any(incorrectly_predicted_flips & postselected_observables_mask, axis=1)
         incorrectly_predicted_flips = incorrectly_predicted_flips[shot_mask]
-        discard_rate += np.sum(~shot_mask) / num_samples
+        num_discards += int(np.sum(~shot_mask))
 
     # compute logical error rate: fraction of shots with incorrectly predicted observable flips
     failures = np.any(incorrectly_predicted_flips, axis=1)
     logical_error_rate = np.sum(failures) / len(failures) if len(failures) else np.nan
+    discard_rate = num_discards / num_samples if num_samples else 0.0
     return logical_error_rate, discard_rate
 
 

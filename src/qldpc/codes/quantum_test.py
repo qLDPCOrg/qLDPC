@@ -422,10 +422,21 @@ def test_quasi_cyclic_codes() -> None:
         codes.QCCode([], x, y)
 
     # add placeholder symbols if necessary
-    code = codes.QCCode([1, 2, 3], x, x * y)
+    code = codes.QCCode([2, 1, 3], x, x * y)
     assert len(code.symbols) == 3
 
     assert_valid_subgraphs(code)
+
+    # a symbol whose cyclic group is trivial acts as the identity, so all of its powers agree
+    assert np.array_equal(code.matrix, codes.QCCode([2, 1, 3], x, x * y**2).matrix)
+
+    # distinct monomials can name the same group element, and are simplified into a single term
+    assert_valid_subgraphs(codes.QCCode([3], 1 + x**3 + x**6, 1 + x))
+
+    # the coefficients of such monomials are summed in the base field, each denoting a field element
+    # rather than a multiplicity: over GF(4) the elements 1, 1 and -2 sum to 2, not to the 0 that
+    # the same integers give
+    assert codes.QCCode([3], 1 + x**3 - 2 * x**6, 1 + x, field=4).poly_a.as_expr() == 2
 
     # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
     for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
@@ -487,6 +498,13 @@ def test_hypergraph_product(
             assert dist_x == code.get_distance(Pauli.X)
             assert dist_z == code.get_distance(Pauli.Z)
 
+    # a random seed code addresses every bit.  Check a seed code that leaves one unaddressed, whose
+    # product therefore has a data qudit that no check addresses.
+    seed = codes.ClassicalCode([[1, 1, 0], [0, 0, 0]], field=field)
+    assert nx.utils.graphs_equal(
+        codes.HGPCode(seed, seed).graph, codes.HGPCode.get_graph_product(seed.graph, seed.graph)
+    )
+
 
 @pytest.mark.parametrize(
     "seed_a, seed_b",
@@ -547,9 +565,13 @@ def test_hypergraph_product_syndrome_subgraphs() -> None:
     assert_valid_subgraphs(codes.HGPCode(codes.RepetitionCode(1), codes.RepetitionCode(3)))
 
     # a check that addresses no bits of a seed code still addresses qudits of the product, so the
-    # subgraphs have to cover its edges
+    # subgraphs have to cover its edges.  Horizontal and vertical edges are collected in separate
+    # loops, so place such a check in each seed code in turn.
     assert_valid_subgraphs(
         codes.HGPCode(codes.ClassicalCode([[1, 1, 0], [0, 0, 0]]), codes.RepetitionCode(3))
+    )
+    assert_valid_subgraphs(
+        codes.HGPCode(codes.RepetitionCode(3), codes.ClassicalCode([[1, 1, 0], [0, 0, 0]]))
     )
 
 
