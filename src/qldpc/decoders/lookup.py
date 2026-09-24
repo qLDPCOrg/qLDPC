@@ -239,14 +239,15 @@ class LookupDecoder:
             )
             # Record the first error for each key (so it always has a representative, even when all
             # of its errors have zero probability), then keep the most likely one thereafter,
-            # breaking a tie in probability toward the error with the fewest nonzero entries.
+            # breaking a tie in probability toward the lighter error.
             key = (syndrome, obs_flip)
             if (
                 key not in most_likely_errors
                 or log_prob > most_likely_error_log_probs[key]
                 or (
                     log_prob == most_likely_error_log_probs[key]
-                    and np.count_nonzero(error) < np.count_nonzero(most_likely_errors[key])
+                    and _error_weight(error, symplectic)
+                    < _error_weight(most_likely_errors[key], symplectic)
                 )
             ):
                 most_likely_error_log_probs[key] = log_prob
@@ -532,6 +533,7 @@ class WeightedLookupDecoder(LookupDecoder):
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
+        self.symplectic = symplectic
 
         # Record all errors consistent with each syndrome, together with the output to return if
         # that error is selected: an observable-flip prediction if requested (else the error
@@ -584,12 +586,25 @@ class WeightedLookupDecoder(LookupDecoder):
         if penalty_func is None:
             output = candidates[-1][1]
         else:
-            # an equal penalty resolves in favor of the candidate with the fewest nonzero entries
+            # an equal penalty resolves in favor of the lighter candidate error
             output = min(
                 candidates,
                 key=lambda candidate: (
                     penalty_func(candidate[0]),
-                    int(np.count_nonzero(candidate[0])),
+                    _error_weight(candidate[0], self.symplectic),
                 ),
             )[1]
         return output.copy()
+
+
+def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
+    """The weight of an error: the number of qudits, or of bits, that it addresses nontrivially.
+
+    This is the weight that ``_iter_errors_and_syndromes`` enumerates by, so ranking errors by it
+    keeps the lighter of two that a penalty scores equally.  A symplectic error assigns both an X
+    and a Z component to each qudit, and a qudit carrying both counts once, so the number of
+    nonzero entries would count it twice.
+    """
+    if symplectic:
+        return int(math.symplectic_weight(np.asarray(error)))
+    return int(np.count_nonzero(error))

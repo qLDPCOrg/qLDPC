@@ -158,6 +158,23 @@ def test_tie_breaking() -> None:
         == 1
     )
 
+    # A symplectic error weighs the qudits it addresses, not its nonzero entries: a Y on one qudit
+    # has two nonzero entries, so counting entries cannot tell it from an error on two qudits.
+    code = codes.SurfaceCode(3)
+    quantum_syndrome = np.array([1, 0, 0, 0, 1, 1, 0, 0], dtype=int)
+    decoder = decoders.LookupDecoder(
+        code.matrix,
+        2,
+        symplectic=True,
+        observable_flip_matrix=code.get_logical_ops(),
+        penalty_func=lambda _: 0.0,
+    )
+    assert math.symplectic_weight(decoder.decode(quantum_syndrome)) == 1
+
+    weighted_decoder = decoders.WeightedLookupDecoder(code.matrix, 2, symplectic=True)
+    decoded = weighted_decoder.decode(quantum_syndrome, penalty_func=lambda _: 0.0)
+    assert math.symplectic_weight(decoded) == 1
+
 
 def test_lookup_post_selection_violation() -> None:
     """A syndrome that a LookupDecoder post-selects against decodes as one never enumerated."""
