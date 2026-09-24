@@ -622,8 +622,7 @@ def _column_support(matrix: scipy.sparse.csc_matrix, column: int) -> frozenset[i
     Read from the compressed arrays directly, which is much cheaper than slicing out the column.
     """
     start, stop = matrix.indptr[column], matrix.indptr[column + 1]
-    rows, values = matrix.indices[start:stop], matrix.data[start:stop]
-    return frozenset(int(row) for row, value in zip(rows, values) if value)
+    return frozenset(int(row) for row in matrix.indices[start:stop])
 
 
 def _canonicalize_mod2(matrix: scipy.sparse.csc_matrix) -> scipy.sparse.csc_matrix:

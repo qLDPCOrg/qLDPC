@@ -120,7 +120,7 @@ class SinterDecoder(Decoder, sinter.Decoder):
                 f" {num_observable_bytes + 1} bytes with a byte added to signal discards"
             )
         observable_flips = predicted_flips[:, :num_observable_bytes]
-        np.ascontiguousarray(observable_flips).tofile(obs_predictions_b8_out_path)
+        observable_flips.tofile(obs_predictions_b8_out_path)
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
