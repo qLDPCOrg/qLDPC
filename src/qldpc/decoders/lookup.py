@@ -239,18 +239,11 @@ class LookupDecoder:
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
             )
             # Record the first error for each key (so it always has a representative, even when all
-            # of its errors have zero probability), then keep the most likely one thereafter,
-            # breaking a tie in probability toward the lighter error.
+            # of its errors have zero probability), then keep the most likely one thereafter.  A tie
+            # in probability resolves toward the lighter error, since enumeration runs from heavy to
+            # light and so reaches the lightest error of a tie last.
             key = (syndrome, obs_flip)
-            if (
-                key not in most_likely_errors
-                or log_prob > most_likely_error_log_probs[key]
-                or (
-                    log_prob == most_likely_error_log_probs[key]
-                    and _error_weight(error, symplectic)
-                    < _error_weight(most_likely_errors[key], symplectic)
-                )
-            ):
+            if key not in most_likely_errors or log_prob >= most_likely_error_log_probs[key]:
                 most_likely_error_log_probs[key] = log_prob
                 most_likely_errors[key] = error
 
