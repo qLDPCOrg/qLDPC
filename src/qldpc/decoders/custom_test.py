@@ -156,6 +156,25 @@ def test_ilp_decoder_early_termination() -> None:
     assert np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
 
 
+def test_ilp_decoder_unreproducible_syndrome() -> None:
+    """A syndrome that no error reproduces is erased with a warning, rather than refused.
+
+    The one column below spans only the all-zero and all-one vectors, so the program can prove that
+    nothing reproduces a syndrome on a single check.
+    """
+    matrix = np.array([[1], [1]])
+    syndrome = np.array([0, 1])
+
+    with pytest.raises(ValueError, match="could not be found"):
+        decoders.ILPDecoder(matrix).decode(syndrome)
+
+    decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True)
+    with pytest.warns(UserWarning, match="could not be found"):
+        decoded = decoder.decode(syndrome)
+    assert len(decoded) == matrix.shape[1] + 1
+    assert decoded[-1] == 1
+
+
 def test_ilp_decoder_near_integral_values() -> None:
     """A mixed integer solver's near-integral values are rounded, not truncated toward zero."""
     import cvxpy

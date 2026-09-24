@@ -262,8 +262,12 @@ class ILPDecoder:
     feasible.  ``time_limit`` and ``mip_max_nodes`` are the arguments that ask it to stop early.
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
-    set to 1 when the inferred error does not reproduce the syndrome and to 0 otherwise.  Without
-    that bit there is no way to report such a syndrome, so it is rejected instead.
+    set to 1 for a syndrome that it cannot explain and to 0 otherwise.  Without that bit there is no
+    way to report such a syndrome, so it is rejected instead.
+
+    A syndrome goes unexplained either because the inferred error does not reproduce it, or because
+    the program reports no solution for it at all.  The second case also warns, since a program
+    reports no solution both when it proves that no error reproduces the syndrome and when it fails.
 
     All remaining keyword arguments are passed to `cvxpy.Problem.solve`.
     """
@@ -314,10 +318,19 @@ class ILPDecoder:
         problem = cvxpy.Problem(self.objective, constraints)
         result = problem.solve(**self.decoder_args)
 
-        # raise error if the optimization failed
+        # a program that reports no solution has either proven that no error reproduces the syndrome
+        # or failed outright, and those are indistinguishable from here, so an erasure carries a
+        # warning naming the output that the solver did report
         if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
-            message = "Optimal solution to integer linear program could not be found!"
-            raise ValueError(message + f"\nSolver output: {result}")
+            message = (
+                "Optimal solution to integer linear program could not be found!"
+                f"\nSolver output: {result}"
+            )
+            if not self.has_erasure_bit:
+                raise ValueError(message)
+            warnings.warn(message, stacklevel=2)
+            no_error = np.zeros(self.matrix.shape[1], dtype=syndrome.dtype)
+            return with_erasure_bits(no_error, True)
 
         # round the solver's near-integral values, reducing before the cast so that a syndrome of
         # boolean or unsigned type does not turn a negative value into a large positive one
