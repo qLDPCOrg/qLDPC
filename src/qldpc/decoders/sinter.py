@@ -944,11 +944,11 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             time_to_dets: dict[int, list[int]] = collections.defaultdict(list)
             for detector in detectors:
                 time = detector_to_time(detector)
-                if not isinstance(time, int):
+                if not isinstance(time, (int, np.integer)):
                     raise TypeError(
                         f"detector {detector} has an invalid (non-integer) time index: {time}"
                     )
-                time_to_dets[time].append(detector)
+                time_to_dets[int(time)].append(detector)
 
             # add one window at a time (except the last window)
             start_time = min(time_to_dets)

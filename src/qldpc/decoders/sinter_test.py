@@ -388,6 +388,14 @@ def test_sliding_window_validation() -> None:
     with pytest.raises(TypeError, match="non-integer"):
         decoder.compile_decoder_for_dem(dem)
 
+    # an integral time index is a time index whatever its type, as an array lookup returns
+    times = np.array([0, 1])
+    array_lookup = typing.cast("Callable[[int], int]", lambda detector: times[detector])
+    decoder = decoders.SlidingWindowDecoder(
+        1, 1, detector_to_time=array_lookup, with_lookup=True, max_weight=1
+    )
+    assert list(decoder.compile_decoder_for_dem(dem).window_detectors) == [[0], [1]]
+
 
 def test_deprecated_aliases() -> None:
     """The deprecated aliases of the sinter decoders warn when they are used."""
