@@ -34,16 +34,12 @@ from .common import restrict_to_qubits, with_remapped_qubits
 def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Tableau:
     """Tableau to encode physical states at its input into logical states of the given code.
 
-    If only_zero is True, this tableau prepares the encoded logical ``|0...0>`` state from a
-    physical ``|0...0>`` state.  In this mode, ``stim.Tableau.from_stabilizers`` is used to build a
-    tableau whose stabilizers are simply the code's stabilizers together with its logical Z
-    operators; for subsystem codes, that leaves the gauge degrees of freedom unconstrained, so Stim
-    picks arbitrary images for the corresponding inputs.  Otherwise, for all
-    j in ``{0, 1, ..., code.dimension - 1}``, this tableau maps weight-one ``X_j`` and ``Z_j``
-    operators at its input to the logical X and Z operators of the j-th logical qubit of the code.
-    Weight-one ``Z_j`` operators for ``j >= code.dimension`` get mapped to "Z-type" gauge operators
-    and stabilizers, and their conjugate ``X_j`` get mapped to "X-type" gauge operators and
-    destabilizers.
+    If only_zero is True, this tableau maps an all-0 physical state at its input to an all-0 logical
+    state at its output.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this tableau
+    maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
+    the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
+    ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
+    conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
     """
     if only_zero:
         return stim.Tableau.from_stabilizers(
@@ -77,16 +73,12 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
 def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Circuit:
     """Circuit to encode physical states at its input into logical states of the given code.
 
-    If only_zero is True, this circuit prepares the encoded logical ``|0...0>`` state from a
-    physical ``|0...0>`` state.  In this mode, ``stim.Tableau.from_stabilizers`` is used to build a
-    tableau whose stabilizers are simply the code's stabilizers together with its logical Z
-    operators; for subsystem codes, that leaves the gauge degrees of freedom unconstrained, so Stim
-    picks arbitrary images for the corresponding inputs.  Otherwise, for all
-    j in ``{0, 1, ..., code.dimension - 1}``, this circuit maps weight-one ``X_j`` and ``Z_j``
-    operators at its input to the logical X and Z operators of the j-th logical qubit of the code.
-    Weight-one ``Z_j`` operators for ``j >= code.dimension`` get mapped to "Z-type" gauge operators
-    and stabilizers, and their conjugate ``X_j`` get mapped to "X-type" gauge operators and
-    destabilizers.
+    If only_zero is True, this circuit maps an all-0 physical state at its input to an all-0 logical
+    state at its output.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this circuit
+    maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
+    the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
+    ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
+    conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
     """
     return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
 
