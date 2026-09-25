@@ -28,7 +28,13 @@ from qldpc.objects import Node, Pauli, PauliXZ
 from ..bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
 from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
 from ..encoding import get_encoding_circuit
-from ..noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
+from ..noise_model import (
+    DEFAULT_IMMUNE_OP_TAG,
+    GATE_OP_TYPES,
+    NoiseModel,
+    as_noiseless_circuit,
+    op_type,
+)
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 # default strategy used to schedule the two-qubit gates of a syndrome measurement circuit
@@ -188,12 +194,10 @@ def get_memory_experiment(
     # if tracking all logical operators, only the logical QEC cycle is noisy
     if basis is None:
         if noise_model is not None:
-            bell_ancillas = qubit_ids.ancilla[: code.dimension]
             strategy_ancillas = qubit_ids.ancilla[code.dimension :]
             qec_cycle = noise_model.noisy_circuit(
                 qec_cycle,
                 system_qubits=qubit_ids.data + qubit_ids.check + strategy_ancillas,
-                immune_qubits=bell_ancillas,
             )
         else:
             # noise will be added later, so make initialization and readout noiseless
@@ -282,8 +286,8 @@ def _get_basis_memory_experiment_parts(
     coordinates = get_qubit_coordinates(data_ids, check_ids)
 
     # reset data qubits to the appropriate basis
-    state_prep = stim.Circuit()
-    state_prep.append(f"R{basis}", data_ids)
+    data_reset = stim.Circuit()
+    data_reset.append(f"R{basis}", data_ids)
 
     # build a logical QEC cycle
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
@@ -320,7 +324,7 @@ def _get_basis_memory_experiment_parts(
     observables = get_observables(code, data_ids, basis=basis, on_measurements=targets)
 
     return MemoryExperimentParts(
-        coordinates + state_prep,
+        coordinates + data_reset,
         qec_cycle,
         readout + observables,
         measurement_record,
@@ -356,6 +360,18 @@ def _get_combined_memory_simulation_parts(
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
         code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
     )
+    operated_qubits = {
+        target.qubit_value
+        for instruction in qec_cycle.flattened()
+        if op_type(instruction.name) in GATE_OP_TYPES
+        for target in instruction.targets_copy()
+        if target.qubit_value is not None
+    }
+    if reused_bell_ancillas := sorted(set(ancilla_ids) & operated_qubits):
+        raise ValueError(
+            "Syndrome measurement strategies cannot operate on Bell-reference ancillas"
+            f" {reused_bell_ancillas}"
+        )
 
     # measure all stabilizers
     readout = with_remapped_qubits(
