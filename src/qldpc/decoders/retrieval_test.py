@@ -17,6 +17,8 @@ limitations under the License.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import galois
 import numpy as np
 import numpy.typing as npt
@@ -24,6 +26,7 @@ import pytest
 import stim
 
 from qldpc import decoders
+from qldpc.decoders import retrieval
 
 
 def test_custom_decoder(pytestconfig: pytest.Config) -> None:
@@ -67,23 +70,50 @@ def test_erasure_bit_request() -> None:
     """A request for an erasure bit is rejected by a decoder that cannot signal erasure."""
     matrix = np.eye(3, 2, dtype=int)
 
-    # a decoder that can signal erasure honours the request
-    erasing_args: list[dict[str, object]] = [{"with_RBP": True}, {"with_ILP": True}]
-    for decoder_args in erasing_args:
+    # a decoder that can signal erasure honours direct and routed requests
+    erasing_decoders: list[tuple[Callable[..., decoders.Decoder], dict[str, object]]] = [
+        (decoders.get_decoder_RBP, {"with_RBP": True}),
+        (decoders.get_decoder_ILP, {"with_ILP": True}),
+        (decoders.get_decoder_GUF, {"with_GUF": True}),
+        (decoders.get_decoder_lookup, {"with_lookup": True, "max_weight": 2}),
+    ]
+    for decoder_getter, decoder_args in erasing_decoders:
+        direct_args = {"max_weight": 2} if decoder_getter is decoders.get_decoder_lookup else {}
+        decoder = decoder_getter(matrix, add_erasure_bit=True, **direct_args)
+        assert getattr(decoder, "has_erasure_bit", False)
         decoder = decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
         assert getattr(decoder, "has_erasure_bit", False)
 
-    # every decoder that cannot signal erasure rejects the request consistently
-    unerasing_args: list[tuple[dict[str, object], str]] = [
-        ({}, "BP_OSD"),
-        ({"with_BF": True}, "BF"),
-        ({"with_BP_OSD": True}, "BP_OSD"),
-        ({"with_MWPM": True}, "MWPM"),
-        ({"with_BP_LSD": True}, "BP_LSD"),
+    # every decoder that cannot signal erasure rejects direct and routed requests consistently
+    unerasing_decoders: list[tuple[Callable[..., decoders.Decoder], dict[str, object], str]] = [
+        (decoders.get_decoder_BF, {"with_BF": True}, "BF"),
+        (decoders.get_decoder_BP_OSD, {"with_BP_OSD": True}, "BP_OSD"),
+        (decoders.get_decoder_MWPM, {"with_MWPM": True}, "MWPM"),
+        (decoders.get_decoder_BP_LSD, {"with_BP_LSD": True}, "BP_LSD"),
     ]
-    for decoder_args, decoder_name in unerasing_args:
+    for decoder_getter, decoder_args, decoder_name in unerasing_decoders:
+        with pytest.raises(ValueError, match=rf"The {decoder_name} decoder cannot signal erasure"):
+            decoder_getter(matrix, add_erasure_bit=True)
         with pytest.raises(ValueError, match=rf"The {decoder_name} decoder cannot signal erasure"):
             decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
+        assert decoder_getter(matrix, add_erasure_bit=False)
+
+    # BP+OSD is the default for a binary matrix
+    with pytest.raises(ValueError, match=r"The BP_OSD decoder cannot signal erasure"):
+        decoders.get_decoder(matrix, add_erasure_bit=True)
+
+
+def test_erasure_bit_support_decorator() -> None:
+    """A getter declared to support erasure must return a decoder that does so."""
+
+    @retrieval._erasure_bit_support(True)
+    def get_decoder_inconsistent(
+        matrix: npt.NDArray[np.int_], *, add_erasure_bit: bool = False
+    ) -> decoders.Decoder:
+        return decoders.get_decoder_BP_OSD(matrix)
+
+    with pytest.raises(ValueError, match=r"The inconsistent decoder cannot signal erasure"):
+        get_decoder_inconsistent(np.eye(1, dtype=int), add_erasure_bit=True)
 
 
 def test_decoding() -> None:
