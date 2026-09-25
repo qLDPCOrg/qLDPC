@@ -17,9 +17,11 @@ limitations under the License.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import ParamSpec, TypeVar
 
 import galois
 import numpy as np
@@ -40,6 +42,9 @@ from .custom import (
 )
 from .dems import DetectorErrorModelArrays
 from .lookup import LookupDecoder
+
+_Parameters = ParamSpec("_Parameters")
+_Decoder = TypeVar("_Decoder", bound=Decoder)
 
 
 def decode(
@@ -98,36 +103,49 @@ def get_decoder(
             + ", ".join(decoder_names)
         )
     if decoder_names:
-        decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{decoder_names[0]}")
-        return _checked_for_erasure_bit(
-            decoder_constructor(pcm_or_dem, **decoder_args), decoder_args
-        )
+        return DECODER_CONSTRUCTORS[decoder_names[0]](pcm_or_dem, **decoder_args)
 
     # use GUF by default for codes over non-binary fields
     if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
-        return _checked_for_erasure_bit(get_decoder_GUF(pcm_or_dem, **decoder_args), decoder_args)
+        return DECODER_CONSTRUCTORS["GUF"](pcm_or_dem, **decoder_args)
 
     # use BP+OSD by default otherwise
-    return _checked_for_erasure_bit(
-        get_decoder_BP_OSD(pcm_or_dem, **decoder_args),  # type:ignore[arg-type]
-        decoder_args,
-    )
+    return DECODER_CONSTRUCTORS["BP_OSD"](pcm_or_dem, **decoder_args)
 
 
-def _checked_for_erasure_bit(decoder: Decoder, decoder_args: dict[str, object]) -> Decoder:
-    """Return a decoder, rejecting a request for an erasure bit that it cannot signal.
+def _erasure_bit_support(
+    supported: bool,
+) -> Callable[[Callable[_Parameters, _Decoder]], Callable[_Parameters, _Decoder]]:
+    """Declare and enforce whether a decoder getter supports an erasure bit."""
 
-    A decoder that has no erasure bit takes no notice of a request for one, so without this check a
-    caller who asked for erasure would be handed a decoder that never erases anything.
-    """
-    if decoder_args.get("add_erasure_bit") and not getattr(decoder, "has_erasure_bit", False):
-        raise ValueError(
-            f"{type(decoder).__name__} cannot signal erasure, so it does not accept the"
+    def decorator(
+        decoder_getter: Callable[_Parameters, _Decoder],
+    ) -> Callable[_Parameters, _Decoder]:
+        decoder_name = decoder_getter.__name__.removeprefix("get_decoder_")
+        message = (
+            f"The {decoder_name} decoder cannot signal erasure, so it does not accept the"
             " add_erasure_bit argument"
         )
-    return decoder
+
+        @functools.wraps(decoder_getter)
+        def checked_getter(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _Decoder:
+            add_erasure_bit = bool(kwargs.get("add_erasure_bit"))
+            if not supported:
+                if add_erasure_bit:
+                    raise ValueError(message)
+                kwargs.pop("add_erasure_bit", None)
+
+            decoder = decoder_getter(*args, **kwargs)
+            if add_erasure_bit and not getattr(decoder, "has_erasure_bit", False):
+                raise ValueError(message)
+            return decoder
+
+        return checked_getter
+
+    return decorator
 
 
+@_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BP_OSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -151,6 +169,8 @@ def get_decoder_BP_OSD(
     Returns:
         A decoder constructed by the ldpc package.
 
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
+
     For details about the BD-OSD decoder and its arguments, see:
 
     - help(ldpc.BpOsdDecoder)
@@ -163,6 +183,7 @@ def get_decoder_BP_OSD(
     return ldpc.BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
+@_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BP_LSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -186,6 +207,8 @@ def get_decoder_BP_LSD(
     Returns:
         A decoder constructed by the ldpc package.
 
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
+
     For details about the BD-LSD decoder and its arguments, see:
 
     - help(ldpc.bplsd_decoder.BpLsdDecoder)
@@ -198,6 +221,7 @@ def get_decoder_BP_LSD(
     return ldpc.bplsd_decoder.BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
+@_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BF(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -220,6 +244,8 @@ def get_decoder_BF(
 
     Returns:
         A decoder constructed by the ldpc package.
+
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
     For details about the BF decoder and its arguments, see:
 
@@ -252,6 +278,7 @@ def _to_ldpc_inputs(
     return pcm, list(error_channel)
 
 
+@_erasure_bit_support(False)
 def get_decoder_MWPM(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -270,6 +297,8 @@ def get_decoder_MWPM(
 
     Returns:
         A decoder constructed by pymatching.Matching.from_check_matrix.
+
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
     All other keyword arguments are passed to pymatching.Matching.from_check_matrix.
 
@@ -316,6 +345,7 @@ def get_decoder_MWPM(
     return pymatching.Matching.from_check_matrix(pcm, **decoder_args)
 
 
+@_erasure_bit_support(True)
 def get_decoder_RBP(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
@@ -331,6 +361,7 @@ def get_decoder_RBP(
     return RelayBPDecoder(pcm_or_dem, error_priors, **decoder_args)  # type:ignore[arg-type]
 
 
+@_erasure_bit_support(True)
 def get_decoder_lookup(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> LookupDecoder:
@@ -338,6 +369,7 @@ def get_decoder_lookup(
     return LookupDecoder(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
 
 
+@_erasure_bit_support(True)
 def get_decoder_ILP(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -348,6 +380,7 @@ def get_decoder_ILP(
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
+@_erasure_bit_support(True)
 def get_decoder_GUF(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> GUFDecoder:
@@ -366,7 +399,7 @@ def _to_pcm(pcm_or_dem: IntegerArray | stim.DetectorErrorModel) -> IntegerArray:
 
 
 # collect all decoder constructors in this file into a dictionary
-DECODER_CONSTRUCTORS = {
+DECODER_CONSTRUCTORS: dict[str, Callable[..., Decoder]] = {
     name.removeprefix("get_decoder_"): func
     for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction)
     if name.startswith("get_decoder_")
