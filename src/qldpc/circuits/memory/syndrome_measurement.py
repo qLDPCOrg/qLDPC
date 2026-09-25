@@ -30,8 +30,22 @@ from ..bookkeeping import MeasurementRecord, QubitIDs
 from ..common import restrict_to_qubits
 
 
-def _validated_qubit_ids(code: codes.QuditCode, qubit_ids: QubitIDs | None) -> QubitIDs:
-    """Validate the qubit layout shared by syndrome-measurement strategies."""
+def validate_syndrome_qubit_ids(
+    code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+) -> QubitIDs:
+    """Validate the qubit layout for a syndrome-measurement strategy.
+
+    Args:
+        code: The code whose syndromes will be measured.
+        qubit_ids: Integer indices for the data and check qubits. Defaults to
+            ``QubitIDs.from_code(code)``.
+
+    Returns:
+        A validated qubit layout.
+
+    Raises:
+        ValueError: If the code is a subsystem code or the qubit layout is invalid.
+    """
     if code.is_subsystem_code:
         raise ValueError("Syndrome measurement strategies require a non-subsystem code")
     return QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
@@ -99,7 +113,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        qubit_ids = _validated_qubit_ids(code, qubit_ids)
+        qubit_ids = validate_syndrome_qubit_ids(code, qubit_ids)
         subgraphs = code.get_syndrome_subgraphs(**self.subgraph_kwargs)  # type:ignore[arg-type]
         return self._get_circuit_from_subgraphs(qubit_ids, subgraphs)
 
@@ -204,5 +218,5 @@ class EdgeColoringXZ(EdgeColoring):
                 "The EdgeColoringXZ strategy for syndrome measurement only supports CSS codes"
             )
 
-        qubit_ids = _validated_qubit_ids(code, qubit_ids)
+        qubit_ids = validate_syndrome_qubit_ids(code, qubit_ids)
         return self._get_circuit_from_subgraphs(qubit_ids, (code.graph_x, code.graph_z))

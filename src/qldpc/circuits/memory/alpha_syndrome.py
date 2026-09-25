@@ -35,7 +35,7 @@ from qldpc.objects import Pauli, PauliXZ
 from ..bookkeeping import MeasurementRecord, QubitIDs
 from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
 from ..noise_model import NoiseModel, as_noiseless_circuit
-from .syndrome_measurement import SyndromeMeasurementStrategy, _validated_qubit_ids
+from .syndrome_measurement import SyndromeMeasurementStrategy, validate_syndrome_qubit_ids
 
 # Scrappy type to represent a schedule of two-qubit gates:
 # A list whose t-th entry is a list of gates to apply at time t.
@@ -136,7 +136,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             raise TypeError(
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
-        qubit_ids = _validated_qubit_ids(code, qubit_ids)
+        qubit_ids = validate_syndrome_qubit_ids(code, qubit_ids)
 
         # the heavy lifting: schedule gates
         schedule_cx = self._build_schedule(code, Pauli.X)

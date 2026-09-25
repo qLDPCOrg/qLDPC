@@ -74,6 +74,17 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         circuits.EdgeColoring().get_circuit(code=codes.SurfaceCode(2, field=3))
 
 
+def test_validate_syndrome_qubit_ids() -> None:
+    """Validate default, explicit, and unsupported syndrome-measurement layouts."""
+    code = codes.SurfaceCode(2)
+    qubit_ids = circuits.QubitIDs.from_code(code)
+    assert circuits.validate_syndrome_qubit_ids(code) == qubit_ids
+    assert circuits.validate_syndrome_qubit_ids(code, qubit_ids) is not qubit_ids
+
+    with pytest.raises(ValueError, match="subsystem"):
+        circuits.validate_syndrome_qubit_ids(codes.BaconShorCode(2))
+
+
 def syndrome_measurement_is_valid(
     code: codes.QuditCode, strategy: circuits.SyndromeMeasurementStrategy = DEFAULT_STRATEGY
 ) -> bool:
