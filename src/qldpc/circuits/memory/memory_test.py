@@ -173,6 +173,13 @@ def test_errors() -> None:
         circuits.get_logical_bell_prep(codes.SteaneCode(), data_qubits=[0])
     with pytest.raises(ValueError, match="one target per logical qubit"):
         circuits.get_logical_bell_prep(codes.SteaneCode(), ancilla_qubits=[0, 1])
+    toric_code = codes.ToricCode(2)
+    with pytest.raises(ValueError, match="either no reference qubits or exactly one reference"):
+        circuits.get_memory_experiment_parts(
+            toric_code,
+            basis=None,
+            qubit_ids=circuits.QubitIDs.from_code(toric_code, num_references=1),
+        )
 
 
 def test_memory_rejects_unsynchronized_strategy_records() -> None:

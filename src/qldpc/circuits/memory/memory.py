@@ -339,11 +339,13 @@ def _get_combined_memory_simulation_parts(
     """
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
-    if len(qubit_ids.reference) > code.dimension:
+    if qubit_ids.reference and len(qubit_ids.reference) != code.dimension:
         raise ValueError(
-            "Combined-basis memory experiments require one reference per logical qubit"
+            "Combined-basis memory experiments require either no reference qubits or exactly one "
+            "reference per logical qubit"
         )
-    qubit_ids.add_references(code.dimension - len(qubit_ids.reference))
+    if not qubit_ids.reference:
+        qubit_ids.add_references(code.dimension)
     data_ids, check_ids, _ = qubit_ids
     reference_ids = qubit_ids.reference
 
