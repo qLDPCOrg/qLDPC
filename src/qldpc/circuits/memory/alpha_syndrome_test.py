@@ -18,12 +18,15 @@ limitations under the License.
 from __future__ import annotations
 
 import random
+from unittest import mock
 
 import numpy as np
 import pytest
 import stim
 
 from qldpc import circuits, codes, math
+from qldpc.circuits.memory import alpha_syndrome
+from qldpc.circuits.memory.alpha_syndrome import TreeNode, TreeState
 from qldpc.objects import Pauli
 
 # default (fast, low-fidelity) strategy used by the validity-checking helper below
@@ -52,6 +55,120 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     with pytest.raises(TypeError, match="only supports CSS codes"):
         strategy = circuits.AlphaSyndrome(circuits.DepolarizingNoiseModel(0.001), "decoder_name")
         strategy.get_circuit(codes.FiveQubitCode())
+    with pytest.raises(ValueError, match="invalid"):
+        DEFAULT_STRATEGY.get_circuit(
+            codes.SteaneCode(),
+            circuits.QubitIDs(
+                range(len(codes.SteaneCode())),
+                range(20, 20 + codes.SteaneCode().num_checks - 1),
+            ),
+        )
+
+
+def test_alpha_reproducibility_and_tree_edges() -> None:
+    """Seeded searches are reproducible and cover the empty-search tree edges."""
+    with pytest.warns(UserWarning, match="no fresh rollout"):
+        circuits.AlphaSyndrome(circuits.DepolarizingNoiseModel(0.001), iters_per_step=1)
+    with pytest.raises(ValueError, match="iters_per_step"):
+        circuits.AlphaSyndrome(circuits.DepolarizingNoiseModel(0.001), iters_per_step=0)
+    code = codes.CSSCode([[1, 1, 0]], [[1, 1, 0]])
+    first = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.001),
+        iters_per_step=1,
+        shots_per_iter=1,
+        verbose=False,
+        seed=123,
+    )
+    second = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.001),
+        iters_per_step=1,
+        shots_per_iter=1,
+        verbose=False,
+        seed=123,
+    )
+    assert first.get_circuit(code)[0] == second.get_circuit(code)[0]
+    functioning = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.001),
+        iters_per_step=2,
+        shots_per_iter=10,
+        verbose=False,
+        seed=9,
+    )
+    assert functioning.get_circuit(code)[0].num_measurements > 0
+    verbose = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.001), iters_per_step=1, verbose=True
+    )
+    verbose._build_schedule(code, Pauli.X)
+
+    code = codes.SteaneCode()
+    strategy = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.001), iters_per_step=1, verbose=False
+    )
+    assert TreeState.head([]).target_to_min_time == []
+    gates = [(len(code), 0)]
+    root = TreeNode(TreeState.head(gates))
+    root.visits = 1
+    measurements = strategy._get_evaluation_circuit(code, Pauli.X, [], None)
+    assert measurements.num_measurements > 0
+    strategy._schedule_one_gate(
+        code,
+        Pauli.X,
+        root,
+        step=0,
+        evaluation_data=(stim.Circuit(), 0, 0),
+    )
+    child = TreeNode(TreeState.head(gates))
+    child.expand()
+    assert child.best_child(1).value == 0
+
+
+def test_alpha_hoists_evaluation_invariants() -> None:
+    """Rollouts reuse schedule-independent stabilizer data and preserve circuit bytes."""
+    code = codes.CSSCode([[1, 1, 0]], [[1, 1, 0]])
+    strategy = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.001),
+        iters_per_step=2,
+        shots_per_iter=1,
+        verbose=False,
+        seed=7,
+    )
+    with (
+        mock.patch.object(code, "get_stabilizer_ops", wraps=code.get_stabilizer_ops) as stabs,
+        mock.patch.object(code, "get_logical_ops", wraps=code.get_logical_ops) as logicals,
+    ):
+        schedule = strategy._build_schedule(code, Pauli.X)
+        assert stabs.call_count == 2
+        assert logicals.call_count == 2
+        data = strategy._get_evaluation_data(code, Pauli.X)
+        assert strategy._get_evaluation_circuit(
+            code, Pauli.X, schedule, data
+        ) == strategy._get_evaluation_circuit(code, Pauli.X, schedule)
+
+
+def test_alpha_rewards_are_non_degenerate() -> None:
+    """A functioning search records normalized rewards that distinguish rollout outcomes."""
+    code = codes.CSSCode([[1, 1, 0]], [[1, 1, 0]])
+    strategy = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.2),
+        iters_per_step=3,
+        shots_per_iter=20,
+        verbose=False,
+        seed=11,
+    )
+    rewards: list[float] = []
+    original_backpropagate = TreeNode.backpropagate
+
+    def record_reward(node: TreeNode, reward: float) -> None:
+        rewards.append(reward)
+        original_backpropagate(node, reward)
+
+    with (
+        mock.patch.object(TreeNode, "backpropagate", autospec=True, side_effect=record_reward),
+        mock.patch.object(alpha_syndrome.np, "sum", side_effect=[0, 10, 0, 10, 0, 10]),
+    ):
+        strategy._build_schedule(code, Pauli.X)
+    assert rewards and all(0 <= reward <= 1 for reward in rewards)
+    assert any(reward < 1 for reward in rewards)
 
 
 def alpha_syndrome_is_valid(

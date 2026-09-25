@@ -18,6 +18,7 @@ limitations under the License.
 import random
 
 import pytest
+import stim
 
 from qldpc import circuits, codes
 from qldpc.objects import PAULIS_XZ, Pauli
@@ -55,6 +56,20 @@ def test_memory_experiment() -> None:
     dem_1 = circuit.detector_error_model()
     dem_2 = noise_model.noisy_circuit(noiseless_circuit).detector_error_model()
     assert dem_1 == dem_2
+    parts = circuits.get_memory_experiment_parts(rep_code, basis=Pauli.X, num_rounds=1)
+    assembled = parts.initialization + parts.qec_cycle + parts.readout
+    assert circuits.get_memory_experiment(
+        rep_code, basis=Pauli.X, num_rounds=1, noise_model=noise_model
+    ) == noise_model.noisy_circuit(assembled)
+    combined = circuits.get_memory_experiment(
+        codes.SurfaceCode(2),
+        basis=None,
+        noise_model=circuits.NoiseModel(idle_error=0.01),
+        qubit_ids=circuits.QubitIDs(
+            range(1, 5), range(10, 10 + codes.SurfaceCode(2).num_checks), [0]
+        ),
+    )
+    assert not any("DEPOLARIZE" in line and " 0" in line for line in str(combined).splitlines())
 
     # Pauli.Y basis measurements are not supported
     with pytest.raises(ValueError, match="Pauli.X or Pauli.Z"):
@@ -110,3 +125,36 @@ def test_errors() -> None:
         circuits.get_observables(codes.SteaneCode(), basis=None, on_measurements=True)
     with pytest.raises(ValueError, match="basis must be"):
         circuits.get_observables(codes.SteaneCode(), basis="test", on_measurements=True)  # type:ignore[arg-type]
+    with pytest.raises(ValueError, match="num_rounds"):
+        circuits.get_memory_experiment_parts(codes.RepetitionCode(3), Pauli.X, num_rounds=0)
+    with pytest.raises(ValueError, match="one target per data qubit"):
+        circuits.get_observables(codes.SteaneCode(), data_qubits=[0], basis=Pauli.X)
+    with pytest.raises(ValueError, match="one target per data qubit"):
+        circuits.get_observables(
+            codes.SteaneCode(), basis=Pauli.X, on_measurements=[stim.target_rec(-1)]
+        )
+    with pytest.raises(ValueError, match="observable indices"):
+        circuits.get_observables(codes.SteaneCode(), basis=Pauli.X, observable_indices=[0, 1])
+    with pytest.raises(ValueError, match="one target per data qubit"):
+        circuits.get_logical_bell_prep(codes.SteaneCode(), data_qubits=[0])
+    with pytest.raises(ValueError, match="one target per logical qubit"):
+        circuits.get_logical_bell_prep(codes.SteaneCode(), ancilla_qubits=[0, 1])
+
+
+def test_memory_rejects_unsynchronized_strategy_records() -> None:
+    """A strategy that emits an unrecorded measurement fails at the first lookback."""
+
+    class BadStrategy(circuits.SyndromeMeasurementStrategy):
+        def get_circuit(
+            self, code: codes.QuditCode, qubit_ids: circuits.QubitIDs | None = None
+        ) -> tuple[stim.Circuit, circuits.MeasurementRecord]:
+            circuit, record = circuits.EdgeColoring().get_circuit(code, qubit_ids)
+            circuit.append("M", 0)
+            return circuit, record
+
+    with pytest.raises(ValueError, match="record contains"):
+        circuits.get_memory_experiment_parts(
+            codes.SurfaceCode(2),
+            basis=Pauli.X,
+            syndrome_measurement_strategy=BadStrategy(),
+        )

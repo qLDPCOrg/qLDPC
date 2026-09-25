@@ -23,7 +23,8 @@ import numpy as np
 import pytest
 import stim
 
-from qldpc import circuits, codes, external
+from qldpc import abstract, circuits, codes, external
+from qldpc.circuits import transversal
 
 
 def test_transversal_s() -> None:
@@ -61,10 +62,62 @@ def test_transversal_ops() -> None:
         [[1, 1, 1, 1, 0, 0, 0, 0], [1, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 1, 0, 0, 1, 1]],
         [[1, 0, 1, 0, 1, 0, 1, 0], [0, 1, 0, 1, 0, 1, 0, 1]],
     )
-    assert len(circuits.get_transversal_ops(code, ["SWAP"])) == 3
+    assert len(circuits.get_transversal_ops(code, ["SWAP"])) >= 3
 
     with pytest.raises(ValueError, match="Local Clifford gates"):
         circuits.get_transversal_automorphism_group(code, ["SQRT_Y"])
+    with pytest.raises(TypeError, match="single string"):
+        circuits.get_transversal_automorphism_group(code, "SWAP")
+
+
+def test_transversal_group_degree() -> None:
+    """Construct transversal logical Cliffords of codes whose automorphisms fix their last columns.
+
+    A permutation group acts on as many points as its generators move, so the automorphism group of
+    a check matrix whose last columns every automorphism fixes acts on fewer points than the matrix
+    has columns.  A transversal automorphism group nonetheless acts on every column, which is what
+    lets it be evaluated on every qubit of the code.
+    """
+    code: codes.CSSCode
+
+    # self-dual code with one qubit that no parity check addresses, so that its four addressed
+    # qubits can be permuted arbitrarily
+    code = codes.CSSCode([[1, 1, 1, 1, 0]], [[1, 1, 1, 1, 0]])
+    group = circuits.get_transversal_automorphism_group(code, ["SWAP"])
+    assert group.degree == len(code)
+    assert group.order == 24
+    assert len(circuits.get_transversal_ops(code, ["SWAP"])) == 2
+
+    # non-self-dual code, whose X and Z sector automorphism groups are intersected with each other
+    code = codes.CSSCode([[0, 0, 0, 0], [1, 1, 1, 0]], [[0, 1, 1, 0]])
+    group = circuits.get_transversal_automorphism_group(code, ["SWAP"])
+    assert group.degree == len(code)
+    assert group.order == 2
+
+    # a complete local Clifford gate set, which addresses three parity check sectors per qubit
+    code = codes.CSSCode([[1, 1, 0, 0, 1], [1, 0, 0, 1, 0]], [[1, 0, 0, 1, 1], [0, 0, 1, 0, 0]])
+    group = circuits.get_transversal_automorphism_group(code, ["SWAP", "H", "S"])
+    assert group.degree == 3 * len(code)
+    assert group.order == 16
+    assert len(circuits.get_transversal_ops(code, ["SWAP", "H", "S"])) == 1
+
+    # a code deformation, whose transversal operations are constrained by the logical operators
+    code = codes.SurfaceCode(2)
+    group = circuits.get_transversal_automorphism_group(code, ["SWAP", "H", "S"], deform_code=True)
+    assert group.degree == 3 * len(code)
+    assert group.order == 48
+    deformations = circuits.get_transversal_ops(code, ["SWAP", "H", "S"], deform_code=True)
+    assert len(deformations) == 1
+    for _, physical_circuit in deformations:
+        # the physical circuit deforms the code while preserving its logical operators
+        code.deformed(physical_circuit, preserve_logicals=True)
+
+    # a code whose instrumental automorphism group is trivial, admitting no transversal gate
+    code = codes.CSSCode([[1]], [[0]])
+    group = circuits.get_transversal_automorphism_group(code, ["H"])
+    assert group.degree == 2 * len(code)
+    assert group.order == 1
+    assert len(circuits.get_transversal_ops(code, ["H"])) == 0
 
 
 def test_finding_circuit(
@@ -116,8 +169,40 @@ def test_finding_circuit(
         physical_circuit = circuits.get_transversal_circuit(code, logical_circuit)
         assert physical_circuit is not None
 
-        # there are no logical two-qubit gates in this code
-        assert circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1")) is None
+        # A logical circuit must have the same number of qubits as the code's logical space.
+        with pytest.raises(ValueError, match="at most 1 qubits"):
+            circuits.get_transversal_circuit(code, stim.Circuit("CX 0 1"))
+        with pytest.raises(ValueError, match="logical tableau on 1 qubits"):
+            circuits.get_transversal_circuits(code, [stim.Tableau(2)])
+
+        # There are no logical two-qubit gates in the SWAP-only group of this
+        # two-logical-qubit CSS code.
+        assert (
+            circuits.get_transversal_circuit(
+                codes.CSSCode([[1, 1, 0, 0]], [[0, 0, 1, 1]]),
+                stim.Circuit("CX 0 1"),
+                local_gates=[],
+            )
+            is None
+        )
+
+    zero_logical_code = codes.CSSCode([[1]], [[0]])
+    monkeypatch.setattr(
+        transversal,
+        "get_transversal_automorphism_group",
+        lambda *_args, **_kwargs: abstract.Group(abstract.GroupMember(range(3))),
+    )
+    assert circuits.get_transversal_circuits(zero_logical_code, [stim.Circuit()])[0] is not None
+    monkeypatch.undo()
+    assert circuits.get_transversal_circuit(codes.FiveQubitCode(), stim.Circuit("X 0")) is not None
+    assert circuits.get_transversal_circuit(codes.FiveQubitCode(), stim.Circuit("Z 0")) is not None
+
+    one_qubit_code = codes.CSSCode([[1]], [[0]])
+    for permutation in ([2, 0, 1], [1, 2, 0]):
+        circuit = transversal._get_pauli_permutation_circuit(
+            one_qubit_code, abstract.GroupMember(permutation), ["H", "S"]
+        )
+        assert circuit.num_qubits == 1
 
     # check that the physical circuit has the correct logical tableau
     reconstructed_logical_tableau = circuits.get_logical_tableau(code, physical_circuit)

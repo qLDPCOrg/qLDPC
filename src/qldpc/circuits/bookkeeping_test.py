@@ -41,9 +41,19 @@ def test_qubit_ids() -> None:
     assert qubit_ids.data == tuple(qq + 3 for qq in data_ids)
     assert qubit_ids.all_qubits == qubit_ids.data + qubit_ids.check + qubit_ids.ancilla
 
-    assert qubit_ids == circuits.QubitIDs.validated(qubit_ids, code)
+    original = circuits.QubitIDs(qubit_ids.data, qubit_ids.check, qubit_ids.ancilla)
+    original.checks_x, original.checks_z = qubit_ids.checks_x, qubit_ids.checks_z
+    validated = circuits.QubitIDs.validated(qubit_ids, code)
+    assert validated is not qubit_ids
+    assert validated == qubit_ids
+    validated.shift(1)
+    assert qubit_ids == original
     with pytest.raises(ValueError, match="invalid for the given code"):
         circuits.QubitIDs.validated(circuits.QubitIDs((), (), ()), code)
+    with pytest.raises(ValueError, match="distinct"):
+        circuits.QubitIDs([0] * len(code), [1] * code.num_checks)
+    assert circuits.QubitIDs([5, 2], 2).check == (6, 7)
+    assert circuits.QubitIDs.from_code(codes.TrivialCode(3), num_ancillas=1).ancilla == (3,)
 
 
 def test_records() -> None:
@@ -67,6 +77,9 @@ def test_records() -> None:
     assert measurement_record.get_target_rec(2) == stim.target_rec(-10)
     assert measurement_record.get_target_rec(0) == stim.target_rec(-9)
     assert measurement_record.get_target_rec(0, -2) == stim.target_rec(-11)
+    assert measurement_record.get_target_rec(0, num_measurements=11) == stim.target_rec(-9)
+    with pytest.raises(ValueError, match="circuit contains 12"):
+        measurement_record.get_target_rec(0, num_measurements=12)
 
     with pytest.raises(ValueError, match="Invalid measurement index"):
         measurement_record.get_target_rec(3)
@@ -89,9 +102,22 @@ def test_records() -> None:
         assert isinstance(record_copy, type(record))
         assert list(record_copy.items()) == list(record.items())
 
+    assert "missing" not in base_record
+    with pytest.raises(KeyError):
+        _ = base_record["missing"]
+    assert "missing" not in base_record
+    with pytest.raises(ValueError, match="non-negative"):
+        base_record.append({}, repeat=-1)
+
 
 def test_post_selection() -> None:
     """Update a DetectorRecord after post-selecting on some detectors."""
     record = circuits.DetectorRecord({"flags": [0, 2, 4], "a": [1, 5], "b": [3]})
     expected_record = circuits.DetectorRecord({"a": [0, 2], "b": [1]})
     assert record.after_post_selection("flags") == expected_record
+    assert (
+        circuits.DetectorRecord({"empty": []}).after_post_selection("empty")
+        == circuits.DetectorRecord()
+    )
+    duplicate = circuits.DetectorRecord({"flags": [0, 0], "a": [1, 2]})
+    assert duplicate.after_post_selection("flags") == circuits.DetectorRecord({"a": [0, 1]})

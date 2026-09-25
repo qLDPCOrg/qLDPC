@@ -106,9 +106,12 @@ class DetectorErrorModelArrays:
 
         Args:
             circuit_or_dem: an error model, or a circuit whose error model is extracted with
-                stim.Circuit.detector_error_model.  A model extracted here carries no decomposition
-                suggestions; to obtain those, extract it yourself by calling
-                circuit.detector_error_model(decompose_errors=True) and pass the result.
+                stim.Circuit.detector_error_model(approximate_disjoint_errors=True).  qLDPC noise
+                channels may contain correlated ``ELSE_CORRELATED_ERROR`` chains, so the
+                disjoint-error approximation is enabled for this convenience path.  A model
+                extracted here carries no decomposition suggestions; to obtain those, extract it
+                yourself by calling circuit.detector_error_model(decompose_errors=True) and pass
+                the result.
             simplify: If True, merge equivalent error mechanisms (see
                 DetectorErrorModelArrays.simplified).  Defaults to True.
             decompose_errors: If True, split every error into the components that the error model
@@ -120,7 +123,7 @@ class DetectorErrorModelArrays:
                 probabilities.  Defaults to False.
         """
         dem = (
-            circuit_or_dem.detector_error_model()
+            circuit_or_dem.detector_error_model(approximate_disjoint_errors=True)
             if isinstance(circuit_or_dem, stim.Circuit)
             else circuit_or_dem
         )

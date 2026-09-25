@@ -78,7 +78,8 @@ def get_memory_experiment(
     4. Measure all data qubits in the specified basis.
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
 
-    If a noise_model is provided, then noise is added to all parts of the circuit.
+    If a noise_model is provided, then noise is added to the assembled fixed-basis circuit so that
+    moments are accounted for across the initialization, QEC, and readout seams.
 
     If basis is None, then the memory experiment noiselessly initializes each logical qubit of the
     code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
@@ -168,7 +169,7 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
-    initialization, qec_cycle, readout, *_ = get_memory_experiment_parts(
+    initialization, qec_cycle, readout, _, _, qubit_ids = get_memory_experiment_parts(
         code,
         basis=basis,
         num_rounds=num_rounds,
@@ -176,16 +177,19 @@ def get_memory_experiment(
         syndrome_measurement_strategy=syndrome_measurement_strategy,
     )
 
-    # add noise to all parts of an experiment with a fixed basis
+    # Add noise to the assembled fixed-basis experiment so the boundaries between initialization,
+    # QEC, and readout do not introduce artificial idle moments.
     if basis is not None and noise_model is not None:
-        initialization = noise_model.noisy_circuit(initialization)
-        qec_cycle = noise_model.noisy_circuit(qec_cycle)
-        readout = noise_model.noisy_circuit(readout)
+        return noise_model.noisy_circuit(initialization + qec_cycle + readout)
 
     # if tracking all logical operators, only the logical QEC cycle is noisy
     if basis is None:
         if noise_model is not None:
-            qec_cycle = noise_model.noisy_circuit(qec_cycle)
+            qec_cycle = noise_model.noisy_circuit(
+                qec_cycle,
+                system_qubits=qubit_ids.data + qubit_ids.check,
+                immune_qubits=qubit_ids.ancilla,
+            )
         else:
             # noise will be added later, so make initialization and readout noiseless
             initialization = as_noiseless_circuit(initialization)
@@ -219,6 +223,9 @@ def get_memory_experiment_parts(
         matrix_z = code.matrix if basis is Pauli.Z else code.field.Zeros((0, len(code)))
         matrix_x = code.field.Zeros((0, len(code))) if basis is Pauli.Z else code.matrix
         code = codes.CSSCode(matrix_x, matrix_z)
+
+    if num_rounds < 1:
+        raise ValueError("num_rounds must be at least 1")
 
     if code.is_subsystem_code:
         raise ValueError(
@@ -282,6 +289,7 @@ def _get_basis_memory_experiment_parts(
     readout = stim.Circuit()
     readout.append(f"M{basis}", data_ids)
     measurement_record.append({data_id: mm for mm, data_id in enumerate(data_ids)})
+    measurement_count = qec_cycle.num_measurements + readout.num_measurements
 
     # detectors for stabilizers that can be inferred from data qubit measurements
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
@@ -290,14 +298,20 @@ def _get_basis_memory_experiment_parts(
         data_support = np.flatnonzero(check_support[kk])
         readout.append(
             "DETECTOR",
-            [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support]
-            + [measurement_record.get_target_rec(check_id)],
+            [
+                measurement_record.get_target_rec(data_ids[qq], num_measurements=measurement_count)
+                for qq in data_support
+            ]
+            + [measurement_record.get_target_rec(check_id, num_measurements=measurement_count)],
             (0, 0, kk),
         )
     detector_record.append({check_id: dd for dd, check_id in enumerate(basis_check_ids)})
 
     # annotate all basis-type observables
-    targets = [measurement_record.get_target_rec(data_id) for data_id in data_ids]
+    targets = [
+        measurement_record.get_target_rec(data_id, num_measurements=measurement_count)
+        for data_id in data_ids
+    ]
     observables = get_observables(code, data_ids, basis=basis, on_measurements=targets)
 
     return MemoryExperimentParts(
@@ -346,10 +360,11 @@ def _get_combined_memory_simulation_parts(
     # update the measurement record, add detectors, and update the detector record
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
     measurement_record.append({check_id: mm for mm, check_id in enumerate(check_ids)})
+    measurement_count = qec_cycle.num_measurements + readout.num_measurements
     for kk, check_id in enumerate(check_ids):
         targets = [
-            measurement_record.get_target_rec(check_id, -1),
-            measurement_record.get_target_rec(check_id, -2),
+            measurement_record.get_target_rec(check_id, -1, num_measurements=measurement_count),
+            measurement_record.get_target_rec(check_id, -2, num_measurements=measurement_count),
         ]
         readout.append("DETECTOR", targets, (0, 0, kk))
     detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
@@ -398,7 +413,7 @@ def get_observables(
     data_qubits: Sequence[int] | None = None,
     *,
     basis: PauliXZ | None = None,
-    on_measurements: Sequence[stim.target_rec] | bool = False,
+    on_measurements: Sequence[stim.GateTarget] | bool = False,
     observable_indices: Sequence[int] | None = None,
 ) -> stim.Circuit:
     """Construct a circuit of logical observable annotations.
@@ -422,16 +437,22 @@ def get_observables(
             f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"
         )
 
-    data_qubits = data_qubits or range(len(code))
+    data_qubits = range(len(code)) if data_qubits is None else data_qubits
+    if len(data_qubits) != len(code):
+        raise ValueError("data_qubits must contain one target per data qubit")
     num_observables = code.dimension * (2 if basis is None else 1)
-    observable_indices = observable_indices or range(num_observables)
+    observable_indices = (
+        range(num_observables) if observable_indices is None else observable_indices
+    )
 
     if on_measurements is True:
         on_measurements = [stim.target_rec(mm) for mm in range(-len(code), 0)]
 
     # consistency checks
-    assert on_measurements is False or len(on_measurements) == len(code)
-    assert len(observable_indices) == num_observables
+    if on_measurements is not False and len(on_measurements) != len(code):
+        raise ValueError("on_measurements must contain one target per data qubit")
+    if len(observable_indices) != num_observables:
+        raise ValueError(f"Expected {num_observables} observable indices")
 
     # build a graph of edges directed from observables to the data qubits they address
     logical_ops = code.get_logical_ops(basis, symplectic=True)
@@ -474,12 +495,16 @@ def get_logical_bell_prep(
     Returns:
         A circuit that noiselessly initializes all logical qubits into Bell pairs with ancillas.
     """
-    data_qubits = data_qubits or range(len(code))
-    ancilla_qubits = ancilla_qubits or range(
-        data_qubits[-1] + 1, data_qubits[-1] + 1 + code.dimension
+    data_qubits = range(len(code)) if data_qubits is None else data_qubits
+    ancilla_qubits = (
+        range(max(data_qubits, default=-1) + 1, max(data_qubits, default=-1) + 1 + code.dimension)
+        if ancilla_qubits is None
+        else ancilla_qubits
     )
-    assert len(data_qubits) == len(code)
-    assert len(ancilla_qubits) == code.dimension
+    if len(data_qubits) != len(code):
+        raise ValueError("data_qubits must contain one target per data qubit")
+    if len(ancilla_qubits) != code.dimension:
+        raise ValueError("ancilla_qubits must contain one target per logical qubit")
 
     # entangle the first code.dimension data qubits with ancillas
     circuit = stim.Circuit()
@@ -524,19 +549,25 @@ def _get_qec_cycle(
     # apply first round of QEC and detectors
     circuit.append(one_round)
     measurement_record.append(round_measurement_record)
+    measurement_count = circuit.num_measurements
     for kk, check_id in enumerate(check_ids):
-        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
+        circuit.append(
+            "DETECTOR",
+            [measurement_record.get_target_rec(check_id, num_measurements=measurement_count)],
+            (0, 0, kk),
+        )
     detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
         repeat_circuit = one_round.copy()
         measurement_record.append(round_measurement_record)
+        measurement_count += repeat_circuit.num_measurements
         repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         for kk, check_id in enumerate(check_ids):
             targets = [
-                measurement_record.get_target_rec(check_id, -1),
-                measurement_record.get_target_rec(check_id, -2),
+                measurement_record.get_target_rec(check_id, -1, num_measurements=measurement_count),
+                measurement_record.get_target_rec(check_id, -2, num_measurements=measurement_count),
             ]
             repeat_circuit.append("DETECTOR", targets, (0, 0, kk))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))

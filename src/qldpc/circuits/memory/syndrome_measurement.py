@@ -30,6 +30,13 @@ from ..bookkeeping import MeasurementRecord, QubitIDs
 from ..common import restrict_to_qubits
 
 
+def _validated_qubit_ids(code: codes.QuditCode, qubit_ids: QubitIDs | None) -> QubitIDs:
+    """Validate the qubit layout shared by syndrome-measurement strategies."""
+    if code.is_subsystem_code:
+        raise ValueError("Syndrome measurement strategies require a non-subsystem code")
+    return QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
+
+
 class SyndromeMeasurementStrategy(abc.ABC):
     """Base class for a syndrome measurement strategy."""
 
@@ -70,8 +77,9 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         Args:
             strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
                 Defaults to "smallest_last".
-            subgraph_kwargs: Keyword arguments to pass to code.get_syndrome_subgraphs when
-                retrieving the Tanner subgraphs of a code.
+            subgraph_kwargs: Keyword arguments to pass to custom
+                ``code.get_syndrome_subgraphs`` overrides. Built-in code families accept only their
+                own ``strategy`` argument; this extension point is intentionally not used by them.
         """
         self.strategy = strategy
         self.subgraph_kwargs = subgraph_kwargs
@@ -91,14 +99,23 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
+        qubit_ids = _validated_qubit_ids(code, qubit_ids)
         subgraphs = code.get_syndrome_subgraphs(**self.subgraph_kwargs)  # type:ignore[arg-type]
+        return self._get_circuit_from_subgraphs(qubit_ids, subgraphs)
 
-        qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    def _get_circuit_from_subgraphs(
+        self,
+        qubit_ids: QubitIDs,
+        subgraphs: tuple[nx.DiGraph, ...],
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Build a circuit and record from an already selected subgraph sequence."""
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
+        circuit.append("TICK")
         for subgraph in subgraphs:
             circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, self.strategy)
         circuit.append("MX", qubit_ids.check)
+        circuit.append("TICK")
 
         measurement_record = MeasurementRecord(
             {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
@@ -117,6 +134,10 @@ class EdgeColoring(SyndromeMeasurementStrategy):
 
         - All two-qubit gates associated with edges in the graph commute.
         - Check qubits are initialized ``|+>``.
+
+        The caller supplies the initial framing ``TICK``; each colored layer contributes one
+        trailing ``TICK``. This keeps ``num_ticks`` equal to the scheduled gate depth while making
+        standalone rounds composable.
         """
         # color the edges of the Tanner graph
         coloring = nx.greedy_color(nx.line_graph(graph.to_undirected()), strategy)
@@ -131,7 +152,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             color_to_ops[color].append((f"C{pauli}", check_id, data_id))
 
         # collect all gates into a circuit
-        circuit = stim.Circuit("TICK")
+        circuit = stim.Circuit()
         for gates in color_to_ops.values():
             for gate, check_id, data_id in sorted(gates):
                 circuit.append(gate, [check_id, data_id])
@@ -149,6 +170,8 @@ class EdgeColoringXZ(EdgeColoring):
         one color at a time.
 
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
+    In particular, the EdgeColoringXZ schedule can reduce the circuit-level distance of rotated
+    surface codes; use it only when that trade-off is acceptable.
     """
 
     def __init__(self, strategy: str = "smallest_last") -> None:
@@ -159,6 +182,7 @@ class EdgeColoringXZ(EdgeColoring):
                 Defaults to "smallest_last".
         """
         self.strategy = strategy
+        self.subgraph_kwargs: dict[str, object] = {}
 
     @restrict_to_qubits
     def get_circuit(
@@ -180,14 +204,5 @@ class EdgeColoringXZ(EdgeColoring):
                 "The EdgeColoringXZ strategy for syndrome measurement only supports CSS codes"
             )
 
-        qubit_ids = qubit_ids or QubitIDs.from_code(code)
-        circuit = stim.Circuit()
-        circuit.append("RX", qubit_ids.check)
-        circuit += EdgeColoring.graph_to_circuit(code.graph_x, qubit_ids, self.strategy)
-        circuit += EdgeColoring.graph_to_circuit(code.graph_z, qubit_ids, self.strategy)
-        circuit.append("MX", qubit_ids.check)
-
-        measurement_record = MeasurementRecord(
-            {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
-        )
-        return circuit, measurement_record
+        qubit_ids = _validated_qubit_ids(code, qubit_ids)
+        return self._get_circuit_from_subgraphs(qubit_ids, (code.graph_x, code.graph_z))

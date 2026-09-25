@@ -96,13 +96,13 @@ def get_state_prep_diagnostic_circuit(
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
         circuits.DetectorRecord: A record of the circuit's detectors (keys described above).
     """
-    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
     if not skip_validation:
         _assert_pure_logical_state(state_prep_circuit, code, qubit_ids)
 
     # if necessary, identify the pure logical operators that stabilize the prepared state
     if observables is None:
-        observables = get_logical_state_stabilizers(state_prep_circuit, code)
+        observables = get_logical_state_stabilizers(state_prep_circuit, code, qubit_ids)
 
     # if applicable, convert Pauli strings into symplectic vectors
     if len(observables) > 0 and any(isinstance(obs, stim.PauliString) for obs in observables):
@@ -125,14 +125,16 @@ def get_state_prep_diagnostic_circuit(
     detector_record.append({"flags": range(len(flag_detectors))})
 
     # stabilizer measurements and detectors
-    stabilizer_measurements = get_pauli_product_measurements(code.get_stabilizer_ops())
+    stabilizer_measurements = get_pauli_product_measurements(
+        code.get_stabilizer_ops(), qubits=qubit_ids.data
+    )
     stabilizer_detectors = stim.Circuit()
     for meas_index in range(-stabilizer_measurements.num_measurements, 0):
         stabilizer_detectors.append("DETECTOR", [stim.target_rec(meas_index)])
     detector_record.append({ss: ss for ss in range(len(code.get_stabilizer_ops()))})
 
     # observable measurements and annotations
-    logical_op_measurements = get_pauli_product_measurements(observables)
+    logical_op_measurements = get_pauli_product_measurements(observables, qubits=qubit_ids.data)
     logical_op_annotations = stim.Circuit()
     for meas_index in range(-logical_op_measurements.num_measurements, 0):
         op_index = meas_index + logical_op_measurements.num_measurements
@@ -260,7 +262,7 @@ def get_state_prep_diagnostic_tasks(
             circuit=noise_model_family(error_rate).noisy_circuit(diagnostic_circuit),
             postselection_mask=postselection_mask,
             postselected_observables_mask=postselected_observables_mask,
-            json_metadata={"p": error_rate} | (metadata or {}),
+            json_metadata=(metadata or {}) | {"p": error_rate},
         )
         for error_rate in error_rates
     ]
@@ -321,7 +323,8 @@ def get_logical_error_and_discard_rate(
         A fraction of the retained samples in which at least one observable was decoded incorrectly.
         A fraction of samples that were discarded, either by post-selection or at the request of the
             decoder, which signals that a shot should be discarded by predicting observable flips in
-            one more byte than the observables of the sampled circuit require.
+            one more byte than the observables of the sampled circuit require. These are point
+            estimates. Use ``sinter.collect`` when counts or confidence intervals are needed.
     """
     # identify and simplify the DEM to sample
     dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)
@@ -404,15 +407,17 @@ def _get_postselection_masks(
         num_flags = len(detector_record.get_events("flags"))
         num_detectors = num_prep + num_flags
         if isinstance(post_select, bool):
-            post_select = detector_record.get_events("flags") if post_select else ()
+            post_select = detector_record.get_events("flags")
         if not all(-num_detectors <= dd < num_detectors for dd in post_select):
             raise ValueError(
-                f"The provided circuit contains {num_detectors} detectors, so we can only post-select"
-                f" on detectors with an index the range [-{num_detectors}, {num_detectors});"
+                f"The detector record exposes {num_detectors} selectable prep/flag detectors "
+                f"(out of {detector_record.num_events} total), so post-selection accepts indices "
+                f"in the range [-{num_detectors}, {num_detectors});"
                 f" requested: {post_select}"
             )
+        post_select = [dd % num_detectors for dd in post_select]
         postselection_array = np.zeros(detector_record.num_events, dtype=int)
-        postselection_array[list(post_select)] = 1
+        postselection_array[post_select] = 1
         postselection_mask = np.packbits(postselection_array, bitorder="little")
 
     if not post_select_observables:
@@ -429,13 +434,17 @@ def _assert_pure_logical_state(
     state_prep_circuit: stim.Circuit, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
 ) -> None:
     """Assert that the given circuit prepare a pure logical state of the given code."""
-    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
 
     # test that all stabilizers have expectation value +1
     simulator = stim.TableauSimulator()
-    simulator.do(state_prep_circuit)
+    simulator.do(state_prep_circuit.without_noise())
     for op in code.get_stabilizer_ops():
-        string = math.op_to_string(op)
+        compact_string = math.op_to_string(op)
+        string = stim.PauliString(state_prep_circuit.num_qubits)
+        for qubit, pauli in zip(qubit_ids.data, str(compact_string)[1:], strict=True):
+            if pauli != "_":
+                string[qubit] = pauli
         if not simulator.peek_observable_expectation(string) == 1:
             raise ValueError("The provided circuit does not prepare a logical state of the code")
 

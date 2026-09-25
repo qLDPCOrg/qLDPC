@@ -486,6 +486,54 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(0, 5, 6, 7), (1, 4), (2, 3)],
         [(0, 7), (1, 2), (3, 6, 5, 4)],
     ],
+    # The entries below let the transversal gate tests in circuits/transversal_test.py run
+    # without GAP.
+    # [[1, 0]] code with distinct X and Z checks, whose automorphism group is trivial
+    "AutomorphismGroup(CheckMatCode([[1,0]],GF(2)))": [[]],
+    # [[5, 3]] self-dual code with one unaddressed qubit, automorphism group (SWAP only)
+    "AutomorphismGroup(CheckMatCode([[1,1,1,1,0]],GF(2)))": [
+        [(0, 1)],
+        [(1, 2)],
+        [(2, 3)],
+    ],
+    # [[4, 2]] non-self-dual code, X check automorphism group
+    "AutomorphismGroup(CheckMatCode([[1,1,1,0]],GF(2)))": [
+        [(0, 1)],
+        [(1, 2)],
+    ],
+    # [[4, 2]] non-self-dual code, Z check automorphism group
+    "AutomorphismGroup(CheckMatCode([[0,1,1,0]],GF(2)))": [
+        [(0, 3)],
+        [(1, 2)],
+    ],
+    # SurfaceCode(2) logical operator automorphism group (SWAP + Cliffords, for code deformations)
+    "AutomorphismGroup(CheckMatCode([[0,0,1,1,0,0,0,0,0,0,1,1],[0,0,0,0,1,0,0,1,1,0,0,1]],GF(2)))": [
+        [(5, 6), (7, 8)],
+        [(2, 4, 10, 8, 3, 7), (5, 6, 9)],
+        [(3, 10), (5, 9, 6), (7, 8)],
+        [(4, 7), (5, 9)],
+        [(6, 9)],
+        [(5, 9)],
+        [(5, 6)],
+        [(4, 8)],
+        [(1, 5, 9)],
+        [(1, 5, 6, 9), (7, 8)],
+        [(2, 10, 3), (6, 9)],
+        [(1, 5, 6, 9), (3, 10), (4, 8, 7)],
+        [(1, 5, 6, 9), (2, 4), (3, 8, 10, 7)],
+        [(0, 9, 1, 6, 5), (2, 8, 3, 7, 10, 4)],
+    ],
+    # [[5, 1]] non-self-dual code, automorphism group (SWAP + Cliffords)
+    "AutomorphismGroup(CheckMatCode([[1,0,0,1,0,0,0,0,0,0,1,0,0,1,0],[0,1,0,1,1,0,0,0,0,0,0,1,0,1,1],[0,0,0,0,0,1,0,0,1,1,1,0,0,1,1],[0,0,0,0,0,0,0,1,0,0,0,0,1,0,0]],GF(2)))": [
+        [(7, 12)],
+        [(0, 3), (10, 13)],
+        [(1, 5), (3, 10), (4, 8), (9, 11)],
+        [(1, 4)],
+        [(2, 6)],
+        [(4, 11)],
+        [(5, 8)],
+        [(8, 9)],
+    ],
 }
 
 KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], IdempotentsList] = {

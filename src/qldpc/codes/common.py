@@ -1067,6 +1067,9 @@ class QuditCode(AbstractCode):
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
+        This contract is defined only for stabilizer codes.  Subsystem-code gauge checks need a
+        separate gauge-fixing schedule and therefore are rejected explicitly.
+
         Every edge of the Tanner graph is associated with a two-qubit gate that needs to be applied
         to "write" parity checks onto ancilla qubits (i.e., for syndrome extraction).  The sequence
         of subgraphs returned by this method induces a (possibly partial) ordering on these gates,
@@ -1090,6 +1093,8 @@ class QuditCode(AbstractCode):
             strategy: The strategy used by nx.greedy_color to color parity checks.
                 Default: "smallest_last".
         """
+        if self.is_subsystem_code:
+            raise ValueError("Syndrome subgraphs are undefined for subsystem codes")
         # build a graph whose vertices are checks, and edges connect checks with overlapping support
         check_graph = nx.Graph()
         # seed every check that appears in the Tanner graph, so that a check whose support overlaps
@@ -2425,10 +2430,13 @@ class CSSCode(QuditCode):
         The 'strategy' argument to this method is only included for compatibility with
         QuditCode.get_syndrome_subgraphs.
         """
-        assert not strategy, (
-            f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
-            f" (provided: {strategy})"
-        )
+        if strategy:
+            raise ValueError(
+                f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
+                f" (provided: {strategy})"
+            )
+        if self.is_subsystem_code:
+            raise ValueError("Syndrome subgraphs are undefined for subsystem codes")
         return self.graph_x, self.graph_z
 
     @staticmethod
@@ -2813,6 +2821,26 @@ class CSSCode(QuditCode):
         """Set the logical operators of this code to the provided logical operators."""
         logical_ops = scipy.linalg.block_diag(logicals_ops_x, logicals_ops_z)
         return self.set_logical_ops(logical_ops, skip_validation=skip_validation)
+
+    def set_logical_ops(
+        self,
+        logical_ops: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        *,
+        skip_validation: bool = False,
+    ) -> Self:
+        """Set CSS-form logical operators for this CSS code."""
+        logical_ops = np.asanyarray(logical_ops).view(self.field)
+        dimension = self.dimension
+        if logical_ops.ndim != 2 or logical_ops.shape != (2 * dimension, 2 * len(self)):
+            raise ValueError(
+                f"Expected logical operators with shape {(2 * dimension, 2 * len(self))}, "
+                f"got {logical_ops.shape}"
+            )
+        if np.any(logical_ops[:dimension, len(self) :]) or np.any(
+            logical_ops[dimension:, : len(self)]
+        ):
+            raise ValueError("CSS logical operators must be X-only followed by Z-only")
+        return super().set_logical_ops(logical_ops, skip_validation=skip_validation)
 
     def set_logical_ops_x(
         self,

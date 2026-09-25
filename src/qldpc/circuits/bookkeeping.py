@@ -49,16 +49,19 @@ class QubitIDs:
         ancilla: int | Sequence[int] = (),
     ) -> None:
         self.data = tuple(data if isinstance(data, Sequence) else range(data))
-        check_start = self.data[-1] + 1 if self.data else 0
+        check_start = max(self.data, default=-1) + 1
         self.check = tuple(
             check if isinstance(check, Sequence) else range(check_start, check_start + check)
         )
-        ancilla_start = self.check[-1] + 1 if self.check else check_start
+        ancilla_start = max(self.check, default=check_start - 1) + 1
         self.ancilla = tuple(
             ancilla
             if isinstance(ancilla, Sequence)
             else range(ancilla_start, ancilla_start + ancilla)
         )
+        all_qubits = self.data + self.check + self.ancilla
+        if len(all_qubits) != len(set(all_qubits)):
+            raise ValueError("Qubit IDs must be distinct")
 
     def __iter__(self) -> Iterator[tuple[int, ...]]:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
@@ -74,7 +77,8 @@ class QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
         data = tuple(range(len(code)))
         check = tuple(range(len(code), len(code) + code.num_checks))
-        ancilla = tuple(range(check[-1] + 1, check[-1] + 1 + num_ancillas))
+        ancilla_start = max(check, default=len(code) - 1) + 1
+        ancilla = tuple(range(ancilla_start, ancilla_start + num_ancillas))
         qubit_ids = QubitIDs(data, check, ancilla)
         qubit_ids.checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else ()
         qubit_ids.checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else ()
@@ -83,17 +87,18 @@ class QubitIDs:
 
     @staticmethod
     def validated(qubit_ids: QubitIDs, code: codes.QuditCode) -> QubitIDs:
-        """Validate qubit IDs for the given code and return."""
+        """Validate qubit IDs for the given code and return a copy."""
         if len(qubit_ids.data) != len(code) or len(qubit_ids.check) != code.num_checks:
             raise ValueError("Qubit IDs are invalid for the given code")
+        validated = QubitIDs(qubit_ids.data, qubit_ids.check, qubit_ids.ancilla)
         if isinstance(code, codes.CSSCode):
-            qubit_ids.checks_x = tuple(qubit_ids.check[: code.num_checks_x])
-            qubit_ids.checks_z = tuple(qubit_ids.check[code.num_checks_x :])
-        return qubit_ids
+            validated.checks_x = tuple(validated.check[: code.num_checks_x])
+            validated.checks_z = tuple(validated.check[code.num_checks_x :])
+        return validated
 
     def max(self) -> int:
         """The largest index of any tracked qubit."""
-        return max(itertools.chain(*self))
+        return max(itertools.chain.from_iterable(self), default=-1)
 
     def shift(self, shift: int) -> QubitIDs:
         """Shift all qubit indices by the given amount and return self."""
@@ -157,7 +162,9 @@ class Record(Mapping[Hashable, list[int]]):
 
     def __getitem__(self, key: Hashable) -> list[int]:
         """The events associated with a key."""
-        return self.key_to_events[key]
+        if key not in self.key_to_events:
+            raise KeyError(key)
+        return list(self.key_to_events[key])
 
     def items(self) -> ItemsView[Hashable, list[int]]:
         """Iterator over keys and their associated events."""
@@ -181,7 +188,8 @@ class Record(Mapping[Hashable, list[int]]):
         then events (0, 1, ...) in the appended record are added to the current record as
         ``(n, n+1, ...)``.
         """
-        assert repeat >= 0
+        if repeat < 0:
+            raise ValueError("repeat must be non-negative")
         _record = {  # convert input record into dict[Hashable, list[int]]
             key: list(events) if isinstance(events, Iterable) else [events]
             for key, events in record.items()
@@ -215,7 +223,13 @@ class Record(Mapping[Hashable, list[int]]):
 class MeasurementRecord(Record):
     """An organized record of measurements in a Stim circuit."""
 
-    def get_target_rec(self, qubit: Hashable, measurement_index: int = -1) -> stim.target_rec:
+    def get_target_rec(
+        self,
+        qubit: Hashable,
+        measurement_index: int = -1,
+        *,
+        num_measurements: int | None = None,
+    ) -> stim.GateTarget:
         """Retrieve a Stim measurement record target for the given qubit.
 
         Args:
@@ -223,10 +237,18 @@ class MeasurementRecord(Record):
             measurement_index: An index specifying which measurement of the specified qubit we want.
                 A measurement_index of 0 would be the first measurement of the qubit, while a
                 measurement_index of -1 would be the most recent measurement.  Default value: -1.
+            num_measurements: If provided, the number of measurements in the circuit at the
+            insertion point. It must equal ``num_events``; passing it at consumption boundaries
+            prevents a valid-looking lookback from silently targeting the wrong measurement.
 
         Returns:
             stim.target_rec: A Stim measurement record target.
         """
+        if num_measurements is not None and num_measurements != self.num_events:
+            raise ValueError(
+                f"Measurement record contains {self.num_events} events, but the circuit contains "
+                f"{num_measurements} measurements at this insertion point"
+            )
         measurements = self.get_events(qubit)
         if not -len(measurements) <= measurement_index < len(measurements):
             raise ValueError(
@@ -274,9 +296,11 @@ class DetectorRecord(Record):
         See help(qldpc.decoders.DetectorErrorModelArrays).
         """
         # identify the indices of all detectors, and the detectors to remove
-        last_detector = max(max(detectors) for detectors in self.values() if detectors)
+        last_detector = max(
+            (max(detectors) for detectors in self.values() if detectors), default=-1
+        )
         detector_indices = np.arange(last_detector + 1)
-        detectors_to_remove = sorted(self.get_events(key))
+        detectors_to_remove = sorted(set(self.get_events(key)))
 
         # for each detector D, find how many of the detectors_to_remove are <= D
         index_shift = np.searchsorted(detectors_to_remove, detector_indices, side="left")

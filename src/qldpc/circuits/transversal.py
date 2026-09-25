@@ -25,7 +25,7 @@ import numpy.typing as npt
 import stim
 
 from qldpc import abstract, cache, codes
-from qldpc.math import op_to_string, symplectic_conjugate
+from qldpc.math import op_to_string
 from qldpc.objects import Pauli
 
 from .common import restrict_to_qubits
@@ -44,6 +44,15 @@ def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Cir
     1. Self dual = CSS code with identical X and Z stabilizers.
     2. Equivalent logicals = applying a Hadamard to every physical qubit enacts a logical Hadamard
         on every logical qubit.  This property depends on the choice of logical operator basis.
+
+    Args:
+        code: The CSS code on which to apply the transversal gate.
+        validate: If True (the default), reject codes that are not SWEL stabilizer codes.  If False,
+            return the unchecked physical S/S_DAG circuit and leave correctness to the caller.
+
+    The SWEL check is intentionally conservative: it is a sufficient precondition for the
+    construction, not a complete search for every code on which the requested logical action might
+    happen to work.
     """
     if validate:
         logs_z = code.get_logical_ops(Pauli.Z)
@@ -89,7 +98,9 @@ def get_transversal_ops(
 ) -> list[tuple[stim.Tableau, stim.Circuit]]:
     """Logical tableaus and physical circuits for transversal logical Clifford gates of a code.
 
-    Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}.
+    Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}. The set describes the
+    allowed local Pauli permutations; equivalent Stim ``C_XYZ``/``C_ZYX`` decompositions may appear
+    in returned circuits when multiple local gates are allowed.
 
     If deform_code is True, then a physical_circuit returned by this method has two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
@@ -165,7 +176,7 @@ def get_transversal_automorphism_group(
     deformations for which the logical Pauli group of the original QuditCode is a valid choice of
     logical Pauli group for the deformed QuditCode.
     """
-    parity_checks = code.matrix if not deform_code else symplectic_conjugate(code.get_logical_ops())
+    parity_checks = code.matrix if not deform_code else code.get_logical_ops()
 
     if not local_gates:
         # we are looking for transversal gates involving only two-qubit SWAPs
@@ -177,22 +188,17 @@ def get_transversal_automorphism_group(
                 # Self-dual CSS: column permutations preserving H_x automatically preserve H_z
                 matrix = canonicalized_code.matrix_x
             else:
-                # Non-self-dual CSS: the joint parity-check matrix has block-diagonal support, so
-                # its column-permutation automorphism group factors as Aut(H_x) x Aut(H_z) on
-                # disjoint column sets.  SWAPs act diagonally on X- and Z-columns, so the SWAP
-                # transversal group is Aut(H_x) ∩ Aut(H_z). Recurse on fake self-dual codes built
-                # from H_x and H_z so the self-dual branch above handles each half, then intersect.
-                fake_code_x = codes.CSSCode(
-                    canonicalized_code.matrix_x, canonicalized_code.matrix_x
+                # For non-self-dual CSS, normalize the X- and Z-check automorphism groups
+                # independently to the shared physical-qubit degree. SWAPs act diagonally on both
+                # sectors, so intersect the independently padded groups rather than assuming a
+                # product factorization or self-commuting check rows.
+                group_x = _group_acting_on_points(
+                    canonicalized_code.code_x.get_automorphism_group(with_magma=with_magma),
+                    len(code),
                 )
-                fake_code_z = codes.CSSCode(
-                    canonicalized_code.matrix_z, canonicalized_code.matrix_z
-                )
-                group_x = get_transversal_automorphism_group(
-                    fake_code_x, ["SWAP"], deform_code=False, with_magma=with_magma
-                )
-                group_z = get_transversal_automorphism_group(
-                    fake_code_z, ["SWAP"], deform_code=False, with_magma=with_magma
+                group_z = _group_acting_on_points(
+                    canonicalized_code.code_z.get_automorphism_group(with_magma=with_magma),
+                    len(code),
                 )
                 generators = _sympy_group_intersection_generators(group_x, group_z)
                 return abstract.Group(*map(abstract.GroupMember, generators))
@@ -214,9 +220,13 @@ def get_transversal_automorphism_group(
             # we have a complete local Clifford gate set that can arbitrarily permute Pauli ops
             matrix = np.hstack([matrix_x, matrix_z, matrix_x + matrix_z])
 
-    # compute the automorphism group of an instrumental classical code
+    # compute the automorphism group of an instrumental classical code, as a group that acts on
+    # every column of that code: a SymPy permutation group acts on only as many points as its
+    # generators move, but the columns that no automorphism permutes still address qudits
     instrumental_code = codes.ClassicalCode(matrix)
-    group_code = instrumental_code.get_automorphism_group(with_magma=with_magma)
+    group_code = _group_acting_on_points(
+        instrumental_code.get_automorphism_group(with_magma=with_magma), len(instrumental_code)
+    )
 
     # identify the group of instrumental code transformations generated by the gate set
     num_sectors = len(instrumental_code) // len(code)
@@ -261,19 +271,34 @@ def get_transversal_circuits(
 
     Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
     and thereby generally has exponential runtime.
+
+    When ``remove_redundancies`` is True, generator images that differ only by logical Pauli
+    corrections are treated as equivalent; an empty result is therefore possible for a nontrivial
+    automorphism group.
     """
     physical_circuits = [None] * len(logical_circuits_or_tableaus)
 
     # convert logical Cliffords into tableaus
-    identity = stim.Circuit(f"I {code.dimension - 1}")  # to ensure circuits address all qubits
-    logical_tableaus = [
-        (
-            logical_circuit_or_tableau
-            if isinstance(logical_circuit_or_tableau, stim.Tableau)
-            else (logical_circuit_or_tableau + identity).to_tableau()
-        )
-        for logical_circuit_or_tableau in logical_circuits_or_tableaus
-    ]
+    logical_tableaus: list[stim.Tableau] = []
+    for logical_circuit_or_tableau in logical_circuits_or_tableaus:
+        if isinstance(logical_circuit_or_tableau, stim.Tableau):
+            tableau = logical_circuit_or_tableau
+            if len(tableau) != code.dimension:
+                raise ValueError(
+                    f"Expected a logical tableau on {code.dimension} qubits, got {len(tableau)}"
+                )
+        else:
+            if logical_circuit_or_tableau.num_qubits > code.dimension:
+                raise ValueError(
+                    f"Expected a logical circuit on at most {code.dimension} qubits, got "
+                    f"{logical_circuit_or_tableau.num_qubits}"
+                )
+            if code.dimension:
+                identity = stim.Circuit(f"I {code.dimension - 1}")
+                tableau = (logical_circuit_or_tableau + identity).to_tableau()
+            else:
+                tableau = logical_circuit_or_tableau.to_tableau()
+        logical_tableaus.append(tableau)
 
     # compute the group of transversal Cliffords
     group_aut = get_transversal_automorphism_group(
@@ -304,9 +329,9 @@ def get_transversal_circuits(
         *_, x_signs_l, z_signs_l = logical_tableau.to_numpy()
         *_, x_signs_m, z_signs_m = matching_tableau.to_numpy()
         for logical_qubit in range(code.dimension):
-            if x_signs_l[logical_qubit] != x_signs_m[logical_qubit]:  # pragma: no cover
+            if x_signs_l[logical_qubit] != x_signs_m[logical_qubit]:
                 correction += code.get_logical_ops(Pauli.Z, symplectic=True)[logical_qubit]
-            if z_signs_l[logical_qubit] != z_signs_m[logical_qubit]:  # pragma: no cover
+            if z_signs_l[logical_qubit] != z_signs_m[logical_qubit]:
                 correction += code.get_logical_ops(Pauli.X, symplectic=True)[logical_qubit]
         correction_circuit = _get_pauli_circuit(op_to_string(correction))
 
@@ -372,15 +397,37 @@ def _tableaus_are_equivalent_mod_paulis(tableau_1: stim.Tableau, tableau_2: stim
 
 
 @cache.use_disk_cache(
-    "group_intersection",
+    "group_intersection_v2",
     key_func=lambda xx, yy: (xx.hashable_generators(), yy.hashable_generators()),
 )
 def _sympy_group_intersection_generators(
     group_a: abstract.Group, group_b: abstract.Group
 ) -> tuple[tuple[int, ...], ...]:
-    """Get the generators of the intersection of two Sympy permutation groups."""
+    """Get the generators of the intersection of two Sympy permutation groups.
+
+    Both groups must act on the same number of points, since ``PermutationGroup.contains`` rejects
+    permutations whose size differs from its group's degree.
+    """
+    degree = max(group_a.degree, group_b.degree)
+    group_a = _group_acting_on_points(group_a, degree)
+    group_b = _group_acting_on_points(group_b, degree)
+    if group_a.order == 1 or group_b.order == 1:
+        # the intersection is the identity, which subgroup_search cannot search for: a trivial group
+        # has an empty base, so it cannot be sifted through
+        return abstract.Group(abstract.GroupMember(range(degree))).hashable_generators()
     group_sympy = group_a.to_sympy().subgroup_search(group_b.to_sympy().contains)
-    return abstract.Group(group_sympy).hashable_generators()
+    result = abstract.Group(group_sympy)
+    if result.degree != degree:
+        raise AssertionError(  # pragma: no cover - invariant of SymPy group normalization
+            f"Expected intersection degree {degree}, got {result.degree}"
+        )
+    return result.hashable_generators()
+
+
+def _group_acting_on_points(group: abstract.Group, degree: int) -> abstract.Group:
+    """Reinterpret a group as acting on the given number of points, fixing the additional points."""
+    generators = [abstract.GroupMember(member, size=degree) for member in group.generators]
+    return abstract.Group(*generators)
 
 
 @restrict_to_qubits
@@ -430,6 +477,8 @@ def _get_transversal_automorphism_data(
 def _validate_local_gates(local_gates: Collection[str]) -> set[str]:
     """Verify that the provided collection of local gates is supported."""
     allowed_gates = {"S", "H", "SQRT_X", "SWAP"}
+    if isinstance(local_gates, str):
+        raise TypeError("local_gates must be a collection of gate names, not a single string")
     if not allowed_gates.issuperset(local_gates):
         raise ValueError(
             f"Local Clifford gates (provided: {local_gates}) must be subset of {allowed_gates}"
@@ -480,9 +529,9 @@ def _get_pauli_permutation_circuit(
                 case [2, 1, 0]:  # Y <--> Z
                     gate_targets["H_YZ"].append(qubit)
                 case [2, 0, 1]:  # ZXY <--> XYZ
-                    gate_targets["C_ZYX"].append(qubit)  # pragma: no cover
+                    gate_targets["C_ZYX"].append(qubit)
                 case [1, 2, 0]:  # ZXY <--> ZYX
-                    gate_targets["C_XYZ"].append(qubit)  # pragma: no cover
+                    gate_targets["C_XYZ"].append(qubit)
 
         for gate, targets in gate_targets.items():
             circuit.append(gate, sorted(targets))

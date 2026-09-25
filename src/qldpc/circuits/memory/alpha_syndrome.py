@@ -20,6 +20,7 @@ from __future__ import annotations
 import collections
 import math
 import random
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -34,7 +35,7 @@ from qldpc.objects import Pauli, PauliXZ
 from ..bookkeeping import MeasurementRecord, QubitIDs
 from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
 from ..noise_model import NoiseModel, as_noiseless_circuit
-from .syndrome_measurement import SyndromeMeasurementStrategy
+from .syndrome_measurement import SyndromeMeasurementStrategy, _validated_qubit_ids
 
 # Scrappy type to represent a schedule of two-qubit gates:
 # A list whose t-th entry is a list of gates to apply at time t.
@@ -50,7 +51,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     Uses Monte-Carlo tree search (MCTS) to suppress hook errors.  Currently only supports CSS codes.
 
-    For more information, see the paper at https://www.arxiv.org/abs/2601.12509.
+    For more information, see the paper at https://arxiv.org/abs/2601.12509.
 
     WARNING: This strategy is extremely SLOW due to unsolved problem with multiprocessing and MCTS.
     """
@@ -64,6 +65,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         exploration_weight: float = math.sqrt(2),
         *,
         verbose: bool = True,
+        seed: int | None = None,
     ) -> None:
         """Initialize an AlphaSyndrome syndrome measurement strategy, based on arXiv:2601.12509.
 
@@ -80,16 +82,30 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             decoder: The decoder that Sinter will use to compute logical error rates.  If this
                 argument is a string, it must be a decoder name recognized by Sinter, such as
                 "pymatching" or "fusion_blossom".
-            iters_per_step: Iterations per MCTS step (default: 100).
+            iters_per_step: Cumulative visit budget for each MCTS root as scheduling advances
+                (default: 1000). Existing subtree visits count toward this budget.
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
-            exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).
+            exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).  Rewards are
+                normalized to the observed success fraction, so this parameter remains meaningful
+                across ``shots_per_iter`` choices.
             verbose: If True, print updates when constructing a syndrome extraction circuit.
+            seed: Seed for the schedule-search random number generator. If None, use an
+                independently seeded generator.
         """
         self.noise_model = noise_model
+        if iters_per_step < 1:
+            raise ValueError("iters_per_step must be at least 1")
+        if iters_per_step == 1:
+            warnings.warn(
+                "iters_per_step=1 may perform no fresh rollout after subtree reuse",
+                UserWarning,
+                stacklevel=2,
+            )
         self.iters_per_step = iters_per_step
         self.shots_per_iter = shots_per_iter
         self.exploration_weight = exploration_weight
         self.verbose = verbose
+        self.random = random.Random(seed)
 
         # keyword arguments passed to sinter.predict_observables
         self.sinter_decoding_kwargs: dict[str, str | dict[str, sinter.Decoder]]
@@ -120,7 +136,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             raise TypeError(
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
-        qubit_ids = qubit_ids or QubitIDs.from_code(code)
+        qubit_ids = _validated_qubit_ids(code, qubit_ids)
 
         # the heavy lifting: schedule gates
         schedule_cx = self._build_schedule(code, Pauli.X)
@@ -129,9 +145,11 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         # construct a circuit from the gate schedules
         circuit = stim.Circuit()
         circuit.append("RX", range(len(code), len(code) + code.num_checks))
+        circuit.append("TICK")
         circuit += _schedule_to_circuit(schedule_cx, Pauli.X)
         circuit += _schedule_to_circuit(schedule_cz, Pauli.Z)
         circuit.append("MX", range(len(code), len(code) + code.num_checks))
+        circuit.append("TICK")
 
         # remap qubits and return the circuit together with a measurement record
         circuit = with_remapped_qubits(circuit, qubit_ids.data + qubit_ids.check)
@@ -144,24 +162,37 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         graph = code.get_graph(basis)
         gates = [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
 
-        if self.verbose:  # pragma: no cover
+        if self.verbose:
             print(f"Building gate schedule for {basis}-type syndrome extraction circuit...")
 
         # schedule one gate at a time with MCTS
         node = TreeNode(TreeState.head(gates))
+        evaluation_data = self._get_evaluation_data(code, basis)
         for step in range(len(gates)):
-            node = self._schedule_one_gate(code, basis, node, step=step)
+            node = self._schedule_one_gate(
+                code,
+                basis,
+                node,
+                step=step,
+                evaluation_data=evaluation_data,
+            )
 
         # convert the final tree node into a gate schedule
         return node.state.to_schedule()
 
     def _schedule_one_gate(
-        self, code: codes.CSSCode, basis: PauliXZ, root: TreeNode, *, step: int
+        self,
+        code: codes.CSSCode,
+        basis: PauliXZ,
+        root: TreeNode,
+        *,
+        step: int,
+        evaluation_data: tuple[stim.Circuit, int, int],
     ) -> TreeNode:
         """Schedule one gate by penalizing its contribution to logical error rates."""
         exploration_iterator = range(self.iters_per_step - root.visits)
 
-        if self.verbose:  # pragma: no cover
+        if self.verbose:
             exploration_iterator = tqdm.tqdm(
                 exploration_iterator, f"Scheduling gate {step + 1} of {len(root.state.gates)}"
             )
@@ -177,8 +208,10 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
             # Construct a (randomly completed) schedule from the current node, build an evaluation
             # circuit for the schedule, and inject noise into the circuit.
-            schedule = node.simulate().to_schedule()
-            evaluation_circuit = self._get_evaluation_circuit(code, basis, schedule)
+            schedule = node.simulate(self.random).to_schedule()
+            evaluation_circuit = self._get_evaluation_circuit(
+                code, basis, schedule, evaluation_data
+            )
             noisy_evaluation_circuit = self.noise_model.noisy_circuit(
                 evaluation_circuit, insert_ticks=False
             )
@@ -189,22 +222,28 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
             # penalize logical errors: disagreements in observable flips vs. decoding predictions
             dem = noisy_evaluation_circuit.detector_error_model(
-                decompose_errors=True, ignore_decomposition_failures=True
+                decompose_errors=True,
+                ignore_decomposition_failures=True,
+                approximate_disjoint_errors=True,
             )
             predictions = sinter.predict_observables(
                 dem=dem, dets=dets, **self.sinter_decoding_kwargs
             )
             num_logical_errors = np.sum(np.any(predictions != observable_flips, axis=1))
-            node.backpropagate(self.shots_per_iter / (num_logical_errors + 1))
+            node.backpropagate((self.shots_per_iter - num_logical_errors) / self.shots_per_iter)
 
         # pathological edge case: we never explored from this root
         if not root.children:
-            root.expand()  # pragma: no cover
+            root.expand()
 
         return root.best_child(exploration_weight=0)
 
     def _get_evaluation_circuit(
-        self, code: codes.CSSCode, basis: PauliXZ, schedule: GateSchedule
+        self,
+        code: codes.CSSCode,
+        basis: PauliXZ,
+        schedule: GateSchedule,
+        evaluation_data: tuple[stim.Circuit, int, int] | None = None,
     ) -> stim.Circuit:
         """Build the circuit used to evaluate a gate schedule.
 
@@ -212,16 +251,9 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         Z-type logical operator flips when reading out X-type stabilizers.
         """
 
-        # noiseless measurement of stabilizers and logical operators in the opposite basis
-        opposite_basis = Pauli.swap_xz(basis)
-        stabilizers = code.get_stabilizer_ops(opposite_basis, symplectic=True)
-        logical_ops = code.get_logical_ops(opposite_basis, symplectic=True)
-        opposite_basis_ops = np.vstack([stabilizers, logical_ops])
-        opposite_basis_measurements = as_noiseless_circuit(
-            get_pauli_product_measurements(opposite_basis_ops)
-        )
-        num_stabilizers = len(stabilizers)
-        num_observables = len(logical_ops)
+        if evaluation_data is None:
+            evaluation_data = self._get_evaluation_data(code, basis)
+        opposite_basis_measurements, num_stabilizers, num_observables = evaluation_data
         num_measurements = num_stabilizers + num_observables
 
         # if reading out (say) X-type stabilizers, detect Z-type stabilizer and observable flips
@@ -245,6 +277,16 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             )
 
         return circuit
+
+    @staticmethod
+    def _get_evaluation_data(code: codes.CSSCode, basis: PauliXZ) -> tuple[stim.Circuit, int, int]:
+        """Build schedule-independent data for MCTS rollout evaluation."""
+        opposite_basis = Pauli.swap_xz(basis)
+        stabilizers = code.get_stabilizer_ops(opposite_basis, symplectic=True)
+        logical_ops = code.get_logical_ops(opposite_basis, symplectic=True)
+        opposite_basis_ops = np.vstack([stabilizers, logical_ops])
+        measurements = as_noiseless_circuit(get_pauli_product_measurements(opposite_basis_ops))
+        return measurements, len(stabilizers), len(logical_ops)
 
 
 class TreeNode:
@@ -289,11 +331,12 @@ class TreeNode:
         if self.parent:
             self.parent.backpropagate(reward)
 
-    def simulate(self) -> TreeState:
+    def simulate(self, rng: random.Random | None = None) -> TreeState:
         """Select transitions at random until we reach a terminal node, and return its state."""
+        rng = rng or random.Random()
         state = self.state
         while not state.is_terminal():
-            state = state.select(random.choice(state.transitions()))
+            state = state.select(rng.choice(state.transitions()))
         return state
 
     def best_child(self, exploration_weight: float) -> TreeNode:
@@ -302,7 +345,7 @@ class TreeNode:
 
         def ucb_score(child: TreeNode) -> float:
             if child.visits == 0:
-                return float("inf")  # pragma: no cover
+                return float("inf")
             return child.value / child.visits + exploration_weight * math.sqrt(
                 math.log(self.visits) / child.visits
             )
@@ -322,7 +365,7 @@ class TreeState:
     def head(gates: Sequence[tuple[int, int]]) -> TreeState:
         """A TreeState in which no gates have been scheduled."""
         num_gates = len(gates)
-        num_targets = max(target for gate in gates for target in gate) + 1
+        num_targets = max((target for gate in gates for target in gate), default=-1) + 1
         return TreeState(list(gates), [None] * num_gates, [0] * num_targets)
 
     def is_terminal(self) -> bool:
