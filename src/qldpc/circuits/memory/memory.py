@@ -147,9 +147,9 @@ def get_memory_experiment(
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
             labeling data and check qubits according to their corresponding column/row of the parity
             check matrix, with data qubits numbered from 0 and check qubits numbered from len(code).
-            For a combined-basis experiment, the first ``code.dimension`` ancilla qubits are
-            reserved as noiseless Bell references; any remaining ancillas may be used by a custom
-            syndrome measurement strategy and are included in the noisy system.
+            For a combined-basis experiment, ``qubit_ids.reference`` contains the noiseless Bell
+            references. Ordinary ancillas may be used by a custom syndrome measurement strategy and
+            are included in the noisy system.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
@@ -194,10 +194,9 @@ def get_memory_experiment(
     # if tracking all logical operators, only the logical QEC cycle is noisy
     if basis is None:
         if noise_model is not None:
-            strategy_ancillas = qubit_ids.ancilla[code.dimension :]
             qec_cycle = noise_model.noisy_circuit(
                 qec_cycle,
-                system_qubits=qubit_ids.data + qubit_ids.check + strategy_ancillas,
+                system_qubits=qubit_ids.data + qubit_ids.check + qubit_ids.ancilla,
             )
         else:
             # noise will be added later, so make initialization and readout noiseless
@@ -299,6 +298,7 @@ def _get_basis_memory_experiment_parts(
     readout.append(f"M{basis}", data_ids)
     measurement_record.append({data_id: mm for mm, data_id in enumerate(data_ids)})
     measurement_count = qec_cycle.num_measurements + readout.num_measurements
+    measurement_record.validate_num_measurements(measurement_count)
 
     # detectors for stabilizers that can be inferred from data qubit measurements
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
@@ -307,20 +307,14 @@ def _get_basis_memory_experiment_parts(
         data_support = np.flatnonzero(check_support[kk])
         readout.append(
             "DETECTOR",
-            [
-                measurement_record.get_target_rec(data_ids[qq], num_measurements=measurement_count)
-                for qq in data_support
-            ]
-            + [measurement_record.get_target_rec(check_id, num_measurements=measurement_count)],
+            [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support]
+            + [measurement_record.get_target_rec(check_id)],
             (0, 0, kk),
         )
     detector_record.append({check_id: dd for dd, check_id in enumerate(basis_check_ids)})
 
     # annotate all basis-type observables
-    targets = [
-        measurement_record.get_target_rec(data_id, num_measurements=measurement_count)
-        for data_id in data_ids
-    ]
+    targets = [measurement_record.get_target_rec(data_id) for data_id in data_ids]
     observables = get_observables(code, data_ids, basis=basis, on_measurements=targets)
 
     return MemoryExperimentParts(
@@ -346,15 +340,19 @@ def _get_combined_memory_simulation_parts(
     """
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
-    qubit_ids.add_ancillas(code.dimension - len(qubit_ids.ancilla))
-    data_ids, check_ids, ancilla_ids = qubit_ids
-    ancilla_ids = ancilla_ids[: code.dimension]
+    if len(qubit_ids.reference) > code.dimension:
+        raise ValueError(
+            "Combined-basis memory experiments require one reference per logical qubit"
+        )
+    qubit_ids.add_references(code.dimension - len(qubit_ids.reference))
+    data_ids, check_ids, _ = qubit_ids
+    reference_ids = qubit_ids.reference
 
     # set qubit coordinates
-    coordinates = get_qubit_coordinates(data_ids, check_ids, ancilla_ids)
+    coordinates = get_qubit_coordinates(data_ids, check_ids, reference_ids)
 
     # noiselessly prepare all logical qubits in Bell states with ancillas
-    state_prep = get_logical_bell_prep(code, data_ids, ancilla_ids)
+    state_prep = get_logical_bell_prep(code, data_ids, reference_ids)
 
     # build a logical QEC cycle
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
@@ -367,7 +365,7 @@ def _get_combined_memory_simulation_parts(
         for target in instruction.targets_copy()
         if target.qubit_value is not None
     }
-    if reused_bell_ancillas := sorted(set(ancilla_ids) & operated_qubits):
+    if reused_bell_ancillas := sorted(set(reference_ids) & operated_qubits):
         raise ValueError(
             "Syndrome measurement strategies cannot operate on Bell-reference ancillas"
             f" {reused_bell_ancillas}"
@@ -382,10 +380,11 @@ def _get_combined_memory_simulation_parts(
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
     measurement_record.append({check_id: mm for mm, check_id in enumerate(check_ids)})
     measurement_count = qec_cycle.num_measurements + readout.num_measurements
+    measurement_record.validate_num_measurements(measurement_count)
     for kk, check_id in enumerate(check_ids):
         targets = [
-            measurement_record.get_target_rec(check_id, -1, num_measurements=measurement_count),
-            measurement_record.get_target_rec(check_id, -2, num_measurements=measurement_count),
+            measurement_record.get_target_rec(check_id, -1),
+            measurement_record.get_target_rec(check_id, -2),
         ]
         readout.append("DETECTOR", targets, (0, 0, kk))
     detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
@@ -571,10 +570,11 @@ def _get_qec_cycle(
     circuit.append(one_round)
     measurement_record.append(round_measurement_record)
     measurement_count = circuit.num_measurements
+    measurement_record.validate_num_measurements(measurement_count)
     for kk, check_id in enumerate(check_ids):
         circuit.append(
             "DETECTOR",
-            [measurement_record.get_target_rec(check_id, num_measurements=measurement_count)],
+            [measurement_record.get_target_rec(check_id)],
             (0, 0, kk),
         )
     detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
@@ -584,11 +584,12 @@ def _get_qec_cycle(
         repeat_circuit = one_round.copy()
         measurement_record.append(round_measurement_record)
         measurement_count += repeat_circuit.num_measurements
+        measurement_record.validate_num_measurements(measurement_count)
         repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         for kk, check_id in enumerate(check_ids):
             targets = [
-                measurement_record.get_target_rec(check_id, -1, num_measurements=measurement_count),
-                measurement_record.get_target_rec(check_id, -2, num_measurements=measurement_count),
+                measurement_record.get_target_rec(check_id, -1),
+                measurement_record.get_target_rec(check_id, -2),
             ]
             repeat_circuit.append("DETECTOR", targets, (0, 0, kk))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))

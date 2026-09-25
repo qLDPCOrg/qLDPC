@@ -64,25 +64,31 @@ def test_memory_experiment() -> None:
     surface_code = codes.SurfaceCode(2)
 
     class AncillaStrategy(circuits.SyndromeMeasurementStrategy):
-        def __init__(self, ancilla_index: int) -> None:
-            self.ancilla_index = ancilla_index
+        def __init__(self, *, use_reference: bool = False) -> None:
+            self.use_reference = use_reference
 
         def get_circuit(
             self, code: codes.QuditCode, qubit_ids: circuits.QubitIDs | None = None
         ) -> tuple[stim.Circuit, circuits.MeasurementRecord]:
             assert qubit_ids is not None
             circuit, record = circuits.EdgeColoring().get_circuit(code, qubit_ids)
-            circuit.append("H", qubit_ids.ancilla[self.ancilla_index])
+            target = qubit_ids.reference[0] if self.use_reference else qubit_ids.ancilla[0]
+            circuit.append("H", target)
             circuit.append("TICK")
             return circuit, record
 
-    qubit_ids = circuits.QubitIDs(range(1, 5), range(10, 10 + surface_code.num_checks), [0, 9])
+    qubit_ids = circuits.QubitIDs(
+        range(1, 5),
+        range(10, 10 + surface_code.num_checks),
+        [9],
+        reference=[0],
+    )
     combined = circuits.get_memory_experiment(
         surface_code,
         basis=None,
         noise_model=circuits.NoiseModel(idle_error=0.01),
         qubit_ids=qubit_ids,
-        syndrome_measurement_strategy=AncillaStrategy(1),
+        syndrome_measurement_strategy=AncillaStrategy(),
     )
     assert not any("DEPOLARIZE" in line and " 0" in line for line in str(combined).splitlines())
     assert any("DEPOLARIZE" in line and " 9" in line for line in str(combined).splitlines())
@@ -91,7 +97,7 @@ def test_memory_experiment() -> None:
             surface_code,
             basis=None,
             qubit_ids=qubit_ids,
-            syndrome_measurement_strategy=AncillaStrategy(0),
+            syndrome_measurement_strategy=AncillaStrategy(use_reference=True),
         )
 
     # Pauli.Y basis measurements are not supported
@@ -120,7 +126,10 @@ def test_qubit_ids(pytestconfig: pytest.Config) -> None:
     qubit_ids = circuits.QubitIDs(
         data=qubits[: len(code)],
         check=qubits[len(code) : len(code) + code.num_checks],
-        ancilla=qubits[len(code) + code.num_checks :],
+        ancilla=qubits[len(code) + code.num_checks + code.dimension :],
+        reference=qubits[
+            len(code) + code.num_checks : len(code) + code.num_checks + code.dimension
+        ],
     )
 
     for basis in PAULIS_XZ + [None]:
@@ -131,7 +140,9 @@ def test_qubit_ids(pytestconfig: pytest.Config) -> None:
         circuit_a = init + cycle + readout
 
         # produces a memory experiment with the default qubit IDs and remap manually
-        qubit_map = qubit_ids.data + qubit_ids.check + qubit_ids.ancilla
+        qubit_map = (
+            qubit_ids.data + qubit_ids.check + (qubit_ids.reference if basis is None else ())
+        )
         circuit_b = circuits.with_remapped_qubits(
             circuits.get_memory_experiment(code, basis=basis, num_rounds=num_qec_rounds),
             qubit_map,
