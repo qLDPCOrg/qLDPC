@@ -393,7 +393,7 @@ def _tableaus_are_equivalent_mod_paulis(tableau_1: stim.Tableau, tableau_2: stim
 
 
 @cache.use_disk_cache(
-    "group_intersection_v2",
+    "group_intersection",
     key_func=lambda xx, yy: (xx.hashable_generators(), yy.hashable_generators()),
 )
 def _sympy_group_intersection_generators(
