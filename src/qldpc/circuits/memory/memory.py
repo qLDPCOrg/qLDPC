@@ -503,34 +503,34 @@ def get_observables(
 def get_logical_bell_prep(
     code: codes.QuditCode,
     data_qubits: Sequence[int] | None = None,
-    ancilla_qubits: Sequence[int] | None = None,
+    reference_qubits: Sequence[int] | None = None,
 ) -> stim.Circuit:
-    """Noiselessly prepare the logical qubits of the given code in Bell states with ancillas.
+    """Noiselessly prepare the logical qubits of the given code in Bell states with references.
 
     Args:
         code: The code for which we are constructing a logical Bell-state preparation circuit.
         data_qubits: Indices of the code's data qubits.  Default: the first len(code) integers.
-        ancilla_qubits: Indices of the ancilla qubits to entangle with the code's logical qubits.
-            Default: the first code.dimension integers after the data qubit indices.
+        reference_qubits: Indices of the reference qubits to entangle with the code's logical
+            qubits. Default: the first code.dimension integers after the data qubit indices.
 
     Returns:
-        A circuit that noiselessly initializes all logical qubits into Bell pairs with ancillas.
+        A circuit that noiselessly initializes all logical qubits into Bell pairs with references.
     """
     data_qubits = range(len(code)) if data_qubits is None else data_qubits
-    ancilla_qubits = (
+    reference_qubits = (
         range(max(data_qubits, default=-1) + 1, max(data_qubits, default=-1) + 1 + code.dimension)
-        if ancilla_qubits is None
-        else ancilla_qubits
+        if reference_qubits is None
+        else reference_qubits
     )
     if len(data_qubits) != len(code):
         raise ValueError("data_qubits must contain one target per data qubit")
-    if len(ancilla_qubits) != code.dimension:
-        raise ValueError("ancilla_qubits must contain one target per logical qubit")
+    if len(reference_qubits) != code.dimension:
+        raise ValueError("reference_qubits must contain one target per logical qubit")
 
-    # entangle the first code.dimension data qubits with ancillas
+    # entangle the first code.dimension data qubits with references
     circuit = stim.Circuit()
     circuit.append("H", data_qubits[: code.dimension])
-    circuit.append("CX", [qq for pair in zip(data_qubits, ancilla_qubits) for qq in pair])
+    circuit.append("CX", [qq for pair in zip(data_qubits, reference_qubits) for qq in pair])
 
     # encode the first code.dimension data qubits
     circuit.append(with_remapped_qubits(get_encoding_circuit(code), data_qubits))
