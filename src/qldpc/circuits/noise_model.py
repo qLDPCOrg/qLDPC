@@ -67,8 +67,8 @@ Noise on multi-qubit Clifford gates (SPP / MPP)::
     )
 
 Multi-qubit Pauli channels with arity three or greater are emitted as correlated ``E`` /
-``ELSE_CORRELATED_ERROR`` chains. Stim's exact detector-error-model conversion rejects these chains
-unless ``approximate_disjoint_errors=True`` is passed. qLDPC's DEM consumers use that explicit
+``ELSE_CORRELATED_ERROR`` chains.  Stim's exact detector-error-model conversion rejects these chains
+unless ``approximate_disjoint_errors=True`` is passed.  qLDPC's DEM consumers use that explicit
 approximation; callers extracting DEMs directly must make the same modeling choice.
 
 
@@ -886,7 +886,7 @@ class NoiseModel:
                 idle qubits (its readout_error/reset_error fields are ignored).
             additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
                 applied to every non-collapsing qubit while another qubit undergoes measurement or
-                reset, including qubits undergoing a unitary operation. Same NoiseRule semantics as
+                reset, including qubits undergoing a unitary operation.  Same NoiseRule semantics as
                 ``idle_error``.
             rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
                 arity-based defaults for unitary, measurement, and reset gates.

@@ -98,7 +98,7 @@ def get_transversal_ops(
 ) -> list[tuple[stim.Tableau, stim.Circuit]]:
     """Logical tableaus and physical circuits for transversal logical Clifford gates of a code.
 
-    Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}. The set describes the
+    Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}.  The set describes the
     allowed local Pauli permutations; equivalent Stim ``C_XYZ``/``C_ZYX`` decompositions may appear
     in returned circuits when multiple local gates are allowed.
 
@@ -189,7 +189,7 @@ def get_transversal_automorphism_group(
                 matrix = canonicalized_code.matrix_x
             else:
                 # For non-self-dual CSS, normalize the X- and Z-check automorphism groups
-                # independently to the shared physical-qubit degree. SWAPs act diagonally on both
+                # independently to the shared physical-qubit degree.  SWAPs act diagonally on both
                 # sectors, so intersect the independently padded groups rather than assuming a
                 # product factorization or self-commuting check rows.
                 group_x = _group_acting_on_points(

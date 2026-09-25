@@ -304,7 +304,7 @@ class Group:
 
     def generate(self) -> Iterator[GroupMember]:
         """Iterate over all group members."""
-        # Keep iteration lazy. ``index`` still materializes the lookup table when random access is
+        # Keep iteration lazy.  ``index`` still materializes the lookup table when random access is
         # requested, but callers that stop early should not pay the memory cost of the full group.
         generate = self._generate_func or self._group.generate
         yield from map(GroupMember.from_sympy, generate())

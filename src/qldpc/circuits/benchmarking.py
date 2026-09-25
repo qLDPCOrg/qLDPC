@@ -323,8 +323,8 @@ def get_logical_error_and_discard_rate(
         A fraction of the retained samples in which at least one observable was decoded incorrectly.
         A fraction of samples that were discarded, either by post-selection or at the request of the
             decoder, which signals that a shot should be discarded by predicting observable flips in
-            one more byte than the observables of the sampled circuit require. These are point
-            estimates. Use ``sinter.collect`` when counts or confidence intervals are needed.
+            one more byte than the observables of the sampled circuit require.  These are point
+            estimates.  Use ``sinter.collect`` when counts or confidence intervals are needed.
     """
     # identify and simplify the DEM to sample
     dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)

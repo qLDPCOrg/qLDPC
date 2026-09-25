@@ -83,11 +83,11 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 argument is a string, it must be a decoder name recognized by Sinter, such as
                 "pymatching" or "fusion_blossom".
             iters_per_step: Cumulative visit budget for each MCTS root as scheduling advances
-                (default: 1000). Existing subtree visits count toward this budget.
+                (default: 1000).  Existing subtree visits count toward this budget.
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
             exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).
             verbose: If True, print updates when constructing a syndrome extraction circuit.
-            seed: Seed for the schedule-search random number generator. If None, use an
+            seed: Seed for the schedule-search random number generator.  If None, use an
                 independently seeded generator.
         """
         self.noise_model = noise_model

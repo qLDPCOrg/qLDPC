@@ -511,7 +511,7 @@ def get_logical_bell_prep(
         code: The code for which we are constructing a logical Bell-state preparation circuit.
         data_qubits: Indices of the code's data qubits.  Default: the first len(code) integers.
         reference_qubits: Indices of the reference qubits to entangle with the code's logical
-            qubits. Default: the first code.dimension integers after the data qubit indices.
+            qubits.  Default: the first code.dimension integers after the data qubit indices.
 
     Returns:
         A circuit that noiselessly initializes all logical qubits into Bell pairs with references.

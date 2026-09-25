@@ -37,7 +37,7 @@ def validate_syndrome_qubit_ids(
 
     Args:
         code: The code whose syndromes will be measured.
-        qubit_ids: Integer indices for the data and check qubits. Defaults to
+        qubit_ids: Integer indices for the data and check qubits.  Defaults to
             ``QubitIDs.from_code(code)``.
 
     Returns:
@@ -91,9 +91,9 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         Args:
             strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
                 Defaults to "smallest_last".
-            subgraph_kwargs: Keyword arguments to pass to custom
-                ``code.get_syndrome_subgraphs`` overrides. Built-in code families accept only their
-                own ``strategy`` argument; this extension point is intentionally not used by them.
+            subgraph_kwargs: Keyword arguments to pass to custom ``code.get_syndrome_subgraphs``
+                overrides.  Built-in code families accept only their own ``strategy`` argument;
+                this extension point is intentionally not used by them.
         """
         self.strategy = strategy
         self.subgraph_kwargs = subgraph_kwargs
@@ -150,7 +150,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         - Check qubits are initialized ``|+>``.
 
         The caller supplies the initial framing ``TICK``; each colored layer contributes one
-        trailing ``TICK``. This keeps ``num_ticks`` equal to the scheduled gate depth while making
+        trailing ``TICK``.  This keeps ``num_ticks`` equal to the scheduled gate depth while making
         standalone rounds composable.
         """
         # color the edges of the Tanner graph
@@ -184,8 +184,6 @@ class EdgeColoringXZ(EdgeColoring):
         one color at a time.
 
     WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
-    In particular, the EdgeColoringXZ schedule can reduce the circuit-level distance of rotated
-    surface codes; use it only when that trade-off is acceptable.
     """
 
     def __init__(self, strategy: str = "smallest_last") -> None:

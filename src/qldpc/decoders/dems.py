@@ -110,8 +110,8 @@ class DetectorErrorModelArrays:
                 channels may contain correlated ``ELSE_CORRELATED_ERROR`` chains, so the
                 disjoint-error approximation is enabled for this convenience path.  A model
                 extracted here carries no decomposition suggestions; to obtain those, extract it
-                yourself by calling circuit.detector_error_model(decompose_errors=True) and pass
-                the result.
+                yourself by calling circuit.detector_error_model(decompose_errors=True) and pass the
+                result.
             simplify: If True, merge equivalent error mechanisms (see
                 DetectorErrorModelArrays.simplified).  Defaults to True.
             decompose_errors: If True, split every error into the components that the error model

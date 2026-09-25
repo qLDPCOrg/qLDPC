@@ -190,7 +190,6 @@ def get_pauli_product_measurements(
     Args:
         pauli_strings: Pauli strings or symplectic rows to measure.
         qubits: Optional physical-qubit labels corresponding to the columns of each Pauli string.
-            The labels are applied consistently to every measured product.
     """
     if isinstance(pauli_strings, np.ndarray):
         pauli_strings = [math.op_to_string(op) for op in np.atleast_2d(pauli_strings)]
@@ -205,7 +204,7 @@ def get_pauli_product_measurements(
 
 
 def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
-    """Identify measurements, by index, that are not addressed by any detectors in the circuit."""
+    """Identify measurements, by index, that are not addressed by detectors or observables."""
     measurements: list[int] = []
     addressed_measurements = set()
     for instruction in circuit.flattened():
@@ -214,7 +213,7 @@ def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
             len(measurements) + instruction.num_measurements,
         )
         measurements.extend(new_measurements)
-        if instruction.name == "DETECTOR" or instruction.name == "OBSERVABLE_INCLUDE":
+        if instruction.name in ("DETECTOR", "OBSERVABLE_INCLUDE"):
             addressed_measurements |= {
                 measurements[
                     target.value if target.value >= 0 else len(measurements) + target.value

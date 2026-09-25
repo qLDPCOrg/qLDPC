@@ -37,7 +37,7 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     If only_zero is True, this tableau maps an all-0 physical state at its input to an all-0 logical
     state at its output.  In this mode the logical-Z input generators immediately follow the
     independent stabilizer generators; for subsystem codes they therefore need not occupy the final
-    input positions. Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this tableau
+    input positions.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this tableau
     maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
     the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
     ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
@@ -58,9 +58,8 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     # identify a minimal generating set of stabilizers and the dual destabilizers
     stab_ops = code.get_stabilizer_ops()
     if len(stab_ops) != len(code) - code.dimension - code.gauge_dimension:
-        # Keep this choice synchronized with QuditCode.get_destabilizer_ops. We intentionally do not
-        # call a higher-level canonicalization helper here: Stim requires the stabilizer rows and
-        # destabilizer rows to share the exact generator ordering.
+        # Constructing an encoding circuit requires a minimal choice of stabilizer generators.
+        # Canonicalize to remove redundant stabilizers.
         stab_ops = code.get_stabilizer_ops(canonicalized=True)
     destab_ops = code.get_destabilizer_ops()
 
@@ -79,7 +78,7 @@ def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> s
     If only_zero is True, this circuit maps an all-0 physical state at its input to an all-0 logical
     state at its output.  In this mode the logical-Z input generators immediately follow the
     independent stabilizer generators; for subsystem codes they therefore need not occupy the final
-    input positions. Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this circuit
+    input positions.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this circuit
     maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
     the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
     ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
@@ -132,7 +131,7 @@ def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Table
     """Restrict the given stabilizer tableau to the sub-tableau at the specified qubits.
 
     The selected qubits must be a closed subsystem: the tableau must not map a selected Pauli to
-    support outside ``qubits``. This function does not project entangling actions.
+    support outside ``qubits``.  This function does not project entangling actions.
     """
     x2x, x2z, z2x, z2z, x_signs, z_signs = tableau.to_numpy()
     return stim.Tableau.from_numpy(
@@ -175,7 +174,7 @@ def get_state_stabilizers(
             the qubits indexed by range(qubits).
 
     Returns:
-        A list of Pauli strings supported on the specified qubits. The strings are compacted into
+        A list of Pauli strings supported on the specified qubits.  The strings are compacted into
         the requested-qubit frame: position ``i`` refers to ``qubits[i]`` in the input circuit.
     """
     resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
