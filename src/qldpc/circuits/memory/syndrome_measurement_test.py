@@ -68,6 +68,21 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     assert syndrome_measurement_is_valid(codes.SteaneCode(), circuits.EdgeColoringXZ())
     with pytest.raises(TypeError, match="only supports CSS codes"):
         circuits.EdgeColoringXZ().get_circuit(codes.FiveQubitCode())
+    with pytest.raises(ValueError, match="subsystem"):
+        circuits.EdgeColoring().get_circuit(codes.BaconShorCode(2))
+    with pytest.raises(ValueError, match="only supported for qubit codes"):
+        circuits.EdgeColoring().get_circuit(code=codes.SurfaceCode(2, field=3))
+
+
+def test_validate_syndrome_qubit_ids() -> None:
+    """Validate default, explicit, and unsupported syndrome-measurement layouts."""
+    code = codes.SurfaceCode(2)
+    qubit_ids = circuits.QubitIDs.from_code(code)
+    assert circuits.validate_syndrome_qubit_ids(code) == qubit_ids
+    assert circuits.validate_syndrome_qubit_ids(code, qubit_ids) is not qubit_ids
+
+    with pytest.raises(ValueError, match="subsystem"):
+        circuits.validate_syndrome_qubit_ids(codes.BaconShorCode(2))
 
 
 def syndrome_measurement_is_valid(
@@ -107,6 +122,25 @@ def test_syndrome_measurement_scheduling(code: codes.CSSCode) -> None:
         circuit_without_ticks = stim.Circuit(str(circuit).replace("TICK", ""))
         assert gate_schedule_is_valid(circuit)
         assert not gate_schedule_is_valid(circuit_without_ticks)
+        assert circuit[-1].name == "TICK"
+
+    edge = next(iter(code.graph.edges))
+    single_layer = circuits.EdgeColoring.graph_to_circuit(
+        code.graph.edge_subgraph([edge]), circuits.QubitIDs.from_code(code), "smallest_last"
+    )
+    assert single_layer.num_ticks == 1
+
+
+def test_edge_coloring_xz_distance_tradeoff() -> None:
+    """The documented EdgeColoringXZ distance tradeoff remains observable."""
+    circuit = circuits.get_memory_experiment(
+        codes.SurfaceCode(5, rotated=True),
+        basis=Pauli.Z,
+        num_rounds=1,
+        noise_model=circuits.DepolarizingNoiseModel(1e-3),
+        syndrome_measurement_strategy=circuits.EdgeColoringXZ(),
+    )
+    assert len(circuit.shortest_graphlike_error()) == 4
 
 
 def gate_schedule_is_valid(circuit: stim.Circuit) -> bool:

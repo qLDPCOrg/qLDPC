@@ -20,7 +20,6 @@ from __future__ import annotations
 import collections
 import copy
 import dataclasses
-import itertools
 from collections.abc import Hashable, ItemsView, Iterable, Iterator, Mapping, Sequence
 
 import numpy as np
@@ -32,11 +31,12 @@ from qldpc import codes
 
 @dataclasses.dataclass
 class QubitIDs:
-    """Container to keep track of the indices of qubits in a circuit."""
+    """Container to keep track of the indices and roles of qubits in a circuit."""
 
     data: tuple[int, ...]  # data qubits in an error-correcting code
     check: tuple[int, ...]  # qubits used to measure parity checks in an error-correcting code
     ancilla: tuple[int, ...]  # miscellaneous ancilla qubits
+    reference: tuple[int, ...]  # ideal reference qubits used for channel characterization
 
     # identify X-check and Z-check qubits for CSS codes
     checks_x: tuple[int, ...] = ()
@@ -47,35 +47,56 @@ class QubitIDs:
         data: int | Sequence[int],
         check: int | Sequence[int] = (),
         ancilla: int | Sequence[int] = (),
+        *,
+        reference: int | Sequence[int] = (),
     ) -> None:
         self.data = tuple(data if isinstance(data, Sequence) else range(data))
-        check_start = self.data[-1] + 1 if self.data else 0
+        check_start = max(self.data, default=-1) + 1
         self.check = tuple(
             check if isinstance(check, Sequence) else range(check_start, check_start + check)
         )
-        ancilla_start = self.check[-1] + 1 if self.check else check_start
+        ancilla_start = max(self.check, default=check_start - 1) + 1
         self.ancilla = tuple(
             ancilla
             if isinstance(ancilla, Sequence)
             else range(ancilla_start, ancilla_start + ancilla)
         )
+        reference_start = max(self.ancilla, default=ancilla_start - 1) + 1
+        self.reference = tuple(
+            reference
+            if isinstance(reference, Sequence)
+            else range(reference_start, reference_start + reference)
+        )
+        all_qubits = self.data + self.check + self.ancilla + self.reference
+        if len(all_qubits) != len(set(all_qubits)):
+            raise ValueError("Qubit IDs must be distinct")
 
     def __iter__(self) -> Iterator[tuple[int, ...]]:
-        """Iterate over the collections of qubits tracked by this QubitIDs object."""
+        """Iterate over the data, check, and ordinary ancilla qubits.
+
+        Reference qubits are omitted to preserve the historical three-value unpacking interface.
+        """
         yield from (self.data, self.check, self.ancilla)
 
     @property
     def all_qubits(self) -> tuple[int, ...]:
         """Serialized tuple of all qubits tracked by this QubitIDs object."""
-        return self.data + self.check + self.ancilla
+        return self.data + self.check + self.ancilla + self.reference
 
     @staticmethod
-    def from_code(code: codes.QuditCode, *, num_ancillas: int = 0, shift: int = 0) -> QubitIDs:
+    def from_code(
+        code: codes.QuditCode,
+        *,
+        num_ancillas: int = 0,
+        num_references: int = 0,
+        shift: int = 0,
+    ) -> QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
         data = tuple(range(len(code)))
         check = tuple(range(len(code), len(code) + code.num_checks))
-        ancilla = tuple(range(check[-1] + 1, check[-1] + 1 + num_ancillas))
-        qubit_ids = QubitIDs(data, check, ancilla)
+        ancilla_start = max(check, default=len(code) - 1) + 1
+        ancilla = tuple(range(ancilla_start, ancilla_start + num_ancillas))
+        qubit_ids = QubitIDs(data, check, ancilla, reference=num_references)
         qubit_ids.checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else ()
         qubit_ids.checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else ()
         qubit_ids.shift(shift)
@@ -83,30 +104,42 @@ class QubitIDs:
 
     @staticmethod
     def validated(qubit_ids: QubitIDs, code: codes.QuditCode) -> QubitIDs:
-        """Validate qubit IDs for the given code and return."""
+        """Validate qubit IDs for the given code and return a copy."""
         if len(qubit_ids.data) != len(code) or len(qubit_ids.check) != code.num_checks:
             raise ValueError("Qubit IDs are invalid for the given code")
+        validated = QubitIDs(
+            qubit_ids.data,
+            qubit_ids.check,
+            qubit_ids.ancilla,
+            reference=qubit_ids.reference,
+        )
         if isinstance(code, codes.CSSCode):
-            qubit_ids.checks_x = tuple(qubit_ids.check[: code.num_checks_x])
-            qubit_ids.checks_z = tuple(qubit_ids.check[code.num_checks_x :])
-        return qubit_ids
+            validated.checks_x = tuple(validated.check[: code.num_checks_x])
+            validated.checks_z = tuple(validated.check[code.num_checks_x :])
+        return validated
 
     def max(self) -> int:
         """The largest index of any tracked qubit."""
-        return max(itertools.chain(*self))
+        return max(self.all_qubits, default=-1)
 
     def shift(self, shift: int) -> QubitIDs:
         """Shift all qubit indices by the given amount and return self."""
         self.data = tuple(qq + shift for qq in self.data)
         self.check = tuple(qq + shift for qq in self.check)
         self.ancilla = tuple(qq + shift for qq in self.ancilla)
+        self.reference = tuple(qq + shift for qq in self.reference)
         self.checks_x = tuple(qq + shift for qq in self.checks_x)
         self.checks_z = tuple(qq + shift for qq in self.checks_z)
         return self
 
     def shifted(self, shift: int) -> QubitIDs:
         """New QubitIDs object with shifted qubit indices."""
-        qubit_ids = QubitIDs(self.data, self.check, self.ancilla)
+        qubit_ids = QubitIDs(
+            self.data,
+            self.check,
+            self.ancilla,
+            reference=self.reference,
+        )
         qubit_ids.checks_x = self.checks_x
         qubit_ids.checks_z = self.checks_z
         return qubit_ids.shift(shift)
@@ -116,6 +149,12 @@ class QubitIDs:
         if number > 0:
             start = self.max() + 1
             self.ancilla += tuple(range(start, start + number))
+
+    def add_references(self, number: int) -> None:
+        """Add ideal reference qubits."""
+        if number > 0:
+            start = self.max() + 1
+            self.reference += tuple(range(start, start + number))
 
 
 class Record(Mapping[Hashable, list[int]]):
@@ -157,7 +196,9 @@ class Record(Mapping[Hashable, list[int]]):
 
     def __getitem__(self, key: Hashable) -> list[int]:
         """The events associated with a key."""
-        return self.key_to_events[key]
+        if key not in self.key_to_events:
+            raise KeyError(key)
+        return list(self.key_to_events[key])
 
     def items(self) -> ItemsView[Hashable, list[int]]:
         """Iterator over keys and their associated events."""
@@ -181,7 +222,8 @@ class Record(Mapping[Hashable, list[int]]):
         then events (0, 1, ...) in the appended record are added to the current record as
         ``(n, n+1, ...)``.
         """
-        assert repeat >= 0
+        if repeat < 0:
+            raise ValueError("repeat must be non-negative")
         _record = {  # convert input record into dict[Hashable, list[int]]
             key: list(events) if isinstance(events, Iterable) else [events]
             for key, events in record.items()
@@ -215,7 +257,23 @@ class Record(Mapping[Hashable, list[int]]):
 class MeasurementRecord(Record):
     """An organized record of measurements in a Stim circuit."""
 
-    def get_target_rec(self, qubit: Hashable, measurement_index: int = -1) -> stim.target_rec:
+    def validate_num_measurements(self, num_measurements: int) -> None:
+        """Validate synchronization with a circuit's measurement count.
+
+        Args:
+            num_measurements: The number of measurements in the circuit at the point where this
+                record will be consumed.
+
+        Raises:
+            ValueError: If the circuit and record contain different numbers of measurements.
+        """
+        if num_measurements != self.num_events:
+            raise ValueError(
+                f"Measurement record contains {self.num_events} events, but the circuit contains "
+                f"{num_measurements} measurements at this insertion point"
+            )
+
+    def get_target_rec(self, qubit: Hashable, measurement_index: int = -1) -> stim.GateTarget:
         """Retrieve a Stim measurement record target for the given qubit.
 
         Args:
@@ -274,9 +332,11 @@ class DetectorRecord(Record):
         See help(qldpc.decoders.DetectorErrorModelArrays).
         """
         # identify the indices of all detectors, and the detectors to remove
-        last_detector = max(max(detectors) for detectors in self.values() if detectors)
+        last_detector = max(
+            (max(detectors) for detectors in self.values() if detectors), default=-1
+        )
         detector_indices = np.arange(last_detector + 1)
-        detectors_to_remove = sorted(self.get_events(key))
+        detectors_to_remove = sorted(set(self.get_events(key)))
 
         # for each detector D, find how many of the detectors_to_remove are <= D
         index_shift = np.searchsorted(detectors_to_remove, detector_indices, side="left")

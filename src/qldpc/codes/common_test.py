@@ -372,6 +372,21 @@ def test_qudit_codes() -> None:
         second_code = codes.SurfaceCode(2, field=3)
         codes.QuditCode.stack([code, second_code])
 
+    with pytest.raises(ValueError, match="Syndrome subgraphs"):
+        codes.QuditCode.from_strings(["X", "Z"]).get_syndrome_subgraphs()
+    with pytest.raises(ValueError, match="edge coloration"):
+        codes.CSSCode([[1]], [[0]]).get_syndrome_subgraphs(strategy="smallest_last")
+    with pytest.raises(ValueError, match="Syndrome subgraphs"):
+        codes.CSSCode([[1]], [[1]]).get_syndrome_subgraphs()
+
+    css_code = codes.SteaneCode()
+    with pytest.raises(ValueError, match="shape"):
+        css_code.set_logical_ops([[1]])
+    css_logicals = css_code.get_logical_ops().copy()
+    css_logicals[css_code.dimension, 0] = 1
+    with pytest.raises(ValueError, match="CSS logical"):
+        css_code.set_logical_ops(css_logicals)
+
 
 def test_distance_qudit() -> None:
     """Distance calculations."""

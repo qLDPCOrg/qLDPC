@@ -28,7 +28,14 @@ from qldpc.objects import Node, Pauli, PauliXZ
 from ..bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
 from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
 from ..encoding import get_encoding_circuit
-from ..noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
+from ..noise_model import (
+    DEFAULT_IMMUNE_OP_TAG,
+    DEFAULT_IMMUNE_QUBIT_TAG,
+    GATE_OP_TYPES,
+    NoiseModel,
+    as_noiseless_circuit,
+    op_type,
+)
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 # default strategy used to schedule the two-qubit gates of a syndrome measurement circuit
@@ -78,7 +85,8 @@ def get_memory_experiment(
     4. Measure all data qubits in the specified basis.
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
 
-    If a noise_model is provided, then noise is added to all parts of the circuit.
+    If a noise_model is provided, then noise is added to the assembled fixed-basis circuit so that
+    moments are accounted for across the initialization, QEC, and readout seams.
 
     If basis is None, then the memory experiment noiselessly initializes each logical qubit of the
     code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
@@ -102,7 +110,8 @@ def get_memory_experiment(
     If a noise_model is provided, then noise is added to the logical QEC cycle alone.  Otherwise,
     the initialization and readout sub-circuits are wrapped in a single-repetition
     stim.CircuitRepeatBlock tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate that these
-    sub-circuits should be immune to noise.
+    sub-circuits should be immune to noise.  Tagged coordinate annotations likewise identify the
+    reference qubits as immune when noise is added later.
 
     Remembering that observables in Stim are formally detectors, or circuit-level parity checks that
     must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
@@ -140,6 +149,8 @@ def get_memory_experiment(
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
             labeling data and check qubits according to their corresponding column/row of the parity
             check matrix, with data qubits numbered from 0 and check qubits numbered from len(code).
+            For a combined-basis experiment, ``qubit_ids.reference`` contains noiseless Bell
+            reference qubits.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
@@ -168,7 +179,7 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
-    initialization, qec_cycle, readout, *_ = get_memory_experiment_parts(
+    initialization, qec_cycle, readout, _, _, qubit_ids = get_memory_experiment_parts(
         code,
         basis=basis,
         num_rounds=num_rounds,
@@ -176,16 +187,18 @@ def get_memory_experiment(
         syndrome_measurement_strategy=syndrome_measurement_strategy,
     )
 
-    # add noise to all parts of an experiment with a fixed basis
+    # Add noise to the assembled fixed-basis experiment so the boundaries between initialization,
+    # QEC, and readout do not introduce artificial idle moments.
     if basis is not None and noise_model is not None:
-        initialization = noise_model.noisy_circuit(initialization)
-        qec_cycle = noise_model.noisy_circuit(qec_cycle)
-        readout = noise_model.noisy_circuit(readout)
+        return noise_model.noisy_circuit(initialization + qec_cycle + readout)
 
     # if tracking all logical operators, only the logical QEC cycle is noisy
     if basis is None:
         if noise_model is not None:
-            qec_cycle = noise_model.noisy_circuit(qec_cycle)
+            qec_cycle = noise_model.noisy_circuit(
+                qec_cycle,
+                system_qubits=qubit_ids.data + qubit_ids.check + qubit_ids.ancilla,
+            )
         else:
             # noise will be added later, so make initialization and readout noiseless
             initialization = as_noiseless_circuit(initialization)
@@ -219,6 +232,9 @@ def get_memory_experiment_parts(
         matrix_z = code.matrix if basis is Pauli.Z else code.field.Zeros((0, len(code)))
         matrix_x = code.field.Zeros((0, len(code))) if basis is Pauli.Z else code.matrix
         code = codes.CSSCode(matrix_x, matrix_z)
+
+    if num_rounds < 1:
+        raise ValueError("num_rounds must be at least 1")
 
     if code.is_subsystem_code:
         raise ValueError(
@@ -270,8 +286,8 @@ def _get_basis_memory_experiment_parts(
     coordinates = get_qubit_coordinates(data_ids, check_ids)
 
     # reset data qubits to the appropriate basis
-    state_prep = stim.Circuit()
-    state_prep.append(f"R{basis}", data_ids)
+    data_reset = stim.Circuit()
+    data_reset.append(f"R{basis}", data_ids)
 
     # build a logical QEC cycle
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
@@ -282,6 +298,8 @@ def _get_basis_memory_experiment_parts(
     readout = stim.Circuit()
     readout.append(f"M{basis}", data_ids)
     measurement_record.append({data_id: mm for mm, data_id in enumerate(data_ids)})
+    measurement_count = qec_cycle.num_measurements + readout.num_measurements
+    measurement_record.validate_num_measurements(measurement_count)
 
     # detectors for stabilizers that can be inferred from data qubit measurements
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
@@ -301,7 +319,7 @@ def _get_basis_memory_experiment_parts(
     observables = get_observables(code, data_ids, basis=basis, on_measurements=targets)
 
     return MemoryExperimentParts(
-        coordinates + state_prep,
+        coordinates + data_reset,
         qec_cycle,
         readout + observables,
         measurement_record,
@@ -323,20 +341,45 @@ def _get_combined_memory_simulation_parts(
     """
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
-    qubit_ids.add_ancillas(code.dimension - len(qubit_ids.ancilla))
-    data_ids, check_ids, ancilla_ids = qubit_ids
-    ancilla_ids = ancilla_ids[: code.dimension]
+    if qubit_ids.reference and len(qubit_ids.reference) != code.dimension:
+        raise ValueError(
+            "Combined-basis memory experiments require either no reference qubits or exactly one "
+            "reference per logical qubit"
+        )
+    if not qubit_ids.reference:
+        qubit_ids.add_references(code.dimension)
+    data_ids, check_ids, _ = qubit_ids
+    reference_ids = qubit_ids.reference
 
     # set qubit coordinates
-    coordinates = get_qubit_coordinates(data_ids, check_ids, ancilla_ids)
+    coordinates = get_qubit_coordinates(data_ids, check_ids)
+    for kk, qubit in enumerate(reference_ids):
+        coordinates.append(
+            "QUBIT_COORDS",
+            qubit,
+            (2, kk),
+            tag=DEFAULT_IMMUNE_QUBIT_TAG,
+        )
 
     # noiselessly prepare all logical qubits in Bell states with ancillas
-    state_prep = get_logical_bell_prep(code, data_ids, ancilla_ids)
+    state_prep = get_logical_bell_prep(code, data_ids, reference_ids)
 
     # build a logical QEC cycle
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
         code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
     )
+    operated_qubits = {
+        target.qubit_value
+        for instruction in qec_cycle.flattened()
+        if op_type(instruction.name) in GATE_OP_TYPES
+        for target in instruction.targets_copy()
+        if target.qubit_value is not None
+    }
+    if reused_bell_ancillas := sorted(set(reference_ids) & operated_qubits):
+        raise ValueError(
+            "Syndrome measurement strategies cannot operate on Bell-reference ancillas"
+            f" {reused_bell_ancillas}"
+        )
 
     # measure all stabilizers
     readout = with_remapped_qubits(
@@ -346,6 +389,8 @@ def _get_combined_memory_simulation_parts(
     # update the measurement record, add detectors, and update the detector record
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
     measurement_record.append({check_id: mm for mm, check_id in enumerate(check_ids)})
+    measurement_count = qec_cycle.num_measurements + readout.num_measurements
+    measurement_record.validate_num_measurements(measurement_count)
     for kk, check_id in enumerate(check_ids):
         targets = [
             measurement_record.get_target_rec(check_id, -1),
@@ -398,7 +443,7 @@ def get_observables(
     data_qubits: Sequence[int] | None = None,
     *,
     basis: PauliXZ | None = None,
-    on_measurements: Sequence[stim.target_rec] | bool = False,
+    on_measurements: Sequence[stim.GateTarget] | bool = False,
     observable_indices: Sequence[int] | None = None,
 ) -> stim.Circuit:
     """Construct a circuit of logical observable annotations.
@@ -422,16 +467,22 @@ def get_observables(
             f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"
         )
 
-    data_qubits = data_qubits or range(len(code))
+    data_qubits = range(len(code)) if data_qubits is None else data_qubits
+    if len(data_qubits) != len(code):
+        raise ValueError("data_qubits must contain one target per data qubit")
     num_observables = code.dimension * (2 if basis is None else 1)
-    observable_indices = observable_indices or range(num_observables)
+    observable_indices = (
+        range(num_observables) if observable_indices is None else observable_indices
+    )
 
     if on_measurements is True:
         on_measurements = [stim.target_rec(mm) for mm in range(-len(code), 0)]
 
     # consistency checks
-    assert on_measurements is False or len(on_measurements) == len(code)
-    assert len(observable_indices) == num_observables
+    if on_measurements is not False and len(on_measurements) != len(code):
+        raise ValueError("on_measurements must contain one target per data qubit")
+    if len(observable_indices) != num_observables:
+        raise ValueError(f"Expected {num_observables} observable indices")
 
     # build a graph of edges directed from observables to the data qubits they address
     logical_ops = code.get_logical_ops(basis, symplectic=True)
@@ -461,30 +512,34 @@ def get_observables(
 def get_logical_bell_prep(
     code: codes.QuditCode,
     data_qubits: Sequence[int] | None = None,
-    ancilla_qubits: Sequence[int] | None = None,
+    reference_qubits: Sequence[int] | None = None,
 ) -> stim.Circuit:
-    """Noiselessly prepare the logical qubits of the given code in Bell states with ancillas.
+    """Noiselessly prepare the logical qubits of the given code in Bell states with references.
 
     Args:
         code: The code for which we are constructing a logical Bell-state preparation circuit.
         data_qubits: Indices of the code's data qubits.  Default: the first len(code) integers.
-        ancilla_qubits: Indices of the ancilla qubits to entangle with the code's logical qubits.
-            Default: the first code.dimension integers after the data qubit indices.
+        reference_qubits: Indices of the reference qubits to entangle with the code's logical
+            qubits.  Default: the first code.dimension integers after the data qubit indices.
 
     Returns:
-        A circuit that noiselessly initializes all logical qubits into Bell pairs with ancillas.
+        A circuit that noiselessly initializes all logical qubits into Bell pairs with references.
     """
-    data_qubits = data_qubits or range(len(code))
-    ancilla_qubits = ancilla_qubits or range(
-        data_qubits[-1] + 1, data_qubits[-1] + 1 + code.dimension
+    data_qubits = range(len(code)) if data_qubits is None else data_qubits
+    reference_qubits = (
+        range(max(data_qubits, default=-1) + 1, max(data_qubits, default=-1) + 1 + code.dimension)
+        if reference_qubits is None
+        else reference_qubits
     )
-    assert len(data_qubits) == len(code)
-    assert len(ancilla_qubits) == code.dimension
+    if len(data_qubits) != len(code):
+        raise ValueError("data_qubits must contain one target per data qubit")
+    if len(reference_qubits) != code.dimension:
+        raise ValueError("reference_qubits must contain one target per logical qubit")
 
-    # entangle the first code.dimension data qubits with ancillas
+    # entangle the first code.dimension data qubits with references
     circuit = stim.Circuit()
     circuit.append("H", data_qubits[: code.dimension])
-    circuit.append("CX", [qq for pair in zip(data_qubits, ancilla_qubits) for qq in pair])
+    circuit.append("CX", [qq for pair in zip(data_qubits, reference_qubits) for qq in pair])
 
     # encode the first code.dimension data qubits
     circuit.append(with_remapped_qubits(get_encoding_circuit(code), data_qubits))
@@ -524,14 +579,22 @@ def _get_qec_cycle(
     # apply first round of QEC and detectors
     circuit.append(one_round)
     measurement_record.append(round_measurement_record)
+    measurement_count = circuit.num_measurements
+    measurement_record.validate_num_measurements(measurement_count)
     for kk, check_id in enumerate(check_ids):
-        circuit.append("DETECTOR", [measurement_record.get_target_rec(check_id)], (0, 0, kk))
+        circuit.append(
+            "DETECTOR",
+            [measurement_record.get_target_rec(check_id)],
+            (0, 0, kk),
+        )
     detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
         repeat_circuit = one_round.copy()
         measurement_record.append(round_measurement_record)
+        measurement_count += repeat_circuit.num_measurements
+        measurement_record.validate_num_measurements(measurement_count)
         repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
         for kk, check_id in enumerate(check_ids):
             targets = [

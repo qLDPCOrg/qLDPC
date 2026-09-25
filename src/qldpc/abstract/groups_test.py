@@ -149,6 +149,13 @@ def test_lifts() -> None:
         group.lift(member, right=True)
 
 
+def test_generate_is_lazy() -> None:
+    """Stopping after one member does not materialize the group's member index."""
+    group = abstract.SymmetricGroup(8)
+    next(group.generate())
+    assert "_members" not in group.__dict__
+
+
 def assert_valid_lifts(group: abstract.Group) -> None:
     """Assert the faithfulness of various representations of group members."""
     group_members = list(group.generate())

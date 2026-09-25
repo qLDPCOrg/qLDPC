@@ -18,7 +18,6 @@ limitations under the License.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import ParamSpec, TypeVar
 
 import galois
 import numpy as np
@@ -29,9 +28,6 @@ from qldpc.objects import Pauli
 
 from .bookkeeping import QubitIDs
 from .common import restrict_to_qubits, with_remapped_qubits
-
-CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
-Params = ParamSpec("Params")
 
 
 @restrict_to_qubits
@@ -60,6 +56,8 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     # identify a minimal generating set of stabilizers and the dual destabilizers
     stab_ops = code.get_stabilizer_ops()
     if len(stab_ops) != len(code) - code.dimension - code.gauge_dimension:
+        # Constructing an encoding circuit requires a minimal choice of stabilizer generators.
+        # Canonicalize to remove redundant stabilizers.
         stab_ops = code.get_stabilizer_ops(canonicalized=True)
     destab_ops = code.get_destabilizer_ops()
 
@@ -126,7 +124,13 @@ def get_logical_tableau(
 
 
 def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Tableau:
-    """Restrict the given stabilizer tableau to the sub-tableau at the specified qubits."""
+    """Restrict the given stabilizer tableau to the sub-tableau at the specified qubits.
+
+    The selected qubits must be a closed subsystem: the tableau must not map a selected Pauli to
+    support outside ``qubits``.  This function does not check that precondition; if it is violated,
+    the result is simply the submatrices restricted to ``qubits``, silently discarding any support
+    that spilled outside the selection.
+    """
     x2x, x2z, z2x, z2z, x_signs, z_signs = tableau.to_numpy()
     return stim.Tableau.from_numpy(
         x2x=x2x[np.ix_(qubits, qubits)],
@@ -168,7 +172,8 @@ def get_state_stabilizers(
             the qubits indexed by range(qubits).
 
     Returns:
-        A list of Pauli strings supported on the specified qubits.
+        A list of Pauli strings supported on the specified qubits.  The strings are compacted into
+        the requested-qubit frame: position ``i`` refers to ``qubits[i]`` in the input circuit.
     """
     resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
     flow_generators = (resets + state_prep_circuit.without_noise()).flow_generators()
@@ -181,7 +186,9 @@ def get_state_stabilizers(
     num_rows = len(flow_generators) + state_prep_circuit.num_detectors
 
     # identify where all qubits live
-    state_qubits = np.arange(qubits) if isinstance(qubits, int) else np.asarray(qubits)
+    state_qubits = (
+        np.arange(qubits, dtype=int) if isinstance(qubits, int) else np.asarray(qubits, dtype=int)
+    )
     other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits], dtype=int)
     cols_state_x = state_qubits
     cols_other_x = other_qubits
@@ -212,17 +219,27 @@ def get_state_stabilizers(
             row = len(flow_generators) + detector_counter
             for target in instruction.targets_copy():
                 col = -num_observables - num_measurements + measurement_counter + target.value
-                matrix[row, col] = 1
+                matrix[row, col] = int(matrix[row, col]) ^ 1
             detector_counter += 1
+
+    # Row reduction must eliminate unwanted support before selecting a basis supported on the
+    # requested qubits.  Natural column order would instead preserve state-qubit pivots and lose
+    # stabilizers that are sums of the original flow rows.
+    unwanted_columns = np.concatenate(
+        [cols_other_x, cols_other_z, np.arange(2 * num_qubits, num_columns, dtype=int)]
+    )
+    state_columns = np.concatenate([cols_state_x, cols_state_z])
+    reduced_matrix = matrix[:, np.concatenate([unwanted_columns, state_columns])]
 
     # identify stabilizers that are supported entirely on the data qubits of the code
     stabilizers = []
-    for row in matrix.row_space():
-        state_xs = row[cols_state_x]
-        state_zs = row[cols_state_z]
-        other_xs = row[cols_other_x]
-        other_zs = row[cols_other_z]
-        meas_obs = row[2 * num_qubits :]
+    num_unwanted_columns = len(unwanted_columns)
+    for row in reduced_matrix.row_space():
+        other_xs = row[: len(cols_other_x)]
+        other_zs = row[len(cols_other_x) : len(cols_other_x) + len(cols_other_z)]
+        meas_obs = row[len(cols_other_x) + len(cols_other_z) : num_unwanted_columns]
+        state_xs = row[num_unwanted_columns : num_unwanted_columns + len(cols_state_x)]
+        state_zs = row[num_unwanted_columns + len(cols_state_x) :]
         any_on_others = np.any(other_xs) or np.any(other_zs) or np.any(meas_obs)
         if (np.any(state_xs) or np.any(state_zs)) and not any_on_others:
             string = stim.PauliString.from_numpy(xs=state_xs != 0, zs=state_zs != 0)
@@ -230,9 +247,15 @@ def get_state_stabilizers(
 
     # fix signs
     simulator = stim.TableauSimulator()
-    simulator.do(state_prep_circuit)
+    simulator.do(state_prep_circuit.without_noise())
     for ss, stabilizer in enumerate(stabilizers):
-        if simulator.peek_observable_expectation(stabilizer) == -1:  # pragma: no cover
+        physical_stabilizer = stim.PauliString(state_prep_circuit.num_qubits)
+        for qubit, pauli in zip(state_qubits, str(stabilizer)[1:], strict=True):
+            physical_stabilizer[qubit] = pauli
+        expectation = simulator.peek_observable_expectation(physical_stabilizer)
+        if expectation == 0:
+            raise ValueError("The prepared state is not an eigenstate of a returned stabilizer")
+        if expectation == -1:
             stabilizers[ss] = -stabilizer
 
     return stabilizers
@@ -255,7 +278,7 @@ def get_logical_state_stabilizers(
     Returns:
         A list of Pauli strings supported on the data qubits of the provided code.
     """
-    qubit_ids = qubit_ids or QubitIDs.from_code(code)
+    qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
     encoder = get_encoding_circuit(code)
     circuit = state_prep_circuit + with_remapped_qubits(encoder.inverse(), qubit_ids.data)
     decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data[: code.dimension])
@@ -272,14 +295,14 @@ def _get_logical_tableau_from_code_data(
     skip_validation: bool = False,
 ) -> stim.Tableau:
     """Identify the logical tableau implemented by the physical circuit."""
-    assert len(encoder) == len(decoder) >= dimension + gauge_dimension
+    if len(encoder) != len(decoder) or len(encoder) < dimension + gauge_dimension:
+        raise ValueError("Encoder and decoder have incompatible dimensions")
     identity_phys = stim.Circuit(f"I {len(encoder) - 1}")
     physical_tableau = (physical_circuit + identity_phys).to_tableau()
 
-    # compute the "upper left" block of the decoded tableau that acts on all logical qubits
+    # Validate the decoded physical action before restricting it.  Restriction can itself fail for
+    # an invalid action, obscuring the useful public error below.
     decoded_tableau = encoder.then(physical_tableau).then(decoder)
-    logical_tableau = restrict_tableau(decoded_tableau, range(dimension))
-
     if not skip_validation:
         # identify sectors that address logical, gauge, and stabilizer qubits
         sector_l = slice(dimension)
@@ -308,4 +331,6 @@ def _get_logical_tableau_from_code_data(
         if ops_acquired_destabilizers or gauges_acquired_logicals or stabilizers_flipped:
             raise ValueError("The provided physical circuit does not implement a logical operation")
 
+    # compute the "upper left" block of the decoded tableau that acts on all logical qubits
+    logical_tableau = restrict_tableau(decoded_tableau, range(dimension))
     return logical_tableau

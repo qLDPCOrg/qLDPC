@@ -38,8 +38,11 @@ from .memory import (
     get_memory_experiment_parts,
     get_observables,
     get_qubit_coordinates,
+    validate_syndrome_qubit_ids,
 )
 from .noise_model import (
+    DEFAULT_IMMUNE_OP_TAG,
+    DEFAULT_IMMUNE_QUBIT_TAG,
     AbstractPauliChannel,
     DepolarizingNoiseModel,
     NoiseModel,
@@ -58,6 +61,8 @@ from .transversal import (
 )
 
 __all__ = [
+    "DEFAULT_IMMUNE_OP_TAG",
+    "DEFAULT_IMMUNE_QUBIT_TAG",
     "AbstractPauliChannel",
     "AlphaSyndrome",
     "DepolarizingNoiseModel",
@@ -101,5 +106,6 @@ __all__ = [
     "remap_qubit_target",
     "restrict_tableau",
     "restrict_to_qubits",
+    "validate_syndrome_qubit_ids",
     "with_remapped_qubits",
 ]

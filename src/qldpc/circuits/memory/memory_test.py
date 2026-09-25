@@ -18,6 +18,7 @@ limitations under the License.
 import random
 
 import pytest
+import stim
 
 from qldpc import circuits, codes
 from qldpc.objects import PAULIS_XZ, Pauli
@@ -55,6 +56,58 @@ def test_memory_experiment() -> None:
     dem_1 = circuit.detector_error_model()
     dem_2 = noise_model.noisy_circuit(noiseless_circuit).detector_error_model()
     assert dem_1 == dem_2
+    parts = circuits.get_memory_experiment_parts(rep_code, basis=Pauli.X, num_rounds=1)
+    assembled = parts.initialization + parts.qec_cycle + parts.readout
+    assert circuits.get_memory_experiment(
+        rep_code, basis=Pauli.X, num_rounds=1, noise_model=noise_model
+    ) == noise_model.noisy_circuit(assembled)
+    surface_code = codes.SurfaceCode(2)
+
+    class AncillaStrategy(circuits.SyndromeMeasurementStrategy):
+        def __init__(self, *, use_reference: bool = False) -> None:
+            self.use_reference = use_reference
+
+        def get_circuit(
+            self, code: codes.QuditCode, qubit_ids: circuits.QubitIDs | None = None
+        ) -> tuple[stim.Circuit, circuits.MeasurementRecord]:
+            assert qubit_ids is not None
+            circuit, record = circuits.EdgeColoring().get_circuit(code, qubit_ids)
+            target = qubit_ids.reference[0] if self.use_reference else qubit_ids.ancilla[0]
+            circuit.append("H", target)
+            circuit.append("TICK")
+            return circuit, record
+
+    qubit_ids = circuits.QubitIDs(
+        range(1, 5),
+        range(10, 10 + surface_code.num_checks),
+        [9],
+        reference=[0],
+    )
+    combined = circuits.get_memory_experiment(
+        surface_code,
+        basis=None,
+        noise_model=circuits.NoiseModel(idle_error=0.01),
+        qubit_ids=qubit_ids,
+        syndrome_measurement_strategy=AncillaStrategy(),
+    )
+    assert not any("DEPOLARIZE" in line and " 0" in line for line in str(combined).splitlines())
+    assert any("DEPOLARIZE" in line and " 9" in line for line in str(combined).splitlines())
+    noiseless_combined = circuits.get_memory_experiment(
+        surface_code,
+        basis=None,
+        qubit_ids=qubit_ids,
+        syndrome_measurement_strategy=AncillaStrategy(),
+    )
+    deferred = circuits.NoiseModel(idle_error=0.01).noisy_circuit(noiseless_combined)
+    assert not any("DEPOLARIZE" in line and " 0" in line for line in str(deferred).splitlines())
+    assert any("DEPOLARIZE" in line and " 9" in line for line in str(deferred).splitlines())
+    with pytest.raises(ValueError, match="Bell-reference ancillas"):
+        circuits.get_memory_experiment_parts(
+            surface_code,
+            basis=None,
+            qubit_ids=qubit_ids,
+            syndrome_measurement_strategy=AncillaStrategy(use_reference=True),
+        )
 
     # Pauli.Y basis measurements are not supported
     with pytest.raises(ValueError, match="Pauli.X or Pauli.Z"):
@@ -70,6 +123,11 @@ def test_memory_experiment() -> None:
 def test_qubit_ids(pytestconfig: pytest.Config) -> None:
     """We can construct memory experiments with different qubit IDs."""
     random.seed(pytestconfig.getoption("randomly_seed"))
+    assert circuits.get_qubit_coordinates([0], [1], [2]) == stim.Circuit("""
+        QUBIT_COORDS(0, 0) 0
+        QUBIT_COORDS(1, 0) 1
+        QUBIT_COORDS(2, 0) 2
+    """)
 
     # pick a code, a number of "extra" unused qubits, and a number of QEC rounds
     code = codes.SurfaceCode(2, rotated=True)
@@ -82,7 +140,10 @@ def test_qubit_ids(pytestconfig: pytest.Config) -> None:
     qubit_ids = circuits.QubitIDs(
         data=qubits[: len(code)],
         check=qubits[len(code) : len(code) + code.num_checks],
-        ancilla=qubits[len(code) + code.num_checks :],
+        ancilla=qubits[len(code) + code.num_checks + code.dimension :],
+        reference=qubits[
+            len(code) + code.num_checks : len(code) + code.num_checks + code.dimension
+        ],
     )
 
     for basis in PAULIS_XZ + [None]:
@@ -93,7 +154,9 @@ def test_qubit_ids(pytestconfig: pytest.Config) -> None:
         circuit_a = init + cycle + readout
 
         # produces a memory experiment with the default qubit IDs and remap manually
-        qubit_map = qubit_ids.data + qubit_ids.check + qubit_ids.ancilla
+        qubit_map = (
+            qubit_ids.data + qubit_ids.check + (qubit_ids.reference if basis is None else ())
+        )
         circuit_b = circuits.with_remapped_qubits(
             circuits.get_memory_experiment(code, basis=basis, num_rounds=num_qec_rounds),
             qubit_map,
@@ -110,3 +173,43 @@ def test_errors() -> None:
         circuits.get_observables(codes.SteaneCode(), basis=None, on_measurements=True)
     with pytest.raises(ValueError, match="basis must be"):
         circuits.get_observables(codes.SteaneCode(), basis="test", on_measurements=True)  # type:ignore[arg-type]
+    with pytest.raises(ValueError, match="num_rounds"):
+        circuits.get_memory_experiment_parts(codes.RepetitionCode(3), Pauli.X, num_rounds=0)
+    with pytest.raises(ValueError, match="one target per data qubit"):
+        circuits.get_observables(codes.SteaneCode(), data_qubits=[0], basis=Pauli.X)
+    with pytest.raises(ValueError, match="one target per data qubit"):
+        circuits.get_observables(
+            codes.SteaneCode(), basis=Pauli.X, on_measurements=[stim.target_rec(-1)]
+        )
+    with pytest.raises(ValueError, match="observable indices"):
+        circuits.get_observables(codes.SteaneCode(), basis=Pauli.X, observable_indices=[0, 1])
+    with pytest.raises(ValueError, match="one target per data qubit"):
+        circuits.get_logical_bell_prep(codes.SteaneCode(), data_qubits=[0])
+    with pytest.raises(ValueError, match="one target per logical qubit"):
+        circuits.get_logical_bell_prep(codes.SteaneCode(), reference_qubits=[0, 1])
+    toric_code = codes.ToricCode(2)
+    with pytest.raises(ValueError, match="either no reference qubits or exactly one reference"):
+        circuits.get_memory_experiment_parts(
+            toric_code,
+            basis=None,
+            qubit_ids=circuits.QubitIDs.from_code(toric_code, num_references=1),
+        )
+
+
+def test_memory_rejects_unsynchronized_strategy_records() -> None:
+    """A strategy that emits an unrecorded measurement fails at the first lookback."""
+
+    class BadStrategy(circuits.SyndromeMeasurementStrategy):
+        def get_circuit(
+            self, code: codes.QuditCode, qubit_ids: circuits.QubitIDs | None = None
+        ) -> tuple[stim.Circuit, circuits.MeasurementRecord]:
+            circuit, record = circuits.EdgeColoring().get_circuit(code, qubit_ids)
+            circuit.append("M", 0)
+            return circuit, record
+
+    with pytest.raises(ValueError, match="record contains"):
+        circuits.get_memory_experiment_parts(
+            codes.SurfaceCode(2),
+            basis=Pauli.X,
+            syndrome_measurement_strategy=BadStrategy(),
+        )

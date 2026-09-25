@@ -59,6 +59,12 @@ def test_state_prep_benchmarks() -> None:
     )
     for error_rate, task in zip(error_rates, tasks):
         assert task.json_metadata["p"] == error_rate
+    assert (
+        circuits.get_state_prep_diagnostic_tasks(code, circuit, [0.123], metadata={"p": 999})[
+            0
+        ].json_metadata["p"]
+        == 0.123
+    )
 
     # find observables automatically and post-select on all measurements
     task = circuits.get_state_prep_diagnostic_tasks(
@@ -92,7 +98,7 @@ def test_state_prep_benchmarks() -> None:
     assert np.array_equal(task.postselection_mask, postselection_mask)
 
     # we can only manually post-select on detectors that are present in the circuit
-    with pytest.raises(ValueError, match="can only post-select on detectors with an index"):
+    with pytest.raises(ValueError, match="selectable prep/flag detectors"):
         circuits.get_state_prep_diagnostic_tasks(
             code,
             circuit,
@@ -101,6 +107,18 @@ def test_state_prep_benchmarks() -> None:
             observables=string_observables,
             post_select=[circuit.num_measurements],
         )
+    negative_task = circuits.get_state_prep_diagnostic_tasks(
+        code,
+        circuit,
+        error_rates[:1],
+        noise_model_family,
+        observables=string_observables,
+        post_select=[-1],
+    )[0]
+    assert negative_task.postselection_mask is not None
+    selected_bits = np.unpackbits(negative_task.postselection_mask, bitorder="little")
+    assert selected_bits[circuit.num_detectors - 1] == 1
+    assert np.sum(selected_bits[: circuit.num_detectors]) == 1
 
     # bypass sinter to compute logical error rates
     logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
@@ -139,6 +157,22 @@ def test_state_prep_benchmarks() -> None:
             num_samples=1,
             dem_to_decode=stim.DetectorErrorModel(),
         )
+
+
+def test_state_prep_benchmark_remaps_data_qubits() -> None:
+    """Diagnostic validation and measurements honor a non-identity data-qubit frame."""
+    code = codes.SteaneCode()
+    qubit_ids = circuits.QubitIDs(
+        tuple(range(3, 3 + len(code))),
+        tuple(range(20, 20 + code.num_checks)),
+    )
+    prep = circuits.with_remapped_qubits(
+        circuits.get_encoding_circuit(code, only_zero=True), qubit_ids.data
+    )
+    diagnostic, _ = circuits.get_state_prep_diagnostic_circuit(code, prep, qubit_ids=qubit_ids)
+    assert diagnostic.num_observables > 0
+    assert "Z4" in str(diagnostic)
+    assert "Z0" not in str(diagnostic)
 
 
 def test_erasure_counts_as_a_discard() -> None:

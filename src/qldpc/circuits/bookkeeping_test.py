@@ -26,24 +26,40 @@ from qldpc import circuits, codes
 def test_qubit_ids() -> None:
     """Default qubit indices."""
     code = codes.SteaneCode()
-    qubit_ids = circuits.QubitIDs.from_code(code, num_ancillas=2)
+    qubit_ids = circuits.QubitIDs.from_code(code, num_ancillas=2, num_references=1)
     data_ids, check_ids, ancilla_ids = qubit_ids
     assert data_ids == tuple(range(len(code)))
     assert check_ids == tuple(range(len(code), len(code) + code.num_checks))
     assert ancilla_ids == tuple(range(len(code) + code.num_checks, len(code) + code.num_checks + 2))
+    assert qubit_ids.reference == (len(code) + code.num_checks + 2,)
 
     qubit_ids.add_ancillas(3)
-    assert qubit_ids.ancilla == tuple(
-        range(len(code) + code.num_checks, len(code) + code.num_checks + 5)
+    assert qubit_ids.ancilla == ancilla_ids + tuple(
+        range(qubit_ids.reference[-1] + 1, qubit_ids.reference[-1] + 4)
     )
+    qubit_ids.add_references(2)
+    assert len(qubit_ids.reference) == 3
 
     qubit_ids = qubit_ids.shifted(3)
     assert qubit_ids.data == tuple(qq + 3 for qq in data_ids)
-    assert qubit_ids.all_qubits == qubit_ids.data + qubit_ids.check + qubit_ids.ancilla
+    assert qubit_ids.all_qubits == (
+        qubit_ids.data + qubit_ids.check + qubit_ids.ancilla + qubit_ids.reference
+    )
 
-    assert qubit_ids == circuits.QubitIDs.validated(qubit_ids, code)
+    original_data = qubit_ids.data
+    validated = circuits.QubitIDs.validated(qubit_ids, code)
+    assert validated is not qubit_ids
+    assert validated == qubit_ids
+    validated.shift(1)
+    assert qubit_ids.data == original_data
     with pytest.raises(ValueError, match="invalid for the given code"):
         circuits.QubitIDs.validated(circuits.QubitIDs((), (), ()), code)
+    with pytest.raises(ValueError, match="distinct"):
+        circuits.QubitIDs([0] * len(code), [1] * code.num_checks)
+    with pytest.raises(ValueError, match="distinct"):
+        circuits.QubitIDs([0], reference=[0])
+    assert circuits.QubitIDs([5, 2], 2).check == (6, 7)
+    assert circuits.QubitIDs.from_code(codes.TrivialCode(3), num_ancillas=1).ancilla == (3,)
 
 
 def test_records() -> None:
@@ -67,6 +83,9 @@ def test_records() -> None:
     assert measurement_record.get_target_rec(2) == stim.target_rec(-10)
     assert measurement_record.get_target_rec(0) == stim.target_rec(-9)
     assert measurement_record.get_target_rec(0, -2) == stim.target_rec(-11)
+    measurement_record.validate_num_measurements(11)
+    with pytest.raises(ValueError, match="circuit contains 12"):
+        measurement_record.validate_num_measurements(12)
 
     with pytest.raises(ValueError, match="Invalid measurement index"):
         measurement_record.get_target_rec(3)
@@ -89,9 +108,22 @@ def test_records() -> None:
         assert isinstance(record_copy, type(record))
         assert list(record_copy.items()) == list(record.items())
 
+    assert "missing" not in base_record
+    with pytest.raises(KeyError):
+        _ = base_record["missing"]
+    assert "missing" not in base_record
+    with pytest.raises(ValueError, match="non-negative"):
+        base_record.append({}, repeat=-1)
+
 
 def test_post_selection() -> None:
     """Update a DetectorRecord after post-selecting on some detectors."""
     record = circuits.DetectorRecord({"flags": [0, 2, 4], "a": [1, 5], "b": [3]})
     expected_record = circuits.DetectorRecord({"a": [0, 2], "b": [1]})
     assert record.after_post_selection("flags") == expected_record
+    assert (
+        circuits.DetectorRecord({"empty": []}).after_post_selection("empty")
+        == circuits.DetectorRecord()
+    )
+    duplicate = circuits.DetectorRecord({"flags": [0, 0], "a": [1, 2]})
+    assert duplicate.after_post_selection("flags") == circuits.DetectorRecord({"a": [0, 1]})

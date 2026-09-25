@@ -23,6 +23,7 @@ import pytest
 import stim
 
 from qldpc import circuits, codes, math
+from qldpc.circuits import encoding
 from qldpc.objects import Pauli
 
 
@@ -127,7 +128,7 @@ def test_logical_tableau() -> None:
         circuits.get_logical_tableau(code, stim.Circuit("X 0"))
 
 
-def test_state_stabilizers(pytestconfig: pytest.Config) -> None:
+def test_state_stabilizers(pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch) -> None:
     """Identify the stabilizers of state prepared by a circuit."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
@@ -167,3 +168,61 @@ def test_state_stabilizers(pytestconfig: pytest.Config) -> None:
         xs, zs = decoded_stab.to_numpy()
         assert not np.any(xs[code.dimension :])
         assert not np.any(zs[code.dimension :])
+
+    assert circuits.get_state_stabilizers(stim.Circuit("X 1"), [1]) == [stim.PauliString("-Z")]
+
+    class ZeroExpectationSimulator:
+        def do(self, _circuit: stim.Circuit) -> None:
+            pass
+
+        def peek_observable_expectation(self, _pauli: stim.PauliString) -> int:
+            return 0
+
+    monkeypatch.setattr(encoding.stim, "TableauSimulator", ZeroExpectationSimulator)
+    with pytest.raises(ValueError, match="not an eigenstate"):
+        circuits.get_state_stabilizers(stim.Circuit("H 0"), [0])
+
+
+def test_logical_tableau_validation() -> None:
+    """Invalid encoder/decoder dimensions fail before tableau restriction."""
+    with pytest.raises(ValueError, match="incompatible dimensions"):
+        encoding._get_logical_tableau_from_code_data(
+            1, 0, stim.Tableau(1), stim.Tableau(2), stim.Circuit()
+        )
+    with pytest.raises(ValueError, match="does not implement a logical operation"):
+        circuits.get_logical_tableau(codes.FiveQubitCode(), stim.Circuit("H 0 1"))
+
+
+def test_state_stabilizer_failure_regressions() -> None:
+    """Exercise row-space, detector-parity, noisy-sign, and zero-logical edge cases."""
+    ghz = circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), [0, 1])
+    assert stim.PauliString("+XX") in ghz
+    assert stim.PauliString("+ZZ") in ghz
+
+    repeated_detector = stim.Circuit("H 0\nM 0\nDETECTOR rec[-1] rec[-1]")
+    assert circuits.get_state_stabilizers(repeated_detector, [0]) == []
+
+    noisy_signs = [
+        circuits.get_state_stabilizers(stim.Circuit("X_ERROR(0.5) 0"), [0]) for _ in range(20)
+    ]
+    assert all(signs == noisy_signs[0] for signs in noisy_signs)
+
+    zero_logical = codes.TrivialCode(1, num_stabs_x=1)
+    assert circuits.get_logical_state_stabilizers(stim.Circuit("R 0"), zero_logical) == []
+
+    code = codes.SteaneCode()
+    data = tuple(range(3, 3 + len(code)))
+    prep = circuits.with_remapped_qubits(circuits.get_encoding_circuit(code, only_zero=True), data)
+    qids = circuits.QubitIDs(data, tuple(range(20, 20 + code.num_checks)))
+    assert len(circuits.get_logical_state_stabilizers(prep, code, qids)) == code.dimension
+
+
+def test_only_zero_subsystem_generator_positions() -> None:
+    """Only-zero encoding places logical-Z generators after stabilizers, before gauges."""
+    for distance in (2, 3):
+        code = codes.BaconShorCode(distance)
+        tableau = circuits.get_encoding_tableau(code, only_zero=True)
+        stabilizer_count = len(code.get_stabilizer_ops())
+        assert tableau.z_output(stabilizer_count) == math.op_to_string(
+            code.get_logical_ops(Pauli.Z, symplectic=True)[0]
+        )
