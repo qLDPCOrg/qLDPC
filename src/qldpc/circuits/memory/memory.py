@@ -141,6 +141,9 @@ def get_memory_experiment(
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
             labeling data and check qubits according to their corresponding column/row of the parity
             check matrix, with data qubits numbered from 0 and check qubits numbered from len(code).
+            For a combined-basis experiment, the first ``code.dimension`` ancilla qubits are
+            reserved as noiseless Bell references; any remaining ancillas may be used by a custom
+            syndrome measurement strategy and are included in the noisy system.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
@@ -185,10 +188,12 @@ def get_memory_experiment(
     # if tracking all logical operators, only the logical QEC cycle is noisy
     if basis is None:
         if noise_model is not None:
+            bell_ancillas = qubit_ids.ancilla[: code.dimension]
+            strategy_ancillas = qubit_ids.ancilla[code.dimension :]
             qec_cycle = noise_model.noisy_circuit(
                 qec_cycle,
-                system_qubits=qubit_ids.data + qubit_ids.check,
-                immune_qubits=qubit_ids.ancilla,
+                system_qubits=qubit_ids.data + qubit_ids.check + strategy_ancillas,
+                immune_qubits=bell_ancillas,
             )
         else:
             # noise will be added later, so make initialization and readout noiseless

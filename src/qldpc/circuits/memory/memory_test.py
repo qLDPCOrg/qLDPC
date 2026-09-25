@@ -61,15 +61,27 @@ def test_memory_experiment() -> None:
     assert circuits.get_memory_experiment(
         rep_code, basis=Pauli.X, num_rounds=1, noise_model=noise_model
     ) == noise_model.noisy_circuit(assembled)
+    surface_code = codes.SurfaceCode(2)
+
+    class AncillaStrategy(circuits.SyndromeMeasurementStrategy):
+        def get_circuit(
+            self, code: codes.QuditCode, qubit_ids: circuits.QubitIDs | None = None
+        ) -> tuple[stim.Circuit, circuits.MeasurementRecord]:
+            assert qubit_ids is not None
+            circuit, record = circuits.EdgeColoring().get_circuit(code, qubit_ids)
+            circuit.append("H", qubit_ids.ancilla[code.dimension])
+            circuit.append("TICK")
+            return circuit, record
+
     combined = circuits.get_memory_experiment(
-        codes.SurfaceCode(2),
+        surface_code,
         basis=None,
         noise_model=circuits.NoiseModel(idle_error=0.01),
-        qubit_ids=circuits.QubitIDs(
-            range(1, 5), range(10, 10 + codes.SurfaceCode(2).num_checks), [0]
-        ),
+        qubit_ids=circuits.QubitIDs(range(1, 5), range(10, 10 + surface_code.num_checks), [0, 9]),
+        syndrome_measurement_strategy=AncillaStrategy(),
     )
     assert not any("DEPOLARIZE" in line and " 0" in line for line in str(combined).splitlines())
+    assert any("DEPOLARIZE" in line and " 9" in line for line in str(combined).splitlines())
 
     # Pauli.Y basis measurements are not supported
     with pytest.raises(ValueError, match="Pauli.X or Pauli.Z"):
