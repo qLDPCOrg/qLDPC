@@ -147,9 +147,8 @@ def get_memory_experiment(
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.  Defaults to
             labeling data and check qubits according to their corresponding column/row of the parity
             check matrix, with data qubits numbered from 0 and check qubits numbered from len(code).
-            For a combined-basis experiment, ``qubit_ids.reference`` contains the noiseless Bell
-            references. Ordinary ancillas may be used by a custom syndrome measurement strategy and
-            are included in the noisy system.
+            For a combined-basis experiment, ``qubit_ids.reference`` contains noiseless Bell
+            reference qubits.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
