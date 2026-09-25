@@ -145,8 +145,8 @@ def test_alpha_hoists_evaluation_invariants() -> None:
         ) == strategy._get_evaluation_circuit(code, Pauli.X, schedule)
 
 
-def test_alpha_rewards_are_non_degenerate() -> None:
-    """A functioning search records normalized rewards that distinguish rollout outcomes."""
+def test_alpha_reward_matches_paper() -> None:
+    """The MCTS reward is the paper's finite-sample inverse logical error rate."""
     code = codes.CSSCode([[1, 1, 0]], [[1, 1, 0]])
     strategy = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.2),
@@ -167,8 +167,7 @@ def test_alpha_rewards_are_non_degenerate() -> None:
         mock.patch.object(alpha_syndrome.np, "sum", side_effect=[0, 10, 0, 10, 0, 10]),
     ):
         strategy._build_schedule(code, Pauli.X)
-    assert rewards and all(0 <= reward <= 1 for reward in rewards)
-    assert any(reward < 1 for reward in rewards)
+    assert set(rewards) == {20.0, 20 / 11}
 
 
 def alpha_syndrome_is_valid(

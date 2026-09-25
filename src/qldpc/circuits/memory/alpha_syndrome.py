@@ -85,9 +85,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             iters_per_step: Cumulative visit budget for each MCTS root as scheduling advances
                 (default: 1000). Existing subtree visits count toward this budget.
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
-            exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).  Rewards are
-                normalized to the observed success fraction, so this parameter remains meaningful
-                across ``shots_per_iter`` choices.
+            exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).
             verbose: If True, print updates when constructing a syndrome extraction circuit.
             seed: Seed for the schedule-search random number generator. If None, use an
                 independently seeded generator.
@@ -230,7 +228,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 dem=dem, dets=dets, **self.sinter_decoding_kwargs
             )
             num_logical_errors = np.sum(np.any(predictions != observable_flips, axis=1))
-            node.backpropagate((self.shots_per_iter - num_logical_errors) / self.shots_per_iter)
+            # Estimate the inverse logical error rate, as prescribed in Section 4.4 of the paper.
+            node.backpropagate(self.shots_per_iter / (num_logical_errors + 1))
 
         # pathological edge case: we never explored from this root
         if not root.children:
