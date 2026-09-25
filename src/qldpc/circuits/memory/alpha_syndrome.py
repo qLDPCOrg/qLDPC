@@ -159,6 +159,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         # identify gates that need to be scheduled, as (control, target) pairs
         graph = code.get_graph(basis)
         gates = [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
+        if not gates:
+            return []
 
         if self.verbose:
             print(f"Building gate schedule for {basis}-type syndrome extraction circuit...")

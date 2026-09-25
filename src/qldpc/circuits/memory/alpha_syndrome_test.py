@@ -144,6 +144,11 @@ def test_alpha_hoists_evaluation_invariants() -> None:
             code, Pauli.X, schedule, data
         ) == strategy._get_evaluation_circuit(code, Pauli.X, schedule)
 
+    empty_x_code = codes.CSSCode(np.zeros((0, 2), dtype=int), [[1, 1]])
+    with mock.patch.object(strategy, "_get_evaluation_data") as evaluation_data:
+        assert strategy._build_schedule(empty_x_code, Pauli.X) == []
+        evaluation_data.assert_not_called()
+
 
 def test_alpha_reward_matches_paper() -> None:
     """The MCTS reward is the paper's finite-sample inverse logical error rate."""
