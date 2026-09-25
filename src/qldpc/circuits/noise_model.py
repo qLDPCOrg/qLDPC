@@ -769,7 +769,7 @@ class NoiseRule:
             else:
                 if len(args) != 1:
                     raise ValueError(f"Expected one gate argument for {op.name!r}")
-                # Sequential bit flips compose by XOR, not by logical OR.
+
                 args = [self.readout_error + args[0] - 2 * self.readout_error * args[0]]
 
         noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)

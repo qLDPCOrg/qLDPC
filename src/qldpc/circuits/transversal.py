@@ -49,10 +49,6 @@ def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Cir
         code: The CSS code on which to apply the transversal gate.
         validate: If True (the default), reject codes that are not SWEL stabilizer codes.  If False,
             return the unchecked physical S/S_DAG circuit and leave correctness to the caller.
-
-    The SWEL check is intentionally conservative: it is a sufficient precondition for the
-    construction, not a complete search for every code on which the requested logical action might
-    happen to work.
     """
     if validate:
         logs_z = code.get_logical_ops(Pauli.Z)
