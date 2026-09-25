@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import inspect
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import galois
 import numpy as np
@@ -99,32 +99,40 @@ def get_decoder(
         )
     if decoder_names:
         decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{decoder_names[0]}")
-        return _checked_for_erasure_bit(
-            decoder_constructor(pcm_or_dem, **decoder_args), decoder_args
-        )
+        return _decoder_checked_for_erasure_bit(decoder_constructor, pcm_or_dem, decoder_args)
 
     # use GUF by default for codes over non-binary fields
     if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
-        return _checked_for_erasure_bit(get_decoder_GUF(pcm_or_dem, **decoder_args), decoder_args)
+        return _decoder_checked_for_erasure_bit(get_decoder_GUF, pcm_or_dem, decoder_args)
 
     # use BP+OSD by default otherwise
-    return _checked_for_erasure_bit(
-        get_decoder_BP_OSD(pcm_or_dem, **decoder_args),  # type:ignore[arg-type]
-        decoder_args,
-    )
+    return _decoder_checked_for_erasure_bit(get_decoder_BP_OSD, pcm_or_dem, decoder_args)
 
 
-def _checked_for_erasure_bit(decoder: Decoder, decoder_args: dict[str, object]) -> Decoder:
-    """Return a decoder, rejecting a request for an erasure bit that it cannot signal.
+def _decoder_checked_for_erasure_bit(
+    decoder_constructor: Callable[..., Decoder],
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    decoder_args: dict[str, object],
+) -> Decoder:
+    """Construct a decoder, rejecting a request for an erasure bit that it cannot signal.
 
-    A decoder that has no erasure bit takes no notice of a request for one, so without this check a
-    caller who asked for erasure would be handed a decoder that never erases anything.
+    Third-party decoders may reject or ignore an add_erasure_bit argument.  Normalize a rejection
+    that names the argument, then verify that a constructed decoder actually supports the request.
     """
+    decoder_name = decoder_constructor.__name__.removeprefix("get_decoder_")
+    message = (
+        f"The {decoder_name} decoder cannot signal erasure, so it does not accept the"
+        " add_erasure_bit argument"
+    )
+    try:
+        decoder = decoder_constructor(pcm_or_dem, **decoder_args)
+    except (TypeError, ValueError) as error:
+        if decoder_args.get("add_erasure_bit") and "add_erasure_bit" in str(error):
+            raise ValueError(message) from error
+        raise
+
     if decoder_args.get("add_erasure_bit") and not getattr(decoder, "has_erasure_bit", False):
-        raise ValueError(
-            f"{type(decoder).__name__} cannot signal erasure, so it does not accept the"
-            " add_erasure_bit argument"
-        )
+        raise ValueError(message)
     return decoder
 
 

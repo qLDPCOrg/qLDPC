@@ -73,13 +73,16 @@ def test_erasure_bit_request() -> None:
         decoder = decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
         assert getattr(decoder, "has_erasure_bit", False)
 
-    # the decoders that cannot would otherwise drop the request in silence
-    unerasing_args: list[dict[str, object]] = [
-        {"with_MWPM": True},
-        {"with_BP_LSD": True},
+    # every decoder that cannot signal erasure rejects the request consistently
+    unerasing_args: list[tuple[dict[str, object], str]] = [
+        ({}, "BP_OSD"),
+        ({"with_BF": True}, "BF"),
+        ({"with_BP_OSD": True}, "BP_OSD"),
+        ({"with_MWPM": True}, "MWPM"),
+        ({"with_BP_LSD": True}, "BP_LSD"),
     ]
-    for decoder_args in unerasing_args:
-        with pytest.raises(ValueError, match="cannot signal erasure"):
+    for decoder_args, decoder_name in unerasing_args:
+        with pytest.raises(ValueError, match=rf"The {decoder_name} decoder cannot signal erasure"):
             decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
 
 
