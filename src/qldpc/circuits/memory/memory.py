@@ -30,6 +30,7 @@ from ..common import get_pauli_product_measurements, restrict_to_qubits, with_re
 from ..encoding import get_encoding_circuit
 from ..noise_model import (
     DEFAULT_IMMUNE_OP_TAG,
+    DEFAULT_IMMUNE_QUBIT_TAG,
     GATE_OP_TYPES,
     NoiseModel,
     as_noiseless_circuit,
@@ -109,7 +110,8 @@ def get_memory_experiment(
     If a noise_model is provided, then noise is added to the logical QEC cycle alone.  Otherwise,
     the initialization and readout sub-circuits are wrapped in a single-repetition
     stim.CircuitRepeatBlock tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate that these
-    sub-circuits should be immune to noise.
+    sub-circuits should be immune to noise.  Tagged coordinate annotations likewise identify the
+    reference qubits as immune when noise is added later.
 
     Remembering that observables in Stim are formally detectors, or circuit-level parity checks that
     must evaluate to 0 in the absence of errors, the preparation of Bell pairs allows us to annotate
@@ -350,7 +352,14 @@ def _get_combined_memory_simulation_parts(
     reference_ids = qubit_ids.reference
 
     # set qubit coordinates
-    coordinates = get_qubit_coordinates(data_ids, check_ids, reference_ids)
+    coordinates = get_qubit_coordinates(data_ids, check_ids)
+    for kk, qubit in enumerate(reference_ids):
+        coordinates.append(
+            "QUBIT_COORDS",
+            qubit,
+            (2, kk),
+            tag=DEFAULT_IMMUNE_QUBIT_TAG,
+        )
 
     # noiselessly prepare all logical qubits in Bell states with ancillas
     state_prep = get_logical_bell_prep(code, data_ids, reference_ids)

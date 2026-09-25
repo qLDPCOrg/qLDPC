@@ -150,6 +150,7 @@ from .common import StimCircuitLike, with_remapped_qubits
 # global constants
 
 DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
+DEFAULT_IMMUNE_QUBIT_TAG = "__IMMUNE_QUBIT_TO_NOISE__"
 
 CLIFFORD_1Q = "C1"
 CLIFFORD_2Q = "C2"
@@ -1045,6 +1046,9 @@ class NoiseModel:
         3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
         4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
 
+        Explicit idle markers (``I`` and ``II``) receive idling noise rather than gate noise, so
+        ``rule_func`` is not consulted for them and they cannot be keys in ``rules``.
+
         Note: MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one
         Pauli product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product
         instructions are decomposed upstream by ``_split_targets_pp`` before this method is
@@ -1107,14 +1111,18 @@ class NoiseModel:
 
         return None
 
-    @format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
+    @format_docstring(
+        DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG,
+        DEFAULT_IMMUNE_QUBIT_TAG=DEFAULT_IMMUNE_QUBIT_TAG,
+    )
     def noisy_circuit(
         self,
         circuit: StimCircuitLike,
         *,
         system_qubits: Iterable[int] | None = None,
         immune_qubits: Iterable[int] = (),
-        immune_op_tag: str = DEFAULT_IMMUNE_OP_TAG,
+        immune_op_tag: str | None = DEFAULT_IMMUNE_OP_TAG,
+        immune_qubit_tag: str | None = DEFAULT_IMMUNE_QUBIT_TAG,
         immunize_gates: bool = True,
         insert_ticks: bool = True,
     ) -> StimCircuitLike:
@@ -1130,7 +1138,11 @@ class NoiseModel:
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
             immune_qubits: Qubits that are declared to be immune to noise.  Defaults to none.
             immune_op_tag: If an operation contains this string in its tag, that operation is
-                noiseless.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
+                noiseless.  Set to None to disable tagged operation immunity.
+                Default: "{DEFAULT_IMMUNE_OP_TAG}".
+            immune_qubit_tag: If a QUBIT_COORDS annotation contains this string in its tag, its
+                target qubits are immune to noise.  Set to None to disable annotated immunity.
+                Default: "{DEFAULT_IMMUNE_QUBIT_TAG}".
             immunize_gates: If True (the default), a gate that touches an immune qubit is treated
                 as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
@@ -1142,8 +1154,10 @@ class NoiseModel:
         Returns:
             The input circuit with added noise.
         """
-        if not immune_op_tag:
-            raise ValueError("immune_op_tag must be non-empty")
+        if immune_op_tag == "":
+            raise ValueError("immune_op_tag must be non-empty or None")
+        if immune_qubit_tag == "":
+            raise ValueError("immune_qubit_tag must be non-empty or None")
         if not isinstance(circuit, stim.Circuit):
             # convert to stim, add noise, convert back
             stim_input = stim.Circuit()
@@ -1154,6 +1168,7 @@ class NoiseModel:
                 system_qubits=system_qubits,
                 immune_qubits=immune_qubits,
                 immune_op_tag=immune_op_tag,
+                immune_qubit_tag=immune_qubit_tag,
                 immunize_gates=immunize_gates,
                 insert_ticks=insert_ticks,
             )
@@ -1164,7 +1179,11 @@ class NoiseModel:
         system_qubits = frozenset(
             range(circuit.num_qubits) if system_qubits is None else system_qubits
         )
-        immune_qubits = frozenset(immune_qubits)
+        immune_qubits = frozenset(immune_qubits) | (
+            _get_immune_qubits(circuit, immune_qubit_tag)
+            if immune_qubit_tag is not None
+            else frozenset()
+        )
 
         if insert_ticks:
             # split moments with TICKs to prevent qubit reuse conflicts.  The preprocessing
@@ -1184,7 +1203,7 @@ class NoiseModel:
                 noisy_circuit.append("TICK")
 
             if isinstance(moment_or_repeat_block, stim.CircuitRepeatBlock):
-                if immune_op_tag in moment_or_repeat_block.tag:
+                if immune_op_tag is not None and immune_op_tag in moment_or_repeat_block.tag:
                     noisy_circuit.append(moment_or_repeat_block)
                 else:
                     noisy_body = self.noisy_circuit(
@@ -1192,6 +1211,7 @@ class NoiseModel:
                         system_qubits=system_qubits,
                         immune_qubits=immune_qubits,
                         immune_op_tag=immune_op_tag,
+                        immune_qubit_tag=immune_qubit_tag,
                         immunize_gates=immunize_gates,
                         insert_ticks=insert_ticks,
                     )
@@ -1223,7 +1243,7 @@ class NoiseModel:
         moment: Collection[stim.CircuitInstruction],
         system_qubits: frozenset[int],
         immune_qubits: frozenset[int],
-        immune_op_tag: str,
+        immune_op_tag: str | None,
         immunize_gates: bool,
     ) -> None:
         """Applies noise to a moment and appends it to a circuit (in-place).
@@ -1253,7 +1273,8 @@ class NoiseModel:
 
         noise_after_moment = stim.Circuit()
         for op in moment:
-            if immune_op_tag in op.tag or (rule := self.get_noise_rule(op)) is None:
+            tagged_immune = immune_op_tag is not None and immune_op_tag in op.tag
+            if tagged_immune or (rule := self.get_noise_rule(op)) is None:
                 circuit.append(op)
                 continue
             effective_rule = _rule_with_immunity(
@@ -1387,10 +1408,9 @@ def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
 
     For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for ``MPP
     X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than the raw
-    ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases. For every
-    other gate, this is just stim's alias list, which begins with the canonical name (so ``M`` /
-    ``MZ`` both yield ``("M", "MZ")``, ``CX`` / ``CNOT`` / ``ZCX`` all yield ``("CNOT", "CX",
-    "ZCX")``, etc.).
+    ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases.  For every
+    other gate, this is just stim's alias list, which begins with the canonical name.  Single-qubit
+    ``MPP Z`` uses the canonical measurement name ``"M"``, making it equivalent to ``M`` / ``MZ``.
     """
     aliases = _stim_aliases(op.name)
     if op.name not in ("MPP", "SPP", "SPP_DAG"):
@@ -1410,7 +1430,8 @@ def _get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
         else:
             assert target.is_z_target
             basis += "Z"
-    return (prefix + basis + suffix, *aliases)
+    basis_name = prefix + basis + suffix
+    return ("M" if basis_name == "MZ" else basis_name, *aliases)
 
 
 @functools.cache
@@ -1555,21 +1576,26 @@ def _canonical_rule_key(op_name: str) -> str:
     if not isinstance(op_name, str):
         raise TypeError(f"Noise rule keys must be strings, got {type(op_name).__name__}")
     op_name = op_name.upper()
-    match = _BASIS_SUFFIXED_RULE_KEY.fullmatch(op_name)
-    if match is not None:
+    try:
+        gate_data = stim.gate_data(op_name)
+    except IndexError:
+        match = _BASIS_SUFFIXED_RULE_KEY.fullmatch(op_name)
+        if match is None:
+            raise ValueError(f"Unrecognized noise rule key {op_name!r}") from None
         prefix, _basis, dag = match.groups()
         if prefix == "M" and dag:
             raise ValueError(f"Invalid noise rule key {op_name!r}: MPP has no _DAG form")
         stim.gate_data(f"{prefix}PP{dag or ''}")
         return op_name
-    try:
-        gate_data = stim.gate_data(op_name)
-    except IndexError as exc:
-        raise ValueError(f"Unrecognized noise rule key {op_name!r}") from exc
-    canonical = gate_data.aliases[0]
-    if op_type(canonical) not in GATE_OP_TYPES:
-        raise ValueError(f"Noise rules cannot target {op_name!r}")
-    return canonical
+    else:
+        canonical = gate_data.aliases[0]
+        if canonical in IDLE_OPS:
+            raise ValueError(
+                f"Noise rules cannot target explicit idle marker {op_name!r}; use idle_error"
+            )
+        if op_type(canonical) not in GATE_OP_TYPES:
+            raise ValueError(f"Noise rules cannot target {op_name!r}")
+        return canonical
 
 
 def _known_gate_shape(op_name: str) -> tuple[int, bool, bool] | None:
@@ -1729,6 +1755,21 @@ def _involves_classical_bits(op: stim.CircuitInstruction) -> bool:
     )
 
 
+def _get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozenset[int]:
+    """Identify qubits declared immune to noise by tagged coordinate annotations."""
+    immune_qubits: set[int] = set()
+    for instruction in circuit:
+        if isinstance(instruction, stim.CircuitRepeatBlock):
+            immune_qubits.update(_get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
+        elif instruction.name == "QUBIT_COORDS" and immune_qubit_tag in instruction.tag:
+            immune_qubits.update(
+                target.qubit_value
+                for target in instruction.targets_copy()
+                if target.qubit_value is not None
+            )
+    return frozenset(immune_qubits)
+
+
 def _categorize_moment_qubits(
     moment: Collection[stim.CircuitInstruction],
 ) -> tuple[list[int], list[int]]:
@@ -1787,7 +1828,7 @@ def _categorize_moment_qubits(
     return collapsed_qubits, operation_qubits
 
 
-def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim.Circuit:
+def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str | None) -> stim.Circuit:
     """Insert TICKs into a circuit to split stim.CircuitInstruction that reuse qubits.
 
     This preprocessing ensures that errors are applied correctly to a stim.CircuitInstruction that
@@ -1805,7 +1846,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
 
     for op in circuit:
         if isinstance(op, stim.CircuitRepeatBlock):
-            if immune_op_tag in op.tag:
+            if immune_op_tag is not None and immune_op_tag in op.tag:
                 result.append(op)
                 continue
 
@@ -1857,7 +1898,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str) -> stim
 def _iter_moments_and_repeat_blocks(
     circuit: stim.Circuit,
     immune_qubits: frozenset[int],
-    immune_op_tag: str,
+    immune_op_tag: str | None,
     *,
     force_split: bool = False,
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
@@ -1905,7 +1946,7 @@ def _iter_moments_and_repeat_blocks(
 def _split_targets_if_needed(
     op: stim.CircuitInstruction,
     immune_qubits: frozenset[int],
-    immune_op_tag: str,
+    immune_op_tag: str | None,
     *,
     force_split: bool = False,
 ) -> Iterator[stim.CircuitInstruction]:
@@ -1944,7 +1985,7 @@ def _split_targets_if_needed(
 def _split_targets_clifford_1q(
     op: stim.CircuitInstruction,
     immune_qubits: frozenset[int],
-    immune_op_tag: str,
+    immune_op_tag: str | None,
     *,
     force_split: bool = False,
 ) -> Iterator[stim.CircuitInstruction]:
@@ -1959,7 +2000,7 @@ def _split_targets_clifford_1q(
     Yields:
         Circuit instructions split into individual single-target operations.
     """
-    if force_split or immune_qubits or immune_op_tag in op.tag:
+    if force_split or immune_qubits or (immune_op_tag is not None and immune_op_tag in op.tag):
         args = op.gate_args_copy()
         for target in op.targets_copy():
             yield stim.CircuitInstruction(op.name, [target], args, tag=op.tag)
@@ -1970,7 +2011,7 @@ def _split_targets_clifford_1q(
 def _split_targets_clifford_2q(
     op: stim.CircuitInstruction,
     immune_qubits: frozenset[int],
-    immune_op_tag: str,
+    immune_op_tag: str | None,
     *,
     force_split: bool = False,
 ) -> Iterator[stim.CircuitInstruction]:
@@ -1993,7 +2034,7 @@ def _split_targets_clifford_2q(
     if (
         force_split
         or immune_qubits
-        or immune_op_tag in op.tag
+        or (immune_op_tag is not None and immune_op_tag in op.tag)
         or any(target.is_measurement_record_target for target in targets)
     ):
         args = op.gate_args_copy()

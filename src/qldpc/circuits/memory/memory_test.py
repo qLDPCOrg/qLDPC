@@ -92,6 +92,15 @@ def test_memory_experiment() -> None:
     )
     assert not any("DEPOLARIZE" in line and " 0" in line for line in str(combined).splitlines())
     assert any("DEPOLARIZE" in line and " 9" in line for line in str(combined).splitlines())
+    noiseless_combined = circuits.get_memory_experiment(
+        surface_code,
+        basis=None,
+        qubit_ids=qubit_ids,
+        syndrome_measurement_strategy=AncillaStrategy(),
+    )
+    deferred = circuits.NoiseModel(idle_error=0.01).noisy_circuit(noiseless_combined)
+    assert not any("DEPOLARIZE" in line and " 0" in line for line in str(deferred).splitlines())
+    assert any("DEPOLARIZE" in line and " 9" in line for line in str(deferred).splitlines())
     with pytest.raises(ValueError, match="Bell-reference ancillas"):
         circuits.get_memory_experiment_parts(
             surface_code,
@@ -114,6 +123,11 @@ def test_memory_experiment() -> None:
 def test_qubit_ids(pytestconfig: pytest.Config) -> None:
     """We can construct memory experiments with different qubit IDs."""
     random.seed(pytestconfig.getoption("randomly_seed"))
+    assert circuits.get_qubit_coordinates([0], [1], [2]) == stim.Circuit("""
+        QUBIT_COORDS(0, 0) 0
+        QUBIT_COORDS(1, 0) 1
+        QUBIT_COORDS(2, 0) 2
+    """)
 
     # pick a code, a number of "extra" unused qubits, and a number of QEC rounds
     code = codes.SurfaceCode(2, rotated=True)

@@ -42,6 +42,7 @@ from .memory import (
 )
 from .noise_model import (
     DEFAULT_IMMUNE_OP_TAG,
+    DEFAULT_IMMUNE_QUBIT_TAG,
     AbstractPauliChannel,
     DepolarizingNoiseModel,
     NoiseModel,
@@ -61,6 +62,7 @@ from .transversal import (
 
 __all__ = [
     "DEFAULT_IMMUNE_OP_TAG",
+    "DEFAULT_IMMUNE_QUBIT_TAG",
     "AbstractPauliChannel",
     "AlphaSyndrome",
     "DepolarizingNoiseModel",

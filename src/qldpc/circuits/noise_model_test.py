@@ -38,6 +38,7 @@ def _circuits_are_equivalent(
 def test_gate_errors() -> None:
     """Add gate errors to a circuit."""
     assert circuits.DEFAULT_IMMUNE_OP_TAG == "__IMMUNE_TO_NOISE__"
+    assert circuits.DEFAULT_IMMUNE_QUBIT_TAG == "__IMMUNE_QUBIT_TO_NOISE__"
 
     # ordinary gate errors
     circuit = stim.Circuit("""
@@ -95,6 +96,8 @@ def test_gate_errors() -> None:
         noise_model.noisy_circuit(circuit, insert_ticks=False)
     with pytest.raises(ValueError, match="immune_op_tag"):
         noise_model.noisy_circuit(stim.Circuit("H 0"), immune_op_tag="")
+    with pytest.raises(ValueError, match="immune_qubit_tag"):
+        noise_model.noisy_circuit(stim.Circuit("H 0"), immune_qubit_tag="")
     with pytest.raises(ValueError, match="max_gate_size"):
         circuits.DepolarizingNoiseModel(0.1, max_gate_size=0)
     wrapped = circuits.as_noiseless_circuit(stim.Circuit("H 0"))
@@ -128,6 +131,24 @@ def test_gate_errors() -> None:
         circuits.NoiseModel(readout_error=2)
     with pytest.raises(ValueError, match="Duplicate noise rules"):
         circuits.NoiseModel(rules={"CX": circuits.NoiseRule(), "cnot": circuits.NoiseRule()})
+    with pytest.raises(ValueError, match="Duplicate noise rules"):
+        circuits.NoiseModel(
+            rules={
+                "M": circuits.NoiseRule(readout_error=0.1),
+                "MZ": circuits.NoiseRule(readout_error=0.2),
+            }
+        )
+    measurement_model = circuits.NoiseModel(rules={"M": circuits.NoiseRule(readout_error=0.1)})
+    assert measurement_model.noisy_circuit(stim.Circuit("M 0\nMPP Z1")) == stim.Circuit(
+        "M(0.1) 0\nMPP(0.1) Z1"
+    )
+    mz_model = circuits.NoiseModel(rules={"MZ": circuits.NoiseRule(readout_error=0.2)})
+    assert mz_model.noisy_circuit(stim.Circuit("MZ 0\nMPP Z1")) == stim.Circuit(
+        "M(0.2) 0\nMPP(0.2) Z1"
+    )
+    for idle_marker in ("I", "II"):
+        with pytest.raises(ValueError, match="explicit idle marker"):
+            circuits.NoiseModel(rules={idle_marker: circuits.NoiseRule()})
     with pytest.raises(ValueError, match="Unrecognized noise rule key"):
         circuits.NoiseModel(rules={"CNOTT": circuits.NoiseRule()})
     with pytest.raises(ValueError, match="Unrecognized noise rule key"):
@@ -161,6 +182,20 @@ def test_idle_errors() -> None:
         DEPOLARIZE1(0.3) 1 2
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    immune_coords = stim.Circuit()
+    immune_coords.append("QUBIT_COORDS", 0, (0,), tag=circuits.DEFAULT_IMMUNE_QUBIT_TAG)
+    annotated = stim.Circuit()
+    annotated.append(stim.CircuitRepeatBlock(1, immune_coords))
+    annotated.append("H", 1)
+    annotated_noise = circuits.NoiseModel(clifford_1q_error=0.2, idle_error=0.1)
+    noisy_annotated = annotated_noise.noisy_circuit(annotated)
+    assert not any(
+        "DEPOLARIZE" in line and line.endswith(" 0") for line in str(noisy_annotated).splitlines()
+    )
+    assert "DEPOLARIZE1(0.2) 1" in str(noisy_annotated)
+    unprotected = annotated_noise.noisy_circuit(annotated, immune_qubit_tag=None)
+    assert "DEPOLARIZE1(0.1) 0" in str(unprotected)
 
     idle_marker_model = circuits.NoiseModel(clifford_1q_error=0.2, idle_error=0.1)
     idle_marker_circuit = idle_marker_model.noisy_circuit(
@@ -276,6 +311,12 @@ def test_immunity() -> None:
     """)
     assert _circuits_are_equivalent(
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_op_tag=immune_op_tag)
+    )
+    tagged_gate = stim.Circuit()
+    tagged_gate.append("H", 0, tag=immune_op_tag)
+    assert _circuits_are_equivalent(
+        stim.Circuit(f"H[{immune_op_tag}] 0\nDEPOLARIZE1(0.1) 0"),
+        noise_model.noisy_circuit(tagged_gate, immune_op_tag=None),
     )
 
     # circuits can be made immune to errors
@@ -616,7 +657,8 @@ def test_rule_func() -> None:
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits={1})
     )
 
-    # The callback is not consulted for annotations or classically-controlled operations.
+    # The callback is not consulted for annotations, explicit idle markers, or
+    # classically-controlled operations.
     consulted: list[str] = []
 
     def record(op: stim.CircuitInstruction) -> circuits.NoiseRule:
@@ -624,7 +666,7 @@ def test_rule_func() -> None:
         return circuits.NoiseRule(after={"X": 0.5})
 
     noise_model = circuits.NoiseModel(rule_func=record)
-    noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nM 0\nCX rec[-1] 1"))
+    noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nI 2\nM 0\nCX rec[-1] 1"))
     assert consulted == ["M"]
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.

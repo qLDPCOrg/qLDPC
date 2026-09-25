@@ -219,5 +219,6 @@ def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
                     target.value if target.value >= 0 else len(measurements) + target.value
                 ]
                 for target in instruction.targets_copy()
+                if target.is_measurement_record_target
             }
     return sorted(set(measurements) - addressed_measurements)
