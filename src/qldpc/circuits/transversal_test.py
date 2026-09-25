@@ -62,7 +62,7 @@ def test_transversal_ops() -> None:
         [[1, 1, 1, 1, 0, 0, 0, 0], [1, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 1, 0, 0, 1, 1]],
         [[1, 0, 1, 0, 1, 0, 1, 0], [0, 1, 0, 1, 0, 1, 0, 1]],
     )
-    assert len(circuits.get_transversal_ops(code, ["SWAP"])) >= 3
+    assert len(circuits.get_transversal_ops(code, ["SWAP"])) == 4
 
     with pytest.raises(ValueError, match="Local Clifford gates"):
         circuits.get_transversal_automorphism_group(code, ["SQRT_Y"])

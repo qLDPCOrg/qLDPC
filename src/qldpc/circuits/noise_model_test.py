@@ -490,7 +490,13 @@ def test_correlated_error_chains_are_atomic_when_re_noised() -> None:
     model = circuits.NoiseModel(clifford_nq_error={3: 0.01})
     first = model.noisy_circuit(stim.Circuit("SPP X0*Y1*Z2"))
     second = model.noisy_circuit(first)
-    assert "ELSE_CORRELATED_ERROR" in str(second)
+    instruction_names = [instruction.name for instruction in second]
+    assert "ELSE_CORRELATED_ERROR" in instruction_names
+    assert all(
+        instruction_names[index - 1] in ("E", "ELSE_CORRELATED_ERROR")
+        for index, name in enumerate(instruction_names)
+        if name == "ELSE_CORRELATED_ERROR"
+    )
     second.detector_error_model(approximate_disjoint_errors=True)
     decoders.DetectorErrorModelArrays(first)
 
