@@ -273,11 +273,7 @@ class MeasurementRecord(Record):
                 f"{num_measurements} measurements at this insertion point"
             )
 
-    def get_target_rec(
-        self,
-        qubit: Hashable,
-        measurement_index: int = -1,
-    ) -> stim.GateTarget:
+    def get_target_rec(self, qubit: Hashable, measurement_index: int = -1) -> stim.GateTarget:
         """Retrieve a Stim measurement record target for the given qubit.
 
         Args:
