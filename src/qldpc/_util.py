@@ -17,13 +17,46 @@ limitations under the License.
 
 from __future__ import annotations
 
+import importlib.abc
+import importlib.machinery
 import importlib.util
 import sys
 from collections.abc import Callable
 from types import ModuleType
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, cast
 
 CallableType = TypeVar("CallableType", bound=Callable[..., object])
+
+
+class _LoaderWithCleanup(importlib.abc.Loader):
+    """Loader proxy that restores lazy modules after failed execution."""
+
+    def __init__(self, loader: importlib.abc.Loader) -> None:
+        self.loader = loader
+        self.lazy_module_class: type[ModuleType] | None = None
+
+    def create_module(self, spec: importlib.machinery.ModuleSpec) -> ModuleType | None:
+        """Create a module using the wrapped loader."""
+        return self.loader.create_module(spec)
+
+    def exec_module(self, module: ModuleType) -> None:
+        """Execute a module and discard any partial state after failure."""
+        spec = vars(module)["__spec__"]
+        if spec.name not in sys.modules:
+            sys.modules[spec.name] = module
+        try:
+            self.loader.exec_module(module)
+        except BaseException:
+            module_dict = vars(module)
+            loader_state = spec.loader_state
+            module_dict.clear()
+            module_dict.update(loader_state["__dict__"])
+            loader_state["is_loading"] = False
+            if self.lazy_module_class is not None:
+                object.__setattr__(module, "__class__", self.lazy_module_class)
+            if sys.modules.get(spec.name) is module:
+                del sys.modules[spec.name]
+            raise
 
 
 def lazy_import(name: str) -> ModuleType:
@@ -35,11 +68,14 @@ def lazy_import(name: str) -> ModuleType:
     if (module := sys.modules.get(name)) is not None:
         return module
     spec = importlib.util.find_spec(name)
-    assert spec is not None and spec.loader is not None
-    spec.loader = importlib.util.LazyLoader(spec.loader)
+    if spec is None or spec.loader is None:
+        raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+    loader = _LoaderWithCleanup(cast(importlib.abc.Loader, spec.loader))
+    spec.loader = importlib.util.LazyLoader(loader)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
+    loader.lazy_module_class = type(module)
     return module
 
 

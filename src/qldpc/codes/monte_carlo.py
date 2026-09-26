@@ -41,14 +41,14 @@ class ErrorRateFunc:
     """Container for raw simulation data used to compute logical error and discard rates.
 
     An instance of this class is built and returned by the .get_logical_error_rate_func method of
-    ClassicalCode, QuditCode, and CSSCode.  If
+    ClassicalCode, QuditCode, and CSSCode.  If::
 
         func = code.get_logical_error_rate_func(...),
 
     then "func" takes a physical error rate "p" as an argument, and returns two numbers:
     (1) A logical error rate, estimated over the error weights that were sampled.
     (2) A statistical uncertainty in that rate: the standard deviation propagated from the
-        per-weight Jeffreys posterior variances.
+    per-weight Jeffreys posterior variances.
     If called with an array of physical error rates, this function returns two arrays.  If called
     with discard_rate=True, it computes a discard rate instead of an error rate.
 
@@ -58,7 +58,7 @@ class ErrorRateFunc:
     A plot of the reported rate usually carries a vertical bar spanning the range in which the true
     rate might lie.  That bar is asymmetric here: the statistical uncertainty spreads in both
     directions, but counting the unsampled errors as failures only pushes the reported rate up.
-    Writing ``value, error = func(p)``, the bottom and top of the bar are
+    Writing ``value, error = func(p)``, the bottom and top of the bar are::
 
         ``lower = max(value - error - func.truncation_error_bound(p), 0)``,
         ``upper = value + error``.

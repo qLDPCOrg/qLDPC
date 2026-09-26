@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import sys
 
+import _common
 import checks_superstaq
 import pytest_
 
 if __name__ == "__main__":
+    _common.reject_unmatched_file_arguments(sys.argv[1:])
     # The coverage check only runs *.py tests, never notebooks, so the nbmake plugin is pure
     # overhead here; disabling it saves ~0.7s of pytest startup in each modular-coverage subprocess.
     # "-pno:nbmake" is the attached spelling of "-p no:nbmake"; the separate "no:nbmake" token would

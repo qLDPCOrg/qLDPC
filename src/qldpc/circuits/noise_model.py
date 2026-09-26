@@ -263,9 +263,9 @@ def as_noiseless_circuit(circuit: StimCircuitLike) -> StimCircuitLike:
 class AbstractPauliChannel(abc.ABC):
     """Base class for sparse Pauli channels.
 
-     Every ``AbstractPauliChannel`` maps non-identity Pauli strings (over the alphabet
-     ``{I, X, Y, Z}``) to their probabilities.  The interpretation of those probabilities generally
-     depends on the ``AbstractPauliChannel`` subclass.
+    Every ``AbstractPauliChannel`` maps non-identity Pauli strings (over the alphabet
+    ``{I, X, Y, Z}``) to their probabilities.  The interpretation of those probabilities generally
+    depends on the ``AbstractPauliChannel`` subclass.
 
     Subclasses of ``AbstractPauliChannel`` are required to define a ``.to_circuit`` method.
     """

@@ -29,6 +29,8 @@ git clone https://github.com/qLDPCOrg/qLDPC.git
 pip install -e qLDPC
 ```
 You can also `pip install -e 'qLDPC[dev]'` to additionally install some development tools.
+Use `pip install 'qldpc[docs]'` to install the dependencies for building the documentation, or
+`pip install 'qldpc[relay-bp]'` to enable the optional Relay-BP decoder.
 
 ### GAP
 

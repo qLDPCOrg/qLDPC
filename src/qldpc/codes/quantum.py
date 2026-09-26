@@ -244,11 +244,13 @@ class QuantumReedMullerCode(CSSCode):
     The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code
     for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal:
 
-        RM(r, m) \subseteq RM(r, m)^\perp = RM(m - r - 1, m).
+    .. math::
+
+        \mathrm{RM}(r, m) \subseteq \mathrm{RM}(r, m)^\perp = \mathrm{RM}(m - r - 1, m).
 
     The stabilizer generators are the rows of the generator matrix of RM(r, m), whose pairwise
     orthogonality follows from self-orthogonality.  Both the X- and the Z-distance equal
-    2**(r + 1), the minimum weight of a vector in RM(m - r - 1, m) \ RM(r, m), attained by the
+    2**(r + 1), the minimum weight of a vector in ``RM(m - r - 1, m) \ RM(r, m)``, attained by the
     indicator vector of an affine (r + 1)-flat in AG(m, 2) (MacWilliams & Sloane, Ch. 13).  This
     closed form makes distance evaluation O(1), independent of block length.
 
@@ -543,12 +545,16 @@ class GALACode(CSSCode):
 
     A GALA code is a two-block CSS code built from two sequences of elements in a binary group
     algebra.  Given generator sequences (F_0, ..., F_{L/2-1}) and (G_0, ..., G_{L/2-1}), construct
-    block-circulant matrices F and G with entries
+    block-circulant matrices F and G with entries::
+
         F[i, j] = F_{j-i},
         G[i, j] = G_{j-i},
-    where generator indices are taken modulo L/2.  These matrices define parent check matrices
+
+    where generator indices are taken modulo L/2.  These matrices define parent check matrices::
+
         parent_matrix_x = [F, G],
         parent_matrix_z = [G.T, F.T].
+
     The first J block rows of each parent matrix are the active rows that define the parity checks
     of the code.  The remaining rows are latent rows and do not define stabilizers.
 
@@ -556,7 +562,7 @@ class GALACode(CSSCode):
     element, or a polynomial sum of group elements.  GALA codes are currently supported only over
     GF(2).
 
-    The compact self-dual [[132, 30, 12]] code of arXiv:2608.07431 can be constructed by
+    The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
 
         from qldpc import abstract, codes
 
@@ -950,7 +956,7 @@ class BBCode(QCCode):
     dictionary, as in {x: 12, y: 6}.
 
     The polynomials A and B induce a "canonical" layout of the data and check qubits of a BBCode.
-    In the canonical layout, qubits are organized into plaquettes of four qubits that look like
+    In the canonical layout, qubits are organized into plaquettes of four qubits that look like::
 
         L X
         Z R
@@ -1846,7 +1852,7 @@ class LPCode(CSSCode):
     can be constructed by::
 
         import numpy as np
-        from qldpc.abstract import CyclicGroup, GroupRing, RingArray, RingMember
+        from qldpc.abstract import CyclicGroup, GroupRing, RingArray
         from qldpc.codes import RepetitionCode, LPCode
 
         num_copies = 5  # the number of surface codes to stitch together
@@ -2012,7 +2018,7 @@ class SLPCode(CSSCode):
     See help(qldpc.codes.LPCode) for additional information.
 
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
-    constructed by
+    constructed by::
 
         from qldpc.abstract import CyclicGroup, GroupRing, RingArray
         from qldpc.codes import SLPCode
@@ -2024,7 +2030,7 @@ class SLPCode(CSSCode):
         code = SLPCode(matrix)
         assert code.get_code_params() == (18, 4, 2)
 
-    while the SLPCode in example 2 is
+    while the SLPCode in example 2 is::
 
         group = CyclicGroup(3)
         ring = GroupRing(group)
