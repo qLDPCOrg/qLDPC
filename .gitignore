@@ -12,8 +12,8 @@ __pycache__
 # ipython notebooks
 .ipynb_checkpoints
 
-# pytest/coverage
-.coverage
+# pytest/coverage (parallel runs write .coverage.<host>.<pid>.<random> alongside .coverage)
+.coverage*
 
 # macOS clutter
 .DS_Store

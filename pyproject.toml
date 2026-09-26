@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "uv_build"
-requires = [ "uv-build>=0.9.18,<0.10" ]
+requires = [ "uv-build>=0.9.18,<0.13" ]
 
 [project]
 name = "qldpc"
@@ -14,6 +14,7 @@ keywords = [
   "quantum error correction",
 ]
 license = "Apache-2.0"
+license-files = [ "LICENSE" ]  # ship the license text in the wheel and sdist
 authors = [ { name = "Michael A. Perlin", email = "mika.perlin@gmail.com" } ]
 requires-python = ">=3.10"
 classifiers = [
@@ -25,6 +26,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Mathematics",
   "Topic :: Scientific/Engineering :: Physics",
 ]
@@ -42,6 +44,7 @@ dependencies = [
   "sinter>=1.16",
   "stim>=1.16",
   "sympy>=1.12",
+  "tqdm>=4",
   "typing-extensions>=4",
 ]
 optional-dependencies.dev = [
@@ -50,6 +53,9 @@ optional-dependencies.dev = [
   "numba>=0.61",                  # exercises the use_numba weight-function path in distance_test.py
   "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
   "pyproject-fmt>=2",             # pyproject.toml formatting, run by checks/format_.py
+  "pytest>=8",
+  "pytest-randomly>=3.10",        # tests that need reproducibility read its randomly_seed option
+  "pytest-socket>=0.7",           # implements the --disable-socket in [tool.pytest] addopts below
   "python-lsp-server[all]>=1.14",
   "qldpc[docs,relay-bp]",
 ]
@@ -61,6 +67,8 @@ optional-dependencies.docs = [
   "sphinx-rtd-theme>=2",
 ]
 optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
+urls.Documentation = "https://qldpc.readthedocs.io/en/latest"
+urls.Issues = "https://github.com/qLDPCOrg/qLDPC/issues"
 urls.Repository = "https://github.com/qLDPCOrg/qLDPC"
 
 # Check script configuration:
@@ -80,9 +88,9 @@ lint.pycodestyle.max-doc-length = 100
 lint.pydocstyle.convention = "google"
 
 [tool.pyproject-fmt]
-# Cap the auto-generated "Programming Language :: Python" classifiers at the highest supported/tested
-# Python, so the set stays accurate and stable across pyproject-fmt versions.
-max_supported_python = "3.13"
+# Cap the auto-generated "Programming Language :: Python" classifiers at the highest supported
+# Python, so the set stays stable across pyproject-fmt versions rather than tracking each release.
+max_supported_python = "3.14"
 
 [tool.mypy]
 ignore_missing_imports = true
@@ -105,7 +113,9 @@ ini_options.filterwarnings = [
 [tool.coverage]
 run.include = [ "./*" ]
 run.parallel = true
+# Statement coverage only.  Branch coverage is deliberately not gated: a handful of arcs flip with
+# the pytest-randomly seed and with the installed numpy version, so gating it would make pass/fail
+# nondeterministic.  Audit it on demand with "checks/coverage_.py --branch".
 report.fail_under = 100
-report.exclude_lines = [ "if TYPE_CHECKING:", "pragma: no cover" ]
 report.skip_covered = true
 report.show_missing = true

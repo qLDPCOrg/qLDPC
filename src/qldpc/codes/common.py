@@ -2280,14 +2280,16 @@ class QuditCode(AbstractCode):
 
 
 class CSSCode(QuditCode):
-    """QuditCode with separate X-type and Z-type parity checks.
+    r"""QuditCode with separate X-type and Z-type parity checks.
 
     A CSSCode is defined from two classical codes with parity check matrices ``H_x`` and ``H_z``,
     whose rows indicate, respectively, the support of X-type Pauli strings that witness Z-type
     errors, and Z-type Pauli strings that witness X-type errors.  The full parity check matrix of
     a CSSCode is
-    ⌈ H_x,  0  ⌉
-    ⌊  0 , H_z ⌋.
+
+    .. math::
+
+        \begin{pmatrix} H_x & 0 \\ 0 & H_z \end{pmatrix}.
 
     If all parity checks of a CSSCode commute, ``H_x @ H_z.T == 0``, then the CSSCode is a
     stabilizer code; otherwise, the CSSCode is a subsystem code.
@@ -3159,7 +3161,7 @@ class CSSCode(QuditCode):
         cutoff: int | None = None,
         **decoder_kwargs: Any,
     ) -> int | float:
-        """Use a randomized algorithm to compute an upper bound on code distance.
+        r"""Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use the algorithm described in arXiv:2308.07915, also explained below.
 
@@ -3191,8 +3193,10 @@ class CSSCode(QuditCode):
 
         Conditions (a) and (b) can be combined into the single block-matrix equation
 
-            ⌈ H_z   ⌉         ⌈ 0 ⌉
-            ⌊ w_z.T ⌋ @ w_x = ⌊ 1 ⌋,
+        .. math::
+
+            \begin{pmatrix} H_z \\ w_z^{\mathsf T} \end{pmatrix} w_x
+            = \begin{pmatrix} 0 \\ 1 \end{pmatrix},
 
         where the "0" on the top right is interpreted as a zero vector.  This equation can be
         solved by decoding the syndrome ``[ 0, 0, ..., 0, 1 ].T`` for the parity check matrix

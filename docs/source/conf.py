@@ -27,10 +27,8 @@ extensions = [
     "autoapi.extension",
     "nbsphinx",
     "sphinx.ext.autodoc",
-    "sphinx.ext.doctest",
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
-    "sphinx.ext.todo",
     "sphinx.ext.viewcode",
     "IPython.sphinxext.ipython_console_highlighting",
 ]
@@ -38,15 +36,10 @@ extensions = [
 # use the pre-executed outputs in notebooks
 nbsphinx_execute = "never"
 
-# generate stub.rst files automatically
-autosummary_generate = False
-
-# fix for mathjax v3
+# Pin MathJax to v3.  nbsphinx requests MathJax on every notebook page, so leaving the major version
+# to Sphinx's default would silently change how the published notebooks typeset their inline TeX.
 # https://www.sphinx-doc.org/en/master/usage/extensions/math.html#module-sphinx.ext.mathjax
 mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
-
-templates_path = ["_templates"]
-exclude_patterns = ["modules.rst"]
 
 autoapi_dirs = [
     "../../src/qldpc",

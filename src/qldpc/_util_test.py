@@ -15,8 +15,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import importlib
+import pathlib
 import sys
+import uuid
 from types import ModuleType
+
+import pytest
 
 from qldpc._util import format_docstring, lazy_import
 
@@ -31,6 +36,29 @@ def test_lazy_import() -> None:
     assert callable(module.rgb_to_hls)  # force the deferred execution
 
     assert lazy_import(name) is module  # cached path returns the same module
+
+
+def test_lazy_import_failure(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed lazy import cannot leave behind a usable partial module."""
+    name = f"broken_lazy_module_{uuid.uuid4().hex}"
+    module_path = tmp_path / f"{name}.py"
+    module_path.write_text('value = 1\nraise RuntimeError("broken install")\n')
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    module = lazy_import(name)
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="broken install"):
+            _ = module.value
+        assert name not in sys.modules
+
+    module_path.write_text("value = 2\n")
+    importlib.invalidate_caches()
+    assert module.value == 2
+    assert lazy_import(name) is module
+    sys.modules.pop(name, None)
+
+    with pytest.raises(ModuleNotFoundError, match="No module named"):
+        lazy_import(f"missing_{name}")
 
 
 def test_format_docstring() -> None:

@@ -12,6 +12,13 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   install:
     name: Installation check
@@ -23,7 +30,7 @@ jobs:
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.13
+          python-version: 3.14
           enable-cache: true
           cache-dependency-glob: |
             **/pyproject.toml
@@ -41,7 +48,7 @@ jobs:
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.13
+          python-version: 3.14
           enable-cache: true
           cache-dependency-glob: |
             **/pyproject.toml
@@ -76,6 +83,28 @@ jobs:
           fi
           exit $FAILED
 
+  docs:
+    name: Documentation build
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: install
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+      - name: Install package and dependencies
+        run: uv sync --extra dev
+      # Warnings are errors here, but deliberately not on Read the Docs: the docs toolchain is
+      # unpinned, so gating the published site on warnings would let an upstream release break it.
+      - name: Build the docs
+        run: uv run python checks/build_docs.py
+
   coverage:
     name: Pytest and coverage check
     if: github.event.pull_request.draft == false
@@ -87,7 +116,7 @@ jobs:
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.13
+          python-version: 3.14
           enable-cache: true
           cache-dependency-glob: |
             **/pyproject.toml
