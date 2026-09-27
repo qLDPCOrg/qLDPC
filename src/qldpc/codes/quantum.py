@@ -242,11 +242,9 @@ class QuantumReedMullerCode(CSSCode):
     r"""Self-orthogonal CSS code from a classical Reed-Muller code.
 
     The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code
-    for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal:
+    for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal::
 
-    .. math::
-
-        \mathrm{RM}(r, m) \subseteq \mathrm{RM}(r, m)^\perp = \mathrm{RM}(m - r - 1, m).
+        RM(r, m) ⊆ RM(r, m)⊥ = RM(m - r - 1, m).
 
     The stabilizer generators are the rows of the generator matrix of RM(r, m), whose pairwise
     orthogonality follows from self-orthogonality.  Both the X- and the Z-distance equal

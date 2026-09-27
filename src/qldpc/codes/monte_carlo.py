@@ -46,9 +46,11 @@ class ErrorRateFunc:
         func = code.get_logical_error_rate_func(...),
 
     then "func" takes a physical error rate "p" as an argument, and returns two numbers:
+
     (1) A logical error rate, estimated over the error weights that were sampled.
     (2) A statistical uncertainty in that rate: the standard deviation propagated from the
             per-weight Jeffreys posterior variances.
+
     If called with an array of physical error rates, this function returns two arrays.  If called
     with discard_rate=True, it computes a discard rate instead of an error rate.
 
