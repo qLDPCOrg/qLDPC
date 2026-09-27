@@ -126,17 +126,18 @@ def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:
 
 
 def test_ilp_decoder_early_termination() -> None:
-    """An integer linear program that stops early does not return an unusable error.
+    """A HiGHS integer linear program that stops early does not return an unusable error.
 
     A solver told to give up immediately can report a finite objective for a point that reproduces
     no syndrome at all.  With no way to report that, such a point is rejected; given an erasure bit,
     it is reported as an erasure instead, which is what the decoders that infer errors heuristically
     already do.
     """
+    pytest.importorskip("highspy")
     matrix = np.array([[1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 0]])
     syndrome = np.array([1, 0, 1])
 
-    decoder = decoders.ILPDecoder(matrix, time_limit=1e-9)
+    decoder = decoders.ILPDecoder(matrix, solver="HIGHS", time_limit=1e-9)
     with (
         pytest.warns(UserWarning, match="inaccurate"),
         pytest.raises(ValueError, match="does not reproduce the syndrome"),
@@ -144,7 +145,7 @@ def test_ilp_decoder_early_termination() -> None:
         decoder.decode(syndrome)
 
     # the same solver, asked for an erasure bit, erases the shot rather than refusing it
-    decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True, time_limit=1e-9)
+    decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True, solver="HIGHS", time_limit=1e-9)
     with pytest.warns(UserWarning, match="inaccurate"):
         decoded = decoder.decode(syndrome)
     assert len(decoded) == matrix.shape[1] + 1

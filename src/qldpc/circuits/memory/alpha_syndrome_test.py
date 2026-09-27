@@ -162,6 +162,10 @@ def test_alpha_reward_matches_paper() -> None:
     )
     rewards: list[float] = []
     original_backpropagate = TreeNode.backpropagate
+    graph = code.get_graph(Pauli.X)
+    gates = [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
+    root = TreeNode(TreeState.head(gates))
+    evaluation_data = strategy._get_evaluation_data(code, Pauli.X)
 
     def record_reward(node: TreeNode, reward: float) -> None:
         rewards.append(reward)
@@ -169,9 +173,15 @@ def test_alpha_reward_matches_paper() -> None:
 
     with (
         mock.patch.object(TreeNode, "backpropagate", autospec=True, side_effect=record_reward),
-        mock.patch.object(alpha_syndrome.np, "sum", side_effect=[0, 10, 0, 10, 0, 10]),
+        mock.patch.object(alpha_syndrome.np, "sum", side_effect=[0, 10, 0]),
     ):
-        strategy._build_schedule(code, Pauli.X)
+        strategy._schedule_one_gate(
+            code,
+            Pauli.X,
+            root,
+            step=0,
+            evaluation_data=evaluation_data,
+        )
     assert set(rewards) == {20.0, 20 / 11}
 
 

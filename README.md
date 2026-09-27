@@ -22,6 +22,7 @@ This library requires Python>=3.10, and can be installed from the Python Package
 ```
 pip install qldpc
 ```
+You can `pip install 'qldpc[relay-bp]'` to enable the Relay-BP decoder.
 
 To install a local version of qLDPC from source:
 ```
