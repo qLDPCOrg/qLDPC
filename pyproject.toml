@@ -14,7 +14,7 @@ keywords = [
   "quantum error correction",
 ]
 license = "Apache-2.0"
-license-files = [ "LICENSE" ]  # ship the license text in the wheel and sdist
+license-files = [ "LICENSE" ]
 authors = [ { name = "Michael A. Perlin", email = "mika.perlin@gmail.com" } ]
 requires-python = ">=3.10"
 classifiers = [
