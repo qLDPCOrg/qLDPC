@@ -915,10 +915,7 @@ class NoiseModel:
                         can_reset=can_reset,
                     )
             self.rules = normalized_rules
-        for name, probability in (
-            ("readout_error", readout_error),
-            ("reset_error", reset_error),
-        ):
+        for probability in (readout_error, reset_error):
             if probability is not None and not (0 <= probability <= 1):
                 raise ValueError(f"{probability=} is not between 0 and 1")
         self.readout_error = readout_error or 0

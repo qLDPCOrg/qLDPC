@@ -155,7 +155,7 @@ def test_gala_code_active_orthogonality() -> None:
 
     generators_f = [aa, ring.one]
     generators_g = [bb, ring.one]
-    with pytest.raises(ValueError, match="active parity checks.*do not commute"):
+    with pytest.raises(ValueError, match=r"active parity checks.*do not commute"):
         codes.GALACode(generators_f, generators_g, num_active_rows=1)
 
     code = codes.GALACode(generators_f, generators_g, num_active_rows=1, skip_validation=True)
@@ -405,7 +405,7 @@ def test_quasi_cyclic_codes() -> None:
     """Multivariate versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
 
     # not enough orders provided
-    with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
+    with pytest.raises(ValueError, match=r"Provided .* symbols, but only .* orders"):
         codes.QCCode([], x, y)
 
     # add placeholder symbols if necessary

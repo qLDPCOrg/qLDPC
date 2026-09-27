@@ -40,7 +40,7 @@ def test_basics(rows: int = 2, cols: int = 3) -> None:
     assert np.array_equal(abstract.matmul(matrix_a, np.eye(matrix_a.shape[1], dtype=int)), matrix_a)
 
     # ... but we need at least one of them to be a RingArray
-    with pytest.raises(ValueError, match="At least one .* RingArray"):
+    with pytest.raises(ValueError, match=r"At least one .* RingArray"):
         abstract.kron(np.eye(1, dtype=int), np.eye(1, dtype=int))
 
     # matrix dimensions must be compatible for matrix multiplication

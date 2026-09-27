@@ -97,7 +97,7 @@ def test_memory_experiment() -> None:
         )
 
     # Pauli.Y basis measurements are not supported
-    with pytest.raises(ValueError, match="Pauli.X or Pauli.Z"):
+    with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
         circuits.get_memory_experiment(rep_code, basis=Pauli.Y)  # type:ignore[arg-type]
 
     # non-CSS and subsystem codes are not always supported

@@ -42,7 +42,7 @@ def test_get_group_url() -> None:
     mock_page = get_mock_page(MOCK_INDEX_HTML.replace(f"{ORDER},{INDEX}", ""))
     with (
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
-        pytest.raises(ValueError, match="Group .* not found"),
+        pytest.raises(ValueError, match=r"Group .* not found"),
     ):
         external.groups.get_group_url(ORDER, INDEX)
 
@@ -50,7 +50,7 @@ def test_get_group_url() -> None:
     mock_page = get_mock_page(MOCK_INDEX_HTML.replace("href", ""))
     with (
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
-        pytest.raises(ValueError, match="Webpage .* not found"),
+        pytest.raises(ValueError, match=r"Webpage .* not found"),
     ):
         external.groups.get_group_url(ORDER, INDEX)
 
@@ -74,7 +74,7 @@ def test_maybe_get_generators_from_groupnames() -> None:
     with (
         unittest.mock.patch("qldpc.external.groups.get_group_url", return_value=GROUP_URL),
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
-        pytest.raises(ValueError, match="Generators .* not found"),
+        pytest.raises(ValueError, match=r"Generators .* not found"),
     ):
         external.groups.maybe_get_generators_from_groupnames(GROUP)
 

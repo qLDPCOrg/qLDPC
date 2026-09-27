@@ -60,7 +60,7 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
     # GAP is not installed...
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(FileNotFoundError, match="GAP 4 .* not installed"),
+        pytest.raises(FileNotFoundError, match=r"GAP 4 .* not installed"),
     ):
         external.gap.get_output()
 
@@ -124,7 +124,7 @@ def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
-        pytest.raises(ModuleNotFoundError, match="GAP package .* not installed"),
+        pytest.raises(ModuleNotFoundError, match=r"GAP package .* not installed"),
     ):
         external.gap.require_package("")
 
