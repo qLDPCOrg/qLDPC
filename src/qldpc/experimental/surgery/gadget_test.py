@@ -216,7 +216,7 @@ def test_assemble_merged_checks_with_distinct_support_and_check_counts() -> None
     n = code.num_qudits
     mZ = HZ_raw.shape[0]
     HZ_ancilla_block = HZ_m[:mZ, n:]
-    for k, j in enumerate(data_checks):
+    for j in data_checks:
         row_sum = int(HZ_ancilla_block[j].sum())
         assert row_sum == 1, (
             f"row j={j} of HZ ancilla-block should have exactly 1 one (indicator form), "
