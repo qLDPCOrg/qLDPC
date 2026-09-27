@@ -52,8 +52,8 @@ class RingCode(ClassicalCode):
         self._field = abstract.resolve_field(field)
         self._matrix = self.field.Zeros((bits, bits))
         for row in range(bits):
-            self._matrix[row, row] = 1
-            self._matrix[row, (row + 1) % bits] = -self.field(1)
+            self._matrix[row, row] += self.field(1)
+            self._matrix[row, (row + 1) % bits] -= self.field(1)
 
         self._dimension = 1
         self._distance = bits
