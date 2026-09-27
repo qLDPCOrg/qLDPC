@@ -870,12 +870,14 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             detector_to_time: A function that maps each detector to a time coordinate that is used
                 to decide window boundaries, or None.  If None, the time index of each detector is
                 read from its coordinates in DetectorErrorModel.get_detector_coordinates(): the
-                first coordinate if it varies and never decreases from one detector to the next.
-                Otherwise, a later coordinate with those properties is read instead, provided
-                exactly one qualifies.  If no unique varying coordinate qualifies, the first
-                coordinate is used as a fallback.  Only the detectors that get windowed are
-                consulted, and one of those with no coordinates at all is rejected, since there is
-                nothing to read a time index from.
+                first coordinate unless that coordinate decreases from one detector to the next.
+                Otherwise, a later coordinate that varies and never decreases is read instead,
+                provided exactly one qualifies.  A constant first coordinate is retained because a
+                later monotone coordinate may merely enumerate checks within one round.  Pass an
+                explicit detector_to_time mapping when this fallback does not match the model's
+                coordinate convention.  Only the detectors that get windowed are consulted, and one
+                of those with no coordinates at all is rejected, since there is nothing to read a
+                time index from.
                 WARNING: if a detector_to_time mapping is not None, it will be assumed to be
                 both valid and compatible with any detector error model that this decoder is later
                 compiled to with SlidingWindowDecoder.compile_decoder_for_dem.
@@ -1023,9 +1025,10 @@ def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
     """Which detector coordinate of a detector error model indexes time.
 
     Detector coordinates are assigned as a circuit is built, and a circuit runs forward, so a
-    coordinate that indexes time varies and never decreases from one detector to the next.  The
-    first coordinate is used whenever it has both properties.  Otherwise a later coordinate with
-    both properties is used instead -- the circuits that stim generates place time last, for
+    coordinate that indexes time never decreases from one detector to the next.  The first
+    coordinate is used whenever it has that property, even if it is constant: a later monotone
+    coordinate may enumerate checks within one round.  Otherwise a later coordinate that varies and
+    never decreases is used instead -- the circuits that stim generates place time last, for
     example.  If no later coordinate qualifies, or if several do, the first coordinate is used as a
     fallback.
     """
@@ -1038,7 +1041,7 @@ def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
     def varies(coordinate: int) -> bool:
         return len({dem_coords[det][coordinate] for det in detectors}) > 1
 
-    if varies(0) and never_decreases(0):
+    if never_decreases(0):
         return 0
     num_coordinates = min(len(dem_coords[det]) for det in detectors)
     candidates = [
