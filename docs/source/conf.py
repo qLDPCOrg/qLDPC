@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -15,8 +17,10 @@ sys.path.insert(0, os.path.abspath("../../src"))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "qLDPC"
-# Sphinx renders this as "(c) Copyright {copyright}.", so "Inc" takes no period of its own.
-copyright = "2023-2026 The qLDPC Authors and Infleqtion Inc"  # pylint:disable=redefined-builtin
+# Sphinx renders this as "(c) Copyright {copyright}."
+copyright = (  # pylint:disable=redefined-builtin
+    "2023-May 2024 The qLDPC Authors and Infleqtion Inc.; June 2024-present The qLDPC Authors"
+)
 author = "Michael A. Perlin"
 
 # -- General configuration ---------------------------------------------------

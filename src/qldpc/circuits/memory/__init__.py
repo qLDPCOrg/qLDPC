@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 from .alpha_syndrome import AlphaSyndrome
 from .memory import (
     MemoryExperimentParts,

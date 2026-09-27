@@ -1,22 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Helpers for parsing SymPy monomial and polynomial expressions.
 
 These utilities are shared by the group and group-algebra layers to turn user-supplied SymPy
 expressions into their constituent monomials, coefficients, and exponents.  They are pure symbolic
 bookkeeping with no dependence on the group machinery, so they live in their own module.
-
-Copyright 2024 The qLDPC Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 """
 
 from __future__ import annotations

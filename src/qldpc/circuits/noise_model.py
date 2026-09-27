@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Implementation of noise models for stim circuits (and stim-wrapping circuits such as tsim's).
 
 The main components of this module are:
@@ -112,20 +114,7 @@ The original code was written for the paper at "Inplace Access to the Surface Co
 
     https://quantum-journal.org/papers/q-2024-04-08-1310.
 
-Copyright 2025 The qLDPC Authors
 Portions copyright the original authors, licensed under CC BY 4.0 — see above.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 """
 
 from __future__ import annotations
