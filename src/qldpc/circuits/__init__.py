@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 from .benchmarking import (
     get_logical_error_and_discard_rate,
     get_state_prep_diagnostic_circuit,

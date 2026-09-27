@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 from ._monomials import (
     get_coefficient_and_exponents,
     iter_monomial_terms,
