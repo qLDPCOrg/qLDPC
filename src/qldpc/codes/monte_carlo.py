@@ -1,23 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Monte-Carlo helpers for code-capacity logical error rate estimation.
 
 These utilities turn the failure and discard counts collected by the .get_logical_error_rate_func
 methods of the code classes into logical error and discard rate estimates, and support the sampling
 that those methods perform.  They depend only on the decoder interface and on the binomial weight
 distribution, not on the code classes themselves, so they live in their own module.
-
-Copyright 2025 The qLDPC Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 """
 
 from __future__ import annotations
@@ -41,14 +29,16 @@ class ErrorRateFunc:
     """Container for raw simulation data used to compute logical error and discard rates.
 
     An instance of this class is built and returned by the .get_logical_error_rate_func method of
-    ClassicalCode, QuditCode, and CSSCode.  If
+    ClassicalCode, QuditCode, and CSSCode.  If::
 
         func = code.get_logical_error_rate_func(...),
 
     then "func" takes a physical error rate "p" as an argument, and returns two numbers:
+
     (1) A logical error rate, estimated over the error weights that were sampled.
     (2) A statistical uncertainty in that rate: the standard deviation propagated from the
-        per-weight Jeffreys posterior variances.
+            per-weight Jeffreys posterior variances.
+
     If called with an array of physical error rates, this function returns two arrays.  If called
     with discard_rate=True, it computes a discard rate instead of an error rate.
 
@@ -58,7 +48,7 @@ class ErrorRateFunc:
     A plot of the reported rate usually carries a vertical bar spanning the range in which the true
     rate might lie.  That bar is asymmetric here: the statistical uncertainty spreads in both
     directions, but counting the unsampled errors as failures only pushes the reported rate up.
-    Writing ``value, error = func(p)``, the bottom and top of the bar are
+    Writing ``value, error = func(p)``, the bottom and top of the bar are::
 
         ``lower = max(value - error - func.truncation_error_bound(p), 0)``,
         ``upper = value + error``.

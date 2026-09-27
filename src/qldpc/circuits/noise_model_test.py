@@ -1,19 +1,6 @@
-"""Unit tests for noise_model.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2025 The qLDPC Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for noise_model.py."""
 
 import copy
 import pickle
@@ -21,7 +8,7 @@ import pickle
 import pytest
 import stim
 
-from qldpc import circuits
+from qldpc import circuits, decoders
 from qldpc.circuits.conftest import StimCircuitWrapper
 
 
@@ -37,6 +24,8 @@ def _circuits_are_equivalent(
 
 def test_gate_errors() -> None:
     """Add gate errors to a circuit."""
+    assert circuits.DEFAULT_IMMUNE_OP_TAG == "__IMMUNE_TO_NOISE__"
+    assert circuits.DEFAULT_IMMUNE_QUBIT_TAG == "__IMMUNE_QUBIT_TO_NOISE__"
 
     # ordinary gate errors
     circuit = stim.Circuit("""
@@ -68,7 +57,7 @@ def test_gate_errors() -> None:
 
     # compose gate errors
     p_m = 0.1
-    double_p_m = 1 - (1 - p_m) ** 2
+    double_p_m = 2 * p_m - 2 * p_m**2
     noise_model = circuits.NoiseModel(readout_error=p_m)
     circuit = stim.Circuit("""
         H 0
@@ -92,6 +81,71 @@ def test_gate_errors() -> None:
     noise_model = circuits.SI1000NoiseModel(0.1)
     with pytest.raises(ValueError, match="multiple uses"):
         noise_model.noisy_circuit(circuit, insert_ticks=False)
+    with pytest.raises(ValueError, match="immune_op_tag"):
+        noise_model.noisy_circuit(stim.Circuit("H 0"), immune_op_tag="")
+    with pytest.raises(ValueError, match="immune_qubit_tag"):
+        noise_model.noisy_circuit(stim.Circuit("H 0"), immune_qubit_tag="")
+    with pytest.raises(ValueError, match="max_gate_size"):
+        circuits.DepolarizingNoiseModel(0.1, max_gate_size=0)
+    wrapped = circuits.as_noiseless_circuit(stim.Circuit("H 0"))
+    assert circuits.as_noiseless_circuit(wrapped) == wrapped
+
+    with pytest.raises(ValueError, match="readout_error"):
+        circuits.NoiseRule(readout_error=0.1).noisy_operation(stim.Circuit("H 0")[0])
+
+    class MalformedMeasurement:
+        name = "M"
+        tag = ""
+
+        @staticmethod
+        def targets_copy() -> list[stim.GateTarget]:
+            return [stim.target_rec(-1)]
+
+        @staticmethod
+        def gate_args_copy() -> list[float]:
+            return [0.1, 0.2]
+
+    malformed_measurement = MalformedMeasurement()
+    with pytest.raises(ValueError, match="one gate argument"):
+        circuits.NoiseRule(readout_error=0.1).noisy_operation(malformed_measurement)
+    with pytest.raises(ValueError, match="reset_error"):
+        circuits.NoiseRule(reset_error=0.1).noisy_operation(stim.Circuit("H 0")[0])
+    with pytest.raises(ValueError, match="multiple of 2"):
+        circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.1)).emit_after(
+            stim.Circuit(), [0]
+        )
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        circuits.NoiseModel(readout_error=2)
+    with pytest.raises(ValueError, match="Duplicate noise rules"):
+        circuits.NoiseModel(rules={"CX": circuits.NoiseRule(), "cnot": circuits.NoiseRule()})
+    with pytest.raises(ValueError, match="Duplicate noise rules"):
+        circuits.NoiseModel(
+            rules={
+                "M": circuits.NoiseRule(readout_error=0.1),
+                "MZ": circuits.NoiseRule(readout_error=0.2),
+            }
+        )
+    measurement_model = circuits.NoiseModel(rules={"M": circuits.NoiseRule(readout_error=0.1)})
+    assert measurement_model.noisy_circuit(stim.Circuit("M 0\nMPP Z1")) == stim.Circuit(
+        "M(0.1) 0\nMPP(0.1) Z1"
+    )
+    mz_model = circuits.NoiseModel(rules={"MZ": circuits.NoiseRule(readout_error=0.2)})
+    assert mz_model.noisy_circuit(stim.Circuit("MZ 0\nMPP Z1")) == stim.Circuit(
+        "M(0.2) 0\nMPP(0.2) Z1"
+    )
+    for idle_marker in ("I", "II"):
+        with pytest.raises(ValueError, match="explicit idle marker"):
+            circuits.NoiseModel(rules={idle_marker: circuits.NoiseRule()})
+    with pytest.raises(ValueError, match="Unrecognized noise rule key"):
+        circuits.NoiseModel(rules={"CNOTT": circuits.NoiseRule()})
+    with pytest.raises(ValueError, match="Unrecognized noise rule key"):
+        circuits.NoiseModel(rules={"MPP_DAG": circuits.NoiseRule()})
+    with pytest.raises(ValueError, match="MPP has no _DAG"):
+        circuits.NoiseModel(rules={"MXYZ_DAG": circuits.NoiseRule()})
+    with pytest.raises(TypeError, match="keys must be strings"):
+        circuits.NoiseModel(rules={1: circuits.NoiseRule()})  # type: ignore[dict-item]
+    with pytest.raises(ValueError, match="cannot target"):
+        circuits.NoiseModel(rules={"X_ERROR": circuits.NoiseRule()})
 
 
 def test_idle_errors() -> None:
@@ -115,6 +169,49 @@ def test_idle_errors() -> None:
         DEPOLARIZE1(0.3) 1 2
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    immune_coords = stim.Circuit()
+    immune_coords.append("QUBIT_COORDS", 0, (0,), tag=circuits.DEFAULT_IMMUNE_QUBIT_TAG)
+    annotated = stim.Circuit()
+    annotated.append(stim.CircuitRepeatBlock(1, immune_coords))
+    annotated.append("H", 1)
+    annotated_noise = circuits.NoiseModel(clifford_1q_error=0.2, idle_error=0.1)
+    noisy_annotated = annotated_noise.noisy_circuit(annotated)
+    assert not any(
+        "DEPOLARIZE" in line and line.endswith(" 0") for line in str(noisy_annotated).splitlines()
+    )
+    assert "DEPOLARIZE1(0.2) 1" in str(noisy_annotated)
+    unprotected = annotated_noise.noisy_circuit(annotated, immune_qubit_tag=None)
+    assert "DEPOLARIZE1(0.1) 0" in str(unprotected)
+
+    idle_marker_model = circuits.NoiseModel(clifford_1q_error=0.2, idle_error=0.1)
+    idle_marker_circuit = idle_marker_model.noisy_circuit(
+        stim.Circuit("I 0\nH 1"), system_qubits=[0, 1]
+    )
+    assert _circuits_are_equivalent(
+        stim.Circuit("I 0\nH 1\nDEPOLARIZE1(0.2) 1\nDEPOLARIZE1(0.1) 0"),
+        idle_marker_circuit,
+    )
+
+    moment_model = circuits.NoiseModel(idle_error=0.01)
+    assert moment_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0) 0")) == stim.Circuit(
+        "QUBIT_COORDS(0) 0"
+    )
+    assert moment_model.noisy_circuit(stim.Circuit("X_ERROR(0.1) 0")) == stim.Circuit(
+        "X_ERROR(0.1) 0"
+    )
+    classical = moment_model.noisy_circuit(stim.Circuit("M 0\nCX rec[-1] 1"), system_qubits=[0, 1])
+    assert "CX rec[-1] 1" in str(classical)
+    sweep = moment_model.noisy_circuit(stim.Circuit("CX sweep[3] 2"), system_qubits=[3])
+    assert "DEPOLARIZE1(0.01) 3" in str(sweep)
+    immune_only = moment_model.noisy_circuit(
+        stim.Circuit("H[__IMMUNE_TO_NOISE__] 0"), system_qubits=[0, 1]
+    )
+    assert "DEPOLARIZE1(0.01) 1" in str(immune_only)
+
+    # Repeated targets inside one Pauli product are legal Stim and remain one moment atom.
+    repeated_product = circuits.NoiseModel(idle_error=0.01).noisy_circuit(stim.Circuit("MPP X0*Z0"))
+    assert repeated_product == stim.Circuit("MPP X0*Z0")
 
     # user-defined idling noise via NoiseRule (overrides the default DEPOLARIZE1 channel)
     idle_rule = circuits.NoiseRule(after={"X": 0.05, "Z": 0.1})
@@ -191,6 +288,8 @@ def test_immunity() -> None:
     noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=True)
     noisy_circuit = stim.Circuit(f"""
         H['{immune_op_tag}'] 0
+        DEPOLARIZE1(0.1) 1
+        TICK
         CX 0 1
         DEPOLARIZE2(0.1) 0 1
         H['{immune_op_tag}'] 0
@@ -199,6 +298,12 @@ def test_immunity() -> None:
     """)
     assert _circuits_are_equivalent(
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_op_tag=immune_op_tag)
+    )
+    tagged_gate = stim.Circuit()
+    tagged_gate.append("H", 0, tag=immune_op_tag)
+    assert _circuits_are_equivalent(
+        stim.Circuit(f"H[{immune_op_tag}] 0\nDEPOLARIZE1(0.1) 0"),
+        noise_model.noisy_circuit(tagged_gate, immune_op_tag=None),
     )
 
     # circuits can be made immune to errors
@@ -381,20 +486,68 @@ def test_pauli_product_cliffords() -> None:
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
-    # explicit rules dict overrides the default weight-based dispatch, including for weight >= 3
+    # Explicit rules must match a single Pauli-product width; they are not broadcast over product
+    # factors.
     noise_rule = circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(1, 0.3))
     noise_model = circuits.NoiseModel(clifford_1q_error=0.1, rules={"SPP": noise_rule})
     circuit = stim.Circuit("""
         SPP X0 X0*Y1*Z2
     """)
-    noisy_circuit = stim.Circuit("""
-        SPP X0
-        DEPOLARIZE1(0.3) 0
-        TICK
-        SPP X0*Y1*Z2
-        DEPOLARIZE1(0.3) 0 1 2
-    """)
-    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    with pytest.raises(ValueError, match="expects a multiple of 1 qubits"):
+        noise_model.noisy_circuit(circuit)
+
+    measurement_rule = circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.1))
+    measurement_model = circuits.NoiseModel(
+        rules={"MXX": measurement_rule, "MYY": measurement_rule, "MZZ": measurement_rule}
+    )
+    measured = measurement_model.noisy_circuit(stim.Circuit("MXX 0 1\nMYY 2 3\nMZZ 4 5"))
+    assert str(measured).count("DEPOLARIZE2") == 1
+    assert all(str(qubit) in str(measured) for qubit in range(6))
+    with pytest.raises(ValueError, match="readout_error"):
+        circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(readout_error=0.1)}).noisy_circuit(
+            stim.Circuit("SPP X0")
+        )
+    with pytest.raises(ValueError, match="reset_error"):
+        circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(reset_error=0.1)}).noisy_circuit(
+            stim.Circuit("SPP X0")
+        )
+
+
+def test_correlated_error_chains_are_atomic_when_re_noised() -> None:
+    """TICK insertion never splits an E/ELSE_CORRELATED_ERROR mechanism."""
+    model = circuits.NoiseModel(clifford_nq_error={3: 0.01})
+    first = model.noisy_circuit(stim.Circuit("SPP X0*Y1*Z2"))
+    second = model.noisy_circuit(first)
+    instruction_names = [instruction.name for instruction in second]
+    assert "ELSE_CORRELATED_ERROR" in instruction_names
+    assert all(
+        instruction_names[index - 1] in ("E", "ELSE_CORRELATED_ERROR")
+        for index, name in enumerate(instruction_names)
+        if name == "ELSE_CORRELATED_ERROR"
+    )
+    second.detector_error_model(approximate_disjoint_errors=True)
+    decoders.DetectorErrorModelArrays(first)
+
+
+def test_high_probability_pauli_channels_remain_dem_analyzable() -> None:
+    """Avoid Stim's over-mixing rejection when simplifying uniform channels."""
+    channel_1 = circuits.PauliChannel.depolarizing(1, 0.8)
+    circuit_1 = channel_1.to_circuit() + stim.Circuit("M 0\nDETECTOR rec[-1]")
+    assert "PAULI_CHANNEL_1" in str(channel_1.to_circuit())
+    circuit_1.detector_error_model(approximate_disjoint_errors=True)
+
+    channel_2 = circuits.PauliChannel.depolarizing(2, 0.95)
+    circuit_2 = channel_2.to_circuit() + stim.Circuit("M 0 1\nDETECTOR rec[-1]")
+    assert "PAULI_CHANNEL_2" in str(channel_2.to_circuit())
+    circuit_2.detector_error_model(approximate_disjoint_errors=True)
+
+
+def test_pauli_channel_bias_and_probability_boundaries() -> None:
+    """Tiny bias is not collapsed, and Stim-invalid sums are rejected."""
+    biased = circuits.PauliChannel({"X": 1e-11, "Y": 5e-10, "Z": 9e-10})
+    assert "PAULI_CHANNEL_1" in str(biased.to_circuit())
+    with pytest.raises(ValueError, match="Sum of Pauli"):
+        circuits.PauliChannel({"X": 0.5, "Y": 0.5 + 2e-15})
 
 
 def test_rule_func() -> None:
@@ -491,7 +644,8 @@ def test_rule_func() -> None:
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits={1})
     )
 
-    # The callback is not consulted for annotations or classically-controlled operations.
+    # The callback is not consulted for annotations, explicit idle markers, or
+    # classically-controlled operations.
     consulted: list[str] = []
 
     def record(op: stim.CircuitInstruction) -> circuits.NoiseRule:
@@ -499,22 +653,22 @@ def test_rule_func() -> None:
         return circuits.NoiseRule(after={"X": 0.5})
 
     noise_model = circuits.NoiseModel(rule_func=record)
-    noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nM 0\nCX rec[-1] 1"))
+    noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nI 2\nM 0\nCX rec[-1] 1"))
     assert consulted == ["M"]
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.
     bad_readout = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(readout_error=0.1))
-    with pytest.raises(ValueError, match="rule for 'H'.*readout_error.*measurement gates"):
+    with pytest.raises(ValueError, match=r"rule for 'H'.*readout_error.*measurement gates"):
         bad_readout.noisy_circuit(stim.Circuit("H 0"))
     bad_reset = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(reset_error=0.1))
-    with pytest.raises(ValueError, match="rule for 'H'.*reset_error.*reset gates"):
+    with pytest.raises(ValueError, match=r"rule for 'H'.*reset_error.*reset gates"):
         bad_reset.noisy_circuit(stim.Circuit("H 0"))
 
     # A returned rule's `after` arity must match the gate application's qubit count.
     bad_arity = circuits.NoiseModel(
         rule_func=lambda op: circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(1, 0.1))
     )
-    with pytest.raises(ValueError, match="rule for 'CX'.*`after` has arity 1"):
+    with pytest.raises(ValueError, match=r"rule for 'CX'.*`after` has arity 1"):
         bad_arity.noisy_circuit(stim.Circuit("CX 0 1"))
 
     # SXYZ can be used as a `rules` key just like MXYZ.
@@ -522,7 +676,8 @@ def test_rule_func() -> None:
         rules={"SXYZ": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(3, 0.1))}
     )
     noisy_circuit = noise_model.noisy_circuit(stim.Circuit("SPP X0*Y1*Z2"))
-    assert "PAULI_CHANNEL_3" in str(noisy_circuit) or "CORRELATED_ERROR" in str(noisy_circuit)
+    assert "CORRELATED_ERROR" in str(noisy_circuit)
+    assert "ELSE_CORRELATED_ERROR" in str(noisy_circuit)
 
     # The recursive noisy_circuit call inside a REPEAT block forwards immune_op_tag.
     kick_all = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(after={"X": 0.5}))
@@ -839,21 +994,21 @@ def test_clifford_nq_error_errors() -> None:
         ).noisy_circuit(stim.Circuit("MPP X0*Y1*Z2"))
 
     # readout_error / reset_error are rejected on rules for gates that can't measure/reset.
-    with pytest.raises(ValueError, match="readout_error.*only valid on measurement"):
+    with pytest.raises(ValueError, match=r"readout_error.*only valid on measurement"):
         circuits.NoiseModel(rules={"H": circuits.NoiseRule(readout_error=0.1)})
-    with pytest.raises(ValueError, match="reset_error.*only valid on reset"):
+    with pytest.raises(ValueError, match=r"reset_error.*only valid on reset"):
         circuits.NoiseModel(rules={"M": circuits.NoiseRule(reset_error=0.1)})
 
 
 def test_pauli_channel_idle_error_rejection() -> None:
     """Multi-qubit `after` rules are not accepted on idle-error rules (all shapes rejected)."""
     channel = circuits.PauliChannel({"XY": 0.01})
-    with pytest.raises(ValueError, match="idle_error.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
         circuits.NoiseModel(idle_error=circuits.NoiseRule(after=channel))
-    with pytest.raises(ValueError, match="additional_error_waiting_for_m_or_r.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"additional_error_waiting_for_m_or_r.*multi-qubit"):
         circuits.NoiseModel(additional_error_waiting_for_m_or_r=circuits.NoiseRule(after=channel))
     # stim.Circuit form is rejected on the same grounds
-    with pytest.raises(ValueError, match="idle_error.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
         circuits.NoiseModel(
             idle_error=circuits.NoiseRule(after=stim.Circuit("DEPOLARIZE2(0.1) 0 1"))
         )
@@ -960,6 +1115,8 @@ def test_noise_rule_errors() -> None:
     fragment_with_repeat.append(stim.CircuitRepeatBlock(2, stim.Circuit("X_ERROR(0.1) 0")))
     with pytest.raises(TypeError, match="may contain only noise instructions"):
         circuits.NoiseRule(after=fragment_with_repeat)
+    with pytest.raises(ValueError, match="at least one qubit"):
+        circuits.NoiseRule(after=stim.Circuit())
 
     # An empty PauliChannel with an explicitly-declared arity is honored — a mismatch against the
     # rule's expected arity is flagged rather than silently dropped.
@@ -967,7 +1124,7 @@ def test_noise_rule_errors() -> None:
         circuits.NoiseModel(clifford_nq_error={2: circuits.PauliChannel({}, num_qubits=3)})
     # Same policy for idle_error: an explicitly-declared arity is validated BEFORE trivializing,
     # so a shape-wrong empty channel is flagged rather than silently accepted.
-    with pytest.raises(ValueError, match="idle_error.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
         circuits.NoiseModel(
             idle_error=circuits.NoiseRule(after=circuits.PauliChannel({}, num_qubits=3))
         )
@@ -981,9 +1138,9 @@ def test_noise_rule_errors() -> None:
 
     # NoiseRule cannot combine `after`-noise with readout_error / reset_error — those should be
     # separate rules (or handled via NoiseModel-level defaults).
-    with pytest.raises(ValueError, match="after.*readout_error"):
+    with pytest.raises(ValueError, match=r"after.*readout_error"):
         circuits.NoiseRule(after={"X": 0.01}, readout_error=0.1)
-    with pytest.raises(ValueError, match="after.*readout_error"):
+    with pytest.raises(ValueError, match=r"after.*readout_error"):
         circuits.NoiseRule(after=circuits.PauliChannel({"X": 0.01}), reset_error=0.1)
 
 
@@ -1027,21 +1184,9 @@ def test_after_stim_circuit_form() -> None:
         circuits.NoiseModel(rules={"SPP": sparse_rule}).noisy_circuit(circuit),
     )
 
-    # HERALDED_ERASE with partial immunity: under immunize_gates=True the whole fragment drops
-    # (no partial-atom filtering — stim.Circuit fragments are all-or-nothing); under
-    # immunize_gates=False the fragment can't be conditioned, so raise.
-    heralded_rule = circuits.NoiseRule(after=stim.Circuit("HERALDED_ERASE(0.05) 0 1"))
-    cx_circuit = stim.Circuit("CX 0 1")
-    assert _circuits_are_equivalent(
-        cx_circuit,
-        circuits.NoiseModel(rules={"CX": heralded_rule}).noisy_circuit(
-            cx_circuit, immune_qubits=[1]
-        ),
-    )
-    with pytest.raises(ValueError, match="partial immunity"):
-        circuits.NoiseModel(rules={"CX": heralded_rule}).noisy_circuit(
-            cx_circuit, immune_qubits=[1], immunize_gates=False
-        )
+    # Measurement-producing noise is rejected because it would shift later rec[] targets.
+    with pytest.raises(ValueError, match="measurement-producing"):
+        circuits.NoiseRule(after=stim.Circuit("HERALDED_ERASE(0.05) 0 1"))
 
     # A Mapping `after` whose entries all have zero probabilities normalizes to a trivial rule.
     zero_rule = circuits.NoiseRule(after={"X": 0.0, "Y": 0.0, "Z": 0.0})
@@ -1111,7 +1256,9 @@ def test_noise_model_serialization() -> None:
         rules={"SXY": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.05))},
     )
     circuit = stim.Circuit("R 0 1\nH 0\nCX 0 1\nTICK\nM 0 1")
-    for restored in (pickle.loads(pickle.dumps(model)), copy.deepcopy(model)):
+    # This deserializes only the in-memory object constructed above, never untrusted external data.
+    round_tripped = pickle.loads(pickle.dumps(model))  # noqa: S301
+    for restored in (round_tripped, copy.deepcopy(model)):
         assert _circuits_are_equivalent(
             model.noisy_circuit(circuit), restored.noisy_circuit(circuit)
         )

@@ -1,19 +1,6 @@
-"""General error-correcting code classes and methods.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""General error-correcting code classes and methods."""
 
 from __future__ import annotations
 
@@ -1067,6 +1054,9 @@ class QuditCode(AbstractCode):
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
+        This contract is defined only for stabilizer codes.  Subsystem-code gauge checks need a
+        separate gauge-fixing schedule and therefore are rejected explicitly.
+
         Every edge of the Tanner graph is associated with a two-qubit gate that needs to be applied
         to "write" parity checks onto ancilla qubits (i.e., for syndrome extraction).  The sequence
         of subgraphs returned by this method induces a (possibly partial) ordering on these gates,
@@ -1090,6 +1080,8 @@ class QuditCode(AbstractCode):
             strategy: The strategy used by nx.greedy_color to color parity checks.
                 Default: "smallest_last".
         """
+        if self.is_subsystem_code:
+            raise ValueError("Syndrome subgraphs are undefined for subsystem codes")
         # build a graph whose vertices are checks, and edges connect checks with overlapping support
         check_graph = nx.Graph()
         # seed every check that appears in the Tanner graph, so that a check whose support overlaps
@@ -2275,14 +2267,15 @@ class QuditCode(AbstractCode):
 
 
 class CSSCode(QuditCode):
-    """QuditCode with separate X-type and Z-type parity checks.
+    r"""QuditCode with separate X-type and Z-type parity checks.
 
     A CSSCode is defined from two classical codes with parity check matrices ``H_x`` and ``H_z``,
     whose rows indicate, respectively, the support of X-type Pauli strings that witness Z-type
     errors, and Z-type Pauli strings that witness X-type errors.  The full parity check matrix of
-    a CSSCode is
-    ⌈ H_x,  0  ⌉
-    ⌊  0 , H_z ⌋.
+    a CSSCode is::
+
+        ⌈ H_x,  0  ⌉
+        ⌊  0 , H_z ⌋.
 
     If all parity checks of a CSSCode commute, ``H_x @ H_z.T == 0``, then the CSSCode is a
     stabilizer code; otherwise, the CSSCode is a subsystem code.
@@ -2425,10 +2418,13 @@ class CSSCode(QuditCode):
         The 'strategy' argument to this method is only included for compatibility with
         QuditCode.get_syndrome_subgraphs.
         """
-        assert not strategy, (
-            f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
-            f" (provided: {strategy})"
-        )
+        if strategy:
+            raise ValueError(
+                f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
+                f" (provided: {strategy})"
+            )
+        if self.is_subsystem_code:
+            raise ValueError("Syndrome subgraphs are undefined for subsystem codes")
         return self.graph_x, self.graph_z
 
     @staticmethod
@@ -2814,6 +2810,26 @@ class CSSCode(QuditCode):
         logical_ops = scipy.linalg.block_diag(logicals_ops_x, logicals_ops_z)
         return self.set_logical_ops(logical_ops, skip_validation=skip_validation)
 
+    def set_logical_ops(
+        self,
+        logical_ops: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        *,
+        skip_validation: bool = False,
+    ) -> Self:
+        """Set CSS-form logical operators for this CSS code."""
+        logical_ops = np.asanyarray(logical_ops).view(self.field)
+        dimension = self.dimension
+        if logical_ops.ndim != 2 or logical_ops.shape != (2 * dimension, 2 * len(self)):
+            raise ValueError(
+                f"Expected logical operators with shape {(2 * dimension, 2 * len(self))}, "
+                f"got {logical_ops.shape}"
+            )
+        if np.any(logical_ops[:dimension, len(self) :]) or np.any(
+            logical_ops[dimension:, : len(self)]
+        ):
+            raise ValueError("CSS logical operators must be X-only followed by Z-only")
+        return super().set_logical_ops(logical_ops, skip_validation=skip_validation)
+
     def set_logical_ops_x(
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
@@ -3131,7 +3147,7 @@ class CSSCode(QuditCode):
         cutoff: int | None = None,
         **decoder_kwargs: Any,
     ) -> int | float:
-        """Use a randomized algorithm to compute an upper bound on code distance.
+        r"""Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use the algorithm described in arXiv:2308.07915, also explained below.
 
@@ -3161,7 +3177,7 @@ class CSSCode(QuditCode):
         where ``H_z`` is the parity check matrix of the Z-type subcode that witnesses X-type
         errors.
 
-        Conditions (a) and (b) can be combined into the single block-matrix equation
+        Conditions (a) and (b) can be combined into the single block-matrix equation::
 
             ⌈ H_z   ⌉         ⌈ 0 ⌉
             ⌊ w_z.T ⌋ @ w_x = ⌊ 1 ⌋,

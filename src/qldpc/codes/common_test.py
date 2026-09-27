@@ -1,19 +1,6 @@
-"""Unit tests for common.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for common.py."""
 
 from __future__ import annotations
 
@@ -371,6 +358,21 @@ def test_qudit_codes() -> None:
     with pytest.raises(ValueError, match="different fields"):
         second_code = codes.SurfaceCode(2, field=3)
         codes.QuditCode.stack([code, second_code])
+
+    with pytest.raises(ValueError, match="Syndrome subgraphs"):
+        codes.QuditCode.from_strings(["X", "Z"]).get_syndrome_subgraphs()
+    with pytest.raises(ValueError, match="edge coloration"):
+        codes.CSSCode([[1]], [[0]]).get_syndrome_subgraphs(strategy="smallest_last")
+    with pytest.raises(ValueError, match="Syndrome subgraphs"):
+        codes.CSSCode([[1]], [[1]]).get_syndrome_subgraphs()
+
+    css_code = codes.SteaneCode()
+    with pytest.raises(ValueError, match="shape"):
+        css_code.set_logical_ops([[1]])
+    css_logicals = css_code.get_logical_ops().copy()
+    css_logicals[css_code.dimension, 0] = 1
+    with pytest.raises(ValueError, match="CSS logical"):
+        css_code.set_logical_ops(css_logicals)
 
 
 def test_distance_qudit() -> None:

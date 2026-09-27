@@ -1,19 +1,6 @@
-"""Unit tests for gap.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2025 The qLDPC Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for gap.py."""
 
 from __future__ import annotations
 
@@ -73,7 +60,7 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
     # GAP is not installed...
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(FileNotFoundError, match="GAP 4 .* not installed"),
+        pytest.raises(FileNotFoundError, match=r"GAP 4 .* not installed"),
     ):
         external.gap.get_output()
 
@@ -137,7 +124,7 @@ def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
-        pytest.raises(ModuleNotFoundError, match="GAP package .* not installed"),
+        pytest.raises(ModuleNotFoundError, match=r"GAP package .* not installed"),
     ):
         external.gap.require_package("")
 

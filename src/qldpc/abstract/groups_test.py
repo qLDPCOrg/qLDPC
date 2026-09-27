@@ -1,19 +1,6 @@
-"""Unit tests for groups.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for groups.py."""
 
 from __future__ import annotations
 
@@ -145,8 +132,15 @@ def test_lifts() -> None:
     # anti-representations for a non-commutative groups with a custom lift are not supported
     group = abstract.QuaternionGroup()
     member = next(iter(group.generate()))
-    with pytest.raises(ValueError, match="Anti-representations.*not supported"):
+    with pytest.raises(ValueError, match=r"Anti-representations.*not supported"):
         group.lift(member, right=True)
+
+
+def test_generate_is_lazy() -> None:
+    """Stopping after one member does not materialize the group's member index."""
+    group = abstract.SymmetricGroup(8)
+    next(group.generate())
+    assert "_members" not in group.__dict__
 
 
 def assert_valid_lifts(group: abstract.Group) -> None:

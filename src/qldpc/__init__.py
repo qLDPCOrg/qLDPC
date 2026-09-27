@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 import importlib.metadata
 
 from . import abstract, cache, circuits, codes, decoders, experimental, external, math, objects

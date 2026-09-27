@@ -1,19 +1,6 @@
-"""Unit tests for quantum.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for quantum.py."""
 
 from __future__ import annotations
 
@@ -168,7 +155,7 @@ def test_gala_code_active_orthogonality() -> None:
 
     generators_f = [aa, ring.one]
     generators_g = [bb, ring.one]
-    with pytest.raises(ValueError, match="active parity checks.*do not commute"):
+    with pytest.raises(ValueError, match=r"active parity checks.*do not commute"):
         codes.GALACode(generators_f, generators_g, num_active_rows=1)
 
     code = codes.GALACode(generators_f, generators_g, num_active_rows=1, skip_validation=True)
@@ -418,7 +405,7 @@ def test_quasi_cyclic_codes() -> None:
     """Multivariate versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
 
     # not enough orders provided
-    with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
+    with pytest.raises(ValueError, match=r"Provided .* symbols, but only .* orders"):
         codes.QCCode([], x, y)
 
     # add placeholder symbols if necessary
