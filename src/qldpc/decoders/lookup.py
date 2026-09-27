@@ -355,10 +355,11 @@ class LookupDecoder:
         """Build the map that takes an error to the observable flips that it induces.
 
         The observable flip matrix is interpreted over the same field as the parity check matrix,
-        which is GF(2) unless the parity check matrix is a galois.FieldArray.  Entries outside that
-        field are reduced into it, but a galois.FieldArray over a different field is rejected: the
-        errors that get enumerated take their values from the parity check matrix's field, so an
-        observable over any other field cannot say what they flip.
+        which is GF(2) unless the parity check matrix is a galois.FieldArray.  Plain integer entries
+        are reduced modulo the order of a prime field; for an extension field, they must already be
+        valid integer representations of field elements.  A galois.FieldArray over a different field
+        is rejected: the errors that get enumerated take their values from the parity check matrix's
+        field, so an observable over any other field cannot say what they flip.
 
         With symplectic=True, an error assigns both an X and a Z component to each qudit, and the
         flip that it induces in an observable is their symplectic product,
@@ -399,7 +400,10 @@ class LookupDecoder:
             if isinstance(observable_flip_matrix, scipy.sparse.spmatrix | scipy.sparse.sparray)
             else observable_flip_matrix
         )
-        matrix = field(np.asarray(dense_matrix, dtype=int) % field.order)
+        matrix_values = np.asarray(dense_matrix, dtype=int)
+        if field.is_prime_field:
+            matrix_values = matrix_values % field.order
+        matrix = field(matrix_values)
         if symplectic:
             matrix = -math.symplectic_conjugate(matrix)
 
@@ -459,6 +463,16 @@ class LookupDecoder:
             return error
         return with_erasure_bits(error, False)
 
+    def _get_syndrome_key(self, syndrome: npt.NDArray[np.int_]) -> tuple[int, ...] | None:
+        """Return the retained syndrome key, or None when a post-selected bit is nontrivial."""
+        syndrome = syndrome.view(np.ndarray)
+        if self.syndrome_mask is not None:
+            retained_syndrome = syndrome[self.syndrome_mask]
+            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
+                return None
+            syndrome = retained_syndrome
+        return tuple(syndrome.tolist())
+
     def __len__(self) -> int:
         """The number of entries in this lookup table."""
         return len(self.syndrome_to_error)
@@ -468,13 +482,10 @@ class LookupDecoder:
 
         If initialized with predict_observable_flips=True, return the inferred observable flip.
         """
-        syndrome = syndrome.view(np.ndarray)
-        if self.syndrome_mask is not None:
-            retained_syndrome = syndrome[self.syndrome_mask]
-            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
-                return self.default_correction.copy()  # a post-selected bit is nontrivial
-            syndrome = retained_syndrome
-        return self.syndrome_to_error.get(tuple(syndrome.tolist()), self.default_correction).copy()
+        key = self._get_syndrome_key(syndrome)
+        if key is None:
+            return self.default_correction.copy()
+        return self.syndrome_to_error.get(key, self.default_correction).copy()
 
 
 class WeightedLookupDecoder(LookupDecoder):
@@ -553,14 +564,8 @@ class WeightedLookupDecoder(LookupDecoder):
         ),
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        syndrome = syndrome.view(np.ndarray)
-        if self.syndrome_mask is not None:
-            retained_syndrome = syndrome[self.syndrome_mask]
-            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
-                return self.default_correction.copy()  # a post-selected bit is nontrivial
-            syndrome = retained_syndrome
-        key = tuple(syndrome.tolist())
-        if key not in self.syndrome_to_candidates:
+        key = self._get_syndrome_key(syndrome)
+        if key is None or key not in self.syndrome_to_candidates:
             return self.default_correction.copy()
 
         candidates = self.syndrome_to_candidates[key]

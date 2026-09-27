@@ -183,6 +183,13 @@ def test_ilp_decoder_near_integral_values() -> None:
     with unittest.mock.patch.object(cvxpy.Problem, "solve", solve_then_perturb):
         assert np.array_equal(expected, decoder.decode(syndrome))
 
+    # The returned integer error must not be narrowed to a syndrome dtype that cannot represent it.
+    field = galois.GF(3)
+    decoder = decoders.ILPDecoder(field([[1, 1], [0, 1]]), add_erasure_bit=True)
+    decoded = decoder.decode(np.array([0, 1], dtype=bool))
+    assert np.array_equal(decoded, [2, 1, 0])
+    assert np.array_equal(field([[1, 1], [0, 1]]) @ field(decoded[:-1]), [0, 1])
+
 
 def test_invalid_ilp() -> None:
     """Fail to solve an invalid integer linear programming problem."""

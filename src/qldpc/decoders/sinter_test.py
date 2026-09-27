@@ -170,10 +170,10 @@ def test_sliding_window_recompilation() -> None:
 def test_sliding_window_time_coordinate() -> None:
     """SlidingWindowDecoder reads time from a detector coordinate that can be indexing time.
 
-    Coordinates are assigned as a circuit is built, so a coordinate that indexes time never
-    decreases from one detector to the next.  The first coordinate is read whenever it has that
-    property; a first coordinate that decreases somewhere is spatial, and a later coordinate is
-    read instead.  The circuits that stim generates place time last.
+    Coordinates are assigned as a circuit is built, so a coordinate that indexes time varies and
+    never decreases from one detector to the next.  The first coordinate is read whenever it has
+    both properties; a first coordinate that is constant or decreases somewhere is spatial, and a
+    later coordinate is read instead.  The circuits that stim generates place time last.
     """
 
     def dem_with_coords(coords: Sequence[Sequence[float]]) -> stim.DetectorErrorModel:
@@ -197,6 +197,10 @@ def test_sliding_window_time_coordinate() -> None:
     # the first coordinate is a position that repeats each round, so the second is read
     compiled = decoder.compile_decoder_for_dem(dem_with_coords([(0, 0), (1, 0), (0, 1), (1, 1)]))
     assert list(compiled.window_detectors) == [[0, 1], [2, 3]]
+
+    # one stabilizer at a fixed spatial coordinate still produces one window per round
+    compiled = decoder.compile_decoder_for_dem(dem_with_coords([(1, 0), (1, 1), (1, 2)]))
+    assert list(compiled.window_detectors) == [[0], [1], [2]]
 
     # two later coordinates could each be indexing time, so the first is read after all
     compiled = decoder.compile_decoder_for_dem(dem_with_coords([(1, 0, 0), (0, 1, 1), (1, 2, 2)]))

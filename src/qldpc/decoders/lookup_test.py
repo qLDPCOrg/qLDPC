@@ -424,6 +424,18 @@ def test_observable_flip_matrix_arithmetic() -> None:
     for syndrome, flips in achievable_flips.items():
         assert int(decoder.decode(np.array(syndrome, dtype=int))[0]) in flips
 
+    # Unlike a prime field, an extension field is not the integers modulo its order, so an
+    # out-of-range integer cannot be reduced into that field without changing its meaning.
+    for invalid_entry in [-1, field.order]:
+        with pytest.raises(ValueError, match="must have elements"):
+            decoders.LookupDecoder(
+                pcm,
+                max_weight=1,
+                observable_flip_matrix=np.array([[invalid_entry, 0, 0]]),
+                predict_observable_flips=True,
+                penalty_func=lambda vec: int(np.count_nonzero(vec)),
+            )
+
 
 def test_penalty_func() -> None:
     """Lookup tables can build penalty functions that penalize unlikely errors."""
