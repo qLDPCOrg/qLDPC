@@ -132,6 +132,9 @@ def logical_state_init(code: CSSCode, state: str, *, log_idx: int) -> str:
 
     The returned string has length ``code.num_qudits``; pass it as ``data_init`` to
     ``build_single_ppm_circuit``, or inside a tuple to ``build_joint_ppm_circuit``.
+    Initializing in the basis complementary to the measured logical is useful for raw-sampler truth
+    tables, but makes the logical observable intentionally random; such a circuit has deterministic
+    detectors but cannot define a detector error model for LER decoding.
 
     Raises:
         ValueError: ``state`` is not one of "0", "1", "+", "-".
@@ -377,6 +380,40 @@ def _check_lane_map(
     return result
 
 
+def _resolve_data_init(gadget: GadgetLayout, num_data: int, data_init: str | None) -> str:
+    """Resolve and validate a data initialization to one character per physical qubit."""
+    if data_init is None:
+        return ("+" if gadget.basis is Pauli.X else "0") * num_data
+    if len(data_init) == 1:
+        data_init = data_init * num_data
+    if len(data_init) != num_data:
+        raise ValueError(
+            f"data_init length {len(data_init)} does not match num data qubits {num_data}; "
+            f"pass a length-1 string to broadcast"
+        )
+    invalid = sorted(set(data_init) - set("01+-"))
+    if invalid:
+        raise ValueError(
+            f"data_init must contain only '0', '1', '+', '-'; got invalid chars {invalid}"
+        )
+    return data_init
+
+
+def _deterministic_data_checks(
+    matrix: np.ndarray,
+    check_ids: tuple[int, ...],
+    data_init: str,
+    eigenstates: str,
+) -> tuple[int, ...]:
+    """Checks whose support is initialized in the check's measurement basis."""
+    reliable: list[int] = []
+    for row, check_id in zip(np.asarray(matrix), check_ids):
+        support = np.flatnonzero(row)
+        if all(data_init[int(qubit)] in eigenstates for qubit in support):
+            reliable.append(check_id)
+    return tuple(reliable)
+
+
 def build_single_ppm_circuit(
     gadget: GadgetLayout,
     *,
@@ -399,7 +436,9 @@ def build_single_ppm_circuit(
     For LER / noisy runs, use ``keep_only_observable(circuit, keep_idx=0)``.
 
     ``data_init`` (optional): per-data-qubit init override; see ``_surgery_state_prep`` for the
-    character-to-state mapping.
+    character-to-state mapping. A state complementary to the measured logical basis makes obs0/obs1
+    intentionally random; use ``compile_sampler`` for that truth-table experiment, not
+    ``detector_error_model`` or Sinter.
 
     Raises:
         ValueError: rounds < 1; the finalized gadget fixes anything other than one logical degree
@@ -419,6 +458,7 @@ def build_single_ppm_circuit(
     data_ids = qubit_ids.data[:n_data]
     ancilla_ids = qubit_ids.data[n_data:]
     bridge_ids: tuple[int, ...] = ()
+    resolved_data_init = _resolve_data_init(gadget, n_data, data_init)
 
     circuit = _surgery_qubit_coordinates(gadget, qubit_ids)
     circuit += _surgery_state_prep(
@@ -426,13 +466,14 @@ def build_single_ppm_circuit(
         data_ids,
         ancilla_ids,
         bridge_ids,
-        data_init=data_init,
+        data_init=resolved_data_init,
     )
     qec_cycle, measurement_record, _ = _surgery_qec_cycle(
         gadget,
         merged_code,
         num_rounds=rounds,
         qubit_ids=qubit_ids,
+        data_init=resolved_data_init,
     )
     circuit += qec_cycle
     circuit += _surgery_detach_and_readout(
@@ -736,6 +777,10 @@ def build_joint_ppm_circuit(
       * ``tuple[str, str]`` (intercode only) — per-code logical-init spec.
         ``data_init=("0", "+")`` → c_l in ``|0⟩_L``, c_r in ``|+⟩_L``.
 
+    If either code is initialized in the basis complementary to the measured logical, the joint
+    observable is intentionally random. Its detectors remain deterministic, but the circuit does
+    not define a detector error model; use ``compile_sampler`` for such truth-table experiments.
+
     Raises:
         ValueError: rounds < 1; the bridge was built from different gadget layouts; the finalized
             joint code fixes anything other than one logical degree of freedom; a tuple
@@ -780,12 +825,13 @@ def build_joint_ppm_circuit(
         joint=(g_r, bridge, intercode),
     )
     expanded_data_init = _expand_joint_data_init(data_init, n_l, n_r, intercode)
+    resolved_data_init = _resolve_data_init(g_l, len(data_ids), expanded_data_init)
     circuit += _surgery_state_prep(
         g_l,
         data_ids,
         ancilla_ids,
         bridge_ids,
-        data_init=expanded_data_init,
+        data_init=resolved_data_init,
     )
     qec_cycle, measurement_record, _ = _surgery_qec_cycle_joint(
         g_l,
@@ -795,6 +841,7 @@ def build_joint_ppm_circuit(
         num_rounds=rounds,
         qubit_ids=qubit_ids,
         intercode=intercode,
+        data_init=resolved_data_init,
     )
     circuit += qec_cycle
     circuit += _surgery_detach_and_readout(
@@ -851,29 +898,58 @@ def _classify_reliable_round1_checks_joint(
     qubit_ids: QubitIDs,
     *,
     intercode: bool,
+    data_init: str,
 ) -> tuple[int, ...]:
-    """Joint-code variant: reliable checks across both gadgets + new cycle rows.
-
-    basis=X (data |+⟩, ancilla + bridge |0⟩):
-        H_X rows = [data S_X^(l), data S_X^(r), S'_meas^(l), S'_meas^(r)]
-        H_Z rows = [data S_Z^(l) ext, data S_Z^(r) ext, S'_comp^(l)_aug,
-                    S'_comp^(r)_aug, new cycle-Z]
-
-      Reliable X: data S_X rows of both gadgets.
-      Reliable Z: S'_comp_aug rows + new cycle-Z rows (all act on ancilla ∪ bridge, all |0⟩).
-
-    basis=Z is the X↔Z dual.
-    """
+    """Joint checks with deterministic round-1 syndrome for the requested data initialization."""
     m_X_l = g_l.code.matrix_x.shape[0]
     m_X_r = g_r.code.matrix_x.shape[0] if intercode else 0
     m_Z_l = g_l.code.matrix_z.shape[0]
     m_Z_r = g_r.code.matrix_z.shape[0] if intercode else 0
-    if g_l.basis is Pauli.X:
-        reliable_x = qubit_ids.checks_x[: m_X_l + m_X_r]  # data S_X^(l/r)
-        reliable_z = qubit_ids.checks_z[m_Z_l + m_Z_r :]  # S'_comp_aug + new cycle-Z
+    n_l = g_l.code.num_qudits
+    init_l = data_init[:n_l]
+    if intercode:
+        init_r = data_init[n_l:]
+        reliable_data_x = _deterministic_data_checks(
+            np.asarray(g_l.code.matrix_x),
+            tuple(qubit_ids.checks_x[:m_X_l]),
+            init_l,
+            "+-",
+        ) + _deterministic_data_checks(
+            np.asarray(g_r.code.matrix_x),
+            tuple(qubit_ids.checks_x[m_X_l : m_X_l + m_X_r]),
+            init_r,
+            "+-",
+        )
+        reliable_data_z = _deterministic_data_checks(
+            np.asarray(g_l.code.matrix_z),
+            tuple(qubit_ids.checks_z[:m_Z_l]),
+            init_l,
+            "01",
+        ) + _deterministic_data_checks(
+            np.asarray(g_r.code.matrix_z),
+            tuple(qubit_ids.checks_z[m_Z_l : m_Z_l + m_Z_r]),
+            init_r,
+            "01",
+        )
     else:
-        reliable_x = qubit_ids.checks_x[m_X_l + m_X_r :]  # S'_comp_aug + new cycle-X
-        reliable_z = qubit_ids.checks_z[: m_Z_l + m_Z_r]  # data S_Z^(l/r)
+        reliable_data_x = _deterministic_data_checks(
+            np.asarray(g_l.code.matrix_x),
+            tuple(qubit_ids.checks_x[:m_X_l]),
+            init_l,
+            "+-",
+        )
+        reliable_data_z = _deterministic_data_checks(
+            np.asarray(g_l.code.matrix_z),
+            tuple(qubit_ids.checks_z[:m_Z_l]),
+            init_l,
+            "01",
+        )
+    if g_l.basis is Pauli.X:
+        reliable_x = reliable_data_x
+        reliable_z = reliable_data_z + tuple(qubit_ids.checks_z[m_Z_l + m_Z_r :])
+    else:
+        reliable_x = reliable_data_x + tuple(qubit_ids.checks_x[m_X_l + m_X_r :])
+        reliable_z = reliable_data_z
     return tuple(reliable_x) + tuple(reliable_z)
 
 
@@ -886,6 +962,7 @@ def _surgery_qec_cycle_joint(
     qubit_ids: QubitIDs,
     *,
     intercode: bool,
+    data_init: str,
 ) -> tuple[stim.Circuit, MeasurementRecord, DetectorRecord]:
     """Joint-code variant of _surgery_qec_cycle.
 
@@ -899,6 +976,7 @@ def _surgery_qec_cycle_joint(
             g_r,
             qubit_ids,
             intercode=intercode,
+            data_init=data_init,
         )
     )
     all_check_ids = qubit_ids.check
@@ -1000,15 +1078,28 @@ def _surgery_final_detectors_joint(
 def _classify_reliable_round1_checks(
     gadget: GadgetLayout,
     qubit_ids: QubitIDs,
+    data_init: str,
 ) -> tuple[int, ...]:
     """Check ancillas with deterministic round-1 syndrome given surgery init state."""
     m_X, m_Z = gadget.code.matrix_x.shape[0], gadget.code.matrix_z.shape[0]
+    reliable_data_x = _deterministic_data_checks(
+        np.asarray(gadget.code.matrix_x),
+        tuple(qubit_ids.checks_x[:m_X]),
+        data_init,
+        "+-",
+    )
+    reliable_data_z = _deterministic_data_checks(
+        np.asarray(gadget.code.matrix_z),
+        tuple(qubit_ids.checks_z[:m_Z]),
+        data_init,
+        "01",
+    )
     if gadget.basis is Pauli.X:
-        reliable_x = qubit_ids.checks_x[:m_X]  # data S_X rows (det. +1)
-        reliable_z = qubit_ids.checks_z[m_Z:]  # gauge rows (= S'_comp) (det. +1)
+        reliable_x = reliable_data_x
+        reliable_z = reliable_data_z + tuple(qubit_ids.checks_z[m_Z:])
     else:
-        reliable_x = qubit_ids.checks_x[m_X:]  # gauge rows (= S'_comp)
-        reliable_z = qubit_ids.checks_z[:m_Z]  # data S_Z rows
+        reliable_x = reliable_data_x + tuple(qubit_ids.checks_x[m_X:])
+        reliable_z = reliable_data_z
 
     return tuple(reliable_x) + tuple(reliable_z)
 
@@ -1039,23 +1130,7 @@ def _surgery_state_prep(
     ancilla + bridge init is independent of ``data_init`` and always follows the protocol default
     (basis-complement +1 eigenstate).
     """
-    if data_init is None:
-        default_char = "+" if gadget.basis is Pauli.X else "0"
-        per_qubit = default_char * len(data_ids)
-    else:
-        if len(data_init) == 1:
-            data_init = data_init * len(data_ids)
-        if len(data_init) != len(data_ids):
-            raise ValueError(
-                f"data_init length {len(data_init)} does not match num data "
-                f"qubits {len(data_ids)}; pass a length-1 string to broadcast"
-            )
-        invalid = sorted(set(data_init) - set("01+-"))
-        if invalid:
-            raise ValueError(
-                f"data_init must contain only '0', '1', '+', '-'; got invalid chars {invalid}"
-            )
-        per_qubit = data_init
+    per_qubit = _resolve_data_init(gadget, len(data_ids), data_init)
 
     r_data: list[int] = []
     rx_data: list[int] = []
@@ -1096,11 +1171,12 @@ def _surgery_qec_cycle(
     merged_code: CSSCode,
     num_rounds: int,
     qubit_ids: QubitIDs,
+    data_init: str,
 ) -> tuple[stim.Circuit, MeasurementRecord, DetectorRecord]:
     """num_rounds of merged-code SE; round-1 detectors only for reliable checks."""
     strategy = EdgeColoring()
     one_round, round_measurement_record = strategy.get_circuit(merged_code, qubit_ids)
-    reliable = set(_classify_reliable_round1_checks(gadget, qubit_ids))
+    reliable = set(_classify_reliable_round1_checks(gadget, qubit_ids, data_init))
     all_check_ids = qubit_ids.check
     lane_of = _check_lane_map(gadget, qubit_ids)
 

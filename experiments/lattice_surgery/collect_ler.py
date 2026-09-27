@@ -299,7 +299,7 @@ def _git_state() -> str:
             text=True,
         ).stdout.strip()
         status = subprocess.run(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--untracked-files=no"],
             cwd=repo,
             check=True,
             capture_output=True,
@@ -320,12 +320,23 @@ def _git_state() -> str:
     return f"{commit}-dirty-{digest}"
 
 
-def _stats_for_run(stats: list[sinter.TaskStats], run_id: str) -> list[sinter.TaskStats]:
-    """Keep only rows produced for this run, tolerating unrelated legacy metadata."""
+def _stats_for_run(
+    stats: list[sinter.TaskStats],
+    run_id: str,
+    requested_tasks: set[tuple[str, float, int]],
+) -> list[sinter.TaskStats]:
+    """Keep requested rows for this task definition, tolerating unrelated legacy metadata."""
     return [
         stat
         for stat in stats
-        if isinstance(stat.json_metadata, dict) and stat.json_metadata.get("run_id") == run_id
+        if isinstance(stat.json_metadata, dict)
+        and stat.json_metadata.get("run_id") == run_id
+        and (
+            stat.json_metadata.get("kind"),
+            stat.json_metadata.get("p"),
+            stat.json_metadata.get("rounds"),
+        )
+        in requested_tasks
     ]
 
 
@@ -333,25 +344,21 @@ def main() -> None:
     args = _parse_args()
     preset: Preset = args.preset
     p_values = tuple(args.p_values or DEFAULT_P_VALUES[preset])
-    run_settings = {
+    task_definition = {
         "preset": preset,
+        "git_state": _git_state(),
+        "decoder": DECODER_SETTINGS[preset],
+    }
+    collection_request = {
         "p_values": p_values,
         "max_shots": args.max_shots,
         "max_errors": args.max_errors,
         "workers": args.workers,
-        "decoder": DECODER_SETTINGS[preset],
     }
-    git_state = _git_state()
-    run_id = hashlib.sha256(
-        json.dumps(
-            {"git_state": git_state, "run_settings": run_settings},
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()[:16]
+    run_id = hashlib.sha256(json.dumps(task_definition, sort_keys=True).encode()).hexdigest()[:16]
     provenance: dict[str, object] = {
+        **task_definition,
         "run_id": run_id,
-        "git_state": git_state,
-        "run_settings": run_settings,
     }
     builders = {
         "bb72": _bb72_tasks,
@@ -359,6 +366,14 @@ def main() -> None:
         "steane-joint": _steane_joint_tasks,
     }
     tasks, decoder = builders[preset](p_values, provenance)
+    requested_tasks = {
+        (
+            task.json_metadata["kind"],
+            task.json_metadata["p"],
+            task.json_metadata["rounds"],
+        )
+        for task in tasks
+    }
     resume = args.resume or Path(__file__).with_name(f"{preset}_{run_id}_progress.csv")
     stats = sinter.collect(
         tasks=tasks,
@@ -370,7 +385,7 @@ def main() -> None:
         print_progress=True,
         save_resume_filepath=resume,
     )
-    stats = _stats_for_run(stats, run_id)
+    stats = _stats_for_run(stats, run_id, requested_tasks)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
@@ -383,7 +398,8 @@ def main() -> None:
         "discards",
         "seconds",
         "git_state",
-        "settings",
+        "decoder_settings",
+        "collection_request",
     ]
     with args.output.open("w", newline="") as output_file:
         writer = csv.DictWriter(output_file, fieldnames=fieldnames)
@@ -404,7 +420,8 @@ def main() -> None:
                     "discards": stat.discards,
                     "seconds": stat.seconds,
                     "git_state": metadata["git_state"],
-                    "settings": json.dumps(metadata["run_settings"], sort_keys=True),
+                    "decoder_settings": json.dumps(metadata["decoder"], sort_keys=True),
+                    "collection_request": json.dumps(collection_request, sort_keys=True),
                 }
             )
     print(f"Wrote {len(stats)} aggregate rows to {args.output}")

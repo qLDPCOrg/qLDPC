@@ -131,7 +131,7 @@ def test_classify_reliable_round1_checks_basis_x() -> None:
         is_subsystem_code=False,
     )
     qubit_ids = QubitIDs.from_code(merged)
-    reliable = _classify_reliable_round1_checks(g, qubit_ids)
+    reliable = _classify_reliable_round1_checks(g, qubit_ids, "+" * code.num_qudits)
     m_X = code.matrix_x.shape[0]
     m_Z = code.matrix_z.shape[0]
     # Reliable X-checks: first m_X of checks_x (the original data H_X rows)
@@ -164,7 +164,7 @@ def test_classify_reliable_round1_checks_basis_z() -> None:
         is_subsystem_code=False,
     )
     qubit_ids = QubitIDs.from_code(merged)
-    reliable = _classify_reliable_round1_checks(g, qubit_ids)
+    reliable = _classify_reliable_round1_checks(g, qubit_ids, "0" * code.num_qudits)
     m_X = code.matrix_x.shape[0]
     m_Z = code.matrix_z.shape[0]
     # basis=Z: data H_Z rows are first m_Z Z-checks; G rows are last g.gauge.shape[0] X-checks
@@ -252,13 +252,14 @@ def test_surgery_qec_cycle_round_1_detectors_classified() -> None:
         is_subsystem_code=False,
     )
     qubit_ids = QubitIDs.from_code(merged)
-    reliable = _classify_reliable_round1_checks(g, qubit_ids)
+    reliable = _classify_reliable_round1_checks(g, qubit_ids, "+" * code.num_qudits)
 
     circuit, _meas_rec, _det_rec = _surgery_qec_cycle(
         g,
         merged,
         num_rounds=2,
         qubit_ids=qubit_ids,
+        data_init="+" * code.num_qudits,
     )
     # Count round-1 1-arg DETECTORs (those appearing before any REPEAT_BLOCK).
     text = str(circuit)
@@ -433,7 +434,14 @@ def test_surgery_final_detectors_count_matches_reliable_round1(basis: PauliXZ) -
     ancilla_ids = qubit_ids.data[n_data:]
 
     # Simulate the pipeline through detach (we need measurement_record populated).
-    _qec, mrec, _det = _surgery_qec_cycle(g, merged, num_rounds=2, qubit_ids=qubit_ids)
+    default_init = ("+" if basis is Pauli.X else "0") * code.num_qudits
+    _qec, mrec, _det = _surgery_qec_cycle(
+        g,
+        merged,
+        num_rounds=2,
+        qubit_ids=qubit_ids,
+        data_init=default_init,
+    )
     _surgery_detach_and_readout(
         g,
         data_ids=data_ids,
@@ -444,7 +452,7 @@ def test_surgery_final_detectors_count_matches_reliable_round1(basis: PauliXZ) -
 
     circuit = _surgery_final_detectors(g, merged, qubit_ids, measurement_record=mrec)
     n_final_det = str(circuit).count("DETECTOR")
-    expected = len(_classify_reliable_round1_checks(g, qubit_ids))
+    expected = len(_classify_reliable_round1_checks(g, qubit_ids, default_init))
     assert n_final_det == expected, (
         f"basis={basis}: emitted {n_final_det} DETECTORs, expected {expected}"
     )
@@ -981,13 +989,16 @@ def test_single_ppm_data_init_zero_random_outcome() -> None:
     g = build_gadget(code, x, basis=Pauli.X)
     circuit = build_single_ppm_circuit(g, rounds=3, noise_model=None, data_init="0")
     sampler = circuit.compile_detector_sampler()
-    _, observables = sampler.sample(shots=4000, separate_observables=True)
+    detectors, observables = sampler.sample(shots=4000, separate_observables=True)
     obs0, obs1 = observables[:, 0], observables[:, 1]
     rate0, rate1 = float(obs0.mean()), float(obs1.mean())
     agree = float((obs0 == obs1).mean())
     assert 0.40 < rate0 < 0.60, f"obs0 flip rate {rate0:.2%} not in (40%, 60%)"
     assert 0.40 < rate1 < 0.60, f"obs1 flip rate {rate1:.2%} not in (40%, 60%)"
     assert agree == 1.0, f"obs0 vs obs1 disagree on {int((1 - agree) * 4000)} of 4000 shots"
+    assert not detectors.any(), "complementary-basis init must not create random detectors"
+    with pytest.raises(ValueError, match="non-deterministic observables"):
+        circuit.detector_error_model()
 
 
 def test_joint_ppm_data_init_truth_table() -> None:
@@ -1052,6 +1063,13 @@ def test_joint_ppm_data_init_superposition() -> None:
         noise_model=None,
         data_init="0" * n + "+" * n,
     )
+    detectors, _ = circuit.compile_detector_sampler().sample(
+        shots=100,
+        separate_observables=True,
+    )
+    assert not detectors.any(), "superposition init must not create random detectors"
+    with pytest.raises(ValueError, match="non-deterministic observables"):
+        circuit.detector_error_model()
     sampler = circuit.compile_sampler()
     raw = sampler.sample(shots=1000).astype(np.uint8)
     n_meas = raw.shape[1]

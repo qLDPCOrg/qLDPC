@@ -29,11 +29,14 @@ python experiments/lattice_surgery/collect_ler.py \
 ```
 
 Each preset writes raw Sinter progress to a run-specific file beside the script unless `--resume`
-is supplied. Progress files are ignored by Git and may be resumed after interruption. Run identity,
-Git state, physical-error values, collection limits, worker count, and decoder settings are carried
-in each task's metadata, so rows from another run cannot be silently relabeled or exported.
+is supplied. Progress files are ignored by Git and may be resumed after interruption. Task identity
+depends on the preset, tracked Git state, decoder settings, physical-error value, and round count.
+Collection limits and worker count do not change task identity, so they may be adjusted when
+resuming. Unrelated untracked files do not invalidate a resume.
 
-The requested `--output` is a small aggregate CSV with those settings and the producing Git state.
+The requested `--output` is a small aggregate CSV with the producing Git state, decoder settings,
+and the collection request that produced the aggregate. Rows for other p-values or legacy metadata
+in a shared resume file are not exported.
 For `bb18`, surgery uses 15 rounds while memory uses 9. The `rounds` column records that asymmetry;
 compare total failure probabilities with that distinction in mind, or normalize each curve to a
 per-cycle rate before plotting.
