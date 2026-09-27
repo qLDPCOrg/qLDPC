@@ -606,7 +606,11 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         # ``_iter_ring_arrays`` descends into sequence arguments (e.g. the list passed to
         # np.concatenate/np.stack), so RingArrays nested one or more levels deep are still checked
         # for a ring mismatch -- a plain scan of the top-level args would miss them.
-        rings = [self._ring, *(arr._ring for arr in _iter_ring_arrays(args))]
+        rings = [
+            self._ring,
+            *(arr._ring for arr in _iter_ring_arrays(args)),
+            *(arr._ring for arr in _iter_ring_arrays(tuple(kwargs.values()))),
+        ]
         if any(ring != rings[0] for ring in rings[1:]):
             raise ValueError("Cannot perform operations on RingArrays with different base rings")
         args = tuple(_unwrap_ring_arrays(x) for x in args)

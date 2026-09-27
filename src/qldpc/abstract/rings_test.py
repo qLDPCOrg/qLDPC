@@ -181,6 +181,9 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
     assert joined.ring == new_matrix.ring
     with pytest.raises(ValueError, match="different base rings"):
         np.concatenate([one_c1, abstract.RingArray.build([[1]], abstract.CyclicGroup(2))])
+    out_c2 = abstract.RingArray.build([[0], [0]], abstract.CyclicGroup(2))
+    with pytest.raises(ValueError, match="different base rings"):
+        np.concatenate([one_c1, new_matrix], out=out_c2)
 
 
 def test_empty_lift() -> None:

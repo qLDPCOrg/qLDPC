@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import unittest.mock
 
@@ -149,6 +150,26 @@ def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:
             pytest.raises(ValueError, match="Failed to install"),
         ):
             external.gap.require_package("")
+
+        # successfully install a missing package into the GAP package directory
+        install = unittest.mock.Mock(return_value=get_mock_process())
+        with (
+            unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
+            unittest.mock.patch("builtins.input", return_value="y"),
+            unittest.mock.patch("subprocess.run", install),
+        ):
+            assert external.gap.require_package("Example", "https://example.com/gap-package")
+        install.assert_called_once_with(
+            [
+                "git",
+                "clone",
+                "https://example.com/gap-package",
+                os.path.join(external.gap.GAP_ROOT, "pkg", "example"),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
         # all requirements are met!
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="success"):

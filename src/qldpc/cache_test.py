@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import pathlib
 import unittest.mock
 from collections.abc import Hashable
 
@@ -22,7 +23,7 @@ def test_pytest() -> None:
     assert qldpc.cache.get_disk_cache("test") == {}
 
 
-def test_use_disk_cache() -> None:
+def test_use_disk_cache(tmp_path: pathlib.Path) -> None:
     """Cache function outputs."""
 
     cache: dict[Hashable, int] = {}
@@ -55,3 +56,5 @@ def test_use_disk_cache() -> None:
         # raise a warning if trying to delete an entry that does not exist in the cache
         with pytest.warns(UserWarning, match="entry does not exist"):
             qldpc.cache.clear_entry("test_name", "some_key")
+        with pytest.warns(UserWarning, match="located at"):
+            qldpc.cache.clear_entry("test_name", "some_key", cache_dir=tmp_path)
