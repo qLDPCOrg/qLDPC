@@ -1972,7 +1972,7 @@ class LPCode(CSSCode):
         identity = np.eye(block_size, dtype=int)
         lifted_ops_x = ring.field.Zeros((0, num_lifted_columns))
         lifted_ops_z = ring.field.Zeros((0, num_lifted_columns))
-        for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
+        for op_x, op_z in zip(logical_ops_x, logical_ops_z):
             ops_x = op_x.reshape(1, *op_x.shape).lift()
             ops_z = op_z.reshape(1, *op_z.shape).lift()
             inner_product = ops_x @ ops_z.T

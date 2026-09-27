@@ -132,7 +132,7 @@ def test_lifts() -> None:
     # anti-representations for a non-commutative groups with a custom lift are not supported
     group = abstract.QuaternionGroup()
     member = next(iter(group.generate()))
-    with pytest.raises(ValueError, match="Anti-representations.*not supported"):
+    with pytest.raises(ValueError, match=r"Anti-representations.*not supported"):
         group.lift(member, right=True)
 
 

@@ -668,7 +668,7 @@ def test_distance_requires_binary_input() -> None:
     """
     # a field of order > 2 is rejected on the strength of its type alone
     ternary_code = qldpc.codes.classical.HammingCode(3, 3)
-    with pytest.raises(ValueError, match="only support binary codes.*GF\\(3\\)"):
+    with pytest.raises(ValueError, match=r"only support binary codes.*GF\(3\)"):
         qldpc.codes.distance.get_distance_classical(ternary_code.generator)
 
     # an untyped array is rejected on the strength of its entries

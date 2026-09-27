@@ -162,9 +162,9 @@ def test_wedderburn_artin_errors(
     with pytest.raises(ValueError, match="different ring"):
         transformer.decompose_array(abstract.RingArray([different_ring.one]))
 
-    with pytest.raises(ValueError, match="Provided .* components for a ring that should have"):
+    with pytest.raises(ValueError, match=r"Provided .* components for a ring that should have"):
         transformer.recompose([])
-    with pytest.raises(ValueError, match="Provided .* components for a ring that should have"):
+    with pytest.raises(ValueError, match=r"Provided .* components for a ring that should have"):
         transformer.recompose_array([])
 
     with pytest.raises(ValueError, match="inconsistent shapes"):

@@ -658,17 +658,17 @@ def test_rule_func() -> None:
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.
     bad_readout = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(readout_error=0.1))
-    with pytest.raises(ValueError, match="rule for 'H'.*readout_error.*measurement gates"):
+    with pytest.raises(ValueError, match=r"rule for 'H'.*readout_error.*measurement gates"):
         bad_readout.noisy_circuit(stim.Circuit("H 0"))
     bad_reset = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(reset_error=0.1))
-    with pytest.raises(ValueError, match="rule for 'H'.*reset_error.*reset gates"):
+    with pytest.raises(ValueError, match=r"rule for 'H'.*reset_error.*reset gates"):
         bad_reset.noisy_circuit(stim.Circuit("H 0"))
 
     # A returned rule's `after` arity must match the gate application's qubit count.
     bad_arity = circuits.NoiseModel(
         rule_func=lambda op: circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(1, 0.1))
     )
-    with pytest.raises(ValueError, match="rule for 'CX'.*`after` has arity 1"):
+    with pytest.raises(ValueError, match=r"rule for 'CX'.*`after` has arity 1"):
         bad_arity.noisy_circuit(stim.Circuit("CX 0 1"))
 
     # SXYZ can be used as a `rules` key just like MXYZ.
@@ -994,21 +994,21 @@ def test_clifford_nq_error_errors() -> None:
         ).noisy_circuit(stim.Circuit("MPP X0*Y1*Z2"))
 
     # readout_error / reset_error are rejected on rules for gates that can't measure/reset.
-    with pytest.raises(ValueError, match="readout_error.*only valid on measurement"):
+    with pytest.raises(ValueError, match=r"readout_error.*only valid on measurement"):
         circuits.NoiseModel(rules={"H": circuits.NoiseRule(readout_error=0.1)})
-    with pytest.raises(ValueError, match="reset_error.*only valid on reset"):
+    with pytest.raises(ValueError, match=r"reset_error.*only valid on reset"):
         circuits.NoiseModel(rules={"M": circuits.NoiseRule(reset_error=0.1)})
 
 
 def test_pauli_channel_idle_error_rejection() -> None:
     """Multi-qubit `after` rules are not accepted on idle-error rules (all shapes rejected)."""
     channel = circuits.PauliChannel({"XY": 0.01})
-    with pytest.raises(ValueError, match="idle_error.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
         circuits.NoiseModel(idle_error=circuits.NoiseRule(after=channel))
-    with pytest.raises(ValueError, match="additional_error_waiting_for_m_or_r.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"additional_error_waiting_for_m_or_r.*multi-qubit"):
         circuits.NoiseModel(additional_error_waiting_for_m_or_r=circuits.NoiseRule(after=channel))
     # stim.Circuit form is rejected on the same grounds
-    with pytest.raises(ValueError, match="idle_error.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
         circuits.NoiseModel(
             idle_error=circuits.NoiseRule(after=stim.Circuit("DEPOLARIZE2(0.1) 0 1"))
         )
@@ -1124,7 +1124,7 @@ def test_noise_rule_errors() -> None:
         circuits.NoiseModel(clifford_nq_error={2: circuits.PauliChannel({}, num_qubits=3)})
     # Same policy for idle_error: an explicitly-declared arity is validated BEFORE trivializing,
     # so a shape-wrong empty channel is flagged rather than silently accepted.
-    with pytest.raises(ValueError, match="idle_error.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
         circuits.NoiseModel(
             idle_error=circuits.NoiseRule(after=circuits.PauliChannel({}, num_qubits=3))
         )
@@ -1138,9 +1138,9 @@ def test_noise_rule_errors() -> None:
 
     # NoiseRule cannot combine `after`-noise with readout_error / reset_error — those should be
     # separate rules (or handled via NoiseModel-level defaults).
-    with pytest.raises(ValueError, match="after.*readout_error"):
+    with pytest.raises(ValueError, match=r"after.*readout_error"):
         circuits.NoiseRule(after={"X": 0.01}, readout_error=0.1)
-    with pytest.raises(ValueError, match="after.*readout_error"):
+    with pytest.raises(ValueError, match=r"after.*readout_error"):
         circuits.NoiseRule(after=circuits.PauliChannel({"X": 0.01}), reset_error=0.1)
 
 
@@ -1256,7 +1256,9 @@ def test_noise_model_serialization() -> None:
         rules={"SXY": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.05))},
     )
     circuit = stim.Circuit("R 0 1\nH 0\nCX 0 1\nTICK\nM 0 1")
-    for restored in (pickle.loads(pickle.dumps(model)), copy.deepcopy(model)):
+    # This deserializes only the in-memory object constructed above, never untrusted external data.
+    round_tripped = pickle.loads(pickle.dumps(model))  # noqa: S301
+    for restored in (round_tripped, copy.deepcopy(model)):
         assert _circuits_are_equivalent(
             model.noisy_circuit(circuit), restored.noisy_circuit(circuit)
         )

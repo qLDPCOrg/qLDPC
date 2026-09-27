@@ -186,11 +186,11 @@ def test_invalid_arguments() -> None:
     pcm = np.eye(2, dtype=int)
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
 
-    with pytest.raises(ValueError, match="providing a stim.DetectorErrorModel"):
+    with pytest.raises(ValueError, match=r"providing a stim\.DetectorErrorModel"):
         decoders.LookupDecoder(dem, 1, error_channel=[0.1])
     with pytest.raises(ValueError, match="both an error_channel and a penalty_func"):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], penalty_func=lambda _: 0.0)
-    with pytest.raises(ValueError, match="requires providing a stim.DetectorErrorModel"):
+    with pytest.raises(ValueError, match=r"requires providing a stim\.DetectorErrorModel"):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], predict_observable_flips=True)
 
 
