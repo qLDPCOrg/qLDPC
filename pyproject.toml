@@ -71,6 +71,23 @@ urls.Documentation = "https://qldpc.readthedocs.io/en/latest"
 urls.Issues = "https://github.com/qLDPCOrg/qLDPC/issues"
 urls.Repository = "https://github.com/qLDPCOrg/qLDPC"
 
+[dependency-groups]
+ci-docs = [
+  "checks-superstaq>=0.5.67",
+  "pypandoc-binary>=1.13",
+]
+ci-lint = [
+  "checks-superstaq>=0.5.67",
+  "pyproject-fmt>=2",
+]
+ci-test = [
+  "checks-superstaq>=0.5.67",
+  "numba>=0.61",
+  "pytest>=8",
+  "pytest-randomly>=3.10",
+  "pytest-socket>=0.7",
+]
+
 # Check script configuration:
 [tool.ruff]
 line-length = 100
