@@ -42,6 +42,48 @@ def _gadget_merged_csscode(g: GadgetLayout) -> CSSCode:
     )
 
 
+def _validate_one_logical_measurement(
+    merged_code: CSSCode,
+    *,
+    input_dimension: int,
+    operation: str,
+) -> None:
+    """Reject finalized surgery layouts that fix anything other than one logical constraint."""
+    logical_loss = input_dimension - merged_code.dimension
+    if logical_loss != 1:
+        raise ValueError(
+            f"{operation} must fix exactly one logical degree of freedom, but the input encodes "
+            f"{input_dimension} and the merged code encodes {merged_code.dimension} "
+            f"(logical loss {logical_loss}). A reducible logical support can fix its factors "
+            f"separately; boost or replace the gadget before compiling the circuit."
+        )
+
+
+def _validate_bridge_gadget(
+    gadget: GadgetLayout,
+    augmented: GadgetLayout,
+    bridge_extra: np.ndarray,
+    *,
+    side: str,
+) -> None:
+    """Require a joint-circuit gadget to be the same layout used to build its bridge."""
+    n_bridge_rows = int(np.asarray(bridge_extra).shape[0])
+    n_source_rows = augmented.incidence.shape[0] - n_bridge_rows
+    matches = (
+        n_source_rows >= 0
+        and gadget.code is augmented.code
+        and gadget.basis is augmented.basis
+        and np.array_equal(gadget.x, augmented.x)
+        and gadget.support == augmented.support
+        and np.array_equal(gadget.incidence, augmented.incidence[:n_source_rows])
+    )
+    if not matches:
+        raise ValueError(
+            f"bridge does not match supplied g_{side}. Rebuild the bridge from the gadgets passed "
+            f"to build_joint_ppm_circuit, after applying any boosts."
+        )
+
+
 def keep_only_observable(circuit: stim.Circuit, keep_idx: int) -> stim.Circuit:
     """Return a copy of ``circuit`` with all OBSERVABLE_INCLUDE entries dropped except one.
 
@@ -182,6 +224,8 @@ def _surgery_qubit_coordinates(
         assert bridge is not None
         k_l = bridge.g_l_aug.incidence.shape[0]
         k_r = bridge.g_r_aug.incidence.shape[0]
+        n_gauge_l = bridge.g_l_aug.gauge.shape[0]
+        n_gauge_r = bridge.g_r_aug.gauge.shape[0]
 
     n_data_total = n_l + n_r
     w = bridge.width if joint is not None and bridge is not None else 0
@@ -290,14 +334,14 @@ def _check_lane_map(
         n_meas_total = len(gadget.support)
         n_gauge_total = gadget.gauge.shape[0]
     else:
-        g_r, _bridge, intercode = joint
+        g_r, bridge, intercode = joint
         m_X_total = gadget.code.matrix_x.shape[0]
         m_Z_total = gadget.code.matrix_z.shape[0]
         if intercode:
             m_X_total += g_r.code.matrix_x.shape[0]
             m_Z_total += g_r.code.matrix_z.shape[0]
         n_meas_total = len(gadget.support) + len(g_r.support)
-        n_gauge_total = gadget.gauge.shape[0] + g_r.gauge.shape[0]
+        n_gauge_total = bridge.g_l_aug.gauge.shape[0] + bridge.g_r_aug.gauge.shape[0]
 
     result: dict[int, int] = {}
 
@@ -358,12 +402,18 @@ def build_single_ppm_circuit(
     character-to-state mapping.
 
     Raises:
-        ValueError: rounds < 1; or ``data_init`` is neither length 1 nor length
+        ValueError: rounds < 1; the finalized gadget fixes anything other than one logical degree
+            of freedom; or ``data_init`` is neither length 1 nor length
             ``gadget.code.num_qudits``, or contains a character outside "01+-".
     """
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
     merged_code = _gadget_merged_csscode(gadget)
+    _validate_one_logical_measurement(
+        merged_code,
+        input_dimension=gadget.code.dimension,
+        operation="build_single_ppm_circuit",
+    )
     qubit_ids = QubitIDs.from_code(merged_code)
     n_data = gadget.code.num_qudits
     data_ids = qubit_ids.data[:n_data]
@@ -687,16 +737,25 @@ def build_joint_ppm_circuit(
         ``data_init=("0", "+")`` → c_l in ``|0⟩_L``, c_r in ``|+⟩_L``.
 
     Raises:
-        ValueError: rounds < 1; a tuple ``data_init`` on an intracode pair, which has a single data
-            set; a tuple of length != 2; or a per-code spec whose length matches neither 1 nor that
-            code's data-qubit count.
+        ValueError: rounds < 1; the bridge was built from different gadget layouts; the finalized
+            joint code fixes anything other than one logical degree of freedom; a tuple
+            ``data_init`` on an intracode pair, which has a single data set; a tuple of length != 2;
+            or a per-code spec whose length matches neither 1 nor that code's data-qubit count.
         TypeError: ``data_init`` is not a str, tuple, list, or None, or a tuple entry is not a str.
     """
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
+    _validate_bridge_gadget(g_l, bridge.g_l_aug, bridge.extra_ancilla_l, side="l")
+    _validate_bridge_gadget(g_r, bridge.g_r_aug, bridge.extra_ancilla_r, side="r")
     joint_code = _stitch_to_joint_csscode(g_l, g_r, bridge)
-    qubit_ids = QubitIDs.from_code(joint_code)
     intercode = g_l.code is not g_r.code
+    input_dimension = g_l.code.dimension + (g_r.code.dimension if intercode else 0)
+    _validate_one_logical_measurement(
+        joint_code,
+        input_dimension=input_dimension,
+        operation="build_joint_ppm_circuit",
+    )
+    qubit_ids = QubitIDs.from_code(joint_code)
 
     g_l_aug, g_r_aug = bridge.g_l_aug, bridge.g_r_aug
     n_l = g_l.code.num_qudits

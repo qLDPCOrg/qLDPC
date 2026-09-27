@@ -668,6 +668,17 @@ def test_build_gadget_rejects_a_non_qubit_code() -> None:
 
 
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
+def test_build_gadget_rejects_a_subsystem_code(basis: PauliXZ) -> None:
+    """Subsystem gauge generators do not define commuting stabilizers for the merged code."""
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.BaconShorCode(3)
+    logical = np.asarray(code.get_logical_ops(basis)[0]).astype(np.uint8)
+    with pytest.raises(ValueError, match=r"only stabilizer \(non-subsystem\) CSS codes"):
+        build_gadget(code, logical, basis=basis)
+
+
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_single_ppm_merged_code_is_css_and_drops_one_logical(basis: PauliXZ) -> None:
     """The merged code commutes and carries one logical fewer than the data code.
 

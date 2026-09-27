@@ -212,11 +212,16 @@ def build_gadget(
     basis=Pauli.Z: measures a logical Z (PPM of Z̄). Validates H_X @ x == 0.
 
     Raises:
-        ValueError: code is not over GF(2); x has an entry outside {0, 1}; basis is neither Pauli.X
-            nor Pauli.Z; x fails the complementary check equation (H_Z @ x == 0 for basis=X,
-            H_X @ x == 0 for basis=Z); x is the zero vector; or x lies in the row space of the
-            measured basis's check matrix, making it a stabilizer rather than a logical operator.
+        ValueError: code is a subsystem code or is not over GF(2); x has an entry outside {0, 1};
+            basis is neither Pauli.X nor Pauli.Z; x fails the complementary check equation
+            (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z); x is the zero vector; or x lies
+            in the row space of the measured basis's check matrix, making it a stabilizer rather
+            than a logical operator.
     """
+    if code.is_subsystem_code:
+        raise ValueError(
+            "build_gadget currently supports only stabilizer (non-subsystem) CSS codes."
+        )
     if code.field.order != 2:
         raise ValueError(
             f"build_gadget requires a qubit code, got one over GF({code.field.order}). The gauge "

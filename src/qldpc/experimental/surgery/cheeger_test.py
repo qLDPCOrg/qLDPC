@@ -248,6 +248,21 @@ def test_boost_gadget_rejects_unknown_method() -> None:
         boost_gadget(g, method="bogus", target=1.0)
 
 
+@pytest.mark.parametrize("method,target", [("combinatorial", 2.0), ("distance", 1.0)])
+def test_boost_gadget_rejects_an_already_augmented_layout(method: str, target: float) -> None:
+    """A second boost is rejected instead of silently dropping rows added by the first."""
+    from qldpc.experimental.surgery import boost_gadget, build_gadget
+
+    data = load_webster_seed_set(0)
+    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    gadget = build_gadget(code, _webster_x_bar_operator(data), basis=Pauli.X)
+    augmented = boost_gadget(gadget, method="combinatorial", target=2.0, seed=0)
+    assert augmented.incidence.shape[0] > gadget.incidence.shape[0]
+
+    with pytest.raises(ValueError, match="chaining boosts is not supported"):
+        boost_gadget(augmented, method=method, target=target, seed=0)
+
+
 def test_exact_boundary_cheeger_n_V_below_2_returns_inf() -> None:
     """_exact_boundary_cheeger on a 1-column F returns (inf, [0])."""
     import galois

@@ -477,12 +477,21 @@ def boost_gadget(
         confirm it by computing the exact distance of the code HX_merged / HZ_merged define.
 
     Raises:
-        ValueError: method is neither 'combinatorial' nor 'distance', target is not positive, or
-            the combinatorial method is used with ``|V_0|`` > 26.
+        ValueError: gadget is already augmented; method is neither 'combinatorial' nor 'distance',
+            target is not positive, or the combinatorial method is used with ``|V_0|`` > 26.
         RuntimeError: the chosen method could not reach ``target``. Lower it; raising
             max_extra_qubits helps only when the budget is what ran out, which the message says.
             For method='distance', retrying can also succeed, since its screen is not seeded.
     """
+    from .gadget import _step1_restriction
+
+    _, _, bare_incidence = _step1_restriction(gadget.code, gadget.x, basis=gadget.basis)
+    if not np.array_equal(gadget.incidence, bare_incidence):
+        raise ValueError(
+            "boost_gadget requires an unaugmented layout returned directly by build_gadget; "
+            "chaining boosts is not supported."
+        )
+
     if method == "combinatorial":
         return _boost_gadget_cheeger_combinatorial(
             gadget,

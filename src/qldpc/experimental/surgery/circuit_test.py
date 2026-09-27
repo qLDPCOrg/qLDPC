@@ -45,6 +45,40 @@ def test_build_single_ppm_circuit_noiseless_compiles() -> None:
     assert len(circuit) > 0
 
 
+def test_single_ppm_rejects_a_reducible_logical_until_boosted() -> None:
+    """A circuit cannot silently fix both factors of a requested logical product."""
+    from qldpc.experimental.surgery import boost_gadget
+    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    left, right = codes.SteaneCode(), codes.SteaneCode()
+    code = codes.CSSCode.stack([left, right])
+    logical_product = np.concatenate(
+        [
+            np.asarray(left.get_logical_ops(Pauli.X)[0]).astype(np.uint8),
+            np.asarray(right.get_logical_ops(Pauli.X)[0]).astype(np.uint8),
+        ]
+    )
+    bare = build_gadget(code, logical_product, basis=Pauli.X)
+    with pytest.raises(ValueError, match=r"logical loss 2"):
+        build_single_ppm_circuit(bare, rounds=1)
+
+    boosted = boost_gadget(bare, method="combinatorial", target=1.0, seed=0)
+    assert isinstance(build_single_ppm_circuit(boosted, rounds=1), stim.Circuit)
+
+
+def test_single_ppm_accepts_a_logical_times_a_stabilizer() -> None:
+    """Equivalent representatives do not trigger the reducible-logical guard."""
+    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    stabilizer = np.asarray(code.matrix_x[0]).astype(np.uint8)
+    gadget = build_gadget(code, logical ^ stabilizer, basis=Pauli.X)
+    assert isinstance(build_single_ppm_circuit(gadget, rounds=1), stim.Circuit)
+
+
 def test_build_single_ppm_circuit_noiseless_no_detectors_fire() -> None:
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -752,6 +786,54 @@ def test_build_joint_ppm_circuit_meas_check_ids_no_UB() -> None:
     assert dets.sum() == 0
 
 
+def test_joint_ppm_rejects_a_bridge_for_different_same_shape_gadgets() -> None:
+    """Shape-compatible gadgets cannot substitute for the operators stored in a bridge."""
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    data = load_webster_seed_set(0)
+    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    g_a = build_gadget(code, _webster_x_bar_operator(data, "X_bar_1"), basis=Pauli.X)
+    g_b = build_gadget(code, _webster_x_bar_operator(data, "X_bar_k2p1"), basis=Pauli.X)
+    bridge = build_bridge(g_a, g_a)
+
+    with pytest.raises(ValueError, match=r"bridge does not match supplied g_r"):
+        build_joint_ppm_circuit(g_a, g_b, bridge, rounds=1)
+
+
+def test_joint_ppm_rejects_a_gadget_boosted_after_bridge_construction() -> None:
+    """A bridge must be rebuilt after either source gadget changes."""
+    from qldpc.experimental.surgery import boost_gadget
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    data = load_webster_seed_set(0)
+    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    g_l = build_gadget(code, _webster_x_bar_operator(data, "X_bar_1"), basis=Pauli.X)
+    g_r = build_gadget(code, _webster_x_bar_operator(data, "X_bar_k2p1"), basis=Pauli.X)
+    bridge = build_bridge(g_l, g_r)
+    boosted_l = boost_gadget(g_l, method="combinatorial", target=2.0, seed=0)
+
+    with pytest.raises(ValueError, match=r"bridge does not match supplied g_l"):
+        build_joint_ppm_circuit(boosted_l, g_r, bridge, rounds=1)
+
+
+def test_joint_ppm_rejects_an_identity_product() -> None:
+    """An intracode L̄·L̄ bridge fixes no logical degree of freedom."""
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
+
+    with pytest.raises(ValueError, match=r"logical loss 0"):
+        build_joint_ppm_circuit(gadget, gadget, build_bridge(gadget, gadget), rounds=1)
+
+
 def test_build_joint_ppm_circuit_intercode_noiseless_observables_zero() -> None:
     """Cross-check obs0 == obs1 per shot across all 4 parity inits.
 
@@ -1382,6 +1464,44 @@ def test_joint_ppm_qubit_coords_intercode_layout() -> None:
     assert len(y6) == expected_y6_count, (
         f"y=6 expected {expected_y6_count} qubits (w={w} bridge data + w-1 cycle ancillas), got {len(y6)}"
     )
+
+
+def test_joint_ppm_augmented_gauge_rows_stay_in_gauge_lane() -> None:
+    """Bridge-added gauge checks use lane 5; only adapter cycle checks use lane 6."""
+    from qldpc.circuits.bookkeeping import QubitIDs
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.circuit import (
+        _check_lane_map,
+        build_joint_ppm_circuit,
+    )
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    from .conftest import _webster_z_bar_operator
+
+    data = load_webster_seed_set(1)
+    code_l = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    code_r = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    g_l = build_gadget(code_l, _webster_z_bar_operator(data, "Z_bar_1"), basis=Pauli.Z)
+    g_r = build_gadget(code_r, _webster_z_bar_operator(data, "Z_bar_k2p1"), basis=Pauli.Z)
+    bridge = build_bridge(g_l, g_r)
+    bare_gauge_count = g_l.gauge.shape[0] + g_r.gauge.shape[0]
+    augmented_gauge_count = bridge.g_l_aug.gauge.shape[0] + bridge.g_r_aug.gauge.shape[0]
+    assert augmented_gauge_count > bare_gauge_count, "fixture must add a bridge gauge row"
+
+    circuit, joint_code = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=1)
+    by_lane = collections.Counter(
+        int(coords[1]) for coords in circuit.get_final_qubit_coordinates().values()
+    )
+    assert by_lane[5] == augmented_gauge_count
+    assert by_lane[6] == 2 * bridge.width - 1
+
+    qubit_ids = QubitIDs.from_code(joint_code)
+    lane_of = _check_lane_map(g_l, qubit_ids, joint=(g_r, bridge, True))
+    data_x_checks = code_l.matrix_x.shape[0] + code_r.matrix_x.shape[0]
+    gauge_ids = qubit_ids.checks_x[data_x_checks : data_x_checks + augmented_gauge_count]
+    cycle_ids = qubit_ids.checks_x[data_x_checks + augmented_gauge_count :]
+    assert {lane_of[check_id] for check_id in gauge_ids} == {5}
+    assert {lane_of[check_id] for check_id in cycle_ids} == {6}
 
 
 def test_logical_state_init_zero_and_plus_broadcast() -> None:
