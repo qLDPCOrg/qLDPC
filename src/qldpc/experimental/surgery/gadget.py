@@ -1,16 +1,9 @@
 """L=1 gadget construction (Webster, Smith, Cohen arXiv:2511.15989 §II A).
 
-Three named stages. The first two carry out Webster §II A's construction; the third writes its
-result into check matrices and has no counterpart in the paper::
-
-    _step1_restriction  — the restriction F that Webster §II A steps 1-2 define: a κ_j per Z-check
-                          S_j ∈ S_L, a χ_i per qubit q_i ∈ supp(L), with κ_j ∈ supp(χ_i) iff
-                          q_i ∈ supp(S_j)
-    _step2_gauge_fix    — Webster §II A step 3: one gauge-fixing check per element of a basis of
-                          ker(H_X,gadget) = ker(F.T). The paper writes the count as
-                          ``|S_L| - wt(L) + 1``; the general form is ``|S_L| - rank(F)``, and the
-                          two agree whenever dim ker(F) = 1, as they do for the paper's four codes
-    _step3_assemble     — block assembly of HX_merged, HZ_merged
+The construction restricts complementary checks to the logical support, computes a gauge basis for
+that incidence matrix, and assembles the resulting merged CSS checks. The paper writes the number
+of gauge-fixing checks as ``|S_L| - wt(L) + 1``; the general form is ``|S_L| - rank(F)``, and the
+two agree whenever dim ker(F) = 1, as they do for the paper's four codes.
 
 Notation (used throughout the surgery package; the symbols follow Webster/Cohen/Cross, not Cain).
 For a logical measured on support V_0::
@@ -70,8 +63,35 @@ class GadgetLayout:
     HZ_merged: np.ndarray  # Z checks of the merged code, same qubit ordering
     basis: PauliXZ  # Pauli.X to measure a logical X, Pauli.Z for a logical Z
 
+    def _base_incidence(self) -> np.ndarray:
+        """Incidence matrix before any boost or bridge ancillas were added."""
+        _, _, incidence = _restrict_checks_to_support(self.code, self.x, basis=self.basis)
+        return incidence
 
-def _step1_restriction(
+    @property
+    def is_augmented(self) -> bool:
+        """Whether this layout contains ancillas beyond the data-code restriction."""
+        return not np.array_equal(self.incidence, self._base_incidence())
+
+    @property
+    def added_ancilla_incidence(self) -> np.ndarray:
+        """Rows added after the data-code restriction, in their current order."""
+        base_rows = self._base_incidence().shape[0]
+        return self.incidence[base_rows:].copy()
+
+    def with_added_ancillas(self, incidence_rows: np.ndarray) -> GadgetLayout:
+        """Return a layout with additional weight-2 ancilla rows, preserving existing additions."""
+        added = np.asarray(incidence_rows).astype(np.uint8)
+        if added.ndim != 2 or added.shape[1] != len(self.support):
+            width = added.shape[1] if added.ndim == 2 else None
+            raise ValueError(
+                f"incidence_rows has {width} columns; expected {len(self.support)} (= |support|)"
+            )
+        combined = np.vstack([self.added_ancilla_incidence, added])
+        return _rebuild_with_added_ancillas(self.code, self.x, combined, basis=self.basis)
+
+
+def _restrict_checks_to_support(
     code: CSSCode,
     x: np.ndarray,
     *,
@@ -103,7 +123,7 @@ def _step1_restriction(
     return support, data_checks, incidence.astype(np.uint8)
 
 
-def _step2_gauge_fix(incidence: np.ndarray) -> np.ndarray:
+def _compute_gauge_basis(incidence: np.ndarray) -> np.ndarray:
     """Webster §II A step 3 — G whose rows form a canonical basis of ker(F.T) over GF(2).
 
     Uses galois ``left_null_space`` (row-reduced) so the basis is deterministic.
@@ -114,8 +134,8 @@ def _step2_gauge_fix(incidence: np.ndarray) -> np.ndarray:
     return np.asarray(gauge).astype(np.uint8)
 
 
-def _assemble_HX_L1(
-    HX_data: np.ndarray,
+def _assemble_measurement_checks(
+    data_checks: np.ndarray,
     support_indices: np.ndarray,
     incidence: np.ndarray,
 ) -> np.ndarray:
@@ -123,36 +143,36 @@ def _assemble_HX_L1(
 
     This builds the side carrying the χ measurement checks, which is the X side for basis=X and the
     Z side for basis=Z; callers pass the matching data check matrix. The complementary side has a
-    different block shape and is assembled directly in _step3_assemble.
+    different block shape and is assembled directly in ``_assemble_merged_checks``.
 
     Args:
-        HX_data: the measured basis's data check matrix, shape (mX, n), uint8.
+        data_checks: the measured basis's data check matrix, shape (m, n), uint8.
         support_indices: indices of V_0 within the n data qubits, shape (|V_0|,).
         incidence: restriction matrix, shape (|C_0|, |V_0|), uint8.
 
     Returns:
-        HX_merged: shape (mX + |V_0|, n + |C_0|), uint8.
+        merged_checks: shape (m + |V_0|, n + |C_0|), uint8.
     """
-    mX, n = HX_data.shape
+    num_checks, n = data_checks.shape
     n_v0, n_c0 = int(incidence.shape[1]), int(incidence.shape[0])
     n_merged = n + n_c0
-    top = np.hstack([HX_data, np.zeros((mX, n_c0), dtype=np.uint8)]).astype(np.uint8)
+    top = np.hstack([data_checks, np.zeros((num_checks, n_c0), dtype=np.uint8)]).astype(np.uint8)
     bot = np.zeros((n_v0, n_merged), dtype=np.uint8)
     bot[np.arange(n_v0), np.asarray(support_indices)] = 1
     bot[:, n:] = incidence.T
     return np.vstack([top, bot]).astype(np.uint8)
 
 
-def _step3_assemble(
+def _assemble_merged_checks(
     code: CSSCode,
     support: tuple[int, ...],
-    data_checks: tuple[int, ...],
+    data_checks: tuple[int | None, ...],
     incidence: np.ndarray,
     gauge: np.ndarray,
     *,
     basis: PauliXZ = Pauli.X,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Block assembly of HX_merged, HZ_merged from the Webster §II A pieces.
+    """Assemble HX_merged and HZ_merged from the Webster §II A pieces.
 
     basis=X (default): χ rows added to HX_merged, G to HZ_merged.
     basis=Z: χ rows added to HZ_merged, G to HX_merged (basis-symmetric dual).
@@ -170,15 +190,15 @@ def _step3_assemble(
     else:
         incidence_tilde = np.zeros((mX, nC), dtype=np.uint8)
     for k, j in enumerate(data_checks):
-        if j < 0:
-            continue  # sentinel for extra-κ rows from _build_gadget_augmented
+        if j is None:
+            continue
         incidence_tilde[j, k] = 1
 
     support_arr = np.asarray(support, dtype=np.int_)
 
     if basis is Pauli.X:
         # χ rows extend HX_merged; G rows extend HZ_merged
-        HX_merged = _assemble_HX_L1(HX, support_arr, incidence)
+        HX_merged = _assemble_measurement_checks(HX, support_arr, incidence)
         HZ_merged = np.block(
             [
                 [HZ, incidence_tilde],
@@ -187,7 +207,7 @@ def _step3_assemble(
         ).astype(np.uint8)
     else:
         # basis=Z (symmetric dual): χ rows extend HZ_merged; G rows extend HX_merged
-        HZ_merged = _assemble_HX_L1(HZ, support_arr, incidence)
+        HZ_merged = _assemble_measurement_checks(HZ, support_arr, incidence)
         HX_merged = np.block(
             [
                 [HX, incidence_tilde],
@@ -262,9 +282,9 @@ def build_gadget(
             f"operator, and the gadget would measure the identity."
         )
 
-    support, data_checks, incidence = _step1_restriction(code, x, basis=basis)
-    gauge = _step2_gauge_fix(incidence)
-    HX_m, HZ_m = _step3_assemble(code, support, data_checks, incidence, gauge, basis=basis)
+    support, data_checks, incidence = _restrict_checks_to_support(code, x, basis=basis)
+    gauge = _compute_gauge_basis(incidence)
+    HX_m, HZ_m = _assemble_merged_checks(code, support, data_checks, incidence, gauge, basis=basis)
     return GadgetLayout(
         code=code,
         x=x,
@@ -277,7 +297,7 @@ def build_gadget(
     )
 
 
-def _build_gadget_augmented(
+def _rebuild_with_added_ancillas(
     code: CSSCode,
     x: np.ndarray,
     incidence_extra: np.ndarray,
@@ -290,34 +310,27 @@ def _build_gadget_augmented(
     original Z-check (basis=X) or X-check (basis=Z). The function:
 
     1. Stacks incidence_aug = [incidence; incidence_extra].
-    2. Recomputes G_aug = ker(incidence_aug^T) via _step2_gauge_fix.
-    3. Calls _step3_assemble with the original V_0 / C_0 plus the new κ rows. The extra columns of
+    2. Recomputes G_aug = ker(incidence_aug^T).
+    3. Assembles merged checks with the original V_0 / C_0 plus the new κ rows. The extra columns of
        tilde_F are all zero, since no original check sits on the new κ qubits.
 
     The returned ``incidence`` covers the new κ qubits, whose merged-code qubit indices come after
     the original ones.
     """
     x = np.asarray(x).astype(np.uint8)
-    support, data_checks, incidence = _step1_restriction(code, x, basis=basis)
+    support, data_checks, incidence = _restrict_checks_to_support(code, x, basis=basis)
     incidence_extra = np.asarray(incidence_extra).astype(np.uint8)
-    if incidence_extra.shape[1] != len(support):
-        raise ValueError(
-            f"incidence_extra has {incidence_extra.shape[1]} columns; expected {len(support)} (= |support|)"
-        )
     if incidence_extra.size and not np.all(incidence_extra.sum(axis=1) == 2):
         bad = np.flatnonzero(incidence_extra.sum(axis=1) != 2).tolist()
         raise ValueError(f"incidence_extra rows {bad} have weight != 2; required weight 2.")
 
     incidence_aug = np.vstack([incidence, incidence_extra]).astype(np.uint8)
-    gauge_aug = _step2_gauge_fix(incidence_aug)
+    gauge_aug = _compute_gauge_basis(incidence_aug)
 
-    # _step3_assemble computes tilde_F by indexing into C_0; we need an extended
-    # C_0_aug that has the new rows as sentinels (their tilde_F columns must be 0).
-    # Trick: pass C_0_aug = C_0 + (-1, -1, ...) sentinels which fall outside [0, mZ),
-    # so the tilde_F loop sets nothing for those positions.
+    # Added ancillas are not backed by data-code checks, so their tilde_F columns stay zero.
     n_extra = incidence_extra.shape[0]
-    data_checks_aug = tuple(data_checks) + tuple([-1] * n_extra)
-    HX_aug, HZ_aug = _step3_assemble(
+    data_checks_aug = tuple(data_checks) + (None,) * n_extra
+    HX_aug, HZ_aug = _assemble_merged_checks(
         code,
         support,
         data_checks_aug,

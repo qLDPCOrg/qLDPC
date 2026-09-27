@@ -453,26 +453,10 @@ def build_bridge(
     extra_ancilla_l = _edges_to_incidence_extra(extras_l_edges, len(g_l.support))
     extra_ancilla_r = _edges_to_incidence_extra(extras_r_edges, len(g_r.support))
 
-    # Rebuild the augmented gadgets before SkipTree so that g_l_aug.incidence can be threaded in as
-    # its column space. This ordering is safe because F_aug.shape[0] is fixed by extra_ancilla_*,
-    # not by SkipTree.
-    from .gadget import _build_gadget_augmented, _step1_restriction
-
-    # boost_gadget appends weight-2 κ' rows to g_l.incidence beyond the original
-    # _step1_restriction output. These rows must be preserved when assembling
-    # g_l_aug — SkipTree runs against G_aux (built from boosted g_l.incidence)
-    # but T_full is embedded into g_l_aug.incidence; dropping boost rows leaves
-    # tree edges through boost-κ' silently zeroed and breaks the invariant
-    # T_s · F_aug · P_s = H_R.
-    _, _, _orig_inc_l = _step1_restriction(g_l.code, g_l.x, basis=basis)
-    _, _, _orig_inc_r = _step1_restriction(g_r.code, g_r.x, basis=basis)
-    boost_extras_l = g_l.incidence[_orig_inc_l.shape[0] :].astype(np.uint8)
-    boost_extras_r = g_r.incidence[_orig_inc_r.shape[0] :].astype(np.uint8)
-    combined_extras_l = np.vstack([boost_extras_l, extra_ancilla_l.astype(np.uint8)])
-    combined_extras_r = np.vstack([boost_extras_r, extra_ancilla_r.astype(np.uint8)])
-
-    g_l_aug = _build_gadget_augmented(g_l.code, g_l.x, combined_extras_l, basis=basis)
-    g_r_aug = _build_gadget_augmented(g_r.code, g_r.x, combined_extras_r, basis=basis)
+    # Rebuild before SkipTree so its transform uses every boost and bridge ancilla. The layout
+    # method preserves ancillas that were already present on its input.
+    g_l_aug = g_l.with_added_ancillas(extra_ancilla_l)
+    g_r_aug = g_r.with_added_ancillas(extra_ancilla_r)
 
     # Step 5: SkipTree on induced port subgraph; embed back into full F_aug rows
     T_l, label_l = _run_skiptree_on_port_subgraph(

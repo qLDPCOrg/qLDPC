@@ -17,6 +17,8 @@ limitations under the License.
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 import pytest
 
@@ -83,7 +85,9 @@ def test_boost_gadget_seed_reproducible() -> None:
 
 
 @pytest.mark.parametrize("method", ["combinatorial", "distance"])
-def test_boost_gadget_preserves_css_commutation(method: str) -> None:
+def test_boost_gadget_preserves_css_commutation(
+    method: Literal["combinatorial", "distance"],
+) -> None:
     from qldpc.experimental.surgery.cheeger import boost_gadget
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
@@ -125,9 +129,9 @@ def test_boost_gadget_preserves_css_commutation_both_bases(basis: PauliXZ) -> No
 def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
     """After basis=Z combinatorial boost, χ rows must live in HZ_merged.
 
-    _build_gadget_augmented carries the basis through the rebuild, so this pins that χ rows land in
-    HZ_merged and not HX_merged. Scope is the combinatorial path; the distance path's basis=X is
-    covered by test_boost_gadget_preserves_css_commutation[distance].
+    Layout rebuilding carries the basis through, so this pins that χ rows land in HZ_merged and not
+    HX_merged. Scope is the combinatorial path; the distance path's basis=X is covered by
+    test_boost_gadget_preserves_css_commutation[distance].
     """
     from qldpc.experimental.surgery.cheeger import boost_gadget
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -245,11 +249,29 @@ def test_boost_gadget_rejects_unknown_method() -> None:
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
     with pytest.raises(ValueError, match="unknown method"):
-        boost_gadget(g, method="bogus", target=1.0)
+        boost_gadget(g, method="bogus", target=1.0)  # type: ignore[arg-type]
+
+
+def test_boost_combinatorial_rejects_distance_only_options() -> None:
+    """Method-specific options are explicit and cannot be silently ignored."""
+    from qldpc.experimental.surgery import boost_gadget, build_gadget
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
+    with pytest.raises(ValueError, match="apply only to method='distance'"):
+        boost_gadget(
+            gadget,
+            method="combinatorial",
+            target=1.0,
+            num_trials_per_step=2,
+        )
 
 
 @pytest.mark.parametrize("method,target", [("combinatorial", 2.0), ("distance", 1.0)])
-def test_boost_gadget_rejects_an_already_augmented_layout(method: str, target: float) -> None:
+def test_boost_gadget_rejects_an_already_augmented_layout(
+    method: Literal["combinatorial", "distance"], target: float
+) -> None:
     """A second boost is rejected instead of silently dropping rows added by the first."""
     from qldpc.experimental.surgery import boost_gadget, build_gadget
 
@@ -501,21 +523,18 @@ def test_boost_distance_skips_unusable_augmentation_sample(
 def test_boost_distance_skips_augmentation_that_fails_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An augmentation rejected by _build_gadget_augmented's validation is skipped, not raised."""
+    """An invalid sampled augmentation is skipped rather than aborting the search."""
     from qldpc.experimental.surgery import cheeger as cheeger_module
-    from qldpc.experimental.surgery import gadget as gadget_module
 
-    real_build = gadget_module._build_gadget_augmented
+    real_build = GadgetLayout.with_added_ancillas
 
-    def _build(
-        code: CSSCode, x: np.ndarray, incidence_extra: np.ndarray, *, basis: PauliXZ = Pauli.X
-    ) -> GadgetLayout:
+    def _build(layout: GadgetLayout, incidence_extra: np.ndarray) -> GadgetLayout:
         if incidence_extra.shape[0] == 0:
-            return real_build(code, x, incidence_extra, basis=basis)
+            return real_build(layout, incidence_extra)
         raise ValueError("incidence_extra rows have weight != 2; required weight 2.")
 
     _stub_distance_bound(monkeypatch, [0])
-    monkeypatch.setattr(gadget_module, "_build_gadget_augmented", _build)
+    monkeypatch.setattr(GadgetLayout, "with_added_ancillas", _build)
     with pytest.raises(RuntimeError, match="could not reach target_distance"):
         cheeger_module._boost_gadget_distance(
             _webster0_gadget(),

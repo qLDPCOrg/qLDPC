@@ -66,12 +66,12 @@ def test_gadget_layout_is_frozen_dataclass() -> None:
         inst.code = object()  # type: ignore[misc,assignment]
 
 
-def test_step1_restriction_steane() -> None:
-    from qldpc.experimental.surgery.gadget import _step1_restriction
+def test_restrict_checks_to_support_steane() -> None:
+    from qldpc.experimental.surgery.gadget import _restrict_checks_to_support
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    support, data_checks, incidence = _step1_restriction(code, x)
+    support, data_checks, incidence = _restrict_checks_to_support(code, x)
     # V_0 = supp(x), sorted ascending
     assert support == tuple(int(i) for i in np.where(x)[0])
     assert list(support) == sorted(support)
@@ -88,13 +88,13 @@ def test_step1_restriction_steane() -> None:
     assert np.array_equal((incidence @ ones) % 2, np.zeros(len(data_checks), dtype=np.uint8))
 
 
-def test_step2_gauge_fix_basis_property() -> None:
-    from qldpc.experimental.surgery.gadget import _step1_restriction, _step2_gauge_fix
+def test_compute_gauge_basis_property() -> None:
+    from qldpc.experimental.surgery.gadget import _compute_gauge_basis, _restrict_checks_to_support
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    _, _, incidence = _step1_restriction(code, x)
-    gauge = _step2_gauge_fix(incidence)
+    _, _, incidence = _restrict_checks_to_support(code, x)
+    gauge = _compute_gauge_basis(incidence)
     # Webster §II A step 3: G F = 0 over GF(2)
     assert gauge.shape[1] == incidence.shape[0]
     GF = (gauge @ incidence) % 2
@@ -106,14 +106,14 @@ def test_step2_gauge_fix_basis_property() -> None:
     assert gauge.shape[0] == r_expected
 
 
-def test_step2_gauge_fix_deterministic() -> None:
+def test_compute_gauge_basis_deterministic() -> None:
     """Same F twice → byte-identical G (non-trivial: rank-deficient F → non-empty G)."""
-    from qldpc.experimental.surgery.gadget import _step2_gauge_fix
+    from qldpc.experimental.surgery.gadget import _compute_gauge_basis
 
     # 3x3 matrix with rank 2 (row 0 + row 1 = row 2 over GF(2)), so G has 1 row.
     incidence = np.array([[1, 0, 1], [0, 1, 1], [1, 1, 0]], dtype=np.uint8)
-    gauge1 = _step2_gauge_fix(incidence)
-    gauge2 = _step2_gauge_fix(incidence)
+    gauge1 = _compute_gauge_basis(incidence)
+    gauge2 = _compute_gauge_basis(incidence)
     assert gauge1.shape == (1, 3), f"expected G shape (1,3), got {gauge1.shape}"
     assert np.array_equal(gauge1, gauge2)
     # And sanity-check the basis property holds on this F too.
@@ -122,19 +122,21 @@ def test_step2_gauge_fix_deterministic() -> None:
     )
 
 
-def test_step3_assemble_basis_z_places_chi_in_HZ_merged_and_G_in_HX_merged() -> None:
+def test_assemble_merged_checks_basis_z_places_chi_in_HZ_and_G_in_HX() -> None:
     """basis=Pauli.Z: χ rows added to HZ_merged (Z-type); G added to HX_merged (X-type)."""
     from qldpc.experimental.surgery.gadget import (
-        _step1_restriction,
-        _step2_gauge_fix,
-        _step3_assemble,
+        _assemble_merged_checks,
+        _compute_gauge_basis,
+        _restrict_checks_to_support,
     )
 
     code = codes.SteaneCode()
     z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    support, data_checks, incidence = _step1_restriction(code, z, basis=Pauli.Z)
-    gauge = _step2_gauge_fix(incidence)
-    HX_m, HZ_m = _step3_assemble(code, support, data_checks, incidence, gauge, basis=Pauli.Z)
+    support, data_checks, incidence = _restrict_checks_to_support(code, z, basis=Pauli.Z)
+    gauge = _compute_gauge_basis(incidence)
+    HX_m, HZ_m = _assemble_merged_checks(
+        code, support, data_checks, incidence, gauge, basis=Pauli.Z
+    )
 
     n, mX, mZ = code.num_qudits, code.matrix_x.shape[0], code.matrix_z.shape[0]
     # For basis=Z: HX_merged grows by r rows (gauge-fix), HZ_merged by |V_0| rows (chi).
@@ -145,18 +147,18 @@ def test_step3_assemble_basis_z_places_chi_in_HZ_merged_and_G_in_HX_merged() -> 
     assert np.array_equal(product, np.zeros_like(product))
 
 
-def test_step3_assemble_steane_css_commutes() -> None:
+def test_assemble_merged_checks_steane_css_commutes() -> None:
     from qldpc.experimental.surgery.gadget import (
-        _step1_restriction,
-        _step2_gauge_fix,
-        _step3_assemble,
+        _assemble_merged_checks,
+        _compute_gauge_basis,
+        _restrict_checks_to_support,
     )
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    support, data_checks, incidence = _step1_restriction(code, x)
-    gauge = _step2_gauge_fix(incidence)
-    HX_m, HZ_m = _step3_assemble(code, support, data_checks, incidence, gauge)
+    support, data_checks, incidence = _restrict_checks_to_support(code, x)
+    gauge = _compute_gauge_basis(incidence)
+    HX_m, HZ_m = _assemble_merged_checks(code, support, data_checks, incidence, gauge)
 
     n, mX, mZ = code.num_qudits, code.matrix_x.shape[0], code.matrix_z.shape[0]
     assert HX_m.shape == (mX + len(support), n + len(data_checks))
@@ -166,16 +168,16 @@ def test_step3_assemble_steane_css_commutes() -> None:
     assert np.array_equal(product, np.zeros_like(product))
 
 
-def test_step3_assemble_csscode_with_distinct_nV_nC() -> None:
+def test_assemble_merged_checks_with_distinct_support_and_check_counts() -> None:
     """Synthetic CSS code where nV != nC — pins F_tilde's shape.
 
     Uses a 5-qubit CSS code with k=1, picking a logical-X representative whose support size (nV=4)
     differs from the number of Z-checks it touches (nC=2).
     """
     from qldpc.experimental.surgery.gadget import (
-        _step1_restriction,
-        _step2_gauge_fix,
-        _step3_assemble,
+        _assemble_merged_checks,
+        _compute_gauge_basis,
+        _restrict_checks_to_support,
     )
 
     # 5-qubit CSS code (k=1).
@@ -194,14 +196,14 @@ def test_step3_assemble_csscode_with_distinct_nV_nC() -> None:
         "x_logical not in ker(HZ)"
     )
 
-    support, data_checks, incidence = _step1_restriction(code, x_logical)
+    support, data_checks, incidence = _restrict_checks_to_support(code, x_logical)
     # V0 = {0,1,2,3} (nV=4); HZ r0 touches {0,1}, r1 touches {0,2} -> data_checks=(0,1) (nC=2)
     assert len(support) != len(data_checks), (
         f"nV={len(support)} == nC={len(data_checks)}: this test requires nV != nC to catch the bug"
     )
 
-    gauge = _step2_gauge_fix(incidence)
-    HX_m, HZ_m = _step3_assemble(code, support, data_checks, incidence, gauge)
+    gauge = _compute_gauge_basis(incidence)
+    HX_m, HZ_m = _assemble_merged_checks(code, support, data_checks, incidence, gauge)
 
     # 1. CSS commutation
     product = (HX_m @ HZ_m.T) % 2
@@ -316,13 +318,13 @@ def test_build_gadget_basis_is_required() -> None:
         build_gadget(code, x)  # type: ignore[call-arg]
 
 
-def test_step1_restriction_basis_z_uses_HX() -> None:
+def test_restrict_checks_to_support_basis_z_uses_HX() -> None:
     """For basis=Pauli.Z, F = H_X[C_0, V_0] (not H_Z)."""
-    from qldpc.experimental.surgery.gadget import _step1_restriction
+    from qldpc.experimental.surgery.gadget import _restrict_checks_to_support
 
     code = codes.SteaneCode()
     z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    support, data_checks, incidence = _step1_restriction(code, z, basis=Pauli.Z)
+    support, data_checks, incidence = _restrict_checks_to_support(code, z, basis=Pauli.Z)
     HX = np.asarray(code.matrix_x).astype(np.uint8)
     # V_0 = supp(z)
     assert support == tuple(int(i) for i in np.where(z)[0])
@@ -403,9 +405,9 @@ def test_webster_table_1_bare_gadget_qubits_z_basis() -> None:
         )
 
 
-def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None:
+def test_with_added_ancillas_extends_incidence_and_recomputes_gauge() -> None:
     """Augmenting with one weight-2 row adds a column to merged matrices and recomputes G."""
-    from qldpc.experimental.surgery.gadget import _build_gadget_augmented, build_gadget
+    from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
@@ -417,9 +419,12 @@ def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None
     idx_b = g.support.index(support_b)
     extra_incidence[0, idx_a] = 1
     extra_incidence[0, idx_b] = 1
-    g_aug = _build_gadget_augmented(code, x, extra_incidence, basis=Pauli.X)
+    assert not g.is_augmented
+    g_aug = g.with_added_ancillas(extra_incidence)
 
     # incidence_aug = [incidence | extra_incidence] vertically stacked
+    assert g_aug.is_augmented
+    assert np.array_equal(g_aug.added_ancilla_incidence, extra_incidence)
     assert g_aug.incidence.shape == (g.incidence.shape[0] + 1, g.incidence.shape[1])
     assert np.array_equal(g_aug.incidence[: g.incidence.shape[0]], g.incidence)
     assert np.array_equal(g_aug.incidence[g.incidence.shape[0] :], extra_incidence)
@@ -430,8 +435,8 @@ def test_build_gadget_augmented_extends_incidence_and_recomputes_gauge() -> None
     assert np.array_equal(product, np.zeros_like(product))
 
 
-def test_step2_gauge_fix_rows_linearly_independent() -> None:
-    """G rows from _step2_gauge_fix are linearly independent over GF(2).
+def test_compute_gauge_basis_rows_linearly_independent() -> None:
+    """Gauge-basis rows are linearly independent over GF(2).
 
     Webster §II A step 3 requires one INDEPENDENT gauge constraint per basis element of
     ker(H_X,gadget), i.e. |S_L| - rank(F) of them, and a degenerate F
@@ -510,29 +515,29 @@ def test_step2_gauge_fix_rows_linearly_independent() -> None:
         rank = int(np.linalg.matrix_rank(F2(gauge.astype(np.uint8).tolist())))
         assert rank == gauge.shape[0], (
             f"{label}: gauge-fix G has {gauge.shape[0]} rows but rank only "
-            f"{rank}. _step2_gauge_fix returned redundant rows on this F."
+            f"{rank}. _compute_gauge_basis returned redundant rows on this F."
         )
         incidence_mat = g.incidence.astype(np.uint8)
         commute = (gauge.astype(np.uint8) @ incidence_mat) % 2
         assert not commute.any(), f"{label}: G @ F != 0 (gauge-fix output failed commutation)."
 
 
-def test_step1_restriction_rejects_x_shape_mismatch() -> None:
-    """gadget._step1_restriction validates x.shape == (n,)."""
-    from qldpc.experimental.surgery.gadget import _step1_restriction
+def test_restrict_checks_to_support_rejects_x_shape_mismatch() -> None:
+    """The support restriction validates x.shape == (n,)."""
+    from qldpc.experimental.surgery.gadget import _restrict_checks_to_support
 
     code = codes.SteaneCode()
     bad_x = np.zeros(code.num_qudits + 1, dtype=np.uint8)
     with pytest.raises(ValueError, match="expected"):
-        _step1_restriction(code, bad_x)
+        _restrict_checks_to_support(code, bad_x)
 
 
-def test_step2_gauge_fix_empty_incidence_returns_zero_rows() -> None:
-    """_step2_gauge_fix on size-0 incidence returns shape (0, 0) gauge."""
-    from qldpc.experimental.surgery.gadget import _step2_gauge_fix
+def test_compute_gauge_basis_empty_incidence_returns_zero_rows() -> None:
+    """An empty incidence returns a shape-(0, 0) gauge basis."""
+    from qldpc.experimental.surgery.gadget import _compute_gauge_basis
 
     incidence = np.zeros((0, 0), dtype=np.uint8)
-    gauge = _step2_gauge_fix(incidence)
+    gauge = _compute_gauge_basis(incidence)
     assert gauge.shape == (0, 0)
 
 
@@ -567,28 +572,30 @@ def test_build_gadget_rejects_invalid_basis() -> None:
         build_gadget(code, x, basis=Pauli.Y)  # type: ignore[arg-type]
 
 
-def test_build_gadget_augmented_rejects_wrong_width() -> None:
-    """_build_gadget_augmented rejects incidence_extra with wrong column count."""
-    from qldpc.experimental.surgery.gadget import _build_gadget_augmented
+def test_with_added_ancillas_rejects_wrong_width() -> None:
+    """GadgetLayout.with_added_ancillas rejects rows with the wrong width."""
+    from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    gadget = build_gadget(code, x, basis=Pauli.X)
     # support has 3 columns (Steane X-logical weight 3); pass 2-column incidence_extra.
     bad_extra = np.array([[1, 1]], dtype=np.uint8)
     with pytest.raises(ValueError, match="columns"):
-        _build_gadget_augmented(code, x, bad_extra, basis=Pauli.X)
+        gadget.with_added_ancillas(bad_extra)
 
 
-def test_build_gadget_augmented_rejects_non_weight_2_rows() -> None:
-    """_build_gadget_augmented rejects incidence_extra rows with weight != 2."""
-    from qldpc.experimental.surgery.gadget import _build_gadget_augmented
+def test_with_added_ancillas_rejects_non_weight_2_rows() -> None:
+    """GadgetLayout.with_added_ancillas rejects rows with weight != 2."""
+    from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    gadget = build_gadget(code, x, basis=Pauli.X)
     # Width 3 (Steane X-logical), but a row with weight 1 (not 2)
     bad_extra = np.array([[1, 0, 0]], dtype=np.uint8)
     with pytest.raises(ValueError, match="weight"):
-        _build_gadget_augmented(code, x, bad_extra, basis=Pauli.X)
+        gadget.with_added_ancillas(bad_extra)
 
 
 def test_build_gadget_rejects_zero_x() -> None:

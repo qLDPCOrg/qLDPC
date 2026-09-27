@@ -29,12 +29,13 @@ limitations under the License.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Literal
 
 import galois
 import numpy as np
 
 from qldpc.codes.common import CSSCode
+from qldpc.objects import Pauli
 
 from .gadget import GadgetLayout
 
@@ -139,6 +140,17 @@ def cheeger_constant(g: GadgetLayout) -> float:
     return h
 
 
+def _incidence_pairs(incidence: np.ndarray) -> set[tuple[int, int]]:
+    """Column pairs that occur together in at least one incidence row."""
+    pairs: set[tuple[int, int]] = set()
+    for row in incidence:
+        columns = np.flatnonzero(row)
+        for index, left in enumerate(columns):
+            for right in columns[index + 1 :]:
+                pairs.add((int(left), int(right)))
+    return pairs
+
+
 def _augment_incidence_with_random_edges(
     incidence_base: np.ndarray,
     n_new_edges: int,
@@ -157,16 +169,7 @@ def _augment_incidence_with_random_edges(
     if n_X < 2:
         return None
 
-    def _existing_pairs(arr: np.ndarray) -> set[tuple[int, int]]:
-        pairs: set[tuple[int, int]] = set()
-        for row in arr:
-            ones = np.flatnonzero(row)
-            for i in range(len(ones)):
-                for j in range(i + 1, len(ones)):
-                    pairs.add((int(ones[i]), int(ones[j])))
-        return pairs
-
-    pairs = _existing_pairs(incidence)
+    pairs = _incidence_pairs(incidence)
     new_rows: list[np.ndarray] = []
     for _ in range(n_new_edges):
         candidate = None
@@ -215,15 +218,13 @@ def _boost_gadget_cheeger_combinatorial(
         seed: RNG seed for tie-breaking in edge selection.
 
     Returns:
-        A new GadgetLayout with F augmented, rebuilt via _build_gadget_augmented (basis=X/Z handled
-        symmetrically). Its h(F) >= target_h when ``g`` came from build_gadget.
+        A new GadgetLayout with F augmented and its merged checks rebuilt symmetrically in X/Z. Its
+        h(F) >= target_h when ``g`` came from build_gadget.
 
     Raises:
         ValueError: |V_0| > 26 (enumeration infeasible) or target_h <= 0.
         RuntimeError: target_h could not be reached, either within max_extra_qubits or at all.
     """
-    from .gadget import _build_gadget_augmented
-
     if target_h <= 0:
         raise ValueError(f"target_h must be positive, got {target_h}.")
     if max_extra_qubits < 0:
@@ -241,12 +242,7 @@ def _boost_gadget_cheeger_combinatorial(
     if n_V < 2:
         # F has at most one column, so there is no cut to improve: rebuild the gadget unchanged.
         # Reached whenever the measured support has weight ≤ 1.
-        return _build_gadget_augmented(
-            g.code,
-            g.x,
-            np.zeros((0, n_V), dtype=np.uint8),
-            basis=g.basis,
-        )
+        return g.with_added_ancillas(np.zeros((0, n_V), dtype=np.uint8))
 
     half = n_V // 2
     incidence_col_ints = [
@@ -273,15 +269,6 @@ def _boost_gadget_cheeger_combinatorial(
     sizes = np.array(sizes_buf, dtype=np.int32)
     cuts = np.array(cuts_buf, dtype=np.int32)
 
-    def _existing_pairs(arr: np.ndarray) -> set[tuple[int, int]]:
-        pairs: set[tuple[int, int]] = set()
-        for row in arr:
-            ones = np.flatnonzero(row)
-            for a in range(len(ones)):
-                for b in range(a + 1, len(ones)):
-                    pairs.add((int(ones[a]), int(ones[b])))
-        return pairs
-
     extra = 0
     exhausted_pairs = False
     while True:
@@ -304,7 +291,7 @@ def _boost_gadget_cheeger_combinatorial(
 
         rng.shuffle(inside)
         rng.shuffle(outside)
-        pairs = _existing_pairs(incidence)
+        pairs = _incidence_pairs(incidence)
         chosen = None
         for i in inside:
             for j in outside:
@@ -346,7 +333,7 @@ def _boost_gadget_cheeger_combinatorial(
             f"combinatorial boost could not reach target_h={target_h} (reached h={h}): {reason}."
         )
     incidence_extra = incidence[n_orig_rows:].astype(np.uint8)
-    return _build_gadget_augmented(g.code, g.x, incidence_extra, basis=g.basis)
+    return g.with_added_ancillas(incidence_extra)
 
 
 def _boost_gadget_distance(
@@ -387,10 +374,6 @@ def _boost_gadget_distance(
             the screen. Retry, raise decoder_trials or num_trials_per_step, raise max_extra_qubits,
             or lower the target.
     """
-    from qldpc.objects import Pauli as _Pauli
-
-    from .gadget import _build_gadget_augmented
-
     if target_distance <= 0:
         raise ValueError(f"target_distance must be positive, got {target_distance}.")
     if max_extra_qubits < 0:
@@ -408,14 +391,14 @@ def _boost_gadget_distance(
             galois.GF2(np.asarray(layout.HZ_merged).astype(np.int_).tolist()),
             is_subsystem_code=False,
         )
-        bx = merged.get_distance_bound_with_decoder(_Pauli.X, num_trials=decoder_trials)
+        bx = merged.get_distance_bound_with_decoder(Pauli.X, num_trials=decoder_trials)
         if bx < target_distance:
             return False
-        bz = merged.get_distance_bound_with_decoder(_Pauli.Z, num_trials=decoder_trials)
+        bz = merged.get_distance_bound_with_decoder(Pauli.Z, num_trials=decoder_trials)
         return bz >= target_distance
 
     # n_extra = 0: bare gadget first.
-    bare = _build_gadget_augmented(g.code, g.x, np.zeros((0, n_V), dtype=np.uint8), basis=g.basis)
+    bare = g.with_added_ancillas(np.zeros((0, n_V), dtype=np.uint8))
     if _passes_decoder(bare):
         return bare
 
@@ -425,21 +408,14 @@ def _boost_gadget_distance(
             incidence_extra = _augment_incidence_with_random_edges(incidence_base, n_extra, rng)
             if incidence_extra is None:
                 continue
-            # _augment_incidence_with_random_edges returns F_aug = incidence_base + extra rows;
-            # extract just the new rows for _build_gadget_augmented.
+            # _augment_incidence_with_random_edges returns F_aug = incidence_base + extra rows.
             incidence_extra_rows = np.asarray(incidence_extra[incidence_base.shape[0] :]).astype(
                 np.uint8
             )
-            # Best-effort heuristic search: skip augmentations that fail row-weight/shape
-            # validation (the only failure _build_gadget_augmented raises); let anything
-            # unexpected propagate rather than silently swallowing it.
+            # Best-effort heuristic search: skip invalid row shapes/weights, but let unexpected
+            # failures propagate rather than silently swallowing them.
             try:
-                candidate = _build_gadget_augmented(
-                    g.code,
-                    g.x,
-                    incidence_extra_rows,
-                    basis=g.basis,
-                )
+                candidate = g.with_added_ancillas(incidence_extra_rows)
             except ValueError:
                 continue
             if _passes_decoder(candidate):
@@ -456,10 +432,12 @@ def _boost_gadget_distance(
 def boost_gadget(
     gadget: GadgetLayout,
     *,
-    method: str,
+    method: Literal["combinatorial", "distance"],
     target: float,
     seed: int | None = None,
-    **kwargs: Any,
+    max_extra_qubits: int | None = None,
+    num_trials_per_step: int | None = None,
+    decoder_trials: int | None = None,
 ) -> GadgetLayout:
     """Single entry point for Cheeger / distance boost.
 
@@ -469,7 +447,10 @@ def boost_gadget(
         target: target Cheeger constant (for combinatorial) or
             target distance (for distance method; cast via int(target)).
         seed: RNG seed.
-        **kwargs: forwarded to the underlying boost function.
+        max_extra_qubits: cap on new ancillas. Defaults to 50 for the combinatorial method and 30
+            for the distance method.
+        num_trials_per_step: distance-method random augmentations per ancilla count. Defaults to 20.
+        decoder_trials: distance-method BP+OSD trials per candidate. Defaults to 10.
 
     Returns:
         A NEW GadgetLayout with boosted incidence, gauge, HX_merged, HZ_merged. method='distance'
@@ -477,27 +458,29 @@ def boost_gadget(
         confirm it by computing the exact distance of the code HX_merged / HZ_merged define.
 
     Raises:
-        ValueError: gadget is already augmented; method is neither 'combinatorial' nor 'distance',
-            target is not positive, or the combinatorial method is used with ``|V_0|`` > 26.
+        ValueError: gadget is already augmented; method is neither 'combinatorial' nor 'distance';
+            target is not positive; distance-only options are passed to the combinatorial method; or
+            the combinatorial method is used with ``|V_0|`` > 26.
         RuntimeError: the chosen method could not reach ``target``. Lower it; raising
             max_extra_qubits helps only when the budget is what ran out, which the message says.
             For method='distance', retrying can also succeed, since its screen is not seeded.
     """
-    from .gadget import _step1_restriction
-
-    _, _, bare_incidence = _step1_restriction(gadget.code, gadget.x, basis=gadget.basis)
-    if not np.array_equal(gadget.incidence, bare_incidence):
+    if gadget.is_augmented:
         raise ValueError(
             "boost_gadget requires an unaugmented layout returned directly by build_gadget; "
             "chaining boosts is not supported."
         )
 
     if method == "combinatorial":
+        if num_trials_per_step is not None or decoder_trials is not None:
+            raise ValueError(
+                "num_trials_per_step and decoder_trials apply only to method='distance'."
+            )
         return _boost_gadget_cheeger_combinatorial(
             gadget,
             target_h=target,
+            max_extra_qubits=50 if max_extra_qubits is None else max_extra_qubits,
             seed=seed,
-            **kwargs,
         )
     if method == "distance":
         # Validate before the cast, so the rejection quotes the target the caller wrote rather than
@@ -510,7 +493,9 @@ def boost_gadget(
         return _boost_gadget_distance(
             gadget,
             target_distance=int(target),
+            max_extra_qubits=30 if max_extra_qubits is None else max_extra_qubits,
+            num_trials_per_step=20 if num_trials_per_step is None else num_trials_per_step,
+            decoder_trials=10 if decoder_trials is None else decoder_trials,
             seed=seed,
-            **kwargs,
         )
     raise ValueError(f"unknown method: {method!r}. Allowed: 'combinatorial', 'distance'.")
