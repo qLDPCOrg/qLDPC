@@ -71,10 +71,10 @@ print("logical qubits:", code.dimension)
 
 That object is ready for more than a parameter check: inspect its parity checks and logical operators, choose a decoder, estimate a logical error rate, or use it in a memory experiment.
 
-### Go deeper: a lifted-product code
+### Go deeper: a subsystem lifted-product code
 
-For a more technical taste, the next example builds a parity-check matrix over the group algebra `GF(2)[C₅]`, lifts each group-ring entry to a 5×5 binary block, and hands the result to `LPCode`.
-It follows the [lift-connected surface-code construction](https://arxiv.org/abs/2401.02911) and produces a 125-qubit CSS code encoding 5 logical qubits.
+For a more technical taste, the next example builds a parity-check matrix over the group algebra `GF(2)[C₅]`, lifts each group-ring entry to a 5×5 binary block, and hands the result to `SLPCode`.
+The [subsystem lifted-product construction](https://arxiv.org/abs/2404.18302) produces an 80-qubit CSS subsystem code with 5 logical qubits and 45 gauge qubits.
 
 ```python
 from qldpc import abstract, codes
@@ -91,10 +91,11 @@ connections = abstract.RingArray.build(
     [[0, x, 0, 0], [0, 0, x, 0], [0, 0, 0, x]],
     ring,
 )
-code = codes.LPCode(repetition + connections)
+code = codes.SLPCode(repetition + connections)
 
-print("physical qubits:", len(code))      # 125
-print("logical qubits:", code.dimension)  # 5
+print("physical qubits:", len(code))            # 80
+print("logical qubits:", code.dimension)        # 5
+print("gauge qubits:", code.gauge_dimension)    # 45
 ```
 
 Continue with the [library map](https://qldpc.readthedocs.io/library_map.html) for the data model and package structure, or open the [example notebooks](https://qldpc.readthedocs.io/examples/index.html) for complete workflows.
