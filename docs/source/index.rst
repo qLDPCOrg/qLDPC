@@ -12,9 +12,9 @@ In practice the tools here work just as well for
 `stabilizer <https://errorcorrectionzoo.org/c/stabilizer>`_ and
 `subsystem <https://errorcorrectionzoo.org/c/oecc>`_ codes more broadly.
 
-See the `README on GitHub <https://github.com/qLDPCOrg/qLDPC>`_ for a high-level overview, and the
-`examples directory <https://github.com/qLDPCOrg/qLDPC/tree/main/examples>`_ for demonstrations and
-use cases.
+Use the :doc:`library map <library_map>` to understand qLDPC's data model and package structure, the
+:doc:`examples <examples/index>` for complete workflows, and the :doc:`API reference
+<autoapi/index>` for exact signatures and construction-specific literature.
 
 Installation
 ------------
@@ -44,8 +44,23 @@ Quickstart
    print("physical qubits:", len(code))     # number of physical qubits, n
    print("logical qubits:", code.dimension) # number of logical qubits, k
 
-The :doc:`examples <examples/index>` walk through common workflows, and the
-:doc:`API reference <autoapi/index>` documents every public class and function.
+Where to go next
+----------------
+
+* :doc:`Library map <library_map>` explains core representations, package responsibilities, common
+  workflows, and stability boundaries.
+* :doc:`Examples <examples/index>` walk from code construction through code-capacity and
+  circuit-level simulations.
+* :doc:`API reference <autoapi/index>` documents every public class and function.
+* The `agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_
+  documents implementation invariants and validation commands.
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+   :caption: User guide
+
+   library_map
 
 .. toctree::
    :maxdepth: 2
