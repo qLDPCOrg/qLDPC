@@ -97,10 +97,10 @@ Per-gate-application noise via a callback (``rule_func``)::
     )
     noisy_circuit = noise_model.noisy_circuit(circuit)
 
-Explicit ``I`` and ``II`` operations may have fixed entries in ``rules`` and are also offered to the
-callback, whose higher precedence permits tag- or duration-sensitive overrides.  Automatic
-``idle_error`` remains independent, so omit it when either mechanism already accounts for all
-idling noise.
+Fixed noise for explicit ``I`` and ``II`` operations can be configured through ``rules``.
+``rule_func`` can instead select tag- or duration-dependent noise and takes precedence when both
+mechanisms match.  Noise from either mechanism is composed with automatic ``idle_error`` because
+explicit identity targets remain idle for automatic idle-noise accounting.
 
 Important note:
 ---------------
@@ -900,9 +900,8 @@ class NoiseModel:
                 ``I`` / ``II`` idle markers that are not classically controlled; it does not affect
                 annotations or pure-noise instructions.  Returning ``None`` for an idle marker falls
                 back to a matching entry in ``rules``, if present, but never to a Clifford default.
-                Automatic ``idle_error`` remains independent and is still applied when configured,
-                so callers that insert all idling errors through ``rules`` or ``rule_func`` should
-                omit ``idle_error``.
+                Automatic ``idle_error`` remains independent and is composed with identity noise
+                selected through ``rules`` or ``rule_func``.
         """
         self.rules = rules
         self.rule_func = rule_func
