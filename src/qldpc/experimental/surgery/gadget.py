@@ -40,6 +40,8 @@ import numpy as np
 from qldpc.codes.common import CSSCode
 from qldpc.objects import Pauli, PauliXZ
 
+from .construction import _CSSConeMaps, _CSSConeResult
+
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class GadgetLayout:
@@ -62,6 +64,31 @@ class GadgetLayout:
     HX_merged: np.ndarray  # X checks of the merged code, over data qubits then ancilla qubits
     HZ_merged: np.ndarray  # Z checks of the merged code, same qubit ordering
     basis: PauliXZ  # Pauli.X to measure a logical X, Pauli.Z for a logical Z
+
+    def _get_cone_result(self) -> _CSSConeResult:
+        """Derive cone provenance while retaining the stored merged matrices as authoritative."""
+        _, data_checks, base_incidence = _restrict_checks_to_support(
+            self.code, self.x, basis=self.basis
+        )
+        num_extra = self.incidence.shape[0] - base_incidence.shape[0]
+        if num_extra < 0:
+            raise ValueError("layout incidence has fewer rows than the data-code restriction")
+        data_checks_aug = tuple(data_checks) + (None,) * num_extra
+        maps = _build_cone_maps(
+            self.code,
+            self.support,
+            data_checks_aug,
+            self.incidence,
+            self.gauge,
+            basis=self.basis,
+        )
+        derived = maps.build(self.code)
+        stored_code = CSSCode(
+            np.asarray(self.HX_merged, dtype=np.int_),
+            np.asarray(self.HZ_merged, dtype=np.int_),
+            is_subsystem_code=False,
+        )
+        return dataclasses.replace(derived, code=stored_code)
 
     def _base_incidence(self) -> np.ndarray:
         """Incidence matrix before any boost or bridge ancillas were added."""
@@ -134,33 +161,32 @@ def _compute_gauge_basis(incidence: np.ndarray) -> np.ndarray:
     return np.asarray(gauge).astype(np.uint8)
 
 
-def _assemble_measurement_checks(
-    data_checks: np.ndarray,
-    support_indices: np.ndarray,
+def _build_cone_maps(
+    code: CSSCode,
+    support: tuple[int, ...],
+    data_checks: tuple[int | None, ...],
     incidence: np.ndarray,
-) -> np.ndarray:
-    """L=1 measured-basis block assembly: [[H_data, 0], [E_V0, F^T]] over GF(2).
-
-    This builds the side carrying the χ measurement checks, which is the X side for basis=X and the
-    Z side for basis=Z; callers pass the matching data check matrix. The complementary side has a
-    different block shape and is assembled directly in ``_assemble_merged_checks``.
-
-    Args:
-        data_checks: the measured basis's data check matrix, shape (m, n), uint8.
-        support_indices: indices of V_0 within the n data qubits, shape (|V_0|,).
-        incidence: restriction matrix, shape (|C_0|, |V_0|), uint8.
-
-    Returns:
-        merged_checks: shape (m + |V_0|, n + |C_0|), uint8.
-    """
-    num_checks, n = data_checks.shape
-    n_v0, n_c0 = int(incidence.shape[1]), int(incidence.shape[0])
-    n_merged = n + n_c0
-    top = np.hstack([data_checks, np.zeros((num_checks, n_c0), dtype=np.uint8)]).astype(np.uint8)
-    bot = np.zeros((n_v0, n_merged), dtype=np.uint8)
-    bot[np.arange(n_v0), np.asarray(support_indices)] = 1
-    bot[:, n:] = incidence.T
-    return np.vstack([top, bot]).astype(np.uint8)
+    gauge: np.ndarray,
+    *,
+    basis: PauliXZ,
+) -> _CSSConeMaps:
+    """Translate the Webster pieces into the internal four-map cone contract."""
+    num_ancillas, num_measurement_checks = incidence.shape
+    measurement_to_data = np.zeros((num_measurement_checks, code.num_qudits), dtype=np.uint8)
+    measurement_to_data[np.arange(num_measurement_checks), np.asarray(support)] = 1
+    num_complement_checks = code.matrix_z.shape[0] if basis is Pauli.X else code.matrix_x.shape[0]
+    complement_from_data = np.zeros((num_complement_checks, num_ancillas), dtype=np.uint8)
+    for column, check in enumerate(data_checks):
+        if check is not None:
+            complement_from_data[check, column] = 1
+    return _CSSConeMaps(
+        basis=basis,
+        measurement_to_data=measurement_to_data,
+        measurement_boundary=np.asarray(incidence.T, dtype=np.uint8),
+        complement_from_data=complement_from_data,
+        complement_boundary=np.asarray(gauge, dtype=np.uint8),
+        measurement_groups=np.ones((1, num_measurement_checks), dtype=np.uint8),
+    )
 
 
 def _assemble_merged_checks(
@@ -177,45 +203,18 @@ def _assemble_merged_checks(
     basis=X (default): χ rows added to HX_merged, G to HZ_merged.
     basis=Z: χ rows added to HZ_merged, G to HX_merged (basis-symmetric dual).
     """
-    HX = np.asarray(code.matrix_x).astype(np.uint8)
-    HZ = np.asarray(code.matrix_z).astype(np.uint8)
-    n = code.num_qudits
-    mX, mZ = HX.shape[0], HZ.shape[0]
-    nC = len(data_checks)
-    r = gauge.shape[0]
-
-    # incidence_tilde : (mZ_or_mX × nC) selection matrix — incidence_tilde[j, k] = 1 iff j == C_0[k]
-    if basis is Pauli.X:
-        incidence_tilde = np.zeros((mZ, nC), dtype=np.uint8)
-    else:
-        incidence_tilde = np.zeros((mX, nC), dtype=np.uint8)
-    for k, j in enumerate(data_checks):
-        if j is None:
-            continue
-        incidence_tilde[j, k] = 1
-
-    support_arr = np.asarray(support, dtype=np.int_)
-
-    if basis is Pauli.X:
-        # χ rows extend HX_merged; G rows extend HZ_merged
-        HX_merged = _assemble_measurement_checks(HX, support_arr, incidence)
-        HZ_merged = np.block(
-            [
-                [HZ, incidence_tilde],
-                [np.zeros((r, n), dtype=np.uint8), gauge.astype(np.uint8)],
-            ]
-        ).astype(np.uint8)
-    else:
-        # basis=Z (symmetric dual): χ rows extend HZ_merged; G rows extend HX_merged
-        HZ_merged = _assemble_measurement_checks(HZ, support_arr, incidence)
-        HX_merged = np.block(
-            [
-                [HX, incidence_tilde],
-                [np.zeros((r, n), dtype=np.uint8), gauge.astype(np.uint8)],
-            ]
-        ).astype(np.uint8)
-
-    return HX_merged, HZ_merged
+    result = _build_cone_maps(
+        code,
+        support,
+        data_checks,
+        incidence,
+        gauge,
+        basis=basis,
+    ).build(code)
+    return (
+        np.asarray(result.code.matrix_x, dtype=np.uint8),
+        np.asarray(result.code.matrix_z, dtype=np.uint8),
+    )
 
 
 def build_gadget(
@@ -284,15 +283,19 @@ def build_gadget(
 
     support, data_checks, incidence = _restrict_checks_to_support(code, x, basis=basis)
     gauge = _compute_gauge_basis(incidence)
-    HX_m, HZ_m = _assemble_merged_checks(code, support, data_checks, incidence, gauge, basis=basis)
+    maps = _build_cone_maps(code, support, data_checks, incidence, gauge, basis=basis)
+    assert maps.measures_exact_span(code, x.reshape(1, -1)), (
+        "internal cone maps do not measure the requested logical operator"
+    )
+    result = maps.build(code)
     return GadgetLayout(
         code=code,
         x=x,
         support=support,
         incidence=incidence,
         gauge=gauge,
-        HX_merged=HX_m,
-        HZ_merged=HZ_m,
+        HX_merged=np.asarray(result.code.matrix_x, dtype=np.uint8),
+        HZ_merged=np.asarray(result.code.matrix_z, dtype=np.uint8),
         basis=basis,
     )
 
@@ -330,7 +333,7 @@ def _rebuild_with_added_ancillas(
     # Added ancillas are not backed by data-code checks, so their tilde_F columns stay zero.
     n_extra = incidence_extra.shape[0]
     data_checks_aug = tuple(data_checks) + (None,) * n_extra
-    HX_aug, HZ_aug = _assemble_merged_checks(
+    maps = _build_cone_maps(
         code,
         support,
         data_checks_aug,
@@ -338,13 +341,17 @@ def _rebuild_with_added_ancillas(
         gauge_aug,
         basis=basis,
     )
+    assert maps.measures_exact_span(code, x.reshape(1, -1)), (
+        "augmented cone maps do not measure the requested logical operator"
+    )
+    result = maps.build(code)
     return GadgetLayout(
         code=code,
         x=x,
         support=support,
         incidence=incidence_aug,
         gauge=gauge_aug,
-        HX_merged=HX_aug,
-        HZ_merged=HZ_aug,
+        HX_merged=np.asarray(result.code.matrix_x, dtype=np.uint8),
+        HZ_merged=np.asarray(result.code.matrix_z, dtype=np.uint8),
         basis=basis,
     )
