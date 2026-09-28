@@ -401,6 +401,19 @@ def test_validating_suggested_decompositions() -> None:
     with pytest.raises(ValueError, match="with 1 error mechanisms"):
         decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {1: components})
 
+    # out-of-range component indices must not cancel and pass the combined-flip check
+    components = frozenset([decoders.FlipPattern([0, 7], [5]), decoders.FlipPattern([1, 7], [5])])
+    with pytest.raises(ValueError, match=r"detectors \[7\] outside the valid range"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
+
+    components = frozenset([decoders.FlipPattern([0], [5]), decoders.FlipPattern([1], [5])])
+    with pytest.raises(ValueError, match=r"observables \[5\] outside the valid range"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
+
+    components = frozenset([decoders.FlipPattern([0, 1]), decoders.FlipPattern()])
+    with pytest.raises(ValueError, match="empty component"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
+
 
 def test_to_circuit() -> None:
     """Round-trip a DEM through DetectorErrorModelArrays and to_circuit."""

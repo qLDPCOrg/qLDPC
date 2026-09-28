@@ -17,6 +17,10 @@ def test_basic() -> None:
     num_bits = 4
     assert codes.RepetitionCode(num_bits).get_code_params() == (num_bits, 1, num_bits)
     assert codes.RingCode(num_bits).get_code_params() == (num_bits, 1, num_bits)
+    ring_code = codes.RingCode(1)
+    assert np.array_equal(ring_code.matrix, [[0]])
+    assert ring_code.is_equiv_to(codes.RepetitionCode(1))
+    assert codes.ClassicalCode(ring_code.matrix).get_code_params() == (1, 1, 1)
 
     # the rank of repetition and Hamming codes is independent of the field
     assert codes.RepetitionCode(3, 2).rank == codes.RepetitionCode(3, 3).rank

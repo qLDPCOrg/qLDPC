@@ -7,7 +7,7 @@ In a nutshell, `qLDPC` provides methods to build a variety of built-in and custo
 - constructing a canonical basis of logical Pauli operators,
 - computing (or upper-bounding) code distance,
 - computing logical error rates in a code-capacity model,
-- computing the logical error rates and post-selection rates of state preparation circuits,
+- computing the logical error rates and discard rates of state preparation circuits,
 - constructing circuits of interest, such as memory experiments and logical encoding circuits,
 - defining custom Pauli noise models,
 - using a decoder of your choice for any of the above (or other, unlisted) tasks.
@@ -78,7 +78,7 @@ Notable features include:
   - `DetectorErrorModelArrays`: representation of a `stim.DetectorErrorModel` with `scipy.sparse` and `numpy` arrays (`detector_flip_matrix`, `observable_flip_matrix`, `error_probs`).
 - `qldpc.circuits`: module for [`stim`](https://github.com/quantumlib/Stim) circuits and circuit utilities, including:
   - `get_memory_experiment`: circuit to test the performance of a code as a quantum memory (using various pre-built syndrome measurement strategies), appropriately annotated with detectors and observables.
-  - `get_state_prep_diagnostic_circuit`, `get_state_prep_diagnostic_tasks`, `get_logical_error_and_discard_rate`: helper methods for computing the logical error rates and post-selection rates of state preparation circuits.
+  - `get_state_prep_diagnostic_circuit`, `get_state_prep_diagnostic_tasks`, `get_logical_error_and_discard_rate`: helper methods for computing the logical error rates and discard rates of state preparation circuits.
   - `NoiseModel`: class for constructing expressive Pauli noise models, which map noiseless circuits to noisy circuits.  Built-in subclasses include a single-parameter `DepolarizingNoiseModel` and a superconducting-inspired `SI1000NoiseModel`.
   - `get_encoding_circuit`: circuit to encode physical states of qubits into logical states of a code, for example to prepare a logical all-|0> state.  (Warning: current encoding circuits are not fault-tolerant.  The construction of fault-tolerant encoding circuits is an [open issue](https://github.com/qLDPCOrg/qLDPC/issues/327).)
   - `get_transversal_ops`: logical tableaus and physical circuits for the SWAP-transversal logical Clifford gates of a code, constructed via the code automorphism method of [arXiv:2409.18175](https://arxiv.org/abs/2409.18175).  (Warning: exponential complexity.)

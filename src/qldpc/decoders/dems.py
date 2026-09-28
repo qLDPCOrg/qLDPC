@@ -583,6 +583,8 @@ def _validate_decompositions(
     The components of a decomposition are alternative ways for one error to manifest, so their
     combined flips must agree with the error's column of the flip matrices.
     """
+    num_detectors = detector_flip_matrix.shape[0]
+    num_observables = observable_flip_matrix.shape[0]
     num_errors = detector_flip_matrix.shape[1]
     for error_index, components in suggested_decompositions.items():
         if not 0 <= error_index < num_errors:
@@ -590,6 +592,29 @@ def _validate_decompositions(
                 f"Suggested decomposition given for error {error_index} of a detector error model"
                 f" with {num_errors} error mechanisms"
             )
+        for component in components:
+            if not component:
+                raise ValueError(
+                    f"The suggested decomposition of error {error_index} has an empty component"
+                )
+            invalid_detectors = sorted(
+                detector for detector in component.detectors if not 0 <= detector < num_detectors
+            )
+            if invalid_detectors:
+                raise ValueError(
+                    f"The suggested decomposition of error {error_index} addresses detectors"
+                    f" {invalid_detectors} outside the valid range [0, {num_detectors})"
+                )
+            invalid_observables = sorted(
+                observable
+                for observable in component.observables
+                if not 0 <= observable < num_observables
+            )
+            if invalid_observables:
+                raise ValueError(
+                    f"The suggested decomposition of error {error_index} addresses observables"
+                    f" {invalid_observables} outside the valid range [0, {num_observables})"
+                )
         combined = _combined_flips(components)
         combined_detectors = combined.detectors
         combined_observables = combined.observables

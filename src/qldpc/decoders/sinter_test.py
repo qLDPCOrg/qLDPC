@@ -198,6 +198,11 @@ def test_sliding_window_time_coordinate() -> None:
     compiled = decoder.compile_decoder_for_dem(dem_with_coords([(0, 0), (1, 0), (0, 1), (1, 1)]))
     assert list(compiled.window_detectors) == [[0, 1], [2, 3]]
 
+    # qLDPC records (time, 0, check_index), so in a single round the constant first coordinate must
+    # win over the monotone check index and keep the entire round in one window
+    compiled = decoder.compile_decoder_for_dem(dem_with_coords([(0, 0, 0), (0, 0, 1), (0, 0, 2)]))
+    assert list(compiled.window_detectors) == [[0, 1, 2]]
+
     # two later coordinates could each be indexing time, so the first is read after all
     compiled = decoder.compile_decoder_for_dem(dem_with_coords([(1, 0, 0), (0, 1, 1), (1, 2, 2)]))
     assert list(compiled.window_detectors) == [[1], [0, 2]]

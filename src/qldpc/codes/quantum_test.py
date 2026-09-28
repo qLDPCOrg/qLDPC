@@ -85,6 +85,41 @@ def test_hamming_and_tetrahedral_codes() -> None:
     assert tetrahedral_code.get_code_params() == (15, 1, 3)
     assert tetrahedral_code.is_equiv_to(codes.TetrahedralCode(algebraic=True))
 
+    # the documented permutation maps the geometric checks to Eqs. 2-3 of arXiv:2409.13465v2,
+    # whose X and Z conventions are reversed relative to this implementation
+    qubit_map = [0, 10, 3, 14, 7, 13, 6, 8, 1, 9, 2, 12, 4, 11, 5]
+    paper_faces = {
+        frozenset(support)
+        for support in [
+            [0, 3, 6, 7],
+            [3, 6, 10, 13],
+            [6, 7, 13, 14],
+            [8, 9, 11, 12],
+            [1, 2, 4, 5],
+            [4, 5, 6, 7],
+            [2, 3, 5, 6],
+            [4, 5, 11, 12],
+            [2, 5, 9, 11],
+            [5, 6, 11, 13],
+        ]
+    }
+    paper_cells = {
+        frozenset(support)
+        for support in [
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            [2, 3, 5, 6, 9, 10, 11, 13],
+            [4, 5, 6, 7, 11, 12, 13, 14],
+            [1, 2, 4, 5, 8, 9, 11, 12],
+        ]
+    }
+
+    def mapped_supports(matrix: np.ndarray) -> set[frozenset[int]]:
+        """Supports after mapping this code's qubit order to the paper's."""
+        return {frozenset(qubit_map[col] for col in np.flatnonzero(row)) for row in matrix}
+
+    assert mapped_supports(tetrahedral_code.matrix_z) == paper_faces
+    assert mapped_supports(tetrahedral_code.matrix_x) == paper_cells
+
     # The tetrahedral code (TC) can be constructed by concatenating the quantum Hamming code (QHC)
     # with a classical code on the logical X operators of the QHC, as we show below.  To this end,
     # we first decompose the logical X operator of the TC into a product of logical X operators of
@@ -344,6 +379,32 @@ def test_bivariate_bicycle_codes() -> None:
         code.modular_inverse(basis, 0, 1)
 
 
+@pytest.mark.parametrize("orders, field", [((3, 3), 2), ((6, 3), 3)])
+def test_bivariate_bicycle_toric_layout_equivalence(orders: tuple[int, int], field: int) -> None:
+    """Every reported toric layout is a relabeling of the original Pauli-labelled Tanner graph."""
+    original = codes.BBCode(orders, 1 + x + x * y, 1 + y + x * y, field)
+    layouts = original.get_equivalent_toric_layout_code_data()
+    assert layouts
+
+    def tagged_graph(code: codes.CSSCode) -> nx.DiGraph:
+        """Copy a Tanner graph with its data/check partition available to the matcher."""
+        graph = code.graph.copy()
+        nx.set_node_attributes(graph, {node: node.is_data for node in graph}, "is_data")
+        return graph
+
+    node_match = nx.algorithms.isomorphism.categorical_node_match(["is_data"], [None])
+    edge_match = nx.algorithms.isomorphism.categorical_edge_match([Pauli], [None])
+    original_graph = tagged_graph(original)
+    for new_orders, poly_a, poly_b in layouts:
+        candidate_graph = tagged_graph(codes.BBCode(new_orders, poly_a, poly_b, field))
+        assert nx.is_isomorphic(
+            candidate_graph,
+            original_graph,
+            node_match=node_match,
+            edge_match=edge_match,
+        )
+
+
 def test_bivariate_bicycle_neighbors() -> None:
     """In a toric layout of a code, check qubits address their nearest neighbors."""
     from sympy.abc import x, y
@@ -439,6 +500,19 @@ def test_quasi_cyclic_codes() -> None:
         "~xy_2",
         "~xy_3",
     ]
+
+
+@pytest.mark.parametrize("num_terms", [1, 3, 4, 5])
+def test_quasi_cyclic_syndrome_subgraphs_by_term_count(num_terms: int) -> None:
+    """Syndrome subgraphs partition every Tanner edge beyond the two-term documented example."""
+    poly_a = sum(x**power for power in range(1, num_terms + 1))
+    poly_b = sum(x**power for power in range(6, 6 + num_terms))
+    code = codes.QCCode([11], poly_a, poly_b)
+
+    assert len(code.poly_a.terms()) == num_terms
+    assert len(code.poly_b.terms()) == num_terms
+    assert len(code.get_syndrome_subgraphs()) == 4 * num_terms
+    assert_valid_subgraphs(code)
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -584,6 +658,9 @@ def test_cyclic_hypergraph_product_codes() -> None:
     for (bits, poly), (c2_params, cr_params) in chgp_codes.items():
         assert codes.CHGPCode(bits, poly).get_code_params() == c2_params
         assert codes.CRCode(bits, poly).get_code_params() == cr_params
+
+    with pytest.raises(ValueError, match="defined distance"):
+        codes.CRCode(3, x)
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -740,6 +817,21 @@ def test_lifted_product_codes() -> None:
         subsystem_code = codes.SLPCode(matrix)
         subsystem_rate = subsystem_code.dimension / subsystem_code.num_qudits
         assert subsystem_rate > rate
+
+
+def test_one_by_one_lifted_product_is_quasi_cyclic() -> None:
+    """A one-by-one lifted product is the corresponding quasi-cyclic code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(5), field=3)
+    shift = ring.generators[0]
+    element_a = ring.one + shift
+    element_b = ring.one + shift**2
+
+    lifted = codes.LPCode([[element_a.T]], [[element_b]])
+    quasi_cyclic = codes.QCCode([5], 1 + x, 1 + x**2, field=3)
+
+    assert np.array_equal(lifted.matrix_x, quasi_cyclic.matrix_x)
+    assert np.array_equal(lifted.matrix_z, -quasi_cyclic.matrix_z)
+    assert lifted.is_equiv_to(quasi_cyclic)
 
 
 def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) -> None:
@@ -907,6 +999,61 @@ def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
         ):
             code_copy = codes.QTCode.load("path.txt")
         assert code_copy == code
+
+
+def test_quantum_tanner_nonabelian_faces() -> None:
+    """QTCode realizes the defining face incidence over a noncommutative group."""
+    group = abstract.QuaternionGroup()
+    generator_i, generator_j = group.generators
+    assert generator_i * generator_j != generator_j * generator_i
+
+    code = codes.QTCode(
+        [generator_i, ~generator_i],
+        [generator_j, ~generator_j],
+        codes.RepetitionCode(2),
+        bipartite=False,
+    )
+    cayplex = code.complex
+    subgraph_x, subgraph_z = codes.QTCode.get_subgraphs(cayplex)
+
+    colors = nx.bipartite.color(cayplex.graph)
+    member = next(iter(cayplex.cover_subset_a))
+    identity = member * ~member
+    sources_x = {element for element, color in colors.items() if color == colors[identity]}
+
+    expected_x = set()
+    expected_z = set()
+    for element in sources_x:
+        for subset_a in cayplex.cover_subset_a:
+            for subset_b in cayplex.cover_subset_b:
+                neighbor = subset_a * element
+                face = frozenset([element, neighbor, element * subset_b, neighbor * subset_b])
+                expected_x.add((element, face, (subset_a, subset_b)))
+                expected_z.add((neighbor, face, (~subset_a, subset_b)))
+
+    def labelled_edges(graph: nx.DiGraph) -> set[tuple[object, object, object]]:
+        """Edges together with the generator pair that defines each face."""
+        return {
+            (source, face, edge_data["sort"]) for source, face, edge_data in graph.edges(data=True)
+        }
+
+    assert labelled_edges(subgraph_x) == expected_x
+    assert labelled_edges(subgraph_z) == expected_z
+
+    def matrix_supports(matrix: np.ndarray, graph: nx.DiGraph) -> list[frozenset[object]]:
+        """Matrix-row supports expressed using the graph's face nodes."""
+        faces = sorted(node for node in graph if graph.out_degree(node) == 0)
+        return [frozenset(faces[col] for col in np.flatnonzero(row)) for row in matrix]
+
+    for matrix, graph in [(code.matrix_x, subgraph_x), (code.matrix_z, subgraph_z)]:
+        expected = {
+            frozenset(graph.successors(source)) for source in graph if graph.in_degree(source) == 0
+        }
+        actual = matrix_supports(matrix, graph)
+        assert len(actual) == len(expected)
+        assert set(actual) == expected
+
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
 
 
 def test_random_quantum_tanner_code_is_reproducible() -> None:

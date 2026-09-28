@@ -319,17 +319,16 @@ class ILPDecoder:
             no_error = np.zeros(self.matrix.shape[1], dtype=syndrome.dtype)
             return with_erasure_bits(no_error, True)
 
-        # round the solver's near-integral values, reducing before the cast so that a syndrome of
-        # boolean or unsigned type does not turn a negative value into a large positive one
-        values = np.rint(self.variables.value) % self.modulus
+        # Round the solver's near-integral values and return them in an integer dtype that can
+        # represent every element of the field, independently of the syndrome's input dtype.
+        error = (np.rint(self.variables.value) % self.modulus).astype(int)
 
         # a solver that stops before proving optimality can report a finite objective for a point
         # that reproduces no syndrome at all, so check the solution before returning it
         reproduces_syndrome = np.array_equal(
-            self.matrix @ values.astype(int) % self.modulus,
+            self.matrix @ error % self.modulus,
             np.asarray(syndrome, dtype=int) % self.modulus,
         )
-        error = values.astype(syndrome.dtype)
         if not self.has_erasure_bit:
             if not reproduces_syndrome:
                 raise ValueError(

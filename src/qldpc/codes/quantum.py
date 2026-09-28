@@ -1670,7 +1670,11 @@ class CRCode(HGPCode):
         """
         cyclic_code = CyclicCode(bits, poly, field)
         distance = cyclic_code.get_distance()
-        ring_code = RingCode(distance if isinstance(distance, int) else 1, field)
+        if np.isnan(distance):
+            raise ValueError(
+                "Cannot construct a CRCode from a cyclic code without a defined distance"
+            )
+        ring_code = RingCode(int(distance), field)
         super().__init__(cyclic_code, ring_code, field)
 
 
