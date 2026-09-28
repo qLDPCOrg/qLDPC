@@ -86,7 +86,6 @@ __all__ = [
     "QuantumHammingCode",
     "QuantumReedMullerCode",
     "QuditCode",
-    "QuantumReedMullerCode",
     "ReedMullerCode",
     "ReedSolomonCode",
     "RepetitionCode",
