@@ -1,6 +1,6 @@
 # qLDPC
 
-`qLDPC` is a Python library for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as stabilizer, and subsystem codes.
+`qLDPC` is a Python library for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as stabilizer and subsystem codes.
 It provides code constructions, logical operators and distance tools, decoders, and [`stim`](https://github.com/quantumlib/Stim)-based circuit workflows.
 
 Code-level tools support arbitrary finite fields where possible.
