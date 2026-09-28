@@ -29,7 +29,7 @@ python -m pip install -e '.[dev]'
 ```
 
 Some algebra, code-database, and distance-bound features require [GAP](https://www.gap-system.org).
-On Linux and macOS with Conda, install it with `conda install -c conda-forge gap`; other installations work when `gap` is available on `PATH`.
+On Linux and macOS with Conda, you install it with `conda install -c conda-forge gap`; other installations work when `gap` is available on `PATH`.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
@@ -64,7 +64,7 @@ Continue with the [library map](https://qldpc.readthedocs.io/en/latest/library_m
 | Change or extend qLDPC safely | [Agent and contributor guide](AGENTS.md) |
 
 The API reference and source docstrings are the exhaustive inventory and carry construction-specific literature links.
-The README intentionally does not duplicate that catalogue.
+This README intentionally does not duplicate that catalogue.
 
 ## Important boundaries
 
@@ -85,7 +85,7 @@ The README intentionally does not duplicate that catalogue.
 - [Agent and contributor guide](AGENTS.md)
 - [Issue tracker](https://github.com/qLDPCOrg/qLDPC/issues)
 
-Questions and feedback are welcome through [GitHub issues](https://github.com/qLDPCOrg/qLDPC/issues/new) or by email at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com).
+Questions, feedback, and ideas are welcome through [GitHub issues](https://github.com/qLDPCOrg/qLDPC/issues/new) or by email at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com).
 
 ## Attribution
 
