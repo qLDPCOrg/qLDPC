@@ -97,6 +97,10 @@ Per-gate-application noise via a callback (``rule_func``)::
     )
     noisy_circuit = noise_model.noisy_circuit(circuit)
 
+The callback is also consulted for explicit ``I`` and ``II`` operations.  Their tags can carry
+user-supplied idle durations or other metadata.  Automatic ``idle_error`` remains independent, so
+omit it when the callback already accounts for all idling noise.
+
 Important note:
 ---------------
 
@@ -834,7 +838,8 @@ class NoiseModel:
     This class provides a framework for adding various types of noise to quantum circuits, including
     gate errors, readout errors, reset errors, and idling errors.  Classically controlled operations
     are assumed to NOT occur, so the corresponding qubits pick up idling errors, if applicable.
-    Explicit ``I`` and ``II`` markers are likewise treated as idle time, not as Clifford gates.
+    Explicit ``I`` and ``II`` markers are likewise treated as idle time rather than ordinary
+    Clifford gates, but ``rule_func`` may assign custom noise to them.
     """
 
     def __init__(
@@ -887,9 +892,12 @@ class NoiseModel:
                 gate applications before being passed to ``rule_func``, its input ``op``
                 always holds exactly one application's worth of targets: one for a one-qubit gate,
                 two for a two-qubit gate, and one Pauli product's targets for an SPP/MPP.  The
-                callback is consulted only for genuine noisy gates (unitary Cliffords, measurements,
-                and resets) that are not classically controlled; it does not affect annotations,
-                pure-noise instructions, or idling errors.
+                callback is consulted for unitary Cliffords, measurements, resets, and explicit
+                ``I`` / ``II`` idle markers that are not classically controlled; it does not affect
+                annotations or pure-noise instructions.  Returning ``None`` for an idle marker
+                applies no gate rule to it.  Automatic ``idle_error`` remains independent and is
+                still applied when configured, so callers that insert all idling errors through
+                ``rule_func`` should omit ``idle_error``.
         """
         self.rules = rules
         self.rule_func = rule_func
@@ -1032,8 +1040,9 @@ class NoiseModel:
         3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
         4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
 
-        Explicit idle markers (``I`` and ``II``) receive idling noise rather than gate noise, so
-        ``rule_func`` is not consulted for them and they cannot be keys in ``rules``.
+        Explicit idle markers (``I`` and ``II``) are offered to ``rule_func`` but cannot be keys in
+        ``rules`` and never fall through to the arity-based Clifford defaults.  Automatic
+        ``idle_error`` is applied independently after operation-specific rules.
 
         Note: MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one
         Pauli product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product
@@ -1047,11 +1056,7 @@ class NoiseModel:
         Returns:
             The NoiseRule to apply for the given operation, or None for no noise.
         """
-        if (
-            op_type(op.name) in (ANNOTATION, NOISE)
-            or op.name in IDLE_OPS
-            or _involves_classical_bits(op)
-        ):
+        if op_type(op.name) in (ANNOTATION, NOISE) or _involves_classical_bits(op):
             return None
 
         if self.rule_func is not None and op_type(op.name) in GATE_OP_TYPES:
@@ -1059,6 +1064,9 @@ class NoiseModel:
             if rule is not None:
                 _validate_custom_rule(rule, op)
                 return rule
+
+        if op.name in IDLE_OPS:
+            return None
 
         if self.rules is not None:
             for name in _get_gate_aliases(op):
