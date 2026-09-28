@@ -67,9 +67,7 @@ def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> s
     ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
     conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
 
-    Warning:
-        The resulting encoding circuit is not fault-tolerant.  Fault-tolerant encoding is tracked
-        in https://github.com/qLDPCOrg/qLDPC/issues/327.
+    Warning: The resulting encoding circuit is not fault-tolerant.
     """
     return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
 
