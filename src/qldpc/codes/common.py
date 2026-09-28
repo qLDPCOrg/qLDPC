@@ -3125,7 +3125,7 @@ class CSSCode(QuditCode):
                 ]
             )
 
-        if not external.gap.is_installed() or any(kwarg != "maxav" for kwarg in bound_kwargs):
+        if any(kwarg != "maxav" for kwarg in bound_kwargs) or not external.gap.is_installed():
             return self.get_distance_bound_with_decoder(
                 pauli, num_trials, cutoff=cutoff, **bound_kwargs
             )

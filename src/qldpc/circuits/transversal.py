@@ -79,7 +79,12 @@ def get_transversal_ops(
     remove_redundancies: bool = True,
     with_magma: bool = False,
 ) -> list[tuple[stim.Tableau, stim.Circuit]]:
-    """Logical tableaus and physical circuits for transversal logical Clifford gates of a code.
+    """Logical tableaus and physical circuits induced by transversal automorphism generators.
+
+    This method returns one logical/physical pair per generator of the transversal automorphism
+    group.  It does not enumerate every Clifford in that group.  If remove_redundancies is True,
+    generator images that are logical Paulis or differ only by logical Pauli corrections are
+    omitted; the result can therefore be empty even for a nontrivial automorphism group.
 
     Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}.  The set describes the
     allowed local Pauli permutations; equivalent Stim ``C_XYZ``/``C_ZYX`` decompositions may appear
@@ -255,9 +260,6 @@ def get_transversal_circuits(
     Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
     and thereby generally has exponential runtime.
 
-    When ``remove_redundancies`` is True, generator images that differ only by logical Pauli
-    corrections are treated as equivalent; an empty result is therefore possible for a nontrivial
-    automorphism group.
     """
     physical_circuits = [None] * len(logical_circuits_or_tableaus)
 

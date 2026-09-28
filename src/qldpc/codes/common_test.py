@@ -1056,6 +1056,32 @@ def test_distance_css() -> None:
     assert np.isnan(code.get_distance(bound=False))
 
 
+def test_css_decoder_distance_bound_skips_gap_probe() -> None:
+    """Explicit decoder arguments select the decoder path without probing interactive GAP setup."""
+    code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
+    code.forget_distance()
+
+    with (
+        unittest.mock.patch(
+            "qldpc.external.gap.is_installed",
+            side_effect=AssertionError("GAP should not be probed"),
+        ),
+        unittest.mock.patch.object(
+            code,
+            "get_distance_bound_with_decoder",
+            return_value=3,
+        ) as decoder_bound,
+    ):
+        assert code.get_distance_bound(pauli=Pauli.X, with_BP_LSD=True) == 3
+
+    decoder_bound.assert_called_once_with(
+        Pauli.X,
+        1,
+        cutoff=None,
+        with_BP_LSD=True,
+    )
+
+
 def test_css_deformations() -> None:
     """Local Fourier transforms of a CSSCode."""
     code: codes.CSSCode
