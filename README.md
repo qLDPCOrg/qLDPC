@@ -66,7 +66,7 @@ Continue with the [library map](https://qldpc.readthedocs.io/en/latest/library_m
 The API reference and source docstrings are the exhaustive inventory and carry construction-specific literature links.
 This README intentionally does not duplicate that catalogue.
 
-## Important boundaries
+## Limitations and caveats
 
 - Circuit and tableau helpers accept qubit codes, even though code-level arithmetic supports prime-power-dimensional qudits.
 - Circuits returned by `get_encoding_circuit` are not fault-tolerant.

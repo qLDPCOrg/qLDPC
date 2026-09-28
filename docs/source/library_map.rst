@@ -8,7 +8,7 @@ It is the conceptual layer between the :doc:`example notebooks <examples/index>`
 Choose the right documentation layer
 ------------------------------------
 
-* Use this page to understand how the library fits together and which boundary owns a task.
+* Use this page to understand how the library fits together and which part owns a task.
 * Use the :doc:`examples <examples/index>` for complete workflows that can be executed and adapted.
 * Use the :doc:`API reference <autoapi/index>` for exact signatures, per-object contracts, and
   construction-specific literature.
@@ -218,12 +218,12 @@ Build a lifted construction
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Lifted-product and related families begin with groups and ``RingArray`` objects from
-``qldpc.abstract``. Keep every array in one base ring, lift only at the finite-field boundary, and
-use the construction's docstring and tests for its precise transpose and orientation conventions.
+``qldpc.abstract``. Keep every array in one base ring, lift only when converting to finite-field
+matrices, and use the construction's docstring and tests for its precise transpose and orientation conventions.
 The :doc:`API reference <autoapi/index>` carries the literature links for each family.
 
-Optional integrations and execution boundaries
-----------------------------------------------
+Optional integrations and side effects
+--------------------------------------
 
 * GAP-backed features can run subprocesses. If GAP is unavailable, some paths offer a manual
   copy/paste workflow that reads standard input and uses the system clipboard.

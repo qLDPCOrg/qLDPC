@@ -48,7 +48,7 @@ Where to go next
 ----------------
 
 * :doc:`Library map <library_map>` explains core representations, package responsibilities, common
-  workflows, and stability boundaries.
+  workflows, stability, and limitations.
 * :doc:`Examples <examples/index>` walk from code construction through code-capacity and
   circuit-level simulations.
 * :doc:`API reference <autoapi/index>` documents every public class and function.

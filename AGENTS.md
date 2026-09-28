@@ -41,7 +41,7 @@ Do not copy transient project history, machine-specific paths, or local-session 
 | [`src/qldpc/objects.py`](src/qldpc/objects.py) | Pauli labels, graph nodes, Cayley complexes, and chain complexes | [`objects_test.py`](src/qldpc/objects_test.py) |
 | [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocol/adapters, implementations, DEM arrays, retrieval, Sinter, and windowed decoding | Co-located tests plus [`logical_error_rates/`](examples/logical_error_rates/) |
 | [`src/qldpc/circuits/`](src/qldpc/circuits/) | Stim circuits, bookkeeping, encoders, memory experiments, noise, benchmarking, and transversal operations | Co-located tests plus [`noise_models.ipynb`](examples/noise_models.ipynb) and [`transversal_gates.ipynb`](examples/transversal_gates.ipynb) |
-| [`src/qldpc/external/`](src/qldpc/external/) | GAP, GUAVA, QDistRnd, GroupNames, and code-database boundaries | Co-located tests use controlled substitutes for processes, input, and network access |
+| [`src/qldpc/external/`](src/qldpc/external/) | GAP, GUAVA, QDistRnd, GroupNames, and code-database integrations | Co-located tests use controlled substitutes for processes, input, and network access |
 | [`src/qldpc/cache.py`](src/qldpc/cache.py) | Persistent disk-cache helpers for expensive computations | [`cache_test.py`](src/qldpc/cache_test.py) |
 | [`src/qldpc/experimental/`](src/qldpc/experimental/) | Unstable research implementations | Co-located tests and [`examples/experimental/`](examples/experimental/) |
 | [`examples/`](examples/) | Canonical executable notebooks and small helper scripts | Sphinx links to these files; do not edit generated or duplicate notebook copies |
