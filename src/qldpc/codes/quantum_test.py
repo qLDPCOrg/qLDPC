@@ -1,23 +1,13 @@
-"""Unit tests for quantum.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for quantum.py."""
 
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import sys
 import unittest.mock
 
 import networkx as nx
@@ -82,8 +72,6 @@ def test_small_codes() -> None:
 
     # the quantum Golay code is a [[23, 1, 7]] CSS code with weight-8 stabilizers
     golay_code = codes.QuantumGolayCode()
-    golay_code._dimension = None
-    golay_code.forget_distance()
     assert golay_code.get_code_params() == (23, 1, 7)
     assert set(golay_code.matrix_x.view(np.ndarray).sum(axis=1)) == {8}
 
@@ -96,6 +84,41 @@ def test_hamming_and_tetrahedral_codes() -> None:
     tetrahedral_code = codes.TetrahedralCode(algebraic=False)
     assert tetrahedral_code.get_code_params() == (15, 1, 3)
     assert tetrahedral_code.is_equiv_to(codes.TetrahedralCode(algebraic=True))
+
+    # the documented permutation maps the geometric checks to Eqs. 2-3 of arXiv:2409.13465v2,
+    # whose X and Z conventions are reversed relative to this implementation
+    qubit_map = [0, 10, 3, 14, 7, 13, 6, 8, 1, 9, 2, 12, 4, 11, 5]
+    paper_faces = {
+        frozenset(support)
+        for support in [
+            [0, 3, 6, 7],
+            [3, 6, 10, 13],
+            [6, 7, 13, 14],
+            [8, 9, 11, 12],
+            [1, 2, 4, 5],
+            [4, 5, 6, 7],
+            [2, 3, 5, 6],
+            [4, 5, 11, 12],
+            [2, 5, 9, 11],
+            [5, 6, 11, 13],
+        ]
+    }
+    paper_cells = {
+        frozenset(support)
+        for support in [
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            [2, 3, 5, 6, 9, 10, 11, 13],
+            [4, 5, 6, 7, 11, 12, 13, 14],
+            [1, 2, 4, 5, 8, 9, 11, 12],
+        ]
+    }
+
+    def mapped_supports(matrix: np.ndarray) -> set[frozenset[int]]:
+        """Supports after mapping this code's qubit order to the paper's."""
+        return {frozenset(qubit_map[col] for col in np.flatnonzero(row)) for row in matrix}
+
+    assert mapped_supports(tetrahedral_code.matrix_z) == paper_faces
+    assert mapped_supports(tetrahedral_code.matrix_x) == paper_cells
 
     # The tetrahedral code (TC) can be constructed by concatenating the quantum Hamming code (QHC)
     # with a classical code on the logical X operators of the QHC, as we show below.  To this end,
@@ -120,6 +143,167 @@ def test_two_block_code_error() -> None:
     matrix_b = [[0, 1], [1, 0]]
     with pytest.raises(ValueError, match="do not commute"):
         codes.TBCode(matrix_a, matrix_b, field=3)
+
+
+def test_gala_code_construction() -> None:
+    """Construct the block-circulant parent and active matrices of a GALA code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+    xx = ring.generators[0]
+
+    code = codes.GALACode(
+        generators_f=[one, xx],
+        generators_g=[xx**2, one],
+        num_active_rows=1,
+    )
+
+    expected_f = abstract.RingArray([[one, xx], [xx, one]])
+    expected_g = abstract.RingArray([[xx**2, one], [one, xx**2]])
+    expected_parent_x = abstract.RingArray([[one, xx, xx**2, one], [xx, one, one, xx**2]])
+    expected_parent_z = abstract.RingArray([[xx, one, one, xx**2], [one, xx, xx**2, one]])
+
+    assert np.array_equal(code.matrix_f, expected_f)
+    assert np.array_equal(code.matrix_g, expected_g)
+    assert np.array_equal(code.parent_matrix_x, expected_parent_x)
+    assert np.array_equal(code.parent_matrix_z, expected_parent_z)
+    assert code.matrix_x.shape == (3, 12)
+    assert code.matrix_z.shape == (3, 12)
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+    assert not code.is_subsystem_code
+    assert code.num_blocks == 4
+    assert code.num_active_rows == 1
+    assert code.generators_f[0] is not one
+
+
+def test_gala_code_active_orthogonality() -> None:
+    """Validate aggregate rather than pairwise active orthogonality."""
+    ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    aa, bb = ring.generators
+    assert aa * bb != bb * aa
+
+    code = codes.GALACode(
+        generators_f=[aa, aa],
+        generators_g=[bb, bb],
+        num_active_rows=1,
+    )
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    generators_f = [aa, ring.one]
+    generators_g = [bb, ring.one]
+    with pytest.raises(ValueError, match=r"active parity checks.*do not commute"):
+        codes.GALACode(generators_f, generators_g, num_active_rows=1)
+
+    code = codes.GALACode(generators_f, generators_g, num_active_rows=1, skip_validation=True)
+    assert np.any(code.matrix_x @ code.matrix_z.T)
+
+
+def test_gala_product_group_integration() -> None:
+    """Construct GALA codes from direct- and wreath-product group elements."""
+    top = abstract.SymmetricGroup(3).with_natural_lift()
+    bottom = abstract.CyclicGroup(2)
+    top_f, top_g = top.generators
+    bottom_identity, bottom_shift = bottom.generate()
+
+    direct_product = abstract.Group.tensor_product(top, bottom)
+    direct_ring = abstract.GroupRing(direct_product)
+    direct_generator_f = abstract.RingMember(direct_ring, top_f @ bottom_shift)
+    direct_generator_g = abstract.RingMember(direct_ring, top_g @ bottom_identity)
+    direct_code = codes.GALACode(
+        [direct_generator_f] * 2, [direct_generator_g] * 2, num_active_rows=1
+    )
+
+    wreath_product = abstract.WreathProductGroup(top, bottom)
+    wreath_element_f = wreath_product.element(top_f, [bottom_shift, bottom_identity, bottom_shift])
+    wreath_element_g = wreath_product.element(
+        top_g, [bottom_identity, bottom_shift, bottom_identity]
+    )
+    wreath_ring = abstract.GroupRing(wreath_product)
+    wreath_generator_f = abstract.RingMember(wreath_ring, wreath_element_f)
+    wreath_generator_g = abstract.RingMember(wreath_ring, wreath_element_g)
+    wreath_code = codes.GALACode(
+        [wreath_generator_f] * 2, [wreath_generator_g] * 2, num_active_rows=1
+    )
+
+    assert direct_code.group is direct_product
+    assert direct_code.matrix_x.shape == direct_code.matrix_z.shape == (6, 24)
+    assert direct_code.num_qubits == 24
+    assert direct_code.get_weight() == 4
+    assert not np.any(direct_code.matrix_x @ direct_code.matrix_z.T)
+
+    assert wreath_code.group is wreath_product
+    assert wreath_code.matrix_x.shape == wreath_code.matrix_z.shape == (6, 24)
+    assert wreath_code.num_qubits == 24
+    assert wreath_code.get_weight() == 4
+    assert not np.any(wreath_code.matrix_x @ wreath_code.matrix_z.T)
+
+
+def test_gala_code_errors() -> None:
+    """Reject invalid GALA generator data."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+
+    with pytest.raises(ValueError, match="nonempty"):
+        codes.GALACode([], [], num_active_rows=1)
+    with pytest.raises(ValueError, match="equal lengths"):
+        codes.GALACode([one], [one, one], num_active_rows=1)
+    with pytest.raises(ValueError, match="RingMember"):
+        codes.GALACode([one], [1], num_active_rows=1)  # type: ignore[list-item]
+
+    other_ring = abstract.GroupRing(abstract.CyclicGroup(2))
+    with pytest.raises(ValueError, match="same group ring"):
+        codes.GALACode([one], [other_ring.one], num_active_rows=1)
+
+    qutrit_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    with pytest.raises(ValueError, match=r"only over GF\(2\)"):
+        codes.GALACode([qutrit_ring.one], [qutrit_ring.one], num_active_rows=1)
+
+    with pytest.raises(TypeError, match="must be an integer"):
+        codes.GALACode([one], [one], num_active_rows=1.5)  # type: ignore[arg-type]
+    for num_active_rows in [0, 2]:
+        with pytest.raises(ValueError, match="must lie between"):
+            codes.GALACode([one], [one], num_active_rows)
+
+
+def test_gala_code_from_paper() -> None:
+    """Reproduce the construction-level parameters of the [[132, 30, 12]] GALA code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(11))
+    xx = ring.generators[0]
+    code = codes.GALACode(
+        generators_f=[xx**power for power in [2, 4, 3, 6, 3, 9]],
+        generators_g=[xx**power for power in [9, 2, 8, 5, 8, 7]],
+        num_active_rows=5,
+    )
+
+    assert code.matrix_x.shape == (55, 132)
+    assert code.matrix_z.shape == (55, 132)
+    assert code.num_qubits == 132
+    assert code.dimension == 30
+    assert code.get_weight() == 12
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    code_string = str(code)
+    assert "132 qubits" in code_string
+    assert "12 blocks" in code_string
+    assert "5 active rows" in code_string
+    assert code.group.name in code_string
+
+
+def test_polynomial_gala_code() -> None:
+    """Construct a GALA code with a polynomial group-ring generator."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    one = ring.one
+    xx = ring.generators[0]
+    polynomial = one + xx
+    code = codes.GALACode(
+        generators_f=[polynomial, xx**2],
+        generators_g=[one, xx],
+        num_active_rows=1,
+    )
+
+    block_size = code.group.lift_dim
+    assert np.count_nonzero(code.generators_f[0].to_vector()) == 2
+    assert np.array_equal(code.matrix_x[:block_size, :block_size], polynomial.lift())
+    assert code.get_weight() == 5
 
 
 def test_bivariate_bicycle_codes() -> None:
@@ -195,6 +379,32 @@ def test_bivariate_bicycle_codes() -> None:
         code.modular_inverse(basis, 0, 1)
 
 
+@pytest.mark.parametrize("orders, field", [((3, 3), 2), ((6, 3), 3)])
+def test_bivariate_bicycle_toric_layout_equivalence(orders: tuple[int, int], field: int) -> None:
+    """Every reported toric layout is a relabeling of the original Pauli-labelled Tanner graph."""
+    original = codes.BBCode(orders, 1 + x + x * y, 1 + y + x * y, field)
+    layouts = original.get_equivalent_toric_layout_code_data()
+    assert layouts
+
+    def tagged_graph(code: codes.CSSCode) -> nx.DiGraph:
+        """Copy a Tanner graph with its data/check partition available to the matcher."""
+        graph = code.graph.copy()
+        nx.set_node_attributes(graph, {node: node.is_data for node in graph}, "is_data")
+        return graph
+
+    node_match = nx.algorithms.isomorphism.categorical_node_match(["is_data"], [None])
+    edge_match = nx.algorithms.isomorphism.categorical_edge_match([Pauli], [None])
+    original_graph = tagged_graph(original)
+    for new_orders, poly_a, poly_b in layouts:
+        candidate_graph = tagged_graph(codes.BBCode(new_orders, poly_a, poly_b, field))
+        assert nx.is_isomorphic(
+            candidate_graph,
+            original_graph,
+            node_match=node_match,
+            edge_match=edge_match,
+        )
+
+
 def test_bivariate_bicycle_neighbors() -> None:
     """In a toric layout of a code, check qubits address their nearest neighbors."""
     from sympy.abc import x, y
@@ -256,13 +466,52 @@ def test_quasi_cyclic_codes() -> None:
     """Multivariate versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
 
     # not enough orders provided
-    with pytest.raises(ValueError, match="Provided .* symbols, but only .* orders"):
+    with pytest.raises(ValueError, match=r"Provided .* symbols, but only .* orders"):
         codes.QCCode([], x, y)
 
     # add placeholder symbols if necessary
-    code = codes.QCCode([1, 2, 3], x, x * y)
+    code = codes.QCCode([2, 1, 3], x, x * y)
     assert len(code.symbols) == 3
 
+    assert_valid_subgraphs(code)
+
+    # a symbol whose cyclic group is trivial acts as the identity, so all of its powers agree
+    assert np.array_equal(code.matrix, codes.QCCode([2, 1, 3], x, x * y**2).matrix)
+
+    # distinct monomials can name the same group element, and are simplified into a single term
+    assert_valid_subgraphs(codes.QCCode([3], 1 + x**3 + x**6, 1 + x))
+
+    # the coefficients of such monomials are summed in the base field, each denoting a field element
+    # rather than a multiplicity: over GF(4) the elements 1, 1 and -2 sum to 2, not to the 0 that
+    # the same integers give
+    assert codes.QCCode([3], 1 + x**3 - 2 * x**6, 1 + x, field=4).poly_a.as_expr() == 2
+
+    # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
+    for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
+        code = codes.QCCode(orders, poly_a, poly_b)
+        assert len(code.symbols) == len(orders)
+        assert len(set(code.symbols)) == len(orders)  # every placeholder is distinct
+        assert len(code) == 2 * np.prod(orders)
+
+    # placeholder names do not depend on the iteration order of a set of symbols
+    assert [str(symbol) for symbol in codes.QCCode([3, 4, 5, 6], 1 + x, 1 + y).symbols] == [
+        "x",
+        "y",
+        "~xy_2",
+        "~xy_3",
+    ]
+
+
+@pytest.mark.parametrize("num_terms", [1, 3, 4, 5])
+def test_quasi_cyclic_syndrome_subgraphs_by_term_count(num_terms: int) -> None:
+    """Syndrome subgraphs partition every Tanner edge beyond the two-term documented example."""
+    poly_a = sum(x**power for power in range(1, num_terms + 1))
+    poly_b = sum(x**power for power in range(6, 6 + num_terms))
+    code = codes.QCCode([11], poly_a, poly_b)
+
+    assert len(code.poly_a.terms()) == num_terms
+    assert len(code.poly_b.terms()) == num_terms
+    assert len(code.get_syndrome_subgraphs()) == 4 * num_terms
     assert_valid_subgraphs(code)
 
 
@@ -293,12 +542,98 @@ def test_hypergraph_product(
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
-    # verify X and Z distance
-    dist_x = code.get_distance(Pauli.X)
-    dist_z = code.get_distance(Pauli.Z)
-    code._get_distance_exact = lambda _: NotImplemented  # type:ignore[method-assign,assignment]
-    assert dist_x == code.get_distance(Pauli.X)
-    assert dist_z == code.get_distance(Pauli.Z)
+    # the closed-form X and Z distances agree with a generic computation that ignores them.
+    # Both cache layers have to be bypassed: get_distance_exact caches into _distance_x/_distance_z
+    # on its first call, and get_distance_if_known would then short-circuit on that cached value
+    # before ever reaching _get_distance_exact.
+    if field == 2:  # the brute-force kernel behind the generic route is binary
+        dist_x = code.get_distance(Pauli.X)
+        dist_z = code.get_distance(Pauli.Z)
+        with (
+            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
+            unittest.mock.patch(
+                "qldpc.codes.HGPCode._get_distance_exact", return_value=NotImplemented
+            ),
+            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        ):
+            assert dist_x == code.get_distance(Pauli.X)
+            assert dist_z == code.get_distance(Pauli.Z)
+
+    # a random seed code addresses every bit.  Check a seed code that leaves one unaddressed, whose
+    # product therefore has a data qudit that no check addresses.
+    seed = codes.ClassicalCode([[1, 1, 0], [0, 0, 0]], field=field)
+    assert nx.utils.graphs_equal(
+        codes.HGPCode(seed, seed).graph, codes.HGPCode.get_graph_product(seed.graph, seed.graph)
+    )
+
+
+@pytest.mark.parametrize(
+    "seed_a, seed_b",
+    [
+        # the same [4, 1, 4] code, presented with one parity check repeated: only its transpose code
+        # gains code words, so the (1, 1) sector of the product carries no logical operator
+        (codes.ClassicalCode(np.vstack([codes.RepetitionCode(4).matrix] * 2)[:5]), None),
+        # a seed code of dimension zero, so that the (0, 0) sector carries no logical operator,
+        # in each of the two positions
+        (codes.ClassicalCode([[1, 0], [0, 1], [1, 1]]), codes.ClassicalCode([[1, 1], [1, 1]])),
+        (codes.ClassicalCode([[1, 1], [1, 1]]), codes.ClassicalCode([[1, 0], [0, 1], [1, 1]])),
+        # and a dependent check in only the second seed code, the mirror of the first case
+        (
+            codes.RepetitionCode(3),
+            codes.ClassicalCode(np.vstack([codes.RepetitionCode(4).matrix] * 2)[:5]),
+        ),
+    ],
+)
+def test_hypergraph_product_distance_by_sector(
+    seed_a: codes.ClassicalCode, seed_b: codes.ClassicalCode | None
+) -> None:
+    """A sector carrying no logical operator contributes no weight to a hypergraph product distance.
+
+    Each seed code here either has a dependent parity check or has dimension zero, so the closed
+    form has to decide, sector by sector, which candidate weight belongs to a logical operator.
+    """
+    seed_b = seed_b if seed_b is not None else codes.RepetitionCode(3)
+    assert seed_a.rank < len(seed_a.matrix) or seed_b.rank < len(seed_b.matrix)
+
+    code = codes.HGPCode(seed_a, seed_b)
+    plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+        # the same distances that a code carrying no closed form of its own computes
+        assert code.get_distance(Pauli.X) == plain.get_distance(Pauli.X)
+        assert code.get_distance(Pauli.Z) == plain.get_distance(Pauli.Z)
+
+
+def test_hypergraph_product_syndrome_subgraphs() -> None:
+    """Horizontal syndrome subgraphs of an HGPCode merge X-type and Z-type parity checks."""
+    # a seed code with more than two edge colors, so that merging color classes is detectable
+    code = codes.HGPCode(codes.RepetitionCode(3), codes.HammingCode(3))
+    subgraphs = code.get_syndrome_subgraphs()
+
+    # each subgraph is a matching, so it is realizable as a single layer of gates
+    assert all(subgraph.degree(node) == 1 for subgraph in subgraphs for node in subgraph.nodes)
+
+    # the horizontal subgraphs address X-type and Z-type parity checks together, while the vertical
+    # subgraphs that open and close the sequence keep the two check types apart
+    addresses_both_check_types = [
+        len({node in code.graph_x for node in subgraph.nodes if not node.is_data}) == 2
+        for subgraph in subgraphs
+    ]
+    assert any(addresses_both_check_types)
+    assert not addresses_both_check_types[0]
+    assert not addresses_both_check_types[-1]
+
+    # a seed code with no parity checks contributes no vertical edges at all
+    assert_valid_subgraphs(codes.HGPCode(codes.RepetitionCode(1), codes.RepetitionCode(3)))
+
+    # a check that addresses no bits of a seed code still addresses qudits of the product, so the
+    # subgraphs have to cover its edges.  Horizontal and vertical edges are collected in separate
+    # loops, so place such a check in each seed code in turn.
+    assert_valid_subgraphs(
+        codes.HGPCode(codes.ClassicalCode([[1, 1, 0], [0, 0, 0]]), codes.RepetitionCode(3))
+    )
+    assert_valid_subgraphs(
+        codes.HGPCode(codes.RepetitionCode(3), codes.ClassicalCode([[1, 1, 0], [0, 0, 0]]))
+    )
 
 
 def test_cyclic_hypergraph_product_codes() -> None:
@@ -323,6 +658,9 @@ def test_cyclic_hypergraph_product_codes() -> None:
     for (bits, poly), (c2_params, cr_params) in chgp_codes.items():
         assert codes.CHGPCode(bits, poly).get_code_params() == c2_params
         assert codes.CRCode(bits, poly).get_code_params() == cr_params
+
+    with pytest.raises(ValueError, match="defined distance"):
+        codes.CRCode(3, x)
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -481,6 +819,21 @@ def test_lifted_product_codes() -> None:
         assert subsystem_rate > rate
 
 
+def test_one_by_one_lifted_product_is_quasi_cyclic() -> None:
+    """A one-by-one lifted product is the corresponding quasi-cyclic code."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(5), field=3)
+    shift = ring.generators[0]
+    element_a = ring.one + shift
+    element_b = ring.one + shift**2
+
+    lifted = codes.LPCode([[element_a.T]], [[element_b]])
+    quasi_cyclic = codes.QCCode([5], 1 + x, 1 + x**2, field=3)
+
+    assert np.array_equal(lifted.matrix_x, quasi_cyclic.matrix_x)
+    assert np.array_equal(lifted.matrix_z, -quasi_cyclic.matrix_z)
+    assert lifted.is_equiv_to(quasi_cyclic)
+
+
 def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """Subsystem lifted product codes in arXiv:2404.18302v1."""
 
@@ -529,6 +882,55 @@ def test_lifted_product_line_logicals(
         code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
         np.eye(code.dimension),
     )
+
+
+def test_lifted_product_valid_over_group_algebras() -> None:
+    """Canonical-logical LP/SLP construction yields valid codes over several group algebras.
+
+    Setting canonical logicals is the only path that exercises the Howell dual of the code's ring
+    generator, and rich (multi-term) ring entries are the case a wrong pivot dual mishandles --
+    misreporting the construction as unsupported.  These cases span two group orders and two fields
+    (C3 over GF(4), C4 over GF(5)), whose polynomial moduli x^3 - 1 and x^4 - 1 factor differently;
+    each coefficient vector has length equal to the group order.
+    """
+    cases = [
+        (
+            abstract.CyclicGroup(3),
+            4,
+            ([[0, 2, 1], [2, 1, 0], [1, 0, 1]], [[0, 0, 1], [1, 1, 0], [1, 0, 0]]),
+        ),
+        (
+            abstract.CyclicGroup(4),
+            5,
+            (
+                [[0, 2, 1, 0], [2, 1, 0, 3], [1, 0, 1, 4]],
+                [[0, 0, 1, 2], [1, 1, 0, 0], [1, 0, 0, 3]],
+            ),
+        ),
+    ]
+    for group, characteristic, rows in cases:
+        ring = abstract.GroupRing(group, field=characteristic)
+        assert ring.is_commutative
+        matrix = abstract.RingArray.build(
+            [
+                [abstract.RingMember.from_vector(ring.field(coeffs), ring) for coeffs in row]
+                for row in rows
+            ],
+            ring,
+        )
+        for code in (
+            codes.LPCode(matrix, set_logicals=True),
+            codes.SLPCode(matrix, set_logicals=True),
+        ):
+            # the code is nonzero and its canonical logicals are well-formed: Lx . Lz^T = I
+            assert code.dimension > 0
+            assert np.array_equal(
+                code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
+                np.eye(code.dimension),
+            )
+            # an ordinary CSS code's stabilizers commute; a subsystem code's need not
+            if not code.is_subsystem_code:
+                assert not np.any(code.matrix_x @ code.matrix_z.T)
 
 
 def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
@@ -597,6 +999,114 @@ def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
         ):
             code_copy = codes.QTCode.load("path.txt")
         assert code_copy == code
+
+
+def test_quantum_tanner_nonabelian_faces() -> None:
+    """QTCode realizes the defining face incidence over a noncommutative group."""
+    group = abstract.QuaternionGroup()
+    generator_i, generator_j = group.generators
+    assert generator_i * generator_j != generator_j * generator_i
+
+    code = codes.QTCode(
+        [generator_i, ~generator_i],
+        [generator_j, ~generator_j],
+        codes.RepetitionCode(2),
+        bipartite=False,
+    )
+    cayplex = code.complex
+    subgraph_x, subgraph_z = codes.QTCode.get_subgraphs(cayplex)
+
+    colors = nx.bipartite.color(cayplex.graph)
+    member = next(iter(cayplex.cover_subset_a))
+    identity = member * ~member
+    sources_x = {element for element, color in colors.items() if color == colors[identity]}
+
+    expected_x = set()
+    expected_z = set()
+    for element in sources_x:
+        for subset_a in cayplex.cover_subset_a:
+            for subset_b in cayplex.cover_subset_b:
+                neighbor = subset_a * element
+                face = frozenset([element, neighbor, element * subset_b, neighbor * subset_b])
+                expected_x.add((element, face, (subset_a, subset_b)))
+                expected_z.add((neighbor, face, (~subset_a, subset_b)))
+
+    def labelled_edges(graph: nx.DiGraph) -> set[tuple[object, object, object]]:
+        """Edges together with the generator pair that defines each face."""
+        return {
+            (source, face, edge_data["sort"]) for source, face, edge_data in graph.edges(data=True)
+        }
+
+    assert labelled_edges(subgraph_x) == expected_x
+    assert labelled_edges(subgraph_z) == expected_z
+
+    def matrix_supports(matrix: np.ndarray, graph: nx.DiGraph) -> list[frozenset[object]]:
+        """Matrix-row supports expressed using the graph's face nodes."""
+        faces = sorted(node for node in graph if graph.out_degree(node) == 0)
+        return [frozenset(faces[col] for col in np.flatnonzero(row)) for row in matrix]
+
+    for matrix, graph in [(code.matrix_x, subgraph_x), (code.matrix_z, subgraph_z)]:
+        expected = {
+            frozenset(graph.successors(source)) for source in graph if graph.in_degree(source) == 0
+        }
+        actual = matrix_supports(matrix, graph)
+        assert len(actual) == len(expected)
+        assert set(actual) == expected
+
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+
+def test_random_quantum_tanner_code_is_reproducible() -> None:
+    """A seed fixes both of the random subsets that define a random quantum Tanner code."""
+    group = abstract.CyclicGroup(8)
+    subcode = codes.RepetitionCode(2)
+
+    def matrix_for(seed: int | None = None, one_subset: bool = False) -> bytes:
+        code = codes.QTCode.random(group, subcode, seed=seed, one_subset=one_subset)
+        return np.asarray(code.matrix).tobytes()
+
+    # the same seed gives the same code every time, and different seeds give different codes
+    assert len({matrix_for(seed=7) for _ in range(4)}) == 1
+    assert matrix_for(seed=7) != matrix_for(seed=8)
+
+    # a seed of any magnitude is accepted
+    assert matrix_for(seed=2**40) == matrix_for(seed=2**40)
+
+    # reusing one subset for both sides is likewise reproducible
+    assert len({matrix_for(seed=7, one_subset=True) for _ in range(3)}) == 1
+
+    # without a seed the code is still drawn at random.  Seeding sympy's own generator, which the
+    # unseeded draw consumes, keeps this check from depending on chance, and restoring it afterwards
+    # keeps the fixed stream out of everything that runs later.
+    with abstract.groups._preserve_sympy_rng():
+        sympy.core.random.seed(0)
+        assert len({matrix_for() for _ in range(4)}) > 1
+
+    # the code is also independent of the hash seed, which sets the iteration order of the sets of
+    # group members that the construction is built from
+    script = (
+        "import numpy as np;"
+        "from qldpc import abstract, codes;"
+        "code = codes.QTCode.random(abstract.CyclicGroup(8), codes.RepetitionCode(2), seed=7);"
+        "print(np.asarray(code.matrix).tobytes().hex())"
+    )
+    matrices = {
+        subprocess.run(
+            [sys.executable, "-c", script],
+            # hand the child this interpreter's import path, so that it builds the code from the
+            # same sources rather than from whatever qldpc its environment happens to resolve
+            env={
+                **os.environ,
+                "PYTHONHASHSEED": hash_seed,
+                "PYTHONPATH": os.pathsep.join(path for path in sys.path if path),
+            },
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+        for hash_seed in ["0", "1", "2", "3"]
+    }
+    assert len(matrices) == 1
 
 
 def test_toric_tanner_code(size: int = 4) -> None:
@@ -750,11 +1260,71 @@ def test_4d_toric_codes() -> None:
     assert (len(code), code.dimension) == (96, 6)
 
 
+def test_cached_parameters_are_genuine() -> None:
+    """Families that cache their parameters agree with a computation that ignores the cache.
+
+    Several constructors assign a dimension and distance taken from the literature rather than
+    computing them, and the public getters then return those values verbatim.  Rebuild each family
+    from its parity check matrices alone, which carry no cached parameters at all, and compare what
+    the family reports against what the rebuilt code computes, so that a constant which disagrees
+    with the code it describes cannot pass unnoticed.
+    """
+    expected = [
+        (codes.IcebergCode(4), (4, 2, 2)),
+        (codes.IcebergCode(6), (6, 4, 2)),
+        (codes.IcebergCode(8), (8, 6, 2)),
+        (codes.QuantumHammingCode(3), (7, 1, 3)),
+        (codes.QuantumHammingCode(4), (15, 7, 3)),
+        (codes.ManyHypercubeCode(1), (6, 4, 2)),
+        (codes.ManyHypercubeCode(2), (36, 16, 4)),
+        (codes.QuantumGolayCode(), (23, 1, 7)),
+        (codes.SurfaceCode(3, 5), (15, 1, 3)),
+        (codes.ToricCode(4), (16, 2, 4)),
+        (codes.GeneralizedSurfaceCode(2, 3), (12, 1, 2)),
+        # the subsystem families additionally route their distance through a closed form, which is
+        # itself expressed in terms of cached classical distances
+        (codes.BaconShorCode(2, 3), (6, 1, 2)),
+        (codes.BaconShorCode(3, 5), (15, 1, 3)),
+        (codes.SHYPSCode(2), (9, 4, 2)),
+    ]
+    for code, params in expected:
+        rebuilt = codes.CSSCode(code.matrix_x, code.matrix_z)
+        with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+            assert code.get_code_params() == params
+            assert rebuilt.get_code_params() == params
+
+            # compare the X and Z distances separately, since the parameters above report only the
+            # smaller of the two
+            assert code.get_distance(Pauli.X) == rebuilt.get_distance(Pauli.X)
+            assert code.get_distance(Pauli.Z) == rebuilt.get_distance(Pauli.Z)
+
+
+def test_4d_toric_code_lattices() -> None:
+    """A T4Code lattice must tile its torus with more than one cell.
+
+    A unimodular basis leaves a single vertex, for which every boundary operator vanishes and the
+    resulting code would have no parity checks whatsoever.
+    """
+    degenerate_lattices = [
+        [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # determinant 1
+        [[1, 1, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # a shear
+        [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # determinant -1
+        [[1, 0, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],  # singular
+    ]
+    for lattice in degenerate_lattices:
+        with pytest.raises(ValueError, match="abs\\(determinant\\) >= 2"):
+            codes.T4Code(lattice)
+
+
 def test_many_hypercube_code() -> None:
     """Goto's many-hypercube code."""
     for level in range(1, 5):
         params = (6**level, 4**level, 2**level)
         assert codes.ManyHypercubeCode(level).get_code_params() == params
+
+    for level in [-1, 0]:
+        with pytest.raises(ValueError, match="level of at least 1"):
+            codes.ManyHypercubeCode(level)
 
 
 def test_bacon_shor_code() -> None:
@@ -763,6 +1333,12 @@ def test_bacon_shor_code() -> None:
     assert all(np.count_nonzero(row) == 2 for row in code.matrix)
     assert code.get_distance(Pauli.X) == 3
     assert code.get_distance(Pauli.Z) == 2
+
+    # a square Bacon-Shor code knows both of its distances without computing them
+    for rows in [2, 3, 4]:
+        code = codes.BaconShorCode(rows)
+        assert code.get_distance_if_known(Pauli.X) == rows
+        assert code.get_distance_if_known(Pauli.Z) == rows
 
 
 def test_shyps_code() -> None:
@@ -807,6 +1383,7 @@ def test_reed_muller_css_codes() -> None:
         ((2, 10), (1024, 912, 8)),
     ]:
         code = codes.QuantumReedMullerCode(order, size)
+        assert (code.order, code.size) == (order, size)
         assert code.get_code_params() == params
         assert code.get_distance() == params[2]
         assert code.get_distance(Pauli.X) == params[2]

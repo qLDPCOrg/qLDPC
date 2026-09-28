@@ -1,19 +1,6 @@
-"""Methods for computing the (exact) distance of error-correcting codes.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Methods for computing the (exact) distance of error-correcting codes."""
 
 from __future__ import annotations
 
@@ -30,6 +17,27 @@ _MASK01 = np.uint64(0x0101010101010101)
 
 ####################################################################################################
 # exact distance via brute-force enumeration over logical-op and stabilizer combinations
+
+
+def _assert_binary(vectors: npt.ArrayLike, name: str) -> None:
+    """Assert that the given vectors are binary.
+
+    The enumeration below packs each row into the bits of ``uint64`` words and combines rows by
+    bitwise XOR, so it is only correct over GF(2).  Non-binary input would otherwise be truncated
+    silently and yield a wrong distance rather than an error.
+    """
+    order = getattr(type(vectors), "order", None)
+    if order is not None and order != 2:
+        raise ValueError(
+            f"Distance calculations only support binary codes, but {name} is defined over"
+            f" GF({order})"
+        )
+    array = np.asarray(vectors)
+    if array.size and not np.all((array == 0) | (array == 1)):
+        raise ValueError(
+            f"Distance calculations only support binary codes, but {name} has entries other"
+            " than 0 and 1"
+        )
 
 
 def get_distance_classical(
@@ -111,6 +119,8 @@ def get_distance_quantum(
             qubits) with the first and second halves indicating the X and Z Pauli support; and
         (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
     """
+    _assert_binary(logical_ops, "logical_ops")
+    _assert_binary(stabilizers, "stabilizers")
     num_bits = np.shape(logical_ops)[-1]
 
     if homogeneous:

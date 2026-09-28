@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+from .common import (
+    with_erasure_bits,
+)
 from .custom import (
     BatchDecoder,
     CompositeDecoder,
@@ -5,13 +10,15 @@ from .custom import (
     DirectDecoder,
     GUFDecoder,
     ILPDecoder,
-    LookupDecoder,
     RelayBPDecoder,
-    WeightedLookupDecoder,
 )
 from .dems import (
     DetectorErrorModelArrays,
     FlipPattern,
+)
+from .lookup import (
+    LookupDecoder,
+    WeightedLookupDecoder,
 )
 from .retrieval import (
     decode,
@@ -72,4 +79,5 @@ __all__ = [
     "get_decoder_MWPM",
     "get_decoder_RBP",
     "get_decoder_lookup",
+    "with_erasure_bits",
 ]

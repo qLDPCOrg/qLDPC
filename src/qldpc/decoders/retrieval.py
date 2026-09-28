@@ -1,25 +1,14 @@
-"""Methods to decode, or retrieve various decoders.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Methods to decode, or retrieve various decoders."""
 
 from __future__ import annotations
 
+import functools
 import inspect
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import ParamSpec, TypeVar
 
 import galois
 import numpy as np
@@ -36,10 +25,13 @@ from .custom import (
     Decoder,
     GUFDecoder,
     ILPDecoder,
-    LookupDecoder,
     RelayBPDecoder,
 )
 from .dems import DetectorErrorModelArrays
+from .lookup import LookupDecoder
+
+_Parameters = ParamSpec("_Parameters")
+_Decoder = TypeVar("_Decoder", bound=Decoder)
 
 
 def decode(
@@ -61,7 +53,10 @@ def get_decoder(
     """Retrieve a decoder.
 
     This method looks for a keyword "with_<DECODER_NAME>: bool" argument, and returns
-    ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.
+    ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.  At most one such argument may be
+    truthy, and a ValueError is raised otherwise.  All remaining keyword arguments go to that
+    constructor, so a decoder-specific option (such as the decompose_errors argument of
+    get_decoder_MWPM) is only accepted when its decoder is selected.
 
     This method also recognizes the following keyword arguments for injecting a custom decoder:
 
@@ -73,30 +68,71 @@ def get_decoder(
     """
     # optionally inject a decoder constructor
     if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
-        assert callable(decoder_constructor)
+        if not callable(decoder_constructor):
+            raise TypeError("The decoder_constructor argument must be callable")
         return decoder_constructor(pcm_or_dem, **decoder_args)
 
     # optionally inject a static decoder, ignoring all other arguments
     if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
-        assert hasattr(static_decoder, "decode") and callable(static_decoder.decode)
-        assert not decoder_args, "If passed a static decoder, we cannot process decoding arguments"
+        if not hasattr(static_decoder, "decode") or not callable(static_decoder.decode):
+            raise TypeError("A static decoder must have a callable decode method")
+        if decoder_args:
+            raise ValueError("If passed a static decoder, we cannot process decoding arguments")
         return static_decoder
 
-    # look for and construct a recognized decoder
-    for name in DECODER_CONSTRUCTORS:
-        if decoder_args.pop(f"with_{name}", False):
-            decoder_constructor = getattr(sys.modules[__name__], f"get_decoder_{name}")
-            return decoder_constructor(pcm_or_dem, **decoder_args)
+    # look for and construct a recognized decoder, consuming every request
+    decoder_names = [
+        name for name in DECODER_CONSTRUCTORS if decoder_args.pop(f"with_{name}", False)
+    ]
+    if len(decoder_names) > 1:
+        raise ValueError(
+            "Only one decoder can be requested at a time, but received requests for: "
+            + ", ".join(decoder_names)
+        )
+    if decoder_names:
+        return DECODER_CONSTRUCTORS[decoder_names[0]](pcm_or_dem, **decoder_args)
 
     # use GUF by default for codes over non-binary fields
     if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
-        return get_decoder_GUF(pcm_or_dem, **decoder_args)
+        return DECODER_CONSTRUCTORS["GUF"](pcm_or_dem, **decoder_args)
 
     # use BP+OSD by default otherwise
-    decoder_args.pop("with_BP_OSD", None)
-    return get_decoder_BP_OSD(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
+    return DECODER_CONSTRUCTORS["BP_OSD"](pcm_or_dem, **decoder_args)
 
 
+def _erasure_bit_support(
+    supported: bool,
+) -> Callable[[Callable[_Parameters, _Decoder]], Callable[_Parameters, _Decoder]]:
+    """Declare and enforce whether a decoder getter supports an erasure bit."""
+
+    def decorator(
+        decoder_getter: Callable[_Parameters, _Decoder],
+    ) -> Callable[_Parameters, _Decoder]:
+        decoder_name = decoder_getter.__name__.removeprefix("get_decoder_")
+        message = (
+            f"The {decoder_name} decoder cannot signal erasure, so it does not accept the"
+            " add_erasure_bit argument"
+        )
+
+        @functools.wraps(decoder_getter)
+        def checked_getter(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _Decoder:
+            add_erasure_bit = bool(kwargs.get("add_erasure_bit"))
+            if not supported:
+                if add_erasure_bit:
+                    raise ValueError(message)
+                kwargs.pop("add_erasure_bit", None)
+
+            decoder = decoder_getter(*args, **kwargs)
+            if add_erasure_bit and not getattr(decoder, "has_erasure_bit", False):
+                raise ValueError(message)
+            return decoder
+
+        return checked_getter
+
+    return decorator
+
+
+@_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BP_OSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -120,6 +156,8 @@ def get_decoder_BP_OSD(
     Returns:
         A decoder constructed by the ldpc package.
 
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
+
     For details about the BD-OSD decoder and its arguments, see:
 
     - help(ldpc.BpOsdDecoder)
@@ -132,6 +170,7 @@ def get_decoder_BP_OSD(
     return ldpc.BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
+@_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BP_LSD(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -155,6 +194,8 @@ def get_decoder_BP_LSD(
     Returns:
         A decoder constructed by the ldpc package.
 
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
+
     For details about the BD-LSD decoder and its arguments, see:
 
     - help(ldpc.bplsd_decoder.BpLsdDecoder)
@@ -167,6 +208,7 @@ def get_decoder_BP_LSD(
     return ldpc.bplsd_decoder.BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
+@_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
 def get_decoder_BF(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -189,6 +231,8 @@ def get_decoder_BF(
 
     Returns:
         A decoder constructed by the ldpc package.
+
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
     For details about the BF decoder and its arguments, see:
 
@@ -221,6 +265,7 @@ def _to_ldpc_inputs(
     return pcm, list(error_channel)
 
 
+@_erasure_bit_support(False)
 def get_decoder_MWPM(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -240,6 +285,8 @@ def get_decoder_MWPM(
     Returns:
         A decoder constructed by pymatching.Matching.from_check_matrix.
 
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
+
     All other keyword arguments are passed to pymatching.Matching.from_check_matrix.
 
     A point of potential confusion: even if passed a detector error model, we DO NOT USE the
@@ -251,14 +298,14 @@ def get_decoder_MWPM(
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem, decompose_errors=decompose_errors)
         pcm = dem_arrays.detector_flip_matrix
-        if decoder_args.get("weights") is not None:  # pragma: no cover
+        if decoder_args.get("weights") is not None:
             raise ValueError("Cannot set error weights when initializing a MWPM decoder from a DEM")
         decoder_args["weights"] = np.log((1 - dem_arrays.error_probs) / dem_arrays.error_probs)
     else:
         pcm = pcm_or_dem
 
-    # possibly ignore non-graphlike errors
-    detectors_per_error = np.asarray(np.sum(pcm, axis=0)).ravel()
+    # possibly ignore non-graphlike errors, counting the detectors that each error addresses
+    detectors_per_error = np.asarray((pcm != 0).sum(axis=0)).ravel()
     error_is_not_graphlike = detectors_per_error > 2
     if ignore_non_graphlike_errors:
         if np.any(error_is_not_graphlike):
@@ -266,13 +313,17 @@ def get_decoder_MWPM(
             mask[error_is_not_graphlike] = 0
             pcm = pcm @ scipy.sparse.diags(mask)
     elif np.any(error_is_not_graphlike):
+        column = int(np.argmax(error_is_not_graphlike))
         raise ValueError(
             "The provided parity check matrix or detector error model contains a non-graphlike"
-            " error, meaning some column of the parity check matrix contains more than two ones,"
-            " which may occur (for example) due to the presence of a Pauli-Y error that flips both"
-            " X and Z detectors.  Try decomposing non-graphlike errors by passing"
-            " 'decompose_errors=True' to the decoder.  If that does not work either, you can try"
-            " 'ignore_non_graphlike_errors=True'"
+            f" error: column {column} of the parity check matrix addresses"
+            f" {detectors_per_error[column]} detectors, which may occur (for example) due to the"
+            " presence of a Pauli-Y error that flips both X and Z detectors.  Try decomposing"
+            " non-graphlike errors by passing 'decompose_errors=True' to the decoder, which splits"
+            " errors along the decompositions that the detector error model suggests; stim provides"
+            " those suggestions for a circuit via"
+            " circuit.detector_error_model(decompose_errors=True).  If that does not work either,"
+            " you can try 'ignore_non_graphlike_errors=True'"
         )
 
     # retrieve a matching decoder from pymatching
@@ -281,6 +332,7 @@ def get_decoder_MWPM(
     return pymatching.Matching.from_check_matrix(pcm, **decoder_args)
 
 
+@_erasure_bit_support(True)
 def get_decoder_RBP(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
@@ -296,6 +348,7 @@ def get_decoder_RBP(
     return RelayBPDecoder(pcm_or_dem, error_priors, **decoder_args)  # type:ignore[arg-type]
 
 
+@_erasure_bit_support(True)
 def get_decoder_lookup(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> LookupDecoder:
@@ -303,13 +356,18 @@ def get_decoder_lookup(
     return LookupDecoder(pcm_or_dem, **decoder_args)  # type:ignore[arg-type]
 
 
+@_erasure_bit_support(True)
 def get_decoder_ILP(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    add_erasure_bit: bool = False,
+    **decoder_args: object,
 ) -> ILPDecoder:
     """Decoder based on solving an integer linear program (ILP)."""
-    return ILPDecoder(_to_pcm(pcm_or_dem), **decoder_args)
+    return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
+@_erasure_bit_support(True)
 def get_decoder_GUF(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> GUFDecoder:
@@ -318,14 +376,17 @@ def get_decoder_GUF(
 
 
 def _to_pcm(pcm_or_dem: IntegerArray | stim.DetectorErrorModel) -> IntegerArray:
-    """Convert the input to a parity check matrix."""
+    """Convert the input to a parity check matrix.
+
+    The consumers of this method build dense decoders, so a detector error model is densified here.
+    """
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        return DetectorErrorModelArrays(pcm_or_dem).detector_flip_matrix
+        return DetectorErrorModelArrays(pcm_or_dem).detector_flip_matrix.toarray()
     return pcm_or_dem
 
 
 # collect all decoder constructors in this file into a dictionary
-DECODER_CONSTRUCTORS = {
+DECODER_CONSTRUCTORS: dict[str, Callable[..., Decoder]] = {
     name.removeprefix("get_decoder_"): func
     for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction)
     if name.startswith("get_decoder_")

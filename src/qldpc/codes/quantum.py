@@ -1,19 +1,6 @@
-"""Quantum error-correcting codes.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Quantum error-correcting codes."""
 
 from __future__ import annotations
 
@@ -48,7 +35,10 @@ from .classical import (
     SimplexCode,
     TannerCode,
 )
-from .common import ClassicalCode, CSSCode, QuditCode
+from .common import ClassicalCode, CSSCode, QuditCode, get_scrambled_seed
+
+####################################################################################################
+# small named codes
 
 
 class TrivialCode(CSSCode):
@@ -236,16 +226,16 @@ class SteaneCode(QuantumHammingCode):
 
 
 class QuantumReedMullerCode(CSSCode):
-    """Self-orthogonal CSS code from a classical Reed-Muller code.
+    r"""Self-orthogonal CSS code from a classical Reed-Muller code.
 
     The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code
-    for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal:
+    for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal::
 
-        RM(r, m) \subseteq RM(r, m)^\perp = RM(m - r - 1, m).
+        RM(r, m) ⊆ RM(r, m)⊥ = RM(m - r - 1, m).
 
     The stabilizer generators are the rows of the generator matrix of RM(r, m), whose pairwise
     orthogonality follows from self-orthogonality.  Both the X- and the Z-distance equal
-    2**(r + 1), the minimum weight of a vector in RM(m - r - 1, m) \ RM(r, m), attained by the
+    2**(r + 1), the minimum weight of a vector in ``RM(m - r - 1, m) \ RM(r, m)``, attained by the
     indicator vector of an affine (r + 1)-flat in AG(m, 2) (MacWilliams & Sloane, Ch. 13).  This
     closed form makes distance evaluation O(1), independent of block length.
 
@@ -260,7 +250,9 @@ class QuantumReedMullerCode(CSSCode):
         self._order = order
         self._size = size
         generator = np.atleast_2d(ReedMullerCode.get_generator(order, size))
-        super().__init__(generator, generator, is_subsystem_code=False, promise_equal_distance_xz=True)
+        super().__init__(
+            generator, generator, is_subsystem_code=False, promise_equal_distance_xz=True
+        )
 
     @property
     def order(self) -> int:
@@ -401,7 +393,7 @@ class QuantumGolayCode(CSSCode):
 
 
 class IcebergCode(CSSCode):
-    """A quantum error detecting code: ``[n, n - 2, 2]``.
+    """A quantum error detecting code: ``[[n, n - 2, 2]]``.
 
     References:
 
@@ -420,7 +412,7 @@ class IcebergCode(CSSCode):
 
 
 class C4Code(IcebergCode):
-    """A [4, 2, 2] code, commonly known as the "C4" code.
+    """A [[4, 2, 2]] code, commonly known as the "C4" code.
 
     References:
 
@@ -432,7 +424,7 @@ class C4Code(IcebergCode):
 
 
 class C6Code(CSSCode):
-    """A [6, 2, 2] code, commonly known as the "C6" code.
+    """A [[6, 2, 2]] code, commonly known as the "C6" code.
 
     References:
 
@@ -444,6 +436,44 @@ class C6Code(CSSCode):
         super().__init__(checks, checks, is_subsystem_code=False)
         logical_ops_xz = scipy.linalg.block_diag([1, 1, 1], [1, 1, 1])
         self.set_logical_ops_xz(logical_ops_xz, logical_ops_xz)
+
+
+class ManyHypercubeCode(CSSCode):
+    """The ``[[6**level, 4**level, 2**level]]`` concatenated many-hypercubes code.
+
+    References:
+
+    - https://arxiv.org/abs/2403.16054
+    - https://errorcorrectionzoo.org/c/stab_6_4_2
+    """
+
+    def __init__(self, level: int = 1) -> None:
+        if level < 1:
+            raise ValueError(
+                f"The many-hypercubes code requires a level of at least 1 (provided: {level})"
+            )
+
+        code: CSSCode
+        if level == 1:
+            # construct a [6, 4, 2] Iceberg code
+            code = IcebergCode(6)
+            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
+
+            # split the four logical qubits into pairs with disjoint support on the physical qubits
+            sector_ops_x = [[1, 1, 0], [0, 1, 1]]
+            sector_ops_z = sector_ops_x[::-1]
+            ops_x = scipy.linalg.block_diag(sector_ops_x, sector_ops_x)
+            ops_z = scipy.linalg.block_diag(sector_ops_z, sector_ops_z)
+            self.set_logical_ops_xz(ops_x, ops_z)
+
+        else:
+            code = ManyHypercubeCode(1)
+            base_code = ManyHypercubeCode(1)
+            for _ in range(level - 1):
+                code = CSSCode.concatenate(code, base_code)
+            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
+            self._dimension = 4**level
+            self._distance_x = self._distance_z = 2**level
 
 
 ####################################################################################################
@@ -495,6 +525,166 @@ class TBCode(CSSCode):
         )
 
 
+class GALACode(CSSCode):
+    """Group-Action Lift with Active orthogonality (GALA) code.
+
+    A GALA code is a two-block CSS code built from two sequences of elements in a binary group
+    algebra.  Given generator sequences (F_0, ..., F_{L/2-1}) and (G_0, ..., G_{L/2-1}), construct
+    block-circulant matrices F and G with entries::
+
+        F[i, j] = F_{j-i},
+        G[i, j] = G_{j-i},
+
+    where generator indices are taken modulo L/2.  These matrices define parent check matrices::
+
+        parent_matrix_x = [F, G],
+        parent_matrix_z = [G.T, F.T].
+
+    The first J block rows of each parent matrix are the active rows that define the parity checks
+    of the code.  The remaining rows are latent rows and do not define stabilizers.
+
+    Each generator is a RingMember and may therefore be either a monomial, representing one group
+    element, or a polynomial sum of group elements.  GALA codes are currently supported only over
+    GF(2).
+
+    The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
+
+        from qldpc import abstract, codes
+
+        ring = abstract.GroupRing(abstract.CyclicGroup(11))
+        x = ring.generators[0]
+        code = codes.GALACode(
+            generators_f=[x**2, x**4, x**3, x**6, x**3, x**9],
+            generators_g=[x**9, x**2, x**8, x**5, x**8, x**7],
+            num_active_rows=5,
+        )
+        assert code.num_qubits == 132  # the block length n
+        assert code.dimension == 30  # the number of logical qubits k
+
+        # the maximum stabilizer weight, which for this code coincides numerically with the
+        # distance d = 12 reported in arXiv:2608.07431; computing the distance itself is
+        # intractable at this block length, so it is taken from the reference rather than checked
+        assert code.get_weight() == 12
+
+    References:
+
+    - https://arxiv.org/abs/2608.07431
+    """
+
+    generators_f: tuple[abstract.RingMember, ...]
+    generators_g: tuple[abstract.RingMember, ...]
+
+    matrix_f: abstract.RingArray
+    matrix_g: abstract.RingArray
+    parent_matrix_x: abstract.RingArray
+    parent_matrix_z: abstract.RingArray
+
+    ring: abstract.GroupRing
+    group: abstract.Group
+
+    num_blocks: int
+    num_active_rows: int
+
+    def __init__(
+        self,
+        generators_f: Sequence[abstract.RingMember],
+        generators_g: Sequence[abstract.RingMember],
+        num_active_rows: int,
+        *,
+        skip_validation: bool = False,
+    ) -> None:
+        """Construct a GALA code from two sequences of group-ring generators.
+
+        Args:
+            generators_f: The sequence (F_0, ..., F_{L/2-1}) of group-ring elements.
+            generators_g: The sequence (G_0, ..., G_{L/2-1}) of group-ring elements.
+            num_active_rows: The number J of active block rows, with 1 <= J <= L/2.
+
+        Keyword args:
+            skip_validation: If True, skip the check that the active X-type and Z-type parity
+                checks commute.  Structural input validation is performed regardless.  Default:
+                False.
+        """
+        generators_f, generators_g, ring = self._validate_generators(
+            generators_f, generators_g, num_active_rows
+        )
+        self.generators_f = generators_f
+        self.generators_g = generators_g
+        self.ring = ring
+        self.group = self.ring.group
+        self.num_blocks = 2 * len(self.generators_f)
+        self.num_active_rows = num_active_rows
+
+        self.matrix_f = self._get_block_circulant(self.generators_f)
+        self.matrix_g = self._get_block_circulant(self.generators_g)
+        self.parent_matrix_x = abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
+        self.parent_matrix_z = abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
+
+        active_matrix_x = abstract.RingArray(self.parent_matrix_x[: self.num_active_rows])
+        active_matrix_z = abstract.RingArray(self.parent_matrix_z[: self.num_active_rows])
+        matrix_x = active_matrix_x.lift()
+        matrix_z = active_matrix_z.lift()
+        if not skip_validation and np.any(matrix_x @ matrix_z.T):
+            raise ValueError("The active parity checks of this GALACode do not commute")
+        super().__init__(matrix_x, matrix_z, is_subsystem_code=False)
+
+    def __str__(self) -> str:
+        """Human-readable representation of this code."""
+        text = f"{self.name} on {self.num_qubits} qubits"
+        text += f" with {self.num_blocks} blocks, {self.num_active_rows} active rows,"
+        text += f" and lift group {self.group}"
+        return text
+
+    @staticmethod
+    def _validate_generators(
+        generators_f: Sequence[abstract.RingMember],
+        generators_g: Sequence[abstract.RingMember],
+        num_active_rows: int,
+    ) -> tuple[
+        tuple[abstract.RingMember, ...],
+        tuple[abstract.RingMember, ...],
+        abstract.GroupRing,
+    ]:
+        """Validate and normalize GALA generator data."""
+        generators_f = tuple(generators_f)
+        generators_g = tuple(generators_g)
+        if not generators_f or not generators_g:
+            raise ValueError("GALA generator sequences must be nonempty")
+        if len(generators_f) != len(generators_g):
+            raise ValueError("GALA generator sequences must have equal lengths")
+
+        generators = generators_f + generators_g
+        if not all(isinstance(generator, abstract.RingMember) for generator in generators):
+            raise ValueError("GALA generators must be RingMember objects")
+        ring = generators[0].ring
+        if any(generator.ring != ring for generator in generators[1:]):
+            raise ValueError("All GALA generators must belong to the same group ring")
+        if ring.field.order != 2:
+            raise ValueError("GALA codes are currently supported only over GF(2)")
+
+        if not isinstance(num_active_rows, (int, np.int_)):
+            raise TypeError("The number of active rows must be an integer")
+        if not 1 <= num_active_rows <= len(generators_f):
+            raise ValueError(
+                "The number of active rows must lie between 1 and"
+                f" {len(generators_f)} (provided: {num_active_rows})"
+            )
+
+        generators_f = tuple(generator.copy() for generator in generators_f)
+        generators_g = tuple(generator.copy() for generator in generators_g)
+        return generators_f, generators_g, ring
+
+    @staticmethod
+    def _get_block_circulant(
+        generators: Sequence[abstract.RingMember],
+    ) -> abstract.RingArray:
+        """Construct the block-circulant matrix induced by a sequence of generators."""
+        size = len(generators)
+        return abstract.RingArray(
+            [[generators[(col - row) % size] for col in range(size)] for row in range(size)]
+        )
+
+
 class QCCode(TBCode):
     """Quasi-cyclic code.
 
@@ -523,6 +713,7 @@ class QCCode(TBCode):
     References:
 
     - https://errorcorrectionzoo.org/c/quantum_quasi_cyclic
+    - https://arxiv.org/abs/2109.14609
 
     Univariate quasi-cyclic codes are generalized bicycle codes:
 
@@ -550,9 +741,6 @@ class QCCode(TBCode):
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a generalized bicycle code."""
-        self.poly_a = sympy.Poly(poly_a)
-        self.poly_b = sympy.Poly(poly_b)
-
         # identify the symbols used to denote cyclic group generators
         symbols = poly_a.free_symbols | poly_b.free_symbols
         if len(orders) < len(symbols):
@@ -567,10 +755,13 @@ class QCCode(TBCode):
                 assert isinstance(symbol, sympy.Symbol), f"Invalid symbol: {symbol}"
                 symbol_to_order[symbol] = order
 
-        # add more placeholder symbols if necessary
+        # add placeholder symbols for any orders that the polynomials do not account for
+        # the "~" prefix and the index keep each placeholder distinct from the others and from the
+        # symbols appearing in the polynomials; sorting makes the names deterministic
+        placeholder_prefix = "~" + "".join(sorted(map(str, symbols)))
         while len(symbol_to_order) < len(orders):
-            unique_symbol = sympy.Symbol("~" + "".join(map(str, symbols)))
-            symbol_to_order[unique_symbol] = orders[len(symbol_to_order)]
+            index = len(symbol_to_order)
+            symbol_to_order[sympy.Symbol(f"{placeholder_prefix}_{index}")] = orders[index]
 
         self.symbols = tuple(symbol_to_order.keys())
         self.orders = tuple(symbol_to_order.values())
@@ -578,7 +769,16 @@ class QCCode(TBCode):
         # identify the group generator associated with each symbol
         self.group = abstract.AbelianGroup(*self.orders)
         self.ring = abstract.GroupRing(self.group, field)
-        self.symbol_gens = dict(zip(self.symbols, self.group.generators))
+        # an abelian group provides a generator only for a nontrivial factor, so generators go to
+        # the factors that have them, and a symbol whose cyclic group is trivial takes the identity
+        generators = iter(self.group.generators)
+        self.symbol_gens = {}
+        for symbol, order in zip(self.symbols, self.orders):
+            self.symbol_gens[symbol] = next(generators) if order > 1 else self.group.identity
+
+        # simplify the polynomials, whose monomials can denote the same group element
+        self.poly_a = self.get_simplified_form(poly_a)
+        self.poly_b = self.get_simplified_form(poly_b)
 
         # build defining matrices of a quasi-cyclic code; transpose the lift by convention
         matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
@@ -587,22 +787,56 @@ class QCCode(TBCode):
             matrix_a, matrix_b, field, promise_equal_distance_xz=True, skip_validation=True
         )
 
-    def get_canonical_form(
+    def get_simplified_form(
         self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
-    ) -> sympy.Expr:
-        """Canonicalize the given polynomial, shifting exponents to (-order/2, order/2]."""
+    ) -> sympy.Poly:
+        """Simplify the given polynomial with the relations satisfied by the cyclic generators.
+
+        A generator of a cyclic group of order R satisfies x**R = 1, so the exponent of a symbol
+        matters only modulo its order, and two monomials whose exponents agree modulo the orders
+        denote the same group element.  Reducing every exponent into [0, order) therefore collects
+        such monomials into a single term, whose coefficient is the sum of theirs in the base field,
+        and a coefficient that sums to zero leaves no term at all.  The polynomial is returned over
+        all of the symbols of this code, including any that it does not address.
+        """
         orders = orders or self.orders
         assert len(orders) == len(self.symbols)
 
-        # canonicalize and add one monomial term at a time
-        new_poly: sympy.Expr = sympy.Integer(0)
+        coefficients: dict[sympy.Expr, galois.FieldArray] = {}
         for term in abstract.iter_monomial_terms(poly):
+            _, _exponents = abstract.get_coefficient_and_exponents(term)
+            exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
+            monomial = sympy.prod(
+                symbol ** (exponents.get(symbol, 0) % order)
+                for symbol, order in zip(self.symbols, orders)
+            )
+            # a monomial term evaluates to a single group element, whose coefficient is in the field
+            [(coefficient, _group_member)] = self.ring.eval(term, self.symbol_gens)
+            coefficients[monomial] = coefficients.get(monomial, self.ring.field(0)) + coefficient
+
+        terms = [int(coefficient) * monomial for monomial, coefficient in coefficients.items()]
+        return sympy.Poly(sum(terms), *self.symbols)
+
+    def get_canonical_form(
+        self, poly: sympy.Basic, orders: tuple[int, ...] | None = None
+    ) -> sympy.Expr:
+        """Canonicalize the given polynomial, shifting exponents to (-order/2, order/2].
+
+        The polynomial is simplified first, so that its monomials denote distinct group elements and
+        carry the coefficients that the base field gives them.  Shifting the exponents of distinct
+        simplified monomials leaves them distinct, so the terms below combine by addition alone.
+        """
+        orders = orders or self.orders
+
+        # shift the exponents of one simplified monomial term at a time
+        new_poly: sympy.Expr = sympy.Integer(0)
+        for term in abstract.iter_monomial_terms(self.get_simplified_form(poly, orders)):
             coeff, _exponents = abstract.get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
             new_term = sympy.Integer(coeff)
             for symbol, order in zip(self.symbols, orders):
-                new_exponent = exponents.get(symbol, 0) % order
+                new_exponent = exponents.get(symbol, 0)
                 if new_exponent > order / 2:
                     new_exponent -= order
                 new_term *= symbol**new_exponent
@@ -644,7 +878,7 @@ class QCCode(TBCode):
             f" (provided: {strategy})"
         )
 
-        # build matrices for each term in A and B
+        # build matrices for each term in A and B, transposed to match the lift in __init__
         terms_a = abstract.iter_monomial_terms(self.poly_a)
         terms_b = abstract.iter_monomial_terms(self.poly_b)
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
@@ -707,7 +941,7 @@ class BBCode(QCCode):
     dictionary, as in {x: 12, y: 6}.
 
     The polynomials A and B induce a "canonical" layout of the data and check qubits of a BBCode.
-    In the canonical layout, qubits are organized into plaquettes of four qubits that look like
+    In the canonical layout, qubits are organized into plaquettes of four qubits that look like::
 
         L X
         Z R
@@ -765,7 +999,7 @@ class BBCode(QCCode):
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
         """Construct a bivariate bicycle code."""
-        symbols = sympy.Poly(poly_a).free_symbols | sympy.Poly(poly_b).free_symbols
+        symbols = poly_a.free_symbols | poly_b.free_symbols
         if len(orders) != 2 or len(symbols) != 2:
             raise ValueError(
                 "BBCodes should have exactly two cyclic group orders and two symbols, not "
@@ -855,7 +1089,9 @@ class BBCode(QCCode):
             ``poly_b = 1 + y + ...``,
 
         We say that two BBCodes are "equivalent" if they can be obtained from one another by a
-        permutation of data and check qubits.
+        permutation of data and check qubits.  For qudit codes, we also allow "equivalent" BBCodes
+        to differ by an overall sign of their Z-type parity checks, which does not change the code
+        that these checks define.
 
         To find an equivalent BBCode with a manifestly toric layout, we take
 
@@ -1081,6 +1317,13 @@ class HGPCode(CSSCode):
     - https://arxiv.org/abs/1202.0928
     - https://arxiv.org/abs/2202.01702
     - https://www.youtube.com/watch?v=iehMcUr2saM
+
+    Syndrome extraction, canonical logical operators, and exact distances additionally follow:
+
+    - https://arxiv.org/abs/2109.14609
+    - https://arxiv.org/abs/2204.10812
+    - https://arxiv.org/abs/2502.07150
+    - https://arxiv.org/abs/2308.15520
     """
 
     code_a: ClassicalCode
@@ -1146,7 +1389,7 @@ class HGPCode(CSSCode):
 
         The sequence here is essentially the sequence used for hypergraph product codes in Algorithm
         2 of arXiv:2109.14609, modified to obviate the need to find a balanced ordering of Tanner
-        graph vertices.
+        graph vertices, and to group horizontal edges more coarsely than vertical ones.
 
         More specifically, this method constructs Tanner subgraphs as follows:
 
@@ -1155,8 +1398,20 @@ class HGPCode(CSSCode):
         2. Even edges get assigned a "north" or "south" direction if they are associated,
             respectively, with X-type or Z-type parity checks.  Odd edges get assigned the opposite
             direction.
-        3. Steps 1 and 2 are repeated for (horizontal, self.code_b, east, west) in place of
-            (vertical, self.code_a, north, south).
+        3. Step 1 is repeated for the classical seed code that defines horizontal edges of this
+            HGPCode (self.code_b), but the resulting edges get an "east" or "west" direction
+            according to the parity of their color alone: even colors go east and odd colors go
+            west, irrespective of parity check type.
+
+        Any two overlapping X-type and Z-type parity checks of an HGPCode share exactly two data
+        qubits, so the induced circuit measures the correct syndrome only if the X-type gate comes
+        before the Z-type gate on both of those qubits, or after it on both.  The check-type term in
+        step 2 is what enforces that, sending vertical edges of one color but opposite check type to
+        opposite ends of the returned sequence; grouping vertical edges by color alone breaks it.
+        Horizontal edges need no such term, and grouping them by color alone halves the number of
+        subgraphs they require.  Each color class of an edge coloring is a matching, so every
+        subgraph, horizontal or vertical, addresses each qubit at most once and is therefore
+        realizable as a single layer of gates.
 
         Args:
             strategy: The strategy used by nx.greedy_color to color edges of the Tanner graph.
@@ -1173,6 +1428,7 @@ class HGPCode(CSSCode):
                 node_0 = node_map[check_a, node_b]
                 node_1 = node_map[data_a, node_b]
                 data, check = sorted([node_0, node_1])
+                # node_b.is_data selects whether this edge's parity check is X-type or Z-type
                 edges_ns = edges_s if (color + node_b.is_data) % 2 == 0 else edges_n
                 edges_ns[color].append((check, data))
         graphs_n = tuple(self.graph.edge_subgraph(edges) for edges in edges_n.values())
@@ -1187,7 +1443,8 @@ class HGPCode(CSSCode):
                 node_0 = node_map[node_a, check_b]
                 node_1 = node_map[node_a, data_b]
                 data, check = sorted([node_0, node_1])
-                edges_ew = edges_e if (color + node_b.is_data) % 2 == 0 else edges_w
+                # the check-type term of the vertical edges is deliberately absent here
+                edges_ew = edges_e if color % 2 == 0 else edges_w
                 edges_ew[color].append((check, data))
         graphs_e = tuple(self.graph.edge_subgraph(edges) for edges in edges_e.values())
         graphs_w = tuple(self.graph.edge_subgraph(edges) for edges in edges_w.values())
@@ -1218,6 +1475,10 @@ class HGPCode(CSSCode):
         graph = nx.DiGraph()
         field = getattr(graph_a, "field", galois.GF2)
         _Pauli = Pauli if field is galois.GF2 else QuditPauli
+
+        # the keys of this map are the vertices of the product, before relabeling
+        node_map = HGPCode.get_product_node_map(graph_a.nodes, graph_b.nodes)
+        graph.add_nodes_from(node_map.keys())
 
         # start with a cartesian products of the input graphs
         graph_product = nx.cartesian_product(graph_a, graph_b)
@@ -1251,7 +1512,6 @@ class HGPCode(CSSCode):
             graph[node_check][node_qudit][Pauli] = op
 
         # relabel nodes, from (node_a, node_b) --> node_combined
-        node_map = HGPCode.get_product_node_map(graph_a.nodes, graph_b.nodes)
         graph = nx.relabel_nodes(graph, node_map)
         graph.field = field
         return graph
@@ -1334,18 +1594,28 @@ class HGPCode(CSSCode):
         These calculations are based on arXiv:2308.15520, but additionally allow for the separate
         calculation of X-distance and Z-distance.  The basic idea is to identify the size of
         minimum-weight string operators in the (0, 0) and (1, 1) sectors of the HGPCode.
+
+        Each sector only carries logical operators when both of the codes whose code words build it
+        are nontrivial: the (0, 0) sector needs code words in both seed codes, and the (1, 1) sector
+        needs them in both transpose seed codes, which is to say a dependent parity check in each
+        seed code.  A sector that carries none contributes no weight, and folding its weight in
+        anyway would report a distance below the true one, so skip it.
         """
         if pauli is None:
             # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
             return NotImplemented
 
+        # a transpose seed code has code words exactly when that seed code has a dependent check
+        dependent_a = self.code_a.rank < len(self.code_a.matrix)
+        dependent_b = self.code_b.rank < len(self.code_b.matrix)
+
         if pauli is Pauli.X:
-            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance()
-            dist_b = self.code_b.get_distance()
+            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance() if dependent_b else np.nan
+            dist_b = self.code_b.get_distance() if self.code_a.dimension else np.nan
         else:
             assert pauli is Pauli.Z
-            dist_a = self.code_a.get_distance()
-            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance()
+            dist_a = self.code_a.get_distance() if self.code_b.dimension else np.nan
+            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance() if dependent_a else np.nan
 
         return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
 
@@ -1357,7 +1627,7 @@ class CHGPCode(HGPCode):
 
     References:
 
-    - https://arxiv.org/pdf/2511.09683v2 (Definition 1)
+    - https://arxiv.org/abs/2511.09683 (Definition 1)
     """
 
     def __init__(
@@ -1387,7 +1657,7 @@ class CRCode(HGPCode):
 
     References:
 
-    - https://arxiv.org/pdf/2511.09683v2 (Definition 3)
+    - https://arxiv.org/abs/2511.09683 (Definition 3)
     """
 
     def __init__(
@@ -1400,7 +1670,11 @@ class CRCode(HGPCode):
         """
         cyclic_code = CyclicCode(bits, poly, field)
         distance = cyclic_code.get_distance()
-        ring_code = RingCode(distance if isinstance(distance, int) else 1, field)
+        if np.isnan(distance):
+            raise ValueError(
+                "Cannot construct a CRCode from a cyclic code without a defined distance"
+            )
+        ring_code = RingCode(int(distance), field)
         super().__init__(cyclic_code, ring_code, field)
 
 
@@ -1499,6 +1773,61 @@ class SHPCode(CSSCode):
                 return min(self.code_a.get_distance(), self.code_b.get_distance())
 
 
+class BaconShorCode(SHPCode):
+    """Bacon-Shor code on a square grid, implemented as a subsystem hypergraph product code.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/bacon_shor
+    """
+
+    def __init__(
+        self,
+        rows: int,
+        cols: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
+        code_x = RepetitionCode(rows, field)
+        code_z = RepetitionCode(cols, field) if cols is not None else None
+        super().__init__(code_x, code_z, field, set_logicals=set_logicals)
+
+        self._distance_x = cols if cols is not None else rows
+        self._distance_z = rows
+
+
+class SHYPSCode(SHPCode):
+    """Subsystem hypergraph product simplex (SHYPS) code.
+
+    Subsystem hypergraph product codes naturally inherit the automorphisms (symmetries) of the
+    classical codes that they are built from.  The SHYPSCode is built from classical SimplexCodes
+    that have a very large automorphism group, which gives SHYPSCodes a large set of
+    SWAP-transversal Clifford operations.
+
+    References:
+
+    - https://errorcorrectionzoo.org/c/shyps
+    - https://arxiv.org/abs/2502.07150
+    """
+
+    def __init__(
+        self,
+        dim_x: int,
+        dim_z: int | None = None,
+        field: int | type[galois.FieldArray] | None = None,
+        *,
+        set_logicals: bool = True,
+    ) -> None:
+        dim_z = dim_z if dim_z is not None else dim_x
+
+        code_x = SimplexCode(dim_x, field)
+        code_z = SimplexCode(dim_z, field)
+        super().__init__(code_x, code_z, set_logicals=set_logicals)
+
+        self._dimension = dim_x * dim_z
+
+
 class LPCode(CSSCode):
     """Lifted product code.
 
@@ -1512,7 +1841,7 @@ class LPCode(CSSCode):
     can be constructed by::
 
         import numpy as np
-        from qldpc.abstract import CyclicGroup, GroupRing, RingArray, RingMember
+        from qldpc.abstract import CyclicGroup, GroupRing, RingArray
         from qldpc.codes import RepetitionCode, LPCode
 
         num_copies = 5  # the number of surface codes to stitch together
@@ -1551,6 +1880,7 @@ class LPCode(CSSCode):
     - https://arxiv.org/abs/2202.01702
     - https://arxiv.org/abs/2012.04068
     - https://arxiv.org/abs/2306.16400
+    - https://arxiv.org/abs/2401.02911
     """
 
     matrix_a: abstract.RingArray
@@ -1590,12 +1920,14 @@ class LPCode(CSSCode):
         if set_logicals:
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
-                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
-            except (ValueError, NotImplementedError):
+            except (ValueError, NotImplementedError) as exception:
                 raise ValueError(
                     "Cannot set canonical logical operators for this code, likely due to a"
                     " choice of group algebra for which some features are not yet supported"
-                )
+                ) from exception
+            # this call sits outside the try above because a validation failure here is a real bug
+            # in the computed operators, not the "unsupported group algebra" the try/except reports
+            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
 
     @staticmethod
     def get_canonical_logical_line_ops(
@@ -1619,9 +1951,9 @@ class LPCode(CSSCode):
         generator_b_T = matrix_b.T.null_space(right=True).howell_normal_form_semisimple(right=True)
 
         dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
-        dual_b = abstract.get_howell_dual(generator_b, right=True)
+        dual_b = abstract.get_howell_dual(generator_b)
         dual_a_T = abstract.get_howell_dual(generator_a_T)
-        dual_b_T = abstract.get_howell_dual(generator_b_T, right=True)
+        dual_b_T = abstract.get_howell_dual(generator_b_T)
 
         logical_ops_x_l = abstract.kron(dual_a, generator_b)
         logical_ops_z_l = abstract.kron(generator_a, dual_b)
@@ -1644,7 +1976,7 @@ class LPCode(CSSCode):
         identity = np.eye(block_size, dtype=int)
         lifted_ops_x = ring.field.Zeros((0, num_lifted_columns))
         lifted_ops_z = ring.field.Zeros((0, num_lifted_columns))
-        for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
+        for op_x, op_z in zip(logical_ops_x, logical_ops_z):
             ops_x = op_x.reshape(1, *op_x.shape).lift()
             ops_z = op_z.reshape(1, *op_z.shape).lift()
             inner_product = ops_x @ ops_z.T
@@ -1675,19 +2007,19 @@ class SLPCode(CSSCode):
     See help(qldpc.codes.LPCode) for additional information.
 
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
-    constructed by
+    constructed by::
 
-        from qldpc.abstract import CyclicGroup, GroupRing, RingMember, RingArray
+        from qldpc.abstract import CyclicGroup, GroupRing, RingArray
         from qldpc.codes import SLPCode
 
         group = CyclicGroup(2)
         ring = GroupRing(group)
-        x = group.generators[0]  # generator of the cyclic group
-        matrix = abstract.RingArray.build([[1, x, x], [x, x, 1]])  # Eq. 21 of arXiv:2404.18302v1
+        x = ring.generators[0]  # generator of the cyclic group
+        matrix = RingArray.build([[1, x, x], [x, x, 1]], ring)  # Eq. 21 of arXiv:2404.18302v1
         code = SLPCode(matrix)
         assert code.get_code_params() == (18, 4, 2)
 
-    while the SLPCode in example 2 is
+    while the SLPCode in example 2 is::
 
         group = CyclicGroup(3)
         ring = GroupRing(group)
@@ -1727,12 +2059,14 @@ class SLPCode(CSSCode):
         if set_logicals:
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
-                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
-            except (ValueError, NotImplementedError):
+            except (ValueError, NotImplementedError) as exception:
                 raise ValueError(
                     "Cannot set canonical logical operators for this code, likely due to a"
                     " choice of group algebra for which some features are not yet supported"
-                )
+                ) from exception
+            # this call sits outside the try above because a validation failure here is a real bug
+            # in the computed operators, not the "unsupported group algebra" the try/except reports
+            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
 
     @staticmethod
     def get_canonical_logical_line_ops(
@@ -1754,7 +2088,7 @@ class SLPCode(CSSCode):
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
 
         dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
-        dual_b = abstract.get_howell_dual(generator_b, right=True)
+        dual_b = abstract.get_howell_dual(generator_b)
 
         logical_ops_x = abstract.kron(dual_a, generator_b)
         logical_ops_z = abstract.kron(generator_a, dual_b)
@@ -1790,7 +2124,7 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ab, gb, agb}``.  We define two
+    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ag, gb, agb}``.  We define two
     (directed) subgraphs on the Cayley complex:
 
     - subgraph_x with edges ``( g, f(g,a,b))``, and
@@ -1877,7 +2211,7 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-        where ``f(g,a,b) = {g, ab, gb, agb}``.  Specifically, the (directed) subgraphs are:
+        where ``f(g,a,b) = {g, ag, gb, agb}``.  Specifically, the (directed) subgraphs are:
 
         - subgraph_x with edges ``( g, f(g,a,b))``, and
         - subgraph_z with edges ``(ag, f(g,a,b))``.
@@ -1891,12 +2225,13 @@ class QTCode(CSSCode):
         then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by
         defining ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
         """
-        subset_a = cayplex.cover_subset_a
-        subset_b = cayplex.cover_subset_b
+        # sort the subsets by the total order on the group, which fixes the order in which faces are
+        # added below, and thereby the qudit that each face of the Cayley complex is identified with
+        subset_a = sorted(cayplex.cover_subset_a)
+        subset_b = sorted(cayplex.cover_subset_b)
 
         # identify the identity element
-        member = next(iter(subset_a))
-        identity = member * ~member
+        identity = subset_a[0] * ~subset_a[0]
 
         # identify the set of nodes for which we still need to add faces
         nodes_to_add = {identity}
@@ -1905,7 +2240,8 @@ class QTCode(CSSCode):
         subgraph_x = nx.DiGraph()
         subgraph_z = nx.DiGraph()
         while nodes_to_add:
-            gg = nodes_to_add.pop()
+            gg = min(nodes_to_add)
+            nodes_to_add.remove(gg)
 
             # identify nodes we have already covered, and new nodes we may need to cover
             old_nodes = set(subgraph_x.nodes())
@@ -1943,7 +2279,14 @@ class QTCode(CSSCode):
         code_a = ClassicalCode(code_a, field)
         code_b = ClassicalCode(code_b if code_b is not None else ~code_a, field)
         subset_a = group.random_symmetric_subset(code_a.num_bits, seed=seed)
-        subset_b = group.random_symmetric_subset(code_b.num_bits) if not one_subset else subset_a
+        if one_subset:
+            subset_b = subset_a
+        else:
+            # scramble the seed so that the second subset is drawn independently of the first, while
+            # keeping the construction as a whole reproducible from the given seed.  Reduce it
+            # first, so that a seed of any magnitude is accepted, as it is for the first subset.
+            seed_b = get_scrambled_seed(seed % 2**32) if seed is not None else None
+            subset_b = group.random_symmetric_subset(code_b.num_bits, seed=seed_b)
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
 
     def save(self, path: str, *headers: str) -> None:
@@ -2010,6 +2353,15 @@ class QTCode(CSSCode):
 
 ####################################################################################################
 # surface code and friends
+
+
+def _get_check_pauli(row: int, col: int) -> PauliXZ:
+    """What type of stabilizer does the check at the given coordinates measure?
+
+    Checks of a rotated surface or toric code alternate between X and Z type in a checkerboard
+    pattern, so the type is fixed by the parity of the sum of the coordinates.
+    """
+    return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
 
 
 class SurfaceCode(CSSCode):
@@ -2099,16 +2451,12 @@ class SurfaceCode(CSSCode):
         - Tiles with a dot (⋅) denote Z-type parity checks (12 total).
         """
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def check_is_used(row: int, col: int) -> bool:
             """Is the check qubit with these coordinates used?"""
             if row == 0 or row == rows:
-                return 0 < col < cols and get_check_pauli(row, col) is Pauli.Z
+                return 0 < col < cols and _get_check_pauli(row, col) is Pauli.Z
             if col == 0 or col == cols:
-                return 0 < row < rows and get_check_pauli(row, col) is Pauli.X
+                return 0 < row < rows and _get_check_pauli(row, col) is Pauli.X
             return 0 < row < rows and 0 < col < cols
 
         def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
@@ -2126,7 +2474,7 @@ class SurfaceCode(CSSCode):
         for row, col in itertools.product(range(rows + 1), range(cols + 1)):
             if check_is_used(row, col):
                 check = get_check(row, col)
-                if get_check_pauli(row, col) is Pauli.X:
+                if _get_check_pauli(row, col) is Pauli.X:
                     checks_x.append(check)
                 else:
                     checks_z.append(check)
@@ -2151,16 +2499,12 @@ class SurfaceCode(CSSCode):
         if not self.rotated:
             return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def check_is_used(row: int, col: int) -> bool:
             """Is the check qubit with these coordinates used?"""
             if row == 0 or row == self.rows:
-                return 0 < col < self.cols and get_check_pauli(row, col) is Pauli.Z
+                return 0 < col < self.cols and _get_check_pauli(row, col) is Pauli.Z
             if col == 0 or col == self.cols:
-                return 0 < row < self.rows and get_check_pauli(row, col) is Pauli.X
+                return 0 < row < self.rows and _get_check_pauli(row, col) is Pauli.X
             return 0 < row < self.rows and 0 < col < self.cols
 
         # identify all coordinates of check qubits, and a map from coordinates to a Node
@@ -2170,7 +2514,7 @@ class SurfaceCode(CSSCode):
                 for row, col in itertools.product(range(self.rows + 1), range(self.cols + 1))
                 if check_is_used(row, col)
             ],
-            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+            key=lambda row_col: (int(_get_check_pauli(*row_col)), *row_col),
         )
         node_map = {
             (row, col): Node(index, is_data=False)
@@ -2187,19 +2531,19 @@ class SurfaceCode(CSSCode):
             check_sw = (row + 1, col)
             check_se = (row + 1, col + 1)
             if check_is_used(*check_nw):
-                check_pauli = get_check_pauli(*check_nw)
+                check_pauli = _get_check_pauli(*check_nw)
                 check_node = node_map[check_nw]
                 edges[check_pauli, "nw"].append((check_node, data_node))
             if check_is_used(*check_ne):
-                check_pauli = get_check_pauli(*check_ne)
+                check_pauli = _get_check_pauli(*check_ne)
                 check_node = node_map[check_ne]
                 edges[check_pauli, "ne"].append((check_node, data_node))
             if check_is_used(*check_sw):
-                check_pauli = get_check_pauli(*check_sw)
+                check_pauli = _get_check_pauli(*check_sw)
                 check_node = node_map[check_sw]
                 edges[check_pauli, "sw"].append((check_node, data_node))
             if check_is_used(*check_se):
-                check_pauli = get_check_pauli(*check_se)
+                check_pauli = _get_check_pauli(*check_se)
                 check_node = node_map[check_se]
                 edges[check_pauli, "se"].append((check_node, data_node))
 
@@ -2294,10 +2638,6 @@ class ToricCode(CSSCode):
         Same as in SurfaceCode.get_rotated_checks, but with periodic boundary conditions.
         """
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         def get_check(row: int, col: int) -> npt.NDArray[np.int_]:
             """Check on the qubits with the given indices, dropping any that are out of bounds."""
             row_indices = np.array([row - 1, row, row - 1, row]) % rows
@@ -2311,7 +2651,7 @@ class ToricCode(CSSCode):
         checks_z = []
         for row, col in itertools.product(range(rows), range(cols)):
             check = get_check(row, col)
-            if get_check_pauli(row, col) is Pauli.X:
+            if _get_check_pauli(row, col) is Pauli.X:
                 checks_x.append(check)
             else:
                 checks_z.append(check)
@@ -2332,14 +2672,10 @@ class ToricCode(CSSCode):
         if not self.rotated:
             return self.parent_code.get_syndrome_subgraphs(strategy=strategy)
 
-        def get_check_pauli(row: int, col: int) -> PauliXZ:
-            """What type of stabilizer does this check measure?"""
-            return Pauli.X if (row + col) % 2 == 0 else Pauli.Z
-
         # identify all coordinates of check qubits, and a map from coordinates to a Node
         check_node_coords = sorted(
             [(row, col) for row, col in itertools.product(range(self.rows), range(self.cols))],
-            key=lambda row_col: (int(get_check_pauli(*row_col)), *row_col),
+            key=lambda row_col: (int(_get_check_pauli(*row_col)), *row_col),
         )
         node_map = {
             (row, col): Node(index, is_data=False)
@@ -2420,8 +2756,8 @@ class T4Code(CSSCode):
 
     References:
 
-    - https://arxiv.org/pdf/2506.15130v1
-    - https://arxiv.org/pdf/2505.10403
+    - https://arxiv.org/abs/2506.15130
+    - https://arxiv.org/abs/2505.10403
     """
 
     def __init__(
@@ -2431,8 +2767,20 @@ class T4Code(CSSCode):
         *,
         skip_validation: bool = False,
     ) -> None:
-        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
+        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice.
+
+        The lattice must have at least two unit cells per period, that is ``abs(det(matrix)) >= 2``.
+        A unimodular basis tiles the torus with a single cell, for which every boundary operator
+        vanishes identically and the resulting code has no parity checks at all.
+        """
         self._field = abstract.resolve_field(field)
+
+        determinant = int(sympy.Matrix(matrix).det())
+        if abs(determinant) < 2:
+            raise ValueError(
+                "A T4Code requires a lattice basis with abs(determinant) >= 2"
+                f" (provided a basis with determinant {determinant})"
+            )
 
         self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
         self.num_vertices = self.lattice_basis.det()
@@ -2512,97 +2860,3 @@ class T4Code(CSSCode):
         return self._ones_vec(
             self.num_faces, [top_face, back_face, left_face], [bottom_face, front_face, right_face]
         )
-
-
-####################################################################################################
-# miscellaneous codes
-
-
-class ManyHypercubeCode(CSSCode):
-    """The ``[6**r, 4**r, 2**r]`` concatenated many-hypercubes code of arXiv:2403.16054.
-
-    References:
-
-    - https://arxiv.org/abs/2403.16054
-    - https://errorcorrectionzoo.org/c/stab_6_4_2
-    """
-
-    def __init__(self, level: int = 1) -> None:
-        assert level >= 1
-
-        code: CSSCode
-        if level == 1:
-            # construct a [6, 4, 2] Iceberg code
-            code = IcebergCode(6)
-            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
-
-            # split the four logical qubits into pairs with disjoint support on the physical qubits
-            sector_ops_x = [[1, 1, 0], [0, 1, 1]]
-            sector_ops_z = sector_ops_x[::-1]
-            ops_x = scipy.linalg.block_diag(sector_ops_x, sector_ops_x)
-            ops_z = scipy.linalg.block_diag(sector_ops_z, sector_ops_z)
-            self.set_logical_ops_xz(ops_x, ops_z)
-
-        else:
-            code = ManyHypercubeCode(1)
-            base_code = ManyHypercubeCode(1)
-            for _ in range(level - 1):
-                code = CSSCode.concatenate(code, base_code)
-            super().__init__(code.code_x, code.code_z, is_subsystem_code=False)
-            self._dimension = 4**level
-            self._distance_x = self._distance_z = 2**level
-
-
-class BaconShorCode(SHPCode):
-    """Bacon-Shor code on a square grid, implemented as a subsystem hypergraph product code.
-
-    References:
-
-    - https://errorcorrectionzoo.org/c/bacon_shor
-    """
-
-    def __init__(
-        self,
-        rows: int,
-        cols: int | None = None,
-        field: int | type[galois.FieldArray] | None = None,
-        *,
-        set_logicals: bool = True,
-    ) -> None:
-        code_x = RepetitionCode(rows, field)
-        code_z = RepetitionCode(cols, field) if cols is not None else None
-        super().__init__(code_x, code_z, field, set_logicals=set_logicals)
-
-        self._distance_x = cols
-        self._distance_z = rows
-
-
-class SHYPSCode(SHPCode):
-    """Subsystem hypergraph product simplex (SHYPS) code.
-
-    Subsystem hypergraph product codes naturally inherit the automorphisms (symmetries) of the
-    classical codes that they are built from.  The SHYPSCode is built from classical SimplexCodes
-    that have a very large automorphism group, which gives SHYPSCodes a large set of
-    SWAP-transversal Clifford operations.
-
-    References:
-
-    - https://errorcorrectionzoo.org/c/shyps
-    - https://arxiv.org/abs/2502.07150
-    """
-
-    def __init__(
-        self,
-        dim_x: int,
-        dim_z: int | None = None,
-        field: int | type[galois.FieldArray] | None = None,
-        *,
-        set_logicals: bool = True,
-    ) -> None:
-        dim_z = dim_z if dim_z is not None else dim_x
-
-        code_x = SimplexCode(dim_x, field)
-        code_z = SimplexCode(dim_z, field)
-        super().__init__(code_x, code_z, set_logicals=set_logicals)
-
-        self._dimension = dim_x * dim_z

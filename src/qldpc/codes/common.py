@@ -1,31 +1,18 @@
-"""General error-correcting code classes and methods.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""General error-correcting code classes and methods."""
 
 from __future__ import annotations
 
 import abc
 import collections
-import dataclasses
+import copy
 import functools
 import itertools
 import random
 import warnings
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from typing import Any, TypeVar, cast
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from typing import Any, cast
 
 import galois
 import numpy as np
@@ -41,6 +28,7 @@ from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
 from .distance import get_distance_classical, get_distance_quantum
+from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_allocation
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
@@ -309,13 +297,20 @@ class ClassicalCode(AbstractCode):
         The Tanner graph is a bipartite graph with (num_checks, num_bits) vertices, respectively
         identified with the checks and bits of the code.  The check vertex c and the bit vertex b
         share an edge iff c addresses b; that is, edge (c, b) is in the graph iff ``H[c, b] != 0``.
+
+        A check that addresses no bits, as an all-zero row of H defines, is an isolated vertex of
+        the graph.  Seeding a vertex for every row puts the check vertices in one-to-one
+        correspondence with the rows of H, so the graph records how many checks there are even when
+        some of them address no bits.
         """
         matrix = np.asanyarray(matrix)
 
-        # initialize graph with nodes
+        # initialize graph with nodes, data before checks
         graph = nx.DiGraph()
         for bit in range(matrix.shape[-1]):
             graph.add_node(Node(index=bit, is_data=True))
+        for check in range(len(matrix)):
+            graph.add_node(Node(index=check, is_data=False))
 
         # add edges
         for row, col in zip(*np.nonzero(matrix)):
@@ -746,12 +741,28 @@ class ClassicalCode(AbstractCode):
         return self.shortened(bits)
 
     def get_logical_error_rate_func(
-        self, num_samples: int, max_error_rate: float = 0.3, **decoder_kwargs: Any
+        self,
+        num_samples: int,
+        max_error_rate: float = 0.1,
+        *,
+        min_error_weight: int = 1,
+        **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        In addition to the logical error rate, the constructed function returns an uncertainty
-        (standard error) in that logical error rate.
+        Alongside the logical error rate, the constructed function returns an uncertainty in that
+        rate: a posterior standard deviation covering statistical error alone.  An error bar that
+        also covers the errors too heavy for the sample budget to have reached is asymmetric, and
+        should be drawn from ``max(value - error - func.truncation_error_bound(p), 0)`` up to
+        ``value + error``, because such errors are all treated as failures, which makes the rate a
+        high estimate.  See help(qldpc.codes.ErrorRateFunc).
+
+        If the decoder is known to correct every error of weight below min_error_weight, saying so
+        skips sampling those weights and drops their contribution to the reported uncertainty,
+        which otherwise dominates that uncertainty at small physical error rates while carrying no
+        information.  The claim is taken on trust and understates the reported failure or discard
+        rate if it is false; it is a claim about the decoder rather than about the code, and cannot
+        be read off the code distance.  See help(qldpc.codes.ErrorRateFunc) for the full caveats.
 
         The physical error rate provided to the constructed function is the probability with which
         each bit experiences a bit-flip error.  The constructed function will throw an error if
@@ -784,25 +795,33 @@ class ClassicalCode(AbstractCode):
 
             ``F(p) = q_0(p) + sum_(k>0) q_k(p) F_k``.
 
-        We thereby only need to sample errors of weight ``k > 0``.
+        We thereby only need to sample errors of weight ``k > 0``, or of weight
+        ``k >= min_error_weight`` when a caller sets that higher, since ``F_k = 1`` for every weight
+        declared to be decoded perfectly.  The sum runs only as far as the heaviest weight the
+        budget reached, and ``F_k = 0`` is assumed above that.
         """
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
-            num_failures[weight], num_discards[weight] = (
-                self._estimate_decoding_infidelity_and_variance(
-                    weight, sample_allocation[weight], decoder
-                )
+        for weight in np.nonzero(sample_allocation)[0].tolist():
+            num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
+                weight, sample_allocation[weight], decoder
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
-    def _estimate_decoding_infidelity_and_variance(
+    def _sample_failure_and_discard_counts(
         self, error_weight: int, num_samples: int, decoder: decoders.Decoder
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
@@ -813,13 +832,13 @@ class ClassicalCode(AbstractCode):
         num_discards = 0
         for _ in range(num_samples):
             # construct an error
-            error_locations = random.sample(range(len(self)), error_weight)
+            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
             error = self.field.Zeros(len(self))
             error[error_locations] = np.random.choice(self.field.elements[1:], size=error_weight)
 
             # decode the error
             syndrome = self.matrix @ error
-            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            decoded_error, erasure = get_error_and_erasure(decoder, syndrome)
             if erasure:
                 num_discards += 1
             elif np.any(decoded_error - error):
@@ -916,7 +935,7 @@ class QuditCode(AbstractCode):
     def is_subsystem_code(self) -> bool:
         """Is this code a subsystem code?
 
-        That is, do all parity checks commute?
+        That is, do some parity checks fail to commute with each other?
         """
         if self._is_subsystem_code is None:
             self._is_subsystem_code = bool(
@@ -942,7 +961,13 @@ class QuditCode(AbstractCode):
 
     @staticmethod
     def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
-        """Convert a parity check matrix into a Tanner graph."""
+        """Convert a parity check matrix into a Tanner graph.
+
+        A check that addresses no qudits, as an all-zero row defines, is an isolated vertex of the
+        graph.  Seeding a vertex for every row puts the check vertices in one-to-one correspondence
+        with the rows, so the graph records how many checks there are even when some of them address
+        no qudits.
+        """
         matrix = np.asanyarray(matrix)
         matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
 
@@ -951,6 +976,8 @@ class QuditCode(AbstractCode):
         graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         for qudit in range(matrix.shape[-1]):
             graph.add_node(Node(index=qudit, is_data=True))
+        for check in range(len(matrix)):
+            graph.add_node(Node(index=check, is_data=False))
 
         # add edges
         _Pauli = Pauli if graph.field is galois.GF2 else QuditPauli
@@ -1027,6 +1054,9 @@ class QuditCode(AbstractCode):
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
 
+        This contract is defined only for stabilizer codes.  Subsystem-code gauge checks need a
+        separate gauge-fixing schedule and therefore are rejected explicitly.
+
         Every edge of the Tanner graph is associated with a two-qubit gate that needs to be applied
         to "write" parity checks onto ancilla qubits (i.e., for syndrome extraction).  The sequence
         of subgraphs returned by this method induces a (possibly partial) ordering on these gates,
@@ -1036,7 +1066,9 @@ class QuditCode(AbstractCode):
         measurement sequence, so long as the following requirements are satisfied:
 
         1. Any pair of subgraphs must be edge-disjoint.
-        2. The union of all subgraphs (with nx.compose) must equal the Tanner graph of the code.
+        2. Every edge of the Tanner graph of the code must belong to one of the subgraphs.  Vertices
+           need not be covered: an isolated vertex, be it a check that addresses no qudits or a
+           qudit that no check addresses, has no two-qubit gate to schedule.
         3. For every subgraph, all two-qubit gates associated with its edges must commute.
         4. The sequence of subgraphs must correspond to a valid syndrome extraction circuit.
 
@@ -1048,8 +1080,13 @@ class QuditCode(AbstractCode):
             strategy: The strategy used by nx.greedy_color to color parity checks.
                 Default: "smallest_last".
         """
+        if self.is_subsystem_code:
+            raise ValueError("Syndrome subgraphs are undefined for subsystem codes")
         # build a graph whose vertices are checks, and edges connect checks with overlapping support
         check_graph = nx.Graph()
+        # seed every check that appears in the Tanner graph, so that a check whose support overlaps
+        # no other check still gets colored (and its edges collected) below
+        check_graph.add_nodes_from(node for node in self.graph if not node.is_data)
         for qubit in range(len(self)):
             data_node = Node(qubit, is_data=True)
             check_nodes = self.graph.predecessors(data_node)
@@ -1099,6 +1136,9 @@ class QuditCode(AbstractCode):
                 check = " ".join(check)
             return check.split()
 
+        if not checks:
+            raise ValueError("Cannot build a QuditCode from an empty collection of parity checks")
+
         check_ops = [parse_check(check) for check in checks]
 
         num_checks = len(checks)
@@ -1106,7 +1146,10 @@ class QuditCode(AbstractCode):
         matrix = np.zeros((num_checks, 2, num_qudits), dtype=int)
         for index, check_op in enumerate(check_ops):
             if len(check_op) != num_qudits:
-                raise ValueError(f"Parity checks 0 and {index} have different lengths")
+                raise ValueError(
+                    f"Parity checks 0 and {index} have different lengths"
+                    f" ({num_qudits} and {len(check_op)})"
+                )
             for qudit, op in enumerate(check_op):
                 matrix[index, :, qudit] = operator.from_string(op).value
 
@@ -1137,7 +1180,7 @@ class QuditCode(AbstractCode):
         if self.field is not galois.GF2:
             raise ValueError(
                 "You asked for the number of qubits in this code, but this code is built out of "
-                rf"{self.field.order}-dimensional qudits.\nTry calling {type(self)}.num_qudits."
+                f"{self.field.order}-dimensional qudits.  Try calling {type(self).__name__}.num_qudits."
             )
         return len(self)
 
@@ -1164,17 +1207,17 @@ class QuditCode(AbstractCode):
         If this method is passed a pauli operator (Pauli.X or Pauli.Z), it returns only the logical
         operators of that type.
 
-        Due to the way that logical operators are constructed in this method, logical Z-type
-        operators only address physical qudits by physical Z-type operators, while logical X-type
-        operators address at least one physical qudit with a physical X-type operator, and may
-        additionally address physical qudits with physical Z-type operators.
+        For a non-subsystem code, logical X-type operators have X-support and may additionally have
+        Z-support, while logical Z-type operators have only Z-support and no X-support.  These
+        logical operators are constructed with a method similar to that in Section 4.1 of
+        Gottesman's thesis (arXiv:9705052): fix the values of the logical operator matrix in the GL
+        sector of the parity check matrix when written in standard form (see
+        QuditCode.get_standard_form_data), and fill in the remaining entries of the logical operator
+        matrix as required by commutation constraints.
 
-        Logical operators are constructed with the method similar to that in Section 4.1 of
-        Gottesman's thesis (arXiv:9705052), generalized for subsystem qudit codes.  The basic
-        strategy is to fix the values of the logical operator matrix in the GL sector of the parity
-        check matrix when written in standard form (see QuditCode.get_standard_form_data), and then
-        fill in the remaining entries of the logical operator matrix as required by parity check
-        constraints.
+        For a subsystem code, logical operators are constructed as a symplectic basis of the gauge
+        group's centralizer, whose symplectic radical is the stabilizer group.  These logical
+        operators make no guarantees on their physical support.
 
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
         always be True for a non-CSS code.
@@ -1190,12 +1233,24 @@ class QuditCode(AbstractCode):
         if not (self._logical_ops is None or recompute):
             return self._logical_ops
 
+        # For a subsystem code, extract the logical operators as a symplectic basis of the gauge
+        # group's centralizer C(G): the operators commuting with every gauge generator.  The
+        # symplectic radical of C(G) is the stabilizer group, so a symplectic (hyperbolic) basis of
+        # C(G) is exactly the k dual pairs of logical operators.
+        if self.is_subsystem_code:
+            centralizer = math.symplectic_conjugate(self.canonicalized.matrix).null_space()
+            logical_ops, _radical = math.symplectic_gram_schmidt(
+                centralizer, promise_full_rank=True
+            )
+            self._logical_ops = logical_ops
+            return self._logical_ops
+
         # construct the standard-form parity check matrix
         (
             matrix,
             qudit_locs,
-            (rows_sx, rows_gx, rows_sz, rows_gz),
-            (cols_sx, cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
+            (rows_sx, _rows_gx, rows_sz, _rows_gz),
+            (cols_sx, _cols_gx, cols_lx, cols_sz, _cols_gz, cols_lz),
         ) = self.get_standard_form_data()
         matrix_x = matrix[:, 0, :]
         matrix_z = matrix[:, 1, :]
@@ -1205,34 +1260,8 @@ class QuditCode(AbstractCode):
         logicals_zz = self.field.Zeros((len(self), self.dimension))
 
         # "seed" the logical operators in the GL sector
-        if not self.is_subsystem_code:
-            logicals_xx[cols_lz] = self.field.Identity(self.dimension)
-            logicals_zz[cols_lx] = self.field.Identity(self.dimension)
-
-        else:
-            cols_gl = np.sort(_join_slices(cols_gx, cols_lx))  # indices for all GL columns
-            """
-            Focusing on the gauge-qudit rows (i.e., constraints) of the parity check matrix, define
-                A = matrix_z[rows_gz, cols_gl],
-                B = matrix_x[rows_gx, cols_gl],
-            and denote the logical operator components in the GL sector by
-                U = logicals_xx[cols_gl],
-                V = logicals_zz[cols_gl].
-            These components need to satisfy the system of matrix equations
-                (1) A @ U.T = 0,
-                (2) B @ V.T = 0,
-                (3) U.T @ V = I.
-            Without loss of generality, we can satisfy (1) and (2) by setting
-                U = null_space(A).T
-                V = null_space(B).T @ M,
-            where the matrix M is determined by subsituting U and V back into (3),
-                U.T @ W @ M = I.
-            """
-            mat_U = matrix_z[rows_gz, cols_gl].view(self.field).null_space().T
-            mat_W = matrix_x[rows_gx, cols_gl].view(self.field).null_space().T
-            mat_M = np.linalg.inv(mat_U.T @ mat_W)
-            logicals_xx[cols_gl] = mat_U
-            logicals_zz[cols_gl] = mat_W @ mat_M
+        logicals_xx[cols_lz] = self.field.Identity(self.dimension)
+        logicals_zz[cols_lx] = self.field.Identity(self.dimension)
 
         # fill in remaining entries by enforcing parity check constraints
         logicals_xx[cols_sz] = -matrix_z[rows_sz] @ logicals_xx
@@ -1241,7 +1270,6 @@ class QuditCode(AbstractCode):
         # Z support of X-type logicals, as column vectors
         logicals_xz = self.field.Zeros((len(self), self.dimension))
         logicals_xz[cols_lx] = self.field.Identity(self.dimension)
-        logicals_xz[cols_gx] = -matrix_x[rows_gx] @ logicals_xz + matrix_z[rows_gx] @ logicals_xx
         logicals_xz[cols_sx] = -matrix_x[rows_sx] @ logicals_xz + matrix_z[rows_sx] @ logicals_xx
 
         # full X and Z logicals as row vectors
@@ -1455,10 +1483,14 @@ class QuditCode(AbstractCode):
         logical_ops = np.asanyarray(logical_ops).view(self.field)
         if not skip_validation:
             dimension = len(logical_ops) // 2
-            logical_ops_x = logical_ops[:dimension]
-            logical_ops_z = logical_ops[dimension:]
-            inner_products = logical_ops_x @ math.symplectic_conjugate(logical_ops_z).T
-            if not np.array_equal(inner_products, np.eye(dimension, dtype=int)):
+            # A valid logical basis has symplectic Gram matrix equal to the block anti-diagonal
+            # [[0, I], [-I, 0]]: the X-type logicals mutually commute, the Z-type logicals mutually
+            # commute, and logical j anticommutes only with its dual logical j + dimension.
+            gram = logical_ops @ math.symplectic_conjugate(logical_ops).T
+            expected_gram = self.field.Zeros((2 * dimension, 2 * dimension))
+            expected_gram[:dimension, dimension:] = self.field.Identity(dimension)
+            expected_gram[dimension:, :dimension] = -self.field.Identity(dimension)
+            if not np.array_equal(gram, expected_gram):
                 raise ValueError("The given logical operators have incorrect commutation relations")
             if np.any(self.matrix @ math.symplectic_conjugate(logical_ops).T):
                 raise ValueError("The given logical operators violate parity checks")
@@ -1467,6 +1499,14 @@ class QuditCode(AbstractCode):
         self._logical_ops = logical_ops
         self._dimension = len(logical_ops) // 2
         return self
+
+    def _validate_logical_ops_shape(self, logical_ops: galois.FieldArray) -> None:
+        """Require a 2D matrix with one row per logical qudit."""
+        if logical_ops.ndim != 2 or len(logical_ops) != self.dimension:
+            raise ValueError(
+                f"Expected {self.dimension} logical operators, got an array of shape "
+                f"{logical_ops.shape}"
+            )
 
     def set_logical_ops_x(
         self,
@@ -1488,10 +1528,16 @@ class QuditCode(AbstractCode):
 
         Plugging (1) into (2), we find ``M = (Kz @ Ω.T @ Lx.T)**-1``, and in turn plug M into (1)
         to get ``Lz = (Kz @ Ω.T @ Lx.T)**-1 @ Kz``.
+
+        The X-type logical operators are given by a matrix with shape ``(k, 2*n)``.  As a
+        convenience, a matrix with shape ``(k, n)`` is also accepted, in which case its entries are
+        taken to be the X-type support of X-only logical operators (that is, with zero Z-type
+        support).
         """
         logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
-        if logicals_ops_x.shape[1] == len(self):  # pragma: no cover
-            # assume the logicals have only X support
+        self._validate_logical_ops_shape(logicals_ops_x)
+        if logicals_ops_x.shape[1] == len(self):
+            # the given logical operators have only X-type support
             logicals_ops_x = np.hstack(
                 [logicals_ops_x, self.field.Zeros((self.dimension, len(self)))]
             ).view(self.field)
@@ -1522,10 +1568,16 @@ class QuditCode(AbstractCode):
 
         Plugging (1) into (2), we find ``M = (Kx @ Ω @ Lz.T)**-1``, and in turn plug M into (1)
         to get ``Lx = (Kx @ Ω @ Lz.T)**-1 @ Kx``.
+
+        The Z-type logical operators are given by a matrix with shape ``(k, 2*n)``.  As a
+        convenience, a matrix with shape ``(k, n)`` is also accepted, in which case its entries are
+        taken to be the Z-type support of Z-only logical operators (that is, with zero X-type
+        support).
         """
         logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
-        if logicals_ops_z.shape[1] == len(self):  # pragma: no cover
-            # assume the logicals have only Z support
+        self._validate_logical_ops_shape(logicals_ops_z)
+        if logicals_ops_z.shape[1] == len(self):
+            # the given logical operators have only Z-type support
             logicals_ops_z = np.hstack(
                 [self.field.Zeros((self.dimension, len(self))), logicals_ops_z]
             ).view(self.field)
@@ -1612,6 +1664,12 @@ class QuditCode(AbstractCode):
         Destabilizers are defined relative to a specific minimal choice of stabilizer generators.
         This method first considers the stabilizer matrix built by self.get_stabilizer_ops().  If
         that choice is overcomplete, this method uses self.get_stabilizer_ops(canonicalized=True).
+
+        If a pauli (Pauli.X or Pauli.Z) is provided, return only the destabilizers whose leading
+        (first nonzero) entry has that type.  Since each destabilizer anticommutes with the single
+        stabilizer generator it is paired with, these are the destabilizers dual to the stabilizer
+        generators of the opposite type: Pauli.X selects the destabilizers dual to the Z-type
+        stabilizers, and Pauli.Z those dual to the X-type stabilizers.
 
         The symplectic argument is provided for compatibility with CSSCode.get_destabilizer_ops, and
         must always be True for a non-CSS code.
@@ -1864,10 +1922,11 @@ class QuditCode(AbstractCode):
             qudits = range(len(self))
 
         def transform_ops(ops: galois.FieldArray) -> galois.FieldArray:
-            """Fourier-transform the given Pauli strings."""
-            ops_reshaped = ops.copy().reshape(-1, 2, len(self))
-            ops_reshaped[:, :, qudits] = ops_reshaped[:, ::-1, qudits]
-            return ops_reshaped.reshape(-1, 2 * len(self)).view(self.field)
+            """Fourier-transform the given Pauli strings on the chosen qudits."""
+            result = ops.copy().reshape(-1, 2, len(self))
+            conjugated = math.symplectic_conjugate(ops).reshape(-1, 2, len(self))
+            result[:, :, qudits] = conjugated[:, :, qudits]
+            return result.reshape(-1, 2 * len(self)).view(self.field)
 
         # transform the parity check matrix, and any other operators that are already known
         code = QuditCode(transform_ops(self.matrix), is_subsystem_code=self._is_subsystem_code)
@@ -2066,7 +2125,9 @@ class QuditCode(AbstractCode):
         if (num_inner_blocks := len(inner_physical_to_outer_logical) // len(inner)) > 1:
             inner = inner.stack([inner] * num_inner_blocks)
 
-        # permute logical operators of the outer code
+        # permute logical operators of the outer code, working on a copy so that the caller's code
+        # object is left unmodified
+        outer = copy.copy(outer)
         outer._logical_ops = (
             outer.get_logical_ops()
             .reshape(2, outer.dimension, -1)[:, inner_physical_to_outer_logical, :]
@@ -2078,14 +2139,17 @@ class QuditCode(AbstractCode):
     def get_logical_error_rate_func(
         self,
         num_samples: int,
-        max_error_rate: float = 0.3,
+        max_error_rate: float = 0.1,
         pauli_bias: Sequence[float] | None = None,
+        *,
+        min_error_weight: int = 1,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        In addition to the logical error rate, the constructed function returns an uncertainty
-        (standard error) in that logical error rate.
+        In addition to the logical error rate, the constructed function returns an uncertainty in
+        that logical error rate: a posterior standard deviation covering statistical error alone
+        (see help(qldpc.codes.ErrorRateFunc)).
 
         The physical error rate provided to the constructed function is the probability with which
         each qubit experiences a Pauli error.  The constructed function will throw an error if
@@ -2097,55 +2161,83 @@ class QuditCode(AbstractCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
+        For a subsystem code, errors are decoded against the stabilizer generators of the code, so
+        a syndrome has one entry per stabilizer generator.  These generators can be high-weight
+        (for example, the stabilizers of a Bacon-Shor code have weight proportional to the code's
+        linear size), which general-purpose decoders may handle poorly.  The estimate is still
+        computed correctly, but it can overestimate the logical error rate achievable with a
+        decoder tailored to the code.
+
+        Errors of weight below min_error_weight are taken to be decoded perfectly and are not
+        sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
+        acts on, so a single-qudit error has weight one whichever Pauli it applies.
+
+        Errors heavier than the sample budget could reach go unsampled and are all treated as
+        failures, making the reported rate a high estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
+
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        # collect relative probabilities of Z, X, and Y errors
-        pauli_bias_zxy: npt.NDArray[np.floating] | None
-        if pauli_bias is not None:
-            assert len(pauli_bias) == 3
-            pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
-            pauli_bias_zxy /= np.sum(pauli_bias_zxy)
-        else:
-            pauli_bias_zxy = None
+        pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
-        # construct decoders
-        decoder = decoders.get_decoder(
-            math.symplectic_conjugate(self.matrix).view(np.ndarray), **decoder_kwargs
-        )
+        # build the matrix that takes an error to its syndrome against the stabilizer generators of
+        # the code.  The syndrome of an error e against a generator s is their symplectic product
+        # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``.  The
+        # decoder is built to invert this same matrix, so a decoded error is a solution to the
+        # syndrome it was handed.  The matrix is a field array, from which get_decoder selects a
+        # decoder appropriate to the field.
+        syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
+        decoder = decoders.get_decoder(syndrome_matrix, **decoder_kwargs)
 
         # identify logical operators
         logical_ops = self.get_logical_ops()
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
-            num_failures[weight], num_discards[weight] = (
-                self._estimate_decoding_fidelity_and_variance(
-                    weight, sample_allocation[weight], decoder, logical_ops, pauli_bias_zxy
-                )
+        for weight in np.nonzero(sample_allocation)[0].tolist():
+            num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
+                weight,
+                sample_allocation[weight],
+                decoder,
+                syndrome_matrix,
+                logical_ops,
+                pauli_bias_zxy,
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
-    def _estimate_decoding_fidelity_and_variance(
+    def _sample_failure_and_discard_counts(
         self,
         error_weight: int,
         num_samples: int,
         decoder: decoders.Decoder,
+        syndrome_matrix: npt.NDArray[np.int_],
         logical_ops: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
+        Syndromes are computed with syndrome_matrix, which is the matrix that the decoder is built
+        to invert, so that a decoded error is a solution to the syndrome it was handed.  It is built
+        from the stabilizer generators of the code, which for a subsystem code are a strict subset
+        of the parity checks (the gauge generators), so a syndrome vector has one entry per
+        stabilizer generator rather than one per gauge generator.
+
         Return logical error and discard counts.
         """
         num_failures = 0
         num_discards = 0
-        syndrome_matrix = -math.symplectic_conjugate(self.matrix)
         for _ in range(num_samples):
             # construct an error
             error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
@@ -2165,7 +2257,7 @@ class QuditCode(AbstractCode):
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
-            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            decoded_error, erasure = get_error_and_erasure(decoder, syndrome)
             if erasure:
                 num_discards += 1
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
@@ -2175,14 +2267,15 @@ class QuditCode(AbstractCode):
 
 
 class CSSCode(QuditCode):
-    """QuditCode with separate X-type and Z-type parity checks.
+    r"""QuditCode with separate X-type and Z-type parity checks.
 
     A CSSCode is defined from two classical codes with parity check matrices ``H_x`` and ``H_z``,
     whose rows indicate, respectively, the support of X-type Pauli strings that witness Z-type
     errors, and Z-type Pauli strings that witness X-type errors.  The full parity check matrix of
-    a CSSCode is
-    ⌈ H_x,  0  ⌉
-    ⌊  0 , H_z ⌋.
+    a CSSCode is::
+
+        ⌈ H_x,  0  ⌉
+        ⌊  0 , H_z ⌋.
 
     If all parity checks of a CSSCode commute, ``H_x @ H_z.T == 0``, then the CSSCode is a
     stabilizer code; otherwise, the CSSCode is a subsystem code.
@@ -2212,7 +2305,13 @@ class CSSCode(QuditCode):
         is_subsystem_code: bool | None = None,
         promise_equal_distance_xz: bool = False,  # do X and Z logicals have equal minimum weight?
     ) -> None:
-        """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks."""
+        """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks.
+
+        If promise_equal_distance_xz is True, the X-type and Z-type logical operators are assumed to
+        have equal minimum weight, which lets the code distance be computed from one type alone.
+        This promise is trusted rather than verified: passing True when it does not hold makes
+        get_distance return an incorrect (and compute-order-dependent) distance.
+        """
         self._code_x = ClassicalCode(code_x, field)  # X-type parity checks, measuring Z-type errors
         self._code_z = ClassicalCode(code_z, field)  # Z-type parity checks, measuring X-type errors
         self._field = self.code_x.field
@@ -2319,10 +2418,13 @@ class CSSCode(QuditCode):
         The 'strategy' argument to this method is only included for compatibility with
         QuditCode.get_syndrome_subgraphs.
         """
-        assert not strategy, (
-            f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
-            f" (provided: {strategy})"
-        )
+        if strategy:
+            raise ValueError(
+                f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
+                f" (provided: {strategy})"
+            )
+        if self.is_subsystem_code:
+            raise ValueError("Syndrome subgraphs are undefined for subsystem codes")
         return self.graph_x, self.graph_z
 
     @staticmethod
@@ -2344,7 +2446,7 @@ class CSSCode(QuditCode):
     def is_subsystem_code(self) -> bool:
         """Is this code a subsystem code?
 
-        That is, do all parity checks commute?
+        That is, do some parity checks fail to commute with each other?
         """
         if self._is_subsystem_code is None:
             self._is_subsystem_code = bool(np.any(self.matrix_x @ self.matrix_z.T))
@@ -2535,7 +2637,22 @@ class CSSCode(QuditCode):
             logicals_z[cols_lx] = self.field.Identity(self.dimension)
 
         else:
-            # see QuditCode.get_logical_ops for an explanation of what's happening here
+            # Restrict to the gauge-qudit rows (constraints) and define
+            #   A = matrix_z[rows_gz, cols_gl] and
+            #   B = matrix_x[rows_gx, cols_gl].
+            # The GL-sector components of the logical operators,
+            #   U = logicals_x[cols_gl] and
+            #   V = logicals_z[cols_gl],
+            # must satisfy
+            #   (1) A @ U = 0,
+            #   (2) B @ V = 0, and
+            #   (3) U.T @ V = I.
+            # Setting
+            #   U = null_space(A).T and
+            #   V = null_space(B).T @ M for some M
+            # satisfies (1) and (2), and setting
+            #   M = inv(U.T @ W) with W = null_space(B).T
+            # satisfies (3), since U.T @ V = U.T @ W @ M = I.
             cols_gl = np.sort(_join_slices(cols_gx, cols_lx))
             mat_U = matrix_z[rows_gz, cols_gl].view(self.field).null_space().T
             mat_W = matrix_x[rows_gx, cols_gl].view(self.field).null_space().T
@@ -2693,6 +2810,26 @@ class CSSCode(QuditCode):
         logical_ops = scipy.linalg.block_diag(logicals_ops_x, logicals_ops_z)
         return self.set_logical_ops(logical_ops, skip_validation=skip_validation)
 
+    def set_logical_ops(
+        self,
+        logical_ops: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        *,
+        skip_validation: bool = False,
+    ) -> Self:
+        """Set CSS-form logical operators for this CSS code."""
+        logical_ops = np.asanyarray(logical_ops).view(self.field)
+        dimension = self.dimension
+        if logical_ops.ndim != 2 or logical_ops.shape != (2 * dimension, 2 * len(self)):
+            raise ValueError(
+                f"Expected logical operators with shape {(2 * dimension, 2 * len(self))}, "
+                f"got {logical_ops.shape}"
+            )
+        if np.any(logical_ops[:dimension, len(self) :]) or np.any(
+            logical_ops[dimension:, : len(self)]
+        ):
+            raise ValueError("CSS logical operators must be X-only followed by Z-only")
+        return super().set_logical_ops(logical_ops, skip_validation=skip_validation)
+
     def set_logical_ops_x(
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
@@ -2715,6 +2852,7 @@ class CSSCode(QuditCode):
         get ``Lz = (Kz @ Lx.T)**-1 @ Kz``.
         """
         logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
+        self._validate_logical_ops_shape(logicals_ops_x)
         old_logicals_z = self.get_logical_ops(Pauli.Z)
         new_logicals_z = np.linalg.inv(old_logicals_z @ logicals_ops_x.T) @ old_logicals_z
         return self.set_logical_ops_xz(
@@ -2743,6 +2881,7 @@ class CSSCode(QuditCode):
         get ``Lx = (Kx @ Lz.T)**-1 @ Kx``.
         """
         logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
+        self._validate_logical_ops_shape(logicals_ops_z)
         old_logicals_x = self.get_logical_ops(Pauli.X)
         new_logicals_x = np.linalg.inv(old_logicals_x @ logicals_ops_z.T) @ old_logicals_x
         return self.set_logical_ops_xz(
@@ -2917,7 +3056,7 @@ class CSSCode(QuditCode):
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Method for subclasses to compute specialized exact distance calculations."""
-        return NotImplemented  # pragma: no cover
+        return NotImplemented
 
     def get_distance_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
         """Retrieve a distance, if known.
@@ -3008,7 +3147,7 @@ class CSSCode(QuditCode):
         cutoff: int | None = None,
         **decoder_kwargs: Any,
     ) -> int | float:
-        """Use a randomized algorithm to compute an upper bound on code distance.
+        r"""Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use the algorithm described in arXiv:2308.07915, also explained below.
 
@@ -3038,7 +3177,7 @@ class CSSCode(QuditCode):
         where ``H_z`` is the parity check matrix of the Z-type subcode that witnesses X-type
         errors.
 
-        Conditions (a) and (b) can be combined into the single block-matrix equation
+        Conditions (a) and (b) can be combined into the single block-matrix equation::
 
             ⌈ H_z   ⌉         ⌈ 0 ⌉
             ⌊ w_z.T ⌋ @ w_x = ⌊ 1 ⌋,
@@ -3258,17 +3397,19 @@ class CSSCode(QuditCode):
     def get_logical_error_rate_func(
         self,
         num_samples: int,
-        max_error_rate: float = 0.3,
+        max_error_rate: float = 0.1,
         pauli_bias: Sequence[float] | None = None,
         *,
+        min_error_weight: int = 1,
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
-        In addition to the logical error rate, the constructed function returns an uncertainty
-        (standard error) in that logical error rate.
+        In addition to the logical error rate, the constructed function returns an uncertainty in
+        that logical error rate: a posterior standard deviation covering statistical error alone
+        (see help(qldpc.codes.ErrorRateFunc)).
 
         The physical error rate provided to the constructed function is the probability with which
         each qubit experiences a Pauli error.  The constructed function will throw an error if
@@ -3280,28 +3421,37 @@ class CSSCode(QuditCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
+        For a subsystem code, errors are decoded against the stabilizer generators of the code, so
+        a syndrome has one entry per stabilizer generator.  These generators can be high-weight
+        (for example, the stabilizers of a Bacon-Shor code have weight proportional to the code's
+        linear size), which general-purpose decoders may handle poorly.  The estimate is still
+        computed correctly, but it can overestimate the logical error rate achievable with a
+        decoder tailored to the code.
+
+        Errors of weight below min_error_weight are taken to be decoded perfectly and are not
+        sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
+        acts on, so a single-qudit error has weight one whichever Pauli it applies.
+
+        Errors heavier than the sample budget could reach go unsampled and are all treated as
+        failures, making the reported rate a high estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
+
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        # collect relative probabilities of Z, X, and Y errors
-        pauli_bias_zxy: npt.NDArray[np.floating] | None
-        if pauli_bias is not None:
-            assert len(pauli_bias) == 3
-            pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
-            pauli_bias_zxy /= np.sum(pauli_bias_zxy)
-        else:
-            pauli_bias_zxy = None
+        pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
+
+        # construct decoders; the X-type and Z-type decoders can be shared when they are built from
+        # equal stabilizers with equal (fully merged) decoder arguments
+        decoder_x_kwargs = (decoder_x_kwargs or {}) | decoder_kwargs
+        decoder_z_kwargs = (decoder_z_kwargs or {}) | decoder_kwargs
         same_x_and_z = (
             np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
             and decoder_x_kwargs == decoder_z_kwargs
         )
-
-        # construct decoders
-        decoder_x_kwargs = (decoder_x_kwargs or {}) | decoder_kwargs
-        decoder_z_kwargs = (decoder_z_kwargs or {}) | decoder_kwargs
         decoder_x = decoders.get_decoder(stabilizer_ops_z, **decoder_x_kwargs)
         decoder_z = (
             decoder_x
@@ -3314,36 +3464,53 @@ class CSSCode(QuditCode):
         logicals_z = self.get_logical_ops(Pauli.Z)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = _get_sample_allocation(num_samples, len(self), max_error_rate)
+        sample_allocation = get_sample_allocation(
+            num_samples, len(self), max_error_rate, min_error_weight
+        )
         num_failures = np.zeros(sample_allocation.size, dtype=int)
         num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in range(1, len(sample_allocation)):
+        for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = (
-                self._estimate_css_decoding_fidelity_and_variance(
+                self._sample_css_failure_and_discard_counts(
                     weight,
                     sample_allocation[weight],
                     decoder_x,
                     decoder_z,
+                    stabilizer_ops_x,
+                    stabilizer_ops_z,
                     logicals_x,
                     logicals_z,
                     pauli_bias_zxy,
                 )
             )
         return ErrorRateFunc(
-            sample_allocation, num_failures, num_discards, len(self), float(max_error_rate)
+            sample_allocation,
+            num_failures,
+            num_discards,
+            len(self),
+            float(max_error_rate),
+            min_error_weight,
         )
 
-    def _estimate_css_decoding_fidelity_and_variance(
+    def _sample_css_failure_and_discard_counts(
         self,
         error_weight: int,
         num_samples: int,
         decoder_x: decoders.Decoder,
         decoder_z: decoders.Decoder,
+        stabilizer_ops_x: npt.NDArray[np.int_],
+        stabilizer_ops_z: npt.NDArray[np.int_],
         logicals_x: npt.NDArray[np.int_],
         logicals_z: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
+
+        Syndromes are computed against the stabilizer generators in stabilizer_ops_x and
+        stabilizer_ops_z, which are the matrices that decoder_z and decoder_x are respectively built
+        to invert.  For a subsystem code the stabilizer generators are a strict subset of the parity
+        checks (the gauge generators), so a syndrome vector has one entry per stabilizer generator
+        rather than one per gauge generator.
 
         Return logical error and discard counts.
         """
@@ -3360,8 +3527,8 @@ class CSSCode(QuditCode):
             error_z[error_locs_z] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_z)
             )
-            syndrome_z = self.matrix_x @ error_z
-            decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
+            syndrome_z = stabilizer_ops_x @ error_z
+            decoded_error_z, erasure = get_error_and_erasure(decoder_z, syndrome_z)
             if erasure:
                 num_discards += 1
                 continue
@@ -3379,8 +3546,8 @@ class CSSCode(QuditCode):
             error_x[error_locs_x] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_x)
             )
-            syndrome_x = self.matrix_z @ error_x
-            decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
+            syndrome_x = stabilizer_ops_z @ error_x
+            decoded_error_x, erasure = get_error_and_erasure(decoder_x, syndrome_x)
             if erasure:
                 num_discards += 1
                 continue
@@ -3390,183 +3557,19 @@ class CSSCode(QuditCode):
         return num_failures, num_discards
 
 
-OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
+def _as_pauli_bias_zxy(
+    pauli_bias: Sequence[float] | None,
+) -> npt.NDArray[np.floating] | None:
+    """Normalize an (X, Y, Z) error bias into the (Z, X, Y) order the samplers draw in.
 
-
-@dataclasses.dataclass
-class ErrorRateFunc:
-    """Container for raw simulation data used to compute logical error and discard rates.
-
-    An instance of this class is built and returned by the .get_logical_error_rate_func method of
-    ClassicalCode, QuditCode, and CSSCode.  If
-
-        func = code.get_logical_error_rate_func(...),
-
-    then "func" takes a physical error rate "p" as an argument, and returns two numbers:
-    (1) A logical error rate.
-    (2) An uncertainty (standard error) in the logical error rate.
-    If called with an array of physical error rates, this function returns two arrays.
-
-    If called with the keyword argument discard_rate=True, compute a discard rate rather than an
-    error rate.
+    That order is the one the Pauli enum assigns, reading each Pauli's (x, z) components as a
+    two-bit number.
     """
-
-    # number of times we sampled each error weight
-    num_samples: npt.NDArray[np.int_]
-
-    # number of failures and discards by error weight
-    num_failures: npt.NDArray[np.int_]
-    num_discards: npt.NDArray[np.int_]
-
-    num_error_locations: int  # total number of error locations
-    max_error_rate: float  # largest physical error rate we can consider
-
-    @property
-    def max_error_weight(self) -> int:
-        """Max error weight considered."""
-        return self.num_samples.size - 1
-
-    @functools.cached_property
-    def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight."""
-        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
-        num_samples_kept[num_samples_kept == 0] = np.inf
-        return self.num_failures / num_samples_kept
-
-    @functools.cached_property
-    def infidelity_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the infidelity at each error weight."""
-        num_samples_kept = (self.num_samples - self.num_discards).astype(float)
-        num_samples_kept[num_samples_kept == 0] = np.inf
-        return self.infidelities * (1 - self.infidelities) / num_samples_kept
-
-    @functools.cached_property
-    def discard_rates(self) -> npt.NDArray[np.floating]:
-        """Discard rate at each error weight."""
-        return self.num_discards / self.num_samples
-
-    @functools.cached_property
-    def discard_rate_variances(self) -> npt.NDArray[np.floating]:
-        """Variance of the discard rate at each error weight."""
-        return self.discard_rates * (1 - self.discard_rates) / self.num_samples
-
-    def __call__(
-        self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
-    ) -> tuple[OneOrManyFloats, OneOrManyFloats]:
-        """Compute the logical error rate (or discard rate) at a given physical error rate."""
-        if isinstance(error_rate, Iterable):
-            results = [self(rate, discard_rate=discard_rate) for rate in error_rate]
-            return (  # type:ignore[return-value]
-                np.array([result[0] for result in results]),
-                np.array([result[1] for result in results]),
-            )
-        if error_rate > self.max_error_rate:
-            raise ValueError(
-                "This ErrorRateFunc does not cover physical error rates greater than"
-                f" {self.max_error_rate}.  Try calling <YOUR_CODE>.get_logical_error_rate_func with"
-                " a larger max_error_rate."
-            )
-        weight_probs = _get_error_probs_by_weight(
-            self.num_error_locations, error_rate, self.max_error_weight
-        )
-        if discard_rate:
-            values = 1 - self.discard_rates
-            variances = self.discard_rate_variances
-        else:
-            values = 1 - self.infidelities
-            variances = self.infidelity_variances
-        value = weight_probs @ values
-        error = np.sqrt(weight_probs**2 @ variances)
-        return 1 - float(value), float(error)
-
-    def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
-        """Upper bound on the truncation error in the infidelity or discard rate estimate."""
-        if isinstance(error_rate, Iterable):
-            values = [self.truncation_error_bound(rate) for rate in error_rate]
-            return np.array(values)  # type:ignore[return-value]
-        weight_probs = _get_error_probs_by_weight(
-            self.num_error_locations, error_rate, self.max_error_weight
-        )
-        return float(1.0 - weight_probs.sum())
-
-
-def _get_sample_allocation(
-    num_samples: int, block_length: int, max_error_rate: float
-) -> npt.NDArray[np.int_]:
-    """Construct an allocation of samples by error weight.
-
-    This method returns an array whose k-th entry is the number of samples to devote to errors of
-    weight k, given a maximum error rate that we care about.
-    """
-    probs = _get_error_probs_by_weight(block_length, max_error_rate)
-
-    # zero out the distribution at k=0, flatten it out to the left of its peak, and renormalize
-    probs[0] = 0
-    probs[1 : np.argmax(probs)] = probs.max()
-    probs /= np.sum(probs)
-
-    # assign sample numbers according to the probability distribution constructed above,
-    # increasing num_samples if necessary to deal with weird edge cases from round-off errors
-    while np.sum(sample_allocation := np.round(probs * num_samples).astype(int)) < num_samples:
-        num_samples += 1  # pragma: no cover
-
-    # allocate one sample to k=0 to fix an edge case in ErrorRateFunc
-    sample_allocation[0] = 1
-
-    # truncate trailing zeros and return
-    nonzero = np.nonzero(sample_allocation)[0]
-    return sample_allocation[: nonzero[-1] + 1]
-
-
-def _get_error_probs_by_weight(
-    block_length: int, error_rate: float, max_weight: int | None = None
-) -> npt.NDArray[np.floating]:
-    """Build an array whose k-th entry is the probability of a weight-k error in a code.
-
-    If a code has block_length n and each bit has an independent probability ``p = error_rate`` of
-    an error, then the probability of k errors is ``(n choose k) p**k (1-p)**(n-k)``.
-
-    We compute the above probability using logarithms because otherwise the combinatorial factor
-    ``(n choose k)`` might be too large to handle.
-    """
-    max_weight = max_weight or block_length
-
-    # deal with some pathological cases
-    if error_rate == 0:
-        probs = np.zeros(max_weight + 1)
-        probs[0] = 1
-        return probs
-    elif error_rate == 1:
-        probs = np.zeros(max_weight + 1)
-        probs[block_length:] = 1
-        return probs
-
-    log_error_rate = np.log(error_rate)
-    log_one_minus_error_rate = np.log(1 - error_rate)
-    log_probs = [
-        math.log_choose(block_length, kk)
-        + kk * log_error_rate
-        + (block_length - kk) * log_one_minus_error_rate
-        for kk in range(max_weight + 1)
-    ]
-    return np.exp(log_probs)
-
-
-def _get_error_and_erasure(
-    decoder: decoders.Decoder,
-    syndrome: galois.FieldArray,
-) -> tuple[galois.FieldArray, bool]:
-    """Decode a syndrome and return the inferred error together with an erasure flag.
-
-    If the decoder has a has_erasure_bit attribute set to True (e.g., a LookupDecoder constructed
-    with add_erasure_bit=True), the last element of the decoded vector is treated as the erasure
-    bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
-    correction was found normally.  The erasure bit is stripped before returning the error.
-    """
-    error = decoder.decode(syndrome.view(np.ndarray))
-    if getattr(decoder, "has_erasure_bit", False):
-        return error[:-1].view(type(syndrome)), bool(error[-1])
-    return error.view(type(syndrome)), False
+    if pauli_bias is None:
+        return None
+    assert len(pauli_bias) == 3
+    pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
+    return pauli_bias_zxy / np.sum(pauli_bias_zxy)
 
 
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:

@@ -1,22 +1,10 @@
-"""Unit tests for gap.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for gap.py."""
 
 from __future__ import annotations
 
+import os
 import subprocess
 import unittest.mock
 
@@ -73,7 +61,7 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
     # GAP is not installed...
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        pytest.raises(FileNotFoundError, match="GAP 4 .* not installed"),
+        pytest.raises(FileNotFoundError, match=r"GAP 4 .* not installed"),
     ):
         external.gap.get_output()
 
@@ -86,6 +74,14 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
             pytest.raises(ValueError, match="Error encountered when running GAP"),
         ):
             assert external.gap.get_output()
+
+        # GAP is callable, but exits with a nonzero return code (even with empty stderr)
+        with (
+            unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process(returncode=1)),
+            pytest.raises(ValueError, match="Error encountered when running GAP"),
+        ):
+            external.gap.get_output()
 
         # GAP is callable, and succeeds
         with (
@@ -129,7 +125,7 @@ def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
-        pytest.raises(ModuleNotFoundError, match="GAP package .* not installed"),
+        pytest.raises(ModuleNotFoundError, match=r"GAP package .* not installed"),
     ):
         external.gap.require_package("")
 
@@ -154,6 +150,26 @@ def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:
             pytest.raises(ValueError, match="Failed to install"),
         ):
             external.gap.require_package("")
+
+        # successfully install a missing package into the GAP package directory
+        install = unittest.mock.Mock(return_value=get_mock_process())
+        with (
+            unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
+            unittest.mock.patch("builtins.input", return_value="y"),
+            unittest.mock.patch("subprocess.run", install),
+        ):
+            assert external.gap.require_package("Example", "https://example.com/gap-package")
+        install.assert_called_once_with(
+            [
+                "git",
+                "clone",
+                "https://example.com/gap-package",
+                os.path.join(external.gap.GAP_ROOT, "pkg", "example"),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
         # all requirements are met!
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="success"):

@@ -1,19 +1,6 @@
-"""Unit tests for objects.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for objects.py."""
 
 from __future__ import annotations
 
@@ -35,7 +22,7 @@ def test_pauli() -> None:
     assert ~objects.Pauli.X == objects.Pauli.X.swap_xz() == objects.Pauli.Z
     assert ~objects.Pauli.Y == objects.Pauli.Y
     assert ~objects.Pauli.I == objects.Pauli.I
-    with pytest.raises(ValueError, match="Pauli.X and Pauli.Z"):
+    with pytest.raises(ValueError, match=r"Pauli\.X and Pauli\.Z"):
         objects.Pauli.Y.swap_xz()
 
     paulis = [objects.Pauli.I, objects.Pauli.Z, objects.Pauli.X, objects.Pauli.Y]
@@ -56,7 +43,7 @@ def test_qudit_operator() -> None:
     assert -objects.QuditPauli((0, 1)) == objects.QuditPauli((0, -1))
     for op in ["I", "Y(1)", "X(1)*Z(2)"]:
         assert str(objects.QuditPauli.from_string(op)) == op
-    for op in ["a*b*c", "a(1)"]:
+    for op in ["a*b*c", "a(1)", "*", "X(1)*", "", "X(²)"]:
         with pytest.raises(ValueError, match="Invalid qudit operator"):
             objects.QuditPauli.from_string(op)
 
@@ -137,12 +124,25 @@ def test_chain_complex(field: int = 3) -> None:
     assert not np.any(two_chain.op(0))
     assert not np.any(two_chain.op(two_chain.num_links + 1))
 
+    # a tensor product over a nontrivial commutative group algebra must yield boundary operators
+    # whose entries are all ring members (and can therefore be lifted to matrices), including the
+    # three-or-more-link case where some operator blocks are entirely zero
+    cyclic_ring = abstract.GroupRing(abstract.CyclicGroup(3), field)
+    cyclic_matrix = abstract.RingArray.build(matrix, cyclic_ring)
+    ring_chain = objects.ChainComplex.tensor_product(cyclic_matrix, cyclic_matrix)
+    ring_chain = objects.ChainComplex.tensor_product(ring_chain, cyclic_matrix)
+    ring_chain._validate_ops()
+    for ring_op in ring_chain.ops:
+        # every op of a ring-valued chain is a RingArray; assert narrows the union type for .lift()
+        assert isinstance(ring_op, abstract.RingArray)
+        ring_op.lift()
+
     # invalid chain complex constructions
     with pytest.raises(ValueError, match="inconsistent operator types"):
         objects.ChainComplex([matrix, abstract.RingArray.build([[0]])])
     with pytest.raises(ValueError, match="Inconsistent base fields"):
         objects.ChainComplex([galois.GF(field)(matrix)], field=field**2)
-    with pytest.raises(ValueError, match="boundary operators .* must compose to zero"):
+    with pytest.raises(ValueError, match=r"boundary operators .* must compose to zero"):
         objects.ChainComplex([matrix] * 2, field=field)
     with pytest.raises(ValueError, match="different base fields"):
         objects.ChainComplex.tensor_product(galois.GF(field)(matrix), galois.GF(field**2)(matrix))

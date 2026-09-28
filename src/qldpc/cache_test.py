@@ -1,22 +1,10 @@
-"""Unit tests for cache.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for cache.py."""
 
 from __future__ import annotations
 
+import pathlib
 import unittest.mock
 from collections.abc import Hashable
 
@@ -35,7 +23,7 @@ def test_pytest() -> None:
     assert qldpc.cache.get_disk_cache("test") == {}
 
 
-def test_use_disk_cache() -> None:
+def test_use_disk_cache(tmp_path: pathlib.Path) -> None:
     """Cache function outputs."""
 
     cache: dict[Hashable, int] = {}
@@ -68,3 +56,5 @@ def test_use_disk_cache() -> None:
         # raise a warning if trying to delete an entry that does not exist in the cache
         with pytest.warns(UserWarning, match="entry does not exist"):
             qldpc.cache.clear_entry("test_name", "some_key")
+        with pytest.warns(UserWarning, match="located at"):
+            qldpc.cache.clear_entry("test_name", "some_key", cache_dir=tmp_path)

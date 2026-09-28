@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 from .alpha_syndrome import AlphaSyndrome
 from .memory import (
     MemoryExperimentParts,
@@ -11,6 +13,7 @@ from .syndrome_measurement import (
     EdgeColoring,
     EdgeColoringXZ,
     SyndromeMeasurementStrategy,
+    validate_syndrome_qubit_ids,
 )
 
 __all__ = [
@@ -24,4 +27,5 @@ __all__ = [
     "get_memory_experiment_parts",
     "get_observables",
     "get_qubit_coordinates",
+    "validate_syndrome_qubit_ids",
 ]

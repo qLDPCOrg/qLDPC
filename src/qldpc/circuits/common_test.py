@@ -1,19 +1,6 @@
-"""Unit tests for common.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for common.py."""
 
 from __future__ import annotations
 
@@ -109,3 +96,18 @@ def test_finding_unaddressed_measurements() -> None:
         DETECTOR rec[-3] rec[-1]
     """)
     assert circuits.get_unaddressed_measurements(circuit) == [1]
+
+    observable_only = stim.Circuit("M 0 1\nOBSERVABLE_INCLUDE(0) rec[-1]")
+    assert circuits.get_unaddressed_measurements(observable_only) == [0]
+    pauli_observable = stim.Circuit("M 0 1\nOBSERVABLE_INCLUDE(0) X0")
+    assert circuits.get_unaddressed_measurements(pauli_observable) == [0, 1]
+    out_of_range_pauli = stim.Circuit("M 0\nOBSERVABLE_INCLUDE(0) X5")
+    assert circuits.get_unaddressed_measurements(out_of_range_pauli) == [0]
+    assert circuits.get_pauli_product_measurements([[1, 0, 0, 1]]) == stim.Circuit("MPP X0*Z1")
+    with pytest.raises(ValueError, match="all-identity"):
+        circuits.get_pauli_product_measurements([[0, 0, 0, 0]])
+
+    mpad = stim.Circuit("MPAD 1 0")
+    assert circuits.with_remapped_qubits(mpad, [1, 0]) == mpad
+    with pytest.raises(ValueError, match="injective"):
+        circuits.with_remapped_qubits(stim.Circuit("H 0 1"), [0, 0])

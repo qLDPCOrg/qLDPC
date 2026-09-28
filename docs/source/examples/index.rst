@@ -43,3 +43,14 @@ Further logical-error-rate examples that fall outside the progressive series abo
 
    logical_error_rates/misc/alpha_syndrome
    logical_error_rates/misc/decoding_tqec_circuits
+
+Experimental
+------------
+
+Examples built on ``qldpc.experimental``, whose public API is unstable and may change without
+notice.
+
+.. toctree::
+   :maxdepth: 1
+
+   lattice_surgery

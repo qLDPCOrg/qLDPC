@@ -7,7 +7,7 @@ In a nutshell, `qLDPC` provides methods to build a variety of built-in and custo
 - constructing a canonical basis of logical Pauli operators,
 - computing (or upper-bounding) code distance,
 - computing logical error rates in a code-capacity model,
-- computing the logical error rates and post-selection rates of state preparation circuits,
+- computing the logical error rates and discard rates of state preparation circuits,
 - constructing circuits of interest, such as memory experiments and logical encoding circuits,
 - defining custom Pauli noise models,
 - using a decoder of your choice for any of the above (or other, unlisted) tasks.
@@ -22,6 +22,7 @@ This library requires Python>=3.10, and can be installed from the Python Package
 ```
 pip install qldpc
 ```
+You can `pip install 'qldpc[relay-bp]'` to enable the Relay-BP decoder.
 
 To install a local version of qLDPC from source:
 ```
@@ -61,6 +62,7 @@ Notable features include:
   - `TBCode`: [two-block quantum codes](https://errorcorrectionzoo.org/c/two_block_quantum).
   - `QCCode`: quasi-cyclic two-block codes (also known as [multivariate bicycle codes](https://arxiv.org/abs/2406.19151), generalizing the `BBCode` below).
   - `BBCode`: [bivariate bicycle codes](https://errorcorrectionzoo.org/c/quantum_quasi_cyclic), as in [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) and [arXiv:2311.16980](https://arxiv.org/abs/2311.16980).  See also [`examples/bivariate_bicycle_codes.ipynb`](https://github.com/qLDPCOrg/qLDPC/blob/main/examples/bivariate_bicycle_codes.ipynb).
+  - `GALACode`: [group-action lifts with active orthogonality](https://arxiv.org/abs/2608.07431), supporting monomial and polynomial lifts over binary group algebras.
   - `HGPCode`: [hypergraph product codes](https://errorcorrectionzoo.org/c/hypergraph_product), first introduced in [arXiv:0903.0566](https://arxiv.org/abs/0903.0566).
   - `CHGPCode` / `CRCode`: cyclic hypergraph product and repeated cyclic hypergraph product codes, as in [arXiv:2511.09683](https://arxiv.org/abs/2511.09683).
   - `SHPCode`: [subsystem hypergraph product codes](https://errorcorrectionzoo.org/c/subsystem_quantum_parity), as in [arXiv:2002.06257](https://arxiv.org/abs/2002.06257).
@@ -76,7 +78,7 @@ Notable features include:
   - `DetectorErrorModelArrays`: representation of a `stim.DetectorErrorModel` with `scipy.sparse` and `numpy` arrays (`detector_flip_matrix`, `observable_flip_matrix`, `error_probs`).
 - `qldpc.circuits`: module for [`stim`](https://github.com/quantumlib/Stim) circuits and circuit utilities, including:
   - `get_memory_experiment`: circuit to test the performance of a code as a quantum memory (using various pre-built syndrome measurement strategies), appropriately annotated with detectors and observables.
-  - `get_state_prep_diagnostic_circuit`, `get_state_prep_diagnostic_tasks`, `get_logical_error_and_discard_rate`: helper methods for computing the logical error rates and post-selection rates of state preparation circuits.
+  - `get_state_prep_diagnostic_circuit`, `get_state_prep_diagnostic_tasks`, `get_logical_error_and_discard_rate`: helper methods for computing the logical error rates and discard rates of state preparation circuits.
   - `NoiseModel`: class for constructing expressive Pauli noise models, which map noiseless circuits to noisy circuits.  Built-in subclasses include a single-parameter `DepolarizingNoiseModel` and a superconducting-inspired `SI1000NoiseModel`.
   - `get_encoding_circuit`: circuit to encode physical states of qubits into logical states of a code, for example to prepare a logical all-|0> state.  (Warning: current encoding circuits are not fault-tolerant.  The construction of fault-tolerant encoding circuits is an [open issue](https://github.com/qLDPCOrg/qLDPC/issues/327).)
   - `get_transversal_ops`: logical tableaus and physical circuits for the SWAP-transversal logical Clifford gates of a code, constructed via the code automorphism method of [arXiv:2409.18175](https://arxiv.org/abs/2409.18175).  (Warning: exponential complexity.)
@@ -85,6 +87,10 @@ Notable features include:
   - Various pre-defined groups (mostly borrowed from [SymPy](https://docs.sympy.org/latest/modules/combinatorics/named_groups.html)).
   - Communication with the [GAP](https://www.gap-system.org) computer algebra system and [GroupNames.org](https://people.maths.bris.ac.uk/~matyd/GroupNames) for constructing [even more groups](https://docs.gap-system.org/doc/ref/chap50.html).
 - `qldpc.objects`: module for constructing helper objects such as Cayley complexes and chain complexes, which are instrumental for the construction of various quantum codes.
+- `qldpc.experimental`: module for constructions that are under active development.  (Warning: everything here has an unstable public API that may change without notice or deprecation.)
+  - `qldpc.experimental.surgery`: fault-tolerant logical Pauli-product measurement (PPM) by code surgery, as in [arXiv:2110.10794](https://arxiv.org/abs/2110.10794), [arXiv:2407.18393](https://arxiv.org/abs/2407.18393), and [arXiv:2511.15989](https://arxiv.org/abs/2511.15989), with the joint-PPM universal adapter of [arXiv:2410.03628](https://arxiv.org/abs/2410.03628), a boundary Cheeger-constant calculation and the random-augmentation method of [arXiv:2410.02213](https://arxiv.org/abs/2410.02213), a BP+OSD search used to reject augmentations for which it finds a low-weight logical operator, and `stim` circuits following [arXiv:2603.28627](https://arxiv.org/abs/2603.28627).  (Warning: the BP+OSD search computes only an upper bound on distance and does not prove distance preservation; a larger Cheeger constant can still coincide with a lower circuit fault distance.)  See also [`examples/experimental/lattice_surgery.ipynb`](https://github.com/qLDPCOrg/qLDPC/blob/main/examples/experimental/lattice_surgery.ipynb).
+
+> **Disclaimer:** Lattice surgery support in `qldpc` is experimental.  Specifically, the current implementation has not yet received independent expert review, and its API and behavior may change without notice.  Validate results independently and pin the `qldpc` version if you depend on it.
 
 ## 🤔 Questions and issues
 
