@@ -644,8 +644,7 @@ def test_rule_func() -> None:
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits={1})
     )
 
-    # The callback is not consulted for annotations, explicit idle markers, or
-    # classically-controlled operations.
+    # The callback sees explicit idle markers, but not annotations or classically-controlled ops.
     consulted: list[str] = []
 
     def record(op: stim.CircuitInstruction) -> circuits.NoiseRule:
@@ -654,7 +653,45 @@ def test_rule_func() -> None:
 
     noise_model = circuits.NoiseModel(rule_func=record)
     noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nI 2\nM 0\nCX rec[-1] 1"))
-    assert consulted == ["M"]
+    assert consulted == ["I", "M"]
+
+    # Tagged broadcast idle markers are split per application.  A custom rule and automatic
+    # idle_error are independent, so both are emitted when both are configured.
+    seen_idle_ops: list[tuple[str, str, tuple[int, ...]]] = []
+
+    def tagged_idle(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+        if op.name not in ("I", "II"):
+            return None
+        targets = tuple(target.qubit_value for target in op.targets_copy())
+        seen_idle_ops.append((op.name, op.tag, targets))
+        return circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(len(targets), 0.2))
+
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error=0.1,
+        idle_error=0.3,
+        rule_func=tagged_idle,
+    )
+    circuit = stim.Circuit("I[idle_us=5] 0 1\nII[idle_us=10] 2 3\nH 4")
+    noisy_circuit = stim.Circuit("""
+        I[idle_us=5] 0 1
+        II[idle_us=10] 2 3
+        H 4
+        DEPOLARIZE1(0.2) 0 1
+        DEPOLARIZE2(0.2) 2 3
+        DEPOLARIZE1(0.1) 4
+        DEPOLARIZE1(0.3) 0 1 2 3
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+    assert seen_idle_ops == [
+        ("I", "idle_us=5", (0,)),
+        ("I", "idle_us=5", (1,)),
+        ("II", "idle_us=10", (2, 3)),
+    ]
+
+    # Returning None for an identity does not fall through to the Clifford default.
+    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, rule_func=lambda op: None)
+    circuit = stim.Circuit("I[idle_us=5] 0")
+    assert noise_model.noisy_circuit(circuit) == circuit
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.
     bad_readout = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(readout_error=0.1))
