@@ -23,7 +23,8 @@ Circuit tools currently only support qubit codes.
 - **Steal from the examples.**
   The notebooks progress from the basics to circuit-level logical error rates, custom noise, transversal gates, and experimental lattice surgery.
 
-This is still a research library, so the unusual corners are not hidden: expensive searches, heuristic bounds, experimental APIs, and external-tool side effects are called out where they matter.
+qLDPC is still research software, and it is honest about the tradeoffs.
+Some searches are expensive, some bounds are heuristic, experimental APIs can change, and optional tools may have side effects.
 
 ## 📦 Installation
 
