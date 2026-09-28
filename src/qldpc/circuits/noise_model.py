@@ -73,7 +73,6 @@ Multi-qubit Pauli channels with arity three or greater are emitted as correlated
 unless ``approximate_disjoint_errors=True`` is passed.  qLDPC's DEM consumers use that explicit
 approximation; callers extracting DEMs directly must make the same modeling choice.
 
-
 Per-gate-application noise via a callback (``rule_func``)::
 
     from qldpc.circuits.noise_model import NoiseModel, NoiseRule
@@ -97,10 +96,17 @@ Per-gate-application noise via a callback (``rule_func``)::
     )
     noisy_circuit = noise_model.noisy_circuit(circuit)
 
-Fixed noise for explicit ``I`` and ``II`` operations can be configured through ``rules``.
-``rule_func`` can instead select tag- or duration-dependent noise and takes precedence when both
-mechanisms match.  Noise from either mechanism is composed with automatic ``idle_error`` because
-explicit identity targets remain idle for automatic idle-noise accounting.
+Idling errors:
+--------------
+
+``idle_error`` applies to every qubit that is not operated on during a circuit moment.
+``additional_error_waiting_for_m_or_r`` applies additional noise to non-collapsing qubits during a
+moment that contains a measurement or reset.
+
+Explicit identity gates (``I`` and ``II``) are treated as idle for this accounting.  ``rules`` can
+append errors after these gates, and ``rule_func`` can select errors based on an identity's tag or
+encoded duration.  A rule returned by the callback takes precedence over a matching named rule.
+Identity rules and ``idle_error`` stack: when both match, both are applied.
 
 Important note:
 ---------------
@@ -886,22 +892,18 @@ class NoiseModel:
                 reset, including qubits undergoing a unitary operation.  Same NoiseRule semantics as
                 ``idle_error``.
             rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
-                arity-based defaults for unitary, measurement, and reset gates.  Rules for explicit
-                ``I`` and ``II`` markers add noise to their automatic ``idle_error`` rather than
-                replacing it.
+                arity-based defaults for unitary, measurement, and reset gates.  Explicit ``I`` and
+                ``II`` markers accept one- and two-qubit ``after`` rules, respectively.  If
+                ``idle_error`` is also configured, both kinds of noise are applied.
             rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
-                ``NoiseRule``.  Takes priority over all other noise rules above.  Any gate that stim
-                broadcasts across multiple independent applications (e.g. ``H 0 1 2``,
-                ``CX 0 1 2 3``, or ``SPP X1*Y2 Z3*Y4*X5``) is decomposed into its individual
-                gate applications before being passed to ``rule_func``, its input ``op``
-                always holds exactly one application's worth of targets: one for a one-qubit gate,
-                two for a two-qubit gate, and one Pauli product's targets for an SPP/MPP.  The
-                callback is consulted for unitary Cliffords, measurements, resets, and explicit
-                ``I`` / ``II`` idle markers that are not classically controlled; it does not affect
-                annotations or pure-noise instructions.  Returning ``None`` for an idle marker falls
-                back to a matching entry in ``rules``, if present, but never to a Clifford default.
-                Automatic ``idle_error`` remains independent and is composed with identity noise
-                selected through ``rules`` or ``rule_func``.
+                ``NoiseRule``.  The callback is evaluated before named and default rules.  Broadcast
+                instructions are split first, so each callback input represents one gate
+                application: one target for a one-qubit gate, two for a two-qubit gate, or one Pauli
+                product for an SPP/MPP instruction.  The callback receives unitary Cliffords,
+                measurements, resets, and explicit ``I`` / ``II`` idle markers, but not annotations,
+                pure-noise instructions, or classically controlled operations.  Returning ``None``
+                continues with named and default rule lookup.  Identities can fall back to named
+                rules, but not to Clifford defaults.
         """
         self.rules = rules
         self.rule_func = rule_func
@@ -1044,9 +1046,9 @@ class NoiseModel:
         3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
         4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
 
-        Explicit idle markers (``I`` and ``II``) are offered to ``rule_func`` and may have named
-        entries in ``rules``, but never fall through to the arity-based Clifford defaults.
-        Automatic ``idle_error`` is applied independently after operation-specific rules.
+        For explicit idle markers (``I`` and ``II``), ``rule_func`` is consulted first, followed by
+        named ``rules``.  Clifford defaults do not apply.  Because automatic ``idle_error`` is
+        evaluated separately, an identity can receive both kinds of noise.
 
         Note: MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one
         Pauli product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product

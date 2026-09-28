@@ -165,7 +165,7 @@ def test_explicit_idle_rules() -> None:
     """)
     assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
 
-    # rule_func takes precedence, while None falls through to the named identity rule.
+    # The callback overrides the named rule only for the tagged identity.
     def override_tagged_idle(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
         if op.name == "I" and op.tag == "override":
             return circuits.NoiseRule(after={"Y": 0.4})
@@ -713,8 +713,8 @@ def test_rule_func() -> None:
     with pytest.raises(ValueError, match="operated on multiple times"):
         identity_rule.noisy_circuit(circuit, insert_ticks=False)
 
-    # Tagged broadcast idle markers are split per application.  A custom rule and automatic
-    # idle_error are independent, so both are emitted when both are configured.
+    # Tagged broadcast idle markers are split per application.  The callback-selected noise and
+    # automatic idle_error are both emitted.
     seen_idle_ops: list[tuple[str, str, tuple[int, ...]]] = []
 
     def tagged_idle(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
