@@ -11,6 +11,7 @@ __pycache__
 
 # ipython notebooks
 .ipynb_checkpoints
+*_progress.csv
 
 # pytest/coverage (parallel runs write .coverage.<host>.<pid>.<random> alongside .coverage)
 .coverage*
