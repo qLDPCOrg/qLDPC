@@ -133,9 +133,6 @@ def test_gate_errors() -> None:
     assert mz_model.noisy_circuit(stim.Circuit("MZ 0\nMPP Z1")) == stim.Circuit(
         "M(0.2) 0\nMPP(0.2) Z1"
     )
-    for idle_marker in ("I", "II"):
-        with pytest.raises(ValueError, match="explicit idle marker"):
-            circuits.NoiseModel(rules={idle_marker: circuits.NoiseRule()})
     with pytest.raises(ValueError, match="Unrecognized noise rule key"):
         circuits.NoiseModel(rules={"CNOTT": circuits.NoiseRule()})
     with pytest.raises(ValueError, match="Unrecognized noise rule key"):
@@ -146,6 +143,57 @@ def test_gate_errors() -> None:
         circuits.NoiseModel(rules={1: circuits.NoiseRule()})  # type: ignore[dict-item]
     with pytest.raises(ValueError, match="cannot target"):
         circuits.NoiseModel(rules={"X_ERROR": circuits.NoiseRule()})
+
+
+def test_explicit_idle_rules() -> None:
+    """Named identity rules add marker-specific noise without suppressing automatic idle noise."""
+    noise_model = circuits.NoiseModel(
+        rules={
+            "I": circuits.NoiseRule(after={"X": 0.1}),
+            "II": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.2)),
+        },
+        idle_error=0.3,
+    )
+    circuit = stim.Circuit("I 0 1\nII 2 3\nH 4")
+    noisy_circuit = stim.Circuit("""
+        I 0 1
+        II 2 3
+        H 4
+        X_ERROR(0.1) 0 1
+        DEPOLARIZE2(0.2) 2 3
+        DEPOLARIZE1(0.3) 0 1 2 3
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    # rule_func takes precedence, while None falls through to the named identity rule.
+    def override_tagged_idle(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+        if op.name == "I" and op.tag == "override":
+            return circuits.NoiseRule(after={"Y": 0.4})
+        return None
+
+    noise_model = circuits.NoiseModel(
+        rules={"I": circuits.NoiseRule(after={"X": 0.2})},
+        rule_func=override_tagged_idle,
+    )
+    circuit = stim.Circuit("I[default] 0\nI[override] 1")
+    noisy_circuit = stim.Circuit("""
+        I[default] 0
+        I[override] 1
+        X_ERROR(0.2) 0
+        Y_ERROR(0.4) 1
+    """)
+    assert _circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
+
+    with pytest.raises(ValueError, match=r"rules\['I'\].*arity 2.*expected 1"):
+        circuits.NoiseModel(
+            rules={"I": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.1))}
+        )
+    with pytest.raises(ValueError, match=r"rules\['II'\].*arity 1.*expected 2"):
+        circuits.NoiseModel(rules={"II": circuits.NoiseRule(after={"X": 0.1})})
+    with pytest.raises(ValueError, match=r"rules\['I'\].*readout_error"):
+        circuits.NoiseModel(rules={"I": circuits.NoiseRule(readout_error=0.1)})
+    with pytest.raises(ValueError, match=r"rules\['II'\].*reset_error"):
+        circuits.NoiseModel(rules={"II": circuits.NoiseRule(reset_error=0.1)})
 
 
 def test_idle_errors() -> None:
