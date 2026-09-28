@@ -1,14 +1,14 @@
 # qLDPC
 
-`qLDPC` is a Python toolkit for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as stabilizer and subsystem codes.
+`qLDPC` is a Python toolkit for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as stabilizer and subsystem codes more broadly.
 The goal is simple: make the quantum error-correction literature easier to explore, reproduce, and build on.
 Codes can start from parity-check matrices or from higher-level ingredients such as polynomials, group rings, Tanner graphs, and chain complexes.
 Once a code is built, you can inspect its logical operators, compute or bound its distance, plug in a decoder, estimate logical error rates, and—for qubit codes—build [`stim`](https://github.com/quantumlib/Stim) circuits.
 
 Most code-level tools work over arbitrary finite fields.
-Circuit tools currently support qubit codes only.
+Circuit tools currently only support qubit codes.
 
-## ✨ A few things worth showing off
+## ✨ A taste of qLDPC
 
 - **From textbook codes to the research frontier.**
   Build familiar surface, toric, Hamming, and Reed–Muller codes alongside hypergraph-product, lifted-product, bivariate-bicycle, quantum Tanner, SHYPS, GALA, and other modern families.
