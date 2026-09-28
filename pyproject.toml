@@ -133,6 +133,7 @@ ini_options.filterwarnings = [
 [tool.coverage]
 run.include = [ "./*" ]
 run.parallel = true
+run.patch = [ "subprocess" ]
 # Statement coverage only.  Branch coverage is deliberately not gated: a handful of arcs flip with
 # the pytest-randomly seed and with the installed numpy version, so gating it would make pass/fail
 # nondeterministic.  Audit it on demand with "checks/coverage_.py --branch".

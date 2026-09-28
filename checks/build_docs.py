@@ -2,8 +2,16 @@
 import os
 import shutil
 import sys
+import sysconfig
 
 import checks_superstaq as checks
+
+
+def ensure_sphinx_on_path() -> None:
+    """Prefer the sphinx-build installed alongside the active Python interpreter."""
+    scripts_dir = sysconfig.get_path("scripts")
+    if shutil.which("sphinx-build", path=scripts_dir):
+        os.environ["PATH"] = scripts_dir + os.pathsep + os.environ.get("PATH", "")
 
 
 def ensure_pandoc_on_path() -> None:
@@ -28,5 +36,6 @@ def ensure_pandoc_on_path() -> None:
 
 
 if __name__ == "__main__":
+    ensure_sphinx_on_path()
     ensure_pandoc_on_path()
     sys.exit(checks.build_docs.run(*sys.argv[1:]))
