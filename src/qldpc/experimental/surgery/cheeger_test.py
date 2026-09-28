@@ -34,6 +34,16 @@ from .conftest import (
 )
 
 
+def test_webster_fixture_validation() -> None:
+    """Webster fixture helpers reject unknown codes and logical operators clearly."""
+    with pytest.raises(IndexError, match="code_index must be"):
+        load_webster_seed_set(-1)
+
+    data = load_webster_seed_set(0)
+    with pytest.raises(ValueError, match="seed not found"):
+        _webster_x_bar_operator(data, name="missing")
+
+
 def test_cheeger_constant_matches_boost_target() -> None:
     """cheeger_constant(g) reports the Webster boundary Cheeger; boost raises it."""
     from qldpc.experimental.surgery import boost_gadget, build_gadget, cheeger_constant
