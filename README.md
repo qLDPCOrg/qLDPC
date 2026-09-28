@@ -1,10 +1,10 @@
 # qLDPC
 
 `qLDPC` is a Python library for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as stabilizer and subsystem codes.
-It provides code constructions, logical operators and distance tools, decoders, and [`stim`](https://github.com/quantumlib/Stim)-based circuit workflows.
+You can use it to build codes, find logical operators and distances, decode errors, and create [`stim`](https://github.com/quantumlib/Stim)-based circuits.
 
-Code-level tools support arbitrary finite fields where possible.
-Circuit utilities currently support qubit codes only.
+Most code-level tools work over arbitrary finite fields.
+Circuit tools currently support qubit codes only.
 
 ## Installation
 
@@ -28,8 +28,8 @@ cd qLDPC
 python -m pip install -e '.[dev]'
 ```
 
-Some algebra, code-database, and distance-bound features require [GAP](https://www.gap-system.org).
-On Linux and macOS with Conda, you install it with `conda install -c conda-forge gap`; other installations work when `gap` is available on `PATH`.
+Some algebra tools, code lookups, and distance estimates require [GAP](https://www.gap-system.org).
+If you use Conda on Linux or macOS, install it with `conda install -c conda-forge gap`; other installations work when `gap` is available on `PATH`.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
@@ -63,17 +63,17 @@ Continue with the [library map](https://qldpc.readthedocs.io/en/latest/library_m
 | Build memory circuits or noise models | [Circuit examples](https://qldpc.readthedocs.io/en/latest/examples/index.html) |
 | Change or extend qLDPC safely | [Agent and contributor guide](AGENTS.md) |
 
-The API reference and source docstrings are the exhaustive inventory and carry construction-specific literature links.
-This README intentionally does not duplicate that catalogue.
+For the complete list of classes and functions, including construction-specific literature, use the API reference and source docstrings.
+This README focuses on getting started and finding the right documentation.
 
 ## Limitations and caveats
 
-- Circuit and tableau helpers accept qubit codes, even though code-level arithmetic supports prime-power-dimensional qudits.
+- Circuit and tableau tools only work with qubit codes, even though other parts of qLDPC support prime-power-dimensional qudits.
 - Circuits returned by `get_encoding_circuit` are not fault-tolerant.
   Fault-tolerant encoding is tracked in [issue #327](https://github.com/qLDPCOrg/qLDPC/issues/327).
 - Exact distance calculations and transversal-gate searches can be exponential.
-  APIs that return bounds document whether the result is an upper bound or a randomized estimate.
-- GAP-backed paths can start subprocesses, use local disk caches, access external resources, or prompt for manual input or package installation.
+  When a method returns a bound rather than an exact distance, its docstring explains what kind of bound it is.
+- Features that use GAP may start subprocesses, use local disk caches, access online resources, or ask for manual input or permission to install a package.
 - Everything under `qldpc.experimental` has an unstable public API and may change without deprecation.
   In particular, lattice-surgery support has not yet received independent expert review; validate its results independently and pin the qLDPC version if you depend on it.
 

@@ -1,15 +1,15 @@
 # Agent and contributor guide
 
-This file is the implementation-oriented entry point for qLDPC.
+This guide is for people and agents changing qLDPC.
 For a human-facing explanation of the data model and package relationships, start with the [library map](docs/source/library_map.rst).
 For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/en/latest/autoapi/index.html).
 
-## Source-of-truth order
+## What to trust when documents disagree
 
 When sources disagree, use this order:
 
 1. Current implementation and its invariant tests.
-2. Public docstrings and explicit package exports.
+2. Public docstrings and the `__all__` lists in package `__init__.py` files.
 3. The [library map](docs/source/library_map.rst) and executable [examples](examples/).
 4. Historical discussion, issues, or review notes.
 
@@ -21,16 +21,16 @@ Do not copy transient project history, machine-specific paths, or local-session 
 - [`src/qldpc/__init__.py`](src/qldpc/__init__.py) exports subpackages rather than flattening their classes and functions.
 - Each stable subpackage has an explicit `__all__` in its `__init__.py`.
   Preserve those import paths when moving implementation code.
-- Treat ordinary `qldpc.*` exports as compatibility-preserving public API.
+- Treat imports from ordinary `qldpc.*` packages as public and keep them working.
   Use a tested `DeprecationWarning` shim for a necessary rename or move rather than breaking an import.
 - Everything under [`src/qldpc/experimental/`](src/qldpc/experimental/) is explicitly unstable and can change without a deprecation period.
   Do not infer that this weaker guarantee applies elsewhere.
-- Keep exhaustive symbol inventories in exports and AutoAPI.
-  Hand-authored docs should explain responsibilities and representative workflows, not duplicate a class catalogue.
+- Keep complete lists of public symbols in `__all__` and AutoAPI.
+  Human-written docs should explain what packages do and show representative tasks, not duplicate a class catalogue.
 
 ## Repository map
 
-| Area | Responsibility | Tests and usage anchors |
+| Area | What it does | Tests and examples |
 | --- | --- | --- |
 | [`src/qldpc/codes/common.py`](src/qldpc/codes/common.py) | `AbstractCode`, `ClassicalCode`, `QuditCode`, and `CSSCode`; logicals, stabilizers, distance, concatenation, and error-rate interfaces | [`common_test.py`](src/qldpc/codes/common_test.py), [`monte_carlo_test.py`](src/qldpc/codes/monte_carlo_test.py) |
 | [`src/qldpc/codes/classical.py`](src/qldpc/codes/classical.py) | Classical code families | [`classical_test.py`](src/qldpc/codes/classical_test.py), [`basics.ipynb`](examples/basics.ipynb) |
@@ -45,7 +45,7 @@ Do not copy transient project history, machine-specific paths, or local-session 
 | [`src/qldpc/cache.py`](src/qldpc/cache.py) | Persistent disk-cache helpers for expensive computations | [`cache_test.py`](src/qldpc/cache_test.py) |
 | [`src/qldpc/experimental/`](src/qldpc/experimental/) | Unstable research implementations | Co-located tests and [`examples/experimental/`](examples/experimental/) |
 | [`examples/`](examples/) | Canonical executable notebooks and small helper scripts | Sphinx links to these files; do not edit generated or duplicate notebook copies |
-| [`docs/source/`](docs/source/) | Authored Sphinx navigation and the conceptual library map | Strict build through [`checks/build_docs.py`](checks/build_docs.py) |
+| [`docs/source/`](docs/source/) | Sphinx pages and the library map | Strict build through [`checks/build_docs.py`](checks/build_docs.py) |
 | [`checks/`](checks/) | Local wrappers for the repository's quality gates | Mirrors the commands used by CI |
 
 The main code hierarchy is:
@@ -57,8 +57,8 @@ AbstractCode
    `- CSSCode
 ```
 
-`codes/common.py` is intentionally cohesive: standard form, logical and gauge operators, cached parameters, and mutation share instance state.
-Do not split it into mixins merely to reduce file length.
+The methods in `codes/common.py` share cached and mutable state for standard form, logical and gauge operators, parameters, and code transformations.
+Do not split them into mixins merely to reduce the file length.
 Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 
 ## Core invariants
@@ -95,9 +95,9 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 
 - [`decoders.get_decoder`](src/qldpc/decoders/retrieval.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
 - Select at most one `with_<NAME>` decoder.
-  Custom integrations enter through `decoder_constructor` or `static_decoder`.
-- Erasure signaling is a declared capability.
-  Supporting decoders append the erasure flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
+  Supply a custom decoder through `decoder_constructor` or `static_decoder`.
+- Only decoders that declare erasure support may append an erasure flag.
+  They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
 - Detector-error-model decomposition indices and remaps must remain valid after cancellation and simplification.
   Test malformed components, not only happy-path Stim models.
 - Sliding-window time inference is heuristic.
@@ -123,7 +123,8 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
   Mock optional web, subprocess, clipboard, and prompt paths; do not add a live-service test.
 - Disk caches are bypassed while pytest is imported.
   Tests must not depend on cache persistence.
-- Expensive reusable computations should use `qldpc.cache.use_disk_cache()`, but failures must remain visible rather than being converted into success-shaped fallbacks.
+- Expensive reusable computations should use `qldpc.cache.use_disk_cache()`.
+  Do not hide errors by returning a default value that looks successful.
 - Statement coverage is gated at 100%.
   Co-located `*_test.py` files are the strong convention, although a thin helper can be covered through its consumer's test module.
 
@@ -155,23 +156,23 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 1. Keep matrix, qubit-role, measurement-record, detector-record, and Stim-circuit bookkeeping in sync.
 2. Test noiseless detector determinism and observable behavior before adding noise.
 3. Exercise repeated rounds and seam behavior; a locally valid circuit fragment can still become wrong when initialization, QEC cycles, and readout are joined.
-4. State computational and fault-tolerance limitations in the API-local docstring.
+4. State computational and fault-tolerance limitations in the relevant function or class docstring.
 
 ### Change an external integration
 
 1. Separate parsing/encoding logic from process, network, clipboard, and prompt mechanics.
 2. Test both the callable-tool path and the absent/manual/error paths without live resources.
 3. For finite fields, round-trip values through the external system's actual element encoding; do not assume integer storage conventions match.
-4. Surface nonzero return codes, standard error, malformed output, and missing data explicitly.
+4. Report nonzero return codes, standard error, malformed output, and missing data clearly.
 
 ### Add documentation or an example
 
-1. Put conceptual cross-package guidance in [`docs/source/library_map.rst`](docs/source/library_map.rst), exact API behavior in docstrings, and executable workflows in [`examples/`](examples/).
+1. Put explanations that span packages in [`docs/source/library_map.rst`](docs/source/library_map.rst), exact API behavior in docstrings, and executable workflows in [`examples/`](examples/).
 2. The notebooks under `docs/source/examples/` are links to the canonical files under `examples/`.
    Edit the canonical notebook, not the documentation-tree link.
 3. Keep README and the library map selective.
-   AutoAPI owns the exhaustive public-symbol inventory.
-4. When a public limitation changes, update its API-local docstring and every audience-level summary in the same pull request.
+   AutoAPI provides the complete list of public symbols.
+4. When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
 5. Run the strict documentation build before considering the change complete.
 
 ## Validation commands

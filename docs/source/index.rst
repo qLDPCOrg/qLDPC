@@ -47,13 +47,13 @@ Quickstart
 Where to go next
 ----------------
 
-* :doc:`Library map <library_map>` explains core representations, package responsibilities, common
-  workflows, stability, and limitations.
+* :doc:`Library map <library_map>` explains how qLDPC represents codes, what each package does,
+  common tasks, and current limitations.
 * :doc:`Examples <examples/index>` walk from code construction through code-capacity and
   circuit-level simulations.
 * :doc:`API reference <autoapi/index>` documents every public class and function.
 * The `agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_
-  documents implementation invariants and validation commands.
+  explains how to change and test qLDPC safely.
 
 .. toctree::
    :maxdepth: 2

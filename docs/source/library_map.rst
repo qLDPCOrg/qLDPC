@@ -1,32 +1,32 @@
 Library map
 ===========
 
-This page explains qLDPC's core representations, package responsibilities, and common workflows.
-It is the conceptual layer between the :doc:`example notebooks <examples/index>` and the
-:doc:`exhaustive API reference <autoapi/index>`.
+This page explains how qLDPC represents codes, what each package does, and how common tasks fit
+together. It fills the gap between the :doc:`example notebooks <examples/index>` and the
+:doc:`API reference <autoapi/index>`.
 
-Choose the right documentation layer
-------------------------------------
+Choose the right documentation
+------------------------------
 
 * Use this page to understand how the library fits together and which part owns a task.
 * Use the :doc:`examples <examples/index>` for complete workflows that can be executed and adapted.
-* Use the :doc:`API reference <autoapi/index>` for exact signatures, per-object contracts, and
-  construction-specific literature.
+* Use the :doc:`API reference <autoapi/index>` for exact signatures, details about each class and
+  function, and construction-specific literature.
 * Use the `agent and contributor guide
   <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_ when changing the repository.
 
-Public surface and stability
-----------------------------
+Public APIs and experimental features
+-------------------------------------
 
-The top-level ``qldpc`` package exposes subpackages such as ``qldpc.codes``, ``qldpc.decoders``, and
-``qldpc.circuits``. Public classes and functions are re-exported from those subpackages; for
-example, construct a surface code as ``qldpc.codes.SurfaceCode(...)`` rather than importing its
-defining module directly.
+The top-level ``qldpc`` package contains subpackages such as ``qldpc.codes``, ``qldpc.decoders``,
+and ``qldpc.circuits``. Their public classes and functions are available directly from those
+subpackages; for example, construct a surface code as ``qldpc.codes.SurfaceCode(...)`` rather than
+importing its defining module.
 
-The ordinary subpackage exports are compatibility-preserving public API. Everything under
-``qldpc.experimental`` is different: it is under active development and can change without notice
-or deprecation. Pin the qLDPC version and validate results independently before depending on an
-experimental workflow.
+Imports from these ordinary subpackages are public API and should remain compatible. Everything
+under ``qldpc.experimental`` is different: it is under active development and can change without
+notice or deprecation. Pin the qLDPC version and validate results independently before depending on
+an experimental feature.
 
 Core representations
 --------------------
@@ -74,15 +74,15 @@ The ``qldpc.abstract`` package provides finite groups, group rings, semisimple-r
 and ``RingArray``. A ``RingArray`` is a matrix over a group algebra whose entries can be lifted to
 blocks over a finite field; lifted-product and related code families build on this representation.
 
-Package responsibilities
-------------------------
+What each package does
+----------------------
 
 .. list-table::
    :header-rows: 1
    :widths: 18 39 43
 
    * - Package
-     - Responsibility
+     - What it does
      - Start here
    * - ``qldpc.codes``
      - Core classical, quantum, CSS, and subsystem code models; built-in constructions; distance and
@@ -118,12 +118,12 @@ Package responsibilities
      - :doc:`lattice surgery <examples/lattice_surgery>` and
        :doc:`experimental API <autoapi/qldpc/experimental/index>`.
 
-How the packages collaborate
-----------------------------
+How the packages work together
+------------------------------
 
-This is a responsibility and workflow map, not a strict dependency graph. Code-level estimators use
-decoders, decoder adapters understand code and detector-error-model objects, and circuit workflows
-combine both.
+The packages call one another rather than following a strict one-way hierarchy. For example,
+code-level estimators use decoders, decoder adapters understand code and detector-error-model
+objects, and circuit workflows combine both.
 
 .. code-block:: text
 
@@ -175,10 +175,9 @@ Build a custom CSS code
    code = codes.CSSCode(matrix_x, matrix_z)
 
 For a stabilizer CSS code, verify ``matrix_x @ matrix_z.T == 0`` over the intended field. If the
-checks do not commute, declare and test the intended subsystem semantics instead of treating the
-matrix as an ordinary stabilizer code.
+checks do not commute, make sure you intend to build a subsystem code and test that behavior.
 
-Choose or inject a decoder
+Choose or supply a decoder
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``qldpc.decoders.get_decoder`` accepts a parity-check matrix or Stim detector error model. It uses
@@ -196,8 +195,8 @@ GUF by default for a nonbinary field array and BP+OSD otherwise. Select one name
    decoder = decoders.get_decoder(code.matrix)
    correction = decoder.decode(syndrome)
 
-Erasure signaling is an explicit decoder capability. Decoders that support it append the erasure
-flag as the last entry of each inferred error.
+Only some decoders can signal an erasure. Those decoders append the erasure flag as the last entry
+of each inferred error.
 
 Build and simulate a memory circuit
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -229,17 +228,16 @@ Optional integrations and side effects
   copy/paste workflow that reads standard input and uses the system clipboard.
 * Missing GAP packages can trigger an installation prompt and ``git clone`` into GAP's package
   directory.
-* Group and code lookup can access external resources when local data and GAP do not answer the
-  request.
+* Group and code lookups may use online resources when local data and GAP cannot answer the request.
 * Expensive results can be cached under the user's platform cache directory. Disk caching is
   intentionally bypassed while pytest is running.
-* The test configuration disables network sockets. Tests for optional integrations use controlled
-  doubles rather than live services.
+* The test configuration disables network sockets. Tests for optional integrations use mocks rather
+  than live services.
 
 Where to go next
 ----------------
 
 * Follow the :doc:`examples <examples/index>` for runnable workflows.
-* Browse the :doc:`API reference <autoapi/index>` for exact contracts and literature.
+* Browse the :doc:`API reference <autoapi/index>` for exact behavior and literature.
 * Read `AGENTS.md <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_ before modifying the
   implementation.
