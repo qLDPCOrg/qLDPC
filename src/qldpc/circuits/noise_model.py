@@ -1769,12 +1769,12 @@ def _categorize_moment_qubits(
 ) -> tuple[list[int], list[int]]:
     """Categorize a moment's qubit targets and check for reuse.
 
-    Iterates every non-annotation instruction and buckets its qubit targets into three lists —
-    collapsed (measurement / reset), classically-controlled, and everything else ("operation").
-    Raises if any qubit is used more than once across the three buckets, since noise application
-    relies on the "each qubit at most once per moment" invariant that ``_split_moments_with_ticks``
-    enforces when ``insert_ticks=True``.  The classically-controlled bucket contributes only to
-    the reuse check.
+    Iterates every non-annotation instruction and buckets its qubit targets into four lists —
+    collapsed (measurement / reset), classically-controlled, explicit-idle, and everything else
+    ("operation").  Raises if any qubit is used more than once across the four buckets, since noise
+    application relies on the "each qubit at most once per moment" invariant that
+    ``_split_moments_with_ticks`` enforces when ``insert_ticks=True``.  The classically-controlled
+    and explicit-idle buckets contribute only to the reuse check.
 
     Args:
         moment: The moment's operations.
@@ -1791,8 +1791,9 @@ def _categorize_moment_qubits(
     collapsed_qubits: list[int] = []
     operation_qubits: list[int] = []
     classically_controlled_qubits: list[int] = []
+    explicit_idle_qubits: list[int] = []
     for op in moment:
-        if op_type(op.name) in (ANNOTATION, NOISE) or op.name in IDLE_OPS:
+        if op_type(op.name) in (ANNOTATION, NOISE):
             continue
         target_qubits = [
             target.qubit_value for target in op.targets_copy() if target.qubit_value is not None
@@ -1805,12 +1806,14 @@ def _categorize_moment_qubits(
             qubits = collapsed_qubits
         elif _involves_classical_bits(op):
             qubits = classically_controlled_qubits
+        elif op.name in IDLE_OPS:
+            qubits = explicit_idle_qubits
         else:
             qubits = operation_qubits
         qubits.extend(target_qubits)
 
     usage_counts = collections.Counter(
-        collapsed_qubits + operation_qubits + classically_controlled_qubits
+        collapsed_qubits + operation_qubits + classically_controlled_qubits + explicit_idle_qubits
     )
     qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
     if qubits_used_multiple_times:
@@ -1872,7 +1875,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str | None) 
         for split_op in split_ops:
             # Check if this split operation would reuse any qubits
             op_qubits = set()
-            if op_type(split_op.name) not in (ANNOTATION, NOISE) and split_op.name not in IDLE_OPS:
+            if op_type(split_op.name) not in (ANNOTATION, NOISE):
                 for target in split_op.targets_copy():
                     if not target.is_combiner and target.qubit_value is not None:
                         op_qubits.add(target.qubit_value)

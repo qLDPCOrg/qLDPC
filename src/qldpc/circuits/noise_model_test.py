@@ -655,6 +655,16 @@ def test_rule_func() -> None:
     noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nI 2\nM 0\nCX rec[-1] 1"))
     assert consulted == ["I", "M"]
 
+    # An identity's after-noise precedes a subsequent operation on the same qubit.
+    identity_rule = circuits.NoiseModel(
+        rule_func=lambda op: circuits.NoiseRule(after={"X": 1.0}) if op.name == "I" else None
+    )
+    circuit = stim.Circuit("I 0\nM 0")
+    noisy_circuit = stim.Circuit("I 0\nX_ERROR(1) 0\nTICK\nM 0")
+    assert _circuits_are_equivalent(noisy_circuit, identity_rule.noisy_circuit(circuit))
+    with pytest.raises(ValueError, match="operated on multiple times"):
+        identity_rule.noisy_circuit(circuit, insert_ticks=False)
+
     # Tagged broadcast idle markers are split per application.  A custom rule and automatic
     # idle_error are independent, so both are emitted when both are configured.
     seen_idle_ops: list[tuple[str, str, tuple[int, ...]]] = []
