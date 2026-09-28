@@ -7,7 +7,8 @@ purposes: an introduction to using ``qLDPC``, pedagogical material for learning 
 correction, and code you can copy and adapt for your own use case.
 
 Each notebook runs independently from a fresh kernel.
-Setup sections show the one-time shell command for installing their dependencies.
+Setup sections include an executable ``%pip`` cell for installing their dependencies into the
+active notebook kernel.
 Workflow cells use ordinary Python, but a script must place calls to ``sinter.collect`` or TQEC's
 Sinter runner under an ``if __name__ == "__main__":`` guard because Sinter starts worker processes
 with Python's spawn method.
