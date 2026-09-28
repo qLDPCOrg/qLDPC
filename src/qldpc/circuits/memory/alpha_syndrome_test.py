@@ -61,14 +61,14 @@ def test_alpha_reproducibility_and_tree_edges() -> None:
     code = codes.CSSCode([[1, 1, 0]], [[1, 1, 0]])
     first = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
-        iters_per_step=1,
+        iters_per_step=2,
         shots_per_iter=1,
         verbose=False,
         seed=123,
     )
     second = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
-        iters_per_step=1,
+        iters_per_step=2,
         shots_per_iter=1,
         verbose=False,
         seed=123,
@@ -83,18 +83,18 @@ def test_alpha_reproducibility_and_tree_edges() -> None:
     )
     assert functioning.get_circuit(code)[0].num_measurements > 0
     verbose = circuits.AlphaSyndrome(
-        circuits.DepolarizingNoiseModel(0.001), iters_per_step=1, verbose=True
+        circuits.DepolarizingNoiseModel(0.001), iters_per_step=2, verbose=True
     )
     verbose._build_schedule(code, Pauli.X)
 
     code = codes.SteaneCode()
     strategy = circuits.AlphaSyndrome(
-        circuits.DepolarizingNoiseModel(0.001), iters_per_step=1, verbose=False
+        circuits.DepolarizingNoiseModel(0.001), iters_per_step=2, verbose=False
     )
     assert TreeState.head([]).target_to_min_time == []
     gates = [(len(code), 0)]
     root = TreeNode(TreeState.head(gates))
-    root.visits = 1
+    root.visits = strategy.iters_per_step
     measurements = strategy._get_evaluation_circuit(code, Pauli.X, [], None)
     assert measurements.num_measurements > 0
     strategy._schedule_one_gate(
