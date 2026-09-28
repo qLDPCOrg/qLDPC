@@ -67,7 +67,7 @@ optional-dependencies.docs = [
   "sphinx-rtd-theme>=2",
 ]
 optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
-urls.Documentation = "https://qldpc.readthedocs.io/en/latest"
+urls.Documentation = "https://qldpc.readthedocs.io/"
 urls.Issues = "https://github.com/qLDPCOrg/qLDPC/issues"
 urls.Repository = "https://github.com/qLDPCOrg/qLDPC"
 
