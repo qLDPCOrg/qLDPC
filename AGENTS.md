@@ -1,6 +1,8 @@
 # Agent and contributor guide
 
-This file is the implementation-oriented entry point for qLDPC. For a human-facing explanation of the data model and package relationships, start with the [library map](docs/source/library_map.rst). For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/en/latest/autoapi/index.html).
+This file is the implementation-oriented entry point for qLDPC.
+For a human-facing explanation of the data model and package relationships, start with the [library map](docs/source/library_map.rst).
+For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/en/latest/autoapi/index.html).
 
 ## Source-of-truth order
 
@@ -11,15 +13,20 @@ When sources disagree, use this order:
 3. The [library map](docs/source/library_map.rst) and executable [examples](examples/).
 4. Historical discussion, issues, or review notes.
 
-Re-derive behavior from the current branch before documenting or changing it. Do not copy transient project history, machine-specific paths, or local-session instructions into production files.
+Re-derive behavior from the current branch before documenting or changing it.
+Do not copy transient project history, machine-specific paths, or local-session instructions into production files.
 
 ## Public API and compatibility
 
 - [`src/qldpc/__init__.py`](src/qldpc/__init__.py) exports subpackages rather than flattening their classes and functions.
-- Each stable subpackage has an explicit `__all__` in its `__init__.py`. Preserve those import paths when moving implementation code.
-- Treat ordinary `qldpc.*` exports as compatibility-preserving public API. Use a tested `DeprecationWarning` shim for a necessary rename or move rather than breaking an import.
-- Everything under [`src/qldpc/experimental/`](src/qldpc/experimental/) is explicitly unstable and can change without a deprecation period. Do not infer that this weaker guarantee applies elsewhere.
-- Keep exhaustive symbol inventories in exports and AutoAPI. Hand-authored docs should explain responsibilities and representative workflows, not duplicate a class catalogue.
+- Each stable subpackage has an explicit `__all__` in its `__init__.py`.
+  Preserve those import paths when moving implementation code.
+- Treat ordinary `qldpc.*` exports as compatibility-preserving public API.
+  Use a tested `DeprecationWarning` shim for a necessary rename or move rather than breaking an import.
+- Everything under [`src/qldpc/experimental/`](src/qldpc/experimental/) is explicitly unstable and can change without a deprecation period.
+  Do not infer that this weaker guarantee applies elsewhere.
+- Keep exhaustive symbol inventories in exports and AutoAPI.
+  Hand-authored docs should explain responsibilities and representative workflows, not duplicate a class catalogue.
 
 ## Repository map
 
@@ -50,51 +57,75 @@ AbstractCode
    `- CSSCode
 ```
 
-`codes/common.py` is intentionally cohesive: standard form, logical and gauge operators, cached parameters, and mutation share instance state. Do not split it into mixins merely to reduce file length. Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
+`codes/common.py` is intentionally cohesive: standard form, logical and gauge operators, cached parameters, and mutation share instance state.
+Do not split it into mixins merely to reduce file length.
+Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 
 ## Core invariants
 
 ### Fields and arrays
 
-- Code arithmetic happens in a `galois.FieldArray`. The default field is `GF(2)`.
-- Extension-field storage integers are not ordinary integers modulo the field order. Do not use `% field.order` as field coercion; construct or preserve values through the field class.
-- Preserve the concrete field when copying or transforming arrays. Code equality and compatibility often require the same field class, not merely arrays with equal integer views.
-- A `RingArray` has one base `GroupRing`. NumPy operations must reject arrays from incompatible rings, including arrays supplied through keyword arguments such as `out=`.
+- Code arithmetic happens in a `galois.FieldArray`.
+  The default field is `GF(2)`.
+- Extension-field storage integers are not ordinary integers modulo the field order.
+  Do not use `% field.order` as field coercion; construct or preserve values through the field class.
+- Preserve the concrete field when copying or transforming arrays.
+  Code equality and compatibility often require the same field class, not merely arrays with equal integer views.
+- A `RingArray` has one base `GroupRing`.
+  NumPy operations must reject arrays from incompatible rings, including arrays supplied through keyword arguments such as `out=`.
 
 ### Codes and Pauli conventions
 
 - A classical parity-check matrix `H` defines words satisfying `H @ word == 0`.
-- A general quantum check is a symplectic row `[X | Z]` of even length. Use [`qldpc.math.symplectic_conjugate`](src/qldpc/math.py) rather than hand-writing sign and half-order conventions.
-- A CSS code stores X-type and Z-type checks separately. Commuting stabilizer checks satisfy `H_x @ H_z.T == 0` in the code's field.
-- For a subsystem code, constructor check rows generate the gauge group and need not commute. Stabilizers come from the center. Do not decode a subsystem code as though all gauge generators were stabilizers.
-- `CSSCode(..., promise_equal_distance_xz=True)` is trusted, not verified. A false promise can make distance results wrong and dependent on which sector was computed first.
-- Built-in families may cache construction- or literature-supplied parameters. A test that compares `get_code_params()` only with those same cached values is tautological; use an independent rank, commutation, row-space, or bounded-distance oracle.
-- [`codes/distance.py`](src/qldpc/codes/distance.py) is explicitly binary. Use field-aware code methods and oracles for nonbinary constructions.
+- A general quantum check is a symplectic row `[X | Z]` of even length.
+  Use [`qldpc.math.symplectic_conjugate`](src/qldpc/math.py) rather than hand-writing sign and half-order conventions.
+- A CSS code stores X-type and Z-type checks separately.
+  Commuting stabilizer checks satisfy `H_x @ H_z.T == 0` in the code's field.
+- For a subsystem code, constructor check rows generate the gauge group and need not commute.
+  Stabilizers come from the center.
+  Do not decode a subsystem code as though all gauge generators were stabilizers.
+- `CSSCode(..., promise_equal_distance_xz=True)` is trusted, not verified.
+  A false promise can make distance results wrong and dependent on which sector was computed first.
+- Built-in families may cache construction- or literature-supplied parameters.
+  A test that compares `get_code_params()` only with those same cached values is tautological; use an independent rank, commutation, row-space, or bounded-distance oracle.
+- [`codes/distance.py`](src/qldpc/codes/distance.py) is explicitly binary.
+  Use field-aware code methods and oracles for nonbinary constructions.
 
 ### Decoders
 
 - [`decoders.get_decoder`](src/qldpc/decoders/retrieval.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
-- Select at most one `with_<NAME>` decoder. Custom integrations enter through `decoder_constructor` or `static_decoder`.
-- Erasure signaling is a declared capability. Supporting decoders append the erasure flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
-- Detector-error-model decomposition indices and remaps must remain valid after cancellation and simplification. Test malformed components, not only happy-path Stim models.
-- Sliding-window time inference is heuristic. Preserve the first nondecreasing detector coordinate convention, and use an explicit `detector_to_time` mapping when a model follows another layout.
+- Select at most one `with_<NAME>` decoder.
+  Custom integrations enter through `decoder_constructor` or `static_decoder`.
+- Erasure signaling is a declared capability.
+  Supporting decoders append the erasure flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
+- Detector-error-model decomposition indices and remaps must remain valid after cancellation and simplification.
+  Test malformed components, not only happy-path Stim models.
+- Sliding-window time inference is heuristic.
+  Preserve the first nondecreasing detector coordinate convention, and use an explicit `detector_to_time` mapping when a model follows another layout.
 
 ### Circuits
 
 - Circuit and tableau constructors are qubit-only and should use the existing `restrict_to_qubits` guard.
-- `get_encoding_circuit` constructs a valid encoder but is not fault-tolerant. Do not present it as a fault-tolerant state-preparation procedure.
+- `get_encoding_circuit` constructs a valid encoder but is not fault-tolerant.
+  Do not present it as a fault-tolerant state-preparation procedure.
 - Transversal-gate search enumerates automorphisms and can be exponential.
-- Keep data, check, reference, and ancilla roles explicit through `QubitIDs` and bookkeeping types. Do not infer roles from coincident integer indices.
-- qLDPC memory-circuit detectors use coordinates such as `(round, 0, check_index)`. A later monotone coordinate can enumerate checks rather than time.
+- Keep data, check, reference, and ancilla roles explicit through `QubitIDs` and bookkeeping types.
+  Do not infer roles from coincident integer indices.
+- qLDPC memory-circuit detectors use coordinates such as `(round, 0, check_index)`.
+  A later monotone coordinate can enumerate checks rather than time.
 - Noise-model operation immunity and qubit immunity are separate controls; preserve both.
 
 ### External systems, caching, and tests
 
-- GAP helpers may start subprocesses, read standard input, use the clipboard, access the network, or clone missing packages. Keep these side effects explicit in docstrings and error messages.
-- Tests run with network sockets disabled. Mock optional web, subprocess, clipboard, and prompt paths; do not add a live-service test.
-- Disk caches are bypassed while pytest is imported. Tests must not depend on cache persistence.
+- GAP helpers may start subprocesses, read standard input, use the clipboard, access the network, or clone missing packages.
+  Keep these side effects explicit in docstrings and error messages.
+- Tests run with network sockets disabled.
+  Mock optional web, subprocess, clipboard, and prompt paths; do not add a live-service test.
+- Disk caches are bypassed while pytest is imported.
+  Tests must not depend on cache persistence.
 - Expensive reusable computations should use `qldpc.cache.use_disk_cache()`, but failures must remain visible rather than being converted into success-shaped fallbacks.
-- Statement coverage is gated at 100%. Co-located `*_test.py` files are the strong convention, although a thin helper can be covered through its consumer's test module.
+- Statement coverage is gated at 100%.
+  Co-located `*_test.py` files are the strong convention, although a thin helper can be covered through its consumer's test module.
 
 ## Common change recipes
 
@@ -136,8 +167,10 @@ AbstractCode
 ### Add documentation or an example
 
 1. Put conceptual cross-package guidance in [`docs/source/library_map.rst`](docs/source/library_map.rst), exact API behavior in docstrings, and executable workflows in [`examples/`](examples/).
-2. The notebooks under `docs/source/examples/` are links to the canonical files under `examples/`. Edit the canonical notebook, not the documentation-tree link.
-3. Keep README and the library map selective. AutoAPI owns the exhaustive public-symbol inventory.
+2. The notebooks under `docs/source/examples/` are links to the canonical files under `examples/`.
+   Edit the canonical notebook, not the documentation-tree link.
+3. Keep README and the library map selective.
+   AutoAPI owns the exhaustive public-symbol inventory.
 4. When a public limitation changes, update its API-local docstring and every audience-level summary in the same pull request.
 5. Run the strict documentation build before considering the change complete.
 
@@ -164,4 +197,6 @@ Use the smallest targeted command while iterating, then the full gate before mer
 | `python checks/coverage_.py` | Modular 100% statement-coverage gate |
 | `python checks/build_docs.py` | Strict Sphinx and notebook documentation build |
 
-Some check wrappers discover files through Git. Add new source and test files to the index before relying on the full gate to include them. Do not weaken a failure with `noqa`, `type: ignore`, or coverage exclusions unless the exceptional condition is real and documented.
+Some check wrappers discover files through Git.
+Add new source and test files to the index before relying on the full gate to include them.
+Do not weaken a failure with `noqa`, `type: ignore`, or coverage exclusions unless the exceptional condition is real and documented.

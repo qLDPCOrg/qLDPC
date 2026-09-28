@@ -1,8 +1,10 @@
 # qLDPC
 
-`qLDPC` is a Python library for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as classical linear, stabilizer, and subsystem codes. It provides code constructions, logical operators and distance tools, decoders, and [`stim`](https://github.com/quantumlib/Stim)-based circuit workflows.
+`qLDPC` is a Python library for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as classical linear, stabilizer, and subsystem codes.
+It provides code constructions, logical operators and distance tools, decoders, and [`stim`](https://github.com/quantumlib/Stim)-based circuit workflows.
 
-Code-level tools support arbitrary finite fields where possible. Circuit utilities currently support qubit codes only.
+Code-level tools support arbitrary finite fields where possible.
+Circuit utilities currently support qubit codes only.
 
 ## Installation
 
@@ -26,7 +28,9 @@ cd qLDPC
 python -m pip install -e '.[dev]'
 ```
 
-Some algebra, code-database, and distance-bound features require [GAP](https://www.gap-system.org). On Linux and macOS with Conda, install it with `conda install -c conda-forge gap`; other installations work when `gap` is available on `PATH`. GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
+Some algebra, code-database, and distance-bound features require [GAP](https://www.gap-system.org).
+On Linux and macOS with Conda, install it with `conda install -c conda-forge gap`; other installations work when `gap` is available on `PATH`.
+GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
 
@@ -59,15 +63,19 @@ Continue with the [library map](https://qldpc.readthedocs.io/en/latest/library_m
 | Build memory circuits or noise models | [Circuit examples](https://qldpc.readthedocs.io/en/latest/examples/index.html) |
 | Change or extend qLDPC safely | [Agent and contributor guide](AGENTS.md) |
 
-The API reference and source docstrings are the exhaustive inventory and carry construction-specific literature links. The README intentionally does not duplicate that catalogue.
+The API reference and source docstrings are the exhaustive inventory and carry construction-specific literature links.
+The README intentionally does not duplicate that catalogue.
 
 ## Important boundaries
 
 - Circuit and tableau helpers accept qubit codes, even though code-level arithmetic supports prime-power-dimensional qudits.
-- Circuits returned by `get_encoding_circuit` are not fault-tolerant. Fault-tolerant encoding is tracked in [issue #327](https://github.com/qLDPCOrg/qLDPC/issues/327).
-- Exact distance calculations and transversal-gate searches can be exponential. APIs that return bounds document whether the result is an upper bound or a randomized estimate.
+- Circuits returned by `get_encoding_circuit` are not fault-tolerant.
+  Fault-tolerant encoding is tracked in [issue #327](https://github.com/qLDPCOrg/qLDPC/issues/327).
+- Exact distance calculations and transversal-gate searches can be exponential.
+  APIs that return bounds document whether the result is an upper bound or a randomized estimate.
 - GAP-backed paths can start subprocesses, use local disk caches, access external resources, or prompt for manual input or package installation.
-- Everything under `qldpc.experimental` has an unstable public API and may change without deprecation. In particular, lattice-surgery support has not yet received independent expert review; validate its results independently and pin the qLDPC version if you depend on it.
+- Everything under `qldpc.experimental` has an unstable public API and may change without deprecation.
+  In particular, lattice-surgery support has not yet received independent expert review; validate its results independently and pin the qLDPC version if you depend on it.
 
 ## Documentation and support
 
@@ -94,7 +102,8 @@ If you use this software in your work, please cite with:
 }
 ```
 
-This may require adding `\usepackage{url}` to your LaTeX file header. Alternatively:
+This may require adding `\usepackage{url}` to your LaTeX file header.
+Alternatively:
 
 ```text
 Michael A. Perlin. qLDPC. https://github.com/qLDPCOrg/qLDPC, 2023.
