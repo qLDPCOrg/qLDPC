@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 from .classical import (
     BCHCode,
     CyclicCode,
@@ -31,6 +33,7 @@ from .quantum import (
     CRCode,
     FiveQubitCode,
     FiveQuditCode,
+    GALACode,
     GeneralizedSurfaceCode,
     HGPCode,
     IcebergCode,
@@ -41,6 +44,7 @@ from .quantum import (
     QTCode,
     QuantumGolayCode,
     QuantumHammingCode,
+    QuantumReedMullerCode,
     SHPCode,
     SHYPSCode,
     SLPCode,
@@ -69,6 +73,7 @@ __all__ = [
     "ExtendedHammingCode",
     "FiveQubitCode",
     "FiveQuditCode",
+    "GALACode",
     "GeneralizedSurfaceCode",
     "GolayCode",
     "HGPCode",
@@ -81,6 +86,7 @@ __all__ = [
     "QTCode",
     "QuantumGolayCode",
     "QuantumHammingCode",
+    "QuantumReedMullerCode",
     "QuditCode",
     "ReedMullerCode",
     "ReedSolomonCode",

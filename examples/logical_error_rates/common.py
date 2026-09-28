@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Common methods used by logical error rate notebooks."""
 
 from qldpc import codes

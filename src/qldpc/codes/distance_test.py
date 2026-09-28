@@ -1,19 +1,6 @@
-"""Unit tests for distance.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for distance.py."""
 
 from __future__ import annotations
 
@@ -435,6 +422,54 @@ def test_get_distance_classical_methods() -> None:
         assert distance == distance_default
 
 
+def test_get_distance_empty_stabilizers_symplectic() -> None:
+    """A symplectic-weight distance with no stabilizers returns the min logical operator weight.
+
+    With an empty ``stabilizers`` argument there is nothing to interleave, and the X/Z riffling
+    still handles the empty input.
+    """
+    # symplectic vector [1, 0 | 0, 0] is an X on qubit 0, of symplectic weight 1
+    distance = qldpc.codes.distance.get_distance_quantum([[1, 0, 0, 0]], [], homogeneous=False)
+    assert distance == 1
+
+
+def test_get_distance_small_block_size() -> None:
+    """A block_size smaller than the packed word count still yields the correct distance.
+
+    When the columns span more than ``64 * (block_size + 1)`` bits, no operators are vectorized and
+    the calculation proceeds by the sequential sweep alone.
+    """
+    generators = np.zeros((2, 200), dtype=np.uint64)
+    generators[0] = 1  # weight 200
+    generators[1, :100] = 1  # weight 100
+    assert qldpc.codes.distance.get_distance_classical(generators, block_size=1) == 100
+
+
+def test_cutoff_early_exit() -> None:
+    """cutoff makes get_distance_* return early once an operator of weight <= cutoff is found.
+
+    Exercises all three early-exit return paths: the pre-loop vectorized block, the logical-op
+    sweep, and the nested stabilizer sweep.
+    """
+    # pre-loop block: a weight-1 codeword sits in the vectorized block (default block_size)
+    assert qldpc.codes.distance.get_distance_classical([[1, 0, 0, 0]], cutoff=1) == 1
+
+    # logical-op sweep: block_size=1 spills logical ops into the sequential Gray-code loop, where a
+    # combination of weight <= cutoff (here the weight-1 generator) is found.  These rows are
+    # linearly independent, as the documented precondition requires.
+    generators = [[1, 1, 1, 0], [0, 0, 0, 1], [1, 0, 0, 1]]
+    assert qldpc.codes.distance.get_distance_classical(generators, block_size=1, cutoff=1) == 1
+
+    # stabilizer sweep: the weight-1 operator only appears after XORing a swept stabilizer, so the
+    # early exit fires in the inner (stabilizer) loop rather than the pre-loop or logical-op sweep
+    logical_ops = [[0, 1, 1, 1, 1]]
+    stabilizers = [[1, 1, 0, 0, 0], [0, 0, 1, 1, 1]]
+    distance = qldpc.codes.distance.get_distance_quantum(
+        logical_ops, stabilizers, block_size=1, cutoff=1, homogeneous=True
+    )
+    assert distance == 1
+
+
 def test_get_distance_quantum_methods() -> None:
     """get_distance_quantum (homogeneous) dispatches to numpy bitcount, fallback, or numba."""
     stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint64)
@@ -597,7 +632,10 @@ def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_dist
     )
     assert min(distance_x, distance_z, distance_all) == expected_distance
 
-    code._distance = None
+    # forget_distance clears the X and Z caches as well, which assigning to _distance would not:
+    # get_distance_if_known(None) returns min(_distance_x, _distance_z) whenever both are known,
+    # so the recomputation below would otherwise read back a value it never verified
+    code.forget_distance()
     assert code.get_distance_exact() == expected_distance
 
 
@@ -620,3 +658,27 @@ def test_get_distance_quantum_noncss_codes(
 
     code._distance = None
     assert code.get_distance_exact() == expected_distance
+
+
+def test_distance_requires_binary_input() -> None:
+    """Distance calculations reject non-binary input rather than silently truncating it.
+
+    The enumeration packs each row into the bits of uint64 words, so a non-binary entry would
+    otherwise be reinterpreted and yield a wrong distance with no indication of a problem.
+    """
+    # a field of order > 2 is rejected on the strength of its type alone
+    ternary_code = qldpc.codes.classical.HammingCode(3, 3)
+    with pytest.raises(ValueError, match=r"only support binary codes.*GF\(3\)"):
+        qldpc.codes.distance.get_distance_classical(ternary_code.generator)
+
+    # an untyped array is rejected on the strength of its entries
+    with pytest.raises(ValueError, match="entries other than 0 and 1"):
+        qldpc.codes.distance.get_distance_classical(np.array([[1, 2, 0], [0, 1, 1]]))
+    with pytest.raises(ValueError, match="entries other than 0 and 1"):
+        qldpc.codes.distance.get_distance_quantum(
+            np.array([[1, 1, 0, 0]]), np.array([[0, 0, 2, 0]]), homogeneous=True
+        )
+
+    # binary input still works, whether or not it carries a field type
+    assert qldpc.codes.distance.get_distance_classical(np.array([[1, 1, 1]])) == 3
+    assert qldpc.codes.distance.get_distance_classical(qldpc.codes.HammingCode(4).generator) == 3

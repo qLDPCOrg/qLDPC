@@ -1,55 +1,40 @@
-"""Unit tests for custom.py.
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Unit tests for custom.py."""
 
 from __future__ import annotations
 
+import copy
 import functools
 import itertools
-import random
 import unittest.mock
 
 import galois
 import numpy as np
+import numpy.typing as npt
 import pytest
 import scipy.sparse
-import stim
 
 from qldpc import codes, decoders, math
+from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
 
 
-@functools.cache
-def get_toy_problem() -> tuple[galois.FieldArray, galois.FieldArray, galois.FieldArray]:
-    """Get a toy decoding problem."""
-    field = galois.GF(2)
-    matrix = np.eye(3, 2, dtype=int).view(field)
-    error = np.array([1, 1], dtype=int).view(field)
-    syndrome = matrix @ error
-    return matrix, error, syndrome
-
-
-def test_relay_bp() -> None:
+def test_relay_bp(toy_problem: ToyProblem) -> None:
     """The Relay-BP decoder needs a custom wrapper class."""
-    matrix, error, syndrome = get_toy_problem()
+    matrix, error, syndrome = toy_problem
     errors = np.array([error, error])
     syndromes = np.array([syndrome, syndrome])
 
     decoder = decoders.get_decoder_RBP(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
+
+    # copying a decoder does not recurse looking for the inner decoder
+    assert np.array_equal(error, copy.copy(decoder).decode(syndrome))
+
+    # a call with no arguments is forwarded to the inner decoder
+    with pytest.raises(TypeError, match="missing 1 required positional argument"):
+        decoder.compute_observables()
 
     # decode from a sparse parity check matrix
     decoder = decoders.get_decoder_RBP(scipy.sparse.dok_matrix(matrix))
@@ -79,181 +64,15 @@ def test_relay_bp() -> None:
     with pytest.warns(UserWarning, match="will override"):
         decoders.RelayBPDecoder(dem, error_priors=[0.1, 0.1])
 
-
-def test_lookup() -> None:
-    """Lookup decoding should be straightforward."""
-    matrix, error, syndrome = get_toy_problem()
-
-    decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
-    assert np.array_equal(error, decoder.decode(syndrome))
-    assert len(decoder) == len(decoder.syndrome_to_error)
-
-    # decode with a detector error model
-    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
-    decoder = decoders.get_decoder_lookup(dem, max_weight=2)
-    assert np.array_equal(error, decoder.decode(syndrome))
+    # an observable_error_matrix conflicts with the observables of a detector error model, which
+    # must be rejected under `python -O` as well
+    with pytest.raises(ValueError, match="Cannot specify an observable_error_matrix"):
+        decoders.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
 
 
-def test_observable_lookup_decoding() -> None:
-    """Lookup decoding can identify the most likely observable flip for each syndrome."""
-    obs_matrix: math.IntegerArray
-
-    # toy detector error model and error syndrome
-    dem = stim.DetectorErrorModel("""
-        error(0.10) D0
-        error(0.09) D0 L0
-        error(0.06) D0 L0
-    """)
-    dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=False)
-    pcm, obs_matrix, error_probs = dem_arrays.get_arrays()
-    syndrome = np.array([1], dtype=int)
-
-    # given only the parity check matrix, a LookupDecoder will return the most likely error
-    decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_probs)
-    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [0])
-
-    # provided a DEM, the LookupDecoder will simplify and predict the most likely observable flip
-    decoder = decoders.LookupDecoder(dem, max_weight=1)
-    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
-
-    # with predict_observable_flips=True, the decoder returns the observable flip directly
-    decoder = decoders.LookupDecoder(dem, max_weight=1, predict_observable_flips=True)
-    assert np.array_equal(decoder.decode(syndrome), [1])
-    # an unseen syndrome falls back to a zero observable flip of the correct length
-    assert np.array_equal(decoder.decode(np.array([0], dtype=int)), [0])
-
-    # this also works when given a parity check matrix and observable_flip_matrix
-    decoder = decoders.LookupDecoder(
-        pcm,
-        max_weight=1,
-        error_channel=error_probs,
-        observable_flip_matrix=obs_matrix,
-        predict_observable_flips=True,
-    )
-    assert np.array_equal(decoder.decode(syndrome), [1])
-
-    # The above example is "trivial" in the sense that simplifying the DEM is sufficient to predict
-    # the correct observable flips....
-    dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=True)
-    pcm, obs_matrix, error_probs = dem_arrays.get_arrays()
-    decoder = decoders.LookupDecoder(pcm, max_weight=1, error_channel=error_probs)
-    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
-
-    # However, sometimes simplifying is not enough.  Consider th following DEM, in which each error
-    # has a unique (detector, observable) patterns, so simplifying changes nothing:
-    dem = stim.DetectorErrorModel("""
-        error(0.04) D0 D1  # E0: syndrome (1, 1), obs_flip=0
-        error(0.25) D0     # E1: syndrome (1, 0), obs_flip=0
-        error(0.10) D1     # E2: syndrome (0, 1), obs_flip=0
-        error(0.10) D0 L0  # E3: syndrome (1, 0), obs_flip=1
-        error(0.25) D1 L0  # E4: syndrome (0, 1), obs_flip=1
-    """)
-    dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    pcm, obs_matrix, error_probs = dem_arrays.get_arrays()
-    syndrome = np.array([1, 1], dtype=int)
-
-    # without knowing about observables, the most likely error is E0, with obs_flip=0
-    decoder = decoders.LookupDecoder(pcm, max_weight=2)
-    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [0])
-
-    # however, it is more likely that either (E1 + E4) XOR (E2 + E3) occurred, which have obs_flip=1
-    decoder = decoders.LookupDecoder(dem, max_weight=2)
-    assert np.array_equal(obs_matrix @ decoder.decode(syndrome), [1])
-
-    # a WeightedLookupDecoder can be built from a DEM and predict observable flips directly
-    weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, predict_observable_flips=True)
-    assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
-    assert np.array_equal(weighted.decode(np.array([0, 1], dtype=int)), [0])
-
-    # ... or from a parity check matrix and an explicit observable_flip_matrix
-    weighted = decoders.WeightedLookupDecoder(
-        pcm, max_weight=2, observable_flip_matrix=obs_matrix, predict_observable_flips=True
-    )
-    assert np.array_equal(weighted.decode(syndrome), [0])  # min-weight error E0 has obs_flip=0
-
-    # post-selecting on a detector drops it from the syndrome keys; decode still takes the full
-    # syndrome and internally removes the post-selected bits before the lookup
-    decoder = decoders.LookupDecoder(dem, max_weight=2, post_select=[0])
-    assert np.array_equal(obs_matrix @ decoder.decode(np.array([0, 1], dtype=int)), [1])  # E4
-    weighted = decoders.WeightedLookupDecoder(dem, max_weight=2, post_select=[0])
-    assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
-
-    # grouping errors by observable flip requires a way to weigh errors against each other
-    with pytest.raises(ValueError, match="error_channel, or penalty_func"):
-        decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
-
-
-def test_confidence_ratio() -> None:
-    """A confidence_ratio omits ambiguous syndromes so they decode to erasure."""
-    pcm = np.eye(1, dtype=int)
-
-    # a confidence_ratio must be a non-negative number
-    with pytest.raises(ValueError, match="non-negative"):
-        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=-1)
-    with pytest.raises(ValueError, match="non-negative"):
-        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=float("nan"))
-    # a positive confidence_ratio signals erasure, so it conflicts with add_erasure_bit=False
-    with pytest.raises(ValueError, match="add_erasure_bit=False"):
-        decoders.LookupDecoder(
-            pcm, 1, error_channel=[0.1], add_erasure_bit=False, confidence_ratio=2
-        )
-    # ... and it requires grouping errors by observable flip
-    with pytest.raises(ValueError, match="observable flip"):
-        decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=2)
-
-    # confidence_ratio=0 is a requirement-free no-op: it needs neither an erasure bit nor obs flips
-    decoder = decoders.LookupDecoder(pcm, 1, error_channel=[0.1], confidence_ratio=0)
-    assert not decoder.has_erasure_bit
-    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
-
-    # a zero-probability error mechanism does not crash a syndrome that only it can explain: here
-    # syndrome (1, 0) is reachable only via the probability-0 mechanism, so its group has no
-    # finite-probability representative, but the decoder still returns that mechanism's error
-    decoder = decoders.LookupDecoder(
-        np.array([[1, 0], [0, 1]], dtype=int),
-        max_weight=1,
-        error_channel=[0.0, 0.1],
-        observable_flip_matrix=np.array([[1, 0]], dtype=int),
-    )
-    assert np.array_equal(decoder.decode(np.array([1, 0], dtype=int)), [1, 0])
-
-    # In this DEM, syndrome (1, 1)'s most likely observable flip (obs_flip=1) is only ~1.067 times
-    # as likely as the alternative; see test_observable_lookup_decoding for the enumeration.
-    dem = stim.DetectorErrorModel("""
-        error(0.04) D0 D1
-        error(0.25) D0
-        error(0.10) D1
-        error(0.10) D0 L0
-        error(0.25) D1 L0
-    """)
-    syndrome = np.array([1, 1], dtype=int)
-
-    # confidence_ratio=0 assigns the most likely flip (obs_flip=1) and adds no erasure bit
-    decoder = decoders.LookupDecoder(
-        dem, max_weight=2, predict_observable_flips=True, confidence_ratio=0
-    )
-    assert np.array_equal(decoder.decode(syndrome), [1])
-
-    # a confidence_ratio above the ~1.067 threshold omits the syndrome and auto-enables the erasure
-    # bit, so the syndrome decodes to erasure: an all-zero flip with the erasure bit set
-    decoder = decoders.LookupDecoder(
-        dem, max_weight=2, predict_observable_flips=True, confidence_ratio=1.5
-    )
-    assert decoder.has_erasure_bit
-    assert np.array_equal(decoder.decode(syndrome), [0, 1])
-
-    # a syndrome with a single consistent observable flip is always confident, so it is kept and
-    # decodes to that flip with the auto-enabled erasure bit left clear
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    decoder = decoders.LookupDecoder(
-        dem, max_weight=1, predict_observable_flips=True, confidence_ratio=1e6
-    )
-    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0])
-
-
-def test_ilp_decoder() -> None:
+def test_ilp_decoder(toy_problem: ToyProblem) -> None:
     """Decode using an integer linear program."""
-    matrix, error, syndrome = get_toy_problem()
+    matrix, error, syndrome = toy_problem
     decoder = decoders.ILPDecoder(scipy.sparse.csc_matrix(matrix))
     assert np.array_equal(error, decoder.decode(syndrome))
 
@@ -263,6 +82,113 @@ def test_ilp_decoder() -> None:
     error = -error.view(field)
     decoder = decoders.ILPDecoder(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
+
+
+def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:
+    """An integer linear program returns an error of minimum weight that reproduces the syndrome.
+
+    Both properties are checked against exhaustive search.  The particular minimum-weight error
+    that gets returned is up to the solver, so it is not checked.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+
+    for order in [2, 5]:
+        field = galois.GF(order)
+        for _ in range(4):
+            num_checks, num_bits = rng.integers(2, 4), rng.integers(2, 4)
+            matrix = field(rng.integers(order, size=(num_checks, num_bits)))
+            error = field(rng.integers(order, size=num_bits))
+            syndrome = matrix @ error
+
+            candidates = [
+                field(vector)
+                for vector in itertools.product(range(order), repeat=int(num_bits))
+                if np.array_equal(matrix @ field(vector), syndrome)
+            ]
+            min_weight = min(np.count_nonzero(candidate) for candidate in candidates)
+
+            decoded = decoders.ILPDecoder(matrix).decode(np.asarray(syndrome, dtype=int))
+            assert np.array_equal(matrix @ field(decoded), syndrome)
+            assert np.count_nonzero(decoded) == min_weight
+
+
+def test_ilp_decoder_early_termination() -> None:
+    """A HiGHS integer linear program that stops early does not return an unusable error.
+
+    A solver told to give up immediately can report a finite objective for a point that reproduces
+    no syndrome at all.  With no way to report that, such a point is rejected; given an erasure bit,
+    it is reported as an erasure instead, which is what the decoders that infer errors heuristically
+    already do.
+    """
+    pytest.importorskip("highspy")
+    matrix = np.array([[1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 0]])
+    syndrome = np.array([1, 0, 1])
+
+    decoder = decoders.ILPDecoder(matrix, solver="HIGHS", time_limit=1e-9)
+    with (
+        pytest.warns(UserWarning, match="inaccurate"),
+        pytest.raises(ValueError, match="does not reproduce the syndrome"),
+    ):
+        decoder.decode(syndrome)
+
+    # the same solver, asked for an erasure bit, erases the shot rather than refusing it
+    decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True, solver="HIGHS", time_limit=1e-9)
+    with pytest.warns(UserWarning, match="inaccurate"):
+        decoded = decoder.decode(syndrome)
+    assert len(decoded) == matrix.shape[1] + 1
+    assert decoded[-1] == 1
+
+    # without the time limit, the same problem is solved, and the erasure bit reports no erasure
+    decoded = decoders.ILPDecoder(matrix, add_erasure_bit=True).decode(syndrome)
+    assert decoded[-1] == 0
+    assert np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
+
+
+def test_ilp_decoder_unreproducible_syndrome() -> None:
+    """A syndrome that no error reproduces is erased with a warning, rather than refused.
+
+    The one column below spans only the all-zero and all-one vectors, so the program can prove that
+    nothing reproduces a syndrome on a single check.
+    """
+    matrix = np.array([[1], [1]])
+    syndrome = np.array([0, 1])
+
+    with pytest.raises(ValueError, match="could not be found"):
+        decoders.ILPDecoder(matrix).decode(syndrome)
+
+    decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True)
+    with pytest.warns(UserWarning, match="could not be found"):
+        decoded = decoder.decode(syndrome)
+    assert len(decoded) == matrix.shape[1] + 1
+    assert decoded[-1] == 1
+
+
+def test_ilp_decoder_near_integral_values() -> None:
+    """A mixed integer solver's near-integral values are rounded, not truncated toward zero."""
+    import cvxpy
+
+    matrix = np.array([[1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 0]])
+    syndrome = np.array([1, 0, 1])
+    decoder = decoders.ILPDecoder(matrix)
+    expected = decoder.decode(syndrome)
+
+    solve = cvxpy.Problem.solve
+
+    def solve_then_perturb(problem: cvxpy.Problem, **kwargs: object) -> float:
+        """Solve, then report the solution the way a solver at its tolerance would."""
+        result = solve(problem, **kwargs)
+        decoder.variables.value = np.asarray(decoder.variables.value) - 4e-16
+        return float(result)
+
+    with unittest.mock.patch.object(cvxpy.Problem, "solve", solve_then_perturb):
+        assert np.array_equal(expected, decoder.decode(syndrome))
+
+    # The returned integer error must not be narrowed to a syndrome dtype that cannot represent it.
+    field = galois.GF(3)
+    decoder = decoders.ILPDecoder(field([[1, 1], [0, 1]]), add_erasure_bit=True)
+    decoded = decoder.decode(np.array([0, 1], dtype=bool))
+    assert np.array_equal(decoded, [2, 1, 0])
+    assert np.array_equal(field([[1, 1], [0, 1]]) @ field(decoded[:-1]), [0, 1])
 
 
 def test_invalid_ilp() -> None:
@@ -294,9 +220,111 @@ def test_generalized_union_find() -> None:
     )
 
 
-def test_augmented_decoders() -> None:
+def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) -> None:
+    """Generalized Union-Find and Relay-BP set an erasure bit iff their error misses the syndrome.
+
+    Both decoders answer a syndrome that no error explains, so without the bit the answer is
+    indistinguishable from the error inferred for a syndrome that is explained.  Every syndrome of
+    every matrix is checked, so a trivial syndrome -- which the all-zero error does explain -- has
+    to come back unerased.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+
+    def check_erasure_bits(
+        matrix: npt.NDArray[np.int_],
+        syndromes: npt.NDArray[np.int_],
+        decoded_errors: npt.NDArray[np.int_],
+    ) -> None:
+        """Assert that each erasure bit is set exactly when its error misses its syndrome."""
+        for decoded, syndrome in zip(decoded_errors, syndromes):
+            explained = np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
+            assert bool(decoded[-1]) == (not explained)
+
+    num_erasures = 0
+    for _ in range(4):
+        num_checks, num_bits = int(rng.integers(2, 4)), int(rng.integers(2, 5))
+        matrix = rng.integers(2, size=(num_checks, num_bits))
+        matrix[0] = 0  # a trivial check row, so that some syndrome is always unexplainable
+        syndromes = np.array(
+            [[(bits >> cc) & 1 for cc in range(num_checks)] for bits in range(2**num_checks)],
+            dtype=int,
+        )
+
+        guf_decoder = decoders.GUFDecoder(galois.GF(2)(matrix), add_erasure_bit=True)
+        relay_bp_decoder = decoders.RelayBPDecoder(matrix, add_erasure_bit=True)
+
+        guf_errors = np.array([guf_decoder.decode(syndrome) for syndrome in syndromes])
+        relay_bp_errors = np.array([relay_bp_decoder.decode(syndrome) for syndrome in syndromes])
+        check_erasure_bits(matrix, syndromes, guf_errors)
+        check_erasure_bits(matrix, syndromes, relay_bp_errors)
+
+        # decoding a batch appends one erasure bit per shot, under the same rule
+        decoded_batch = relay_bp_decoder.decode_batch(syndromes)
+        check_erasure_bits(matrix, syndromes, decoded_batch)
+
+        num_erasures += int(guf_errors[:, -1].sum()) + int(relay_bp_errors[:, -1].sum())
+
+    assert num_erasures  # a run in which nothing is erased checks nothing
+
+
+def test_symplectic_erasure() -> None:
+    """A qudit syndrome that no error can induce is erased rather than answered.
+
+    A trivial row of a parity check matrix witnesses no error at all, so a syndrome bit on it is
+    exactly what an erasure bit reports.  Reaching that conclusion requires the Tanner graph to
+    carry a node for the trivial check.
+    """
+    code = codes.FiveQubitCode()
+    matrix = np.vstack([np.asarray(code.matrix, dtype=int), np.zeros(2 * len(code), dtype=int)])
+    decoder = decoders.GUFDecoder(matrix, symplectic=True, add_erasure_bit=True)
+
+    # only the trivial check fires, which no error can do
+    syndrome = np.zeros(matrix.shape[0], dtype=int)
+    syndrome[-1] = 1
+    decoded = decoder.decode(syndrome)
+    assert len(decoded) == 2 * len(code) + 1
+    assert decoded[-1] == 1
+    assert not np.any(decoded[:-1])
+
+
+def test_composite_erasure() -> None:
+    """A CompositeDecoder is erased when any of its code blocks is erased."""
+    # row 1 of this matrix is trivial, so no error explains a syndrome that is nonzero there
+    matrix = np.array([[1, 1, 0], [0, 0, 0]])
+    block_decoder = decoders.RelayBPDecoder(matrix, add_erasure_bit=True)
+    composite_decoder = decoders.CompositeDecoder.from_copies(block_decoder, 2, 2)
+
+    # one erasure bit for the composite, not one per block
+    syndromes = np.array([[1, 0, 1, 0], [0, 1, 1, 0], [1, 0, 0, 1], [0, 1, 0, 1]])
+    expected_erasures = [0, 1, 1, 1]
+    for syndrome, erased in zip(syndromes, expected_erasures):
+        decoded = composite_decoder.decode(syndrome)
+        assert len(decoded) == 2 * matrix.shape[1] + 1
+        assert decoded[-1] == erased
+
+    decoded_batch = composite_decoder.decode_batch(syndromes)
+    assert np.array_equal(decoded_batch[:, -1], expected_erasures)
+
+    # a block that cannot erase contributes all of its entries, and none of them is an erasure bit
+    plain_decoder = decoders.RelayBPDecoder(matrix)
+
+    # the second bit of a block's syndrome is the one its trivial check row cannot explain, so only
+    # the erasing block's half of each composite syndrome can erase the composite
+    for blocks, expected in [
+        (((plain_decoder, 2), (block_decoder, 2)), syndromes[:, 3]),
+        (((block_decoder, 2), (plain_decoder, 2)), syndromes[:, 1]),
+    ]:
+        mixed_decoder = decoders.CompositeDecoder(*blocks)
+        assert mixed_decoder.has_erasure_bit
+        for syndrome, erased in zip(syndromes, expected):
+            decoded = mixed_decoder.decode(syndrome)
+            assert len(decoded) == 2 * matrix.shape[1] + 1
+            assert decoded[-1] == erased
+
+
+def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     """Composite and direct decoders, built from other decoders."""
-    matrix, error, syndrome = get_toy_problem()
+    matrix, error, syndrome = toy_problem
     decoder = decoders.get_decoder(matrix, with_MWPM=True)
 
     # decode corrupted code words directly
@@ -318,57 +346,39 @@ def test_augmented_decoders() -> None:
     composite_syndromes = np.array([composite_syndrome] * 3)
     assert np.array_equal(composite_errors, composite_decoder.decode_batch(composite_syndromes))
 
+    # a decoder whose output is wider than the code word cannot correct that word, in either
+    # single-shot or batch form
+    class WideDecoder:
+        """A decoder that appends an extra entry to every error it infers."""
 
-def test_quantum_decoding(pytestconfig: pytest.Config) -> None:
-    """Decode random weight-2 errors in a GF(3) surface code."""
-    np.random.seed(pytestconfig.getoption("randomly_seed"))
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.zeros(error.size + 1, dtype=int)
 
-    code = codes.SurfaceCode(4, field=3)
-    local_errors = tuple(itertools.product(code.field.elements, repeat=2))[1:]
-    qubit_a, qubit_b = np.random.choice(range(len(code)), size=2, replace=False)
-    pauli_a, pauli_b = random.choices(local_errors, k=2)
+        def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.zeros((len(syndromes), error.size + 1), dtype=int)
+
+    direct_decoder = decoders.DirectDecoder.from_indirect(WideDecoder(), matrix)
+    with pytest.raises(ValueError, match="cannot be subtracted"):
+        direct_decoder.decode(error)
+    with pytest.raises(ValueError, match="cannot be subtracted"):
+        direct_decoder.decode_batch(errors)
+
+
+def test_quantum_decoding_from_plain_matrix() -> None:
+    """A parity check matrix that is not a FieldArray is interpreted over GF(2)."""
+    code = codes.FiveQubitCode()
     error = code.field.Zeros(2 * len(code))
-    error[[qubit_a, qubit_a + len(code)]] = pauli_a
-    error[[qubit_b, qubit_b + len(code)]] = pauli_b
-    syndrome = code.matrix @ math.symplectic_conjugate(error)
+    error[2] = 1
+    syndrome = np.asarray(code.matrix @ math.symplectic_conjugate(error), dtype=int)
 
-    decoder: decoders.Decoder
+    decoder = decoders.GUFDecoder(np.asarray(code.matrix, dtype=int), symplectic=True)
+    decoded_error = code.field(decoder.decode(syndrome))
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
+
+
+def test_quantum_decoding(surface_code_problem: SurfaceCodeProblem) -> None:
+    """Decode random weight-2 errors in a GF(3) surface code."""
+    code, _error, syndrome = surface_code_problem
     decoder = decoders.GUFDecoder(code.matrix, symplectic=True)
     decoded_error = decoder.decode(syndrome).view(code.field)
     assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
-
-    decoder = decoders.LookupDecoder(code.matrix, symplectic=True, max_weight=2)
-    decoded_error = decoder.decode(syndrome).view(code.field)
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
-
-    decoder = decoders.LookupDecoder(
-        code.matrix,
-        symplectic=True,
-        add_erasure_bit=True,
-        max_weight=2,
-        penalty_func=lambda vec: int(np.count_nonzero(vec)),
-    )
-    decoded_error = decoder.decode(syndrome).view(code.field)
-    assert decoded_error[-1] == 0
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
-    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
-
-    decoder = decoders.WeightedLookupDecoder(
-        code.matrix, symplectic=True, add_erasure_bit=True, max_weight=2
-    )
-    assert len(decoder) == len(decoder.syndrome_to_candidates)
-    decoded_error = decoder.decode(syndrome).view(code.field)
-    assert decoded_error[-1] == 0
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
-    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
-
-    # passing penalty_func=None returns the last-recorded (lowest-weight) consistent candidate
-    decoded_error = decoder.decode(syndrome, penalty_func=None).view(code.field)
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
-
-
-def test_penalty_func() -> None:
-    """Lookup tables can build penalty functions that penalize unlikely errors."""
-    error_channel = [0.2, 0.1]
-    penalty_func = decoders.LookupDecoder._build_penalty_func(error_channel)
-    assert penalty_func([0, 0]) < penalty_func([1, 0]) < penalty_func([0, 1]) < penalty_func([1, 1])

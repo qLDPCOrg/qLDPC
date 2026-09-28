@@ -1,18 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Module for loading groups from GroupNames or the GAP computer algebra system.
 
-Copyright 2023 The qLDPC Authors and Infleqtion Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+See https://groupnames.org and https://www.gap-system.org.
 """
 
 from __future__ import annotations
@@ -41,7 +31,11 @@ GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 def get_generators(
     group: str, *, warning_to_raise_if_calling_gap: str | None = None
 ) -> GeneratorsList:
-    """Retrieve GAP group generators."""
+    """Retrieve GAP group generators.
+
+    This function tries a local database, then GAP (a subprocess), then a GroupNames.org web lookup,
+    so it may run GAP and access the network.
+    """
     # try retrieving a known group
     if generators := KNOWN_GROUPS.get(group):
         return generators
@@ -67,7 +61,12 @@ def get_generators(
 
 
 def get_generators_from_magma(group: str) -> GeneratorsList:
-    """Retrieve group generators from MAGMA."""
+    """Retrieve group generators from MAGMA.
+
+    This function uses a manual copy/paste workflow that prints the command, copies it to the
+    system clipboard, and reads the pasted output from standard input (blocking, and raising
+    ``EOFError`` if standard input is closed).
+    """
     print("Run the following command in MAGMA:")
     print()
     print(group)
@@ -133,7 +132,11 @@ def get_generators_from_magma(group: str) -> GeneratorsList:
 
 @qldpc.cache.use_disk_cache("small_group_number")
 def get_small_group_number(order: int) -> int:
-    """Get the number of 'SmallGroup's of a given order."""
+    """Get the number of 'SmallGroup's of a given order.
+
+    This function uses the GAP SmallGrp package (https://gap-packages.github.io/SmallGrp/) if
+    available, else a GroupNames.org lookup.
+    """
     if qldpc.external.gap.is_installed():
         qldpc.external.gap.require_package("SmallGrp")
         command = f"Print(NumberSmallGroups({order}));;"
@@ -146,12 +149,15 @@ def get_small_group_number(order: int) -> int:
         raise ValueError("Cannot determine the number of small groups")
 
     matches = re.findall(rf"<td>{order},([0-9]+)</td>", page_html)
+    if not matches:
+        raise ValueError("Cannot determine the number of small groups")
     return max(int(match) for match in matches)
 
 
 def get_small_group_structure(order: int, index: int) -> str:
     """Get a description of the structure of a SmallGroup from GAP."""
-    # if we have the structure cached, retrieve it
+    # Cache manually (not via @use_disk_cache) so the fallback name returned when GAP is unavailable
+    # is never cached: only GAP's real StructureDescription (below) is stored.
     key = (order, index)
     cache = qldpc.cache.get_disk_cache("qldpc_group_structure")
     if structure := cache.get(key, None):
@@ -217,7 +223,11 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
     if group_url is None:
         # we cannot access the webpage
         return None
-    group_page = urllib.request.urlopen(group_url)
+    try:
+        group_page = urllib.request.urlopen(group_url, timeout=10)
+    except (urllib.error.URLError, TimeoutError):
+        # we cannot access the webpage
+        return None
     group_page_html = group_page.read().decode("utf-8")
 
     # extract section with the generators we are after
@@ -242,6 +252,9 @@ def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> Generator
     """
     parsed_permutations = []
     for line in permutations.strip().splitlines():
+        if not line.strip():
+            continue
+
         # extract list of cycles, where each cycle is a tuple of integers
         cycle_strings = line.strip()[1:-1].split(")(")
         try:
@@ -286,9 +299,9 @@ def maybe_get_webpage(order: int) -> str | None:
     """Try to retrieve the webpage listing all groups up to a given order."""
     try:
         url = GROUPNAMES_URL + ("index500.html" if order > 60 else "")
-        page = urllib.request.urlopen(url)
+        page = urllib.request.urlopen(url, timeout=10)
         return page.read().decode("utf-8")
-    except (urllib.error.URLError, urllib.error.HTTPError):
+    except (urllib.error.URLError, TimeoutError):
         # we cannot access the webpage
         return None
 
@@ -299,6 +312,9 @@ def maybe_get_webpage(order: int) -> str | None:
 )
 def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList | None:
     """Get the primitive central idempotents of a group algebra over a finite field.
+
+    This function uses the GAP Wedderga package (https://gap-packages.github.io/wedderga/), run in
+    a subprocess.
 
     Primitive central idempotents of a ring are nonzero elements that:
 
@@ -349,13 +365,23 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
         for ring_term_match in re_ring_term.finditer(ring_member_match.group()):
             coefficient_string, cycles_string = ring_term_match.group().split("*")
 
-            # convert "Z(p^k)^m" into galois.GF(field)(galois.GF(p**k).primitive_element ** m)
+            # Convert "Z(p^k)^m" into an element of GF(field).  Z(p^k) is the primitive element of
+            # the subfield GF(p^k), which is not the same as the integer galois.GF(p**k) uses to
+            # store it: the embedding GF(p^k) -> GF(field) sends the subfield generator to
+            # ``GF(field).primitive_element ** ((field - 1) // (p^k - 1))``, and Z(p^k)^m follows.
+            # This relies on GAP and galois selecting the same primitive element of GF(field); both
+            # use Conway polynomials (galois for field orders in its Conway database, which covers
+            # every field small enough to arise here), so their primitive elements agree.
             coefficient_match = re_coefficient_components.match(coefficient_string)
             assert coefficient_match is not None
             pp = int(coefficient_match.group(1))
             kk = int(coefficient_match.group(2) or 1)
             mm = int(coefficient_match.group(3) or 1)
-            coefficient = galois.GF(field)(galois.GF(pp**kk).primitive_element ** mm)
+            # GAP only reports Z(p^k) for elements that lie in GF(field), so k divides the degree of
+            # GF(field) and (p^k - 1) divides (field - 1) exactly (no floor-division truncation).
+            assert (field - 1) % (pp**kk - 1) == 0
+            subfield_embedding_power = (field - 1) // (pp**kk - 1)
+            coefficient = galois.GF(field).primitive_element ** (subfield_embedding_power * mm)
 
             # extract and 0-index cycles
             cycles = tuple(
@@ -447,6 +473,54 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(1, 5), (2, 6), (3, 7)],
         [(0, 5, 6, 7), (1, 4), (2, 3)],
         [(0, 7), (1, 2), (3, 6, 5, 4)],
+    ],
+    # The entries below let the transversal gate tests in circuits/transversal_test.py run
+    # without GAP.
+    # [[1, 0]] code with distinct X and Z checks, whose automorphism group is trivial
+    "AutomorphismGroup(CheckMatCode([[1,0]],GF(2)))": [[]],
+    # [[5, 3]] self-dual code with one unaddressed qubit, automorphism group (SWAP only)
+    "AutomorphismGroup(CheckMatCode([[1,1,1,1,0]],GF(2)))": [
+        [(0, 1)],
+        [(1, 2)],
+        [(2, 3)],
+    ],
+    # [[4, 2]] non-self-dual code, X check automorphism group
+    "AutomorphismGroup(CheckMatCode([[1,1,1,0]],GF(2)))": [
+        [(0, 1)],
+        [(1, 2)],
+    ],
+    # [[4, 2]] non-self-dual code, Z check automorphism group
+    "AutomorphismGroup(CheckMatCode([[0,1,1,0]],GF(2)))": [
+        [(0, 3)],
+        [(1, 2)],
+    ],
+    # SurfaceCode(2) logical operator automorphism group (SWAP + Cliffords, for code deformations)
+    "AutomorphismGroup(CheckMatCode([[0,0,1,1,0,0,0,0,0,0,1,1],[0,0,0,0,1,0,0,1,1,0,0,1]],GF(2)))": [
+        [(5, 6), (7, 8)],
+        [(2, 4, 10, 8, 3, 7), (5, 6, 9)],
+        [(3, 10), (5, 9, 6), (7, 8)],
+        [(4, 7), (5, 9)],
+        [(6, 9)],
+        [(5, 9)],
+        [(5, 6)],
+        [(4, 8)],
+        [(1, 5, 9)],
+        [(1, 5, 6, 9), (7, 8)],
+        [(2, 10, 3), (6, 9)],
+        [(1, 5, 6, 9), (3, 10), (4, 8, 7)],
+        [(1, 5, 6, 9), (2, 4), (3, 8, 10, 7)],
+        [(0, 9, 1, 6, 5), (2, 8, 3, 7, 10, 4)],
+    ],
+    # [[5, 1]] non-self-dual code, automorphism group (SWAP + Cliffords)
+    "AutomorphismGroup(CheckMatCode([[1,0,0,1,0,0,0,0,0,0,1,0,0,1,0],[0,1,0,1,1,0,0,0,0,0,0,1,0,1,1],[0,0,0,0,0,1,0,0,1,1,1,0,0,1,1],[0,0,0,0,0,0,0,1,0,0,0,0,1,0,0]],GF(2)))": [
+        [(7, 12)],
+        [(0, 3), (10, 13)],
+        [(1, 5), (3, 10), (4, 8), (9, 11)],
+        [(1, 4)],
+        [(2, 6)],
+        [(4, 11)],
+        [(5, 8)],
+        [(8, 9)],
     ],
 }
 
@@ -652,6 +726,39 @@ KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], IdempotentsList] = {
             (1, ((0, 3, 6, 2, 5, 1, 4),)),
             (1, ((0, 5, 3, 1, 6, 4, 2),)),
             (1, ((0, 6, 5, 4, 3, 2, 1),)),
+        ),
+    ],
+    ("Group((1,2,3,4,5),(1,5)(2,4))", 3): [  # F3[DihedralGroup(5)]
+        (
+            (1, ((),)),
+            (1, ((1, 4), (2, 3))),
+            (1, ((0, 1), (2, 4))),
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2), (3, 4))),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3), (1, 2))),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+            (1, ((0, 4), (1, 3))),
+        ),
+        (
+            (1, ((),)),
+            (2, ((1, 4), (2, 3))),
+            (2, ((0, 1), (2, 4))),
+            (1, ((0, 1, 2, 3, 4),)),
+            (2, ((0, 2), (3, 4))),
+            (1, ((0, 2, 4, 1, 3),)),
+            (2, ((0, 3), (1, 2))),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
+            (2, ((0, 4), (1, 3))),
+        ),
+        (
+            (2, ((),)),
+            (1, ((0, 1, 2, 3, 4),)),
+            (1, ((0, 2, 4, 1, 3),)),
+            (1, ((0, 3, 1, 4, 2),)),
+            (1, ((0, 4, 3, 2, 1),)),
         ),
     ],
 }

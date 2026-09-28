@@ -9,7 +9,12 @@ EXCLUDE = (
     "examples/*.py",
     "experiments/*.py",
     "docs/source/conf.py",
+    # The notebooks under docs/source/examples are symlinks to their examples/ originals, so
+    # collecting them would run every notebook twice -- and would fail besides, because the modules
+    # that some notebooks import from their own directory have no counterpart in the docs tree.
+    "docs/source/examples/*",
 )
+
 
 if __name__ == "__main__":
     sys.exit(checks_superstaq.pytest_.run(*sys.argv[1:], exclude=EXCLUDE))
