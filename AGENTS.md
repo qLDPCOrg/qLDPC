@@ -175,6 +175,27 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 4. When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
 5. Run the strict documentation build before considering the change complete.
 
+## Git branches and worktrees
+
+- Do not give a local topic branch an upstream unless the user explicitly asks for one.
+- Running `git worktree add -b <branch> <path> origin/main` automatically makes the new branch track `origin/main`.
+  Do not use that form.
+- Create the branch without tracking first, then add its worktree:
+
+```bash
+git branch --no-track <branch> origin/main
+git worktree add <path> <branch>
+```
+
+- Verify that the new branch has no upstream:
+
+```bash
+git for-each-ref --format='%(upstream:short)' refs/heads/<branch>
+```
+
+The verification command must print a blank line.
+Only set an upstream later if the user explicitly requests it.
+
 ## Validation commands
 
 Install the development environment:
