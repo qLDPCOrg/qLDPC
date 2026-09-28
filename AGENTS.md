@@ -2,7 +2,7 @@
 
 This guide is for people and agents changing qLDPC.
 For a human-facing explanation of the data model and package relationships, start with the [library map](docs/source/library_map.rst).
-For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/en/latest/autoapi/index.html).
+For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/autoapi/index.html).
 
 ## What to trust when documents disagree
 
