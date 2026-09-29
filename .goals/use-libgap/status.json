@@ -1,7 +1,7 @@
 {
   "goal_id": "use-libgap",
   "status": "building",
-  "iteration": 12,
+  "iteration": 13,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
   "initial_sha": "40a571e455242e68e1a6f8e67ebaee310ad818b0",
@@ -61,6 +61,11 @@
       "iteration": 11,
       "verdict": "FAIL",
       "summary": "The rerun exposed a provider-present common_test failure: patching only is_installed did not disable the installed libgap path, so test_automorphism called get_output and raised FileNotFoundError; this caused the 99.89% coverage miss."
+    },
+    {
+      "iteration": 12,
+      "verdict": "FAIL",
+      "summary": "The absence-path fix passed, but test_automorphism still did not explicitly prevent executable calls or mock the missing GAP output; make both backend branches provider-independent with strict subprocess guards."
     }
   ]
 }
