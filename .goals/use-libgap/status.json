@@ -1,7 +1,7 @@
 {
   "goal_id": "use-libgap",
   "status": "building",
-  "iteration": 11,
+  "iteration": 12,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
   "initial_sha": "40a571e455242e68e1a6f8e67ebaee310ad818b0",
@@ -56,6 +56,11 @@
       "iteration": 10,
       "verdict": "FAIL",
       "summary": "Live Python 3.14 provider tests passed on 7ab1ed97, but coverage was 99.89% from unrelated common.py/common_test.py misses; rerun coverage on the same code is required."
+    },
+    {
+      "iteration": 11,
+      "verdict": "FAIL",
+      "summary": "The rerun exposed a provider-present common_test failure: patching only is_installed did not disable the installed libgap path, so test_automorphism called get_output and raised FileNotFoundError; this caused the 99.89% coverage miss."
     }
   ]
 }

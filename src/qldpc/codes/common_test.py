@@ -224,6 +224,7 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
         codes.RepetitionCode(2).get_automorphism_group()
