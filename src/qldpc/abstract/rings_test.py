@@ -4,11 +4,15 @@
 
 from __future__ import annotations
 
+import io
+import pickle
+
 import numpy as np
 import pytest
 import sympy
 
 from qldpc import abstract
+from qldpc.abstract import ring_array, rings
 
 
 def test_ring() -> None:
@@ -159,3 +163,26 @@ def test_deprecations() -> None:
     # the Element alias warns on use
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         abstract.Element(ring, ring.group.identity).to_vector()
+
+
+def test_ring_array_compat_shim() -> None:
+    """RingArray/Protograph remain importable from rings.py, the module they moved out of."""
+    from qldpc.abstract.rings import Protograph, RingArray
+
+    assert RingArray is ring_array.RingArray is abstract.RingArray
+    assert Protograph is ring_array.Protograph is abstract.Protograph
+
+    with pytest.raises(AttributeError, match=r"module .* has no attribute 'not_a_real_export'"):
+        rings.not_a_real_export  # noqa: B018 (deliberately trigger the module __getattr__)
+
+
+def test_ring_array_pickle_compat() -> None:
+    """Objects pickled under the pre-split ``qldpc.abstract.rings.RingArray`` path still unpickle.
+
+    Pickle locates a class by looking up its recorded ``(module, qualname)`` via
+    ``Unpickler.find_class``, so exercising that lookup directly confirms compatibility without
+    depending on whether the ring/group objects involved are themselves picklable.
+    """
+    unpickler = pickle.Unpickler(io.BytesIO())  # noqa: S301
+    assert unpickler.find_class("qldpc.abstract.rings", "RingArray") is ring_array.RingArray
+    assert unpickler.find_class("qldpc.abstract.rings", "Protograph") is ring_array.Protograph

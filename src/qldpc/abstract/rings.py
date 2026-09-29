@@ -6,6 +6,10 @@
     This module does not promise to be performant.  If you need to do heavy numerical abstract
     algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
 
+``RingArray`` and its deprecated ``Protograph`` alias now live in ``.ring_array``, but this module
+still re-exports them lazily (see ``__getattr__`` below) for backward compatibility with existing
+imports and pickled objects that reference ``qldpc.abstract.rings.RingArray``.
+
 """
 
 from __future__ import annotations
@@ -31,6 +35,8 @@ from ._monomials import iter_monomial_terms
 from .groups import AbelianGroup, Group, GroupMember, resolve_field
 
 if TYPE_CHECKING:
+    # re-exported for type checkers only; see the module-level __getattr__ for the runtime shim
+    from .ring_array import Protograph, RingArray  # noqa: F401
     from .wedderburn_artin import WedderburnArtinTransformer
 
 ################################################################################
@@ -529,3 +535,22 @@ class Element(RingMember):
             stacklevel=2,
         )
         return super().__getattribute__(name)
+
+
+_RING_ARRAY_REEXPORTS = ("RingArray", "Protograph")
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily re-export names that moved to ``.ring_array``, for backward compatibility.
+
+    This preserves ``qldpc.abstract.rings.RingArray`` (and the deprecated ``Protograph`` alias) as
+    a valid, if no longer canonical, import path -- including for unpickling objects saved before
+    the split -- without importing ``.ring_array`` eagerly at module load time, which would
+    recreate the import cycle (``.ring_array`` imports ``GroupRing``/``RingMember`` from here) that
+    motivated splitting it out in the first place.
+    """
+    if name in _RING_ARRAY_REEXPORTS:
+        from . import ring_array
+
+        return getattr(ring_array, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
