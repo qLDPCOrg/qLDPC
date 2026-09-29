@@ -113,19 +113,23 @@ def _gap_string(value: object) -> str:
 def _get_output_libgap(commands: Sequence[str], libgap: _LibGap) -> str:
     """Evaluate commands through libgap while capturing GAP's printed output."""
     stream = "__qldpc_output__"
-    direct_commands = [
+    stream_object = f"{stream}_stream"
+    body = [
+        f"local {stream}, {stream_object};",
         f'{stream} := "";',
-        f"{stream}_stream := OutputTextString({stream}, false);",
-        f"SetPrintFormattingStatus({stream}_stream, false);",
+        f"{stream_object} := OutputTextString({stream}, false);",
+        f"SetPrintFormattingStatus({stream_object}, false);",
     ]
-    direct_commands.extend(
-        command.rstrip("; \t\n").replace("Print(", f"PrintTo({stream}_stream, ")
-        for command in commands
-    )
-    direct_commands.extend([f"CloseStream({stream}_stream);", stream])
+    for command in commands:
+        command = command.rstrip()
+        if not command.endswith(";") and not re.search(r"(?:do|then|else|repeat)$", command):
+            command += ";"
+        body.append(command.replace("Print(", f"PrintTo({stream_object}, "))
+    body.extend([f"CloseStream({stream_object});", f"return {stream};"])
+    direct_command = "CallFuncList(function()\n" + "\n".join(body) + "\nend, [])"
 
     try:
-        result = libgap.eval("\n".join(direct_commands))
+        result = libgap.eval(direct_command)
     except Exception as error:
         raise ValueError(
             "Error encountered when running GAP through libgap\n\n"

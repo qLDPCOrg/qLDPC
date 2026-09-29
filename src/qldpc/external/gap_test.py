@@ -44,6 +44,10 @@ class MockLibGap:
     def eval(self, command: str) -> MockGapValue:
         """Evaluate a command."""
         self.commands.append(command)
+        if not command.startswith("CallFuncList(function()\n") or not command.endswith(
+            "\nend, [])"
+        ):
+            raise RuntimeError("can only evaluate a single statement")
         if isinstance(self.output, BaseException):
             raise self.output
         return MockGapValue(self.output)
@@ -77,6 +81,16 @@ def test_installed_libgap_import_contract() -> None:
         libgap.function_factory("TestPackageAvailability")("guava")
     )
     assert str(availability).lower() == "true"  # pragma: no cover - optional dependency
+    external.gap.is_callable.cache_clear()  # pragma: no cover
+    external.gap.is_installed.cache_clear()  # pragma: no cover
+    output = external.gap.get_output(
+        "values := [1, 2];;",
+        "for value in values do",
+        "Print(value);;",
+        "od;;",
+        'Print("!");;',
+    )  # pragma: no cover - optional dependency
+    assert output == "12!"  # pragma: no cover - optional dependency
 
 
 def get_mock_process(
@@ -208,6 +222,8 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
 def test_get_output_libgap() -> None:
     """Run GAP commands through the direct libgap binding."""
     libgap = MockLibGap()
+    with pytest.raises(RuntimeError, match="single statement"):
+        libgap.eval("x := 1;; Print(x);;")
     with (
         unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
@@ -215,8 +231,28 @@ def test_get_output_libgap() -> None:
     ):
         assert external.gap.get_output('Print("hello");;') == "_TEST_"
     run.assert_not_called()
-    assert "PrintTo(__qldpc_output___stream, " in libgap.commands[0]
-    assert 'PrintTo(__qldpc_output___stream, "hello")' in libgap.commands[0]
+    assert "PrintTo(__qldpc_output___stream, " in libgap.commands[-1]
+    assert 'PrintTo(__qldpc_output___stream, "hello")' in libgap.commands[-1]
+    assert libgap.commands[-1].startswith("CallFuncList(function()\n")
+    assert "x := 1;;" not in libgap.commands[-1]
+    with (
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+    ):
+        assert (
+            external.gap.get_output(
+                "values := [1, 2];;",
+                "for value in values do",
+                "Print(value);;",
+                "od;;",
+                'Print("!");;',
+            )
+            == "_TEST_"
+        )
+    assert "values := [1, 2];;" in libgap.commands[-1]
+    assert "for value in values do" in libgap.commands[-1]
+    assert "PrintTo(__qldpc_output___stream, value);;" in libgap.commands[-1]
+    assert 'PrintTo(__qldpc_output___stream, "!");;' in libgap.commands[-1]
 
     external.gap._subprocess_packages.add("qdist")
     with (
