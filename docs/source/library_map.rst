@@ -225,14 +225,14 @@ Optional integrations and side effects
 --------------------------------------
 
 * Install ``qldpc[gap]`` for the maintained ``passagemath-gap`` libgap binding. GAP-backed
-  features use that in-process binding when available and otherwise can run the ``gap`` subprocess.
-  If GAP is unavailable, some paths offer a manual copy/paste workflow that reads standard input
-  and uses the system clipboard.
-* With libgap, missing GAP packages must be installed through the relevant ``passagemath-gap``
-  extra (or otherwise made available to GAP). If a package is unavailable to libgap but a GAP
-  executable is present, qLDPC switches to that executable for package installation and subsequent
-  commands. With the subprocess backend, missing packages can still trigger an installation prompt
-  and ``git clone`` into GAP's package directory.
+  features use that in-process binding when available. Otherwise, qLDPC can invoke a separately
+  installed GAP executable in a child process. If neither option is available, some paths offer a
+  manual copy/paste workflow that reads standard input and uses the system clipboard.
+* When a GAP package is unavailable to libgap, qLDPC asks for permission to install it with GAP's
+  PackageManager. This makes the package available in libgap's user package directory. If that
+  attempt fails and a separate GAP executable is available, qLDPC prints manual installation
+  instructions before using the executable instead. Packages missing from the executable backend
+  can trigger an installation prompt and ``git clone`` into qLDPC's GAP package directory.
 * Group and code lookups may use online resources when local data and GAP cannot answer the request.
 * Expensive results can be cached under the user's platform cache directory. Disk caching is
   intentionally bypassed while pytest is running.

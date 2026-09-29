@@ -248,6 +248,26 @@ def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> s
     return result.stdout
 
 
+def _confirm_package_install(name: str) -> None:
+    """Ask the user for permission to install a missing GAP package."""
+    response = (
+        input(f"GAP package '{name}' is required but not installed.  Try to install it? (Y/n)")
+        .strip()
+        .lower()
+    )
+    if response not in {"", "y", "yes"}:
+        raise ValueError(f"Cannot proceed without the required package, {name}")
+
+
+def _install_package_subprocess(name: str, repo: str) -> None:
+    """Install a GAP package for the executable backend."""
+    commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
+    print(" ".join(commands))
+    install_result = subprocess.run(commands, capture_output=True, text=True, check=False)
+    if install_result.returncode:
+        raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
+
+
 def _require_package_subprocess(
     name: str, repo: str | None, availability: str | None = None
 ) -> bool:
@@ -256,19 +276,61 @@ def _require_package_subprocess(
         availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
     if availability.strip() == "fail":
         repo = repo or f"https://github.com/gap-packages/{name}"
-        response = (
-            input(f"GAP package '{name}' is required but not installed.  Try to install it? (Y/n)")
-            .strip()
-            .lower()
+        _confirm_package_install(name)
+        _install_package_subprocess(name, repo)
+    return True
+
+
+def _get_package_manager_source(name: str, repo: str | None) -> str:
+    """Return a source that GAP's PackageManager recognizes."""
+    if repo is None:
+        return name
+    source = repo.rstrip("/")
+    recognized_suffixes = (".git", ".hg", ".tar.gz", ".tar.bz2", "PackageInfo.g")
+    return source if source.endswith(recognized_suffixes) else f"{source}.git"
+
+
+def _get_libgap_install_instructions(name: str, source: str) -> str:
+    """Explain how to install a package into libgap's user package directory."""
+    return (
+        f"To install '{name}' for libgap manually, run `sage -gap` from the Python environment "
+        "where qldpc[gap] is installed, then enter:\n"
+        'LoadPackage("PackageManager");\n'
+        f'InstallPackage("{source}");'
+    )
+
+
+def _install_package_libgap(name: str, repo: str | None, libgap: _LibGap) -> bool:
+    """Install a GAP package into the user package directory visible to libgap."""
+    source = _get_package_manager_source(name, repo)
+    instructions = _get_libgap_install_instructions(name, source)
+    try:
+        manager = libgap.function_factory("LoadPackage")("PackageManager")
+    except Exception as error:
+        raise ModuleNotFoundError(
+            f"Could not load GAP's PackageManager through libgap.\n{instructions}"
+        ) from error
+    if _gap_string(manager).strip().lower() == "fail":
+        raise ModuleNotFoundError(
+            f"GAP's PackageManager is unavailable through libgap.\n{instructions}"
         )
-        if not response or response == "y":
-            commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
-            print(" ".join(commands))
-            install_result = subprocess.run(commands, capture_output=True, text=True, check=False)
-            if install_result.returncode:
-                raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
-        else:
-            raise ValueError(f"Cannot proceed without the required package, {name}")
+
+    try:
+        preferences = libgap.eval("rec(interactive := false)")
+        installed = libgap.function_factory("InstallPackage")(source, preferences)
+    except Exception as error:
+        raise ValueError(f"Failed to install {name} through libgap.\n{instructions}") from error
+    if _gap_string(installed).strip().lower() in {"fail", "false"}:
+        raise ValueError(f"Failed to install {name} through libgap.\n{instructions}")
+
+    try:
+        availability = libgap.function_factory("TestPackageAvailability")(name.lower())
+    except Exception as error:
+        raise ValueError(f"Could not verify the libgap installation of {name}") from error
+    if _gap_string(availability).strip().lower() == "fail":
+        raise ValueError(
+            f"GAP installed {name}, but the package is still unavailable to libgap.\n{instructions}"
+        )
     return True
 
 
@@ -276,17 +338,18 @@ def _require_package_subprocess(
 def require_package(name: str, repo: str | None = None) -> bool:
     """Enforce the installation of a GAP package.
 
-    With the direct libgap backend, this checks the package through GAP. If the package is missing
-    but a GAP executable is available, subsequent commands use that executable so packages can be
-    installed into its package directory. Otherwise, install the relevant ``passagemath-gap`` extra
-    (or otherwise install the package into the embedded GAP). With the command-line backend, a
-    missing package prompts on standard input and, with the user's consent, installs it by running
-    ``git clone`` into the GAP root's ``pkg`` directory.
+    With the direct libgap backend, this checks the package through GAP. A missing package prompts
+    on standard input and, with the user's consent, is installed through GAP's PackageManager into
+    the user package directory visible to libgap. If that installation fails but a GAP executable
+    is available, qLDPC prints instructions for installing the package for libgap before falling
+    back to the executable backend. With the executable backend, qLDPC installs a missing package
+    by cloning its repository into the GAP root's ``pkg`` directory.
 
     Args:
         name: The GAP package name.
-        repo: The repository from which to git clone the package, if necessary.
-            Defaults to f"https://github.com/gap-packages/{name}" if no repository is provided.
+        repo: The package repository to install, if necessary. With libgap, this is passed to GAP's
+            PackageManager; with the executable backend, it is cloned with Git. Defaults to the
+            package name for PackageManager or f"https://github.com/gap-packages/{name}" for Git.
 
     Raises:
         ModuleNotFoundError: If the package is missing and GAP cannot be called to install it.
@@ -304,18 +367,22 @@ def require_package(name: str, repo: str | None = None) -> bool:
         if str(availability).lower() != "fail":
             return True
 
+        _confirm_package_install(name)
         try:
+            return _install_package_libgap(name, repo, libgap)
+        except (ModuleNotFoundError, ValueError) as error:
             if not _is_gap_executable():
-                repo = repo or f"https://github.com/gap-packages/{name}"
-                raise ModuleNotFoundError(
-                    f"GAP package '{name}' is required but not installed.\n"
-                    f"Install the corresponding passagemath-gap extra or find the package at {repo}"
-                )
-            _subprocess_packages.add(name.lower())
-            return _require_package_subprocess(name, repo)
+                raise
+            print(error)
+            print("Falling back to the GAP executable for this package.")
+        repo = repo or f"https://github.com/gap-packages/{name}"
+        _subprocess_packages.add(name.lower())
+        try:
+            _install_package_subprocess(name, repo)
         except Exception:
             _subprocess_packages.discard(name.lower())
             raise
+        return True
 
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
     if availability.strip() == "fail":

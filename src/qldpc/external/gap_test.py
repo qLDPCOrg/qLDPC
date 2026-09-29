@@ -10,6 +10,7 @@ import os
 import subprocess
 import types
 import unittest.mock
+from collections.abc import Callable
 
 import pytest
 
@@ -40,10 +41,16 @@ class MockLibGap:
         self.output = output
         self.commands: list[str] = []
         self.package_available = True
+        self.package_manager_available: object = True
+        self.package_install_result: object = True
+        self.package_install_makes_available = True
+        self.package_install_sources: list[str] = []
 
     def eval(self, command: str) -> MockGapValue:
         """Evaluate a command."""
         self.commands.append(command)
+        if command == "rec(interactive := false)":
+            return MockGapValue(command)
         if not command.startswith("CallFuncList(function()\n") or not command.endswith(
             "\nend, [])"
         ):
@@ -52,16 +59,41 @@ class MockLibGap:
             raise self.output
         return MockGapValue(self.output)
 
-    def function_factory(self, function_name: str) -> object:
+    def function_factory(self, function_name: str) -> Callable[..., object]:
         """Return a fake GAP function."""
-        assert function_name == "TestPackageAvailability"
+        if function_name == "TestPackageAvailability":
 
-        def test_package_availability(name: str) -> str:
-            if isinstance(self.output, BaseException):
-                raise self.output
-            return "true" if self.package_available and name else "fail"
+            def test_package_availability(name: str) -> str:
+                if isinstance(self.output, BaseException):
+                    raise self.output
+                return "true" if self.package_available and name else "fail"
 
-        return test_package_availability
+            return test_package_availability
+
+        if function_name == "LoadPackage":
+
+            def load_package(name: str) -> str:
+                assert name == "PackageManager"
+                if isinstance(self.package_manager_available, BaseException):
+                    raise self.package_manager_available
+                return "true" if self.package_manager_available else "fail"
+
+            return load_package
+
+        assert function_name == "InstallPackage"
+
+        def install_package(source: str, preferences: object) -> str:
+            assert str(preferences) == "rec(interactive := false)"
+            self.package_install_sources.append(source)
+            if isinstance(self.package_install_result, BaseException):
+                raise self.package_install_result
+            if self.package_install_result:
+                if self.package_install_makes_available:
+                    self.package_available = True
+                return "true"
+            return "false"
+
+        return install_package
 
 
 def test_installed_libgap_import_contract() -> None:
@@ -323,6 +355,7 @@ def test_get_output_libgap() -> None:
 
 def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:
     """Install missing GAP packages."""
+    external.gap.require_package.cache_clear()
     with unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None):
         # GAP is installed but not callable.  The user must install required packages manually
         with (
@@ -379,10 +412,25 @@ def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:
             with unittest.mock.patch("qldpc.external.gap.get_output", return_value="success"):
                 assert external.gap.require_package("")
                 capsys.readouterr()  # intercept printed text
+    external.gap.require_package.cache_clear()
+
+    with unittest.mock.patch("qldpc.external.gap.get_output", return_value="success") as get_output:
+        assert external.gap._require_package_subprocess("Example", None)
+    get_output.assert_called_once_with('Print(TestPackageAvailability("example"));;')
 
 
-def test_require_package_libgap() -> None:
+def test_require_package_libgap(capsys: pytest.CaptureFixture[str]) -> None:
     """Check GAP packages through the direct libgap binding."""
+    assert (
+        external.gap._get_package_manager_source("Example", "https://example.com/gap-package.git")
+        == "https://example.com/gap-package.git"
+    )
+    assert (
+        external.gap._get_package_manager_source(
+            "Example", "https://example.com/gap-package.tar.gz"
+        )
+        == "https://example.com/gap-package.tar.gz"
+    )
     libgap = MockLibGap()
     with unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap):
         assert external.gap.require_package("Example")
@@ -391,8 +439,8 @@ def test_require_package_libgap() -> None:
     external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
-        unittest.mock.patch("qldpc.external.gap._is_gap_executable", return_value=False),
-        pytest.raises(ModuleNotFoundError, match="passagemath-gap extra"),
+        unittest.mock.patch("builtins.input", return_value="n"),
+        pytest.raises(ValueError, match="Cannot proceed without the required package"),
     ):
         external.gap.require_package("Example")
 
@@ -406,12 +454,76 @@ def test_require_package_libgap() -> None:
         external.gap.require_package("Example")
 
     external.gap.require_package.cache_clear()
+    with (
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
+        unittest.mock.patch("qldpc.external.gap._is_gap_executable") as is_gap_executable,
+        unittest.mock.patch("builtins.input", return_value="yes"),
+    ):
+        assert external.gap.require_package("Example")
+    is_gap_executable.assert_not_called()
+    assert libgap.package_install_sources == ["Example"]
+    assert external.gap._subprocess_packages == set()
+
+    libgap.package_available = False
+    libgap.package_manager_available = False
+    with pytest.raises(ModuleNotFoundError, match="sage -gap"):
+        external.gap._install_package_libgap("Example", None, libgap)
+
+    libgap.package_manager_available = RuntimeError("bad package manager")
+    with pytest.raises(ModuleNotFoundError, match="Could not load"):
+        external.gap._install_package_libgap("Example", None, libgap)
+
+    libgap.package_manager_available = True
+    libgap.package_install_result = RuntimeError("bad install")
+    with pytest.raises(ValueError, match="Failed to install"):
+        external.gap._install_package_libgap("Example", None, libgap)
+
+    libgap.package_install_result = False
+    with pytest.raises(ValueError, match="Failed to install"):
+        external.gap._install_package_libgap("Example", None, libgap)
+
+    libgap.package_install_result = True
+    libgap.output = RuntimeError("bad package verification")
+    with pytest.raises(ValueError, match="Could not verify"):
+        external.gap._install_package_libgap("Example", None, libgap)
+
+    libgap.output = "_TEST_"
+    libgap.package_available = False
+    libgap.package_install_makes_available = False
+    with pytest.raises(ValueError, match="still unavailable"):
+        external.gap._install_package_libgap("Example", None, libgap)
+
+    external.gap.require_package.cache_clear()
+    libgap.package_manager_available = False
+    with (
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
+        unittest.mock.patch("qldpc.external.gap._is_gap_executable", return_value=False),
+        unittest.mock.patch("builtins.input", return_value="y"),
+        pytest.raises(ModuleNotFoundError, match="PackageManager is unavailable"),
+    ):
+        external.gap.require_package("Example")
+
+    external.gap.require_package.cache_clear()
+    libgap.package_manager_available = True
+    libgap.package_install_result = False
+    with (
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
+        unittest.mock.patch("qldpc.external.gap._is_gap_executable", return_value=True),
+        unittest.mock.patch("builtins.input", return_value="y"),
+        unittest.mock.patch("subprocess.run", return_value=get_mock_process(returncode=1)),
+        pytest.raises(ValueError, match="Failed to install"),
+    ):
+        external.gap.require_package("Example")
+    assert external.gap._subprocess_packages == set()
+
+    external.gap.require_package.cache_clear()
+    libgap.package_install_makes_available = True
+    libgap.package_install_result = False
     external.gap._subprocess_packages.clear()
     install = unittest.mock.Mock(return_value=get_mock_process())
     with (
         unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
         unittest.mock.patch("qldpc.external.gap._is_gap_executable", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
         unittest.mock.patch("builtins.input", return_value="y"),
         unittest.mock.patch("subprocess.run", install),
     ):
@@ -427,5 +539,9 @@ def test_require_package_libgap() -> None:
         text=True,
         check=False,
     )
+    terminal_output, error_message = capsys.readouterr()
+    assert not error_message
+    assert "sage -gap" in terminal_output
+    assert "Falling back to the GAP executable" in terminal_output
     assert external.gap._subprocess_packages == {"qdistrnd"}
     external.gap._subprocess_packages.clear()
