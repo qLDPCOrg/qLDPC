@@ -108,6 +108,7 @@ class _CSSConeMaps:
         if measurement_groups.shape[1] != num_measurements:
             raise ValueError("measurement_groups must select the new measurement checks")
 
+        # check that the cone maps produce commuting CSS checks before building the code
         commuting_square = (
             measurement_to_data @ complement_matrix.T
             + measurement_boundary @ complement_from_data.T

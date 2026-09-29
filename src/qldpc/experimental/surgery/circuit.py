@@ -540,6 +540,7 @@ def _stitch_intercode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> C
     M_comp_l = np.asarray(M_comp_l_src).astype(np.int_)
     M_comp_r = np.asarray(M_comp_r_src).astype(np.int_)
 
+    # lay out columns as left data, right data, left/right ancillas, then adapter
     n_l, n_r = g_l.code.num_qudits, g_r.code.num_qudits
     k_l, k_r = g_l_aug.incidence.shape[0], g_r_aug.incidence.shape[0]
     w = bridge.width
@@ -625,6 +626,7 @@ def _stitch_intracode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> C
     M_comp_l = np.asarray(M_comp_l_src).astype(np.int_)
     M_comp_r = np.asarray(M_comp_r_src).astype(np.int_)
 
+    # lay out columns as shared data, left/right ancillas, then adapter
     n = g_l.code.num_qudits
     k_l, k_r = g_l_aug.incidence.shape[0], g_r_aug.incidence.shape[0]
     w = bridge.width
@@ -1002,6 +1004,7 @@ def _surgery_qec_cycle_joint(
     measurement_record = MeasurementRecord()
     detector_record = DetectorRecord()
 
+    # emit first-round detectors only for checks determined by the initial state
     circuit += one_round
     measurement_record.append(round_measurement_record)
     for check_id in all_check_ids:

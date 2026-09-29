@@ -444,6 +444,7 @@ class LookupDecoder:
         bit are skipped, and dropped bits are omitted from the yielded syndrome.
         """
         dtype = matrix.dtype
+        # rewrite the checks so multiplying by an error produces its syndrome
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
         syndrome_bits_to_drop = (

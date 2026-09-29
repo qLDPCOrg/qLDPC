@@ -479,6 +479,7 @@ class Group:
         integer_lift: IntegerLift | None = None,
     ) -> Group:
         """Construct a group from a multiplication (Cayley) table."""
+        # treat each table column as the permutation produced by right multiplication
         members = {GroupMember(col): idx for idx, col in enumerate(np.asarray(table).T)}
 
         def generate_func() -> Iterator[comb.Permutation]:
