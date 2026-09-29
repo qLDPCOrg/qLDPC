@@ -1152,9 +1152,14 @@ class ProjectiveSpecialLinearGroup(Group):
         gen_x, gen_w = SpecialLinearGroup.get_generating_mats(dimension, field)
         if field is galois.GF2:
             return gen_x, gen_w
+        # represent g by its conjugation action X -> g X g^-1 on d x d matrices X, vectorized: this
+        # is vec(g X g^-1) = kron((g^-1).T, g) @ vec(X), which is a genuine homomorphism (unlike
+        # kron(g^-1, g), which fails to satisfy rep(g).rep(h) == rep(g.h) when g and h do not
+        # commute).  Its kernel is exactly the scalars that commute with everything, i.e. the
+        # center of SL, so this representation is well-defined and faithful on SL/center = PSL.
         return (
-            np.kron(np.linalg.inv(gen_x), gen_x).view(field),
-            np.kron(np.linalg.inv(gen_w), gen_w).view(field),
+            np.kron(np.linalg.inv(gen_x).T, gen_x).view(field),
+            np.kron(np.linalg.inv(gen_w).T, gen_w).view(field),
         )
 
     @staticmethod
@@ -1171,7 +1176,8 @@ class ProjectiveSpecialLinearGroup(Group):
             for mat in SpecialLinearGroup.iter_mats(dimension, field)
         ]
         for orbit in set(orbits):
-            yield np.frombuffer(next(iter(orbit)), dtype=np.uint8).view(field)
+            flat = np.frombuffer(next(iter(orbit)), dtype=np.uint8).reshape(dimension, dimension)
+            yield flat.view(field)
 
 
 ################################################################################
@@ -1395,9 +1401,10 @@ class ProjectiveGeneralLinearGroup(Group):
         generators = GeneralLinearGroup.get_generating_mats(dimension, field)
         if field is galois.GF2:
             return generators
-        # conjugation representation g -> kron(g^-1, g) is invariant under rescaling g by any
+        # conjugation representation g -> kron(g^-1.T, g) is a genuine homomorphism (see
+        # ProjectiveSpecialLinearGroup.get_generating_mats), invariant under rescaling g by any
         # scalar, so it is well-defined on the quotient GL/center = PGL
-        return tuple(np.kron(np.linalg.inv(gen), gen).view(field) for gen in generators)
+        return tuple(np.kron(np.linalg.inv(gen).T, gen).view(field) for gen in generators)
 
     @staticmethod
     def iter_mats(
@@ -1411,7 +1418,8 @@ class ProjectiveGeneralLinearGroup(Group):
             for mat in GeneralLinearGroup.iter_mats(dimension, field)
         ]
         for orbit in set(orbits):
-            yield np.frombuffer(next(iter(orbit)), dtype=np.uint8).view(field)
+            flat = np.frombuffer(next(iter(orbit)), dtype=np.uint8).reshape(dimension, dimension)
+            yield flat.view(field)
 
 
 SL = SpecialLinearGroup
