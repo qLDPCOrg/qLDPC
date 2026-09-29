@@ -457,6 +457,46 @@ def test_psl_requires_trivial_center() -> None:
         abstract.PSL(2, 5, linear_rep=True)
 
 
+@pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False), (2, 3, True)])
+def test_GL(dimension: int, field: int, linear_rep: bool) -> None:
+    """General linear group; its lift is a homomorphism (though not orthogonal)."""
+    group = abstract.GL(dimension, field=field, linear_rep=linear_rep)
+    order = np.prod([field**dimension - field**jj for jj in range(dimension)])
+    mats = tuple(abstract.GL.iter_mats(dimension, field))
+    assert group.order == len(mats) == order
+    assert_lift_is_homomorphism(group)
+
+
+@pytest.mark.parametrize(
+    "dimension,field,linear_rep",
+    [(2, 2, True), (2, 2, False), (2, 3, False), (2, 2, None), (2, 3, None)],
+)
+def test_PGL(dimension: int, field: int, linear_rep: bool | None) -> None:
+    """Projective general linear group; its lift is a homomorphism (though not orthogonal).
+
+    ``linear_rep=None`` (the default) uses the linear representation where it exists (the center of
+    GL is trivial only for ``q == 2``, as in PGL(2,2)) and otherwise falls back to the permutation
+    representation (as in PGL(2,3)).
+    """
+    group = abstract.PGL(dimension, field, linear_rep=linear_rep)
+    order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])
+    order = order_GL // (field - 1)
+    mats = tuple(abstract.PGL.iter_mats(dimension, field))
+    assert group.order == len(mats) == order
+    assert_lift_is_homomorphism(group)
+
+
+def test_pgl_requires_trivial_center() -> None:
+    """Asking for the linear representation raises an error when it does not exist.
+
+    The linear representation of PGL(d, q) only exists when q == 2 (a trivial center).  PGL(2, 3)
+    has a center of order 2, so requesting the linear representation there raises an error.  (The
+    fallback to a permutation representation is covered by test_PGL.)
+    """
+    with pytest.raises(ValueError, match="does not descend to PGL"):
+        abstract.PGL(2, 3, linear_rep=True)
+
+
 def test_resolve_field() -> None:
     """resolve_field accepts None (GF2 default), a field order, or a galois field type."""
     assert abstract.resolve_field(None) is galois.GF2
