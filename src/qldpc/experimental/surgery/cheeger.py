@@ -244,7 +244,7 @@ def _boost_gadget_cheeger_combinatorial(
         # Reached whenever the measured support has weight ≤ 1.
         return g.with_added_ancillas(np.zeros((0, n_V), dtype=np.uint8))
 
-    # enumerate cuts in Gray-code order while caching boundaries for later edge updates
+    # visit cuts in Gray-code order and cache boundaries for later edge updates
     half = n_V // 2
     incidence_col_ints = [
         int.from_bytes(np.packbits(incidence[:, i][::-1]).tobytes()[::-1], "little")

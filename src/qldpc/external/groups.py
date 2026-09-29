@@ -347,7 +347,7 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
         "Print(idempotents);;",
     )
 
-    # parse GAP's group-ring serialization as coefficients followed by permutation cycles
+    # parse GAP's group-ring output as coefficients followed by permutation cycles
     coefficient_pattern = r"\(Z\(\d+(?:\^\d+)?\)(?:\^\d+)?\)"
     cycle_pattern = r"\(\s*\d+(?:,\s*\d+)*\)|\(\)"
     cycles_pattern = f"(?:{cycle_pattern})+"

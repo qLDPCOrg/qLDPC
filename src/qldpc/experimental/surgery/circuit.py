@@ -1004,7 +1004,7 @@ def _surgery_qec_cycle_joint(
     measurement_record = MeasurementRecord()
     detector_record = DetectorRecord()
 
-    # emit first-round detectors only for checks fixed by the chosen initialization
+    # emit first-round detectors only for checks determined by the initial state
     circuit += one_round
     measurement_record.append(round_measurement_record)
     for check_id in all_check_ids:

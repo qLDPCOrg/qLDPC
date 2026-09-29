@@ -216,7 +216,7 @@ def get_memory_experiment_parts(
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
     if isinstance(code, codes.ClassicalCode):
-        # promote classical inputs to one-sided CSS codes before using the shared circuit path
+        # wrap classical inputs as one-sided CSS codes for the shared circuit path
         matrix_z = code.matrix if basis is Pauli.Z else code.field.Zeros((0, len(code)))
         matrix_x = code.field.Zeros((0, len(code))) if basis is Pauli.Z else code.matrix
         code = codes.CSSCode(matrix_x, matrix_z)
@@ -356,7 +356,7 @@ def _get_combined_memory_simulation_parts(
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
         code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
     )
-    # preserve noiseless Bell references by rejecting strategies that use them as work qubits
+    # reject strategies that would use noiseless Bell reference qubits as work qubits
     operated_qubits = {
         target.qubit_value
         for instruction in qec_cycle.flattened()

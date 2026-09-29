@@ -182,7 +182,7 @@ def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois
         basis.shape[0] > basis.shape[1] or np.linalg.matrix_rank(basis) != basis.shape[0]
     ):
         raise ValueError("A dual basis can only be found for wide matrices of full rank")
-    # invert a full-rank column minor to realize dual_basis @ basis.T == I
+    # invert independent columns to build a dual basis with dual_basis @ basis.T == I
     pivot_cols = first_nonzero_cols(basis.row_reduce())
     linearly_independent_cols = basis[:, pivot_cols].view(type(basis))
     dual_basis = np.zeros(basis.shape, dtype=int).view(type(basis))

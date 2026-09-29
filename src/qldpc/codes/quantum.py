@@ -620,7 +620,7 @@ class GALACode(CSSCode):
         self.parent_matrix_x = abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
         self.parent_matrix_z = abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
 
-        # lift only active block rows so inactive GALA checks remain outside the code
+        # lift only active block rows so inactive GALA checks are not added to the code
         active_matrix_x = abstract.RingArray(self.parent_matrix_x[: self.num_active_rows])
         active_matrix_z = abstract.RingArray(self.parent_matrix_z[: self.num_active_rows])
         matrix_x = active_matrix_x.lift()
@@ -1946,7 +1946,7 @@ class LPCode(CSSCode):
 
         Generalizes HGPCode.get_canonical_logical_line_ops.
         """
-        # canonicalize ring kernels before choosing dual representatives
+        # put each ring kernel in a standard form before choosing paired logical operators
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
         generator_a_T = matrix_a.T.null_space().howell_normal_form_semisimple()
@@ -1981,7 +1981,7 @@ class LPCode(CSSCode):
         for op_x, op_z in zip(logical_ops_x, logical_ops_z):
             ops_x = op_x.reshape(1, *op_x.shape).lift()
             ops_z = op_z.reshape(1, *op_z.shape).lift()
-            # repair degenerate lifted pairs into dual field-level bases
+            # choose independent lifted operators and make their overlap matrix the identity
             inner_product = ops_x @ ops_z.T
             if not np.array_equal(inner_product, identity):
                 sector_rank = np.linalg.matrix_rank(inner_product)
@@ -2785,7 +2785,7 @@ class T4Code(CSSCode):
                 f" (provided a basis with determinant {determinant})"
             )
 
-        # canonicalize the lattice basis before enumerating one fundamental domain
+        # put the lattice basis in a standard form before enumerating one fundamental domain
         self.lattice_basis = hermite_normal_form(sympy.Matrix(matrix).T).T[::-1, ::-1]
         self.num_vertices = self.lattice_basis.det()
         self.num_edges = 4 * self.num_vertices
