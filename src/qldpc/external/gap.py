@@ -36,9 +36,14 @@ _subprocess_packages: set[str] = set()
 
 
 def _get_libgap() -> _LibGap | None:
-    """Return the optional direct GAP binding, if it is importable."""
+    """Return the optional direct GAP binding, if it is importable.
+
+    Importing the public PassageMath package preserves the initialization order required by Sage's
+    split distribution; importing its internal ``sage.libs.gap`` module directly can trigger a
+    circular import.
+    """
     try:
-        module = importlib.import_module("sage.libs.gap.libgap")
+        module = importlib.import_module("passagemath_gap")
     except (ImportError, OSError):
         return None
     return cast(_LibGap | None, getattr(module, "libgap", None))
