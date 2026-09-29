@@ -74,12 +74,11 @@ The optional `sqetch` distance backend can be installed with:
 python -m pip install 'qldpc[sqetch]'
 ```
 
-This installs the pinned upstream `sqetch` GPU extra.  Select it with
-`code.get_distance(bound=True, backend="sqetch")` for binary CSS codes.  Subsystem CSS codes use
-their dressed-distance convention.  The estimator requires a CUDA-capable PyTorch build and a
-visible CUDA GPU; it is not available on macOS.
-Use `backend="gap"` to request GAP/QDistRnd explicitly, or leave the backend as `"auto"` to
-retain qLDPC's historical selection behavior.
+This installs the pinned upstream `sqetch` GPU extra.
+Select it with `code.get_distance(bound=True, backend="sqetch")` for binary CSS codes.
+Subsystem CSS codes use their dressed-distance convention.
+The estimator requires a CUDA-capable PyTorch build and a visible CUDA GPU; it is not available on macOS.
+Use `backend="gap"` to request GAP/QDistRnd explicitly, or leave the backend as `"auto"` to retain qLDPC's historical selection behavior.
 
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
 
