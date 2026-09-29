@@ -63,11 +63,13 @@ GAP integration on Windows remains limited; see [issue #294](https://github.com/
 
 #### Exact-distance acceleration
 
-Install optional numba acceleration for exact distance calculations (the `use_numba=True` argument to distance-computing methods) with:
+Install optional numba acceleration for exact distance calculations with:
 
 ```bash
 python -m pip install 'qldpc[numba]'
 ```
+
+For a binary code, enable it with `code.get_distance(use_numba=True)` or `code.get_distance_exact(use_numba=True)`.
 
 #### `sqetch` distance estimation
 

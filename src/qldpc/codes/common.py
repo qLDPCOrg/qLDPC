@@ -462,6 +462,7 @@ class ClassicalCode(AbstractCode):
         *,
         bound: int | bool | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
+        use_numba: bool = False,
         **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
@@ -472,22 +473,29 @@ class ClassicalCode(AbstractCode):
                 randomized upper bounds; see help(get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency and cannot be combined with ``bound``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
+        _validate_numba_usage(use_numba, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact(vector=vector)
+            return self.get_distance_exact(vector=vector, use_numba=use_numba)
         return self.get_distance_bound(num_trials=int(bound), vector=vector, **bound_kwargs)
 
     def get_distance_exact(
-        self, *, vector: Sequence[int] | npt.NDArray[np.int_] | None = None, cutoff: int = 1
+        self,
+        *,
+        vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
+        cutoff: int = 1,
+        use_numba: bool = False,
     ) -> int | float:
         """Compute the minimum Hamming weight of nontrivial code words by brute force.
 
@@ -495,6 +503,8 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -502,9 +512,14 @@ class ClassicalCode(AbstractCode):
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
+        _validate_numba_usage(
+            use_numba,
+            supported=self.field is galois.GF2 and vector is None,
+        )
+
         # we do not know the exact distance, so compute it
         if self.field is galois.GF2 and vector is None:
-            distance = get_distance_classical(self.generator, cutoff=cutoff)
+            distance = get_distance_classical(self.generator, cutoff=cutoff, use_numba=use_numba)
             if cutoff <= 1:
                 self._distance = int(distance)
 
@@ -1838,38 +1853,51 @@ class QuditCode(AbstractCode):
         distance = self.get_distance(bound=bound, **bound_kwargs)
         return len(self), dimension, distance
 
-    def get_distance(self, *, bound: int | bool | None = None, **bound_kwargs: Any) -> int | float:
+    def get_distance(
+        self,
+        *,
+        bound: int | bool | None = None,
+        use_numba: bool = False,
+        **bound_kwargs: Any,
+    ) -> int | float:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency and cannot be combined with ``bound``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
+        _validate_numba_usage(use_numba, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact()
+            return self.get_distance_exact(use_numba=use_numba)
         return self.get_distance_bound(num_trials=int(bound), **bound_kwargs)
 
-    def get_distance_exact(self, *, cutoff: int = 1) -> int | float:
+    def get_distance_exact(self, *, cutoff: int = 1, use_numba: bool = False) -> int | float:
         """Compute the minimum weight of nontrivial logical operators by brute force.
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
+
+        _validate_numba_usage(use_numba, supported=self.field is galois.GF2)
 
         # we do not know the exact distance, so compute it
         logical_ops = self.get_logical_ops()
@@ -1879,7 +1907,11 @@ class QuditCode(AbstractCode):
 
         if self.field is galois.GF2:
             distance = get_distance_quantum(
-                logical_ops, stabilizers, cutoff=cutoff, homogeneous=False
+                logical_ops,
+                stabilizers,
+                cutoff=cutoff,
+                homogeneous=False,
+                use_numba=use_numba,
             )
 
         else:
@@ -3025,7 +3057,12 @@ class CSSCode(QuditCode):
         return code
 
     def get_distance(
-        self, pauli: PauliXZ | None = None, *, bound: int | bool | None = None, **bound_kwargs: Any
+        self,
+        pauli: PauliXZ | None = None,
+        *,
+        bound: int | bool | None = None,
+        use_numba: bool = False,
+        **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
@@ -3036,21 +3073,30 @@ class CSSCode(QuditCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency and cannot be combined with ``bound``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
+        _validate_numba_usage(use_numba, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact(pauli)
+            return self.get_distance_exact(pauli, use_numba=use_numba)
         return self.get_distance_bound(num_trials=int(bound), pauli=pauli, **bound_kwargs)
 
-    def get_distance_exact(self, pauli: PauliXZ | None = None, *, cutoff: int = 1) -> int | float:
+    def get_distance_exact(
+        self,
+        pauli: PauliXZ | None = None,
+        *,
+        cutoff: int = 1,
+        use_numba: bool = False,
+    ) -> int | float:
         """Compute the minimum weight of nontrivial logical operators by brute force.
 
         Args:
@@ -3058,6 +3104,8 @@ class CSSCode(QuditCode):
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 If None (the default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -3071,10 +3119,12 @@ class CSSCode(QuditCode):
             self._distance = distance if pauli is None else self._distance
             return distance
 
+        _validate_numba_usage(use_numba, supported=self.field is galois.GF2)
+
         if pauli is None:
             return min(
-                self.get_distance_exact(Pauli.X, cutoff=cutoff),
-                self.get_distance_exact(Pauli.Z, cutoff=cutoff),
+                self.get_distance_exact(Pauli.X, cutoff=cutoff, use_numba=use_numba),
+                self.get_distance_exact(Pauli.Z, cutoff=cutoff, use_numba=use_numba),
             )
 
         # we do not know the exact distance, so compute it
@@ -3085,7 +3135,11 @@ class CSSCode(QuditCode):
 
         if self.field is galois.GF2:
             distance = get_distance_quantum(
-                logical_ops, stabilizers, cutoff=cutoff, homogeneous=True
+                logical_ops,
+                stabilizers,
+                cutoff=cutoff,
+                homogeneous=True,
+                use_numba=use_numba,
             )
 
         else:
@@ -3708,3 +3762,16 @@ def _resolve_distance_backend(
     if options <= _GAP_DISTANCE_BOUND_KWARGS and external.gap.is_installed():
         return "gap"
     return "decoder"
+
+
+def _validate_numba_usage(
+    use_numba: bool,
+    *,
+    bound: int | bool | None = None,
+    supported: bool = True,
+) -> None:
+    """Reject numba acceleration when the selected distance path cannot use it."""
+    if bound and use_numba:
+        raise ValueError("use_numba is only available for exact distance calculations")
+    if use_numba and not supported:
+        raise ValueError("use_numba is only available for binary code-distance calculations")
