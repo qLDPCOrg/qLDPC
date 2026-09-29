@@ -68,7 +68,7 @@ def test_installed_libgap_import_contract() -> None:
     """Use the import path supplied by the installed passagemath-gap distribution."""
     try:
         importlib.metadata.version("passagemath-gap")
-    except importlib.metadata.PackageNotFoundError:
+    except importlib.metadata.PackageNotFoundError:  # pragma: no cover
         pytest.skip("passagemath-gap is not installed")
     module = importlib.import_module(
         "sage.libs.gap.libgap"
