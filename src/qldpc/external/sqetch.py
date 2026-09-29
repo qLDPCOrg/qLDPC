@@ -12,6 +12,7 @@ than bare logical operators.
 
 from __future__ import annotations
 
+import importlib.util
 from typing import TYPE_CHECKING, Any
 
 import galois
@@ -22,6 +23,11 @@ from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 if TYPE_CHECKING:
     from qldpc.codes import CSSCode
+
+
+def is_installed() -> bool:
+    """Return whether the optional upstream package is available."""
+    return importlib.util.find_spec("sqetch") is not None
 
 
 def _get_sqetch() -> Any:

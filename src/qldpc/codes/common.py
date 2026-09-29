@@ -3148,9 +3148,9 @@ class CSSCode(QuditCode):
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         ``backend="gap"`` selects GAP's QDistRnd package explicitly, while ``backend="sqetch"``
-        selects the optional GPU random-ISD estimator.  The default ``"auto"`` preserves the
-        historical behavior: GAP/QDistRnd is used when available and no decoder-specific arguments
-        are supplied; otherwise the decoder-based algorithm is used.
+        selects the optional GPU random-ISD estimator.  For compatible arguments, the default
+        ``"auto"`` prefers sqetch when it is installed, then GAP/QDistRnd, and finally the
+        decoder-based algorithm.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.
@@ -3164,7 +3164,7 @@ class CSSCode(QuditCode):
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
                 For ``"gap"``, only ``maxav`` is recognized.  For ``"sqetch"``, supported options
                 are ``d_target``, ``k_sub``, ``batch_size``, ``seed``, and ``device``.  With
-                ``"auto"``, unrecognized QDistRnd arguments select the decoder path.
+                ``"auto"``, backend-specific arguments select a compatible path.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
@@ -3192,28 +3192,34 @@ class CSSCode(QuditCode):
                 ]
             )
 
+        sqetch_kwargs = {"d_target", "k_sub", "batch_size", "seed", "device"}
+        gap_kwargs = {"maxav"}
+        if backend == "auto":
+            options = set(bound_kwargs)
+            if (
+                self.field is galois.GF2
+                and options <= sqetch_kwargs
+                and external.sqetch.is_installed()
+            ):
+                backend = "sqetch"
+            elif options <= gap_kwargs and external.gap.is_installed():
+                backend = "gap"
+            else:
+                backend = "decoder"
+
         if backend == "decoder":
             return self.get_distance_bound_with_decoder(
                 pauli, num_trials, cutoff=cutoff, **bound_kwargs
             )
 
         if backend == "sqetch":
-            sqetch_kwargs = {"d_target", "k_sub", "batch_size", "seed", "device"}
             if unknown := set(bound_kwargs) - sqetch_kwargs:
                 raise ValueError(f"Arguments not recognized by sqetch: {sorted(unknown)}")
             return external.sqetch.get_distance_bound(
                 self, num_trials, pauli, cutoff=cutoff, **bound_kwargs
             )
 
-        if backend == "auto" and (
-            any(kwarg != "maxav" for kwarg in bound_kwargs) or not external.gap.is_installed()
-        ):
-            return self.get_distance_bound_with_decoder(
-                pauli, num_trials, cutoff=cutoff, **bound_kwargs
-            )
-
-        if backend == "gap" and any(kwarg != "maxav" for kwarg in bound_kwargs):
-            unknown_gap = sorted(kwarg for kwarg in bound_kwargs if kwarg != "maxav")
+        if unknown_gap := sorted(set(bound_kwargs) - gap_kwargs):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
         if not external.gap.is_installed():
             raise NotImplementedError(

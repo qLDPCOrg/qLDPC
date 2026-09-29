@@ -19,6 +19,14 @@ from qldpc import codes, external
 from qldpc.objects import Pauli, PauliXZ
 
 
+def test_is_installed() -> None:
+    """Detect whether the optional upstream package is importable."""
+    with unittest.mock.patch("importlib.util.find_spec", return_value=unittest.mock.Mock()):
+        assert external.sqetch.is_installed()
+    with unittest.mock.patch("importlib.util.find_spec", return_value=None):
+        assert not external.sqetch.is_installed()
+
+
 def _row_span(rows: npt.NDArray[np.uint8]) -> set[tuple[int, ...]]:
     """Enumerate the binary span of a small matrix for an independent test oracle."""
     rows = np.asarray(rows, dtype=np.uint8)

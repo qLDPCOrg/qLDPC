@@ -1141,11 +1141,15 @@ def test_distance_css() -> None:
 
 
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:
-    """Explicit decoder arguments select the decoder path without probing interactive GAP setup."""
+    """Decoder arguments select that path without probing optional backends."""
     code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     code.forget_distance()
 
     with (
+        unittest.mock.patch(
+            "qldpc.external.sqetch.is_installed",
+            side_effect=AssertionError("sqetch should not be probed"),
+        ),
         unittest.mock.patch(
             "qldpc.external.gap.is_installed",
             side_effect=AssertionError("GAP should not be probed"),
@@ -1164,6 +1168,58 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
         cutoff=None,
         with_BP_LSD=True,
     )
+
+
+def test_css_auto_distance_bound_backend_selection() -> None:
+    """Prefer available automatic backends in sqetch, GAP, decoder order."""
+    code = codes.SteaneCode()
+    code.forget_distance()
+
+    with (
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=True),
+        unittest.mock.patch(
+            "qldpc.external.sqetch.get_distance_bound", return_value=3
+        ) as sqetch_bound,
+        unittest.mock.patch(
+            "qldpc.external.gap.is_installed",
+            side_effect=AssertionError("GAP should not be probed"),
+        ),
+    ):
+        assert code.get_distance_bound(pauli=Pauli.Z) == 3
+    sqetch_bound.assert_called_once_with(code, 1, Pauli.Z, cutoff=None)
+
+    with (
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=4) as gap_bound,
+    ):
+        assert code.get_distance_bound(pauli=Pauli.Z) == 4
+    gap_bound.assert_called_once_with(code, 1, cutoff=None, maxav="fail")
+
+    with (
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        unittest.mock.patch.object(
+            code, "get_distance_bound_with_decoder", return_value=5
+        ) as decoder_bound,
+    ):
+        assert code.get_distance_bound(pauli=Pauli.Z) == 5
+    decoder_bound.assert_called_once_with(Pauli.Z, 1, cutoff=None)
+
+    qudit_code = codes.SurfaceCode(2, field=3)
+    qudit_code.forget_distance()
+    with (
+        unittest.mock.patch(
+            "qldpc.external.sqetch.is_installed",
+            side_effect=AssertionError("sqetch does not support nonbinary codes"),
+        ),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch(
+            "qldpc.external.codes.get_distance_bound", return_value=2
+        ) as qudit_gap_bound,
+    ):
+        assert qudit_code.get_distance_bound(pauli=Pauli.Z) == 2
+    qudit_gap_bound.assert_called_once_with(qudit_code, 1, cutoff=None, maxav="fail")
 
 
 def test_css_distance_bound_backend_selection() -> None:

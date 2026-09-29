@@ -68,8 +68,9 @@ Distance bounds
 
 ``CSSCode.get_distance_bound`` accepts a typed ``backend`` selector.  ``"gap"`` explicitly uses
 GAP/QDistRnd, ``"sqetch"`` uses the optional GPU random-ISD estimator for binary CSS codes, and
-``"decoder"`` uses qLDPC's decoder-based estimator.  The default ``"auto"`` preserves the
-historical GAP-when-available behavior.  Install the optional backend with
+``"decoder"`` uses qLDPC's decoder-based estimator.  For binary CSS codes, the default ``"auto"``
+prefers an installed ``sqetch``, then GAP/QDistRnd when available, and finally the decoder.  Install
+the optional backend with
 ``python -m pip install 'qldpc[sqetch]'``; it requires a CUDA-capable PyTorch build and a visible
 GPU.  ``sqetch`` estimates one X or Z sector at a time and returns an observed upper bound; for
 subsystem CSS codes it searches dressed logicals by constraining only opposite-type stabilizers.
