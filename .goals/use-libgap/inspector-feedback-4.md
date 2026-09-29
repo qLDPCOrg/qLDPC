@@ -75,4 +75,3 @@ and repeated output.
   installed-but-broken API.
 - Public signatures match the initial SHA, branch scope is focused, and the worktree had no product
   changes from inspection.
-

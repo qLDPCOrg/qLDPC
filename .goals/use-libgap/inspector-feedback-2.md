@@ -127,4 +127,3 @@ skips.
    faithful contract test that is tied to the declared release metadata.
 3. When the real extra is available, exercise at least a minimal direct evaluation and package
    availability query, not only object identity.
-

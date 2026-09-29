@@ -1,6 +1,6 @@
 {
   "goal_id": "use-libgap",
-  "status": "inspecting",
+  "status": "completed",
   "iteration": 4,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
