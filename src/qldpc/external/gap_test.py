@@ -31,6 +31,8 @@ class MockGapValue:
 
     def __str__(self) -> str:
         """Format the value as GAP would."""
+        if isinstance(self.value, bool):
+            return str(self.value).lower()
         return str(self.value)
 
 
@@ -49,8 +51,8 @@ class MockLibGap:
     def eval(self, command: str) -> MockGapValue:
         """Evaluate a command."""
         self.commands.append(command)
-        if command == "rec(interactive := false)":
-            return MockGapValue(command)
+        if command == "false":
+            return MockGapValue(False)
         if not command.startswith("CallFuncList(function()\n") or not command.endswith(
             "\nend, [])"
         ):
@@ -63,35 +65,39 @@ class MockLibGap:
         """Return a fake GAP function."""
         if function_name == "TestPackageAvailability":
 
-            def test_package_availability(name: str) -> str:
+            def test_package_availability(name: str) -> MockGapValue:
                 if isinstance(self.output, BaseException):
                     raise self.output
-                return "true" if self.package_available and name else "fail"
+                if self.package_available and name:
+                    return MockGapValue(True)
+                return MockGapValue(ValueError("fail"))
 
             return test_package_availability
 
         if function_name == "LoadPackage":
 
-            def load_package(name: str) -> str:
+            def load_package(name: str) -> MockGapValue:
                 assert name == "PackageManager"
                 if isinstance(self.package_manager_available, BaseException):
                     raise self.package_manager_available
-                return "true" if self.package_manager_available else "fail"
+                if self.package_manager_available:
+                    return MockGapValue(True)
+                return MockGapValue(ValueError("fail"))
 
             return load_package
 
         assert function_name == "InstallPackage"
 
-        def install_package(source: str, preferences: object) -> str:
-            assert str(preferences) == "rec(interactive := false)"
+        def install_package(source: str, preferences: object) -> MockGapValue:
+            assert str(preferences) == "false"
             self.package_install_sources.append(source)
             if isinstance(self.package_install_result, BaseException):
                 raise self.package_install_result
             if self.package_install_result:
                 if self.package_install_makes_available:
                     self.package_available = True
-                return "true"
-            return "false"
+                return MockGapValue(True)
+            return MockGapValue(False)
 
         return install_package
 
@@ -351,6 +357,7 @@ def test_get_output_libgap() -> None:
     assert external.gap._gap_string(MockGapValue("text")) == "text"
     assert external.gap._gap_string(MockGapValue(3)) == "3"
     assert external.gap._gap_string(MockGapValue(NotImplementedError())) == ""
+    assert external.gap._gap_string(MockGapValue(ValueError("fail"))) == "fail"
 
 
 def test_require_package(capsys: pytest.CaptureFixture[str]) -> None:

@@ -113,7 +113,7 @@ def _gap_string(value: object) -> str:
         return value
     try:
         converted = value.sage()  # type: ignore[attr-defined]
-    except (AttributeError, NotImplementedError):
+    except (AttributeError, NotImplementedError, ValueError):
         converted = str(value)
     return converted if isinstance(converted, str) else str(converted)
 
@@ -316,8 +316,7 @@ def _install_package_libgap(name: str, repo: str | None, libgap: _LibGap) -> boo
         )
 
     try:
-        preferences = libgap.eval("rec(interactive := false)")
-        installed = libgap.function_factory("InstallPackage")(source, preferences)
+        installed = libgap.function_factory("InstallPackage")(source, libgap.eval("false"))
     except Exception as error:
         raise ValueError(f"Failed to install {name} through libgap.\n{instructions}") from error
     if _gap_string(installed).strip().lower() in {"fail", "false"}:
