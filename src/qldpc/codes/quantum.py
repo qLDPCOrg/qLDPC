@@ -1466,7 +1466,7 @@ class HGPCode(CSSCode):
 
         # construct the X-sector and Z-sector parity check matrices
         matrix_x = np.hstack([mat_H1_In2, mat_Im1_H2_T])
-        matrix_z = np.hstack([-mat_In1_H2, mat_H1_T_Im2])
+        matrix_z = np.hstack([-mat_In1_H2, mat_H1_T_Im2])  # type: ignore[misc]
         return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
