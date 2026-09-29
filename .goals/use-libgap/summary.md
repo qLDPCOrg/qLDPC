@@ -4,8 +4,8 @@
 
 The `gap` branch now provides an optional direct GAP backend through the maintained
 `passagemath-gap` distribution and preserves qLDPC's existing subprocess and manual fallbacks.
-Independent inspection passed after four Builder/Inspector iterations, and the branch is ready for
-a pull request into `main`.
+Independent inspection passed after five Builder/Inspector iterations, including a follow-up fix
+for environment-dependent CI coverage, and the branch is ready for its pull request into `main`.
 
 ## Acceptance criteria
 
@@ -41,6 +41,9 @@ a pull request into `main`.
    invalid multi-statement input to the single-command `libgap.eval` API.
 4. **PASS:** The adapter wrapped complete programs as one valid GAP expression, strengthened the
    mock regression, exercised qLDPC's real adapter in CI, and passed all quality gates.
+5. **PASS:** The first live-extra CI run exposed an environment-dependent uncovered skip path. The
+   optional absence branch was excluded from coverage without allowing installed binding failures
+   to skip, and the full 100% coverage gate passed.
 
 ## Key issues resolved
 
@@ -50,6 +53,8 @@ a pull request into `main`.
 - Prevented optional-dependency tests from hiding installed-but-broken imports.
 - Corrected direct evaluation to honor libgap's single-command contract while supporting qLDPC's
   split loops, assignments, and repeated output.
+- Kept the optional-dependency test coverage-stable in both installed and absent environments while
+  continuing to fail on an installed-but-unimportable binding.
 - Recreated validation in a worktree-local environment matching repository CI.
 
 ## Recommendations
