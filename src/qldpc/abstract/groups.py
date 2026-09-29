@@ -388,7 +388,7 @@ class Group:
                 jj = self.index(hh * member) if right else self.index(member * hh)
                 matrix[jj, ii] = 1
             self._regular_lift_cache[member, right] = matrix
-        return self._regular_lift_cache[member, right]
+        return self._regular_lift_cache[member, right].copy()
 
     @functools.cached_property
     def _regular_lift_cache(self) -> dict[tuple[GroupMember, bool], npt.NDArray[np.int_]]:

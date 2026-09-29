@@ -325,7 +325,7 @@ def test_bivariate_bicycle_codes() -> None:
     code_string = str(code)
     assert str(orders) in code_string
     assert str(poly_a.as_expr()) in code_string
-    assert str(poly_a.as_expr()) in code_string
+    assert str(poly_b.as_expr()) in code_string
 
     # [[144, 12, 12]] code in Table 3 and Figure 2 of arXiv:2308.07915
     orders = (12, 6)
