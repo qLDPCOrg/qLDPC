@@ -52,6 +52,7 @@ def matmul(
     if ring.is_commutative or not right:
         return (matrix_a @ matrix_b).view(RingArray)
 
+    # expand manually to reverse ring multiplication in each contraction
     final_shape = (*matrix_a.shape[:-1], matrix_b.shape[-1])
     matrix = RingArray.build(np.zeros(final_shape, dtype=int), ring)
     for idx in np.ndindex(final_shape):
@@ -74,6 +75,7 @@ def kron(
     ring = _get_ring(matrix_a, matrix_b)
 
     if not ring.is_commutative:
+        # encode left and right multiplication in separate bimodule sectors
         bimodule = get_bimodule(ring)
         sector_size = ring.group.identity.size
         swap_sectors = GroupMember(

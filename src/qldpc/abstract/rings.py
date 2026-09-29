@@ -84,6 +84,7 @@ class GroupRing:
         """
         from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
 
+        # reuse an existing decomposition for seedless calls instead of constructing another
         if seed not in self._transformers:
             if seed is None and self._transformers:
                 return next(iter(self._transformers.values()))
@@ -1184,6 +1185,7 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     num_block_rows, num_block_cols, size, _ = matrix.shape
 
     if right and size > 1:
+        # transpose each ring block so right reduction can reuse left row-space reduction
         matrix = matrix.transpose(0, 1, 3, 2)
 
     # row-reduce as an expanded 2-D matrix, keeping a basis of the row space (no all-zero rows)

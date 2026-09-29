@@ -708,6 +708,7 @@ def _with_higher_order_corrections(
                             if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
                                 combinations_to_add.add(frozenset(removed_error_indices[comb]))
 
+    # coalesce equivalent synthetic errors while composing their independent probabilities
     new_errors: dict[bytes, tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, float]] = {}
     for comb_to_add in combinations_to_add:
         comb = sorted(comb_to_add)

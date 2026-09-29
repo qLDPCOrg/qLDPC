@@ -1634,6 +1634,7 @@ class QuditCode(AbstractCode):
             return self.canonicalized.matrix if canonicalized else self.matrix
 
         if self._stabilizer_ops is None or recompute:
+            # extract stabilizers as the symplectic radical of the gauge row space
             stabs_and_gauges = self.canonicalized.matrix
             stabs_and_logs = math.symplectic_conjugate(stabs_and_gauges).null_space()
             stabs_and_gauges_and_logs = np.vstack([stabs_and_gauges, stabs_and_logs])
@@ -2932,6 +2933,7 @@ class CSSCode(QuditCode):
         """
         assert pauli is None or pauli in PAULIS_XZ
         if self._stabilizer_ops is None and self.is_subsystem_code:
+            # extract each stabilizer sector as the radical of the paired gauge spaces
             stabs_and_gauges_x = self.canonicalized.get_matrix(Pauli.X)
             stabs_and_gauges_z = self.canonicalized.get_matrix(Pauli.Z)
             stabs_and_logs_x = stabs_and_gauges_z.null_space()

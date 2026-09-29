@@ -772,6 +772,7 @@ class NoiseRule:
                 if len(args) != 1:
                     raise ValueError(f"Expected one gate argument for {op.name!r}")
 
+                # combine independent readout flips through their parity probability
                 args = [self.readout_error + args[0] - 2 * self.readout_error * args[0]]
 
         noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
@@ -2055,6 +2056,7 @@ def _split_targets_pp(op: stim.CircuitInstruction) -> Iterator[stim.CircuitInstr
     assert op_type(op.name) in (CLIFFORD_PP, JUST_MEASURE_PP)
     targets = op.targets_copy()
     args = op.gate_args_copy()
+    # scan combiner-delimited runs so each yielded instruction is one Pauli product
     start = end = 0
     while end < len(targets):
         if end + 1 == len(targets) or not targets[end + 1].is_combiner:

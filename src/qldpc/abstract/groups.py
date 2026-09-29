@@ -479,6 +479,7 @@ class Group:
         integer_lift: IntegerLift | None = None,
     ) -> Group:
         """Construct a group from a multiplication (Cayley) table."""
+        # interpret table columns as right-regular permutation actions
         members = {GroupMember(col): idx for idx, col in enumerate(np.asarray(table).T)}
 
         def generate_func() -> Iterator[comb.Permutation]:
@@ -1160,6 +1161,7 @@ class ProjectiveSpecialLinearGroup(Group):
     ) -> Iterator[galois.FieldArray]:
         """Iterate over all elements of PSL(dimension, field)."""
         field = resolve_field(field)
+        # quotient special-linear matrices by the scalar center
         num_roots = math.gcd(dimension, field.order - 1)
         primitive_root = field.primitive_element ** ((field.order - 1) // num_roots)
         roots = [primitive_root**k for k in range(dimension)]
