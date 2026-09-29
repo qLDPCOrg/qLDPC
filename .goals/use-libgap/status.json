@@ -1,7 +1,7 @@
 {
   "goal_id": "use-libgap",
   "status": "building",
-  "iteration": 7,
+  "iteration": 8,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
   "initial_sha": "40a571e455242e68e1a6f8e67ebaee310ad818b0",
@@ -36,6 +36,11 @@
       "iteration": 6,
       "verdict": "FAIL",
       "summary": "The top-level module exists and likely fixes initialization, but upstream marks it interactive-only rather than a library import contract."
+    },
+    {
+      "iteration": 7,
+      "verdict": "FAIL",
+      "summary": "The initializer remains interactive-only, and a working provider makes the installed-extra fallback tests fail."
     }
   ]
 }
