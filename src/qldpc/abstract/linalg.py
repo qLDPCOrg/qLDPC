@@ -20,7 +20,9 @@ import scipy.linalg
 
 from qldpc import math
 
-from .rings import Group, GroupMember, GroupRing, RingArray
+from .groups import Group, GroupMember
+from .ring_array import RingArray
+from .rings import GroupRing
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinComponentTransformer, WedderburnArtinTransformer

@@ -16,7 +16,8 @@ import numpy as np
 
 import qldpc
 
-from .rings import GroupRing, RingArray, RingMember
+from .ring_array import RingArray
+from .rings import GroupRing, RingMember
 
 
 class WedderburnArtinTransformer:
