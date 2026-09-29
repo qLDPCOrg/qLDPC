@@ -31,15 +31,13 @@ from qldpc.codes.common import CSSCode
 from qldpc.objects import Pauli
 
 from .bridge import Bridge
+from .construction import _validate_logical_loss
 from .gadget import GadgetLayout
 
 
 def _gadget_merged_csscode(g: GadgetLayout) -> CSSCode:
-    return CSSCode(
-        g.HX_merged.astype(np.int_),
-        g.HZ_merged.astype(np.int_),
-        is_subsystem_code=False,
-    )
+    """Compatibility wrapper for the internal merged-code accessor."""
+    return _merged_csscode(g)
 
 
 def _validate_one_logical_measurement(
@@ -49,14 +47,12 @@ def _validate_one_logical_measurement(
     operation: str,
 ) -> None:
     """Reject finalized surgery layouts that fix anything other than one logical constraint."""
-    logical_loss = input_dimension - merged_code.dimension
-    if logical_loss != 1:
-        raise ValueError(
-            f"{operation} must fix exactly one logical degree of freedom, but the input encodes "
-            f"{input_dimension} and the merged code encodes {merged_code.dimension} "
-            f"(logical loss {logical_loss}). A reducible logical support can fix its factors "
-            f"separately; boost or replace the gadget before compiling the circuit."
-        )
+    _validate_logical_loss(
+        merged_code,
+        input_dimension=input_dimension,
+        expected_logical_loss=1,
+        operation=operation,
+    )
 
 
 def _validate_bridge_gadget(
@@ -447,10 +443,12 @@ def build_single_ppm_circuit(
     """
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
-    merged_code = _gadget_merged_csscode(gadget)
-    _validate_one_logical_measurement(
+    cone_result = gadget._get_cone_result()
+    merged_code = cone_result.code
+    _validate_logical_loss(
         merged_code,
         input_dimension=gadget.code.dimension,
+        expected_logical_loss=cone_result.expected_logical_loss,
         operation="build_single_ppm_circuit",
     )
     qubit_ids = QubitIDs.from_code(merged_code)
@@ -694,6 +692,20 @@ def _stitch_to_joint_csscode(
     return _stitch_intercode(g_l, g_r, bridge)
 
 
+def _merged_csscode(
+    g_l: GadgetLayout,
+    g_r: GadgetLayout | None = None,
+    bridge: Bridge | None = None,
+) -> CSSCode:
+    """Construct the merged code for either a single or joint PPM layout."""
+    if (g_r is None) != (bridge is None):
+        raise ValueError("g_r and bridge must either both be provided or both be omitted")
+    if g_r is None:
+        return g_l._get_cone_result().code
+    assert bridge is not None
+    return _stitch_to_joint_csscode(g_l, g_r, bridge)
+
+
 def _expand_joint_data_init(
     data_init: str | tuple[str, ...] | list[str] | None,
     n_l: int,
@@ -792,7 +804,7 @@ def build_joint_ppm_circuit(
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
     _validate_bridge_gadget(g_l, bridge.g_l_aug, bridge.extra_ancilla_l, side="l")
     _validate_bridge_gadget(g_r, bridge.g_r_aug, bridge.extra_ancilla_r, side="r")
-    joint_code = _stitch_to_joint_csscode(g_l, g_r, bridge)
+    joint_code = _merged_csscode(g_l, g_r, bridge)
     intercode = g_l.code is not g_r.code
     input_dimension = g_l.code.dimension + (g_r.code.dimension if intercode else 0)
     _validate_one_logical_measurement(

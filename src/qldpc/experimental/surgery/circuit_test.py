@@ -45,6 +45,43 @@ def test_build_single_ppm_circuit_noiseless_compiles() -> None:
     assert len(circuit) > 0
 
 
+def test_single_ppm_uses_stored_merged_checks_as_source_of_truth() -> None:
+    """Public merged-check fields cannot be silently replaced by reconstructed matrices."""
+    import dataclasses
+
+    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
+    modified = dataclasses.replace(gadget, HX_merged=gadget.HX_merged[:-1])
+
+    with pytest.raises(ValueError, match=r"logical loss 0"):
+        build_single_ppm_circuit(modified, rounds=1)
+
+
+def test_merged_csscode_accessor_handles_single_and_joint_layouts() -> None:
+    """One private accessor covers both existing merged-code shapes."""
+    from qldpc.experimental.surgery import build_bridge, build_gadget
+    from qldpc.experimental.surgery.circuit import _merged_csscode
+
+    code_l = codes.SteaneCode()
+    code_r = codes.SteaneCode()
+    logical_l = np.asarray(code_l.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    logical_r = np.asarray(code_r.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget_l = build_gadget(code_l, logical_l, basis=Pauli.X)
+    gadget_r = build_gadget(code_r, logical_r, basis=Pauli.X)
+    bridge = build_bridge(gadget_l, gadget_r)
+
+    assert _merged_csscode(gadget_l).dimension == code_l.dimension - 1
+    assert _merged_csscode(gadget_l, gadget_r, bridge).dimension == (
+        code_l.dimension + code_r.dimension - 1
+    )
+    with pytest.raises(ValueError, match="both be provided"):
+        _merged_csscode(gadget_l, gadget_r)
+
+
 def test_single_ppm_rejects_a_reducible_logical_until_boosted() -> None:
     """A circuit cannot silently fix both factors of a requested logical product."""
     from qldpc.experimental.surgery import boost_gadget

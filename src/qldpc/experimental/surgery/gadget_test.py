@@ -703,3 +703,34 @@ def test_single_ppm_merged_code_is_css_and_drops_one_logical(basis: PauliXZ) -> 
 
     merged = codes.CSSCode(g.HX_merged, g.HZ_merged, is_subsystem_code=False)
     assert merged.dimension == code.dimension - 1
+
+
+def test_gadget_cone_result_retains_stored_matrices_and_regions() -> None:
+    """Derived provenance names the existing public matrix regions without replacing them."""
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
+    result = gadget._get_cone_result()
+
+    assert np.array_equal(result.code.matrix_x, gadget.HX_merged)
+    assert np.array_equal(result.code.matrix_z, gadget.HZ_merged)
+    assert result.regions.data_qubits == tuple(range(len(code)))
+    assert result.regions.ancilla_qubits == tuple(range(len(code), gadget.HX_merged.shape[1]))
+    assert result.regions.measurement_checks == tuple(
+        range(code.matrix_x.shape[0], gadget.HX_merged.shape[0])
+    )
+
+
+def test_gadget_cone_result_rejects_missing_base_incidence_rows() -> None:
+    """Derived provenance fails loudly if a layout loses original ancilla rows."""
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
+    invalid = dataclasses.replace(gadget, incidence=gadget.incidence[:-1])
+
+    with pytest.raises(ValueError, match="fewer rows"):
+        invalid._get_cone_result()
