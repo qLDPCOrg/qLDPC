@@ -20,7 +20,7 @@ from qldpc.objects import Pauli, PauliXZ
 
 
 def test_is_installed() -> None:
-    """Detect whether the optional upstream package is importable."""
+    """Report whether the optional upstream package is discoverable."""
     with unittest.mock.patch("importlib.util.find_spec", return_value=unittest.mock.Mock()):
         assert external.sqetch.is_installed()
     with unittest.mock.patch("importlib.util.find_spec", return_value=None):
@@ -37,7 +37,7 @@ def _row_span(rows: npt.NDArray[np.uint8]) -> set[tuple[int, ...]]:
 
 
 def _dressed_distance_oracle(code: codes.CSSCode, pauli: Literal[Pauli.X, Pauli.Z]) -> int:
-    """Brute-force the minimum target-type operator modulo target gauges."""
+    """Find the minimum-weight target-type operator modulo target-type gauges."""
     check_pauli = cast(Literal[Pauli.X, Pauli.Z], pauli.swap_xz())
     check = np.asarray(code.get_stabilizer_ops(check_pauli), dtype=np.uint8)
     quotient = np.vstack(
@@ -56,7 +56,7 @@ def _dressed_distance_oracle(code: codes.CSSCode, pauli: Literal[Pauli.X, Pauli.
 
 
 def test_binary_matrix_conversion() -> None:
-    """Convert both CSS distance directions into the upstream convention."""
+    """Convert both CSS distance sectors to the upstream matrix convention."""
     code = codes.SteaneCode()
 
     h_check, logical = external.sqetch._get_binary_matrices(code, Pauli.Z)
@@ -71,7 +71,7 @@ def test_binary_matrix_conversion() -> None:
 
 
 def test_subsystem_matrix_conversion() -> None:
-    """Use stabilizer checks so sqetch searches dressed subsystem logicals."""
+    """Use only stabilizer checks so sqetch searches dressed subsystem logicals."""
     code = codes.BaconShorCode(3)
     h_check, logical = external.sqetch._get_binary_matrices(code, Pauli.Z)
     expected = code.get_stabilizer_ops(Pauli.X, canonicalized=True)
@@ -160,7 +160,7 @@ def test_get_distance_bound_validates_and_reports_dependency(
 
 
 def test_get_distance_bound_requires_observed_logical(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Do not turn a no-result sqetch run into a false numeric bound."""
+    """Report a failed sqetch search instead of returning a false numeric bound."""
     result = types.SimpleNamespace(best_weight=None, trials_run=4)
     monkeypatch.setitem(
         sys.modules,

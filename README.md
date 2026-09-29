@@ -68,18 +68,18 @@ If a package such as GUAVA or QDistRnd is absent from the in-process binding, qL
 If that attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing the package for libgap before using the executable instead.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
-The optional `sqetch` distance backend can be installed with:
+Install the optional `sqetch` distance backend with:
 
 ```bash
 python -m pip install 'qldpc[sqetch]'
 ```
 
-This installs the pinned upstream `sqetch` GPU extra.
-Select it with `code.get_distance(bound=True, backend="sqetch")` for binary CSS codes.
-Subsystem CSS codes use their dressed-distance convention.
-The estimator requires a CUDA-capable PyTorch build and a visible CUDA GPU; it is not available on macOS.
-With `backend="auto"`, binary CSS codes use `sqetch` when installed, then GAP/QDistRnd when available, and otherwise qLDPC's decoder-based estimator.
-Use `backend="gap"` to request GAP/QDistRnd explicitly.
+This extra installs the pinned upstream version of `sqetch` with GPU support.
+For binary CSS codes, select it with `code.get_distance(bound=True, backend="sqetch")`.
+For subsystem CSS codes, `sqetch` estimates an upper bound on dressed distance.
+The estimator requires a CUDA-enabled PyTorch installation and a visible CUDA GPU, so it is unavailable on macOS.
+`backend="auto"` chooses the first applicable backend in this order: an installed `sqetch` for binary CSS codes, available GAP/QDistRnd, then qLDPC's decoder-based estimator.
+Set `backend="gap"` to request GAP/QDistRnd explicitly.
 
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
 

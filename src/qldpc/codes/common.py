@@ -3145,12 +3145,12 @@ class CSSCode(QuditCode):
         backend: DistanceBackend = "auto",
         **bound_kwargs: Any,
     ) -> int | float:
-        """Use a randomized algorithm to compute an upper bound on code distance.
+        """Estimate an upper bound on code distance with a randomized algorithm.
 
-        ``backend="gap"`` selects GAP's QDistRnd package explicitly, while ``backend="sqetch"``
-        selects the optional GPU random-ISD estimator.  For compatible arguments, the default
-        ``"auto"`` prefers sqetch when it is installed, then GAP/QDistRnd, and finally the
-        decoder-based algorithm.
+        Set ``backend="gap"`` to use GAP's QDistRnd package or ``backend="sqetch"`` to use the
+        optional GPU-accelerated random-ISD estimator.  By default, ``backend="auto"`` chooses the
+        first applicable backend in this order: an installed sqetch for binary CSS codes, available
+        GAP/QDistRnd, then the decoder-based algorithm.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.
@@ -3164,7 +3164,7 @@ class CSSCode(QuditCode):
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
                 For ``"gap"``, only ``maxav`` is recognized.  For ``"sqetch"``, supported options
                 are ``d_target``, ``k_sub``, ``batch_size``, ``seed``, and ``device``.  With
-                ``"auto"``, backend-specific arguments select a compatible path.
+                ``"auto"``, supplied keywords limit selection to backends that accept them.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.

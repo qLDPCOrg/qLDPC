@@ -1141,7 +1141,7 @@ def test_distance_css() -> None:
 
 
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:
-    """Decoder arguments select that path without probing optional backends."""
+    """Decoder-specific arguments bypass optional-backend probes."""
     code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     code.forget_distance()
 
@@ -1171,7 +1171,7 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
 
 
 def test_css_auto_distance_bound_backend_selection() -> None:
-    """Prefer available automatic backends in sqetch, GAP, decoder order."""
+    """Select automatic backends in sqetch, GAP, then decoder order."""
     code = codes.SteaneCode()
     code.forget_distance()
 
@@ -1223,7 +1223,7 @@ def test_css_auto_distance_bound_backend_selection() -> None:
 
 
 def test_css_distance_bound_backend_selection() -> None:
-    """Select sqetch, decoder, and GAP backends explicitly."""
+    """Honor explicit sqetch, decoder, and GAP backend selection."""
     code = codes.SteaneCode()
     code.forget_distance()
 

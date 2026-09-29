@@ -3,11 +3,9 @@
 """Optional integration with the upstream ``sqetch`` distance estimator.
 
 The upstream package is a GPU-only randomized information-set decoder for binary CSS codes.  It
-accepts one CSS direction at a time: ``H_check`` is the opposite-Pauli stabilizer matrix and
-``L_logical`` is a basis of logical operators of that same opposite Pauli type.  The latter detects
-which vectors in ``ker(H_check)`` are nontrivial logical representatives.  For subsystem codes,
-omitting opposite-type gauge generators from ``H_check`` intentionally searches dressed rather
-than bare logical operators.
+estimates one Pauli sector at a time using stabilizers and logical operators of the opposite Pauli
+type.  For subsystem codes, omitting opposite-type gauge generators makes the estimator search for
+dressed rather than bare logical operators.
 """
 
 from __future__ import annotations
@@ -26,12 +24,12 @@ if TYPE_CHECKING:
 
 
 def is_installed() -> bool:
-    """Return whether the optional upstream package is available."""
+    """Return whether the optional upstream package is discoverable."""
     return importlib.util.find_spec("sqetch") is not None
 
 
 def _get_sqetch() -> Any:
-    """Import the optional upstream dependency and provide an actionable error when absent."""
+    """Import the optional upstream dependency or raise an actionable error."""
     try:
         import sqetch
     except ModuleNotFoundError as error:
@@ -47,7 +45,7 @@ def _get_sqetch() -> Any:
 def _get_binary_matrices(
     code: CSSCode, pauli: PauliXZ
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Build binary matrices for the dressed distance in one CSS direction."""
+    """Build binary matrices for dressed-distance estimation in one Pauli sector."""
     if code.field is not galois.GF2:
         raise ValueError("The sqetch distance backend only supports CSS codes over GF(2).")
     if pauli not in PAULIS_XZ:
@@ -55,8 +53,8 @@ def _get_binary_matrices(
 
     check_pauli = pauli.swap_xz()
     if code.is_subsystem_code:
-        # Dressed logicals need only commute with opposite-type stabilizers.  Including opposite
-        # gauges would instead restrict the search to bare logicals.
+        # Dressed logicals need only commute with opposite-type stabilizers.  Adding opposite-type
+        # gauge generators would restrict the search to bare logicals.
         check_matrix = code.get_stabilizer_ops(check_pauli, canonicalized=True)
     else:
         check_matrix = code.get_matrix(check_pauli)
@@ -79,19 +77,19 @@ def get_distance_bound(
     seed: int | None = None,
     device: int = 0,
 ) -> int:
-    """Estimate one CSS distance with the optional upstream ``sqetch`` backend.
+    """Estimate one CSS distance sector with the optional upstream ``sqetch`` backend.
 
-    ``sqetch`` computes a randomized upper bound by sampling logical-coset representatives.  Its
-    ``d_target`` option stops after finding a candidate strictly below the target.  qLDPC's
-    ``cutoff`` convention includes equality, so a cutoff is translated to ``d_target=cutoff + 1``
-    when the caller does not provide an explicit ``d_target``.
+    ``sqetch`` samples candidate logical operators and reports the lowest weight it observes,
+    producing a randomized upper bound.  Its ``d_target`` option stops after finding a candidate
+    strictly below the target, while qLDPC's ``cutoff`` convention includes equality.  Therefore,
+    qLDPC translates ``cutoff`` to ``d_target = cutoff + 1`` unless the caller provides
+    ``d_target``.
 
     Args:
         code: Binary CSS code whose distance is being estimated.
         num_trials: Number of randomized trials.
-        pauli: Distance sector to estimate.  Opposite-Pauli stabilizers and logicals are passed to
-            ``sqetch`` as described in this module's docstring; subsystem codes use dressed
-            distance semantics.
+        pauli: Pauli sector to estimate.  Opposite-Pauli stabilizers and logical operators are
+            passed to ``sqetch``; subsystem codes use dressed-distance semantics.
         cutoff: Stop once a bound is at most this value.
         d_target: Backend-specific strict early-stop target.  This takes precedence over ``cutoff``.
         k_sub: Dimension of the per-trial null-space sketch.
@@ -101,7 +99,7 @@ def get_distance_bound(
 
     Raises:
         ModuleNotFoundError: If the optional dependency is not installed.
-        RuntimeError: If no nontrivial logical representative is found.
+        RuntimeError: If no nontrivial logical operator is found.
         ValueError: If the code or backend arguments are unsupported.
 
     Returns:

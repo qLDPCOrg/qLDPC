@@ -66,14 +66,18 @@ are trusted rather than recomputed automatically; exact distance calculations ca
 Distance bounds
 ~~~~~~~~~~~~~~~
 
-``CSSCode.get_distance_bound`` accepts a typed ``backend`` selector.  ``"gap"`` explicitly uses
-GAP/QDistRnd, ``"sqetch"`` uses the optional GPU random-ISD estimator for binary CSS codes, and
-``"decoder"`` uses qLDPC's decoder-based estimator.  For binary CSS codes, the default ``"auto"``
-prefers an installed ``sqetch``, then GAP/QDistRnd when available, and finally the decoder.  Install
-the optional backend with
-``python -m pip install 'qldpc[sqetch]'``; it requires a CUDA-capable PyTorch build and a visible
-GPU.  ``sqetch`` estimates one X or Z sector at a time and returns an observed upper bound; for
-subsystem CSS codes it searches dressed logicals by constraining only opposite-type stabilizers.
+``CSSCode.get_distance_bound`` accepts a typed ``backend`` selector. Set ``backend="gap"`` to use
+GAP/QDistRnd, ``backend="sqetch"`` to use the optional GPU-accelerated random-ISD estimator for
+binary CSS codes, or ``backend="decoder"`` to use qLDPC's decoder-based estimator. By default,
+``backend="auto"`` chooses the first applicable backend in this order: an installed ``sqetch`` for
+binary CSS codes, available GAP/QDistRnd, then the decoder. Install the optional backend with
+``python -m pip install 'qldpc[sqetch]'``. It requires a CUDA-enabled PyTorch installation and a
+visible CUDA GPU.
+
+``sqetch`` estimates the X- and Z-distance sectors separately. The lowest logical weight it observes
+is an upper bound on the corresponding distance. For subsystem CSS codes, it estimates a bound on
+dressed distance by constraining the search with opposite-Pauli stabilizers, without including
+opposite-Pauli gauge generators.
 
 Graphs, complexes, and lifted matrices
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
