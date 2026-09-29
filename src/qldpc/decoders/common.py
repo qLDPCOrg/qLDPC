@@ -4,8 +4,26 @@
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import numpy.typing as npt
+
+
+def _get_external_caller_stacklevel() -> int:
+    """Find the first caller outside qLDPC implementation modules."""
+    stacklevel = 1
+    frame = inspect.currentframe()
+    if frame is None:  # pragma: no cover
+        return 2
+    frame = frame.f_back
+    while frame is not None:
+        module = str(frame.f_globals.get("__name__", ""))
+        if not module.startswith("qldpc.") or module.endswith("_test"):
+            break
+        stacklevel += 1
+        frame = frame.f_back
+    return stacklevel
 
 
 def with_erasure_bits(

@@ -73,11 +73,22 @@ def test_observable_decoder_compatibility_aliases() -> None:
         pytest.warns(DeprecationWarning, match="decode is deprecated"),
         pytest.raises(decoders.sinter.DecoderNotCompiledError),
     ):
-        decoder.decode(np.array([1], dtype=int))
+        typing.cast(typing.Any, decoder).decode(np.array([1], dtype=int))
 
     compiled = decoder.compile_decoder_for_dem(dem)
     with pytest.warns(DeprecationWarning, match="decode is deprecated"):
-        assert np.array_equal(compiled.decode(np.array([1], dtype=int)), [1])
+        assert np.array_equal(
+            typing.cast(typing.Any, compiled).decode(np.array([1], dtype=int)), [1]
+        )
+
+
+def test_observable_decoder_legacy_options_warning() -> None:
+    """Legacy observable-decoder options identify the caller and an exact typed replacement."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        decoders.ObservableDecoder(with_MWPM=True)
+    assert caught[0].filename == __file__
+    assert "decoder=decoders.mwpm(...)" in str(caught[0].message)
 
 
 def test_unsimplified_dense_decoder() -> None:

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import collections
+import warnings
 
 import galois
 import numpy as np
@@ -119,6 +120,26 @@ def test_observable_lookup_decoding() -> None:
     # grouping errors by observable flip requires a way to weigh errors against each other
     with pytest.raises(ValueError, match="error_channel, or penalty_func"):
         decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
+
+
+def test_observable_lookup_deprecation_warning_location() -> None:
+    """Legacy observable lookup warnings identify the user call and its typed replacement."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        decoder = decoders.get_decoder(
+            dem,
+            with_lookup=True,
+            max_weight=1,
+            predict_observable_flips=True,
+        )
+
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
+    assert len(caught) == 2
+    assert all(warning.filename == __file__ for warning in caught)
+    messages = [str(warning.message) for warning in caught]
+    assert all("ObservableLookupDecoder" in message for message in messages)
+    assert any("decode_observables" in message for message in messages)
 
 
 def test_explicit_observable_lookup_decoders() -> None:

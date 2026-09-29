@@ -1136,6 +1136,20 @@ def test_legacy_decoder_warning_location() -> None:
     assert caught[0].filename == __file__
 
 
+def test_css_rejects_shared_prebuilt_decoders_for_unequal_sectors() -> None:
+    """A decoder built for one CSS matrix is not silently reused for another."""
+    code = codes.SurfaceCode(3)
+    decoder = decoders.LookupDecoder(
+        code.get_stabilizer_ops(Pauli.Z, canonicalized=False), max_weight=0
+    )
+    with pytest.raises(ValueError, match=r"decoder_x=.*decoder_z="):
+        code.get_logical_error_rate_func(0, decoder=decoder)
+
+    code.forget_distance()
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be reused"):
+        code.get_distance_bound(decoder=decoder)
+
+
 def test_css_deformations() -> None:
     """Local Fourier transforms of a CSSCode."""
     code: codes.CSSCode

@@ -3,10 +3,10 @@ Choosing a decoder
 
 qLDPC separates two decoding tasks:
 
-* an :class:`~qldpc.decoders.ErrorDecoder` maps a parity-check syndrome to an inferred physical
-  error; and
-* an :class:`~qldpc.decoders.ObservableDecoder` compiles against a Stim detector error model and
-  maps detection events to predicted observable flips.
+* an :class:`~qldpc.decoders.custom.ErrorDecoder` maps a parity-check syndrome to an inferred
+  physical error; and
+* an :class:`~qldpc.decoders.sinter.ObservableDecoder` compiles against a Stim detector error model
+  and maps detection events to predicted observable flips.
 
 This distinction matters when composing decoders. Code-capacity calculations and distance bounds
 need an error decoder. Sinter simulations need an observable decoder, which usually wraps an error
@@ -63,7 +63,12 @@ Higher-level APIs accept the same settings:
 
 A prebuilt error decoder or a custom callable that accepts the matrix or detector error model can
 also be passed as ``decoder=``. This replaces the old ``static_decoder`` and
-``decoder_constructor`` keywords.
+``decoder_constructor`` keywords. A prebuilt decoder is tied to the matrix used to construct it. For
+CSS methods that decode both sectors, pass separate prebuilt instances as ``decoder_x=`` and
+``decoder_z=``; a shared ``decoder=`` must be deferred settings or a constructor unless the two
+sector matrices are equal. Likewise, when bounding both CSS distances at once, use deferred settings
+or a constructor; with prebuilt instances, call ``get_distance_bound`` separately for each
+``pauli=`` sector.
 
 Predicting observable flips
 ---------------------------
@@ -83,22 +88,22 @@ Wrap error-decoder settings in an observable decoder for Sinter:
        decoder=decoders.bp_lsd(max_iter=30),
    )
 
-An :class:`~qldpc.decoders.ObservableDecoder` is compiled for a detector error model before it
-predicts flips. Its compiled form exposes ``decode_observables`` for one shot and ``decode_shots``
+An :class:`~qldpc.decoders.sinter.ObservableDecoder` is compiled for a detector error model before
+it predicts flips. Its compiled form exposes ``decode_observables`` for one shot and ``decode_shots``
 for a batch. Window and subgraph decoders use the same explicit ``decoder=`` argument for their
 inner error decoder.
 
 Lookup-table outputs
 --------------------
 
-:class:`~qldpc.decoders.LookupDecoder` and
-:class:`~qldpc.decoders.WeightedLookupDecoder` always expose error-decoding APIs. They may still use
-an observable-flip matrix to group candidate errors by logical effect, but their output is a
-representative physical error.
+:class:`~qldpc.decoders.lookup.LookupDecoder` and
+:class:`~qldpc.decoders.lookup.WeightedLookupDecoder` always expose error-decoding APIs. They may
+still use an observable-flip matrix to group candidate errors by logical effect, but their output is
+a representative physical error.
 
-Use :class:`~qldpc.decoders.ObservableLookupDecoder` or
-:class:`~qldpc.decoders.WeightedObservableLookupDecoder` when the desired output is the observable
-flip itself:
+Use :class:`~qldpc.decoders.lookup.ObservableLookupDecoder` or
+:class:`~qldpc.decoders.lookup.WeightedObservableLookupDecoder` when the desired output is the
+observable flip itself:
 
 .. code-block:: python
 

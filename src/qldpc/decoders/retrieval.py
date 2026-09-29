@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import inspect
 import warnings
 from collections.abc import Callable, Collection, Sequence
 from typing import Generic, Literal, ParamSpec, Protocol, TypeAlias, TypeVar, cast
@@ -20,6 +19,7 @@ import stim
 from qldpc._util import format_docstring
 from qldpc.math import IntegerArray
 
+from .common import _get_external_caller_stacklevel
 from .custom import (
     PLACEHOLDER_ERROR_RATE,
     BatchErrorDecoder,
@@ -146,10 +146,9 @@ def _resolve_decoder(
     if decoder_args:
         if warn_deprecated:
             warnings.warn(
-                "Passing decoder-selection and construction arguments directly to get_decoder is"
-                " deprecated; pass decoder=decoders.<name>(...) instead",
+                _get_legacy_decoder_migration_message(pcm_or_dem, decoder_args),
                 DeprecationWarning,
-                stacklevel=_get_warning_stacklevel(),
+                stacklevel=_get_external_caller_stacklevel(),
             )
         return _get_legacy_decoder(pcm_or_dem, decoder_args)
 
@@ -158,20 +157,59 @@ def _resolve_decoder(
     return get_decoder_bp_osd(pcm_or_dem)
 
 
-def _get_warning_stacklevel() -> int:
-    """Find the first caller outside qLDPC implementation modules."""
-    stacklevel = 1
-    frame = inspect.currentframe()
-    if frame is None:  # pragma: no cover
-        return 2
-    frame = frame.f_back
-    while frame is not None:
-        module = str(frame.f_globals.get("__name__", ""))
-        if not module.startswith("qldpc.") or module.endswith("_test"):
-            break
-        stacklevel += 1
-        frame = frame.f_back
-    return stacklevel
+def _get_legacy_decoder_migration_message(
+    pcm_or_dem: PcmOrDem | None, decoder_args: dict[str, object]
+) -> str:
+    """Describe the typed replacement for one legacy decoder request."""
+    if decoder_args.get("decoder_constructor") is not None:
+        return (
+            "The decoder_constructor keyword is deprecated; pass the constructor as decoder="
+            " instead, for example decoder=MyDecoder"
+        )
+    if decoder_args.get("static_decoder") is not None:
+        return (
+            "The static_decoder keyword is deprecated; pass the decoder instance as decoder="
+            " instead"
+        )
+    if decoder_args.get("predict_observable_flips"):
+        return (
+            "predict_observable_flips=True is deprecated; construct an ObservableLookupDecoder"
+            " directly and call decode_observables(...) instead"
+        )
+
+    helper_names = {
+        "BF": "bf",
+        "BP_LSD": "bp_lsd",
+        "BP_OSD": "bp_osd",
+        "GUF": "guf",
+        "ILP": "ilp",
+        "MWPM": "mwpm",
+        "RBP": "relay_bp",
+        "lookup": "lookup_table",
+    }
+    selected = [name for name in DECODER_CONSTRUCTORS if decoder_args.get(f"with_{name}", False)]
+    if len(selected) == 1:
+        old_name = f"with_{selected[0]}"
+        helper_name = helper_names[selected[0]]
+        return (
+            f"The {old_name} keyword and free-form decoder options are deprecated; use"
+            f" decoder=decoders.{helper_name}(...) instead"
+        )
+    if len(selected) > 1:
+        return (
+            "The with_<NAME> decoder-selection keywords are deprecated; pass exactly one typed"
+            " decoder specification such as decoder=decoders.bp_osd(...) instead"
+        )
+
+    helper_name = (
+        "guf"
+        if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2
+        else "bp_osd"
+    )
+    return (
+        "Passing decoder options directly to get_decoder is deprecated; move them into"
+        f" decoder=decoders.{helper_name}(...) instead"
+    )
 
 
 def _validate_error_decoder(decoder: object, source: str) -> ErrorDecoder:

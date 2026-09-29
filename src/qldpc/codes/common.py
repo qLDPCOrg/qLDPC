@@ -33,6 +33,15 @@ from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_alloca
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
 
+def _is_prebuilt_error_decoder(decoder: decoders.ErrorDecoderInput) -> bool:
+    """Whether a decoder input is an already-built decoder rather than deferred settings."""
+    return (
+        decoder is not None
+        and not isinstance(decoder, (decoders.DecoderSpec, type))
+        and hasattr(decoder, "decode")
+    )
+
+
 def get_scrambled_seed(seed: int) -> int:
     """Scramble a seed, allowing us to safely increment seeds in repeat-until-success protocols."""
     state = np.random.get_state()
@@ -3152,6 +3161,13 @@ class CSSCode(QuditCode):
             return len(self)
 
         if pauli is None:
+            if _is_prebuilt_error_decoder(decoder):
+                raise ValueError(
+                    "A prebuilt decoder cannot be reused for both CSS distance sectors because each"
+                    " sector has a different effective check matrix. Pass a DecoderSpec or decoder"
+                    " constructor, or call get_distance_bound separately with pauli=Pauli.X and"
+                    " pauli=Pauli.Z using a decoder built for each sector"
+                )
             # minimize over X and Z bounds with roughly half the number of trials each
             num_trials_xz = [num_trials // 2, (num_trials + 1) // 2]
             random.shuffle(num_trials_xz)
@@ -3523,6 +3539,18 @@ class CSSCode(QuditCode):
 
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
+
+        if (
+            decoder_x is None
+            and decoder_z is None
+            and _is_prebuilt_error_decoder(decoder)
+            and not np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
+        ):
+            raise ValueError(
+                "A shared prebuilt decoder cannot decode unequal CSS sector matrices. Pass"
+                " decoder_x= and decoder_z= with decoders built for their respective sectors, or"
+                " pass decoder= with a DecoderSpec or decoder constructor"
+            )
 
         # Construct decoders; sector-specific settings override the shared settings.  The two
         # decoders can be shared when their matrices, spec objects, and legacy arguments coincide.

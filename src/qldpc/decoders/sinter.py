@@ -9,22 +9,38 @@ import itertools
 import pathlib
 import warnings
 from collections.abc import Callable, Collection, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
 import sinter
 import stim
 
+from .common import _get_external_caller_stacklevel
 from .dems import DetectorErrorModelArrays
-from .retrieval import ErrorDecoder, ErrorDecoderInput, _resolve_decoder
+from .retrieval import (
+    ErrorDecoder,
+    ErrorDecoderInput,
+    _get_legacy_decoder_migration_message,
+    _resolve_decoder,
+)
+
+if TYPE_CHECKING:
+
+    class _SinterDecoder: ...
+
+    class _SinterCompiledDecoder: ...
+
+else:
+    _SinterDecoder = sinter.Decoder
+    _SinterCompiledDecoder = sinter.CompiledDecoder
 
 
 class DecoderNotCompiledError(Exception):
     pass
 
 
-class ObservableDecoder(sinter.Decoder):
+class ObservableDecoder(_SinterDecoder):
     """Sinter-compatible decoder that predicts observable flips."""
 
     decodes_observables = True
@@ -57,10 +73,9 @@ class ObservableDecoder(sinter.Decoder):
         self.decoder_kwargs = decoder_kwargs
         if decoder_kwargs:
             warnings.warn(
-                "Passing decoder options directly to an observable decoder is deprecated; pass"
-                " decoder=decoders.<name>(...) instead",
+                _get_legacy_decoder_migration_message(None, decoder_kwargs),
                 DeprecationWarning,
-                stacklevel=2 if type(self) is ObservableDecoder else 3,
+                stacklevel=_get_external_caller_stacklevel(),
             )
         if "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs:
             raise ValueError(
@@ -137,15 +152,20 @@ class ObservableDecoder(sinter.Decoder):
         observable_flips = predicted_flips[:, :num_observable_bytes]
         observable_flips.tofile(obs_predictions_b8_out_path)
 
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Deprecated uncompiled decode method."""
-        warnings.warn(
-            "ObservableDecoder.decode is deprecated; compile the decoder and use"
-            " decode_observables or decode_shots",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.decode_observables(syndrome)
+    if TYPE_CHECKING:
+        # Keep the runtime compatibility shim out of the error-decoder structural type.
+        decode: None
+    else:
+
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            """Deprecated uncompiled decode method."""
+            warnings.warn(
+                "ObservableDecoder.decode is deprecated; compile the decoder and use"
+                " decode_observables or decode_shots",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self.decode_observables(syndrome)
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Reject decoding before this observable decoder is compiled."""
@@ -155,7 +175,7 @@ class ObservableDecoder(sinter.Decoder):
         )
 
 
-class CompiledObservableDecoder(sinter.CompiledDecoder):
+class CompiledObservableDecoder(_SinterCompiledDecoder):
     """Observable decoder compiled to a specific detector error model.
 
     Instances are constructed by ObservableDecoder.compile_decoder_for_dem.
@@ -257,17 +277,22 @@ class CompiledObservableDecoder(sinter.CompiledDecoder):
             axis=axis,
         )
 
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Deprecated alias for decode_observables.
+    if TYPE_CHECKING:
+        # Keep the runtime compatibility shim out of the error-decoder structural type.
+        decode: None
+    else:
 
-        Predicts observable flips.
-        """
-        warnings.warn(
-            "CompiledObservableDecoder.decode is deprecated; use decode_observables",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.decode_observables(syndrome)
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            """Deprecated alias for decode_observables.
+
+            Predicts observable flips.
+            """
+            warnings.warn(
+                "CompiledObservableDecoder.decode is deprecated; use decode_observables",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self.decode_observables(syndrome)
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Predict observable flips for one syndrome."""

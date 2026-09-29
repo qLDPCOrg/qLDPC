@@ -31,8 +31,10 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
         def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             return np.asarray(error)
 
-    assert decoders.decode(matrix, syndrome, decoder_constructor=CustomDecoder) is error
-    assert decoders.decode(matrix, syndrome, static_decoder=CustomDecoder(matrix)) is error
+    with pytest.warns(DeprecationWarning, match="decoder_constructor.*decoder="):
+        assert decoders.decode(matrix, syndrome, decoder_constructor=CustomDecoder) is error
+    with pytest.warns(DeprecationWarning, match="static_decoder.*decoder="):
+        assert decoders.decode(matrix, syndrome, static_decoder=CustomDecoder(matrix)) is error
     assert decoders.decode(matrix, syndrome, decoder=CustomDecoder) is error
     assert decoders.decode(matrix, syndrome, decoder=CustomDecoder(matrix)) is error
 
@@ -62,6 +64,10 @@ def test_decoder_selection() -> None:
         warnings.simplefilter("always")
         decoders.decode(matrix, syndrome, with_BF=True)
     assert caught[0].filename == __file__
+    assert "decoder=decoders.bf(...)" in str(caught[0].message)
+
+    with pytest.warns(DeprecationWarning, match=r"decoder=decoders\.bp_osd"):
+        decoders.get_decoder(matrix, max_iter=1)
 
 
 def test_decoder_specs() -> None:
