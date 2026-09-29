@@ -833,6 +833,8 @@ def test_qudit_concatenation() -> None:
     code = codes.QuditCode.concatenate(code_5q, code_5q, wiring)
     assert len(code) == 10 * len(code_5q)
     assert code.dimension == 2 * code_5q.dimension
+
+    # verify inherited logical operators form a canonical symplectic basis
     rebuilt = codes.QuditCode(code.matrix, is_subsystem_code=code.is_subsystem_code)
     assert rebuilt.dimension == code.dimension
     logical_ops = code.get_logical_ops()
@@ -1210,6 +1212,8 @@ def test_css_concatenation() -> None:
     code = codes.CSSCode.concatenate(code_c4, code_c4, wiring)
     assert len(code) == 4 * len(code_c4)
     assert code.dimension == 2 * code_c4.dimension
+
+    # verify inherited logical operators form a canonical symplectic basis
     rebuilt = codes.CSSCode(code.matrix_x, code.matrix_z, is_subsystem_code=code.is_subsystem_code)
     assert rebuilt.dimension == code.dimension
     logical_ops = code.get_logical_ops()

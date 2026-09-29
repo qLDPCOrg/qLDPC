@@ -301,6 +301,7 @@ class LookupDecoder:
                     "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
                 )
 
+        # validate the explicit error channel before building its penalty function
         if error_channel is not None:
             error_channel = np.asarray(error_channel, dtype=float)
             expected_shape = (pcm.shape[1],)

@@ -82,7 +82,7 @@ class AbstractCode(abc.ABC):
     ) -> None:
         """Construct a code from a parity check matrix over a finite field.
 
-        The base field is taken to be ``F_2`` by default. If ``matrix`` is a finite-field array, an
+        The base field is taken to be ``F_2`` by default.  If ``matrix`` is a finite-field array, an
         explicit field may either match its field or canonically extend its prime field.
         """
         if isinstance(matrix, AbstractCode):
@@ -100,6 +100,7 @@ class AbstractCode(abc.ABC):
             self._is_canonicalized = matrix._is_canonicalized
 
         elif isinstance(matrix, galois.FieldArray):
+            # preserve or canonically embed explicitly typed finite-field arrays
             matrix_field = type(matrix)
             self._field = abstract.resolve_field(field) if field is not None else type(matrix)
             if self._field is matrix_field:

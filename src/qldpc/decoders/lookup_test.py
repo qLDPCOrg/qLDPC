@@ -193,6 +193,7 @@ def test_invalid_arguments() -> None:
     with pytest.raises(ValueError, match=r"requires providing a stim\.DetectorErrorModel"):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], predict_observable_flips=True)
 
+    # reject malformed channels and invalid probabilities
     for error_channel in [np.array([0.1]), np.array([[0.1, 0.2]])]:
         with pytest.raises(ValueError, match=r"error_channel must have shape \(2,\)"):
             decoders.LookupDecoder(pcm, 1, error_channel=error_channel)

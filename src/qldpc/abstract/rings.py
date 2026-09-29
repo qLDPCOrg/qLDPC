@@ -716,7 +716,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         2. A ring (or group, inducing a group algebra over GF(2)).
 
-        Integers and group members are cast into members of the ring. Ring members may be embedded
+        Integers and group members are cast into members of the ring.  Ring members may be embedded
         into a different ring only when the coefficient fields match and their group support embeds
         into the target group.
         """
@@ -737,6 +737,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         def as_ring_member(value: RingMember | GroupMember | int) -> RingMember:
             """Elevate a value to an element of the ring."""
+            # validate and re-home explicit ring members
             if isinstance(value, RingMember):
                 if value.field is not ring.field:
                     raise ValueError(
