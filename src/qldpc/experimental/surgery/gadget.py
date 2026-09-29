@@ -33,7 +33,6 @@ limitations under the License.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
 
 import galois
 import numpy as np
@@ -58,18 +57,12 @@ class GadgetLayout:
     """
 
     code: CSSCode  # the data code being operated on
-    x: np.ndarray[
-        Any, Any
-    ]  # measured logical operator, a length-code.num_qudits binary support vector
+    x: np.ndarray  # measured logical operator, a length-code.num_qudits binary support vector
     support: tuple[int, ...]  # V_0: data-qubit indices where x is 1
-    incidence: np.ndarray[
-        Any, Any
-    ]  # F: complementary check matrix restricted to (checks on V_0, support)
-    gauge: np.ndarray[Any, Any]  # G: rows spanning ker(F^T) over GF(2), the gauge-fixing checks
-    HX_merged: np.ndarray[
-        Any, Any
-    ]  # X checks of the merged code, over data qubits then ancilla qubits
-    HZ_merged: np.ndarray[Any, Any]  # Z checks of the merged code, same qubit ordering
+    incidence: np.ndarray  # F: complementary check matrix restricted to (checks on V_0, support)
+    gauge: np.ndarray  # G: rows spanning ker(F^T) over GF(2), the gauge-fixing checks
+    HX_merged: np.ndarray  # X checks of the merged code, over data qubits then ancilla qubits
+    HZ_merged: np.ndarray  # Z checks of the merged code, same qubit ordering
     basis: PauliXZ  # Pauli.X to measure a logical X, Pauli.Z for a logical Z
 
     def _get_cone_result(self) -> _CSSConeResult:
@@ -97,7 +90,7 @@ class GadgetLayout:
         )
         return dataclasses.replace(derived, code=stored_code)
 
-    def _base_incidence(self) -> np.ndarray[Any, Any]:
+    def _base_incidence(self) -> np.ndarray:
         """Incidence matrix before any boost or bridge ancillas were added."""
         _, _, incidence = _restrict_checks_to_support(self.code, self.x, basis=self.basis)
         return incidence
@@ -108,12 +101,12 @@ class GadgetLayout:
         return not np.array_equal(self.incidence, self._base_incidence())
 
     @property
-    def added_ancilla_incidence(self) -> np.ndarray[Any, Any]:
+    def added_ancilla_incidence(self) -> np.ndarray:
         """Rows added after the data-code restriction, in their current order."""
         base_rows = self._base_incidence().shape[0]
         return self.incidence[base_rows:].copy()
 
-    def with_added_ancillas(self, incidence_rows: np.ndarray[Any, Any]) -> GadgetLayout:
+    def with_added_ancillas(self, incidence_rows: np.ndarray) -> GadgetLayout:
         """Return a layout with additional weight-2 ancilla rows, preserving existing additions."""
         added = np.asarray(incidence_rows).astype(np.uint8)
         if added.ndim != 2 or added.shape[1] != len(self.support):
@@ -127,10 +120,10 @@ class GadgetLayout:
 
 def _restrict_checks_to_support(
     code: CSSCode,
-    x: np.ndarray[Any, Any],
+    x: np.ndarray,
     *,
     basis: PauliXZ = Pauli.X,
-) -> tuple[tuple[int, ...], tuple[int, ...], np.ndarray[Any, Any]]:
+) -> tuple[tuple[int, ...], tuple[int, ...], np.ndarray]:
     """Webster §II A steps 1-2 — V_0 = supp(x); C_0 = checks on V_0; F = H_complement[C_0, V_0].
 
     For basis=Pauli.X: incidence = H_Z[data_checks, support] (the complementary basis to the
@@ -157,7 +150,7 @@ def _restrict_checks_to_support(
     return support, data_checks, incidence.astype(np.uint8)
 
 
-def _compute_gauge_basis(incidence: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+def _compute_gauge_basis(incidence: np.ndarray) -> np.ndarray:
     """Webster §II A step 3 — G whose rows form a canonical basis of ker(F.T) over GF(2).
 
     Uses galois ``left_null_space`` (row-reduced) so the basis is deterministic.
@@ -172,8 +165,8 @@ def _build_cone_maps(
     code: CSSCode,
     support: tuple[int, ...],
     data_checks: tuple[int | None, ...],
-    incidence: np.ndarray[Any, Any],
-    gauge: np.ndarray[Any, Any],
+    incidence: np.ndarray,
+    gauge: np.ndarray,
     *,
     basis: PauliXZ,
 ) -> _CSSConeMaps:
@@ -200,11 +193,11 @@ def _assemble_merged_checks(
     code: CSSCode,
     support: tuple[int, ...],
     data_checks: tuple[int | None, ...],
-    incidence: np.ndarray[Any, Any],
-    gauge: np.ndarray[Any, Any],
+    incidence: np.ndarray,
+    gauge: np.ndarray,
     *,
     basis: PauliXZ = Pauli.X,
-) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Assemble HX_merged and HZ_merged from the Webster §II A pieces.
 
     basis=X (default): χ rows added to HX_merged, G to HZ_merged.
@@ -226,7 +219,7 @@ def _assemble_merged_checks(
 
 def build_gadget(
     code: CSSCode,
-    x: np.ndarray[Any, Any],
+    x: np.ndarray,
     *,
     basis: PauliXZ,
 ) -> GadgetLayout:
@@ -309,8 +302,8 @@ def build_gadget(
 
 def _rebuild_with_added_ancillas(
     code: CSSCode,
-    x: np.ndarray[Any, Any],
-    incidence_extra: np.ndarray[Any, Any],
+    x: np.ndarray,
+    incidence_extra: np.ndarray,
     *,
     basis: PauliXZ,
 ) -> GadgetLayout:

@@ -12,7 +12,6 @@ import math
 import sys
 import time
 from collections.abc import Callable, Iterator
-from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -151,7 +150,7 @@ def get_layout_search_space(
     - a relative shift (between L and R) of the qubit plaquettes of the BBCode.
     """
     # identify the sets of lattice vectors that are used to relabel qubit plaquettes
-    vectors = list(cast(Iterator[tuple[int, int]], np.ndindex(code.orders)))
+    vectors: list[tuple[int, int]] = list(np.ndindex(code.orders))
     vector_pairs = itertools.combinations(vectors, 2)
     lattice_vectors = [
         (vec_a, vec_b) if code.get_order(vec_a) >= code.get_order(vec_b) else (vec_b, vec_a)

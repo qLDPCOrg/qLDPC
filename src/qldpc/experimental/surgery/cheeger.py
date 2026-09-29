@@ -29,7 +29,7 @@ limitations under the License.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 import galois
 import numpy as np
@@ -40,9 +40,7 @@ from qldpc.objects import Pauli
 from .gadget import GadgetLayout
 
 
-def _exact_boundary_cheeger(
-    incidence: galois.FieldArray,
-) -> tuple[float, np.ndarray[Any, Any]]:
+def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.ndarray]:
     """Exact boundary Cheeger constant of F per Webster §II A Definition 1.
 
     gadget notation: V → support; C → rows of incidence; F → incidence.
@@ -142,7 +140,7 @@ def cheeger_constant(g: GadgetLayout) -> float:
     return h
 
 
-def _incidence_pairs(incidence: np.ndarray[Any, Any]) -> set[tuple[int, int]]:
+def _incidence_pairs(incidence: np.ndarray) -> set[tuple[int, int]]:
     """Column pairs that occur together in at least one incidence row."""
     pairs: set[tuple[int, int]] = set()
     for row in incidence:
@@ -154,10 +152,10 @@ def _incidence_pairs(incidence: np.ndarray[Any, Any]) -> set[tuple[int, int]]:
 
 
 def _augment_incidence_with_random_edges(
-    incidence_base: np.ndarray[Any, Any],
+    incidence_base: np.ndarray,
     n_new_edges: int,
     rng: np.random.Generator,
-) -> np.ndarray[Any, Any] | None:
+) -> np.ndarray | None:
     """Add n_new_edges random degree-2 rows to F.
 
     Each new row connects two distinct columns not already directly connected via another existing
@@ -172,7 +170,7 @@ def _augment_incidence_with_random_edges(
         return None
 
     pairs = _incidence_pairs(incidence)
-    new_rows: list[np.ndarray[Any, Any]] = []
+    new_rows: list[np.ndarray] = []
     for _ in range(n_new_edges):
         candidate = None
         for _attempt in range(n_X * 4):

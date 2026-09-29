@@ -415,6 +415,7 @@ def test_get_distance_classical_methods() -> None:
         bitcount.assert_called()
         fallback.assert_not_called()
         assert distance == distance_default
+
     # Using fallback (qldpc.codes.distance._hamming_weight):
     with (
         mock.patch("numpy.bitwise_count", None, create=True),

@@ -18,7 +18,6 @@ limitations under the License.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
 
 import numpy as np
 import pytest
@@ -452,7 +451,7 @@ def test_compute_gauge_basis_rows_linearly_independent() -> None:
     F2 = galois.GF2
     xs, ys = sympy.symbols("x y")
 
-    cases: list[tuple[str, codes.CSSCode, np.ndarray[Any, Any]]] = []
+    cases: list[tuple[str, codes.CSSCode, np.ndarray]] = []
 
     # Case 1: Steane
     steane = codes.SteaneCode()

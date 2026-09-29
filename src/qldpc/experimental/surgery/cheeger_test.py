@@ -17,7 +17,7 @@ limitations under the License.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -509,10 +509,8 @@ def test_boost_distance_skips_unusable_augmentation_sample(
     calls = [0]
 
     def _augment(
-        incidence_base: np.ndarray[Any, Any],
-        n_new_edges: int,
-        rng: np.random.Generator,
-    ) -> np.ndarray[Any, Any] | None:
+        incidence_base: np.ndarray, n_new_edges: int, rng: np.random.Generator
+    ) -> np.ndarray | None:
         calls[0] += 1
         if calls[0] == 1:
             return None
@@ -540,7 +538,7 @@ def test_boost_distance_skips_augmentation_that_fails_validation(
 
     real_build = GadgetLayout.with_added_ancillas
 
-    def _build(layout: GadgetLayout, incidence_extra: np.ndarray[Any, Any]) -> GadgetLayout:
+    def _build(layout: GadgetLayout, incidence_extra: np.ndarray) -> GadgetLayout:
         if incidence_extra.shape[0] == 0:
             return real_build(layout, incidence_extra)
         raise ValueError("incidence_extra rows have weight != 2; required weight 2.")

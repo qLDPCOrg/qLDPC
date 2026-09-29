@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import galois
 import numpy as np
 import pytest
@@ -194,12 +192,12 @@ def test_get_error_and_erasure() -> None:
     syndrome = field([1, 0, 1])
 
     class _Decoder:
-        def __init__(self, output: np.ndarray[Any, Any], has_erasure_bit: bool = False) -> None:
+        def __init__(self, output: np.ndarray, has_erasure_bit: bool = False) -> None:
             self.output = output
             if has_erasure_bit:
                 self.has_erasure_bit = True
 
-        def decode(self, syndrome: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+        def decode(self, syndrome: np.ndarray) -> np.ndarray:
             return self.output
 
     # a plain decoder returns the inferred error and no erasure

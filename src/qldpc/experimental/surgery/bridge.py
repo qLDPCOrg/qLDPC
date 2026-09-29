@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
-from typing import Any
 
 import numpy as np
 
@@ -46,11 +45,11 @@ class Bridge:
     port_r: tuple[int, ...]  # 𝒫_r* ⊆ V_0^(r), length w
     label_l: tuple[int, ...]  # label_l[i] = SkipTree label of V_0^(l)[i]; -1 if i ∉ 𝒫_l*
     label_r: tuple[int, ...]
-    extra_ancilla_l: np.ndarray[Any, Any]  # (e_l, |support^(l)|) F_2; weight-2 rows added
-    extra_ancilla_r: np.ndarray[Any, Any]
-    T_l: np.ndarray[Any, Any]  # (w-1, |C_0^(l)| + e_l) F_2 (3,2)-sparse
-    T_r: np.ndarray[Any, Any]
-    H_R: np.ndarray[Any, Any]  # (w-1, w) canonical rep code parity
+    extra_ancilla_l: np.ndarray  # (e_l, |support^(l)|) F_2; weight-2 rows added
+    extra_ancilla_r: np.ndarray
+    T_l: np.ndarray  # (w-1, |C_0^(l)| + e_l) F_2 (3,2)-sparse
+    T_r: np.ndarray
+    H_R: np.ndarray  # (w-1, w) canonical rep code parity
     g_l_aug: GadgetLayout  # gadget rebuilt over F_aug^(l)
     g_r_aug: GadgetLayout
 
@@ -59,7 +58,7 @@ def _skip_tree(
     S: nx.Graph,
     root: int = 0,
     edge_index_verts: dict[tuple[int, int], int] | None = None,
-) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """SkipTree basis transform (Swaroop et al. arXiv:2410.03628 §III). Returns T, P."""
     n = S.number_of_nodes()
     index = 0
@@ -106,7 +105,7 @@ def _skip_tree(
     return T, P
 
 
-def _canonical_H_R(w: int) -> np.ndarray[Any, Any]:
+def _canonical_H_R(w: int) -> np.ndarray:
     """Full-rank canonical rep-code parity check matrix, shape (w-1) × w.
 
     Row i has 1s in columns i and i+1.
@@ -124,7 +123,7 @@ def _skip_tree_fullrank(
     S: nx.Graph,
     root: int = 0,
     edge_index_verts: dict[tuple[int, int], int] | None = None,
-) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Compute SkipTree (T, P) satisfying T · G · P == H_R (full-rank rep code).
 
     Swaroop et al. arXiv:2410.03628 Algorithm 2 (Appendix E — the flag-based variant targeting the
@@ -212,9 +211,7 @@ def _cellulate_port_subgraph(
             )
 
 
-def _build_aux_graph_strict(
-    incidence: np.ndarray[Any, Any],
-) -> tuple[nx.Graph, dict[tuple[int, int], int]]:
+def _build_aux_graph_strict(incidence: np.ndarray) -> tuple[nx.Graph, dict[tuple[int, int], int]]:
     """Build auxiliary graph from F; weight-2 rows become edges, hyperedges are skipped.
 
     Vertices are range(F.shape[1]); each weight-2 row adds the edge between its two 1-columns.
@@ -281,7 +278,7 @@ def _connect_induced_subgraph(
         added.append((u, v))
 
 
-def _edges_to_incidence_extra(edges: list[tuple[int, int]], n_V0: int) -> np.ndarray[Any, Any]:
+def _edges_to_incidence_extra(edges: list[tuple[int, int]], n_V0: int) -> np.ndarray:
     """Convert a list of weight-2 (u, v) edges into a (|edges|, n_V0) F_2 matrix."""
     out = np.zeros((len(edges), n_V0), dtype=np.uint8)
     for r, (u, v) in enumerate(edges):
@@ -294,8 +291,8 @@ def _run_skiptree_on_port_subgraph(
     G_aux_full: nx.Graph,
     port: tuple[int, ...],
     root_port_idx: int,
-    incidence_aug: np.ndarray[Any, Any],
-) -> tuple[np.ndarray[Any, Any], list[int]]:
+    incidence_aug: np.ndarray,
+) -> tuple[np.ndarray, list[int]]:
     """Run SkipTree on the induced port subgraph; embed result back onto F_aug rows.
 
     The induced subgraph's vertex IDs are relabeled to [0, |port|) so the n×n P allocation inside

@@ -244,7 +244,7 @@ def _webster_x_bar_operator(
     data: dict[str, Any],
     name: str = "X_bar_1",
     pauli_type: str = "X",
-) -> np.ndarray[Any, Any]:
+) -> np.ndarray:
     """Extract the named logical operator from a Webster seed_set dict.
 
     L_support and R_support are sparse index lists (positions within each ell-half that are set to
@@ -266,7 +266,7 @@ def _webster_x_bar_operator(
     raise ValueError(f"{name!r} (pauli_type={pauli_type!r}) seed not found")
 
 
-def _webster_z_bar_operator(data: dict[str, Any], name: str = "Z_bar_1") -> np.ndarray[Any, Any]:
+def _webster_z_bar_operator(data: dict[str, Any], name: str = "Z_bar_1") -> np.ndarray:
     """Extract the named Z-type logical operator from a Webster seed_set dict.
 
     Convenience wrapper around _webster_x_bar_operator with pauli_type="Z".
