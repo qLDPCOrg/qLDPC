@@ -28,11 +28,13 @@ from .linalg import (
     kron,
     matmul,
 )
+from .ring_array import (
+    Protograph,
+    RingArray,
+)
 from .rings import (
     Element,
     GroupRing,
-    Protograph,
-    RingArray,
     RingMember,
 )
 from .wedderburn_artin import (
