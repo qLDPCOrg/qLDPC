@@ -41,26 +41,27 @@ def get_state_prep_diagnostic_circuit(
     More specifically, this method returns a diagnostic circuit that appends the following to the
     provided circuit:
 
-    - If 'add_flags is True', a detector for each measurement that is not addressed by an existing
-        detector in the provided circuit.  The added detectors are called "flag detectors".
+    - If ``add_flags is True``, a detector for each measurement that is not addressed by an existing
+      detector in the provided circuit.  The added detectors are called "flag detectors".
     - Noiseless measurements of all stabilizers of the code.
     - A detector for each of the noiseless stabilizer measurements.
-    - Noiseless measurements of observables that stabilize the state prepared by state_prep_circuit.
-    - Annotations of the measured observables (with OBSERVABLE_INCLUDE).
+    - Noiseless measurements of observables that stabilize the state prepared by
+      ``state_prep_circuit``.
+    - Annotations of the measured observables (with ``OBSERVABLE_INCLUDE``).
 
     The logical error rate of the diagnostic circuit is nominally the probability with which any of
     the annotated observables are flipped after decoding flag and stabilizer measurement outcomes.
     However, the details of decoding and the option to post-select on some detectors are left up
     to the user.
 
-    The second returned value is a DetectorRecord whose get_events method maps keys to detector
-    indices:
+    The second returned value is a ``DetectorRecord`` whose ``get_events`` method maps keys to
+    detector indices:
 
-    - get_events("prep") returns the indices of detectors already present in the provided
-        state_prep_circuit.
-    - get_events("flags") returns the indices of the flag detectors.
-    - get_events(stab_index)[0] is the index of the detector for the stabilizer
-        code.get_stabilizer_ops()[stab_index].
+    - ``get_events("prep")`` returns the indices of detectors already present in the provided
+      ``state_prep_circuit``.
+    - ``get_events("flags")`` returns the indices of the flag detectors.
+    - ``get_events(stab_index)[0]`` is the index of the detector for the stabilizer
+      ``code.get_stabilizer_ops()[stab_index]``.
 
     Args:
         code: The code whose logical state is prepared by the provided state_prep_circuit.
@@ -303,8 +304,8 @@ def get_logical_error_and_discard_rate(
             shot is discarded rather than counting as an error.
         dem_to_decode: The detector error model to decode.  This DEM should include _all_ detectors,
             including any that are post-selected on: the decoder receives every detector bit, for
-            consistency with how sinter works.  If dem_to_decode is None, this method decodes with
-            the (simplified) DEM sampled from circuit_or_dem.
+            consistency with how Sinter works.  If ``dem_to_decode is None``, this method decodes
+            with the (simplified) DEM sampled from ``circuit_or_dem``.
 
     Returns:
         A fraction of the retained samples in which at least one observable was decoded incorrectly.

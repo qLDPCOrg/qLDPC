@@ -40,7 +40,9 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     For more information, see the paper at https://arxiv.org/abs/2601.12509.
 
-    WARNING: This strategy is extremely SLOW due to unsolved problem with multiprocessing and MCTS.
+    .. warning::
+        This strategy is extremely slow because of unresolved multiprocessing and MCTS performance
+        problems.
     """
 
     def __init__(
@@ -284,6 +286,7 @@ class TreeNode:
     All problem data is handled by the TreeState.
 
     References:
+
     - https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
     """
 

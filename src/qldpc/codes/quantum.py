@@ -63,10 +63,10 @@ class TrivialCode(CSSCode):
         - ``num_stabs_x`` qubits each stabilized by a single-qubit X-type operator, and
         - ``num_stabs_z`` qubits each stabilized by a single-qubit Z-type operator.
 
-        If self_dual is True, then num_stabs_x and num_stabs_z must be equal, and the X-type and
-        Z-type stabilizers are paired into weight-two XX and ZZ operators on shared qubits, so that
-        matrix_x == matrix_z.  It is enough to specify just one of num_stabs_x and num_stabs_z in
-        this case; the other defaults to the same value.
+        If ``self_dual is True``, then ``num_stabs_x`` and ``num_stabs_z`` must be equal, and the
+        X-type and Z-type stabilizers are paired into weight-two XX and ZZ operators on shared
+        qubits, so that ``matrix_x == matrix_z``.  It is enough to specify just one of
+        ``num_stabs_x`` and ``num_stabs_z`` in this case; the other defaults to the same value.
         """
         field = abstract.resolve_field(field)
 
@@ -855,24 +855,27 @@ class QCCode(TBCode):
         generalizes the syndrome measurement circuit for BBCodes in arXiv:2308.07915 via the
         techniques used to construct a circuit for HGPCodes for Algorithm 2 in arXiv:2109.14609.
 
-        Let L and R denote, respectively, the data qubits addressed by the left and right half of
-        the parity check matrix for X-type stabilizers (self.matrix_x).  The sequence of subgraphs
-        constructed here is as follows:
+        Let ``L`` and ``R`` denote, respectively, the data qubits addressed by the left and right
+        half of the parity check matrix for X-type stabilizers (``self.matrix_x``).  The sequence of
+        subgraphs constructed here is as follows:
 
-        1. Group together edges of the Tanner graph by XLA, XRB, ZLB, and ZRA type, where XLA, for
-            example, refers to the edges associated for X-type parity checks that address data
-            qubits in L, whose connections are determined by the polynomial A.  The sequence of
-            subgraphs (XLA, XRB, ZLB, ZRA) corresponds to a valid syndrome measurement circuit.
-        2. Split A into two terms, A = A_1 + A_2, and correspondingly split the graphs XLA and
-            ZRA into the pairs of graphs (XLA_1, XLA_2) and (ZRA_1, ZRA_2).  Push XLA_1 to the end
-            of the subgraph sequence for syndrome measurement, and push ZRA_1 to the beginning,
-            thereby arriving at the final subgraph sequence (ZRA_1, XLA_2, XRB, ZLB, ZRA_2, XLA_1).
+        1. Group together edges of the Tanner graph by ``XLA``, ``XRB``, ``ZLB``, and ``ZRA`` type,
+           where ``XLA``, for example, refers to the edges associated for X-type parity checks that
+           address data qubits in ``L``, whose connections are determined by the polynomial ``A``.
+           The sequence of subgraphs ``(XLA, XRB, ZLB, ZRA)`` corresponds to a valid syndrome
+           measurement circuit.
+        2. Split ``A`` into two terms, ``A = A_1 + A_2``, and correspondingly split the graphs
+           ``XLA`` and ``ZRA`` into the pairs of graphs ``(XLA_1, XLA_2)`` and ``(ZRA_1, ZRA_2)``.
+           Push ``XLA_1`` to the end of the subgraph sequence for syndrome measurement, and push
+           ``ZRA_1`` to the beginning, thereby arriving at the final subgraph sequence
+           ``(ZRA_1, XLA_2, XRB, ZLB, ZRA_2, XLA_1)``.
 
-        Pushing XLA_1 to the end of the subgraph sequence corresponds to commuting associated gates
-        to the right of the syndrome measurement circuit.  Similarly to the situation in Figure 2c
-        of arXiv:2109.14609v1, commuting XLA_1 to the right of ZLB introduces CNOT gates between X
-        and Z check qubits; the X and Z support of these gates is given, respectively, by the row
-        and column of A_1 @ B.T.  These CNOTs get cancelled out by pushing ZRA_1 to the left of XLB.
+        Pushing ``XLA_1`` to the end of the subgraph sequence corresponds to commuting associated
+        gates to the right of the syndrome measurement circuit.  Similarly to the situation in
+        Figure 2c of arXiv:2109.14609v1, commuting ``XLA_1`` to the right of ``ZLB`` introduces CNOT
+        gates between X and Z check qubits; the X and Z support of these gates is given,
+        respectively, by the row and column of ``A_1 @ B.T``.  These CNOTs get cancelled out by
+        pushing ``ZRA_1`` to the left of ``XLB``.
         """
         assert not strategy, (
             f"{type(self)}.get_syndrome_subgraphs does not use an edge coloration strategy"
@@ -1049,7 +1052,7 @@ class BBCode(QCCode):
     ) -> tuple[int, int]:
         """Get the canonical position of a qubit in this code.
 
-        If folded_layout is True, "fold" the array of qubits as in Figure 2 of arXiv:2404.18809.
+        If ``folded_layout is True``, "fold" the array of qubits as in Figure 2 of arXiv:2404.18809.
         """
         return self.get_qubit_pos_from_orders(qubit, folded_layout, self.orders)
 
@@ -1062,7 +1065,7 @@ class BBCode(QCCode):
     ) -> tuple[int, int]:
         """Get the canonical position of a qubit in a BBCode with cyclic groups of the given orders.
 
-        If folded_layout is True, "fold" the array of qubits as in Figure 2 of arXiv:2404.18809.
+        If ``folded_layout is True``, "fold" the array of qubits as in Figure 2 of arXiv:2404.18809.
         """
         if isinstance(qubit, Node):
             qubit = BBCode.get_node_label_from_orders(qubit, orders)
@@ -1394,15 +1397,16 @@ class HGPCode(CSSCode):
 
         More specifically, this method constructs Tanner subgraphs as follows:
 
-        1. For the classical seed code that defines vertical edges of this HGPCode (self.code_a),
-            color the edges of its Tanner graph, and number these colors starting from zero.
+        1. For the classical seed code that defines vertical edges of this ``HGPCode``
+           (``self.code_a``), color the edges of its Tanner graph, and number these colors starting
+           from zero.
         2. Even edges get assigned a "north" or "south" direction if they are associated,
-            respectively, with X-type or Z-type parity checks.  Odd edges get assigned the opposite
-            direction.
+           respectively, with X-type or Z-type parity checks.  Odd edges get assigned the opposite
+           direction.
         3. Step 1 is repeated for the classical seed code that defines horizontal edges of this
-            HGPCode (self.code_b), but the resulting edges get an "east" or "west" direction
-            according to the parity of their color alone: even colors go east and odd colors go
-            west, irrespective of parity check type.
+           ``HGPCode`` (``self.code_b``), but the resulting edges get an "east" or "west" direction
+           according to the parity of their color alone: even colors go east and odd colors go west,
+           irrespective of parity check type.
 
         Any two overlapping X-type and Z-type parity checks of an HGPCode share exactly two data
         qubits, so the induced circuit measures the correct syndrome only if the X-type gate comes
@@ -1865,15 +1869,15 @@ class LPCode(CSSCode):
 
     Notes:
 
-    - A lifted product code with RingArrays of size ``1×1`` is a two-block code (more
-        specifically, a two-block group-algebra code).  If the base group of the RingArrays is a
-        cyclic group, the resulting lifted product code is a generalized bicycle code.
-    - A lifted product code with RingArrays whose entries get lifted to ``1×1`` matrices is a
-        hypergraph product code built from the lifted RingArrays.
-    - One way to get an LPCode: take a classical code with parity check matrix H and multiply it by
-        a diagonal matrix ``D = diag(a_1, a_2, ... a_n)``, where all ``{a_j}`` are elements of a
-        group algebra.  The RingArray ``P = H @ D`` can then be used for one of the RingArrays of
-        an LPCode.
+    - A lifted product code with ``RingArray`` instances of size ``1×1`` is a two-block code (more
+      specifically, a two-block group-algebra code).  If the base group of the ``RingArray``
+      instances is a cyclic group, the resulting lifted product code is a generalized bicycle code.
+    - A lifted product code with ``RingArray`` instances whose entries get lifted to ``1×1``
+      matrices is a hypergraph product code built from the lifted ``RingArray`` instances.
+    - One way to get an ``LPCode``: take a classical code with parity check matrix ``H`` and
+      multiply it by a diagonal matrix ``D = diag(a_1, a_2, ... a_n)``, where all ``{a_j}`` are
+      elements of a group algebra.  The ``RingArray`` ``P = H @ D`` can then be used for one of the
+      ``RingArray`` inputs of an ``LPCode``.
 
     References:
 

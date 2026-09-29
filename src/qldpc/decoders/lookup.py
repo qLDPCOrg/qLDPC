@@ -376,8 +376,8 @@ class LookupDecoder:
         is rejected: the errors that get enumerated take their values from the parity check matrix's
         field, so an observable over any other field cannot say what they flip.
 
-        With symplectic=True, an error assigns both an X and a Z component to each qudit, and the
-        flip that it induces in an observable is their symplectic product,
+        With ``symplectic=True``, an error assigns both an X and a Z component to each qudit, and
+        the flip that it induces in an observable is their symplectic product,
         ``observable @ symplectic_conjugate(error)``.  That product is obtained by multiplying the
         error by -symplectic_conjugate(observable_flip_matrix), in the same way that
         _iter_errors_and_syndromes obtains a syndrome from a parity check matrix.
@@ -496,7 +496,7 @@ class LookupDecoder:
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error.
 
-        If initialized with predict_observable_flips=True, return the inferred observable flip.
+        If initialized with ``predict_observable_flips=True``, return the inferred observable flip.
         """
         key = self._get_syndrome_key(syndrome)
         if key is None:

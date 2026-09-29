@@ -327,7 +327,8 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
     Intuitively, primitive central idempotents act like projectors onto orthogonal components of a
     ring.
 
-    See https://en.wikipedia.org/wiki/Idempotent_(ring_theory).
+    See `Idempotent (ring theory)
+    <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
 
     Returns a tuple of idempotents, where each idempotent is represented by a tuple of terms (to
     sum), and each term is in turn a tuple (coefficient, permutation).  Here the coefficient is an

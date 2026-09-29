@@ -55,47 +55,47 @@ def get_memory_experiment(
     of the code, and detectors are added to enforce that
     (a) the syndrome from the first round of QEC is trivial, and
     (b) every subsequent round of QEC yields the same syndrome as the preceding round.
-    We refer to num_rounds rounds of syndrome measurement as one logical QEC cycle.
+    We refer to ``num_rounds`` rounds of syndrome measurement as one logical QEC cycle.
 
-    If the basis is Pauli.X or Pauli.Z, then the memory experiment only tracks errors in the logical
-    Pauli operators of that type.  If basis is None, the circuit entangles the code with a noiseless
-    ancilla to track errors in all logical Pauli operators.
+    If ``basis`` is ``Pauli.X`` or ``Pauli.Z``, then the memory experiment only tracks errors in the
+    logical Pauli operators of that type.  If ``basis is None``, the circuit entangles the code with
+    a noiseless ancilla to track errors in all logical Pauli operators.
 
-    More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
-    following:
+    More specifically, if ``basis`` is ``Pauli.X`` or ``Pauli.Z`` then the memory experiment
+    performs the following:
 
     1. Initialize all data qubits to a +1 eigenstate of the specified basis: ``|0>`` for Z,
-        ``|+>`` for X.
+       ``|+>`` for X.
     2. Perform an initial round of QEC, adding detectors for the basis-type stabilizers.
-    3. Perform num_rounds - 1 additional QEC rounds, adding detectors to enforce that basis-type
-        stabilizers have not changed between adjacent rounds of QEC.
+    3. Perform ``num_rounds - 1`` additional QEC rounds, adding detectors to enforce that basis-type
+       stabilizers have not changed between adjacent rounds of QEC.
     4. Measure all data qubits in the specified basis.
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
 
-    If a noise_model is provided, then noise is added to the assembled fixed-basis circuit so that
-    moments are accounted for across the initialization, QEC, and readout seams.
+    If a ``noise_model`` is provided, then noise is added to the assembled fixed-basis circuit so
+    that moments are accounted for across the initialization, QEC, and readout seams.
 
-    If basis is None, then the memory experiment noiselessly initializes each logical qubit of the
-    code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
-    a noisy logical QEC cycle.  This initialization makes it possible to meaningfully track errors
-    in both X-type and Z-type logical operators of a code.  The probability of an error in any
-    logical operator is then essentially the process infidelity (or entanglement infidelity) of the
-    logical QEC cycle.
+    If ``basis is None``, then the memory experiment noiselessly initializes each logical qubit of
+    the code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before
+    running a noisy logical QEC cycle.  This initialization makes it possible to meaningfully track
+    errors in both X-type and Z-type logical operators of a code.  The probability of an error in
+    any logical operator is then essentially the process infidelity (or entanglement infidelity) of
+    the logical QEC cycle.
 
-    More specifically, if basis is None then the memory experiment performs the following:
+    More specifically, if ``basis is None`` then the memory experiment performs the following:
 
     1. Prepare a logical all-``|0>`` state of the code.
     2. For each logical qubit of the code, prepare an ancilla qubit in ``|+>``, and apply an
-        ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
-        ``|00> + |11>`` of logical qubits with their respective ancillas.
+       ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
+       ``|00> + |11>`` of logical qubits with their respective ancillas.
     3. Perform a logical QEC cycle as before, but now adding detectors for all stabilizers.
     4. Measure all stabilizers (with MPP gates).
 
     Unlike the fixed-basis experiment, the combined basis experiment only makes sense when starting
     from the Bell state.  It is also no longer possible to measure out all data qubits to infer all
     stabilizers.  Initialization and readout (measuring final stabilizers) are therefore noiseless.
-    If a noise_model is provided, then noise is added to the logical QEC cycle alone.  Otherwise,
-    the initialization and readout sub-circuits are wrapped in a single-repetition
+    If a ``noise_model`` is provided, then noise is added to the logical QEC cycle alone.
+    Otherwise, the initialization and readout sub-circuits are wrapped in a single-repetition
     stim.CircuitRepeatBlock tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate that these
     sub-circuits should be immune to noise.  Tagged coordinate annotations likewise identify the
     reference qubits as immune when noise is added later.

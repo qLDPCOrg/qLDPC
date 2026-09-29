@@ -877,16 +877,16 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 explicit detector_to_time mapping when this fallback does not match the model's
                 coordinate convention.  Only the detectors that get windowed are consulted, and one
                 of those with no coordinates at all is rejected, since there is nothing to read a
-                time index from.
-                WARNING: if a detector_to_time mapping is not None, it will be assumed to be
-                both valid and compatible with any detector error model that this decoder is later
-                compiled to with SlidingWindowDecoder.compile_decoder_for_dem.
+                time index from.  A non-None ``detector_to_time`` mapping is assumed to be valid and
+                compatible with every detector error model that this decoder is later compiled to
+                with ``SlidingWindowDecoder.compile_decoder_for_dem``.
             simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             **decoder_kwargs: Arguments to pass to qldpc.decoders.get_decoder when compiling a
                 custom decoder from a detector error model.
+
         """
         SinterDecoder.__init__(
             self, simplify=simplify, decompose_errors=decompose_errors, **decoder_kwargs
@@ -908,8 +908,9 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
     ) -> CompiledSequentialWindowDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
-        WARNING: if this decoder was initialized with a `detector_to_time` mapping, it is assumed
-        that the mapping is both valid and compatible with the detector error model provided here.
+        .. warning::
+            If this decoder was initialized with a ``detector_to_time`` mapping, the mapping is
+            assumed to be valid and compatible with the detector error model provided here.
 
         See help(sinter.Decoder) for additional information.
         """

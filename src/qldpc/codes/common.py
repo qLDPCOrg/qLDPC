@@ -1615,8 +1615,8 @@ class QuditCode(AbstractCode):
     ) -> galois.FieldArray:
         """Basis of stabilizer group generators for this code.
 
-        If canonicalized is True, guarantee that the stabilizer matrix is canonicalized (i.e., row
-        reduced) such that its rows are a minimal generating set for the stabilizer group.
+        If ``canonicalized is True``, guarantee that the stabilizer matrix is canonicalized (i.e.,
+        row reduced) such that its rows are a minimal generating set for the stabilizer group.
 
         The symplectic argument is provided for compatibility with CSSCode.get_stabilizer_ops, and
         must always be True for a non-CSS code.
@@ -1680,8 +1680,9 @@ class QuditCode(AbstractCode):
         """The destabilizers of this code.
 
         Destabilizers are defined relative to a specific minimal choice of stabilizer generators.
-        This method first considers the stabilizer matrix built by self.get_stabilizer_ops().  If
-        that choice is overcomplete, this method uses self.get_stabilizer_ops(canonicalized=True).
+        This method first considers the stabilizer matrix built by
+        ``self.get_stabilizer_ops()``.  If that choice is overcomplete, this method uses
+        ``self.get_stabilizer_ops(canonicalized=True)``.
 
         If a pauli (Pauli.X or Pauli.Z) is provided, return only the destabilizers whose leading
         (first nonzero) entry has that type.  Since each destabilizer anticommutes with the single
@@ -2072,7 +2073,7 @@ class QuditCode(AbstractCode):
         mapping is provided, then this method "interleaves" intermediate qubits, using each logical
         qubit of an outer block as a physical qubit of a different inner code block.
 
-        If inherit_logicals is True, use the logical operators of the inner code as the logical
+        If ``inherit_logicals is True``, use the logical operators of the inner code as the logical
         operators of the concatenated code.  Otherwise, logical operators of the concatenated code
         get recomputed from scratch.
         """
@@ -2336,10 +2337,10 @@ class CSSCode(QuditCode):
     ) -> None:
         """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks.
 
-        If promise_equal_distance_xz is True, the X-type and Z-type logical operators are assumed to
-        have equal minimum weight, which lets the code distance be computed from one type alone.
-        This promise is trusted rather than verified: passing True when it does not hold makes
-        get_distance return an incorrect (and compute-order-dependent) distance.
+        If ``promise_equal_distance_xz is True``, the X-type and Z-type logical operators are
+        assumed to have equal minimum weight, which lets the code distance be computed from one
+        type alone.  This promise is trusted rather than verified: passing ``True`` when it does
+        not hold makes get_distance return an incorrect (and compute-order-dependent) distance.
         """
         self._code_x = ClassicalCode(code_x, field)  # X-type parity checks, measuring Z-type errors
         self._code_z = ClassicalCode(code_z, field)  # Z-type parity checks, measuring X-type errors
@@ -2614,7 +2615,7 @@ class CSSCode(QuditCode):
 
         If this method is passed a pauli operator (Pauli.X or Pauli.Z), it returns only the logical
         operators of that type.  This matrix has shape ``(k, n)`` by default, but is expanded into
-        a matrix with shape ``(k, 2 * n)`` if this method is called with symplectic=True.
+        a matrix with shape ``(k, 2 * n)`` if this method is called with ``symplectic=True``.
 
         Logical X-type operators only address physical qudits by physical X-type operators, and
         logical Z-type operators only address physical qudits by physical Z-type operators.
@@ -2928,8 +2929,8 @@ class CSSCode(QuditCode):
     ) -> galois.FieldArray:
         """Basis of stabilizer group generators for this code.
 
-        If canonicalized is True, guarantee that the stabilizer matrix is canonicalized (i.e., row-
-        reduced) such that its rows are a minimal generating set for the stabilizer group.
+        If ``canonicalized is True``, guarantee that the stabilizer matrix is canonicalized (i.e.,
+        row-reduced) such that its rows are a minimal generating set for the stabilizer group.
         """
         assert pauli is None or pauli in PAULIS_XZ
         if self._stabilizer_ops is None and self.is_subsystem_code:
@@ -3400,7 +3401,7 @@ class CSSCode(QuditCode):
         mapping is provided, then this method "interleaves" intermediate qubits, using each logical
         qubit of an outer block as a physical qubit of a different inner code block.
 
-        If inherit_logicals is True, use the logical operators of the inner code as the logical
+        If ``inherit_logicals is True``, use the logical operators of the inner code as the logical
         operators of the concatenated code.  Otherwise, logical operators of the concatenated code
         get recomputed from scratch.
         """
