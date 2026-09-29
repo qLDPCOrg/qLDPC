@@ -18,6 +18,18 @@ def test_pauli() -> None:
     with pytest.raises(ValueError, match="Invalid Pauli operator"):
         objects.Pauli.from_string("Q")
 
+    # from_string (and therefore coerce) is case-insensitive
+    for string in ["i", "x", "y", "z"]:
+        assert objects.Pauli.from_string(string) is objects.Pauli.from_string(string.upper())
+
+    # Pauli.coerce accepts Pauli operators and (case-insensitive) strings
+    for pauli in [objects.Pauli.I, objects.Pauli.X, objects.Pauli.Y, objects.Pauli.Z]:
+        assert objects.Pauli.coerce(pauli) is pauli
+        assert objects.Pauli.coerce(str(pauli)) is pauli
+        assert objects.Pauli.coerce(str(pauli).lower()) is pauli
+    with pytest.raises(ValueError, match="Invalid Pauli operator"):
+        objects.Pauli.coerce("Q")
+
     assert ~objects.Pauli.Z == objects.Pauli.Z.swap_xz() == objects.Pauli.X
     assert ~objects.Pauli.X == objects.Pauli.X.swap_xz() == objects.Pauli.Z
     assert ~objects.Pauli.Y == objects.Pauli.Y

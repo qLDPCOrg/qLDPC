@@ -254,6 +254,23 @@ def test_build_gadget_deterministic() -> None:
     assert np.array_equal(g1.HZ_merged, g2.HZ_merged)
 
 
+def test_build_gadget_accepts_string_basis() -> None:
+    """String Pauli inputs ("x"/"X") are accepted anywhere basis: PauliXZ is expected."""
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g_pauli = build_gadget(code, x, basis=Pauli.X)
+    g_string = build_gadget(code, x, basis="x")
+    g_upper_string = build_gadget(code, x, basis="X")
+    assert g_pauli.basis is g_string.basis is g_upper_string.basis is Pauli.X
+    assert np.array_equal(g_pauli.incidence, g_string.incidence)
+    assert np.array_equal(g_pauli.HX_merged, g_upper_string.HX_merged)
+
+    with pytest.raises(ValueError, match="basis must be"):
+        build_gadget(code, x, basis="q")
+
+
 def test_build_gadget_rejects_non_x_logical() -> None:
     from qldpc.experimental.surgery.gadget import build_gadget
 

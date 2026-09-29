@@ -33,12 +33,13 @@ limitations under the License.
 from __future__ import annotations
 
 import dataclasses
+from typing import cast
 
 import galois
 import numpy as np
 
 from qldpc.codes.common import CSSCode
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 from .construction import _CSSConeMaps, _CSSConeResult
 
@@ -221,7 +222,7 @@ def build_gadget(
     code: CSSCode,
     x: np.ndarray,
     *,
-    basis: PauliXZ,
+    basis: PauliXZLike,
 ) -> GadgetLayout:
     """Webster §II A L=1 gadget: restriction, gauge fix, assembly. Deterministic in its arguments.
 
@@ -246,6 +247,11 @@ def build_gadget(
             f"build_gadget requires a qubit code, got one over GF({code.field.order}). The gauge "
             f"fix, the Cheeger boost and the merged-code assembly are all mod 2."
         )
+    if isinstance(basis, str):
+        try:
+            basis = cast(PauliXZ, Pauli.from_string(basis))
+        except ValueError:
+            pass  # fall through to the basis-validation error below
     x = np.asarray(x)
     # Check before the cast to uint8, which wraps 256 to 0 and 257 to 1 rather than complaining.
     if ((x != 0) & (x != 1)).any():

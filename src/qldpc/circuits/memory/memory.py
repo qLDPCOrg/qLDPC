@@ -3,14 +3,14 @@
 """Circuit construction utilities for quantum error-corrected memory experiments."""
 
 from collections.abc import Collection, Sequence
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 import numpy as np
 import stim
 
 from qldpc import codes
 from qldpc._util import format_docstring
-from qldpc.objects import Node, Pauli, PauliXZ
+from qldpc.objects import Node, Pauli, PauliXZ, PauliXZLike
 
 from ..bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
 from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
@@ -41,7 +41,7 @@ class MemoryExperimentParts(NamedTuple):
 @format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
 def get_memory_experiment(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ | None = Pauli.X,
+    basis: PauliXZLike | None = Pauli.X,
     num_rounds: int = 1,
     *,
     noise_model: NoiseModel | None = None,
@@ -166,6 +166,7 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
+    basis = None if basis is None else cast(PauliXZ, Pauli.coerce(basis))
     initialization, qec_cycle, readout, _, _, qubit_ids = get_memory_experiment_parts(
         code,
         basis=basis,
@@ -197,7 +198,7 @@ def get_memory_experiment(
 @restrict_to_qubits
 def get_memory_experiment_parts(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ | None,
+    basis: PauliXZLike | None,
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
@@ -215,6 +216,7 @@ def get_memory_experiment_parts(
         detector_record: A record of all detectors in the above circuits.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
+    basis = None if basis is None else cast(PauliXZ, Pauli.coerce(basis))
     if isinstance(code, codes.ClassicalCode):
         # wrap classical inputs as one-sided CSS codes for the shared circuit path
         matrix_z = code.matrix if basis is Pauli.Z else code.field.Zeros((0, len(code)))
@@ -431,7 +433,7 @@ def get_observables(
     code: codes.QuditCode,
     data_qubits: Sequence[int] | None = None,
     *,
-    basis: PauliXZ | None = None,
+    basis: PauliXZLike | None = None,
     on_measurements: Sequence[stim.GateTarget] | bool = False,
     observable_indices: Sequence[int] | None = None,
 ) -> stim.Circuit:
@@ -451,6 +453,8 @@ def get_observables(
     Returns:
         A Stim circuit of OBSERVABLE_INCLUDE instructions.
     """
+    if isinstance(basis, str):
+        basis = cast(PauliXZ, Pauli.from_string(basis))
     if basis not in (None, Pauli.X, Pauli.Z):
         raise ValueError(
             f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"

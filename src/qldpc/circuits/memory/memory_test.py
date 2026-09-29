@@ -158,8 +158,10 @@ def test_errors() -> None:
         circuits.get_observables(codes.FiveQubitCode(), basis=Pauli.X, on_measurements=True)
     with pytest.raises(ValueError, match="fixed measurement basis"):
         circuits.get_observables(codes.SteaneCode(), basis=None, on_measurements=True)
-    with pytest.raises(ValueError, match="basis must be"):
-        circuits.get_observables(codes.SteaneCode(), basis="test", on_measurements=True)  # type:ignore[arg-type]
+    with pytest.raises(ValueError, match="Invalid Pauli operator"):
+        circuits.get_observables(codes.SteaneCode(), basis="test", on_measurements=True)
+    with pytest.raises(ValueError, match="basis must be Pauli.X or Pauli.Z"):
+        circuits.get_observables(codes.SteaneCode(), basis=0, on_measurements=True)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="num_rounds"):
         circuits.get_memory_experiment_parts(codes.RepetitionCode(3), Pauli.X, num_rounds=0)
     with pytest.raises(ValueError, match="one target per data qubit"):
@@ -200,3 +202,26 @@ def test_memory_rejects_unsynchronized_strategy_records() -> None:
             basis=Pauli.X,
             syndrome_measurement_strategy=BadStrategy(),
         )
+
+
+def test_string_basis_inputs() -> None:
+    """String Pauli inputs ("x"/"X"/"z"/"Z") are accepted anywhere a PauliXZ is expected."""
+    code = codes.RepetitionCode(3)
+
+    for pauli in PAULIS_XZ:
+        string = str(pauli)
+        circuit_from_pauli = circuits.get_memory_experiment(code, basis=pauli, num_rounds=2)
+        circuit_from_string = circuits.get_memory_experiment(code, basis=string, num_rounds=2)
+        circuit_from_lower_string = circuits.get_memory_experiment(
+            code, basis=string.lower(), num_rounds=2
+        )
+        assert circuit_from_pauli == circuit_from_string == circuit_from_lower_string
+
+        parts_from_pauli = circuits.get_memory_experiment_parts(code, pauli)
+        parts_from_string = circuits.get_memory_experiment_parts(code, string)
+        assert parts_from_pauli.qec_cycle == parts_from_string.qec_cycle
+
+    surface_code = codes.SurfaceCode(2)
+    observables_from_pauli = circuits.get_observables(surface_code, basis=Pauli.X)
+    observables_from_string = circuits.get_observables(surface_code, basis="x")
+    assert observables_from_pauli == observables_from_string

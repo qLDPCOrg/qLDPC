@@ -27,7 +27,7 @@ from qldpc import abstract, decoders, external, math
 from qldpc._util import format_docstring
 from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
-from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
+from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, PauliXZLike, QuditPauli
 
 from .distance import (
     DistanceBackend,
@@ -1240,7 +1240,7 @@ class QuditCode(AbstractCode):
         return int(np.max(np.count_nonzero(matrix_x | matrix_z, axis=1)))
 
     def get_logical_ops(
-        self, pauli: PauliXZ | None = None, *, recompute: bool = False, symplectic: bool = True
+        self, pauli: PauliXZLike | None = None, *, recompute: bool = False, symplectic: bool = True
     ) -> galois.FieldArray:
         """Basis of nontrivial logical Pauli operators for this code.
 
@@ -1272,6 +1272,7 @@ class QuditCode(AbstractCode):
         always be True for a non-CSS code.
         """
         assert symplectic is True
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
 
         # if requested, retrieve logical operators of one type only
@@ -1639,7 +1640,7 @@ class QuditCode(AbstractCode):
 
     def get_stabilizer_ops(
         self,
-        pauli: PauliXZ | None = None,
+        pauli: PauliXZLike | None = None,
         *,
         canonicalized: bool = False,
         recompute: bool = False,
@@ -1654,6 +1655,7 @@ class QuditCode(AbstractCode):
         must always be True for a non-CSS code.
         """
         assert symplectic is True
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
 
         # if requested, retrieve stabilizer operators of one type only
@@ -1679,7 +1681,7 @@ class QuditCode(AbstractCode):
         return self._stabilizer_ops
 
     def get_gauge_ops(
-        self, pauli: PauliXZ | None = None, *, symplectic: bool = True
+        self, pauli: PauliXZLike | None = None, *, symplectic: bool = True
     ) -> galois.FieldArray:
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
@@ -1690,6 +1692,7 @@ class QuditCode(AbstractCode):
         always be True for a non-CSS code.
         """
         assert symplectic is True
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
 
         if not self.is_subsystem_code:
@@ -1707,7 +1710,7 @@ class QuditCode(AbstractCode):
         return self._gauge_ops
 
     def get_destabilizer_ops(
-        self, pauli: PauliXZ | None = None, *, symplectic: bool = True
+        self, pauli: PauliXZLike | None = None, *, symplectic: bool = True
     ) -> galois.FieldArray:
         """The destabilizers of this code.
 
@@ -1726,6 +1729,7 @@ class QuditCode(AbstractCode):
         must always be True for a non-CSS code.
         """
         assert symplectic is True
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
 
         # if requested, retrieve destabilizer operators of one type only
@@ -2435,10 +2439,11 @@ class CSSCode(QuditCode):
     @staticmethod
     def classical(
         code: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        pauli: PauliXZ,
+        pauli: PauliXZLike,
         field: int | type[galois.FieldArray] | None = None,
     ) -> CSSCode:
         """Construct a CSSCode of only X-type or Z-type stabilizers."""
+        pauli = cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli in PAULIS_XZ
         code_xz = ClassicalCode(code, field)
         code_zx = code_xz.field.Zeros((0, len(code_xz)))
@@ -2464,13 +2469,15 @@ class CSSCode(QuditCode):
         """Z-type parity checks."""
         return self.code_z.matrix
 
-    def get_code(self, pauli: PauliXZ) -> ClassicalCode:
+    def get_code(self, pauli: PauliXZLike) -> ClassicalCode:
         """Retrieve the classical code of stabilizers of a given type."""
+        pauli = cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli in PAULIS_XZ
         return self.code_x if pauli is Pauli.X else self.code_z
 
-    def get_matrix(self, pauli: PauliXZ) -> galois.FieldArray:
+    def get_matrix(self, pauli: PauliXZLike) -> galois.FieldArray:
         """Retrieve the classical code of stabilizers of a given type."""
+        pauli = cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli in PAULIS_XZ
         return self.matrix_x if pauli is Pauli.X else self.matrix_z
 
@@ -2495,8 +2502,9 @@ class CSSCode(QuditCode):
         ]
         return self.graph.subgraph(data_nodes + check_nodes)
 
-    def get_graph(self, pauli: PauliXZ) -> nx.DiGraph:
+    def get_graph(self, pauli: PauliXZLike) -> nx.DiGraph:
         """Subgraph of the Tanner graph for pauli-type parity checks."""
+        pauli = cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli in PAULIS_XZ
         return self.graph_x if pauli is Pauli.X else self.graph_z
 
@@ -2661,7 +2669,7 @@ class CSSCode(QuditCode):
         return self.code_x.rank + self.code_z.rank
 
     def get_logical_ops(
-        self, pauli: PauliXZ | None = None, *, recompute: bool = False, symplectic: bool = False
+        self, pauli: PauliXZLike | None = None, *, recompute: bool = False, symplectic: bool = False
     ) -> galois.FieldArray:
         """Basis of nontrivial logical Pauli operators for this code.
 
@@ -2688,6 +2696,7 @@ class CSSCode(QuditCode):
         fill in the remaining entries of the logical operator matrix as required by parity check
         constraints.
         """
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
 
         # if requested, retrieve logical operators of one type only
@@ -2982,7 +2991,7 @@ class CSSCode(QuditCode):
 
     def get_stabilizer_ops(
         self,
-        pauli: PauliXZ | None = None,
+        pauli: PauliXZLike | None = None,
         *,
         canonicalized: bool = False,
         recompute: bool = False,
@@ -2993,6 +3002,7 @@ class CSSCode(QuditCode):
         If ``canonicalized is True``, guarantee that the stabilizer matrix is canonicalized (i.e.,
         row-reduced) such that its rows are a minimal generating set for the stabilizer group.
         """
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
         if self._stabilizer_ops is None and self.is_subsystem_code:
             # keep gauge combinations in each sector that commute with the opposite sector
@@ -3017,13 +3027,14 @@ class CSSCode(QuditCode):
         return stabilizer_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
 
     def get_gauge_ops(
-        self, pauli: PauliXZ | None = None, *, recompute: bool = False, symplectic: bool = False
+        self, pauli: PauliXZLike | None = None, *, recompute: bool = False, symplectic: bool = False
     ) -> galois.FieldArray:
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
         logical Pauli operators computed by CSSCode.get_logical_ops.
         """
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
         gauge_ops = QuditCode.get_gauge_ops(self, pauli)
         if symplectic or pauli is None:
@@ -3031,12 +3042,13 @@ class CSSCode(QuditCode):
         return gauge_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
 
     def get_destabilizer_ops(
-        self, pauli: PauliXZ | None = None, *, symplectic: bool = False
+        self, pauli: PauliXZLike | None = None, *, symplectic: bool = False
     ) -> galois.FieldArray:
         """The destabilizers of this code.
 
         See help(qldpc.codes.QuditCode.get_destabilizer_ops) for an explanation of destabilizers.
         """
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
         destabilizer_ops = QuditCode.get_destabilizer_ops(self, pauli)
         if symplectic or pauli is None:
@@ -3058,7 +3070,7 @@ class CSSCode(QuditCode):
 
     def get_distance(
         self,
-        pauli: PauliXZ | None = None,
+        pauli: PauliXZLike | None = None,
         *,
         bound: int | bool | None = None,
         use_numba: bool = False,
@@ -3092,7 +3104,7 @@ class CSSCode(QuditCode):
 
     def get_distance_exact(
         self,
-        pauli: PauliXZ | None = None,
+        pauli: PauliXZLike | None = None,
         *,
         cutoff: int = 1,
         use_numba: bool = False,
@@ -3110,6 +3122,7 @@ class CSSCode(QuditCode):
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
 
@@ -3173,11 +3186,12 @@ class CSSCode(QuditCode):
         """Method for subclasses to compute specialized exact distance calculations."""
         return NotImplemented
 
-    def get_distance_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
+    def get_distance_if_known(self, pauli: PauliXZLike | None = None) -> int | float | None:
         """Retrieve a distance, if known.
 
         Otherwise, return None.
         """
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
 
         # the distances of dimension-0 codes are undefined
@@ -3201,7 +3215,7 @@ class CSSCode(QuditCode):
     def get_distance_bound(
         self,
         num_trials: int = 1,
-        pauli: PauliXZ | None = None,
+        pauli: PauliXZLike | None = None,
         *,
         cutoff: int | None = None,
         backend: DistanceBackend = "auto",
@@ -3232,6 +3246,7 @@ class CSSCode(QuditCode):
             An upper bound on distance if it is defined, or np.nan otherwise.
         """
         validate_distance_backend(backend)
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
         if num_trials == 0 or cutoff == len(self):
@@ -3288,7 +3303,7 @@ class CSSCode(QuditCode):
 
     def get_distance_bound_with_decoder(
         self,
-        pauli: PauliXZ,
+        pauli: PauliXZLike,
         num_trials: int = 1,
         *,
         cutoff: int | None = None,
@@ -3346,6 +3361,7 @@ class CSSCode(QuditCode):
         by enforcing that it has trivial stabilizers and that it anti-commutes with a random nonzero
         choice of the logical operators in ``L_z``.
         """
+        pauli = cast(PauliXZ, Pauli.coerce(pauli))
         cutoff = cutoff or 0
 
         # pretend without loss of generality that we are computing the X-distance
@@ -3384,13 +3400,16 @@ class CSSCode(QuditCode):
         self._distance_x = self._distance_z = self._distance = None
         return self
 
-    def reduce_logical_op(self, pauli: PauliXZ, logical_index: int, **decoder_kwargs: Any) -> Self:
+    def reduce_logical_op(
+        self, pauli: PauliXZLike, logical_index: int, **decoder_kwargs: Any
+    ) -> Self:
         """Reduce the weight of a logical operator.
 
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
         that it commutes with all logical operators except its dual.  This is essentially the same
         method as that used in CSSCode.get_distance_bound.
         """
+        pauli = cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is Pauli.X or pauli is Pauli.Z
         assert 0 <= logical_index < self.dimension
 
@@ -3417,8 +3436,9 @@ class CSSCode(QuditCode):
         logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
         return self
 
-    def reduce_logical_ops(self, pauli: PauliXZ | None = None, **decoder_kwargs: Any) -> Self:
+    def reduce_logical_ops(self, pauli: PauliXZLike | None = None, **decoder_kwargs: Any) -> Self:
         """Reduce the weight of all logical operators."""
+        pauli = None if pauli is None else cast(PauliXZ, Pauli.coerce(pauli))
         assert pauli is None or pauli in PAULIS_XZ
         if pauli is None:
             self.reduce_logical_ops(Pauli.X, **decoder_kwargs)

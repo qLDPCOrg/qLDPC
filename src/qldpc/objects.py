@@ -58,7 +58,8 @@ class Pauli(enum.Enum):
 
     @staticmethod
     def from_string(string: str) -> Pauli:
-        """Build a Pauli operator from a string."""
+        """Build a Pauli operator from a string (case-insensitive)."""
+        string = string.upper()
         if string == "I":
             return Pauli.I
         elif string == "Z":
@@ -68,6 +69,11 @@ class Pauli(enum.Enum):
         elif string == "Y":
             return Pauli.Y
         raise ValueError(f"Invalid Pauli operator: {string}")
+
+    @staticmethod
+    def coerce(value: PauliLike) -> Pauli:
+        """Coerce a Pauli operator or a case-insensitive "I"/"X"/"Y"/"Z" string into a Pauli."""
+        return value if isinstance(value, Pauli) else Pauli.from_string(value)
 
     @property
     def index(self) -> int:
@@ -85,6 +91,11 @@ class Pauli(enum.Enum):
 
 PauliXZ = Literal[Pauli.X, Pauli.Z]
 PAULIS_XZ: list[PauliXZ] = [Pauli.X, Pauli.Z]
+
+# Accepted "loose" input types that can be coerced into a Pauli / PauliXZ via Pauli.coerce.
+# Strings are matched case-insensitively against "I", "X", "Y", "Z".
+PauliLike = Pauli | str
+PauliXZLike = PauliXZ | str
 
 
 @dataclasses.dataclass(frozen=True)

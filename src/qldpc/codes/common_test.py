@@ -1584,3 +1584,29 @@ def test_capacity_min_error_weight() -> None:
         num_samples=100, max_error_rate=0.2, min_error_weight=6
     )
     assert func(0.1) == (0, 0)
+
+
+def test_string_pauli_inputs() -> None:
+    """String Pauli inputs ("x"/"X"/"z"/"Z") are accepted anywhere a PauliXZ is expected."""
+    code = codes.SteaneCode()
+
+    for pauli in PAULIS_XZ:
+        string = str(pauli)
+        lower_string = string.lower()
+
+        assert np.array_equal(code.get_logical_ops(pauli), code.get_logical_ops(string))
+        assert np.array_equal(code.get_logical_ops(pauli), code.get_logical_ops(lower_string))
+        assert np.array_equal(code.get_stabilizer_ops(pauli), code.get_stabilizer_ops(string))
+        assert np.array_equal(code.get_destabilizer_ops(pauli), code.get_destabilizer_ops(string))
+        assert code.get_distance_exact(pauli) == code.get_distance_exact(string)
+        assert code.get_distance_if_known(pauli) == code.get_distance_if_known(string)
+        assert code.get_code(pauli) == code.get_code(string)
+        assert np.array_equal(code.get_matrix(pauli), code.get_matrix(string))
+
+    classical_code = codes.HammingCode(3)
+    css_from_pauli = codes.CSSCode.classical(classical_code, Pauli.X)
+    css_from_string = codes.CSSCode.classical(classical_code, "x")
+    assert css_from_pauli.matrix_x.shape == css_from_string.matrix_x.shape
+
+    with pytest.raises(ValueError, match="Invalid Pauli operator"):
+        code.get_logical_ops("q")
