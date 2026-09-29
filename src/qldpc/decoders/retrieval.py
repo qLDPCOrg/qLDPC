@@ -4,11 +4,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import inspect
-import sys
-from collections.abc import Callable, Sequence
-from typing import ParamSpec, TypeVar
+import warnings
+from collections.abc import Callable, Collection, Sequence
+from typing import Generic, Literal, ParamSpec, Protocol, TypeAlias, TypeVar, cast
 
 import galois
 import numpy as np
@@ -21,8 +22,8 @@ from qldpc.math import IntegerArray
 
 from .custom import (
     PLACEHOLDER_ERROR_RATE,
-    BatchDecoder,
-    Decoder,
+    BatchErrorDecoder,
+    ErrorDecoder,
     GUFDecoder,
     ILPDecoder,
     RelayBPDecoder,
@@ -31,54 +32,172 @@ from .dems import DetectorErrorModelArrays
 from .lookup import LookupDecoder
 
 _Parameters = ParamSpec("_Parameters")
-_Decoder = TypeVar("_Decoder", bound=Decoder)
+_Decoder = TypeVar("_Decoder", bound=ErrorDecoder)
+_DecoderT_co = TypeVar("_DecoderT_co", bound=ErrorDecoder, covariant=True)
+
+PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
+
+
+@dataclasses.dataclass(frozen=True, slots=True, eq=False)
+class DecoderSpec(Generic[_DecoderT_co]):
+    """Deferred, typed construction settings for an error decoder."""
+
+    _builder: Callable[..., _DecoderT_co]
+    _options: tuple[tuple[str, object], ...]
+
+    def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
+        """Build an error decoder for a parity-check matrix or detector error model."""
+        return self._builder(pcm_or_dem, **dict(self._options))
+
+
+class ErrorDecoderConstructor(Protocol):
+    """Callable that builds an error decoder from a matrix or detector error model."""
+
+    def __call__(self, pcm_or_dem: PcmOrDem, /) -> ErrorDecoder:
+        """Build an error decoder."""
+
+
+ErrorDecoderInput: TypeAlias = (
+    DecoderSpec[ErrorDecoder] | ErrorDecoder | ErrorDecoderConstructor | None
+)
+
+
+def _decoder_spec(builder: Callable[..., _Decoder], **options: object) -> DecoderSpec[_Decoder]:
+    """Store deferred decoder construction options."""
+    return DecoderSpec(builder, tuple(options.items()))
 
 
 def decode(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    pcm_or_dem: PcmOrDem,
     syndrome: npt.NDArray[np.int_],
+    *,
+    decoder: ErrorDecoderInput = None,
     **decoder_args: object,
 ) -> npt.NDArray[np.int_]:
     """Construct a decoder and decode a syndrome.
 
-    Return the result of decoding.
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model.
+        syndrome: The syndrome to decode.
+        decoder: Deferred decoder settings, a prebuilt error decoder, a custom constructor, or None
+            to select the default decoder.
+        **decoder_args: Deprecated decoder-selection and construction arguments.
+
+    Returns:
+        The inferred error.
     """
-    decoder = get_decoder(pcm_or_dem, **decoder_args)
-    return decoder.decode(syndrome)
+    error_decoder = _resolve_decoder(pcm_or_dem, decoder, decoder_args)
+    return error_decoder.decode(syndrome)
 
 
 def get_decoder(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
-) -> Decoder:
-    """Retrieve a decoder.
+    pcm_or_dem: PcmOrDem,
+    *,
+    decoder: ErrorDecoderInput = None,
+    **decoder_args: object,
+) -> ErrorDecoder:
+    """Build or retrieve an error decoder.
 
-    This method looks for a keyword "with_<DECODER_NAME>: bool" argument, and returns
-    ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.  At most one such argument may be
-    truthy, and a ValueError is raised otherwise.  All remaining keyword arguments go to that
-    constructor, so a decoder-specific option (such as the decompose_errors argument of
-    get_decoder_MWPM) is only accepted when its decoder is selected.
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model.
+        decoder: Deferred decoder settings, a prebuilt error decoder, a custom constructor, or None
+            to select the default decoder.
+        **decoder_args: Deprecated decoder-selection and construction arguments.
 
-    This method also recognizes the following keyword arguments for injecting a custom decoder:
+    Returns:
+        An error decoder configured for pcm_or_dem.
 
-    - decoder_constructor: return ``decoder_constructor(pcm_or_dem, **decoder_args)``.
-    - static_decoder: ignore all other arguments and return static_decoder.
+    If decoder is None, this method defaults to generalized union-find (GUF) for non-binary parity
+    check matrices, and BP+OSD otherwise.
 
-    If no decoder is specified, this method defaults to generalized union-find (GUF) for non-binary
-    parity check matrices, and BP+OSD otherwise.
+    The legacy ``with_<NAME>``, ``decoder_constructor``, ``static_decoder``, and free-form decoder
+    arguments remain available during a deprecation period.
     """
+    return _resolve_decoder(pcm_or_dem, decoder, decoder_args)
+
+
+def _resolve_decoder(
+    pcm_or_dem: PcmOrDem,
+    decoder: ErrorDecoderInput,
+    decoder_args: dict[str, object],
+    *,
+    warn_deprecated: bool = True,
+) -> ErrorDecoder:
+    """Resolve an error decoder, optionally suppressing a warning emitted by an outer API."""
+    if decoder is not None:
+        if decoder_args:
+            raise ValueError(
+                "Cannot combine decoder= with deprecated decoder-selection or construction arguments"
+            )
+        if getattr(decoder, "decodes_observables", False):
+            raise TypeError("decoder must predict errors rather than observables")
+        if isinstance(decoder, DecoderSpec):
+            return _validate_error_decoder(decoder.build(pcm_or_dem), "A decoder spec")
+        if isinstance(decoder, type):
+            return _validate_error_decoder(decoder(pcm_or_dem), "A decoder constructor")
+        if hasattr(decoder, "decode"):
+            return _validate_error_decoder(decoder, "A static decoder")
+        if callable(decoder):
+            return _validate_error_decoder(decoder(pcm_or_dem), "A decoder constructor")
+        raise TypeError(
+            "decoder must be a DecoderSpec, an error decoder, a decoder constructor, or None"
+        )
+
+    if decoder_args:
+        if warn_deprecated:
+            warnings.warn(
+                "Passing decoder-selection and construction arguments directly to get_decoder is"
+                " deprecated; pass decoder=decoders.<name>(...) instead",
+                DeprecationWarning,
+                stacklevel=_get_warning_stacklevel(),
+            )
+        return _get_legacy_decoder(pcm_or_dem, decoder_args)
+
+    if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
+        return get_decoder_guf(pcm_or_dem)
+    return get_decoder_bp_osd(pcm_or_dem)
+
+
+def _get_warning_stacklevel() -> int:
+    """Find the first caller outside qLDPC implementation modules."""
+    stacklevel = 1
+    frame = inspect.currentframe()
+    if frame is None:  # pragma: no cover
+        return 2
+    frame = frame.f_back
+    while frame is not None:
+        module = str(frame.f_globals.get("__name__", ""))
+        if not module.startswith("qldpc.") or module.endswith("_test"):
+            break
+        stacklevel += 1
+        frame = frame.f_back
+    return stacklevel
+
+
+def _validate_error_decoder(decoder: object, source: str) -> ErrorDecoder:
+    """Validate and type-narrow an object expected to decode syndromes to errors."""
+    if getattr(decoder, "decodes_observables", False):
+        raise TypeError(f"{source} predicts observables rather than errors")
+    if not hasattr(decoder, "decode") or not callable(decoder.decode):
+        raise TypeError(f"{source} must provide a callable decode method")
+    return cast(ErrorDecoder, decoder)
+
+
+def _get_legacy_decoder(pcm_or_dem: PcmOrDem, decoder_args: dict[str, object]) -> ErrorDecoder:
+    """Support the deprecated keyword-based decoder API."""
     # optionally inject a decoder constructor
     if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
         if not callable(decoder_constructor):
             raise TypeError("The decoder_constructor argument must be callable")
-        return decoder_constructor(pcm_or_dem, **decoder_args)
+        return _validate_error_decoder(
+            decoder_constructor(pcm_or_dem, **decoder_args), "A decoder constructor"
+        )
 
     # optionally inject a static decoder, ignoring all other arguments
     if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
-        if not hasattr(static_decoder, "decode") or not callable(static_decoder.decode):
-            raise TypeError("A static decoder must have a callable decode method")
         if decoder_args:
             raise ValueError("If passed a static decoder, we cannot process decoding arguments")
-        return static_decoder
+        return _validate_error_decoder(static_decoder, "A static decoder")
 
     # look for and construct a recognized decoder, consuming every request
     decoder_names = [
@@ -100,6 +219,17 @@ def get_decoder(
     return DECODER_CONSTRUCTORS["BP_OSD"](pcm_or_dem, **decoder_args)
 
 
+_DECODER_DISPLAY_NAMES = {
+    "bf": "BF",
+    "bp_lsd": "BP_LSD",
+    "bp_osd": "BP_OSD",
+    "guf": "GUF",
+    "ilp": "ILP",
+    "mwpm": "MWPM",
+    "rbp": "RBP",
+}
+
+
 def _erasure_bit_support(
     supported: bool,
 ) -> Callable[[Callable[_Parameters, _Decoder]], Callable[_Parameters, _Decoder]]:
@@ -108,7 +238,8 @@ def _erasure_bit_support(
     def decorator(
         decoder_getter: Callable[_Parameters, _Decoder],
     ) -> Callable[_Parameters, _Decoder]:
-        decoder_name = decoder_getter.__name__.removeprefix("get_decoder_")
+        canonical_name = decoder_getter.__name__.removeprefix("get_decoder_")
+        decoder_name = _DECODER_DISPLAY_NAMES.get(canonical_name, canonical_name)
         message = (
             f"The {decoder_name} decoder cannot signal erasure, so it does not accept the"
             " add_erasure_bit argument"
@@ -134,13 +265,13 @@ def _erasure_bit_support(
 
 @_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
-def get_decoder_BP_OSD(
+def get_decoder_bp_osd(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
-) -> Decoder:
+) -> ErrorDecoder:
     """Decoder based on belief propagation with ordered statistics (BP+OSD).
 
     Args:
@@ -172,13 +303,13 @@ def get_decoder_BP_OSD(
 
 @_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
-def get_decoder_BP_LSD(
+def get_decoder_bp_lsd(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
-) -> Decoder:
+) -> ErrorDecoder:
     """Decoder based on belief propagation with localized statistics (BP+LSD).
 
     Args:
@@ -210,13 +341,13 @@ def get_decoder_BP_LSD(
 
 @_erasure_bit_support(False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
-def get_decoder_BF(
+def get_decoder_bf(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     error_rate: float = PLACEHOLDER_ERROR_RATE,
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
-) -> Decoder:
+) -> ErrorDecoder:
     """Decoder based on belief finding (BF).
 
     Args:
@@ -266,13 +397,13 @@ def _to_ldpc_inputs(
 
 
 @_erasure_bit_support(False)
-def get_decoder_MWPM(
+def get_decoder_mwpm(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
     **decoder_args: object,
-) -> BatchDecoder:
+) -> BatchErrorDecoder:
     """Decoder based on minimum weight perfect matching (MWPM).
 
     Args:
@@ -333,7 +464,7 @@ def get_decoder_MWPM(
 
 
 @_erasure_bit_support(True)
-def get_decoder_RBP(
+def get_decoder_rbp(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
@@ -357,7 +488,7 @@ def get_decoder_lookup(
 
 
 @_erasure_bit_support(True)
-def get_decoder_ILP(
+def get_decoder_ilp(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     add_erasure_bit: bool = False,
@@ -368,7 +499,7 @@ def get_decoder_ILP(
 
 
 @_erasure_bit_support(True)
-def get_decoder_GUF(
+def get_decoder_guf(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> GUFDecoder:
     """Decoder based on a generalization of Union-Find, described in arXiv:2103.08049."""
@@ -385,9 +516,295 @@ def _to_pcm(pcm_or_dem: IntegerArray | stim.DetectorErrorModel) -> IntegerArray:
     return pcm_or_dem
 
 
-# collect all decoder constructors in this file into a dictionary
-DECODER_CONSTRUCTORS: dict[str, Callable[..., Decoder]] = {
-    name.removeprefix("get_decoder_"): func
-    for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction)
-    if name.startswith("get_decoder_")
+def bp_osd(
+    *,
+    error_rate: float = PLACEHOLDER_ERROR_RATE,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    max_iter: int = 0,
+    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "minimum_sum",
+    ms_scaling_factor: float = 1.0,
+    schedule: Literal["parallel", "serial"] = "parallel",
+    omp_thread_count: int = 1,
+    random_schedule_seed: int = 0,
+    serial_schedule_order: Sequence[int] | None = None,
+    osd_method: str | float = 0,
+    osd_order: int = 0,
+    **decoder_args: object,
+) -> DecoderSpec[ErrorDecoder]:
+    """Configure belief-propagation with ordered-statistics decoding.
+
+    Args:
+        error_rate: The i.i.d. error probability used when no channel is provided.
+        error_channel: Per-error probabilities, overriding error_rate.
+        max_iter: Maximum belief-propagation iterations.
+        bp_method: Belief-propagation update method.
+        ms_scaling_factor: Minimum-sum scaling factor.
+        schedule: Parallel or serial update schedule.
+        omp_thread_count: Number of OpenMP threads.
+        random_schedule_seed: Seed for a randomized serial schedule.
+        serial_schedule_order: Explicit serial update order.
+        osd_method: Ordered-statistics decoding method.
+        osd_order: Ordered-statistics decoding order.
+        **decoder_args: Additional options accepted by ldpc.BpOsdDecoder.
+    """
+    return _decoder_spec(
+        get_decoder_bp_osd,
+        error_rate=error_rate,
+        error_channel=error_channel,
+        max_iter=max_iter,
+        bp_method=bp_method,
+        ms_scaling_factor=ms_scaling_factor,
+        schedule=schedule,
+        omp_thread_count=omp_thread_count,
+        random_schedule_seed=random_schedule_seed,
+        serial_schedule_order=serial_schedule_order,
+        osd_method=osd_method,
+        osd_order=osd_order,
+        **decoder_args,
+    )
+
+
+def bp_lsd(
+    *,
+    error_rate: float = PLACEHOLDER_ERROR_RATE,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    max_iter: int = 0,
+    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "minimum_sum",
+    ms_scaling_factor: float = 1.0,
+    schedule: Literal["parallel", "serial"] = "parallel",
+    omp_thread_count: int = 1,
+    random_schedule_seed: int = 0,
+    serial_schedule_order: Sequence[int] | None = None,
+    bits_per_step: int = 1,
+    lsd_order: int = 0,
+    lsd_method: str | int = 0,
+    always_run_lsd: bool = False,
+    **decoder_args: object,
+) -> DecoderSpec[ErrorDecoder]:
+    """Configure belief-propagation with localized-statistics decoding.
+
+    Args:
+        error_rate: The i.i.d. error probability used when no channel is provided.
+        error_channel: Per-error probabilities, overriding error_rate.
+        max_iter: Maximum belief-propagation iterations.
+        bp_method: Belief-propagation update method.
+        ms_scaling_factor: Minimum-sum scaling factor.
+        schedule: Parallel or serial update schedule.
+        omp_thread_count: Number of OpenMP threads.
+        random_schedule_seed: Seed for a randomized serial schedule.
+        serial_schedule_order: Explicit serial update order.
+        bits_per_step: Bits added to each LSD cluster per growth step.
+        lsd_order: Localized-statistics decoding order.
+        lsd_method: Localized-statistics decoding method.
+        always_run_lsd: Whether to run LSD even when belief propagation converges.
+        **decoder_args: Additional options accepted by ldpc.bplsd_decoder.BpLsdDecoder.
+    """
+    return _decoder_spec(
+        get_decoder_bp_lsd,
+        error_rate=error_rate,
+        error_channel=error_channel,
+        max_iter=max_iter,
+        bp_method=bp_method,
+        ms_scaling_factor=ms_scaling_factor,
+        schedule=schedule,
+        omp_thread_count=omp_thread_count,
+        random_schedule_seed=random_schedule_seed,
+        serial_schedule_order=serial_schedule_order,
+        bits_per_step=bits_per_step,
+        lsd_order=lsd_order,
+        lsd_method=lsd_method,
+        always_run_lsd=always_run_lsd,
+        **decoder_args,
+    )
+
+
+def bf(
+    *,
+    error_rate: float = PLACEHOLDER_ERROR_RATE,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    max_iter: int = 0,
+    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "minimum_sum",
+    ms_scaling_factor: float = 1.0,
+    schedule: Literal["parallel", "serial"] = "parallel",
+    omp_thread_count: int = 1,
+    random_schedule_seed: int = 0,
+    serial_schedule_order: Sequence[int] | None = None,
+    uf_method: Literal["inversion", "peeling"] = "peeling",
+    bits_per_step: int = 0,
+) -> DecoderSpec[ErrorDecoder]:
+    """Configure belief-find decoding.
+
+    Args:
+        error_rate: The i.i.d. error probability used when no channel is provided.
+        error_channel: Per-error probabilities, overriding error_rate.
+        max_iter: Maximum belief-propagation iterations.
+        bp_method: Belief-propagation update method.
+        ms_scaling_factor: Minimum-sum scaling factor.
+        schedule: Parallel or serial update schedule.
+        omp_thread_count: Number of OpenMP threads.
+        random_schedule_seed: Seed for a randomized serial schedule.
+        serial_schedule_order: Explicit serial update order.
+        uf_method: Union-find local decoding method.
+        bits_per_step: Bits added to each union-find cluster per growth step.
+    """
+    return _decoder_spec(
+        get_decoder_bf,
+        error_rate=error_rate,
+        error_channel=error_channel,
+        max_iter=max_iter,
+        bp_method=bp_method,
+        ms_scaling_factor=ms_scaling_factor,
+        schedule=schedule,
+        omp_thread_count=omp_thread_count,
+        random_schedule_seed=random_schedule_seed,
+        serial_schedule_order=serial_schedule_order,
+        uf_method=uf_method,
+        bits_per_step=bits_per_step,
+    )
+
+
+def mwpm(
+    *,
+    decompose_errors: bool = False,
+    ignore_non_graphlike_errors: bool = False,
+    weights: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
+    **decoder_args: object,
+) -> DecoderSpec[BatchErrorDecoder]:
+    """Configure minimum-weight perfect-matching decoding.
+
+    Args:
+        decompose_errors: Whether to apply DEM-suggested error decompositions.
+        ignore_non_graphlike_errors: Whether to drop errors that address more than two detectors.
+        weights: Scalar or per-error matching weights. A DEM supplies these automatically.
+        **decoder_args: Additional options accepted by pymatching.Matching.from_check_matrix.
+    """
+    return _decoder_spec(
+        get_decoder_mwpm,
+        decompose_errors=decompose_errors,
+        ignore_non_graphlike_errors=ignore_non_graphlike_errors,
+        weights=weights,
+        **decoder_args,
+    )
+
+
+def relay_bp(
+    *,
+    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    name: str = "RelayDecoderF32",
+    observable_error_matrix: IntegerArray | None = None,
+    include_decode_result: bool = False,
+    add_erasure_bit: bool = False,
+    **decoder_args: object,
+) -> DecoderSpec[RelayBPDecoder]:
+    """Configure Relay-BP decoding.
+
+    Args:
+        error_priors: Prior probability of each error mechanism.
+        name: Relay-BP decoder class name.
+        observable_error_matrix: Matrix mapping errors to observable flips.
+        include_decode_result: Whether Relay-BP retains detailed decode results.
+        add_erasure_bit: Whether to append an erasure flag.
+        **decoder_args: Additional options accepted by the selected Relay-BP decoder.
+    """
+    return _decoder_spec(
+        get_decoder_rbp,
+        error_priors=error_priors,
+        name=name,
+        observable_error_matrix=observable_error_matrix,
+        include_decode_result=include_decode_result,
+        add_erasure_bit=add_erasure_bit,
+        **decoder_args,
+    )
+
+
+def lookup_table(
+    max_weight: int,
+    *,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+    observable_flip_matrix: IntegerArray | None = None,
+    post_select: Collection[int] = (),
+    add_erasure_bit: bool | None = None,
+    confidence_ratio: float | None = None,
+    symplectic: bool = False,
+) -> DecoderSpec[LookupDecoder]:
+    """Configure lookup-table error decoding.
+
+    Args:
+        max_weight: Maximum enumerated error weight.
+        error_channel: Per-error probabilities.
+        penalty_func: Function assigning a penalty to an error.
+        observable_flip_matrix: Matrix mapping errors to observable flips for probability grouping.
+        post_select: Syndrome indices required to be trivial.
+        add_erasure_bit: Whether to append an erasure flag.
+        confidence_ratio: Required likelihood ratio before making a prediction.
+        symplectic: Whether errors use symplectic `[X|Z]` form.
+    """
+    return _decoder_spec(
+        get_decoder_lookup,
+        max_weight=max_weight,
+        error_channel=error_channel,
+        penalty_func=penalty_func,
+        observable_flip_matrix=observable_flip_matrix,
+        post_select=post_select,
+        add_erasure_bit=add_erasure_bit,
+        confidence_ratio=confidence_ratio,
+        symplectic=symplectic,
+    )
+
+
+def ilp(
+    *,
+    add_erasure_bit: bool = False,
+    **solver_args: object,
+) -> DecoderSpec[ILPDecoder]:
+    """Configure integer-linear-program error decoding.
+
+    Args:
+        add_erasure_bit: Whether to append an erasure flag.
+        **solver_args: Options passed to cvxpy.Problem.solve.
+    """
+    return _decoder_spec(get_decoder_ilp, add_erasure_bit=add_erasure_bit, **solver_args)
+
+
+def guf(
+    *,
+    max_weight: int | None = None,
+    symplectic: bool = False,
+    add_erasure_bit: bool = False,
+) -> DecoderSpec[GUFDecoder]:
+    """Configure generalized union-find error decoding.
+
+    Args:
+        max_weight: Weight at which to stop the exhaustive local search.
+        symplectic: Whether errors use symplectic `[X|Z]` form.
+        add_erasure_bit: Whether to append an erasure flag.
+    """
+    return _decoder_spec(
+        get_decoder_guf,
+        max_weight=max_weight,
+        symplectic=symplectic,
+        add_erasure_bit=add_erasure_bit,
+    )
+
+
+DECODER_CONSTRUCTORS: dict[str, Callable[..., ErrorDecoder]] = {
+    "BF": get_decoder_bf,
+    "BP_LSD": get_decoder_bp_lsd,
+    "BP_OSD": get_decoder_bp_osd,
+    "GUF": get_decoder_guf,
+    "ILP": get_decoder_ilp,
+    "MWPM": get_decoder_mwpm,
+    "RBP": get_decoder_rbp,
+    "lookup": get_decoder_lookup,
 }
+
+
+# Upper-case compatibility aliases.
+get_decoder_BF = get_decoder_bf
+get_decoder_BP_LSD = get_decoder_bp_lsd
+get_decoder_BP_OSD = get_decoder_bp_osd
+get_decoder_GUF = get_decoder_guf
+get_decoder_ILP = get_decoder_ilp
+get_decoder_MWPM = get_decoder_mwpm
+get_decoder_RBP = get_decoder_rbp

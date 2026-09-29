@@ -181,8 +181,10 @@ Choose or supply a decoder
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``qldpc.decoders.get_decoder`` accepts a parity-check matrix or Stim detector error model. It uses
-GUF by default for a nonbinary field array and BP+OSD otherwise. Select one named decoder with its
-``with_<NAME>`` option, pass a ``decoder_constructor``, or supply a ``static_decoder``.
+GUF by default for a nonbinary field array and BP+OSD otherwise. Configure a decoder with a typed
+helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``, then pass the resulting spec as
+``decoder=``. See :doc:`Choosing a decoder <decoders>` for custom constructors, Sinter-compatible
+observable decoders, and per-sector CSS choices.
 
 .. code-block:: python
 
@@ -192,7 +194,7 @@ GUF by default for a nonbinary field array and BP+OSD otherwise. Select one name
 
    code = codes.RepetitionCode(5)
    syndrome = np.array([1, 0, 0, 0])
-   decoder = decoders.get_decoder(code.matrix)
+   decoder = decoders.get_decoder(code.matrix, decoder=decoders.bp_osd())
    correction = decoder.decode(syndrome)
 
 Only some decoders can signal an erasure. Those decoders append the erasure flag as the last entry

@@ -7,6 +7,7 @@ from __future__ import annotations
 import itertools
 import random
 import unittest.mock
+import warnings
 from collections.abc import Iterator, Sequence
 
 import galois
@@ -14,7 +15,7 @@ import networkx as nx
 import numpy as np
 import pytest
 
-from qldpc import abstract, codes, external, math
+from qldpc import abstract, codes, decoders, external, math
 from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
@@ -1094,6 +1095,7 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
     """Explicit decoder arguments select the decoder path without probing interactive GAP setup."""
     code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     code.forget_distance()
+    decoder = decoders.bp_lsd()
 
     with (
         unittest.mock.patch(
@@ -1106,14 +1108,32 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
             return_value=3,
         ) as decoder_bound,
     ):
-        assert code.get_distance_bound(pauli=Pauli.X, with_BP_LSD=True) == 3
+        assert code.get_distance_bound(pauli=Pauli.X, decoder=decoder) == 3
 
     decoder_bound.assert_called_once_with(
         Pauli.X,
         1,
         cutoff=None,
-        with_BP_LSD=True,
+        decoder=decoder,
     )
+
+    with unittest.mock.patch.object(code, "get_distance", return_value=3) as get_distance:
+        assert code.get_code_params(bound=True, decoder=decoder) == (7, 1, 3)
+    get_distance.assert_called_once_with(bound=True, decoder=decoder)
+
+    non_css = codes.FiveQubitCode()
+    non_css.forget_distance()
+    with pytest.raises(ValueError, match="only supported for CSS codes"):
+        non_css.get_code_params(bound=True, decoder=decoder)
+
+
+def test_legacy_decoder_warning_location() -> None:
+    """A high-level legacy decoder warning points to the user's call site."""
+    code = codes.RepetitionCode(3)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        code.get_logical_error_rate_func(1, with_lookup=True, max_weight=1)
+    assert caught[0].filename == __file__
 
 
 def test_css_deformations() -> None:
@@ -1270,14 +1290,14 @@ def test_capacity_pauli_bias_convention() -> None:
     signatures: dict[tuple[int, int, int], tuple[bool, bool]] = {}
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
         fails = code.get_logical_error_rate_func(
-            300, error_rate, pauli_bias, with_lookup=True, max_weight=1
+            300, error_rate, pauli_bias, decoder=decoders.lookup_table(max_weight=1)
         )
         discards = code.get_logical_error_rate_func(
             300,
             error_rate,
             pauli_bias,
-            decoder_x_kwargs={"with_lookup": True, "max_weight": 0, "add_erasure_bit": True},
-            decoder_z_kwargs={"with_lookup": True, "max_weight": 1},
+            decoder_x=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+            decoder_z=decoders.lookup_table(max_weight=1),
         )
         signatures[pauli_bias] = (
             bool(fails.infidelities[1] > 0),

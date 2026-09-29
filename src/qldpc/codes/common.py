@@ -412,7 +412,11 @@ class ClassicalCode(AbstractCode):
         return ~ClassicalCode(np.kron(gen_a, gen_b))
 
     def get_code_params(
-        self, *, bound: int | bool | None = None, **bound_kwargs: Any
+        self,
+        *,
+        bound: int | bool | None = None,
+        decoder: decoders.ErrorDecoderInput = None,
+        **bound_kwargs: Any,
     ) -> tuple[int, int, int | float]:
         """Compute the parameters of this code: ``[n,k,d]``.
 
@@ -420,7 +424,8 @@ class ClassicalCode(AbstractCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            **bound_kwargs: Keyword arguments to pass to get_distance_bound.
+            decoder: Error-decoder settings, a prebuilt decoder, a custom constructor, or None.
+            **bound_kwargs: Deprecated arguments to pass to get_distance_bound.
 
         Returns:
             A tuple of integers, ``(n, k, d)``, where:
@@ -429,7 +434,7 @@ class ClassicalCode(AbstractCode):
                 - d is the code distance (or an upper bound on code distance).
         """
         dimension = self.dimension
-        distance = self.get_distance(bound=bound, vector=None, **bound_kwargs)
+        distance = self.get_distance(bound=bound, vector=None, decoder=decoder, **bound_kwargs)
         return len(self), dimension, distance
 
     def get_distance(
@@ -437,6 +442,7 @@ class ClassicalCode(AbstractCode):
         *,
         bound: int | bool | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
+        decoder: decoders.ErrorDecoderInput = None,
         **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
@@ -447,19 +453,22 @@ class ClassicalCode(AbstractCode):
                 randomized upper bounds; see help(get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            **bound_kwargs: Keyword arguments to pass to get_distance_bound.
+            decoder: Error-decoder settings, a prebuilt decoder, a custom constructor, or None.
+            **bound_kwargs: Deprecated arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
         if not bound:
-            if bound_kwargs:
+            if decoder is not None or bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
             return self.get_distance_exact(vector=vector)
-        return self.get_distance_bound(num_trials=int(bound), vector=vector, **bound_kwargs)
+        return self.get_distance_bound(
+            num_trials=int(bound), vector=vector, decoder=decoder, **bound_kwargs
+        )
 
     def get_distance_exact(
         self, *, vector: Sequence[int] | npt.NDArray[np.int_] | None = None, cutoff: int = 1
@@ -528,6 +537,7 @@ class ClassicalCode(AbstractCode):
         *,
         cutoff: int | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
+        decoder: decoders.ErrorDecoderInput = None,
         **decoder_kwargs: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
@@ -546,7 +556,8 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            **decoder_kwargs: Keyword arguments to pass to qldpc.decoders.get_decoder.
+            decoder: Error-decoder settings, a prebuilt decoder, a custom constructor, or None.
+            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
@@ -561,7 +572,7 @@ class ClassicalCode(AbstractCode):
         else:
             check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
             syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
-        decoder = decoders.get_decoder(check_matrix, **decoder_kwargs)
+        error_decoder = decoders.get_decoder(check_matrix, decoder=decoder, **decoder_kwargs)
 
         # minimize over many individual bounds
         min_bound = len(self)
@@ -576,7 +587,7 @@ class ClassicalCode(AbstractCode):
                     syndrome[-len(self.generator) :] = get_random_array(
                         self.field, len(self.generator), satisfy=lambda vec: vec.any()
                     )
-                correction = decoder.decode(syndrome, **decoder_kwargs)
+                correction = error_decoder.decode(syndrome)
                 actual_syndrome = check_matrix @ correction.view(self.field)
                 correction_found = np.array_equal(actual_syndrome, syndrome)
 
@@ -746,6 +757,7 @@ class ClassicalCode(AbstractCode):
         max_error_rate: float = 0.1,
         *,
         min_error_weight: int = 1,
+        decoder: decoders.ErrorDecoderInput = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -800,7 +812,7 @@ class ClassicalCode(AbstractCode):
         declared to be decoded perfectly.  The sum runs only as far as the heaviest weight the
         budget reached, and ``F_k = 0`` is assumed above that.
         """
-        decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
+        error_decoder = decoders.get_decoder(self.matrix, decoder=decoder, **decoder_kwargs)
 
         # sample errors of fixed weight and record failure/discard counts
         sample_allocation = get_sample_allocation(
@@ -810,7 +822,7 @@ class ClassicalCode(AbstractCode):
         num_discards = np.zeros(sample_allocation.size, dtype=int)
         for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
-                weight, sample_allocation[weight], decoder
+                weight, sample_allocation[weight], error_decoder
             )
         return ErrorRateFunc(
             sample_allocation,
@@ -822,7 +834,7 @@ class ClassicalCode(AbstractCode):
         )
 
     def _sample_failure_and_discard_counts(
-        self, error_weight: int, num_samples: int, decoder: decoders.Decoder
+        self, error_weight: int, num_samples: int, decoder: decoders.ErrorDecoder
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
@@ -1782,7 +1794,11 @@ class QuditCode(AbstractCode):
         return (self.rank - num_stabs) // 2
 
     def get_code_params(
-        self, *, bound: int | bool | None = None, **bound_kwargs: Any
+        self,
+        *,
+        bound: int | bool | None = None,
+        decoder: decoders.ErrorDecoderInput = None,
+        **bound_kwargs: Any,
     ) -> tuple[int, int, int | float]:
         """Compute the parameters of this code: ``[n,k,d]``.
 
@@ -1790,6 +1806,7 @@ class QuditCode(AbstractCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
+            decoder: Error-decoder settings, a prebuilt decoder, a custom constructor, or None.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -1799,10 +1816,20 @@ class QuditCode(AbstractCode):
                 - d is the code distance (or an upper bound on code distance).
         """
         dimension = self.dimension
-        distance = self.get_distance(bound=bound, **bound_kwargs)
+        if decoder is None:
+            distance = self.get_distance(bound=bound, **bound_kwargs)
+        elif isinstance(self, CSSCode):
+            distance = self.get_distance(bound=bound, decoder=decoder, **bound_kwargs)
+        else:
+            raise ValueError("Decoder-based distance bounds are only supported for CSS codes")
         return len(self), dimension, distance
 
-    def get_distance(self, *, bound: int | bool | None = None, **bound_kwargs: Any) -> int | float:
+    def get_distance(
+        self,
+        *,
+        bound: int | bool | None = None,
+        **bound_kwargs: Any,
+    ) -> int | float:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
@@ -2144,6 +2171,7 @@ class QuditCode(AbstractCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
+        decoder: decoders.ErrorDecoderInput = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -2189,7 +2217,7 @@ class QuditCode(AbstractCode):
         # syndrome it was handed.  The matrix is a field array, from which get_decoder selects a
         # decoder appropriate to the field.
         syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
-        decoder = decoders.get_decoder(syndrome_matrix, **decoder_kwargs)
+        error_decoder = decoders.get_decoder(syndrome_matrix, decoder=decoder, **decoder_kwargs)
 
         # identify logical operators
         logical_ops = self.get_logical_ops()
@@ -2204,7 +2232,7 @@ class QuditCode(AbstractCode):
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
                 weight,
                 sample_allocation[weight],
-                decoder,
+                error_decoder,
                 syndrome_matrix,
                 logical_ops,
                 pauli_bias_zxy,
@@ -2222,7 +2250,7 @@ class QuditCode(AbstractCode):
         self,
         error_weight: int,
         num_samples: int,
-        decoder: decoders.Decoder,
+        decoder: decoders.ErrorDecoder,
         syndrome_matrix: npt.NDArray[np.int_],
         logical_ops: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
@@ -2965,7 +2993,12 @@ class CSSCode(QuditCode):
         return code
 
     def get_distance(
-        self, pauli: PauliXZ | None = None, *, bound: int | bool | None = None, **bound_kwargs: Any
+        self,
+        pauli: PauliXZ | None = None,
+        *,
+        bound: int | bool | None = None,
+        decoder: decoders.ErrorDecoderInput = None,
+        **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
@@ -2976,19 +3009,22 @@ class CSSCode(QuditCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            **bound_kwargs: Keyword arguments to pass to get_distance_bound.
+            decoder: Error-decoder settings, a prebuilt decoder, a custom constructor, or None.
+            **bound_kwargs: Deprecated arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
         if not bound:
-            if bound_kwargs:
+            if decoder is not None or bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
             return self.get_distance_exact(pauli)
-        return self.get_distance_bound(num_trials=int(bound), pauli=pauli, **bound_kwargs)
+        return self.get_distance_bound(
+            num_trials=int(bound), pauli=pauli, decoder=decoder, **bound_kwargs
+        )
 
     def get_distance_exact(self, pauli: PauliXZ | None = None, *, cutoff: int = 1) -> int | float:
         """Compute the minimum weight of nontrivial logical operators by brute force.
@@ -3086,6 +3122,7 @@ class CSSCode(QuditCode):
         pauli: PauliXZ | None = None,
         *,
         cutoff: int | None = None,
+        decoder: decoders.ErrorDecoderInput = None,
         **bound_kwargs: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
@@ -3100,7 +3137,8 @@ class CSSCode(QuditCode):
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 If None (the default), minimize over X and Z.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
+            decoder: Error-decoder settings, a prebuilt decoder, a custom constructor, or None.
+            **bound_kwargs: Deprecated arguments to pass to the downstream distance bounding method.
                 If provided arguments that are not recognized by QDistRnd, use a decoder-based
                 distance bounding method, and pass these keyword arguments to a decoder in a call to
                 qldpc.decoders.get_decoder.
@@ -3120,15 +3158,27 @@ class CSSCode(QuditCode):
             return min(
                 [
                     self.get_distance_bound(
-                        num_trials=num_trials, pauli=pauli, cutoff=cutoff, **bound_kwargs
+                        num_trials=num_trials,
+                        pauli=pauli,
+                        cutoff=cutoff,
+                        decoder=decoder,
+                        **bound_kwargs,
                     )
                     for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
                 ]
             )
 
-        if any(kwarg != "maxav" for kwarg in bound_kwargs) or not external.gap.is_installed():
+        if (
+            decoder is not None
+            or any(kwarg != "maxav" for kwarg in bound_kwargs)
+            or not external.gap.is_installed()
+        ):
+            if decoder is None:
+                return self.get_distance_bound_with_decoder(
+                    pauli, num_trials, cutoff=cutoff, **bound_kwargs
+                )
             return self.get_distance_bound_with_decoder(
-                pauli, num_trials, cutoff=cutoff, **bound_kwargs
+                pauli, num_trials, cutoff=cutoff, decoder=decoder, **bound_kwargs
             )
 
         # GAP estimates the Z-distance of CSS codes, so flip X/Z if necessary
@@ -3146,6 +3196,7 @@ class CSSCode(QuditCode):
         num_trials: int = 1,
         *,
         cutoff: int | None = None,
+        decoder: decoders.ErrorDecoderInput = None,
         **decoder_kwargs: Any,
     ) -> int | float:
         r"""Use a randomized algorithm to compute an upper bound on code distance.
@@ -3157,7 +3208,8 @@ class CSSCode(QuditCode):
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
             num_trials: Minimize over this many independent upper bounds.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            **decoder_kwargs: Keyword arguments to pass to qldpc.decoders.get_decoder.
+            decoder: Error-decoder settings, a prebuilt decoder, a custom constructor, or None.
+            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
 
         For ease of language, we henceforth assume without loss of generality that we are
         computing an X-distance, and tentatively assume that `num_trials == 1`.
@@ -3209,7 +3261,9 @@ class CSSCode(QuditCode):
 
         # initialize a decoder and a trivial effective syndrome
         effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
-        decoder = decoders.get_decoder(effective_check_matrix, **decoder_kwargs)
+        error_decoder = decoders.get_decoder(
+            effective_check_matrix, decoder=decoder, **decoder_kwargs
+        )
         effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
         # minimize over many bounds
@@ -3225,7 +3279,7 @@ class CSSCode(QuditCode):
                 effective_syndrome[-self.dimension :] = get_random_array(
                     self.field, self.dimension, satisfy=lambda vec: vec.any()
                 )
-                candidate_logical_op = decoder.decode(effective_syndrome)
+                candidate_logical_op = error_decoder.decode(effective_syndrome)
                 actual_syndrome = effective_check_matrix @ candidate_logical_op.view(self.field)
                 logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
 
@@ -3238,7 +3292,14 @@ class CSSCode(QuditCode):
         self._distance_x = self._distance_z = self._distance = None
         return self
 
-    def reduce_logical_op(self, pauli: PauliXZ, logical_index: int, **decoder_kwargs: Any) -> Self:
+    def reduce_logical_op(
+        self,
+        pauli: PauliXZ,
+        logical_index: int,
+        *,
+        decoder: decoders.ErrorDecoderInput = None,
+        **decoder_kwargs: Any,
+    ) -> Self:
         """Reduce the weight of a logical operator.
 
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
@@ -3261,7 +3322,10 @@ class CSSCode(QuditCode):
         logical_op_found = False
         while not logical_op_found:
             candidate_logical_op = decoders.decode(
-                effective_check_matrix, effective_syndrome, **decoder_kwargs
+                effective_check_matrix,
+                effective_syndrome,
+                decoder=decoder,
+                **decoder_kwargs,
             )
             actual_syndrome = effective_check_matrix @ candidate_logical_op.view(self.field)
             logical_op_found = np.array_equal(actual_syndrome, effective_syndrome)
@@ -3271,15 +3335,21 @@ class CSSCode(QuditCode):
         logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
         return self
 
-    def reduce_logical_ops(self, pauli: PauliXZ | None = None, **decoder_kwargs: Any) -> Self:
+    def reduce_logical_ops(
+        self,
+        pauli: PauliXZ | None = None,
+        *,
+        decoder: decoders.ErrorDecoderInput = None,
+        **decoder_kwargs: Any,
+    ) -> Self:
         """Reduce the weight of all logical operators."""
         assert pauli is None or pauli in PAULIS_XZ
         if pauli is None:
-            self.reduce_logical_ops(Pauli.X, **decoder_kwargs)
-            self.reduce_logical_ops(Pauli.Z, **decoder_kwargs)
+            self.reduce_logical_ops(Pauli.X, decoder=decoder, **decoder_kwargs)
+            self.reduce_logical_ops(Pauli.Z, decoder=decoder, **decoder_kwargs)
         else:
             for logical_index in range(self.dimension):
-                self.reduce_logical_op(pauli, logical_index, **decoder_kwargs)
+                self.reduce_logical_op(pauli, logical_index, decoder=decoder, **decoder_kwargs)
         return self
 
     def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
@@ -3408,6 +3478,9 @@ class CSSCode(QuditCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
+        decoder: decoders.ErrorDecoderInput = None,
+        decoder_x: decoders.ErrorDecoderInput = None,
+        decoder_z: decoders.ErrorDecoderInput = None,
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
@@ -3451,19 +3524,24 @@ class CSSCode(QuditCode):
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
 
-        # construct decoders; the X-type and Z-type decoders can be shared when they are built from
-        # equal stabilizers with equal (fully merged) decoder arguments
+        # Construct decoders; sector-specific settings override the shared settings.  The two
+        # decoders can be shared when their matrices, spec objects, and legacy arguments coincide.
+        decoder_x_input = decoder if decoder_x is None else decoder_x
+        decoder_z_input = decoder if decoder_z is None else decoder_z
         decoder_x_kwargs = (decoder_x_kwargs or {}) | decoder_kwargs
         decoder_z_kwargs = (decoder_z_kwargs or {}) | decoder_kwargs
         same_x_and_z = (
             np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
+            and decoder_x_input is decoder_z_input
             and decoder_x_kwargs == decoder_z_kwargs
         )
-        decoder_x = decoders.get_decoder(stabilizer_ops_z, **decoder_x_kwargs)
-        decoder_z = (
-            decoder_x
+        error_decoder_x = decoders.get_decoder(
+            stabilizer_ops_z, decoder=decoder_x_input, **decoder_x_kwargs
+        )
+        error_decoder_z = (
+            error_decoder_x
             if same_x_and_z
-            else decoders.get_decoder(stabilizer_ops_x, **decoder_z_kwargs)
+            else decoders.get_decoder(stabilizer_ops_x, decoder=decoder_z_input, **decoder_z_kwargs)
         )
 
         # identify logical operators
@@ -3481,8 +3559,8 @@ class CSSCode(QuditCode):
                 self._sample_css_failure_and_discard_counts(
                     weight,
                     sample_allocation[weight],
-                    decoder_x,
-                    decoder_z,
+                    error_decoder_x,
+                    error_decoder_z,
                     stabilizer_ops_x,
                     stabilizer_ops_z,
                     logicals_x,
@@ -3503,8 +3581,8 @@ class CSSCode(QuditCode):
         self,
         error_weight: int,
         num_samples: int,
-        decoder_x: decoders.Decoder,
-        decoder_z: decoders.Decoder,
+        decoder_x: decoders.ErrorDecoder,
+        decoder_z: decoders.ErrorDecoder,
         stabilizer_ops_x: npt.NDArray[np.int_],
         stabilizer_ops_z: npt.NDArray[np.int_],
         logicals_x: npt.NDArray[np.int_],

@@ -49,6 +49,7 @@ Where to go next
 
 * :doc:`Library map <library_map>` explains how qLDPC represents codes, what each package does,
   common tasks, and current limitations.
+* :doc:`Choosing a decoder <decoders>` explains error and observable decoding APIs.
 * :doc:`Examples <examples/index>` walk from code construction through code-capacity and
   circuit-level simulations.
 * :doc:`API reference <autoapi/index>` documents every public class and function.
@@ -61,6 +62,7 @@ Where to go next
    :caption: User guide
 
    library_map
+   decoders
 
 .. toctree::
    :maxdepth: 2

@@ -33,9 +33,9 @@ def test_sinter_decoder() -> None:
 
     # try decoders with and without a decode_batch method
     for decoder in [
-        decoders.SinterDecoder(with_BP_OSD=True),
-        decoders.SinterDecoder(with_RBP="MinSumBPDecoderF32"),
-        decoders.SinterDecoder(with_MWPM=True),
+        decoders.ObservableDecoder(decoder=decoders.bp_osd()),
+        decoders.ObservableDecoder(decoder=decoders.relay_bp(name="MinSumBPDecoderF32")),
+        decoders.ObservableDecoder(decoder=decoders.mwpm()),
     ]:
         compiled_decoder = decoder.compile_decoder_for_dem(dem)
         predicted_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots)
@@ -43,9 +43,9 @@ def test_sinter_decoder() -> None:
 
         # decode one shot at a time
         with pytest.raises(decoders.sinter.DecoderNotCompiledError, match="needs to be compiled"):
-            decoder.decode(np.array([], dtype=int))
+            decoder.decode_observables(np.array([], dtype=int))
         assert np.array_equal(
-            [compiled_decoder.decode(np.asarray(error)) for error in circuit_errors],
+            [compiled_decoder.decode_observables(np.asarray(error)) for error in circuit_errors],
             observable_flips,
         )
 
@@ -60,6 +60,24 @@ def test_sinter_decoder() -> None:
         compiled_decoder.decode_shots_bit_packed(bit_packed_shots),
         np.zeros_like(expected_flips),
     )
+
+
+def test_observable_decoder_compatibility_aliases() -> None:
+    """The Sinter-oriented names remain aliases during the migration."""
+    assert decoders.SinterDecoder is decoders.ObservableDecoder
+    assert decoders.CompiledSinterDecoder is decoders.CompiledObservableDecoder
+
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    decoder = decoders.ObservableDecoder(decoder=decoders.lookup_table(max_weight=1))
+    with (
+        pytest.warns(DeprecationWarning, match="decode is deprecated"),
+        pytest.raises(decoders.sinter.DecoderNotCompiledError),
+    ):
+        decoder.decode(np.array([1], dtype=int))
+
+    compiled = decoder.compile_decoder_for_dem(dem)
+    with pytest.warns(DeprecationWarning, match="decode is deprecated"):
+        assert np.array_equal(compiled.decode(np.array([1], dtype=int)), [1])
 
 
 def test_unsimplified_dense_decoder() -> None:
@@ -512,7 +530,7 @@ def test_subgraph_partition_warnings() -> None:
     contested_dem = stim.DetectorErrorModel("error(0.1) D0 D1 L0")
     with pytest.warns(UserWarning, match="can be predicted by more than one subgraph") as contested:
         decoders.SubgraphDecoder(
-            [[0], [1]], with_lookup=True, max_weight=1
+            [[0], [1]], decoder=decoders.lookup_table(max_weight=1)
         ).compile_decoder_for_dem(contested_dem)
 
     # the warning names the code that compiled the decoder, not the library that raised it
@@ -522,7 +540,7 @@ def test_subgraph_partition_warnings() -> None:
     uncovered_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L0")
     with pytest.warns(UserWarning, match="belong to no subgraph"):
         decoders.SubgraphDecoder(
-            [[0]], [[0]], with_lookup=True, max_weight=1
+            [[0]], [[0]], decoder=decoders.lookup_table(max_weight=1)
         ).compile_decoder_for_dem(uncovered_dem)
 
     # a partition that gives each subgraph only the observables its own detectors witness is silent
@@ -530,7 +548,9 @@ def test_subgraph_partition_warnings() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         decoders.SubgraphDecoder(
-            [[0], [1]], [[0], [1]], with_lookup=True, max_weight=1
+            [[0], [1]],
+            [[0], [1]],
+            decoder=decoders.lookup_table(max_weight=1),
         ).compile_decoder_for_dem(sound_dem)
 
 

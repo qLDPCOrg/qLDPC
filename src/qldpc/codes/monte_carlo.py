@@ -415,7 +415,7 @@ def _get_error_probs_by_weight(
 
 
 def get_error_and_erasure(
-    decoder: decoders.Decoder,
+    decoder: decoders.ErrorDecoder,
     syndrome: galois.FieldArray,
 ) -> tuple[galois.FieldArray, bool]:
     """Decode a syndrome and return the inferred error together with an erasure flag.

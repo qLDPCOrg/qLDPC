@@ -29,21 +29,26 @@ if TYPE_CHECKING:
 PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
 
-class Decoder(Protocol):
-    """Template class for a decoder."""
+class ErrorDecoder(Protocol):
+    """Protocol for a decoder that maps a syndrome to an inferred error."""
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
 
 
-class BatchDecoder(Protocol):
-    """Template class for a decoder that can decode in batches."""
-
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
+class BatchErrorDecoder(ErrorDecoder, Protocol):
+    """Protocol for an error decoder that can decode in batches."""
 
     def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes and return inferred errors."""
+
+
+class Decoder(ErrorDecoder, Protocol):
+    """Deprecated name for ErrorDecoder."""
+
+
+class BatchDecoder(BatchErrorDecoder, Protocol):
+    """Deprecated name for BatchErrorDecoder."""
 
 
 class RelayBPDecoder:
@@ -557,7 +562,7 @@ class CompositeDecoder:
     is set whenever any code block is erased.
     """
 
-    def __init__(self, *decoders_and_syndrome_lengths: tuple[Decoder, int]) -> None:
+    def __init__(self, *decoders_and_syndrome_lengths: tuple[ErrorDecoder, int]) -> None:
         self.decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
         self.erasing_decoders = tuple(
             bool(getattr(decoder, "has_erasure_bit", False)) for decoder in self.decoders
@@ -575,7 +580,9 @@ class CompositeDecoder:
             self.decode_batch = self._decode_batch
 
     @staticmethod
-    def from_copies(decoder: Decoder, syndrome_length: int, num_copies: int) -> CompositeDecoder:
+    def from_copies(
+        decoder: ErrorDecoder, syndrome_length: int, num_copies: int
+    ) -> CompositeDecoder:
         """Initialize a CompositeDecoder from copies of a given decoder and syndrome_length."""
         return CompositeDecoder(*[(decoder, syndrome_length)] * num_copies)
 
@@ -640,7 +647,7 @@ class DirectDecoder:
         return self.decode_func(word)
 
     @staticmethod
-    def from_indirect(decoder: Decoder, matrix: IntegerArray) -> DirectDecoder:
+    def from_indirect(decoder: ErrorDecoder, matrix: IntegerArray) -> DirectDecoder:
         """Instantiate a DirectDecoder from an indirect decoder and a parity check matrix."""
         field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         field_matrix = matrix.view(field)

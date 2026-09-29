@@ -121,6 +121,28 @@ def test_observable_lookup_decoding() -> None:
         decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
 
 
+def test_explicit_observable_lookup_decoders() -> None:
+    """Observable lookup decoders expose output-specific methods and types."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    syndrome = np.array([1], dtype=int)
+
+    decoder = decoders.ObservableLookupDecoder(dem, max_weight=1)
+    assert not hasattr(decoder, "decode")
+    assert np.array_equal(decoder.decode_observables(syndrome), [1])
+
+    weighted = decoders.WeightedObservableLookupDecoder(dem, max_weight=1)
+    assert not hasattr(weighted, "decode")
+    assert np.array_equal(weighted.decode_observables(syndrome), [1])
+    assert issubclass(decoders.WeightedLookupDecoder, decoders.LookupDecoder)
+
+    with pytest.warns(DeprecationWarning, match="ObservableLookupDecoder"):
+        legacy = decoders.LookupDecoder(dem, max_weight=1, predict_observable_flips=True)
+    assert np.array_equal(legacy.decode(syndrome), [1])
+
+    with pytest.raises(TypeError, match="errors rather than observables"):
+        decoders.get_decoder(dem, decoder=decoder)  # type: ignore[arg-type]
+
+
 def test_tie_breaking() -> None:
     """Equally likely errors for one syndrome resolve in favor of the lightest."""
     # every error of this code is equally likely, so every candidate ties on probability

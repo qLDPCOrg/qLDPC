@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pickle
+import warnings
 from collections.abc import Callable
 
 import galois
@@ -31,6 +33,8 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
 
     assert decoders.decode(matrix, syndrome, decoder_constructor=CustomDecoder) is error
     assert decoders.decode(matrix, syndrome, static_decoder=CustomDecoder(matrix)) is error
+    assert decoders.decode(matrix, syndrome, decoder=CustomDecoder) is error
+    assert decoders.decode(matrix, syndrome, decoder=CustomDecoder(matrix)) is error
 
     # injected decoders are validated, which must survive `python -O`
     with pytest.raises(TypeError, match="must be callable"):
@@ -39,6 +43,8 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
         decoders.get_decoder(matrix, static_decoder=0)
     with pytest.raises(ValueError, match="cannot process decoding arguments"):
         decoders.get_decoder(matrix, static_decoder=CustomDecoder(matrix), with_BF=True)
+    with pytest.raises(ValueError, match="Cannot combine decoder"):
+        decoders.get_decoder(matrix, decoder=CustomDecoder(matrix), with_BF=True)
 
 
 def test_decoder_selection() -> None:
@@ -51,6 +57,66 @@ def test_decoder_selection() -> None:
 
     with pytest.raises(ValueError, match="Only one decoder"):
         decoders.get_decoder(matrix, with_BF=True, with_MWPM=True)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        decoders.decode(matrix, syndrome, with_BF=True)
+    assert caught[0].filename == __file__
+
+
+def test_decoder_specs() -> None:
+    """Typed decoder specs defer construction and survive process serialization."""
+    matrix = np.eye(2, dtype=int)
+    syndrome = np.array([1, 0], dtype=int)
+
+    spec = decoders.lookup_table(max_weight=1)
+    restored = pickle.loads(pickle.dumps(spec))  # noqa: S301 - trusted in-memory round trip
+    assert np.array_equal(decoders.decode(matrix, syndrome, decoder=restored), syndrome)
+
+    assert decoders.get_decoder_BP_OSD is decoders.get_decoder_bp_osd
+    assert decoders.get_decoder_BP_LSD is decoders.get_decoder_bp_lsd
+    assert decoders.get_decoder_BF is decoders.get_decoder_bf
+    assert decoders.get_decoder_MWPM is decoders.get_decoder_mwpm
+    assert decoders.get_decoder_RBP is decoders.get_decoder_rbp
+    assert decoders.get_decoder_ILP is decoders.get_decoder_ilp
+    assert decoders.get_decoder_GUF is decoders.get_decoder_guf
+
+
+def test_decoder_spec_helpers() -> None:
+    """Every named helper constructs deferred settings without needing a matrix."""
+    specs = [
+        decoders.bp_osd(),
+        decoders.bp_lsd(),
+        decoders.bf(),
+        decoders.mwpm(),
+        decoders.relay_bp(),
+        decoders.lookup_table(max_weight=1),
+        decoders.ilp(),
+        decoders.guf(),
+    ]
+    assert all(isinstance(spec, decoders.DecoderSpec) for spec in specs)
+
+
+def test_invalid_explicit_decoder_inputs() -> None:
+    """The explicit input rejects observable predictors and invalid factories."""
+    matrix = np.eye(1, dtype=int)
+    observable = decoders.ObservableLookupDecoder(
+        stim.DetectorErrorModel("error(0.1) D0 L0"), max_weight=1
+    )
+
+    with pytest.raises(TypeError, match="errors rather than observables"):
+        decoders.get_decoder(matrix, decoder=observable)  # type: ignore[arg-type]
+
+    def observable_factory(_matrix: object) -> object:
+        return observable
+
+    with pytest.raises(TypeError, match="predicts observables"):
+        decoders.get_decoder(
+            matrix,
+            decoder=observable_factory,  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError, match="DecoderSpec"):
+        decoders.get_decoder(matrix, decoder=object())  # type: ignore[arg-type]
 
 
 def test_erasure_bit_request() -> None:
@@ -68,7 +134,11 @@ def test_erasure_bit_request() -> None:
         direct_args = {"max_weight": 2} if decoder_getter is decoders.get_decoder_lookup else {}
         decoder = decoder_getter(matrix, add_erasure_bit=True, **direct_args)
         assert getattr(decoder, "has_erasure_bit", False)
-        decoder = decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
+        decoder = decoders.get_decoder(
+            matrix,
+            add_erasure_bit=True,
+            **decoder_args,  # type: ignore[arg-type]
+        )
         assert getattr(decoder, "has_erasure_bit", False)
 
     # every decoder that cannot signal erasure rejects direct and routed requests consistently
@@ -82,7 +152,11 @@ def test_erasure_bit_request() -> None:
         with pytest.raises(ValueError, match=rf"The {decoder_name} decoder cannot signal erasure"):
             decoder_getter(matrix, add_erasure_bit=True)
         with pytest.raises(ValueError, match=rf"The {decoder_name} decoder cannot signal erasure"):
-            decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
+            decoders.get_decoder(
+                matrix,
+                add_erasure_bit=True,
+                **decoder_args,  # type: ignore[arg-type]
+            )
         assert decoder_getter(matrix, add_erasure_bit=False)
 
     # BP+OSD is the default for a binary matrix
@@ -124,6 +198,7 @@ def test_decoding() -> None:
     syndrome = syndrome.view(field)
     error = error.view(field)
     assert np.array_equal(error, decoders.decode(matrix, syndrome))
+    assert decoders.get_decoder(matrix, max_weight=1)
 
     # decode from a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
