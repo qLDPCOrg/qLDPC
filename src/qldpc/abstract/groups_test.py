@@ -418,31 +418,34 @@ def assert_lift_is_homomorphism(group: abstract.Group) -> None:
     )
 
 
-@pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False)])
+@pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False), (3, 2, True)])
 def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
     """Special linear group; its lift is a homomorphism (though not orthogonal)."""
     group = abstract.SL(dimension, field=field, linear_rep=linear_rep)
     order = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
     mats = tuple(abstract.SL.iter_mats(dimension, field))
     assert group.order == len(mats) == order
+    assert all(mat.shape == (dimension, dimension) for mat in mats)
     assert_lift_is_homomorphism(group)
 
 
 @pytest.mark.parametrize(
     "dimension,field,linear_rep",
-    [(2, 2, True), (2, 2, False), (2, 3, False), (2, 4, None), (2, 3, None)],
+    [(2, 2, True), (2, 2, False), (2, 3, False), (2, 4, None), (2, 3, None), (3, 2, None)],
 )
 def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
     """Projective special linear group; its lift is a homomorphism (though not orthogonal).
 
-    ``linear_rep=None`` (the default) uses the linear representation where it exists (gcd = 1, as in
-    PSL(2,4)) and otherwise falls back to the permutation representation (gcd > 1, as in PSL(2,3)).
+    ``linear_rep=None`` (the default) uses the linear representation where it exists
+    (``gcd = 1``, as in ``PSL(2, 4)`` and ``PSL(3, 2)``) and otherwise falls back to the permutation
+    representation (``gcd > 1``, as in ``PSL(2, 3)``).
     """
     group = abstract.PSL(dimension, field, linear_rep=linear_rep)
     order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
     order = order_SL // math.gcd(dimension, field - 1)
     mats = tuple(abstract.PSL.iter_mats(dimension, field))
     assert group.order == len(mats) == order
+    assert all(mat.shape == (dimension, dimension) for mat in mats)
     assert_lift_is_homomorphism(group)
 
 
@@ -455,6 +458,130 @@ def test_psl_requires_trivial_center() -> None:
     """
     with pytest.raises(ValueError, match="does not descend to PSL"):
         abstract.PSL(2, 5, linear_rep=True)
+
+
+@pytest.mark.parametrize(
+    "dimension,field,linear_rep", [(2, 4, True), (2, 2, False), (2, 3, True), (3, 2, True)]
+)
+def test_GL(dimension: int, field: int, linear_rep: bool) -> None:
+    """General linear group; its lift is a homomorphism (though not orthogonal)."""
+    group = abstract.GL(dimension, field=field, linear_rep=linear_rep)
+    order = np.prod([field**dimension - field**jj for jj in range(dimension)])
+    mats = tuple(abstract.GL.iter_mats(dimension, field))
+    assert group.order == len(mats) == order
+    assert all(mat.shape == (dimension, dimension) for mat in mats)
+    assert_lift_is_homomorphism(group)
+
+
+@pytest.mark.parametrize(
+    "dimension,field,linear_rep",
+    [(2, 2, True), (2, 2, False), (2, 3, False), (2, 2, None), (2, 3, None), (3, 2, None)],
+)
+def test_PGL(dimension: int, field: int, linear_rep: bool | None) -> None:
+    """Projective general linear group; its lift is a homomorphism (though not orthogonal).
+
+    ``linear_rep=None`` (the default) uses the linear representation where it exists (the center of
+    ``GL`` is trivial only for ``q == 2``, as in ``PGL(2, 2)`` and ``PGL(3, 2)``) and otherwise
+    falls back to the permutation representation (as in ``PGL(2, 3)``).
+    """
+    group = abstract.PGL(dimension, field, linear_rep=linear_rep)
+    order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])
+    order = order_GL // (field - 1)
+    mats = tuple(abstract.PGL.iter_mats(dimension, field))
+    assert group.order == len(mats) == order
+    assert all(mat.shape == (dimension, dimension) for mat in mats)
+    assert_lift_is_homomorphism(group)
+
+
+def test_pgl_requires_trivial_center() -> None:
+    """Asking for the linear representation raises an error when it does not exist.
+
+    The linear representation of ``PGL(d, q)`` only exists when ``q == 2`` (a trivial center).
+    ``PGL(2, 3)`` has a center of order 2, so requesting the linear representation there raises an
+    error.  (The fallback to a permutation representation is covered by ``test_PGL``.)
+    """
+    with pytest.raises(ValueError, match="does not descend to PGL"):
+        abstract.PGL(2, 3, linear_rep=True)
+
+
+@pytest.mark.parametrize(
+    "base_cls,quotient_cls,dimension,field",
+    [
+        (abstract.SL, abstract.PSL, 3, 3),
+        (abstract.GL, abstract.PGL, 3, 3),
+    ],
+)
+def test_quotient_generating_mats_are_homomorphic(
+    base_cls: type[abstract.SL | abstract.GL],
+    quotient_cls: type[abstract.PSL | abstract.PGL],
+    dimension: int,
+    field: int,
+) -> None:
+    """PSL/PGL represent generators by the conjugation action, which is a genuine homomorphism.
+
+    ``get_generating_mats`` on ``ProjectiveSpecialLinearGroup``/``ProjectiveGeneralLinearGroup``
+    lifts each generator ``g`` to ``kron(inv(g).T, g)``: the vectorized action of conjugation
+    ``X -> g X g^-1``.  Conjugation composes correctly regardless of whether ``g`` and ``h``
+    commute, so this map satisfies ``rep(g) @ rep(h) == rep(g @ h)`` for *all* ``g``, ``h`` --
+    unlike the naive ``kron(inv(g), g)``, which only satisfies that identity when ``g`` and ``h``
+    commute.  The dimension-3 generators below do not commute, so this test directly catches a
+    non-homomorphic representation.  For ``PGL(d>=3, q>2)``, the bad map was confirmed to
+    build a vastly oversized group when ``linear_rep=False`` is used; for other cases (e.g. ``PSL``)
+    a non-homomorphic map is still a latent correctness bug even where it happens not to inflate the
+    closure's order.  Checking a handful of noncommuting words is enough to catch the defect without
+    exhaustively enumerating ``SL(d, q)/GL(d, q)``, which is impractically slow at these dimensions
+    (e.g. ``|SL(3, 3)| = 5616``).
+    """
+    field_type = abstract.resolve_field(field)
+    gen_a, gen_b, *_ = base_cls.get_generating_mats(dimension, field_type)
+    assert not np.array_equal(gen_a @ gen_b, gen_b @ gen_a)  # confirm noncommuting generators
+
+    rep_a, rep_b, *_ = quotient_cls.get_generating_mats(dimension, field_type)
+    assert rep_a.shape == rep_b.shape == (dimension**2, dimension**2)
+
+    def conjugation_rep(mat: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        return np.kron(np.linalg.inv(mat).T, mat).view(field_type)
+
+    words = [gen_a @ gen_b, gen_b @ gen_a, gen_a @ gen_a @ gen_b, gen_b @ gen_a @ gen_b]
+    reps = [rep_a @ rep_b, rep_b @ rep_a, rep_a @ rep_a @ rep_b, rep_b @ rep_a @ rep_b]
+    for word, rep in zip(words, reps):
+        assert np.array_equal(rep, conjugation_rep(word))
+
+
+def test_psl_iter_mats_dimension_3() -> None:
+    """``PSL(3, 3)`` has the correct order and 2-D (not flattened) matrix representatives.
+
+    ``PSL(3, 3)`` (order 5616) is large enough that building it end-to-end via ``linear_rep=False``
+    is impractically slow for a test, so ``iter_mats`` is checked directly instead: it is fast and
+    exercises both the group order and the reshape of orbit representatives to
+    ``dimension x dimension`` matrices, which is the ``iter_mats``-specific bug this test guards
+    against.  (That the underlying quotient representation is a genuine homomorphism -- the other
+    bug fixed alongside this one -- is covered separately by
+    ``test_quotient_generating_mats_are_homomorphic``.)
+    """
+    dimension, field = 3, 3
+    order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
+    order = order_SL // math.gcd(dimension, field - 1)
+    mats = tuple(abstract.PSL.iter_mats(dimension, field))
+    assert len(mats) == order
+    assert all(mat.shape == (dimension, dimension) for mat in mats)
+
+
+def test_pgl_iter_mats_dimension_3() -> None:
+    """``PGL(3, 3)`` has the correct order and 2-D (not flattened) matrix representatives.
+
+    ``PGL(3, 3)`` (order 5616) is large enough that building it end-to-end via ``linear_rep=False``
+    is impractically slow for a test -- and, before the fix, the non-homomorphic quotient
+    representation was confirmed to make that construction generate a vastly oversized group here
+    -- so ``iter_mats`` is checked directly instead: it is fast and exercises both the group order
+    and the reshape of orbit representatives to ``dimension x dimension`` matrices.
+    """
+    dimension, field = 3, 3
+    order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])
+    order = order_GL // (field - 1)
+    mats = tuple(abstract.PGL.iter_mats(dimension, field))
+    assert len(mats) == order
+    assert all(mat.shape == (dimension, dimension) for mat in mats)
 
 
 def test_resolve_field() -> None:
