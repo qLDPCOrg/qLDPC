@@ -245,6 +245,15 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
+        unittest.mock.patch(
+            "qldpc.external.gap.get_output",
+            side_effect=FileNotFoundError("GAP 4 is required to proceed, but is not installed"),
+        ),
+        unittest.mock.patch(
+            "qldpc.external.gap.subprocess.run",
+            side_effect=AssertionError("GAP executable must not be called by this test"),
+        ),
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
         codes.RepetitionCode(2).get_automorphism_group()
@@ -253,6 +262,11 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     # this pytest.warns block intentionally wraps a loop of warning-emitting calls
     with (  # noqa: PT031
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
+        unittest.mock.patch(
+            "qldpc.external.gap.subprocess.run",
+            side_effect=AssertionError("GAP executable must not be called by this test"),
+        ),
         pytest.warns(UserWarning, match="with_magma=True"),
     ):
         for code, automorphisms in [
