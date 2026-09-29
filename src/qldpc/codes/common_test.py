@@ -812,6 +812,13 @@ def test_qudit_concatenation() -> None:
     code = codes.QuditCode.concatenate(code_5q, code_5q, wiring)
     assert len(code) == 10 * len(code_5q)
     assert code.dimension == 2 * code_5q.dimension
+    rebuilt = codes.QuditCode(code.matrix, is_subsystem_code=code.is_subsystem_code)
+    assert rebuilt.dimension == code.dimension
+    logical_ops = code.get_logical_ops()
+    assert np.array_equal(
+        logical_ops @ math.symplectic_conjugate(logical_ops).T,
+        get_symplectic_form(code.dimension, code.field),
+    )
 
     # concatenation does not mutate the logical operators of the outer code passed by the caller
     outer = codes.QuditCode.stack([code_5q] * len(code_5q))  # dimension == inner physical qudits
@@ -824,6 +831,10 @@ def test_qudit_concatenation() -> None:
         codes.QuditCode.concatenate(code_5q, codes.ToricCode(2, field=3))
     with pytest.raises(ValueError, match="divisible"):
         codes.QuditCode.concatenate(code_5q, code_5q, [0, 1, 2])
+    with pytest.raises(ValueError, match="permutation"):
+        codes.QuditCode.concatenate(code_5q, code_5q, [0, 0, 2, 3, 4])
+    with pytest.raises(ValueError, match="map every intermediate qudit"):
+        codes.QuditCode.concatenate(code_5q, code_5q, {0: 0, 1: 1, 2: 2, 4: 4, 5: 3})
 
 
 def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
@@ -1178,6 +1189,13 @@ def test_css_concatenation() -> None:
     code = codes.CSSCode.concatenate(code_c4, code_c4, wiring)
     assert len(code) == 4 * len(code_c4)
     assert code.dimension == 2 * code_c4.dimension
+    rebuilt = codes.CSSCode(code.matrix_x, code.matrix_z, is_subsystem_code=code.is_subsystem_code)
+    assert rebuilt.dimension == code.dimension
+    logical_ops = code.get_logical_ops()
+    assert np.array_equal(
+        logical_ops @ math.symplectic_conjugate(logical_ops).T,
+        get_symplectic_form(code.dimension, code.field),
+    )
 
     # inheriting logical operators yields different logical operators!
     code_alt = codes.CSSCode.concatenate(code_c4, code_c4, wiring, inherit_logicals=False)
@@ -1186,6 +1204,26 @@ def test_css_concatenation() -> None:
     # cover some errors
     with pytest.raises(TypeError, match="CSSCode inputs"):
         codes.CSSCode.concatenate(code_c4, codes.FiveQubitCode())
+    with pytest.raises(ValueError, match="permutation"):
+        codes.CSSCode.concatenate(code_c4, code_c4, [0, 0, 2, 3, 4, 5, 6, 7])
+
+
+def test_canonicalizing_subsystem_codes_is_order_independent() -> None:
+    """Canonical subsystem-code metadata does not depend on prior lazy-property access."""
+    factories = [
+        lambda: codes.QuditCode([[1, 0], [0, 1]]),
+        lambda: codes.CSSCode([[1, 1, 0]], [[0, 1, 1]]),
+    ]
+    expected_dimensions = [0, 2]
+
+    for factory, expected_dimension in zip(factories, expected_dimensions, strict=True):
+        cold_canonical = factory().canonicalized
+        warm = factory()
+        assert warm.is_subsystem_code
+        warm_canonical = warm.canonicalized
+
+        assert cold_canonical.is_subsystem_code
+        assert cold_canonical.dimension == warm_canonical.dimension == expected_dimension
 
 
 def test_css_capacity() -> None:

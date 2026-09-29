@@ -143,6 +143,22 @@ def test_generate_is_lazy() -> None:
     assert "_members" not in group.__dict__
 
 
+def test_regular_lift_returns_independent_arrays() -> None:
+    """Mutating a returned regular lift does not corrupt the group's cached representation."""
+    group = abstract.CyclicGroup(3)
+    member = group.identity
+    expected = np.identity(group.order, dtype=int)
+
+    group_lift = group.regular_lift(member)
+    group_lift[:] = 0
+    assert np.array_equal(group.regular_lift(member), expected)
+
+    ring = abstract.GroupRing(group)
+    ring_lift = ring.regular_lift(member)
+    ring_lift[:] = 0
+    assert np.array_equal(ring.regular_lift(member), expected)
+
+
 def assert_valid_lifts(group: abstract.Group) -> None:
     """Assert the faithfulness of various representations of group members."""
     group_members = list(group.generate())

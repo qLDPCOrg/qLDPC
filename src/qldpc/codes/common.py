@@ -9,6 +9,7 @@ import collections
 import copy
 import functools
 import itertools
+import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
@@ -948,9 +949,10 @@ class QuditCode(AbstractCode):
         """The same code with its parity matrix in reduced row echelon form."""
         if self._is_canonicalized:  # pragma: no cover
             return self
+        is_subsystem_code = self.is_subsystem_code
         matrix = self.matrix.row_space()
-        code = QuditCode(matrix, self.field, is_subsystem_code=self._is_subsystem_code)
-        if not self._is_subsystem_code:
+        code = QuditCode(matrix, self.field, is_subsystem_code=is_subsystem_code)
+        if not is_subsystem_code:
             code._dimension = len(code) - len(matrix)
         code._distance = self._distance
         code._stabilizer_ops = self._stabilizer_ops
@@ -2115,10 +2117,20 @@ class QuditCode(AbstractCode):
                     f" of logical qudits of the outer code ({outer.dimension}) and the number of"
                     f" physical qudits of the inner code ({len(inner)})"
                 )
-            inner_physical_to_outer_logical = tuple(
-                inner_physical_to_outer_logical[qq]
-                for qq in range(len(inner_physical_to_outer_logical))
-            )
+            try:
+                inner_physical_to_outer_logical = tuple(
+                    operator.index(inner_physical_to_outer_logical[qq]) for qq in range(num_qudits)
+                )
+            except (KeyError, TypeError) as error:
+                raise ValueError(
+                    "Code concatenation requires inner_physical_to_outer_logical to map every"
+                    " intermediate qudit with an integer index"
+                ) from error
+            if sorted(inner_physical_to_outer_logical) != list(range(num_qudits)):
+                raise ValueError(
+                    "Code concatenation requires inner_physical_to_outer_logical to be a permutation"
+                    f" of the intermediate qudit indices 0 through {num_qudits - 1}"
+                )
 
         # stack copies of the outer and inner codes, if necessary
         if (num_outer_blocks := len(inner_physical_to_outer_logical) // outer.dimension) > 1:
@@ -2514,12 +2526,13 @@ class CSSCode(QuditCode):
         """The same code with its parity matrices in reduced row echelon form."""
         if self._is_canonicalized:  # pragma: no cover
             return self
+        is_subsystem_code = self.is_subsystem_code
         code = CSSCode(
             self.code_x.canonicalized,
             self.code_z.canonicalized,
-            is_subsystem_code=self._is_subsystem_code,
+            is_subsystem_code=is_subsystem_code,
         )
-        if not self._is_subsystem_code:
+        if not is_subsystem_code:
             code._dimension = len(self) - code.num_checks
         code._distance = self._distance
         code._distance_x = self._distance_x

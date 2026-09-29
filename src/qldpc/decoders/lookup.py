@@ -301,6 +301,20 @@ class LookupDecoder:
                     "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
                 )
 
+        if error_channel is not None:
+            error_channel = np.asarray(error_channel, dtype=float)
+            expected_shape = (pcm.shape[1],)
+            if error_channel.shape != expected_shape:
+                raise ValueError(
+                    f"A LookupDecoder error_channel must have shape {expected_shape}, but got"
+                    f" {error_channel.shape}"
+                )
+            if not np.all((0 <= error_channel) & (error_channel <= 1)):
+                raise ValueError(
+                    "A LookupDecoder error_channel must contain finite probabilities between 0 and"
+                    " 1, inclusive"
+                )
+
         # if an explicit penalty_func was not provided, build one from the error channel
         penalty_func = penalty_func or (
             LookupDecoder._build_penalty_func(error_channel) if error_channel is not None else None

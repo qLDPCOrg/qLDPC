@@ -193,6 +193,10 @@ class DetectorErrorModelArrays:
                 f"Got error probabilities of shape {dem_arrays.error_probs.shape} for a detector"
                 f" error model with {num_error_mechanisms} error mechanisms"
             )
+        if not np.all((0 <= dem_arrays.error_probs) & (dem_arrays.error_probs <= 1)):
+            raise ValueError(
+                "Detector error model probabilities must be finite and between 0 and 1, inclusive"
+            )
 
         dem_arrays.suggested_decompositions = dict(suggested_decompositions or {})
         if dem_arrays.suggested_decompositions:

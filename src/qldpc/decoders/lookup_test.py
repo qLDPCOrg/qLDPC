@@ -193,6 +193,16 @@ def test_invalid_arguments() -> None:
     with pytest.raises(ValueError, match=r"requires providing a stim\.DetectorErrorModel"):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], predict_observable_flips=True)
 
+    for error_channel in [np.array([0.1]), np.array([[0.1, 0.2]])]:
+        with pytest.raises(ValueError, match=r"error_channel must have shape \(2,\)"):
+            decoders.LookupDecoder(pcm, 1, error_channel=error_channel)
+    for invalid_probability in [-0.1, 1.1, np.nan, np.inf, -np.inf]:
+        with pytest.raises(ValueError, match="finite probabilities between 0 and 1"):
+            decoders.LookupDecoder(pcm, 1, error_channel=[invalid_probability, 0.1])
+
+    # The endpoints are deterministic but valid probabilities.
+    decoders.LookupDecoder(pcm, 1, error_channel=[0, 1])
+
 
 def test_confidence_ratio() -> None:
     """A confidence_ratio omits ambiguous syndromes so they decode to erasure."""
