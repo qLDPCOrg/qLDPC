@@ -1,7 +1,7 @@
 {
   "goal_id": "use-libgap",
   "status": "building",
-  "iteration": 6,
+  "iteration": 7,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
   "initial_sha": "40a571e455242e68e1a6f8e67ebaee310ad818b0",
@@ -31,6 +31,11 @@
       "iteration": 5,
       "verdict": "PASS",
       "summary": "The optional absence branch is excluded from coverage without hiding installed binding import failures."
+    },
+    {
+      "iteration": 6,
+      "verdict": "FAIL",
+      "summary": "The top-level module exists and likely fixes initialization, but upstream marks it interactive-only rather than a library import contract."
     }
   ]
 }
