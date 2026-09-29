@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import galois
 import numpy as np
@@ -11,7 +12,7 @@ from qldpc.codes.common import CSSCode
 from qldpc.objects import Pauli, PauliXZ
 
 
-def _binary_matrix(name: str, matrix: np.ndarray) -> np.ndarray:
+def _binary_matrix(name: str, matrix: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
     """Return a copied binary matrix."""
     array = np.asarray(matrix)
     if array.ndim != 2:
@@ -21,7 +22,7 @@ def _binary_matrix(name: str, matrix: np.ndarray) -> np.ndarray:
     return array.astype(np.uint8, copy=True)
 
 
-def _rank(matrix: np.ndarray) -> int:
+def _rank(matrix: np.ndarray[Any, Any]) -> int:
     """Compute matrix rank over GF(2)."""
     return int(np.linalg.matrix_rank(galois.GF2(np.asarray(matrix, dtype=np.uint8))))
 
@@ -69,15 +70,21 @@ class _CSSConeMaps:
     """
 
     basis: PauliXZ
-    measurement_to_data: np.ndarray
-    measurement_boundary: np.ndarray
-    complement_from_data: np.ndarray
-    complement_boundary: np.ndarray
-    measurement_groups: np.ndarray
+    measurement_to_data: np.ndarray[Any, Any]
+    measurement_boundary: np.ndarray[Any, Any]
+    complement_from_data: np.ndarray[Any, Any]
+    complement_boundary: np.ndarray[Any, Any]
+    measurement_groups: np.ndarray[Any, Any]
 
     def _validated_arrays(
         self, data_code: CSSCode
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[
+        np.ndarray[Any, Any],
+        np.ndarray[Any, Any],
+        np.ndarray[Any, Any],
+        np.ndarray[Any, Any],
+        np.ndarray[Any, Any],
+    ]:
         """Validate and return normalized construction blocks."""
         if self.basis not in (Pauli.X, Pauli.Z):
             raise ValueError(f"basis must be Pauli.X or Pauli.Z, got {self.basis!r}")
@@ -128,7 +135,7 @@ class _CSSConeMaps:
             measurement_groups,
         )
 
-    def measured_operators(self, data_code: CSSCode) -> np.ndarray:
+    def measured_operators(self, data_code: CSSCode) -> np.ndarray[Any, Any]:
         """Data-qubit supports measured by the independent check groups."""
         measurement_to_data, _, _, _, measurement_groups = self._validated_arrays(data_code)
         return np.asarray(measurement_groups @ measurement_to_data % 2, dtype=np.uint8)
@@ -143,7 +150,7 @@ class _CSSConeMaps:
         )
         return _rank(np.vstack([same_basis, measured])) - _rank(same_basis)
 
-    def measures_exact_span(self, data_code: CSSCode, requested: np.ndarray) -> bool:
+    def measures_exact_span(self, data_code: CSSCode, requested: np.ndarray[Any, Any]) -> bool:
         """Whether measured and requested operators span the same logical cosets."""
         requested_array = _binary_matrix("requested", requested)
         if requested_array.shape[1] != data_code.num_qudits:

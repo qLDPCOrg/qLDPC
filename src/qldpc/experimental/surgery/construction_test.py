@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -11,7 +13,7 @@ from qldpc.objects import Pauli, PauliXZ
 
 
 def _cone_maps_for_logical(
-    code: codes.CSSCode, logical: np.ndarray, basis: PauliXZ
+    code: codes.CSSCode, logical: np.ndarray[Any, Any], basis: PauliXZ
 ) -> _CSSConeMaps:
     """Build current Webster maps without using its assembly function."""
     from qldpc.experimental.surgery.gadget import (
@@ -37,7 +39,9 @@ def _cone_maps_for_logical(
     )
 
 
-def _steane_cone_maps(basis: PauliXZ) -> tuple[codes.CSSCode, _CSSConeMaps, np.ndarray]:
+def _steane_cone_maps(
+    basis: PauliXZ,
+) -> tuple[codes.CSSCode, _CSSConeMaps, np.ndarray[Any, Any]]:
     """Build the current Steane Webster construction as private cone maps."""
     code = codes.SteaneCode()
     logical = np.asarray(code.get_logical_ops(basis)[0], dtype=np.uint8)
@@ -45,7 +49,7 @@ def _steane_cone_maps(basis: PauliXZ) -> tuple[codes.CSSCode, _CSSConeMaps, np.n
     return code, maps, logical.reshape(1, -1)
 
 
-def _block_diagonal(*matrices: np.ndarray) -> np.ndarray:
+def _block_diagonal(*matrices: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
     """Block-diagonalize binary matrices."""
     output = np.zeros(
         (sum(matrix.shape[0] for matrix in matrices), sum(matrix.shape[1] for matrix in matrices)),
@@ -121,7 +125,9 @@ def test_css_cone_maps_reject_invalid_basis() -> None:
         ),
     ],
 )
-def test_css_cone_maps_reject_invalid_blocks(field: str, value: np.ndarray, message: str) -> None:
+def test_css_cone_maps_reject_invalid_blocks(
+    field: str, value: np.ndarray[Any, Any], message: str
+) -> None:
     """Every construction block is shape- and field-checked before assembly."""
     code, maps, _ = _steane_cone_maps(Pauli.X)
     invalid = _CSSConeMaps(

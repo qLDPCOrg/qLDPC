@@ -63,6 +63,17 @@ Some built-in families carry known parameters from their construction or the lit
 methods also accept explicit promises, such as equal X and Z distances. These values and promises
 are trusted rather than recomputed automatically; exact distance calculations can be exponential.
 
+Distance bounds
+~~~~~~~~~~~~~~~
+
+``CSSCode.get_distance_bound`` accepts a typed ``backend`` selector.  ``"gap"`` explicitly uses
+GAP/QDistRnd, ``"sqetch"`` uses the optional GPU random-ISD estimator for binary CSS codes, and
+``"decoder"`` uses qLDPC's decoder-based estimator.  The default ``"auto"`` preserves the
+historical GAP-when-available behavior.  Install the optional backend with
+``python -m pip install 'qldpc[sqetch]'``; it requires a CUDA-capable PyTorch build and a visible
+GPU.  ``sqetch`` estimates one X or Z sector at a time and returns an observed upper bound; for
+subsystem CSS codes it searches dressed logicals by constraining only opposite-type stabilizers.
+
 Graphs, complexes, and lifted matrices
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

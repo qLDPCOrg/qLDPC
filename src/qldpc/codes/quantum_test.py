@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import unittest.mock
+from typing import Any
 
 import networkx as nx
 import numpy as np
@@ -113,7 +114,7 @@ def test_hamming_and_tetrahedral_codes() -> None:
         ]
     }
 
-    def mapped_supports(matrix: np.ndarray) -> set[frozenset[int]]:
+    def mapped_supports(matrix: np.ndarray[Any, Any]) -> set[frozenset[int]]:
         """Supports after mapping this code's qubit order to the paper's."""
         return {frozenset(qubit_map[col] for col in np.flatnonzero(row)) for row in matrix}
 
@@ -1040,7 +1041,7 @@ def test_quantum_tanner_nonabelian_faces() -> None:
     assert labelled_edges(subgraph_x) == expected_x
     assert labelled_edges(subgraph_z) == expected_z
 
-    def matrix_supports(matrix: np.ndarray, graph: nx.DiGraph) -> list[frozenset[object]]:
+    def matrix_supports(matrix: np.ndarray[Any, Any], graph: nx.DiGraph) -> list[frozenset[object]]:
         """Matrix-row supports expressed using the graph's face nodes."""
         faces = sorted(node for node in graph if graph.out_degree(node) == 0)
         return [frozenset(faces[col] for col in np.flatnonzero(row)) for row in matrix]

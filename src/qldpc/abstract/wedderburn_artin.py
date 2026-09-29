@@ -9,7 +9,7 @@ import itertools
 import math
 import operator
 from collections.abc import Sequence
-from typing import Literal
+from typing import Literal, cast
 
 import galois
 import numpy as np
@@ -133,7 +133,10 @@ class WedderburnArtinTransformer:
         """
         if self.ring.is_commutative:
             return element
-        components = [np.swapaxes(component, -1, -2) for component in self.decompose(element)]
+        components = [
+            cast(galois.FieldArray, np.swapaxes(component, -1, -2))
+            for component in self.decompose(element)
+        ]
         return self.recompose(components)
 
     def transpose_array(self, array: RingArray) -> RingArray:
@@ -145,7 +148,10 @@ class WedderburnArtinTransformer:
         """
         if self.ring.is_commutative:
             return array.transpose().view(RingArray)
-        components = [np.swapaxes(component, -1, -2) for component in self.decompose_array(array)]
+        components = [
+            cast(galois.FieldArray, np.swapaxes(component, -1, -2))
+            for component in self.decompose_array(array)
+        ]
         return self.recompose_array(components).transpose().view(RingArray)
 
 

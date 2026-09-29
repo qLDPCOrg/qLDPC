@@ -185,6 +185,8 @@ def test_distance_classical(bits: int = 3) -> None:
     # computing an exact distance but providing bounding arguments raises a warning
     with pytest.warns(UserWarning, match="ignored"):
         assert rep_code.get_distance(test_arg=True)
+    with pytest.raises(ValueError, match="only available for CSSCode"):
+        rep_code.get_distance_bound(backend="sqetch")
 
     # trivial (null) codes have an undefined distance
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
@@ -1114,6 +1116,72 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
         cutoff=None,
         with_BP_LSD=True,
     )
+
+
+def test_css_distance_bound_backend_selection() -> None:
+    """Select sqetch, decoder, and GAP backends explicitly."""
+    code = codes.SteaneCode()
+    code.forget_distance()
+
+    with unittest.mock.patch(
+        "qldpc.external.sqetch.get_distance_bound", return_value=3
+    ) as sqetch_bound:
+        assert (
+            code.get_distance_bound(
+                num_trials=4,
+                pauli=Pauli.Z,
+                backend="sqetch",
+                k_sub=5,
+                seed=9,
+            )
+            == 3
+        )
+    sqetch_bound.assert_called_once_with(
+        code,
+        4,
+        Pauli.Z,
+        cutoff=None,
+        k_sub=5,
+        seed=9,
+    )
+
+    with unittest.mock.patch.object(
+        code, "get_distance_bound_with_decoder", return_value=3
+    ) as bound:
+        assert code.get_distance_bound(num_trials=2, pauli=Pauli.X, backend="decoder") == 3
+    bound.assert_called_once_with(Pauli.X, 2, cutoff=None)
+
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=4) as gap_bound,
+    ):
+        assert (
+            code.get_distance_bound(
+                num_trials=3, pauli=Pauli.Z, cutoff=2, backend="gap", maxav="average"
+            )
+            == 4
+        )
+    gap_bound.assert_called_once_with(code, 3, cutoff=2, maxav="average")
+
+    with pytest.raises(ValueError, match="not recognized by sqetch"):
+        code.get_distance_bound(pauli=Pauli.Z, backend="sqetch", maxav="fail")
+    with pytest.raises(ValueError, match="not recognized by GAP"):
+        code.get_distance_bound(pauli=Pauli.Z, backend="gap", k_sub=5)
+
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        pytest.raises(NotImplementedError, match="explicitly requested"),
+    ):
+        code.get_distance_bound(pauli=Pauli.Z, backend="gap")
+
+
+def test_distance_backend_validation() -> None:
+    """Reject sqetch and decoder selectors for non-CSS codes."""
+    code = codes.FiveQubitCode()
+    code.forget_distance()
+    for backend in ["sqetch", "decoder"]:
+        with pytest.raises(ValueError, match="only available for CSSCode"):
+            code.get_distance_bound(backend=backend)  # type: ignore[arg-type]
 
 
 def test_css_deformations() -> None:

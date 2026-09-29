@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -13,6 +14,17 @@ _MASK55 = np.uint64(0x5555555555555555)
 _MASK33 = np.uint64(0x3333333333333333)
 _MASK0F = np.uint64(0x0F0F0F0F0F0F0F0F)
 _MASK01 = np.uint64(0x0101010101010101)
+
+DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
+
+
+def validate_distance_backend(backend: DistanceBackend) -> None:
+    """Validate a distance-bound backend selector."""
+    if backend not in ("auto", "decoder", "gap", "sqetch"):
+        raise ValueError(
+            f"Unknown distance backend {backend!r}; choose from 'auto', 'decoder', 'gap', or "
+            "'sqetch'."
+        )
 
 
 ####################################################################################################

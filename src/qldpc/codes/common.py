@@ -27,7 +27,12 @@ from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
-from .distance import get_distance_classical, get_distance_quantum
+from .distance import (
+    DistanceBackend,
+    get_distance_classical,
+    get_distance_quantum,
+    validate_distance_backend,
+)
 from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_allocation
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
@@ -528,6 +533,7 @@ class ClassicalCode(AbstractCode):
         *,
         cutoff: int | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
+        backend: DistanceBackend = "auto",
         **decoder_kwargs: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
@@ -546,11 +552,18 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
+            backend: Distance-bound backend.  Classical codes use only the decoder path; this
+                argument is accepted for compatibility with shared distance-bound workflows.
             **decoder_kwargs: Keyword arguments to pass to qldpc.decoders.get_decoder.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_backend(backend)
+        if backend not in ("auto", "decoder"):
+            raise ValueError(
+                f"The {backend!r} distance backend is only available for CSSCode instances."
+            )
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
@@ -1881,22 +1894,34 @@ class QuditCode(AbstractCode):
         return self._distance
 
     def get_distance_bound(
-        self, num_trials: int = 1, *, cutoff: int | None = None, **bound_kwargs: Any
+        self,
+        num_trials: int = 1,
+        *,
+        cutoff: int | None = None,
+        backend: DistanceBackend = "auto",
+        **bound_kwargs: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use GAP's QDistRnd package to compute a distance bound.  Raise an error
-        otherwise.
+        otherwise.  The ``sqetch`` backend is available only on :class:`CSSCode`.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
+            backend: Distance-bound backend.  ``"auto"`` and ``"gap"`` use GAP/QDistRnd;
+                ``"decoder"`` and ``"sqetch"`` require a CSSCode and are rejected here.
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
                 See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_backend(backend)
+        if backend not in ("auto", "gap"):
+            raise ValueError(
+                f"The {backend!r} distance backend is only available for CSSCode instances."
+            )
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
         if num_trials == 0 or cutoff == len(self):
@@ -3086,13 +3111,15 @@ class CSSCode(QuditCode):
         pauli: PauliXZ | None = None,
         *,
         cutoff: int | None = None,
+        backend: DistanceBackend = "auto",
         **bound_kwargs: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        If available (and appropriate, given the bound_kwargs), use GAP's QDistRnd package to
-        compute a distance bound.  Otherwise, use the decoder-based algorithm in
-        CSSCode.get_distance_bound_with_decoder.
+        ``backend="gap"`` selects GAP's QDistRnd package explicitly, while ``backend="sqetch"``
+        selects the optional GPU random-ISD estimator.  The default ``"auto"`` preserves the
+        historical behavior: GAP/QDistRnd is used when available and no decoder-specific arguments
+        are supplied; otherwise the decoder-based algorithm is used.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.
@@ -3100,14 +3127,18 @@ class CSSCode(QuditCode):
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 If None (the default), minimize over X and Z.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
+            backend: ``"auto"`` (the default), ``"gap"``, ``"sqetch"``, or ``"decoder"``.
+                Explicit ``"gap"`` always requests QDistRnd and never silently falls back.
+                ``"sqetch"`` requires the optional dependency and a CUDA-capable GPU.
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
-                If provided arguments that are not recognized by QDistRnd, use a decoder-based
-                distance bounding method, and pass these keyword arguments to a decoder in a call to
-                qldpc.decoders.get_decoder.
+                For ``"gap"``, only ``maxav`` is recognized.  For ``"sqetch"``, supported options
+                are ``d_target``, ``k_sub``, ``batch_size``, ``seed``, and ``device``.  With
+                ``"auto"``, unrecognized QDistRnd arguments select the decoder path.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_backend(backend)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
         if num_trials == 0 or cutoff == len(self):
@@ -3120,15 +3151,42 @@ class CSSCode(QuditCode):
             return min(
                 [
                     self.get_distance_bound(
-                        num_trials=num_trials, pauli=pauli, cutoff=cutoff, **bound_kwargs
+                        num_trials=num_trials,
+                        pauli=pauli,
+                        cutoff=cutoff,
+                        backend=backend,
+                        **bound_kwargs,
                     )
                     for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
                 ]
             )
 
-        if any(kwarg != "maxav" for kwarg in bound_kwargs) or not external.gap.is_installed():
+        if backend == "decoder":
             return self.get_distance_bound_with_decoder(
                 pauli, num_trials, cutoff=cutoff, **bound_kwargs
+            )
+
+        if backend == "sqetch":
+            sqetch_kwargs = {"d_target", "k_sub", "batch_size", "seed", "device"}
+            if unknown := set(bound_kwargs) - sqetch_kwargs:
+                raise ValueError(f"Arguments not recognized by sqetch: {sorted(unknown)}")
+            return external.sqetch.get_distance_bound(
+                self, num_trials, pauli, cutoff=cutoff, **bound_kwargs
+            )
+
+        if backend == "auto" and (
+            any(kwarg != "maxav" for kwarg in bound_kwargs) or not external.gap.is_installed()
+        ):
+            return self.get_distance_bound_with_decoder(
+                pauli, num_trials, cutoff=cutoff, **bound_kwargs
+            )
+
+        if backend == "gap" and any(kwarg != "maxav" for kwarg in bound_kwargs):
+            unknown_gap = sorted(kwarg for kwarg in bound_kwargs if kwarg != "maxav")
+            raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
+        if not external.gap.is_installed():
+            raise NotImplementedError(
+                "GAP/QDistRnd was explicitly requested but GAP 4 is not installed."
             )
 
         # GAP estimates the Z-distance of CSS codes, so flip X/Z if necessary

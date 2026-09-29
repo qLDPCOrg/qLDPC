@@ -393,7 +393,6 @@ def test_get_distance_classical_methods() -> None:
         bitcount.assert_called()
         fallback.assert_not_called()
         assert distance == distance_default
-
     # Using fallback (qldpc.codes.distance._hamming_weight):
     with (
         mock.patch("numpy.bitwise_count", None, create=True),
@@ -420,6 +419,14 @@ def test_get_distance_classical_methods() -> None:
         bitcount.assert_not_called()
         fallback.assert_not_called()
         assert distance == distance_default
+
+
+def test_distance_backend_validation() -> None:
+    """Distance backend selectors are restricted to the documented values."""
+    for backend in ["auto", "decoder", "gap", "sqetch"]:
+        qldpc.codes.validate_distance_backend(backend)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Unknown distance backend"):
+        qldpc.codes.validate_distance_backend("other")  # type: ignore[arg-type]
 
 
 def test_get_distance_empty_stabilizers_symplectic() -> None:

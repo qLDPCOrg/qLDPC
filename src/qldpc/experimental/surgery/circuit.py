@@ -21,6 +21,8 @@ limitations under the License.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import stim
 
@@ -58,7 +60,7 @@ def _validate_one_logical_measurement(
 def _validate_bridge_gadget(
     gadget: GadgetLayout,
     augmented: GadgetLayout,
-    bridge_extra: np.ndarray,
+    bridge_extra: np.ndarray[Any, Any],
     *,
     side: str,
 ) -> None:
@@ -396,7 +398,7 @@ def _resolve_data_init(gadget: GadgetLayout, num_data: int, data_init: str | Non
 
 
 def _deterministic_data_checks(
-    matrix: np.ndarray,
+    matrix: np.ndarray[Any, Any],
     check_ids: tuple[int, ...],
     data_init: str,
     eigenstates: str,
@@ -1067,7 +1069,7 @@ def _surgery_final_detectors_joint(
         joint=(g_r, bridge, intercode),
     )
 
-    def _emit_detector(stab_row: np.ndarray, check_id: int) -> None:
+    def _emit_detector(stab_row: np.ndarray[Any, Any], check_id: int) -> None:
         supp = np.where(stab_row)[0]
         targets = [measurement_record.get_target_rec(qubit_ids.data[q]) for q in supp]
         targets.append(measurement_record.get_target_rec(check_id, -1))
@@ -1298,7 +1300,7 @@ def _surgery_final_detectors(
     circuit = stim.Circuit()
     lane_of = _check_lane_map(gadget, qubit_ids)
 
-    def _emit_detector(stab_row: np.ndarray, check_id: int) -> None:
+    def _emit_detector(stab_row: np.ndarray[Any, Any], check_id: int) -> None:
         supp = np.where(stab_row)[0]
         targets = [measurement_record.get_target_rec(qubit_ids.data[q]) for q in supp]
         targets.append(measurement_record.get_target_rec(check_id, -1))
