@@ -32,7 +32,17 @@ class _LibGap(Protocol):
         """Return a callable GAP function."""
 
 
+_libgap_packages: dict[str, tuple[str, str | None]] = {}
 _subprocess_packages: set[str] = set()
+
+# PassageMath retains warnings from successful evaluations in its error stream.
+_RESET_LIBGAP_ERROR_OUTPUT = """CallFuncList(function()
+    CloseStream(ERROR_OUTPUT);
+    MakeReadWriteGlobal("ERROR_OUTPUT");
+    libgap_errout := "";
+    ERROR_OUTPUT := OutputTextString(libgap_errout, false);
+    MakeReadOnlyGlobal("ERROR_OUTPUT");
+end, [])"""
 
 
 def _get_libgap() -> _LibGap | None:
@@ -137,7 +147,9 @@ def _get_output_libgap(commands: Sequence[str], libgap: _LibGap) -> str:
     direct_command = "CallFuncList(function()\n" + "\n".join(body) + "\nend, [])"
 
     try:
+        libgap.eval(_RESET_LIBGAP_ERROR_OUTPUT)
         result = libgap.eval(direct_command)
+        libgap.eval(_RESET_LIBGAP_ERROR_OUTPUT)
     except Exception as error:
         raise ValueError(
             "Error encountered when running GAP through libgap\n\n"
@@ -269,14 +281,19 @@ def _install_package_subprocess(name: str, repo: str) -> None:
 
 
 def _require_package_subprocess(
-    name: str, repo: str | None, availability: str | None = None
+    name: str,
+    repo: str | None,
+    availability: str | None = None,
+    *,
+    confirm_install: bool = True,
 ) -> bool:
     """Ensure a GAP package is available through the executable backend."""
     if availability is None:
         availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
     if availability.strip() == "fail":
         repo = repo or f"https://github.com/gap-packages/{name}"
-        _confirm_package_install(name)
+        if confirm_install:
+            _confirm_package_install(name)
         _install_package_subprocess(name, repo)
     return True
 
@@ -357,30 +374,43 @@ def require_package(name: str, repo: str | None = None) -> bool:
     Returns:
         True if the requirement is satisfied (raises an error otherwise).
     """
-    libgap = _get_libgap()
+    libgap = None if _subprocess_packages else _get_libgap()
     if libgap is not None:
         try:
             availability = libgap.function_factory("TestPackageAvailability")(name.lower())
         except Exception as error:
             raise ValueError(f"Could not check GAP package availability for {name}") from error
         if str(availability).lower() != "fail":
+            _libgap_packages[name.lower()] = (name, repo)
             return True
 
         _confirm_package_install(name)
         try:
-            return _install_package_libgap(name, repo, libgap)
+            installed = _install_package_libgap(name, repo, libgap)
         except (ModuleNotFoundError, ValueError) as error:
             if not _is_gap_executable():
                 raise
             print(error)
             print("Falling back to the GAP executable for this package.")
-        repo = repo or f"https://github.com/gap-packages/{name}"
-        _subprocess_packages.add(name.lower())
-        try:
-            _install_package_subprocess(name, repo)
-        except Exception:
-            _subprocess_packages.discard(name.lower())
-            raise
+        else:
+            _libgap_packages[name.lower()] = (name, repo)
+            return installed
+
+        requirements = dict(_libgap_packages)
+        requirements[name.lower()] = (name, repo)
+        for package, package_repo in requirements.values():
+            availability = _get_output_subprocess(
+                (f'Print(TestPackageAvailability("{package.lower()}"));;',)
+            )
+            _require_package_subprocess(
+                package,
+                package_repo,
+                availability,
+                confirm_install=package.lower() != name.lower(),
+            )
+        _subprocess_packages.update(requirements)
+        _libgap_packages.clear()
+        require_package.cache_clear()
         return True
 
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
