@@ -76,7 +76,6 @@ python -m pip install 'qldpc[sqetch]'
 
 This extra installs the pinned upstream version of `sqetch` with GPU support.
 For binary CSS codes, select it with `code.get_distance(bound=True, backend="sqetch")`.
-For subsystem CSS codes, `sqetch` estimates an upper bound on dressed distance.
 The estimator requires a CUDA-enabled PyTorch installation and a visible CUDA GPU, so it is unavailable on macOS.
 `backend="auto"` chooses the first applicable backend in this order: an installed `sqetch` for binary CSS codes, available GAP/QDistRnd, then qLDPC's decoder-based estimator.
 Set `backend="gap"` to request GAP/QDistRnd explicitly.

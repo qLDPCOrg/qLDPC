@@ -75,9 +75,7 @@ binary CSS codes, available GAP/QDistRnd, then the decoder. Install the optional
 visible CUDA GPU.
 
 ``sqetch`` estimates the X- and Z-distance sectors separately. The lowest logical weight it observes
-is an upper bound on the corresponding distance. For subsystem CSS codes, it estimates a bound on
-dressed distance by constraining the search with opposite-Pauli stabilizers, without including
-opposite-Pauli gauge generators.
+is an upper bound on the corresponding distance.
 
 Graphs, complexes, and lifted matrices
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
