@@ -73,7 +73,6 @@ Multi-qubit Pauli channels with arity three or greater are emitted as correlated
 unless ``approximate_disjoint_errors=True`` is passed.  qLDPC's DEM consumers use that explicit
 approximation; callers extracting DEMs directly must make the same modeling choice.
 
-
 Per-gate-application noise via a callback (``rule_func``)::
 
     from qldpc.circuits.noise_model import NoiseModel, NoiseRule
@@ -96,6 +95,18 @@ Per-gate-application noise via a callback (``rule_func``)::
         rule_func=bad_qubit_noise,
     )
     noisy_circuit = noise_model.noisy_circuit(circuit)
+
+Idling errors:
+--------------
+
+``idle_error`` applies to every qubit that is not operated on during a circuit moment.
+``additional_error_waiting_for_m_or_r`` applies additional noise to non-collapsing qubits during a
+moment that contains a measurement or reset.
+
+Explicit identity gates (``I`` and ``II``) are treated as idle for this accounting.  ``rules`` can
+append errors after these gates, and ``rule_func`` can select errors based on an identity's tag or
+encoded duration.  A rule returned by the callback takes precedence over a matching named rule.
+Identity rules and ``idle_error`` stack: when both match, both are applied.
 
 Important note:
 ---------------
@@ -222,7 +233,8 @@ MEASURE_AND_RESET_OPS = frozenset(
 COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
 # Stim's explicit idle markers describe waiting, rather than noisy Clifford gates.  They remain in
-# the output circuit but receive the model's idle noise instead of gate noise.
+# the output circuit and receive the model's idle noise; explicit rules may add marker-specific
+# noise.
 IDLE_OPS = frozenset({"I", "II"})
 
 ####################################################################################################
@@ -834,7 +846,8 @@ class NoiseModel:
     This class provides a framework for adding various types of noise to quantum circuits, including
     gate errors, readout errors, reset errors, and idling errors.  Classically controlled operations
     are assumed to NOT occur, so the corresponding qubits pick up idling errors, if applicable.
-    Explicit ``I`` and ``II`` markers are likewise treated as idle time, not as Clifford gates.
+    Explicit ``I`` and ``II`` markers are likewise treated as idle time rather than ordinary
+    Clifford gates, but ``rules`` and ``rule_func`` may assign additional custom noise to them.
     """
 
     def __init__(
@@ -879,17 +892,18 @@ class NoiseModel:
                 reset, including qubits undergoing a unitary operation.  Same NoiseRule semantics as
                 ``idle_error``.
             rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
-                arity-based defaults for unitary, measurement, and reset gates.
+                arity-based defaults for unitary, measurement, and reset gates.  Explicit ``I`` and
+                ``II`` markers accept one- and two-qubit ``after`` rules, respectively.  If
+                ``idle_error`` is also configured, both kinds of noise are applied.
             rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
-                ``NoiseRule``.  Takes priority over all other noise rules above.  Any gate that stim
-                broadcasts across multiple independent applications (e.g. ``H 0 1 2``,
-                ``CX 0 1 2 3``, or ``SPP X1*Y2 Z3*Y4*X5``) is decomposed into its individual
-                gate applications before being passed to ``rule_func``, its input ``op``
-                always holds exactly one application's worth of targets: one for a one-qubit gate,
-                two for a two-qubit gate, and one Pauli product's targets for an SPP/MPP.  The
-                callback is consulted only for genuine noisy gates (unitary Cliffords, measurements,
-                and resets) that are not classically controlled; it does not affect annotations,
-                pure-noise instructions, or idling errors.
+                ``NoiseRule``.  The callback is evaluated before named and default rules.  Broadcast
+                instructions are split first, so each callback input represents one gate
+                application: one target for a one-qubit gate, two for a two-qubit gate, or one Pauli
+                product for an SPP/MPP instruction.  The callback receives unitary Cliffords,
+                measurements, resets, and explicit ``I`` / ``II`` idle markers, but not annotations,
+                pure-noise instructions, or classically controlled operations.  Returning ``None``
+                continues with named and default rule lookup.  Identities can fall back to named
+                rules, but not to Clifford defaults.
         """
         self.rules = rules
         self.rule_func = rule_func
@@ -1032,8 +1046,9 @@ class NoiseModel:
         3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
         4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
 
-        Explicit idle markers (``I`` and ``II``) receive idling noise rather than gate noise, so
-        ``rule_func`` is not consulted for them and they cannot be keys in ``rules``.
+        For explicit idle markers (``I`` and ``II``), ``rule_func`` is consulted first, followed by
+        named ``rules``.  Clifford defaults do not apply.  Because automatic ``idle_error`` is
+        evaluated separately, an identity can receive both kinds of noise.
 
         Note: MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one
         Pauli product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product
@@ -1047,11 +1062,7 @@ class NoiseModel:
         Returns:
             The NoiseRule to apply for the given operation, or None for no noise.
         """
-        if (
-            op_type(op.name) in (ANNOTATION, NOISE)
-            or op.name in IDLE_OPS
-            or _involves_classical_bits(op)
-        ):
+        if op_type(op.name) in (ANNOTATION, NOISE) or _involves_classical_bits(op):
             return None
 
         if self.rule_func is not None and op_type(op.name) in GATE_OP_TYPES:
@@ -1076,6 +1087,9 @@ class NoiseModel:
                         if rule.reset_error is not None and op.name not in MEASURE_AND_RESET_OPS:
                             raise ValueError(f"`reset_error` is not valid on {op.name!r}")
                     return rule
+
+        if op.name in IDLE_OPS:
+            return None
 
         this_op_type = op_type(op.name)
         if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
@@ -1575,10 +1589,6 @@ def _canonical_rule_key(op_name: str) -> str:
         return op_name
     else:
         canonical = gate_data.aliases[0]
-        if canonical in IDLE_OPS:
-            raise ValueError(
-                f"Noise rules cannot target explicit idle marker {op_name!r}; use idle_error"
-            )
         if op_type(canonical) not in GATE_OP_TYPES:
             raise ValueError(f"Noise rules cannot target {op_name!r}")
         return canonical
@@ -1761,12 +1771,12 @@ def _categorize_moment_qubits(
 ) -> tuple[list[int], list[int]]:
     """Categorize a moment's qubit targets and check for reuse.
 
-    Iterates every non-annotation instruction and buckets its qubit targets into three lists —
-    collapsed (measurement / reset), classically-controlled, and everything else ("operation").
-    Raises if any qubit is used more than once across the three buckets, since noise application
-    relies on the "each qubit at most once per moment" invariant that ``_split_moments_with_ticks``
-    enforces when ``insert_ticks=True``.  The classically-controlled bucket contributes only to
-    the reuse check.
+    Iterates every non-annotation instruction and buckets its qubit targets into four lists —
+    collapsed (measurement / reset), classically-controlled, explicit-idle, and everything else
+    ("operation").  Raises if any qubit is used more than once across the four buckets, since noise
+    application relies on the "each qubit at most once per moment" invariant that
+    ``_split_moments_with_ticks`` enforces when ``insert_ticks=True``.  The classically-controlled
+    and explicit-idle buckets contribute only to the reuse check.
 
     Args:
         moment: The moment's operations.
@@ -1783,8 +1793,9 @@ def _categorize_moment_qubits(
     collapsed_qubits: list[int] = []
     operation_qubits: list[int] = []
     classically_controlled_qubits: list[int] = []
+    explicit_idle_qubits: list[int] = []
     for op in moment:
-        if op_type(op.name) in (ANNOTATION, NOISE) or op.name in IDLE_OPS:
+        if op_type(op.name) in (ANNOTATION, NOISE):
             continue
         target_qubits = [
             target.qubit_value for target in op.targets_copy() if target.qubit_value is not None
@@ -1797,12 +1808,14 @@ def _categorize_moment_qubits(
             qubits = collapsed_qubits
         elif _involves_classical_bits(op):
             qubits = classically_controlled_qubits
+        elif op.name in IDLE_OPS:
+            qubits = explicit_idle_qubits
         else:
             qubits = operation_qubits
         qubits.extend(target_qubits)
 
     usage_counts = collections.Counter(
-        collapsed_qubits + operation_qubits + classically_controlled_qubits
+        collapsed_qubits + operation_qubits + classically_controlled_qubits + explicit_idle_qubits
     )
     qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
     if qubits_used_multiple_times:
@@ -1864,7 +1877,7 @@ def _split_moments_with_ticks(circuit: stim.Circuit, immune_op_tag: str | None) 
         for split_op in split_ops:
             # Check if this split operation would reuse any qubits
             op_qubits = set()
-            if op_type(split_op.name) not in (ANNOTATION, NOISE) and split_op.name not in IDLE_OPS:
+            if op_type(split_op.name) not in (ANNOTATION, NOISE):
                 for target in split_op.targets_copy():
                     if not target.is_combiner and target.qubit_value is not None:
                         op_qubits.add(target.qubit_value)

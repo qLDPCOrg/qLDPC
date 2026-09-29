@@ -92,6 +92,40 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
         code = codes.ClassicalCode.stack([code_a, code_b])
 
 
+def test_deprecated_aliases() -> None:
+    """Deprecated code method aliases warn and delegate to their replacements."""
+    classical_code = codes.RepetitionCode(3)
+    for alias, replacement in [
+        (classical_code.puncture, classical_code.punctured),
+        (classical_code.shorten, classical_code.shortened),
+    ]:
+        with pytest.warns(DeprecationWarning, match="DEPRECATED") as warnings:
+            deprecated = alias([0])
+        assert len(warnings) == 1
+        assert str(warnings[0].message).startswith("ClassicalCode.")
+        assert deprecated == replacement([0])
+
+    qudit_code = codes.QuditCode(codes.FiveQubitCode())
+    with pytest.warns(DeprecationWarning, match="DEPRECATED") as warnings:
+        dual_subsystem_code = qudit_code.get_dual_subsystem_code()
+    assert len(warnings) == 1
+    assert dual_subsystem_code == qudit_code.dual()
+
+    with pytest.warns(DeprecationWarning, match="DEPRECATED") as warnings:
+        conjugated_qudit_code = qudit_code.conjugate()
+    assert len(warnings) == 1
+    assert str(warnings[0].message).startswith("QuditCode.")
+    assert conjugated_qudit_code == qudit_code.conjugated()
+
+    css_code = codes.SteaneCode()
+    with pytest.warns(DeprecationWarning, match="DEPRECATED") as warnings:
+        conjugated_css_code = css_code.conjugate()
+    assert len(warnings) == 1
+    assert str(warnings[0].message).startswith("SteaneCode.")
+    assert isinstance(conjugated_css_code, codes.CSSCode)
+    assert conjugated_css_code == css_code.conjugated().to_css()
+
+
 def test_named_codes(order: int = 2) -> None:
     """Named codes from the GAP computer algebra system."""
     code = codes.RepetitionCode(order)
@@ -1054,6 +1088,32 @@ def test_distance_css() -> None:
     assert code.dimension == 0
     assert np.isnan(code.get_distance(bound=True))
     assert np.isnan(code.get_distance(bound=False))
+
+
+def test_css_decoder_distance_bound_skips_gap_probe() -> None:
+    """Explicit decoder arguments select the decoder path without probing interactive GAP setup."""
+    code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
+    code.forget_distance()
+
+    with (
+        unittest.mock.patch(
+            "qldpc.external.gap.is_installed",
+            side_effect=AssertionError("GAP should not be probed"),
+        ),
+        unittest.mock.patch.object(
+            code,
+            "get_distance_bound_with_decoder",
+            return_value=3,
+        ) as decoder_bound,
+    ):
+        assert code.get_distance_bound(pauli=Pauli.X, with_BP_LSD=True) == 3
+
+    decoder_bound.assert_called_once_with(
+        Pauli.X,
+        1,
+        cutoff=None,
+        with_BP_LSD=True,
+    )
 
 
 def test_css_deformations() -> None:

@@ -709,7 +709,7 @@ class ClassicalCode(AbstractCode):
             new_matrix = np.delete(new_matrix, bit, axis=1).view(self.field)
         return ClassicalCode(new_matrix)
 
-    def puncture(self, bits: Collection[int]) -> ClassicalCode:  # pragma: no cover
+    def puncture(self, bits: Collection[int]) -> ClassicalCode:
         """Deprecated alias for ClassicalCode.punctured."""
         warnings.warn(
             "ClassicalCode.puncture is DEPRECATED; use ClassicalCode.punctured instead",
@@ -731,7 +731,7 @@ class ClassicalCode(AbstractCode):
         new_matrix = np.delete(self.matrix, list(bits), axis=1).view(self.field)
         return ClassicalCode(new_matrix)
 
-    def shorten(self, bits: Collection[int]) -> ClassicalCode:  # pragma: no cover
+    def shorten(self, bits: Collection[int]) -> ClassicalCode:
         """Deprecated alias for ClassicalCode.shortened."""
         warnings.warn(
             "ClassicalCode.shorten is DEPRECATED; use ClassicalCode.shortened instead",
@@ -1752,7 +1752,7 @@ class QuditCode(AbstractCode):
         code._gauge_ops = self._logical_ops
         return code
 
-    def get_dual_subsystem_code(self) -> QuditCode:  # pragma: no cover
+    def get_dual_subsystem_code(self) -> QuditCode:
         """Deprecated alias for self.dual()."""
         warnings.warn(
             "QuditCode.get_dual_subsystem_code is DEPRECATED; use QuditCode.dual instead",
@@ -1940,10 +1940,11 @@ class QuditCode(AbstractCode):
         code._distance = self._distance
         return code
 
-    def conjugate(self) -> QuditCode:  # pragma: no cover
-        """The same code with all X-type and Z-type operators swapped."""
+    def conjugate(self) -> QuditCode:
+        """Deprecated alias for ``conjugated()``."""
         warnings.warn(
-            f"{type(self)}.conjugate is DEPRECATED; use {type(self)}.conjugated instead",
+            f"{type(self).__name__}.conjugate is DEPRECATED; use {type(self).__name__}.conjugated "
+            "instead",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -3125,7 +3126,7 @@ class CSSCode(QuditCode):
                 ]
             )
 
-        if not external.gap.is_installed() or any(kwarg != "maxav" for kwarg in bound_kwargs):
+        if any(kwarg != "maxav" for kwarg in bound_kwargs) or not external.gap.is_installed():
             return self.get_distance_bound_with_decoder(
                 pauli, num_trials, cutoff=cutoff, **bound_kwargs
             )
@@ -3296,8 +3297,14 @@ class CSSCode(QuditCode):
                 code._distance_x, code._distance_z = self._distance_z, self._distance_x
         return code
 
-    def conjugate(self) -> CSSCode:  # pragma: no cover
-        """The same code with all X-type and Z-type operators swapped."""
+    def conjugate(self) -> CSSCode:
+        """Deprecated alias for ``conjugated()``."""
+        warnings.warn(
+            f"{type(self).__name__}.conjugate is DEPRECATED; use {type(self).__name__}.conjugated "
+            "instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.conjugated().to_css()
 
     def deformed(
