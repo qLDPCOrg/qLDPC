@@ -28,11 +28,17 @@ Some searches are expensive, some bounds are heuristic, experimental APIs can ch
 
 ## 📦 Installation
 
+### Standard installation
+
 qLDPC requires Python 3.10 or later:
 
 ```bash
 python -m pip install qldpc
 ```
+
+### Optional extras
+
+#### Relay-BP decoder
 
 Install the optional Relay-BP decoder with:
 
@@ -40,20 +46,7 @@ Install the optional Relay-BP decoder with:
 python -m pip install 'qldpc[relay-bp]'
 ```
 
-Install optional numba acceleration for exact distance calculations (the `use_numba=True` argument
-to distance-computing methods) with:
-
-```bash
-python -m pip install 'qldpc[numba]'
-```
-
-For development:
-
-```bash
-git clone https://github.com/qLDPCOrg/qLDPC.git
-cd qLDPC
-python -m pip install -e '.[dev]'
-```
+#### GAP integration
 
 Some algebra tools, code lookups, and distance estimates require [GAP](https://www.gap-system.org).
 For the recommended in-process integration, install qLDPC with its maintained libgap extra:
@@ -68,7 +61,45 @@ If a package such as GUAVA or QDistRnd is absent from the in-process binding, qL
 If that attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing the package for libgap before using the executable instead.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
-If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
+#### Exact-distance acceleration
+
+Install optional numba acceleration for exact distance calculations with:
+
+```bash
+python -m pip install 'qldpc[numba]'
+```
+
+For a binary code, enable it with `code.get_distance(use_numba=True)` or `code.get_distance_exact(use_numba=True)`.
+
+#### `sqetch` distance estimation
+
+You can install the optional `sqetch` distance-estimation backend with:
+
+```bash
+python -m pip install 'qldpc[sqetch]'
+```
+
+This extra installs the pinned upstream version of `sqetch` with GPU support.
+For binary CSS codes, select it with `code.get_distance_bound(backend="sqetch")`.
+
+### Troubleshooting
+
+On macOS, you may need to install `cvxpy` manually by following its [installation instructions](https://www.cvxpy.org/install) before installing qLDPC.
+If you use Conda to manage your Python environment, install `cvxpy` with:
+
+```bash
+conda install -c conda-forge cvxpy
+```
+
+### Development installation
+
+For a development installation:
+
+```bash
+git clone https://github.com/qLDPCOrg/qLDPC.git
+cd qLDPC
+python -m pip install -e '.[dev]'
+```
 
 ## 🚀 Quickstart
 

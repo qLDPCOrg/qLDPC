@@ -64,9 +64,8 @@ Higher-level APIs accept the same settings:
    )
 
 A prebuilt error decoder or a custom callable that accepts the matrix or detector error model can
-also be passed as ``decoder=``. This replaces the old ``static_decoder`` and
-``decoder_constructor`` keywords. A prebuilt decoder is tied to the matrix used to construct it. For
-CSS methods that decode both sectors, pass separate prebuilt instances as ``decoder_x=`` and
+also be passed as ``decoder=``. A prebuilt decoder is tied to the matrix used to construct it. For CSS
+methods that decode both sectors, pass separate prebuilt instances as ``decoder_x=`` and
 ``decoder_z=``; a shared ``decoder=`` must be deferred settings or a constructor unless the two
 sector matrices are equal. Likewise, when bounding both CSS distances at once, use deferred settings
 or a constructor; with prebuilt instances, call ``get_distance_bound`` separately for each
@@ -114,26 +113,3 @@ observable flip itself:
 
 Erasure-aware decoders append their erasure flag after the inferred error or observable vector.
 Sinter-compatible compiled decoders translate that flag into a discarded shot.
-
-Migrating older calls
----------------------
-
-The previous keyword forms remain available during a deprecation period:
-
-.. code-block:: python
-
-   # Old
-   decoders.decode(matrix, syndrome, with_BP_LSD=True, max_iter=30)
-
-   # New
-   decoders.decode(matrix, syndrome, decoder=decoders.bp_lsd(max_iter=30))
-
-   # Old
-   decoders.SinterDecoder(with_MWPM=True)
-
-   # New
-   decoders.ObservableDecoder(decoder=decoders.mwpm())
-
-The direct getter implementations now use lower-case names such as
-:func:`~qldpc.decoders.retrieval.get_decoder_bp_osd`. Upper-case spellings remain aliases for
-backwards compatibility.
