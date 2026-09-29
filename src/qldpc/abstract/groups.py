@@ -2,13 +2,12 @@
 
 """Module for abstract algebra: groups and representations thereof.
 
-All groups in this module are finite, and represented under the hood as a SymPy PermutationGroup, or
+All groups in this module are finite and represented under the hood as a SymPy PermutationGroup, or
 a subgroup of the symmetric group.  Group members subclass the SymPy Permutation class.
 
-!!! WARNINGS !!!
-
-This module does not promise to be performant.  If you need to do heavy numerical abstract algebra,
-you're probably better served by GAP or MAGMA (or maybe SageMath).
+.. warning::
+    This module does not promise to be performant.  If you need to do heavy numerical abstract
+    algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
 
 This module represents group members by matrices over a finite field via a lift L, a homomorphism
 with L(g . h) = L(g) @ L(h).  The default lift is the regular representation, whose matrices are
@@ -367,8 +366,8 @@ class Group:
 
             ``G.regular_lift(g) @ Vec(h) = Vec(g·h)``.
 
-        If right is True, this method lifts a group member to its right-regular anti-representation,
-        defined by
+        If ``right is True``, this method lifts a group member to its right-regular
+        anti-representation, defined by
 
             ``G.regular_lift(g, right=True) @ Vec(h) = Vec(h·g)``.
 
@@ -442,7 +441,7 @@ class Group:
 
             ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
 
-        If right=True, lift to an anti-representation, for which
+        If ``right=True``, lift to an anti-representation, for which
 
             ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
@@ -566,11 +565,13 @@ class Group:
     ) -> set[GroupMember]:
         """Construct a random symmetric subset of a given size.
 
-        Note: this is not a uniformly random subset, only a "sufficiently random" one.
+        .. note::
+            This is not a uniformly random subset, only a "sufficiently random" one.
 
-        WARNING: if excluding the identity element, not all groups have symmetric subsets of
-        arbitrary size.  If called with a poor choice of group and subset size, this method may
-        never terminate.
+        .. warning::
+            If excluding the identity element, not all groups have symmetric subsets of arbitrary
+            size.  If called with a poor choice of group and subset size, this method may never
+            terminate.
         """
         if not 0 < size <= self.order:
             raise ValueError(
@@ -625,7 +626,7 @@ class Group:
     ) -> Group:
         """Retrieve a group from the GAP computer algebra system (CAS).
 
-        ... unless from_magma=True, in which case retrieve a group from the MAGMA CAS.
+        ... unless ``from_magma=True``, in which case retrieve a group from the MAGMA CAS.
         """
         name = "".join(name.split())  # strip whitespace
         if from_magma:
@@ -759,10 +760,10 @@ class TrivialGroup(Group):
 class AbelianGroup(Group):
     """Direct product of cyclic groups of the specified orders.
 
-    See CyclicGroup for more info.  By default, an AbelianGroup member of the form
+    See ``CyclicGroup`` for more info.  By default, an ``AbelianGroup`` member of the form
     ``∏_i g_i^{a_i}``, where ``{g_i}`` are the generators of the group, gets lifted to a Kronecker
-    product ``⨂_i L(g_i)^{a_i}``.  If an AbelianGroup is initialized with direct_sum=True, the group
-    members get lifted to a direct sum ``⨁_i L(g_i)^{a_i}``.
+    product ``⨂_i L(g_i)^{a_i}``.  If an ``AbelianGroup`` is initialized with
+    ``direct_sum=True``, the group members get lifted to a direct sum ``⨁_i L(g_i)^{a_i}``.
     """
 
     orders: tuple[int, ...]

@@ -69,7 +69,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
     subgraph such that no pair of vertex-adjacent edges share the same color, and then applies the
     corresponding gates one color at a time.
 
-    WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
+    .. warning::
+        This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
 
     def __init__(self, strategy: str = "smallest_last", **subgraph_kwargs: object) -> None:
@@ -166,11 +167,13 @@ class EdgeColoringXZ(EdgeColoring):
 
     For a CSS code with Tanner graph T, this strategy is as follows:
 
-    1. Construct the subgraphs T_X and T_Z of T restricted, respectively, to X and Z stabilizers.
-    2. For each T_P in (T_X, T_Z), color the edges of T_P, and then apply all corresponding gates
-        one color at a time.
+    1. Construct the subgraphs ``T_X`` and ``T_Z`` of ``T`` restricted, respectively, to X and Z
+       stabilizers.
+    2. For each ``T_P`` in ``(T_X, T_Z)``, color the edges of ``T_P``, and then apply all
+       corresponding gates one color at a time.
 
-    WARNING: This strategy is not guaranteed to be distance-preserving or fault-tolerant.
+    .. warning::
+        This strategy is not guaranteed to be distance-preserving or fault-tolerant.
     """
 
     def __init__(self, strategy: str = "smallest_last") -> None:

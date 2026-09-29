@@ -113,7 +113,7 @@ def get_distance_quantum(
             data qubits in a code, indicating the nontrivial support of the Pauli string; and
         (b) the weight of a Pauli string is the Hamming weight of the corresponding bitstring.
 
-    If homogeneous is False, then::
+    If ``homogeneous is False``, then::
 
         (a) each Pauli string is represented by a symplectic binary vector (of length 2 * data
             qubits) with the first and second halves indicating the X and Z Pauli support; and

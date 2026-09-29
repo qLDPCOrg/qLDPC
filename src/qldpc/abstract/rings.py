@@ -2,10 +2,9 @@
 
 """Module for abstract algebra: rings and ring-valued numpy arrays.
 
-!!! WARNINGS !!!
-
-This module does not promise to be performant.  If you need to do heavy numerical abstract algebra,
-you're probably better served by GAP or MAGMA (or maybe SageMath).
+.. warning::
+    This module does not promise to be performant.  If you need to do heavy numerical abstract
+    algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
 
 """
 
@@ -124,7 +123,7 @@ class GroupRing:
         """Is this ring abelian?
 
         All rings are abelian with respect to addition, so this question concerns multiplication.
-        GroupRing.is_abelian method is therefore an alias for GroupRing.is_commutative.
+        ``GroupRing.is_abelian`` is therefore an alias for ``GroupRing.is_commutative``.
         """
         return self.is_commutative
 
@@ -147,7 +146,7 @@ class GroupRing:
     def regular_lift(self, member: GroupMember, *, right: bool = False) -> galois.FieldArray:
         """Lift a group member to its regular representation.
 
-        See help(qldpc.abstract.Group.regular_lift) for more information.
+        See ``help(qldpc.abstract.Group.regular_lift)`` for more information.
         """
         return self.group.regular_lift(member, right=right).view(self.field)
 
@@ -158,7 +157,7 @@ class GroupRing:
 
             ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
 
-        If right=True, lift to an anti-representation, for which
+        If ``right=True``, lift to an anti-representation, for which
 
             ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
@@ -178,15 +177,18 @@ class GroupRing:
         """Get the primitive central idempotents of this ring.
 
         Primitive central idempotents of a ring are nonzero elements that:
+
         - square to themselves (they are idempotent),
         - commute with all other elements of the ring (they lie in the ring's center), and
         - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
+
         Two idempotents g, h are orthogonal if ``g * h = h * g = 0``.
 
-        Intuitively, primitive central idempotents idempotents act like projectors onto orthogonal
-        simple components of a ring.
+        Intuitively, primitive central idempotents act like projectors onto orthogonal simple
+        components of a ring.
 
-        See https://en.wikipedia.org/wiki/Idempotent_(ring_theory).
+        See `Idempotent (ring theory)
+        <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
         """
         if not self.is_semisimple:
             raise ValueError("Only semisimple rings have primitive central idempotents")
@@ -441,7 +443,7 @@ class RingMember:
 
             ``self.lift(g·h) = self.lift(g) @ self.lift(h)``.
 
-        If right=True, lift to an anti-representation, for which
+        If ``right=True``, lift to an anti-representation, for which
 
             ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
         """
@@ -454,17 +456,17 @@ class RingMember:
         """Lift a ring member to its regular representation.
 
         By default, this method lifts a ring member to the regular representation induced by
-        multiplication from the left.  Specifically, if r and s are ring members, then::
+        multiplication from the left.  Specifically, if ``r`` and ``s`` are ring members, then::
 
             r.regular_lift() @ s.to_vector() = (r * s).to_vector().
 
-        If right is True, this method lifts a ring member to its regular representation in the
+        If ``right is True``, this method lifts a ring member to its regular representation in the
         opposite ring, such that matrix multiplication corresponds to ring multiplication from the
         right::
 
             r.regular_lift(right=True) @ s.to_vector() = (s * r).to_vector().
 
-        See https://en.wikipedia.org/wiki/Opposite_ring.
+        See `Opposite ring <https://en.wikipedia.org/wiki/Opposite_ring>`_.
         """
         terms = (val * self.ring.regular_lift(member, right=right) for val, member in self if val)
         return (
@@ -477,7 +479,7 @@ class RingMember:
     def T(self) -> RingMember:
         """Transpose of this element.
 
-        If this element is ``x = sum_{g in G) x_g g``, return ``x.T = sum_{g in G} x_g g.T``,
+        If this element is ``x = sum_{g in G} x_g g``, return ``x.T = sum_{g in G} x_g g.T``,
         where ``g.T = ~g = g**-1``.  For an orthogonal lift this matches the matrix transpose,
         ``L(g.T) = L(g).T``; for non-orthogonal lifts the group inverse ``~g`` is still used, but it
         no longer corresponds to a matrix transpose.
@@ -766,9 +768,10 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def to_field_array(self) -> galois.FieldArray:
         """Convert a RingArray into an array of coefficients (in a finite field) for each entry.
 
-        This method expands every entry of a RingArray into a vector of length ring.group.order. If
-        ring_array is two-dimensional, for example, then ring_array.to_field_array()[a, b, :] is the
-        vector of coefficients for the RingMember at ring_array[a, b].
+        This method expands every entry of a ``RingArray`` into a vector of length
+        ``ring.group.order``.  If ``ring_array`` is two-dimensional, for example, then
+        ``ring_array.to_field_array()[a, b, :]`` is the vector of coefficients for the
+        ``RingMember`` at ``ring_array[a, b]``.
         """
         vals = [val.to_vector() for val in self.ravel()]
         return np.asarray(vals, dtype=int).reshape(*self.shape, self.group.order).view(self.field)
@@ -777,7 +780,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def from_field_array(cls, array: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingArray:
         """Construct a RingArray from an array of coefficients (in a finite field) for each entry.
 
-        This method is the inverse of RingArray.to_field_array.
+        This method is the inverse of ``RingArray.to_field_array``.
         """
         if isinstance(array, (GroupRing, Group)):
             warnings.warn(
@@ -803,7 +806,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def from_field_vector(cls, vector: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingArray:
         """Construct a 1-D RingArray from a vector of coefficients.
 
-        This method is the inverse of RingArray.to_field_vector.
+        This method is the inverse of ``RingArray.to_field_vector``.
         """
         if isinstance(vector, (GroupRing, Group)):
             warnings.warn(
@@ -821,16 +824,16 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def null_space(self, *, right: bool = False) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
 
-        The transpose of the null-space matrix is annihilated by this RingArray, such that
-        np.any(self @ self.null_space().T) is ``np.False_``.
+        The transpose of the null-space matrix is annihilated by this ``RingArray``, such that
+        ``np.any(self @ self.null_space().T)`` is ``np.False_``.
 
-        If right is True, this method constructs a null space over the opposite ring, in which the
-        order of multiplication is reversed.
+        If ``right is True``, this method constructs a null space over the opposite ring, in which
+        the order of multiplication is reversed.
 
         Due to the subtleties of defining row reduction for a matrix over a ring, this method does
         not row-reduce the matrix of null-space row vectors.  The rows of the matrix returned by
         this method are therefore generally an overcomplete basis for the null space of this
-        RingArray.
+        ``RingArray``.
         """
         assert self.ndim == 2
 
@@ -868,8 +871,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Compute a Howell normal form of this RingArray.
 
         Alias for:
-            - RingArray.howell_normal_form_semisimple (if poly is False, the default), or
-            - RingArray.howell_normal_form_poly (if poly is True).
+
+        - ``RingArray.howell_normal_form_semisimple`` (if ``poly is False``, the default), or
+        - ``RingArray.howell_normal_form_poly`` (if ``poly is True``).
 
         See the documentation of those methods for additional information.
         """
@@ -882,37 +886,38 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     ) -> RingArray:
         """Compute a Howell normal form (HNF) of a RingArray over a semisimple ring.
 
-        This method first puts a RingArray into a generalized reduced row echelon form (see
-        RingArray.row_reduce), then further post-processes the rows to satisfy the Howell property,
-        whereby an element v that is...
+        This method first puts a ``RingArray`` into a generalized reduced row echelon form (see
+        ``RingArray.row_reduce``), then further post-processes the rows to satisfy the Howell
+        property, whereby an element ``v`` that is...
 
             - in the row span of the matrix, and
             - has j leading zeros, meaning ``= (0_1, 0_2, ..., 0_j, v_{j+1}, ...)``,
 
-        can be written as a linear combinations of rows whose pivots are at position ``k >= j``.
+        can be written as a linear combination of rows whose pivots are at position ``k >= j``.
 
-        The Howell property is enforced as follows: if a row r has a pivot p with a nontrivial left
-        annihilator α, meaning::
+        The Howell property is enforced as follows: if a row ``r`` has a pivot ``p`` with a
+        nontrivial left annihilator ``α``, meaning::
 
               α != 0,
             α·p  = 0,
             α·r != 0,
 
-        then the row r is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the matrix.
+        then the row ``r`` is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the
+        matrix.
 
-        If right is True, the Howell property is instead enforced for nontrivial right
+        If ``right is True``, the Howell property is instead enforced for nontrivial right
         annihilators::
 
               α != 0,
             p·α  = 0,
             r·α != 0,
 
-        for which the row r is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the
+        for which the row ``r`` is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the
         matrix.
-        The ordinary HNF and right-HNF are equal for a RingArray over a commutative ring.
+        The ordinary HNF and right-HNF are equal for a ``RingArray`` over a commutative ring.
 
-        The HNF of a RingArray over a commutative ring is unique.  For non-commutative rings, the
-        HNF is only unique up to a choice of matrix basis for simple components of the ring.
+        The HNF of a ``RingArray`` over a commutative ring is unique.  For non-commutative rings,
+        the HNF is only unique up to a choice of matrix basis for simple components of the ring.
 
         References:
 
@@ -1021,8 +1026,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             """Multiply a member of a polynomial ring into a ring-valued matrix.
 
             The first argument represents a ring member by a polynomial, while the second argument
-            represents a (vecs.ndim-1)-dimensional array of polynomials, such that vecs[*entry, c]
-            is the coefficient of x^c in the given entry of vec.
+            represents a ``(vecs.ndim - 1)``-dimensional array of polynomials, such that
+            ``vecs[*entry, c]`` is the coefficient of ``x**c`` in the given entry of ``vecs``.
             """
             new_vecs = vecs.Zeros(vecs.shape)
             for coeff, degree in zip(poly.nonzero_coeffs, poly.nonzero_degrees):
