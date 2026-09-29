@@ -32,13 +32,27 @@ class _LibGap(Protocol):
         """Return a callable GAP function."""
 
 
+_subprocess_packages: set[str] = set()
+
+
 def _get_libgap() -> _LibGap | None:
     """Return the optional direct GAP binding, if it is importable."""
     try:
-        module = importlib.import_module("passagemath_gap")
+        module = importlib.import_module("sage.libs.gap.libgap")
     except (ImportError, OSError):
         return None
     return cast(_LibGap | None, getattr(module, "libgap", None))
+
+
+@functools.cache
+def _is_gap_executable() -> bool:
+    """Can the GAP executable be used for package installation and evaluation?"""
+    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
+    try:
+        result = subprocess.run(commands, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return False
+    return bool(re.match(r"4\.\d+\.\d+", result.stdout.strip()))
 
 
 @functools.cache
@@ -136,38 +150,11 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
     if not is_installed():
         raise FileNotFoundError("GAP 4 is required to proceed, but is not installed")
 
-    if (libgap := _get_libgap()) is not None:
+    if not _subprocess_packages and (libgap := _get_libgap()) is not None:
         return _get_output_libgap(commands, libgap)
 
     if is_callable():
-        commands = sanitize_commands(commands)
-        shell_commands = [
-            "gap",
-            "-l",
-            f";{GAP_ROOT}",
-            "-q",
-            "--quitonbreak",
-        ]
-        script_input = " ".join(commands)
-        if not use_pipe:
-            shell_commands.extend(["-c", script_input])
-            pipe_input = None
-        else:
-            pipe_input = script_input
-        result = subprocess.run(
-            shell_commands,
-            input=pipe_input,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode or result.stderr:
-            parts = [f"Error encountered when running GAP (exit code {result.returncode})"]
-            if result.stderr:
-                parts.append(result.stderr)
-            parts.append(f"GAP command:\n{' '.join(commands)}")
-            raise ValueError("\n\n".join(parts))
-        return result.stdout
+        return _get_output_subprocess(commands, use_pipe)
 
     command = " ".join(commands)
     print("Run the following command in GAP:")
@@ -217,15 +204,72 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
     return output
 
 
+def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> str:
+    """Evaluate commands through the GAP executable."""
+    commands = sanitize_commands(commands)
+    shell_commands = [
+        "gap",
+        "-l",
+        f";{GAP_ROOT}",
+        "-q",
+        "--quitonbreak",
+    ]
+    script_input = " ".join(commands)
+    if not use_pipe:
+        shell_commands.extend(["-c", script_input])
+        pipe_input = None
+    else:
+        pipe_input = script_input
+    result = subprocess.run(
+        shell_commands,
+        input=pipe_input,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode or result.stderr:
+        parts = [f"Error encountered when running GAP (exit code {result.returncode})"]
+        if result.stderr:
+            parts.append(result.stderr)
+        parts.append(f"GAP command:\n{' '.join(commands)}")
+        raise ValueError("\n\n".join(parts))
+    return result.stdout
+
+
+def _require_package_subprocess(
+    name: str, repo: str | None, availability: str | None = None
+) -> bool:
+    """Ensure a GAP package is available through the executable backend."""
+    if availability is None:
+        availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
+    if availability.strip() == "fail":
+        repo = repo or f"https://github.com/gap-packages/{name}"
+        response = (
+            input(f"GAP package '{name}' is required but not installed.  Try to install it? (Y/n)")
+            .strip()
+            .lower()
+        )
+        if not response or response == "y":
+            commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
+            print(" ".join(commands))
+            install_result = subprocess.run(commands, capture_output=True, text=True, check=False)
+            if install_result.returncode:
+                raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
+        else:
+            raise ValueError(f"Cannot proceed without the required package, {name}")
+    return True
+
+
 @functools.cache
 def require_package(name: str, repo: str | None = None) -> bool:
     """Enforce the installation of a GAP package.
 
-    With the direct libgap backend, this checks the package through GAP and raises
-    :class:`ModuleNotFoundError` when it is unavailable; install the relevant ``passagemath-gap``
-    extra (or otherwise install the package into the embedded GAP). With the command-line backend,
-    a missing package prompts on standard input and, with the user's consent, installs it by
-    running ``git clone`` into the GAP root's ``pkg`` directory.
+    With the direct libgap backend, this checks the package through GAP. If the package is missing
+    but a GAP executable is available, subsequent commands use that executable so packages can be
+    installed into its package directory. Otherwise, install the relevant ``passagemath-gap`` extra
+    (or otherwise install the package into the embedded GAP). With the command-line backend, a
+    missing package prompts on standard input and, with the user's consent, installs it by running
+    ``git clone`` into the GAP root's ``pkg`` directory.
 
     Args:
         name: The GAP package name.
@@ -248,14 +292,20 @@ def require_package(name: str, repo: str | None = None) -> bool:
         if str(availability).lower() != "fail":
             return True
 
-        repo = repo or f"https://github.com/gap-packages/{name}"
-        raise ModuleNotFoundError(
-            f"GAP package '{name}' is required but not installed.\n"
-            f"Install the corresponding passagemath-gap extra or find the package at {repo}"
-        )
+        try:
+            if not _is_gap_executable():
+                repo = repo or f"https://github.com/gap-packages/{name}"
+                raise ModuleNotFoundError(
+                    f"GAP package '{name}' is required but not installed.\n"
+                    f"Install the corresponding passagemath-gap extra or find the package at {repo}"
+                )
+            _subprocess_packages.add(name.lower())
+            return _require_package_subprocess(name, repo)
+        except Exception:
+            _subprocess_packages.discard(name.lower())
+            raise
 
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
-
     if availability.strip() == "fail":
         repo = repo or f"https://github.com/gap-packages/{name}"
         if not is_callable():
@@ -263,19 +313,5 @@ def require_package(name: str, repo: str | None = None) -> bool:
                 f"GAP package '{name}' is required but not installed.\n"
                 f"You may be able to find this package at {repo}"
             )
-
-        response = (
-            input(f"GAP package '{name}' is required but not installed.  Try to install it? (Y/n)")
-            .strip()
-            .lower()
-        )
-        if not response or response == "y":
-            commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
-            print(" ".join(commands))
-            install_result = subprocess.run(commands, capture_output=True, text=True, check=False)
-            if install_result.returncode:
-                raise ValueError(f"Failed to install {name}\n\n{install_result.stderr}")
-        else:
-            raise ValueError(f"Cannot proceed without the required package, {name}")
-
+        return _require_package_subprocess(name, repo, availability)
     return True

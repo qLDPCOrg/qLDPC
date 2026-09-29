@@ -58,7 +58,10 @@ python -m pip install 'qldpc[gap]'
 qLDPC uses `passagemath-gap` when it is installed, so supported GAP operations do not launch a
 separate `gap` process. If the extra is unavailable, qLDPC still supports a GAP executable on
 `PATH` (`conda install -c conda-forge gap` is one option) and retains its documented manual
-copy/paste fallback. GAP integration on Windows remains limited; see
+copy/paste fallback. The extra uses the passagemath 10.6 release line, which provides wheels for
+qLDPC's supported Python 3.10--3.14 range. If a package such as GUAVA or QDistRnd is absent from
+the in-process binding but a `gap` executable is available, qLDPC uses that executable for the
+package and subsequent commands. GAP integration on Windows remains limited; see
 [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.

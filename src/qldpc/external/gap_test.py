@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import subprocess
 import types
@@ -58,6 +59,15 @@ class MockLibGap:
         return test_package_availability
 
 
+def test_installed_libgap_import_contract() -> None:
+    """Use the import path supplied by the installed passagemath-gap distribution."""
+    try:
+        module = importlib.import_module("sage.libs.gap.libgap")
+    except (ImportError, OSError):
+        pytest.skip("passagemath-gap is not installed")
+    assert module.libgap is external.gap._get_libgap()  # pragma: no cover - optional dependency
+
+
 def get_mock_process(
     stdout: str = "", stderr: str = "", returncode: int = 0
 ) -> subprocess.CompletedProcess[str]:
@@ -67,6 +77,13 @@ def get_mock_process(
 
 def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Is GAP 4 installed?"""
+    external.gap._is_gap_executable.cache_clear()
+    with unittest.mock.patch("subprocess.run", return_value=get_mock_process("4.13.0\n")):
+        assert external.gap._is_gap_executable()
+    external.gap._is_gap_executable.cache_clear()
+    with unittest.mock.patch("subprocess.run", side_effect=FileNotFoundError):
+        assert not external.gap._is_gap_executable()
+
     with unittest.mock.patch(
         "qldpc.external.gap.importlib.import_module", return_value=types.SimpleNamespace()
     ):
@@ -190,6 +207,17 @@ def test_get_output_libgap() -> None:
     assert "PrintTo(__qldpc_output___stream, " in libgap.commands[0]
     assert 'PrintTo(__qldpc_output___stream, "hello")' in libgap.commands[0]
 
+    external.gap._subprocess_packages.add("qdist")
+    with (
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+        unittest.mock.patch("subprocess.run", return_value=get_mock_process("_EXECUTABLE_")) as run,
+    ):
+        assert external.gap.get_output("Print('hello');;") == "_EXECUTABLE_"
+    run.assert_called_once()
+    external.gap._subprocess_packages.clear()
+
     with (
         unittest.mock.patch(
             "qldpc.external.gap._get_libgap", return_value=MockLibGap(RuntimeError("bad command"))
@@ -274,6 +302,7 @@ def test_require_package_libgap() -> None:
     external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
+        unittest.mock.patch("qldpc.external.gap._is_gap_executable", return_value=False),
         pytest.raises(ModuleNotFoundError, match="passagemath-gap extra"),
     ):
         external.gap.require_package("Example")
@@ -286,3 +315,28 @@ def test_require_package_libgap() -> None:
         pytest.raises(ValueError, match="Could not check"),
     ):
         external.gap.require_package("Example")
+
+    external.gap.require_package.cache_clear()
+    external.gap._subprocess_packages.clear()
+    install = unittest.mock.Mock(return_value=get_mock_process())
+    with (
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=libgap),
+        unittest.mock.patch("qldpc.external.gap._is_gap_executable", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="fail"),
+        unittest.mock.patch("builtins.input", return_value="y"),
+        unittest.mock.patch("subprocess.run", install),
+    ):
+        assert external.gap.require_package("QDistRnd", "https://example.com/qdist")
+    install.assert_called_once_with(
+        [
+            "git",
+            "clone",
+            "https://example.com/qdist",
+            os.path.join(external.gap.GAP_ROOT, "pkg", "qdistrnd"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert external.gap._subprocess_packages == {"qdistrnd"}
+    external.gap._subprocess_packages.clear()
