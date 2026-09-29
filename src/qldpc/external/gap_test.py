@@ -70,7 +70,10 @@ def test_installed_libgap_import_contract() -> None:
         importlib.metadata.version("passagemath-gap")
     except importlib.metadata.PackageNotFoundError:  # pragma: no cover
         pytest.skip("passagemath-gap is not installed")
-    module = importlib.import_module("passagemath_gap")  # pragma: no cover - optional dependency
+    importlib.import_module("passagemath_gap")  # pragma: no cover - optional dependency
+    module = importlib.import_module(  # pragma: no cover - optional dependency
+        "sage.libs.gap.libgap"
+    )
     libgap = module.libgap  # pragma: no cover - optional dependency
     assert libgap is external.gap._get_libgap()  # pragma: no cover - optional dependency
     assert libgap is not None  # pragma: no cover - optional dependency
@@ -108,10 +111,23 @@ def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         assert not external.gap._is_gap_executable()
 
     with unittest.mock.patch(
-        "qldpc.external.gap.importlib.import_module", return_value=types.SimpleNamespace()
+        "qldpc.external.gap.importlib.import_module",
+        side_effect=[types.SimpleNamespace(), types.SimpleNamespace()],
     ) as import_module:
         assert external.gap._get_libgap() is None
-    import_module.assert_called_once_with("passagemath_gap")
+    import_module.assert_has_calls(
+        [unittest.mock.call("passagemath_gap"), unittest.mock.call("sage.libs.gap.libgap")]
+    )
+
+    expected_libgap = MockLibGap()
+    with unittest.mock.patch(
+        "qldpc.external.gap.importlib.import_module",
+        side_effect=[types.SimpleNamespace(), types.SimpleNamespace(libgap=expected_libgap)],
+    ) as import_module:
+        assert external.gap._get_libgap() is expected_libgap
+    import_module.assert_has_calls(
+        [unittest.mock.call("passagemath_gap"), unittest.mock.call("sage.libs.gap.libgap")]
+    )
 
     # libgap takes precedence over the command-line executable
     external.gap.is_callable.cache_clear()
