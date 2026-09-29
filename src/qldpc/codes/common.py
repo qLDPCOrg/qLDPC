@@ -24,14 +24,23 @@ import stim
 from typing_extensions import Self
 
 from qldpc import abstract, decoders, external, math
+from qldpc._util import format_docstring
 from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
 
-from .distance import get_distance_classical, get_distance_quantum
+from .distance import (
+    DistanceBackend,
+    get_distance_classical,
+    get_distance_quantum,
+    validate_distance_backend,
+)
 from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_allocation
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
+
+_GAP_DISTANCE_BOUND_KWARGS = frozenset({"maxav"})
+_SQETCH_DISTANCE_BOUND_KWARGS = frozenset({"d_target", "k_sub", "batch_size", "seed", "device"})
 
 
 def get_scrambled_seed(seed: int) -> int:
@@ -453,6 +462,7 @@ class ClassicalCode(AbstractCode):
         *,
         bound: int | bool | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
+        use_numba: bool = False,
         **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
@@ -463,22 +473,29 @@ class ClassicalCode(AbstractCode):
                 randomized upper bounds; see help(get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency and cannot be combined with ``bound``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
+        _validate_numba_usage(use_numba, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact(vector=vector)
+            return self.get_distance_exact(vector=vector, use_numba=use_numba)
         return self.get_distance_bound(num_trials=int(bound), vector=vector, **bound_kwargs)
 
     def get_distance_exact(
-        self, *, vector: Sequence[int] | npt.NDArray[np.int_] | None = None, cutoff: int = 1
+        self,
+        *,
+        vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
+        cutoff: int = 1,
+        use_numba: bool = False,
     ) -> int | float:
         """Compute the minimum Hamming weight of nontrivial code words by brute force.
 
@@ -486,6 +503,8 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -493,9 +512,14 @@ class ClassicalCode(AbstractCode):
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
+        _validate_numba_usage(
+            use_numba,
+            supported=self.field is galois.GF2 and vector is None,
+        )
+
         # we do not know the exact distance, so compute it
         if self.field is galois.GF2 and vector is None:
-            distance = get_distance_classical(self.generator, cutoff=cutoff)
+            distance = get_distance_classical(self.generator, cutoff=cutoff, use_numba=use_numba)
             if cutoff <= 1:
                 self._distance = int(distance)
 
@@ -544,6 +568,7 @@ class ClassicalCode(AbstractCode):
         *,
         cutoff: int | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
+        backend: DistanceBackend = "auto",
         **decoder_kwargs: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
@@ -562,11 +587,18 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
+            backend: Distance-bound backend.  Classical codes use only the decoder path; this
+                argument is accepted for compatibility with shared distance-bound workflows.
             **decoder_kwargs: Keyword arguments to pass to qldpc.decoders.get_decoder.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_backend(backend)
+        if backend not in ("auto", "decoder"):
+            raise ValueError(
+                f"The {backend!r} distance backend is only available for CSSCode instances."
+            )
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
@@ -1821,38 +1853,51 @@ class QuditCode(AbstractCode):
         distance = self.get_distance(bound=bound, **bound_kwargs)
         return len(self), dimension, distance
 
-    def get_distance(self, *, bound: int | bool | None = None, **bound_kwargs: Any) -> int | float:
+    def get_distance(
+        self,
+        *,
+        bound: int | bool | None = None,
+        use_numba: bool = False,
+        **bound_kwargs: Any,
+    ) -> int | float:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency and cannot be combined with ``bound``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
+        _validate_numba_usage(use_numba, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact()
+            return self.get_distance_exact(use_numba=use_numba)
         return self.get_distance_bound(num_trials=int(bound), **bound_kwargs)
 
-    def get_distance_exact(self, *, cutoff: int = 1) -> int | float:
+    def get_distance_exact(self, *, cutoff: int = 1, use_numba: bool = False) -> int | float:
         """Compute the minimum weight of nontrivial logical operators by brute force.
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
+
+        _validate_numba_usage(use_numba, supported=self.field is galois.GF2)
 
         # we do not know the exact distance, so compute it
         logical_ops = self.get_logical_ops()
@@ -1862,7 +1907,11 @@ class QuditCode(AbstractCode):
 
         if self.field is galois.GF2:
             distance = get_distance_quantum(
-                logical_ops, stabilizers, cutoff=cutoff, homogeneous=False
+                logical_ops,
+                stabilizers,
+                cutoff=cutoff,
+                homogeneous=False,
+                use_numba=use_numba,
             )
 
         else:
@@ -1900,22 +1949,34 @@ class QuditCode(AbstractCode):
         return self._distance
 
     def get_distance_bound(
-        self, num_trials: int = 1, *, cutoff: int | None = None, **bound_kwargs: Any
+        self,
+        num_trials: int = 1,
+        *,
+        cutoff: int | None = None,
+        backend: DistanceBackend = "auto",
+        **bound_kwargs: Any,
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use GAP's QDistRnd package to compute a distance bound.  Raise an error
-        otherwise.
+        otherwise.  The ``sqetch`` backend is available only on :class:`CSSCode`.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
+            backend: Distance-bound backend.  ``"auto"`` and ``"gap"`` use GAP/QDistRnd;
+                ``"decoder"`` and ``"sqetch"`` require a CSSCode and are rejected here.
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
                 See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_backend(backend)
+        if backend not in ("auto", "gap"):
+            raise ValueError(
+                f"The {backend!r} distance backend is only available for CSSCode instances."
+            )
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
         if num_trials == 0 or cutoff == len(self):
@@ -2996,7 +3057,12 @@ class CSSCode(QuditCode):
         return code
 
     def get_distance(
-        self, pauli: PauliXZ | None = None, *, bound: int | bool | None = None, **bound_kwargs: Any
+        self,
+        pauli: PauliXZ | None = None,
+        *,
+        bound: int | bool | None = None,
+        use_numba: bool = False,
+        **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
@@ -3007,21 +3073,30 @@ class CSSCode(QuditCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency and cannot be combined with ``bound``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
+        _validate_numba_usage(use_numba, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact(pauli)
+            return self.get_distance_exact(pauli, use_numba=use_numba)
         return self.get_distance_bound(num_trials=int(bound), pauli=pauli, **bound_kwargs)
 
-    def get_distance_exact(self, pauli: PauliXZ | None = None, *, cutoff: int = 1) -> int | float:
+    def get_distance_exact(
+        self,
+        pauli: PauliXZ | None = None,
+        *,
+        cutoff: int = 1,
+        use_numba: bool = False,
+    ) -> int | float:
         """Compute the minimum weight of nontrivial logical operators by brute force.
 
         Args:
@@ -3029,6 +3104,8 @@ class CSSCode(QuditCode):
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 If None (the default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+            use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
+                optional ``numba`` dependency.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -3042,10 +3119,12 @@ class CSSCode(QuditCode):
             self._distance = distance if pauli is None else self._distance
             return distance
 
+        _validate_numba_usage(use_numba, supported=self.field is galois.GF2)
+
         if pauli is None:
             return min(
-                self.get_distance_exact(Pauli.X, cutoff=cutoff),
-                self.get_distance_exact(Pauli.Z, cutoff=cutoff),
+                self.get_distance_exact(Pauli.X, cutoff=cutoff, use_numba=use_numba),
+                self.get_distance_exact(Pauli.Z, cutoff=cutoff, use_numba=use_numba),
             )
 
         # we do not know the exact distance, so compute it
@@ -3056,7 +3135,11 @@ class CSSCode(QuditCode):
 
         if self.field is galois.GF2:
             distance = get_distance_quantum(
-                logical_ops, stabilizers, cutoff=cutoff, homogeneous=True
+                logical_ops,
+                stabilizers,
+                cutoff=cutoff,
+                homogeneous=True,
+                use_numba=use_numba,
             )
 
         else:
@@ -3111,19 +3194,25 @@ class CSSCode(QuditCode):
             else self._distance
         )
 
+    @format_docstring(
+        gap_options=sorted(_GAP_DISTANCE_BOUND_KWARGS),
+        sqetch_options=sorted(_SQETCH_DISTANCE_BOUND_KWARGS),
+    )
     def get_distance_bound(
         self,
         num_trials: int = 1,
         pauli: PauliXZ | None = None,
         *,
         cutoff: int | None = None,
+        backend: DistanceBackend = "auto",
         **bound_kwargs: Any,
     ) -> int | float:
-        """Use a randomized algorithm to compute an upper bound on code distance.
+        """Estimate an upper bound on code distance with a randomized algorithm.
 
-        If available (and appropriate, given the bound_kwargs), use GAP's QDistRnd package to
-        compute a distance bound.  Otherwise, use the decoder-based algorithm in
-        CSSCode.get_distance_bound_with_decoder.
+        Set ``backend="gap"`` to use GAP's QDistRnd package or ``backend="sqetch"`` to use the
+        optional GPU-accelerated random-ISD estimator.  By default, ``backend="auto"`` chooses the
+        first applicable backend in this order: an installed sqetch for binary CSS codes, available
+        GAP/QDistRnd, then the decoder-based algorithm.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.
@@ -3131,14 +3220,18 @@ class CSSCode(QuditCode):
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 If None (the default), minimize over X and Z.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
+            backend: ``"auto"`` (the default), ``"gap"``, ``"sqetch"``, or ``"decoder"``.
+                Explicit ``"gap"`` always requests QDistRnd and never silently falls back.
+                ``"sqetch"`` requires the optional dependency and a CUDA-capable GPU.
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
-                If provided arguments that are not recognized by QDistRnd, use a decoder-based
-                distance bounding method, and pass these keyword arguments to a decoder in a call to
-                qldpc.decoders.get_decoder.
+                For ``"gap"``, recognized options are {gap_options}.  For ``"sqetch"``, recognized
+                options are {sqetch_options}.  With ``"auto"``, supplied keywords limit selection
+                to backends that accept them.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_backend(backend)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
         if num_trials == 0 or cutoff == len(self):
@@ -3151,15 +3244,37 @@ class CSSCode(QuditCode):
             return min(
                 [
                     self.get_distance_bound(
-                        num_trials=num_trials, pauli=pauli, cutoff=cutoff, **bound_kwargs
+                        num_trials=num_trials,
+                        pauli=pauli,
+                        cutoff=cutoff,
+                        backend=backend,
+                        **bound_kwargs,
                     )
                     for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
                 ]
             )
 
-        if any(kwarg != "maxav" for kwarg in bound_kwargs) or not external.gap.is_installed():
+        backend = _resolve_distance_backend(
+            backend, bound_kwargs, is_binary=self.field is galois.GF2
+        )
+
+        if backend == "decoder":
             return self.get_distance_bound_with_decoder(
                 pauli, num_trials, cutoff=cutoff, **bound_kwargs
+            )
+
+        if backend == "sqetch":
+            if unknown := set(bound_kwargs) - _SQETCH_DISTANCE_BOUND_KWARGS:
+                raise ValueError(f"Arguments not recognized by sqetch: {sorted(unknown)}")
+            return external.sqetch.get_distance_bound(
+                self, num_trials, pauli, cutoff=cutoff, **bound_kwargs
+            )
+
+        if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
+            raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
+        if not external.gap.is_installed():
+            raise NotImplementedError(
+                "GAP/QDistRnd was explicitly requested but GAP 4 is not installed."
             )
 
         # GAP estimates the Z-distance of CSS codes, so flip X/Z if necessary
@@ -3595,21 +3710,6 @@ class CSSCode(QuditCode):
         return num_failures, num_discards
 
 
-def _as_pauli_bias_zxy(
-    pauli_bias: Sequence[float] | None,
-) -> npt.NDArray[np.floating] | None:
-    """Normalize an (X, Y, Z) error bias into the (Z, X, Y) order the samplers draw in.
-
-    That order is the one the Pauli enum assigns, reading each Pauli's (x, z) components as a
-    two-bit number.
-    """
-    if pauli_bias is None:
-        return None
-    assert len(pauli_bias) == 3
-    pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
-    return pauli_bias_zxy / np.sum(pauli_bias_zxy)
-
-
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
     """Join index slices together into one slice."""
     return np.concatenate(
@@ -3629,3 +3729,49 @@ def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
         not np.any(matrix[row, :pivot]) and not np.any(matrix[row, pivot + 1 :])
         for row, pivot in enumerate(pivots)
     )
+
+
+def _as_pauli_bias_zxy(
+    pauli_bias: Sequence[float] | None,
+) -> npt.NDArray[np.floating] | None:
+    """Normalize an (X, Y, Z) error bias into the (Z, X, Y) order the samplers draw in.
+
+    That order is the one the Pauli enum assigns, reading each Pauli's (x, z) components as a
+    two-bit number.
+    """
+    if pauli_bias is None:
+        return None
+    assert len(pauli_bias) == 3
+    pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
+    return pauli_bias_zxy / np.sum(pauli_bias_zxy)
+
+
+def _resolve_distance_backend(
+    backend: DistanceBackend,
+    bound_kwargs: Mapping[str, Any],
+    *,
+    is_binary: bool,
+) -> DistanceBackend:
+    """Resolve the automatic distance-bound backend."""
+    if backend != "auto":
+        return backend
+
+    options = set(bound_kwargs)
+    if is_binary and options <= _SQETCH_DISTANCE_BOUND_KWARGS and external.sqetch.is_installed():
+        return "sqetch"
+    if options <= _GAP_DISTANCE_BOUND_KWARGS and external.gap.is_installed():
+        return "gap"
+    return "decoder"
+
+
+def _validate_numba_usage(
+    use_numba: bool,
+    *,
+    bound: int | bool | None = None,
+    supported: bool = True,
+) -> None:
+    """Reject numba acceleration when the selected distance path cannot use it."""
+    if bound and use_numba:
+        raise ValueError("use_numba is only available for exact distance calculations")
+    if use_numba and not supported:
+        raise ValueError("use_numba is only available for binary code-distance calculations")

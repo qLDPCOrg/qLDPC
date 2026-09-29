@@ -50,11 +50,11 @@ dependencies = [
 optional-dependencies.dev = [
   "checks-superstaq>=0.5.67",
   "jupyter>=1.1.1",
-  "pypandoc-binary>=1.13",          # bundles pandoc for building the notebook docs locally
-  "pyproject-fmt>=2",               # pyproject.toml formatting, run by checks/format_.py
+  "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
+  "pyproject-fmt>=2",             # pyproject.toml formatting, run by checks/format_.py
   "pytest>=8",
-  "pytest-randomly>=3.10",          # tests that need reproducibility read its randomly_seed option
-  "pytest-socket>=0.7",             # implements the --disable-socket in [tool.pytest] addopts below
+  "pytest-randomly>=3.10",        # tests that need reproducibility read its randomly_seed option
+  "pytest-socket>=0.7",           # implements the --disable-socket in [tool.pytest] addopts below
   "python-lsp-server[all]>=1.14",
   "qldpc[docs,gap,relay-bp]",
 ]
@@ -72,6 +72,9 @@ optional-dependencies.numba = [
   "numba>=0.61", # backs the use_numba=True distance-calculation path in qldpc.codes.distance
 ]
 optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
+optional-dependencies.sqetch = [
+  "sqetch[gpu] @ git+https://github.com/a7b/yarn.git@e9ce9d0fcecc973988558bfee27fab6d6b8d7f97#subdirectory=sqetch",
+]
 urls.Documentation = "https://qldpc.readthedocs.io/"
 urls.Issues = "https://github.com/qLDPCOrg/qLDPC/issues"
 urls.Repository = "https://github.com/qLDPCOrg/qLDPC"

@@ -206,6 +206,8 @@ def test_distance_classical(bits: int = 3) -> None:
     # computing an exact distance but providing bounding arguments raises a warning
     with pytest.warns(UserWarning, match="ignored"):
         assert rep_code.get_distance(test_arg=True)
+    with pytest.raises(ValueError, match="only available for CSSCode"):
+        rep_code.get_distance_bound(backend="sqetch")
 
     # trivial (null) codes have an undefined distance
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
@@ -492,6 +494,63 @@ def test_distance_qudit() -> None:
         assert code.get_distance_exact(cutoff=len(code)) <= len(code)
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
+
+
+def test_numba_code_distance_api() -> None:
+    """High-level exact-distance methods forward numba acceleration to binary kernels."""
+    classical_code = codes.RepetitionCode(3)
+    with unittest.mock.patch(
+        "qldpc.codes.common.get_distance_classical", return_value=3
+    ) as classical_kernel:
+        for classical_distance in (
+            classical_code.get_distance,
+            classical_code.get_distance_exact,
+        ):
+            classical_code.forget_distance()
+            classical_kernel.reset_mock()
+            assert classical_distance(use_numba=True) == 3
+            assert classical_kernel.call_args.kwargs == {"cutoff": 1, "use_numba": True}
+
+    quantum_code = codes.QuditCode(codes.FiveQubitCode().matrix)
+    with unittest.mock.patch(
+        "qldpc.codes.common.get_distance_quantum", return_value=3
+    ) as quantum_kernel:
+        for quantum_distance in (
+            quantum_code.get_distance,
+            quantum_code.get_distance_exact,
+        ):
+            quantum_code.forget_distance()
+            quantum_kernel.reset_mock()
+            assert quantum_distance(use_numba=True) == 3
+            assert quantum_kernel.call_args.kwargs == {
+                "cutoff": 1,
+                "homogeneous": False,
+                "use_numba": True,
+            }
+
+    css_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
+    with unittest.mock.patch(
+        "qldpc.codes.common.get_distance_quantum", return_value=3
+    ) as css_kernel:
+        for css_distance in (
+            lambda: css_code.get_distance(Pauli.X, use_numba=True),
+            lambda: css_code.get_distance_exact(Pauli.X, use_numba=True),
+        ):
+            css_code.forget_distance()
+            css_kernel.reset_mock()
+            assert css_distance() == 3
+            assert css_kernel.call_args.kwargs == {
+                "cutoff": 1,
+                "homogeneous": True,
+                "use_numba": True,
+            }
+
+    with pytest.raises(ValueError, match="only available for exact distance"):
+        classical_code.get_distance(bound=True, use_numba=True)
+    ternary_code = codes.RepetitionCode(3, field=3)
+    ternary_code.forget_distance()
+    with pytest.raises(ValueError, match="only available for binary code-distance"):
+        ternary_code.get_distance_exact(use_numba=True)
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -1139,11 +1198,15 @@ def test_distance_css() -> None:
 
 
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:
-    """Explicit decoder arguments select the decoder path without probing interactive GAP setup."""
+    """Decoder-specific arguments bypass optional-backend probes."""
     code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     code.forget_distance()
 
     with (
+        unittest.mock.patch(
+            "qldpc.external.sqetch.is_installed",
+            side_effect=AssertionError("sqetch should not be probed"),
+        ),
         unittest.mock.patch(
             "qldpc.external.gap.is_installed",
             side_effect=AssertionError("GAP should not be probed"),
@@ -1162,6 +1225,124 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
         cutoff=None,
         with_BP_LSD=True,
     )
+
+
+def test_css_auto_distance_bound_backend_selection() -> None:
+    """Select automatic backends in sqetch, GAP, then decoder order."""
+    code = codes.SteaneCode()
+    code.forget_distance()
+
+    with (
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=True),
+        unittest.mock.patch(
+            "qldpc.external.sqetch.get_distance_bound", return_value=3
+        ) as sqetch_bound,
+        unittest.mock.patch(
+            "qldpc.external.gap.is_installed",
+            side_effect=AssertionError("GAP should not be probed"),
+        ),
+    ):
+        assert code.get_distance_bound(pauli=Pauli.Z) == 3
+    sqetch_bound.assert_called_once_with(code, 1, Pauli.Z, cutoff=None)
+
+    with (
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=4) as gap_bound,
+    ):
+        assert code.get_distance_bound(pauli=Pauli.Z) == 4
+    gap_bound.assert_called_once_with(code, 1, cutoff=None, maxav="fail")
+
+    with (
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        unittest.mock.patch.object(
+            code, "get_distance_bound_with_decoder", return_value=5
+        ) as decoder_bound,
+    ):
+        assert code.get_distance_bound(pauli=Pauli.Z) == 5
+    decoder_bound.assert_called_once_with(Pauli.Z, 1, cutoff=None)
+
+    qudit_code = codes.SurfaceCode(2, field=3)
+    qudit_code.forget_distance()
+    with (
+        unittest.mock.patch(
+            "qldpc.external.sqetch.is_installed",
+            side_effect=AssertionError("sqetch does not support nonbinary codes"),
+        ),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch(
+            "qldpc.external.codes.get_distance_bound", return_value=2
+        ) as qudit_gap_bound,
+    ):
+        assert qudit_code.get_distance_bound(pauli=Pauli.Z) == 2
+    qudit_gap_bound.assert_called_once_with(qudit_code, 1, cutoff=None, maxav="fail")
+
+
+def test_css_distance_bound_backend_selection() -> None:
+    """Honor explicit sqetch, decoder, and GAP backend selection."""
+    code = codes.SteaneCode()
+    code.forget_distance()
+
+    with unittest.mock.patch(
+        "qldpc.external.sqetch.get_distance_bound", return_value=3
+    ) as sqetch_bound:
+        assert (
+            code.get_distance_bound(
+                num_trials=4,
+                pauli=Pauli.Z,
+                backend="sqetch",
+                k_sub=5,
+                seed=9,
+            )
+            == 3
+        )
+    sqetch_bound.assert_called_once_with(
+        code,
+        4,
+        Pauli.Z,
+        cutoff=None,
+        k_sub=5,
+        seed=9,
+    )
+
+    with unittest.mock.patch.object(
+        code, "get_distance_bound_with_decoder", return_value=3
+    ) as bound:
+        assert code.get_distance_bound(num_trials=2, pauli=Pauli.X, backend="decoder") == 3
+    bound.assert_called_once_with(Pauli.X, 2, cutoff=None)
+
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=4) as gap_bound,
+    ):
+        assert (
+            code.get_distance_bound(
+                num_trials=3, pauli=Pauli.Z, cutoff=2, backend="gap", maxav="average"
+            )
+            == 4
+        )
+    gap_bound.assert_called_once_with(code, 3, cutoff=2, maxav="average")
+
+    with pytest.raises(ValueError, match="not recognized by sqetch"):
+        code.get_distance_bound(pauli=Pauli.Z, backend="sqetch", maxav="fail")
+    with pytest.raises(ValueError, match="not recognized by GAP"):
+        code.get_distance_bound(pauli=Pauli.Z, backend="gap", k_sub=5)
+
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        pytest.raises(NotImplementedError, match="explicitly requested"),
+    ):
+        code.get_distance_bound(pauli=Pauli.Z, backend="gap")
+
+
+def test_distance_backend_validation() -> None:
+    """Reject sqetch and decoder selectors for non-CSS codes."""
+    code = codes.FiveQubitCode()
+    code.forget_distance()
+    for backend in ["sqetch", "decoder"]:
+        with pytest.raises(ValueError, match="only available for CSSCode"):
+            code.get_distance_bound(backend=backend)  # type: ignore[arg-type]
 
 
 def test_css_deformations() -> None:
