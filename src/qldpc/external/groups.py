@@ -327,7 +327,8 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
     Intuitively, primitive central idempotents act like projectors onto orthogonal components of a
     ring.
 
-    See https://en.wikipedia.org/wiki/Idempotent_(ring_theory).
+    See `Idempotent (ring theory)
+    <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
 
     Returns a tuple of idempotents, where each idempotent is represented by a tuple of terms (to
     sum), and each term is in turn a tuple (coefficient, permutation).  Here the coefficient is an
@@ -347,6 +348,7 @@ def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList
         "Print(idempotents);;",
     )
 
+    # parse GAP's group-ring output as coefficients followed by permutation cycles
     coefficient_pattern = r"\(Z\(\d+(?:\^\d+)?\)(?:\^\d+)?\)"
     cycle_pattern = r"\(\s*\d+(?:,\s*\d+)*\)|\(\)"
     cycles_pattern = f"(?:{cycle_pattern})+"

@@ -93,6 +93,27 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
         code = codes.ClassicalCode.stack([code_a, code_b])
 
 
+def test_field_array_construction() -> None:
+    """Explicit fields preserve compatible arrays and reject unsafe reinterpretation."""
+    binary_matrix = galois.GF(2)([[0, 1]])
+    binary_code = codes.ClassicalCode(binary_matrix, field=2)
+    assert binary_code.field is galois.GF(2)
+    assert np.array_equal(binary_code.matrix, binary_matrix)
+
+    for source_order, target_order in [(2, 4), (3, 9)]:
+        source_field = galois.GF(source_order)
+        target_field = galois.GF(target_order)
+        matrix = source_field([source_field.elements])
+        code = codes.ClassicalCode(matrix, field=target_field)
+        assert code.field is target_field
+        assert np.array_equal(code.matrix, target_field(matrix))
+
+    with pytest.raises(ValueError, match=r"incompatible with a matrix over GF\(3\)"):
+        codes.ClassicalCode(galois.GF(3)([[2]]), field=2)
+    with pytest.raises(ValueError, match="canonical prime-subfield embeddings"):
+        codes.ClassicalCode(galois.GF(4)([[0, 1, 2, 3]]), field=16)
+
+
 def test_deprecated_aliases() -> None:
     """Deprecated code method aliases warn and delegate to their replacements."""
     classical_code = codes.RepetitionCode(3)
@@ -225,6 +246,15 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
+        unittest.mock.patch(
+            "qldpc.external.gap.get_output",
+            side_effect=FileNotFoundError("GAP 4 is required to proceed, but is not installed"),
+        ),
+        unittest.mock.patch(
+            "qldpc.external.gap.subprocess.run",
+            side_effect=AssertionError("GAP executable must not be called by this test"),
+        ),
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
         codes.RepetitionCode(2).get_automorphism_group()
@@ -233,6 +263,11 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     # this pytest.warns block intentionally wraps a loop of warning-emitting calls
     with (  # noqa: PT031
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
+        unittest.mock.patch(
+            "qldpc.external.gap.subprocess.run",
+            side_effect=AssertionError("GAP executable must not be called by this test"),
+        ),
         pytest.warns(UserWarning, match="with_magma=True"),
     ):
         for code, automorphisms in [
@@ -517,7 +552,7 @@ def test_qudit_deformations() -> None:
     assert np.array_equal(conjugate.get_gauge_ops(), swap_xz(code.get_gauge_ops()))
 
     with pytest.raises(ValueError, match="only supported for qubit codes"):
-        codes.QuditCode(code.matrix, field=3).deformed("")
+        codes.QuditCode(galois.GF(3)(code.matrix), field=3).deformed("")
 
     # the Steane code is self-dual
     code = codes.SteaneCode()
@@ -814,6 +849,15 @@ def test_qudit_concatenation() -> None:
     assert len(code) == 10 * len(code_5q)
     assert code.dimension == 2 * code_5q.dimension
 
+    # verify inherited logical operators form a canonical symplectic basis
+    rebuilt = codes.QuditCode(code.matrix, is_subsystem_code=code.is_subsystem_code)
+    assert rebuilt.dimension == code.dimension
+    logical_ops = code.get_logical_ops()
+    assert np.array_equal(
+        logical_ops @ math.symplectic_conjugate(logical_ops).T,
+        get_symplectic_form(code.dimension, code.field),
+    )
+
     # concatenation does not mutate the logical operators of the outer code passed by the caller
     outer = codes.QuditCode.stack([code_5q] * len(code_5q))  # dimension == inner physical qudits
     logical_ops_before = outer.get_logical_ops().copy()
@@ -825,6 +869,10 @@ def test_qudit_concatenation() -> None:
         codes.QuditCode.concatenate(code_5q, codes.ToricCode(2, field=3))
     with pytest.raises(ValueError, match="divisible"):
         codes.QuditCode.concatenate(code_5q, code_5q, [0, 1, 2])
+    with pytest.raises(ValueError, match="permutation"):
+        codes.QuditCode.concatenate(code_5q, code_5q, [0, 0, 2, 3, 4])
+    with pytest.raises(ValueError, match="map every intermediate qudit"):
+        codes.QuditCode.concatenate(code_5q, code_5q, {0: 0, 1: 1, 2: 2, 4: 4, 5: 3})
 
 
 def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
@@ -1213,6 +1261,15 @@ def test_css_concatenation() -> None:
     assert len(code) == 4 * len(code_c4)
     assert code.dimension == 2 * code_c4.dimension
 
+    # verify inherited logical operators form a canonical symplectic basis
+    rebuilt = codes.CSSCode(code.matrix_x, code.matrix_z, is_subsystem_code=code.is_subsystem_code)
+    assert rebuilt.dimension == code.dimension
+    logical_ops = code.get_logical_ops()
+    assert np.array_equal(
+        logical_ops @ math.symplectic_conjugate(logical_ops).T,
+        get_symplectic_form(code.dimension, code.field),
+    )
+
     # inheriting logical operators yields different logical operators!
     code_alt = codes.CSSCode.concatenate(code_c4, code_c4, wiring, inherit_logicals=False)
     assert not np.array_equal(code.get_logical_ops(), code_alt.get_logical_ops())
@@ -1220,6 +1277,26 @@ def test_css_concatenation() -> None:
     # cover some errors
     with pytest.raises(TypeError, match="CSSCode inputs"):
         codes.CSSCode.concatenate(code_c4, codes.FiveQubitCode())
+    with pytest.raises(ValueError, match="permutation"):
+        codes.CSSCode.concatenate(code_c4, code_c4, [0, 0, 2, 3, 4, 5, 6, 7])
+
+
+def test_canonicalizing_subsystem_codes_is_order_independent() -> None:
+    """Canonical subsystem-code metadata does not depend on prior lazy-property access."""
+    factories = [
+        lambda: codes.QuditCode([[1, 0], [0, 1]]),
+        lambda: codes.CSSCode([[1, 1, 0]], [[0, 1, 1]]),
+    ]
+    expected_dimensions = [0, 2]
+
+    for factory, expected_dimension in zip(factories, expected_dimensions, strict=True):
+        cold_canonical = factory().canonicalized
+        warm = factory()
+        assert warm.is_subsystem_code
+        warm_canonical = warm.canonicalized
+
+        assert cold_canonical.is_subsystem_code
+        assert cold_canonical.dimension == warm_canonical.dimension == expected_dimension
 
 
 def test_css_capacity() -> None:

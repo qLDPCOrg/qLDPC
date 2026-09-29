@@ -5,14 +5,18 @@ from ._monomials import (
     iter_monomial_terms,
 )
 from .groups import (
+    GL,
+    PGL,
     PSL,
     SL,
     AbelianGroup,
     AlternatingGroup,
     CyclicGroup,
     DihedralGroup,
+    GeneralLinearGroup,
     Group,
     GroupMember,
+    ProjectiveGeneralLinearGroup,
     ProjectiveSpecialLinearGroup,
     QuaternionGroup,
     SmallGroup,
@@ -28,11 +32,13 @@ from .linalg import (
     kron,
     matmul,
 )
+from .ring_array import (
+    Protograph,
+    RingArray,
+)
 from .rings import (
     Element,
     GroupRing,
-    Protograph,
-    RingArray,
     RingMember,
 )
 from .wedderburn_artin import (
@@ -41,6 +47,8 @@ from .wedderburn_artin import (
 )
 
 __all__ = [
+    "GL",
+    "PGL",
     "PSL",
     "SL",
     "AbelianGroup",
@@ -48,9 +56,11 @@ __all__ = [
     "CyclicGroup",
     "DihedralGroup",
     "Element",
+    "GeneralLinearGroup",
     "Group",
     "GroupMember",
     "GroupRing",
+    "ProjectiveGeneralLinearGroup",
     "ProjectiveSpecialLinearGroup",
     "Protograph",
     "QuaternionGroup",

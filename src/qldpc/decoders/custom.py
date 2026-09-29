@@ -54,30 +54,31 @@ class BatchDecoder(BatchErrorDecoder, Protocol):
 class RelayBPDecoder:
     """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
-    Requires relay_bp to be installed, for example via "pip install 'qldpc[relay-bp]'".
+    Requires ``relay_bp`` to be installed, for example via ``pip install 'qldpc[relay-bp]'``.
 
-    This class first constructs a relay_bp.decoder.DynDecoder decoder by class name, such as
-    "RelayDecoderF32"; see help(relay_bp) for more options.  To enable parallelized decoding, which
-    as of relay-bp==0.2.1 is only implemented for the relay_bp.ObservableDecoderRunner class,
-    RelayBPDecoder wraps the relay_bp.decoder.DynDecoder in a relay_bp.ObservableDecoderRunner at
-    initialization time.
+    This class first constructs a ``relay_bp.decoder.DynDecoder`` decoder by class name, such as
+    ``RelayDecoderF32``; see ``help(relay_bp)`` for more options.  To enable parallelized decoding,
+    which as of ``relay-bp==0.2.1`` is only implemented for the
+    ``relay_bp.ObservableDecoderRunner`` class, ``RelayBPDecoder`` wraps the
+    ``relay_bp.decoder.DynDecoder`` in a ``relay_bp.ObservableDecoderRunner`` at initialization
+    time.
 
-    IMPORTANT POINTS TO NOTE:
-    -------------------------
+    .. important::
+        Relay-BP has two integration constraints:
 
-    1. relay_bp.ObservableDecoderRunner expects to be passed an observable_error_matrix when
-        initialized.  If a RelayBPDecoder is initialized without an observable_error_matrix, this
-        matrix is set to np.empty((0, 0), dtype=np.uint8).  All observable-related methods of the
-        decoder will subsequently fail.
-    2. RelayBPDecoder "wants" to be a subclass of relay_bp.ObservableDecoderRunner.  However, the
-        latter does not allow subclassing because it is implemented in rust and exposed to Python
-        via bindings.  As a hack, if a decoder: RelayBPDecoder is asked for a method or attribute it
-        does not recognize, such as decoder.decode_observables_batch(detectors, parallel=True) or
-        decoder.decode_detailed(detectors), it tries to pass all arguments to an identically-named
-        method of relay_bp.ObservableDecoderRunner.  A consequence of this hack is that most of the
-        methods that are recognized by RelayBPDecoder in practice do not appear in its
-        documentation.
-        See help(relay_bp.ObservableDecoderRunner) for a list of all RelayBPDecoder methods.
+        1. ``relay_bp.ObservableDecoderRunner`` expects an ``observable_error_matrix`` when
+           initialized.  If a ``RelayBPDecoder`` is initialized without one, this matrix is set to
+           ``np.empty((0, 0), dtype=np.uint8)``.  All observable-related methods of the decoder will
+           subsequently fail.
+        2. ``RelayBPDecoder`` "wants" to be a subclass of ``relay_bp.ObservableDecoderRunner``.
+           However, the latter does not allow subclassing because it is implemented in Rust and
+           exposed to Python via bindings.  As a workaround, if a ``RelayBPDecoder`` is asked for a
+           method or attribute it does not recognize, such as
+           ``decoder.decode_observables_batch(detectors, parallel=True)`` or
+           ``decoder.decode_detailed(detectors)``, it passes all arguments to an identically named
+           method of ``relay_bp.ObservableDecoderRunner``.  Consequently, most methods recognized
+           by ``RelayBPDecoder`` in practice do not appear in its documentation.  See
+           ``help(relay_bp.ObservableDecoderRunner)`` for a complete list.
 
     For details about Relay-BP decoders, see:
 
@@ -103,16 +104,17 @@ class RelayBPDecoder:
 
         Args:
             pcm_or_dem: A parity check matrix or detector error model (DEM).
-            error_priors: Prior probabilities for each error, or None.  If error_priors is None and
-                pcm_or_dem is a DEM, these are set to the error probabilities in the DEM by default.
+            error_priors: Prior probabilities for each error, or None.  If ``error_priors is None``
+                and ``pcm_or_dem`` is a DEM, these are set to the error probabilities in the DEM by
+                default.
             name: The name of the RelayBP decoder to instantiate.  Must be one of the classes listed
-                under help(relay_bp.bp).
-            observable_error_matrix: A binary matrix whose rows specify which error mechanisms flip
-                which observables, or None.  If pcm_or_dem is a DEM, this matrix is extracted from
-                the DEM.  If pcm_or_dem is a matrix and observable_error_matrix is None, the
-                constructed RelayBPDecoder will not be able to predict observable flips (or logical
-                error rates).
-            include_decode_result: Argument passed to relay_bp.ObservableDecoderRunner.
+                under ``help(relay_bp.bp)``.
+            observable_error_matrix: A binary matrix whose rows specify which error mechanisms
+                flip which observables, or None.  If ``pcm_or_dem`` is a DEM, this matrix is
+                extracted from the DEM.  If ``pcm_or_dem`` is a matrix and
+                ``observable_error_matrix is None``, the constructed ``RelayBPDecoder`` will not be
+                able to predict observable flips (or logical error rates).
+            include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
             add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the
                 error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
                 Without that bit, such a shot is reported as an ordinary inferred error.
@@ -401,9 +403,10 @@ class GUFDecoder:
     0 otherwise.  Without that bit, an exhausted search is reported as the all-zero error, which is
     indistinguishable from the error inferred for a trivial syndrome.
 
-    Warning: this implementation of the generalized Union-Find decoder is highly unoptimized.  For
-    one, it is written entirely in Python.  Moreover, this implementation does not factor an error
-    set into connected components.
+    .. warning::
+        This implementation of the generalized Union-Find decoder is highly unoptimized.  For one,
+        it is written entirely in Python.  Moreover, this implementation does not factor an error
+        set into connected components.
     """
 
     def __init__(

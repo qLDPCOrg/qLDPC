@@ -302,6 +302,21 @@ class _LookupDecoderBase:
                     "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
                 )
 
+        # validate the explicit error channel before building its penalty function
+        if error_channel is not None:
+            error_channel = np.asarray(error_channel, dtype=float)
+            expected_shape = (pcm.shape[1],)
+            if error_channel.shape != expected_shape:
+                raise ValueError(
+                    f"A LookupDecoder error_channel must have shape {expected_shape}, but got"
+                    f" {error_channel.shape}"
+                )
+            if not np.all((0 <= error_channel) & (error_channel <= 1)):
+                raise ValueError(
+                    "A LookupDecoder error_channel must contain finite probabilities between 0 and"
+                    " 1, inclusive"
+                )
+
         # if an explicit penalty_func was not provided, build one from the error channel
         penalty_func = penalty_func or (
             _LookupDecoderBase._build_penalty_func(error_channel)
@@ -364,8 +379,8 @@ class _LookupDecoderBase:
         is rejected: the errors that get enumerated take their values from the parity check matrix's
         field, so an observable over any other field cannot say what they flip.
 
-        With symplectic=True, an error assigns both an X and a Z component to each qudit, and the
-        flip that it induces in an observable is their symplectic product,
+        With ``symplectic=True``, an error assigns both an X and a Z component to each qudit, and
+        the flip that it induces in an observable is their symplectic product,
         ``observable @ symplectic_conjugate(error)``.  That product is obtained by multiplying the
         error by -symplectic_conjugate(observable_flip_matrix), in the same way that
         _iter_errors_and_syndromes obtains a syndrome from a parity check matrix.
@@ -432,6 +447,7 @@ class _LookupDecoderBase:
         bit are skipped, and dropped bits are omitted from the yielded syndrome.
         """
         dtype = matrix.dtype
+        # rewrite the checks so multiplying by an error produces its syndrome
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
         matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
         syndrome_bits_to_drop = (

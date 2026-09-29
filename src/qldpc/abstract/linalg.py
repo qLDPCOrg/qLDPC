@@ -2,10 +2,9 @@
 
 """Module for linear algebra with matrices over rings and bimodules.
 
-!!! WARNINGS !!!
-
-This module does not promise to be performant.  If you need to do heavy numerical abstract algebra,
-you're probably better served by GAP or MAGMA (or maybe SageMath).
+.. warning::
+    This module does not promise to be performant.  If you need to do heavy numerical abstract
+    algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
 
 """
 
@@ -21,7 +20,9 @@ import scipy.linalg
 
 from qldpc import math
 
-from .rings import Group, GroupMember, GroupRing, RingArray
+from .groups import Group, GroupMember
+from .ring_array import RingArray
+from .rings import GroupRing
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinComponentTransformer, WedderburnArtinTransformer
@@ -36,6 +37,7 @@ def matmul(
     """Multiply two matrices over a ring.
 
     This method exists to handle two different cases:
+
     1. 'right is False' (default): Ordinary matrix multiplication, or simply 'matrix_a @ matrix_b'.
     2. 'right is True': matrix multiplication with a reversed order of multiplication in the ring.
     """
@@ -52,6 +54,7 @@ def matmul(
     if ring.is_commutative or not right:
         return (matrix_a @ matrix_b).view(RingArray)
 
+    # expand manually to reverse operand order within each matrix-product term
     final_shape = (*matrix_a.shape[:-1], matrix_b.shape[-1])
     matrix = RingArray.build(np.zeros(final_shape, dtype=int), ring)
     for idx in np.ndindex(final_shape):
@@ -74,6 +77,7 @@ def kron(
     ring = _get_ring(matrix_a, matrix_b)
 
     if not ring.is_commutative:
+        # keep left and right multiplication in separate halves of the bimodule representation
         bimodule = get_bimodule(ring)
         sector_size = ring.group.identity.size
         swap_sectors = GroupMember(
@@ -143,42 +147,43 @@ def get_howell_dual(
 
     Note that we have two different notions of a transpose at play:
 
-    1. D.T...
+    1. ``D.T``...
 
         (a) swaps the matrix indices of D, and
         (b) takes group members ``g -> ~g = g**-1``, which transposes their regular representation.
 
-    2. transformer.transpose_array(D)...
+    2. ``transformer.transpose_array(D)``...
 
-        (a) swaps the matrix indices of D (identically to D.T), and
+        (a) swaps the matrix indices of D (identically to ``D.T``), and
         (b) for each entry of D, transposes its matrix representation within each Wedderburn-Artin
             component of the ring.
 
-    The ``transformer`` must be the one used to build matrix_hnf, since the dual is built in that
-    transformer's basis.  By default it is read from matrix_hnf (the transformer recorded when the
-    Howell form was built).
+    The ``transformer`` must be the one used to build ``matrix_hnf``, since the dual is built in
+    that transformer's basis.  By default it is read from ``matrix_hnf`` (the transformer recorded
+    when the Howell form was built).
 
-    Likewise, the ``right`` flag must match the orientation used to build matrix_hnf (the ``right``
-    passed to ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative ring the
-    dual is orientation-specific: the dual built for the wrong orientation does not satisfy it.  By
-    default (``right=None``) it is read from matrix_hnf, like ``transformer``; an explicit value is
-    cross-checked against what matrix_hnf was built with.
+    Likewise, the ``right`` flag must match the orientation used to build ``matrix_hnf`` (the
+    ``right`` passed to ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative
+    ring the dual is orientation-specific: the dual built for the wrong orientation does not satisfy
+    it.  By default (``right=None``) it is read from ``matrix_hnf``, like ``transformer``; an
+    explicit value is cross-checked against what ``matrix_hnf`` was built with.
 
     ``skip_validation`` controls whether the returned dual is checked against properties 1-4:
 
     - ``False``: always check, raising an error if the dual is not valid.
-    - ``True``: never check (fastest; trusts that matrix_hnf is a Howell form and that ``right``
+    - ``True``: never check (fastest; trusts that ``matrix_hnf`` is a Howell form and that ``right``
       matches its orientation).
-    - ``None`` (default): if matrix_hnf carries Howell-form provenance (attached by
+    - ``None`` (default): if ``matrix_hnf`` carries Howell-form provenance (attached by
       ``howell_normal_form_semisimple``/``howell_normal_form_poly``), trust it -- but raise an error
       if its recorded orientation disagrees with ``right``.  Otherwise, check as for ``False``.
 
-    WARNINGS: Any ``transformer`` passed in must be the one used to build matrix_hnf; otherwise the
-    dual is built in the wrong basis and may be wrong.  By default the transformer recorded on
-    matrix_hnf is used.  Separately, with ``skip_validation=True`` this method verifies nothing
-    else: it trusts that matrix_hnf is in Howell normal form and that ``right`` matches the
-    orientation used to build it, so a wrong ``right`` may raise an error but may also silently
-    return a wrong dual.
+    .. warning::
+        Any ``transformer`` passed in must be the one used to build ``matrix_hnf``; otherwise the
+        dual is built in the wrong basis and may be wrong.  By default the transformer recorded on
+        ``matrix_hnf`` is used.  Separately, with ``skip_validation=True`` this method verifies
+        nothing else: it trusts that ``matrix_hnf`` is in Howell normal form and that ``right``
+        matches the orientation used to build it, so a wrong ``right`` may raise an error but may
+        also silently return a wrong dual.
     """
     ring = matrix_hnf.ring
     # prefer the transformer matrix_hnf was built with, so we build (and validate) in the same basis

@@ -182,6 +182,7 @@ def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois
         basis.shape[0] > basis.shape[1] or np.linalg.matrix_rank(basis) != basis.shape[0]
     ):
         raise ValueError("A dual basis can only be found for wide matrices of full rank")
+    # invert independent columns to build a dual basis with dual_basis @ basis.T == I
     pivot_cols = first_nonzero_cols(basis.row_reduce())
     linearly_independent_cols = basis[:, pivot_cols].view(type(basis))
     dual_basis = np.zeros(basis.shape, dtype=int).view(type(basis))
@@ -200,7 +201,7 @@ def get_orthonormal_basis(
     basis, return None.
 
     The rows of the matrix may be linearly dependent; they are first reduced to a basis of V.  Pass
-    promise_full_rank=True to skip this reduction when the rows are already independent.
+    ``promise_full_rank=True`` to skip this reduction when the rows are already independent.
 
     An orthonormal basis for V exists if and only if (a) V is nondegenerate, meaning no nonzero
     vector of V is orthogonal to all of V, and (b), according to the field's characteristic:
@@ -381,10 +382,10 @@ def symplectic_gram_schmidt(
       of V.  Its rows are isotropic and orthogonal to every row of ``hyperbolic`` and ``radical``.
 
     Together the rows of ``hyperbolic`` and ``radical`` form a basis for V.  The rows of ``vectors``
-    may be linearly dependent; they are first reduced to a basis of V.  Pass promise_full_rank=True
-    to skip this reduction when the rows are already independent; passing it for dependent rows
-    leaves the dependent directions in ``radical`` as spurious (possibly zero) rows, though the
-    ``hyperbolic`` pairs stay correct.
+    may be linearly dependent; they are first reduced to a basis of V.  Pass
+    ``promise_full_rank=True`` to skip this reduction when the rows are already independent; passing
+    it for dependent rows leaves the dependent directions in ``radical`` as spurious (possibly zero)
+    rows, though the ``hyperbolic`` pairs stay correct.
 
     Because the symplectic form is alternating, ``⟨v, v⟩_s = 0`` for every vector in every
     characteristic, so -- unlike get_orthonormal_basis -- there is no unit-vector case: the

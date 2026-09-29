@@ -408,6 +408,7 @@ def get_decoder_bf(
     - help(ldpc.BeliefFindDecoder)
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - References:
+
       - https://arxiv.org/abs/1709.06218
       - https://arxiv.org/abs/2103.08049
       - https://arxiv.org/abs/2209.01180

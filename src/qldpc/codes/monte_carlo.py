@@ -33,14 +33,14 @@ class ErrorRateFunc:
 
         func = code.get_logical_error_rate_func(...),
 
-    then "func" takes a physical error rate "p" as an argument, and returns two numbers:
+    then ``func`` takes a physical error rate ``p`` as an argument and returns two numbers:
 
     (1) A logical error rate, estimated over the error weights that were sampled.
     (2) A statistical uncertainty in that rate: the standard deviation propagated from the
-            per-weight Jeffreys posterior variances.
+        per-weight Jeffreys posterior variances.
 
     If called with an array of physical error rates, this function returns two arrays.  If called
-    with discard_rate=True, it computes a discard rate instead of an error rate.
+    with ``discard_rate=True``, it computes a discard rate instead of an error rate.
 
     Errors of weight above the max_error_weight are never sampled, and this class counts every one
     of them as a failure.  The reported error rate therefore sits above the true error rate, by at
@@ -421,7 +421,7 @@ def get_error_and_erasure(
     """Decode a syndrome and return the inferred error together with an erasure flag.
 
     If the decoder has a has_erasure_bit attribute set to True (e.g., a LookupDecoder constructed
-    with add_erasure_bit=True), the last element of the decoded vector is treated as the erasure
+    with ``add_erasure_bit=True``), the last element of the decoded vector is treated as the erasure
     bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
     correction was found normally.  The erasure bit is stripped before returning the error.
     """
