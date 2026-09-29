@@ -82,7 +82,8 @@ class AbstractCode(abc.ABC):
     ) -> None:
         """Construct a code from a parity check matrix over a finite field.
 
-        The base field is taken to be ``F_2`` by default.
+        The base field is taken to be ``F_2`` by default. If ``matrix`` is a finite-field array, an
+        explicit field may either match its field or canonically extend its prime field.
         """
         if isinstance(matrix, AbstractCode):
             self._matrix = getattr(matrix, "_matrix", matrix.matrix)
@@ -99,8 +100,21 @@ class AbstractCode(abc.ABC):
             self._is_canonicalized = matrix._is_canonicalized
 
         elif isinstance(matrix, galois.FieldArray):
+            matrix_field = type(matrix)
             self._field = abstract.resolve_field(field) if field is not None else type(matrix)
-            self._matrix = matrix.view(self._field)
+            if self._field is matrix_field:
+                self._matrix = matrix.view(self._field)
+            elif (
+                matrix_field.degree == 1
+                and matrix_field.characteristic == self._field.characteristic
+            ):
+                self._matrix = self._field(matrix)
+            else:
+                raise ValueError(
+                    f"Field argument {field} is incompatible with a matrix over GF"
+                    f"({matrix_field.order}); only identical fields and canonical prime-subfield"
+                    " embeddings are supported"
+                )
 
         else:
             self._field = abstract.resolve_field(field)

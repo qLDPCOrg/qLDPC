@@ -92,6 +92,27 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
         code = codes.ClassicalCode.stack([code_a, code_b])
 
 
+def test_field_array_construction() -> None:
+    """Explicit fields preserve compatible arrays and reject unsafe reinterpretation."""
+    binary_matrix = galois.GF(2)([[0, 1]])
+    binary_code = codes.ClassicalCode(binary_matrix, field=2)
+    assert binary_code.field is galois.GF(2)
+    assert np.array_equal(binary_code.matrix, binary_matrix)
+
+    for source_order, target_order in [(2, 4), (3, 9)]:
+        source_field = galois.GF(source_order)
+        target_field = galois.GF(target_order)
+        matrix = source_field([source_field.elements])
+        code = codes.ClassicalCode(matrix, field=target_field)
+        assert code.field is target_field
+        assert np.array_equal(code.matrix, target_field(matrix))
+
+    with pytest.raises(ValueError, match=r"incompatible with a matrix over GF\(3\)"):
+        codes.ClassicalCode(galois.GF(3)([[2]]), field=2)
+    with pytest.raises(ValueError, match="canonical prime-subfield embeddings"):
+        codes.ClassicalCode(galois.GF(4)([[0, 1, 2, 3]]), field=16)
+
+
 def test_deprecated_aliases() -> None:
     """Deprecated code method aliases warn and delegate to their replacements."""
     classical_code = codes.RepetitionCode(3)
@@ -516,7 +537,7 @@ def test_qudit_deformations() -> None:
     assert np.array_equal(conjugate.get_gauge_ops(), swap_xz(code.get_gauge_ops()))
 
     with pytest.raises(ValueError, match="only supported for qubit codes"):
-        codes.QuditCode(code.matrix, field=3).deformed("")
+        codes.QuditCode(galois.GF(3)(code.matrix), field=3).deformed("")
 
     # the Steane code is self-dual
     code = codes.SteaneCode()

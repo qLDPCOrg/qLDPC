@@ -716,7 +716,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         2. A ring (or group, inducing a group algebra over GF(2)).
 
-        Integers and group members are cast into members of the ring.
+        Integers and group members are cast into members of the ring. Ring members may be embedded
+        into a different ring only when the coefficient fields match and their group support embeds
+        into the target group.
         """
         array = np.asanyarray(data)
 
@@ -736,9 +738,20 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         def as_ring_member(value: RingMember | GroupMember | int) -> RingMember:
             """Elevate a value to an element of the ring."""
             if isinstance(value, RingMember):
-                _value = value.copy() * one
-                _value._ring = ring
-                return _value
+                if value.field is not ring.field:
+                    raise ValueError(
+                        f"Cannot embed a ring member over GF({value.field.order}) into a ring over"
+                        f" GF({ring.field.order}): incompatible coefficient fields"
+                    )
+                terms = [
+                    (coefficient, member) for coefficient, member in value * one if coefficient
+                ]
+                if any(member != one and member not in ring.group for _, member in terms):
+                    raise ValueError(
+                        "Cannot embed a ring member whose group support is not contained in the"
+                        " target group"
+                    )
+                return RingMember(ring, *terms)
             if isinstance(value, GroupMember):
                 return RingMember(ring, value * one)
             return RingMember(ring, (value, one))

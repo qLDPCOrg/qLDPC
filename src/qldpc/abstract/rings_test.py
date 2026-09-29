@@ -186,6 +186,28 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
         np.concatenate([one_c1, new_matrix], out=out_c2)
 
 
+def test_ring_array_explicit_ring_compatibility() -> None:
+    """Explicit target rings accept valid embeddings and reject incompatible re-homing."""
+    source_ring = abstract.GroupRing(abstract.DihedralGroup(3), field=2)
+    bimodule_ring = abstract.GroupRing(source_ring.group * source_ring.group, field=2)
+    matrix = abstract.RingArray.build([[source_ring.generators[0]]], bimodule_ring)
+    assert matrix.ring == bimodule_ring
+    assert all(member in bimodule_ring.group for _, member in matrix[0, 0])
+
+    different_field = abstract.GroupRing(source_ring.group, field=3)
+    with pytest.raises(ValueError, match="incompatible coefficient fields"):
+        abstract.RingArray.build([[source_ring.one]], different_field)
+
+    incompatible_group = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    with pytest.raises(ValueError, match="group support is not contained"):
+        abstract.RingArray.build([[source_ring.generators[0]]], incompatible_group)
+
+    cyclic_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    malformed_member = abstract.RingMember(cyclic_ring, incompatible_group.group.generators[0])
+    with pytest.raises(ValueError, match="group support is not contained"):
+        abstract.RingArray.build([[malformed_member]], cyclic_ring)
+
+
 def test_empty_lift() -> None:
     """Lifting 0-sized RingArrays still yields arrays of the correct shape."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
