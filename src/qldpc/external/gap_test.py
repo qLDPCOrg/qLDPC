@@ -81,7 +81,8 @@ def test_installed_libgap_import_contract() -> None:
     availability = (  # pragma: no cover - optional dependency
         libgap.function_factory("TestPackageAvailability")("guava")
     )
-    assert str(availability).lower() == "true"  # pragma: no cover - optional dependency
+    # PassageMath may return the installed package directory instead of ``true``.
+    assert str(availability).lower() not in {"", "fail"}  # pragma: no cover - optional dependency
     external.gap.is_callable.cache_clear()  # pragma: no cover
     external.gap.is_installed.cache_clear()  # pragma: no cover
     output = external.gap.get_output(
