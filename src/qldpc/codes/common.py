@@ -24,6 +24,7 @@ import stim
 from typing_extensions import Self
 
 from qldpc import abstract, decoders, external, math
+from qldpc._util import format_docstring
 from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
@@ -3139,6 +3140,10 @@ class CSSCode(QuditCode):
             else self._distance
         )
 
+    @format_docstring(
+        gap_options=sorted(_GAP_DISTANCE_BOUND_KWARGS),
+        sqetch_options=sorted(_SQETCH_DISTANCE_BOUND_KWARGS),
+    )
     def get_distance_bound(
         self,
         num_trials: int = 1,
@@ -3165,9 +3170,9 @@ class CSSCode(QuditCode):
                 Explicit ``"gap"`` always requests QDistRnd and never silently falls back.
                 ``"sqetch"`` requires the optional dependency and a CUDA-capable GPU.
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
-                For ``"gap"``, only ``maxav`` is recognized.  For ``"sqetch"``, supported options
-                are ``d_target``, ``k_sub``, ``batch_size``, ``seed``, and ``device``.  With
-                ``"auto"``, supplied keywords limit selection to backends that accept them.
+                For ``"gap"``, recognized options are {gap_options}.  For ``"sqetch"``, recognized
+                options are {sqetch_options}.  With ``"auto"``, supplied keywords limit selection
+                to backends that accept them.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.
