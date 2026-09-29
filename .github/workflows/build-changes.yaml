@@ -54,6 +54,6 @@ jobs:
           python-version: 3.14
           enable-cache: true
       - name: Install package and dependencies
-        run: uv sync --extra relay-bp --group ci-test
+        run: uv sync --extra numba --extra relay-bp --group ci-test
       - name: Run pytest
-        run: uv run --extra relay-bp --group ci-test python checks/pytest_.py
+        run: uv run --extra numba --extra relay-bp --group ci-test python checks/pytest_.py

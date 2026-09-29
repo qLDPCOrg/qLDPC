@@ -50,14 +50,13 @@ dependencies = [
 optional-dependencies.dev = [
   "checks-superstaq>=0.5.67",
   "jupyter>=1.1.1",
-  "numba>=0.61",                  # exercises the use_numba weight-function path in distance_test.py
-  "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
-  "pyproject-fmt>=2",             # pyproject.toml formatting, run by checks/format_.py
+  "pypandoc-binary>=1.13",          # bundles pandoc for building the notebook docs locally
+  "pyproject-fmt>=2",               # pyproject.toml formatting, run by checks/format_.py
   "pytest>=8",
-  "pytest-randomly>=3.10",        # tests that need reproducibility read its randomly_seed option
-  "pytest-socket>=0.7",           # implements the --disable-socket in [tool.pytest] addopts below
+  "pytest-randomly>=3.10",          # tests that need reproducibility read its randomly_seed option
+  "pytest-socket>=0.7",             # implements the --disable-socket in [tool.pytest] addopts below
   "python-lsp-server[all]>=1.14",
-  "qldpc[docs,gap,relay-bp]",
+  "qldpc[docs,gap,numba,relay-bp]",
 ]
 optional-dependencies.docs = [
   "ipython>=8",          # for nbsphinx's IPython.sphinxext.ipython_console_highlighting extension
@@ -68,6 +67,9 @@ optional-dependencies.docs = [
 ]
 optional-dependencies.gap = [
   "passagemath-gap==10.8.12; python_version>='3.11' and python_version<'3.15' and sys_platform!='win32'",
+]
+optional-dependencies.numba = [
+  "numba>=0.61", # backs the use_numba=True distance-calculation path in qldpc.codes.distance
 ]
 optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
 urls.Documentation = "https://qldpc.readthedocs.io/"
@@ -85,7 +87,6 @@ ci-lint = [
 ]
 ci-test = [
   "checks-superstaq>=0.5.67",
-  "numba>=0.61",
   "pytest>=8",
   "pytest-randomly>=3.10",
   "pytest-socket>=0.7",

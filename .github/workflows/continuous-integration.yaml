@@ -113,6 +113,6 @@ jobs:
           python-version: 3.14
           enable-cache: true
       - name: Install package and dependencies
-        run: uv sync --extra gap --extra relay-bp --group ci-test
+        run: uv sync --extra gap --extra numba --extra relay-bp --group ci-test
       - name: Run coverage
-        run: uv run --extra gap --extra relay-bp --group ci-test python checks/coverage_.py
+        run: uv run --extra gap --extra numba --extra relay-bp --group ci-test python checks/coverage_.py

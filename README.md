@@ -40,6 +40,13 @@ Install the optional Relay-BP decoder with:
 python -m pip install 'qldpc[relay-bp]'
 ```
 
+Install optional numba acceleration for exact distance calculations (the `use_numba=True` argument
+to distance-computing methods) with:
+
+```bash
+python -m pip install 'qldpc[numba]'
+```
+
 For development:
 
 ```bash
