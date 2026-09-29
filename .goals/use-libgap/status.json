@@ -1,6 +1,6 @@
 {
   "goal_id": "use-libgap",
-  "status": "building",
+  "status": "inspecting",
   "iteration": 4,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
@@ -21,6 +21,11 @@
       "iteration": 3,
       "verdict": "FAIL",
       "summary": "Real API CI coverage is fixed, but the direct adapter sends invalid multi-statement input to libgap.eval."
+    },
+    {
+      "iteration": 4,
+      "verdict": "PASS",
+      "summary": "The single-expression wrapper is valid, regression tests have teeth, and all quality gates pass."
     }
   ]
 }
