@@ -8,9 +8,11 @@ qLDPC separates two decoding tasks:
 * an :class:`~qldpc.decoders.sinter.ObservableDecoder` compiles against a Stim detector error model
   and maps detection events to predicted observable flips.
 
-This distinction matters when composing decoders. Code-capacity calculations and distance bounds
-need an error decoder. Sinter simulations need an observable decoder, which usually wraps an error
-decoder and performs the error-to-observable conversion after decoding.
+This distinction matters when composing decoders. qLDPC's current code-capacity estimators consume
+an error decoder, while Sinter simulations consume an observable decoder, which usually wraps an
+error decoder and performs the error-to-observable conversion after decoding. Decoder-based
+randomized distance bounds specifically require an error decoder because they operate on physical
+candidate errors; exact distance calculations do not require a decoder.
 
 Configuring error decoders
 --------------------------
