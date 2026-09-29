@@ -64,9 +64,6 @@ executable is available, qLDPC prints instructions for installing the package fo
 using the executable instead. GAP integration on Windows remains limited; see
 [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
-The in-process adapter initializes PassageMath's GAP support before importing libgap, rather than
-using its interactive-only convenience namespace.
-
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
 
 ## 🚀 Quickstart
