@@ -224,10 +224,13 @@ The :doc:`API reference <autoapi/index>` carries the literature links for each f
 Optional integrations and side effects
 --------------------------------------
 
-* GAP-backed features can run subprocesses. If GAP is unavailable, some paths offer a manual
-  copy/paste workflow that reads standard input and uses the system clipboard.
-* Missing GAP packages can trigger an installation prompt and ``git clone`` into GAP's package
-  directory.
+* Install ``qldpc[gap]`` for the maintained ``passagemath-gap`` libgap binding. GAP-backed
+  features use that in-process binding when available and otherwise can run the ``gap`` subprocess.
+  If GAP is unavailable, some paths offer a manual copy/paste workflow that reads standard input
+  and uses the system clipboard.
+* With libgap, missing GAP packages must be installed through the relevant ``passagemath-gap``
+  extra (or otherwise made available to GAP). With the subprocess backend, missing packages can
+  still trigger an installation prompt and ``git clone`` into GAP's package directory.
 * Group and code lookups may use online resources when local data and GAP cannot answer the request.
 * Expensive results can be cached under the user's platform cache directory. Disk caching is
   intentionally bypassed while pytest is running.

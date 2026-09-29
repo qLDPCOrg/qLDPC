@@ -49,8 +49,17 @@ python -m pip install -e '.[dev]'
 ```
 
 Some algebra tools, code lookups, and distance estimates require [GAP](https://www.gap-system.org).
-If you use Conda on Linux or macOS, install it with `conda install -c conda-forge gap`; other installations work when `gap` is available on `PATH`.
-GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
+For the recommended in-process integration, install qLDPC with its maintained libgap extra:
+
+```bash
+python -m pip install 'qldpc[gap]'
+```
+
+qLDPC uses `passagemath-gap` when it is installed, so supported GAP operations do not launch a
+separate `gap` process. If the extra is unavailable, qLDPC still supports a GAP executable on
+`PATH` (`conda install -c conda-forge gap` is one option) and retains its documented manual
+copy/paste fallback. GAP integration on Windows remains limited; see
+[issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
 

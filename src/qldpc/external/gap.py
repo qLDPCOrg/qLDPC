@@ -8,10 +8,12 @@ See https://www.gap-system.org.
 from __future__ import annotations
 
 import functools
+import importlib
 import os
 import re
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Protocol, cast
 
 import pyperclip
 
@@ -20,9 +22,31 @@ import qldpc
 GAP_ROOT = os.path.join(os.path.dirname(os.path.dirname(qldpc.__file__)), "gap")
 
 
+class _LibGap(Protocol):
+    """Subset of the optional ``passagemath-gap`` API used by qLDPC."""
+
+    def eval(self, command: str) -> object:
+        """Evaluate a GAP expression."""
+
+    def function_factory(self, function_name: str) -> Callable[..., object]:
+        """Return a callable GAP function."""
+
+
+def _get_libgap() -> _LibGap | None:
+    """Return the optional direct GAP binding, if it is importable."""
+    try:
+        module = importlib.import_module("passagemath_gap")
+    except (ImportError, OSError):
+        return None
+    return cast(_LibGap | None, getattr(module, "libgap", None))
+
+
 @functools.cache
 def is_callable() -> bool:
-    """Can we call GAP 4 from the command line?"""
+    """Can we call GAP 4, directly through libgap or from the command line?"""
+    if _get_libgap() is not None:
+        return True
+
     commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
     try:
         result = subprocess.run(commands, capture_output=True, text=True, check=False)
@@ -35,10 +59,11 @@ def is_callable() -> bool:
 
 @functools.cache
 def is_installed() -> bool:
-    """Is GAP 4 installed?
+    """Is GAP 4 available?
 
-    When GAP is not callable from the command line, this function prompts on standard input, so it
-    blocks in a non-interactive context (and raises ``EOFError`` if standard input is closed).
+    When neither libgap nor the command-line program is available, this function prompts on standard
+    input, so it blocks in a non-interactive context (and raises ``EOFError`` if standard input is
+    closed).
     """
     if is_callable():
         return True
@@ -60,13 +85,49 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
     return tuple(prefix + commands + suffix)
 
 
+def _gap_string(value: object) -> str:
+    """Convert a libgap value to the corresponding Python string."""
+    if isinstance(value, str):
+        return value
+    try:
+        converted = value.sage()  # type: ignore[attr-defined]
+    except (AttributeError, NotImplementedError):
+        converted = str(value)
+    return converted if isinstance(converted, str) else str(converted)
+
+
+def _get_output_libgap(commands: Sequence[str], libgap: _LibGap) -> str:
+    """Evaluate commands through libgap while capturing GAP's printed output."""
+    stream = "__qldpc_output__"
+    direct_commands = [
+        f'{stream} := "";',
+        f"{stream}_stream := OutputTextString({stream}, false);",
+        f"SetPrintFormattingStatus({stream}_stream, false);",
+    ]
+    direct_commands.extend(
+        command.rstrip("; \t\n").replace("Print(", f"PrintTo({stream}_stream, ")
+        for command in commands
+    )
+    direct_commands.extend([f"CloseStream({stream}_stream);", stream])
+
+    try:
+        result = libgap.eval("\n".join(direct_commands))
+    except Exception as error:
+        raise ValueError(
+            "Error encountered when running GAP through libgap\n\n"
+            f"{error}\n\nGAP command:\n{' '.join(commands)}"
+        ) from error
+    return _gap_string(result)
+
+
 def get_output(*commands: str, use_pipe: bool = False) -> str:
     """Get the output from the given GAP commands.
 
-    When GAP is callable, this function runs the commands in a subprocess.  Otherwise it falls back
-    to a manual workflow that prints the commands, copies them to the system clipboard, and reads
-    the pasted output from standard input (blocking, and raising ``EOFError`` if standard input is
-    closed), caching the result to disk.
+    When ``passagemath-gap`` is installed, this function evaluates commands through its in-process
+    libgap binding.  Otherwise, when GAP is callable, it runs the commands in a subprocess.
+    Finally, it falls back to a manual workflow that prints the commands, copies them to the system
+    clipboard, and reads the pasted output from standard input (blocking, and raising ``EOFError``
+    if standard input is closed), caching the result to disk.
 
     Raises:
         FileNotFoundError: If GAP 4 is not installed.
@@ -74,6 +135,9 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
     """
     if not is_installed():
         raise FileNotFoundError("GAP 4 is required to proceed, but is not installed")
+
+    if (libgap := _get_libgap()) is not None:
+        return _get_output_libgap(commands, libgap)
 
     if is_callable():
         commands = sanitize_commands(commands)
@@ -157,9 +221,11 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
 def require_package(name: str, repo: str | None = None) -> bool:
     """Enforce the installation of a GAP package.
 
-    If the package is missing and GAP is callable, this function prompts on standard input and,
-    with the user's consent, installs it by running ``git clone`` into the GAP root's ``pkg``
-    directory.
+    With the direct libgap backend, this checks the package through GAP and raises
+    :class:`ModuleNotFoundError` when it is unavailable; install the relevant ``passagemath-gap``
+    extra (or otherwise install the package into the embedded GAP). With the command-line backend,
+    a missing package prompts on standard input and, with the user's consent, installs it by
+    running ``git clone`` into the GAP root's ``pkg`` directory.
 
     Args:
         name: The GAP package name.
@@ -173,6 +239,21 @@ def require_package(name: str, repo: str | None = None) -> bool:
     Returns:
         True if the requirement is satisfied (raises an error otherwise).
     """
+    libgap = _get_libgap()
+    if libgap is not None:
+        try:
+            availability = libgap.function_factory("TestPackageAvailability")(name.lower())
+        except Exception as error:
+            raise ValueError(f"Could not check GAP package availability for {name}") from error
+        if str(availability).lower() != "fail":
+            return True
+
+        repo = repo or f"https://github.com/gap-packages/{name}"
+        raise ModuleNotFoundError(
+            f"GAP package '{name}' is required but not installed.\n"
+            f"Install the corresponding passagemath-gap extra or find the package at {repo}"
+        )
+
     availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
 
     if availability.strip() == "fail":

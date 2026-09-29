@@ -1,0 +1,10 @@
+{
+  "goal_id": "use-libgap",
+  "status": "building",
+  "iteration": 1,
+  "builder_model": "GPT:5.6-Luna",
+  "inspector_model": "GPT:5.6-Sol",
+  "initial_sha": "40a571e455242e68e1a6f8e67ebaee310ad818b0",
+  "created_at": "2026-09-28T22:50:02.244-04:00",
+  "history": []
+}

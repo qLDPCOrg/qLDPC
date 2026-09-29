@@ -66,6 +66,9 @@ optional-dependencies.docs = [
   "sphinx-autoapi>=3",
   "sphinx-rtd-theme>=2",
 ]
+optional-dependencies.gap = [
+  "passagemath-gap>=10.5.49,<10.6; python_version<'3.14'",
+]
 optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
 urls.Documentation = "https://qldpc.readthedocs.io/"
 urls.Issues = "https://github.com/qLDPCOrg/qLDPC/issues"
