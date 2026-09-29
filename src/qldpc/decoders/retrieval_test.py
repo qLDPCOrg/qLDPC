@@ -69,6 +69,22 @@ def test_decoder_selection() -> None:
     with pytest.warns(DeprecationWarning, match=r"decoder=decoders\.bp_osd"):
         decoders.get_decoder(matrix, max_iter=1)
 
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        decoder = decoders.get_decoder(
+            dem,
+            with_lookup=True,
+            max_weight=1,
+            predict_observable_flips=True,
+        )
+    messages = [str(warning.message) for warning in caught]
+    assert any(
+        "construct an ObservableLookupDecoder" in message and "decode_observables" in message
+        for message in messages
+    )
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
+
 
 def test_decoder_specs() -> None:
     """Typed decoder specs defer construction and survive process serialization."""
