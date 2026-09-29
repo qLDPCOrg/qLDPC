@@ -526,11 +526,13 @@ def test_quotient_generating_mats_are_homomorphic(
     ``X -> g X g^-1``.  Conjugation composes correctly regardless of whether ``g`` and ``h``
     commute, so this map satisfies ``rep(g) @ rep(h) == rep(g @ h)`` for *all* g, h -- unlike the
     naive ``kron(inv(g), g)``, which only satisfies that identity when g and h commute.  Since the
-    generators are noncommuting (checked below) at dimension 3, this test directly catches the
-    regression that would otherwise build a vastly oversized (or non-terminating) group when
-    ``linear_rep=False`` is used.  Checking a handful of noncommuting words is enough to catch the
-    defect without exhaustively enumerating SL(d,q)/GL(d,q), which is impractically slow at these
-    dimensions (e.g. |SL(3,3)| = 5616).
+    generators are noncommuting (checked below) at dimension 3, this test directly catches a
+    representation that is not a genuine homomorphism -- for ``PGL(d>=3, q>2)`` this defect was
+    confirmed to build a vastly oversized group when ``linear_rep=False`` is used; for other cases
+    (e.g. ``PSL``) a non-homomorphic map is still a latent correctness bug even where it happens
+    not to inflate the closure's order.  Checking a handful of noncommuting words is enough to
+    catch the defect without exhaustively enumerating SL(d,q)/GL(d,q), which is impractically slow
+    at these dimensions (e.g. |SL(3,3)| = 5616).
     """
     field_type = abstract.resolve_field(field)
     gen_a, gen_b, *_ = base_cls.get_generating_mats(dimension, field_type)
@@ -551,10 +553,13 @@ def test_quotient_generating_mats_are_homomorphic(
 def test_psl_iter_mats_dimension_3() -> None:
     """PSL(3,3) has the correct order and 2-D (not flattened) matrix representatives.
 
-    PSL(3,3) (order 5616) is large enough that building it via ``linear_rep=False`` (which, before
-    the fix, was prone to generating a vastly oversized group from the non-homomorphic quotient
-    representation) is impractically slow for a test; ``iter_mats`` alone is fast and exercises both
-    the group order and the reshape of orbit representatives to ``dimension x dimension`` matrices.
+    PSL(3,3) (order 5616) is large enough that building it end-to-end via ``linear_rep=False`` is
+    impractically slow for a test, so ``iter_mats`` is checked directly instead: it is fast and
+    exercises both the group order and the reshape of orbit representatives to
+    ``dimension x dimension`` matrices, which is the ``iter_mats``-specific bug this test guards
+    against.  (That the underlying quotient representation is a genuine homomorphism -- the other
+    bug fixed alongside this one -- is covered separately by
+    ``test_quotient_generating_mats_are_homomorphic``.)
     """
     dimension, field = 3, 3
     order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
@@ -567,10 +572,11 @@ def test_psl_iter_mats_dimension_3() -> None:
 def test_pgl_iter_mats_dimension_3() -> None:
     """PGL(3,3) has the correct order and 2-D (not flattened) matrix representatives.
 
-    PGL(3,3) (order 5616) is large enough that building it via ``linear_rep=False`` (which, before
-    the fix, was prone to generating a vastly oversized group from the non-homomorphic quotient
-    representation) is impractically slow for a test; ``iter_mats`` alone is fast and exercises both
-    the group order and the reshape of orbit representatives to ``dimension x dimension`` matrices.
+    PGL(3,3) (order 5616) is large enough that building it end-to-end via ``linear_rep=False`` is
+    impractically slow for a test -- and, before the fix, the non-homomorphic quotient
+    representation was confirmed to make that construction generate a vastly oversized group here
+    -- so ``iter_mats`` is checked directly instead: it is fast and exercises both the group order
+    and the reshape of orbit representatives to ``dimension x dimension`` matrices.
     """
     dimension, field = 3, 3
     order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])
