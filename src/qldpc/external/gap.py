@@ -38,15 +38,14 @@ _subprocess_packages: set[str] = set()
 def _get_libgap() -> _LibGap | None:
     """Return the optional direct GAP binding, if it is importable.
 
-    The aggregate ``passagemath_gap`` import initializes PassageMath's split distribution.  The
-    binding itself is then obtained from the specific ``sage.libs.gap.libgap`` module, which is the
-    library API.  The initialization step avoids a circular import in the supported Python 3.14
-    wheels; see PassageMath commit ``788ff01f07b768f6b0226718e43a0914f0b04f2d`` and its
-    ``sagemath-gap`` initialization source at
-    https://github.com/passagemath/passagemath/blob/788ff01f/src/sage/all__sagemath_gap.py.
+    PassageMath's own library-level GAP feature uses ``sage.all__sagemath_gap`` before importing
+    ``sage.libs.gap.libgap``.  Follow that supported order rather than importing the
+    interactive-only ``passagemath_gap`` convenience namespace.  See the import-cycle workaround
+    in PassageMath's ``sage.features.gap`` (commit
+    https://github.com/passagemath/passagemath/commit/f35b8847b4226074d84c4645ea2c6eacab69e70b).
     """
     try:
-        importlib.import_module("passagemath_gap")
+        importlib.import_module("sage.all__sagemath_gap")
         module = importlib.import_module("sage.libs.gap.libgap")
     except (ImportError, OSError):
         return None

@@ -64,6 +64,11 @@ the in-process binding but a `gap` executable is available, qLDPC uses that exec
 package and subsequent commands. GAP integration on Windows remains limited; see
 [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
+The in-process adapter follows PassageMath's supported library import order: it initializes
+`sage.all__sagemath_gap` and then imports `libgap` from `sage.libs.gap.libgap`. It does not use the
+interactive-only `passagemath_gap` convenience namespace; see PassageMath's
+[import-cycle workaround](https://github.com/passagemath/passagemath/blob/f35b8847b4226074d84c4645ea2c6eacab69e70b/src/sage/features/gap.py).
+
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
 
 ## 🚀 Quickstart
