@@ -58,17 +58,14 @@ python -m pip install 'qldpc[gap]'
 qLDPC uses `passagemath-gap` when it is installed, so supported GAP operations do not launch a
 separate process. If the extra is unavailable, qLDPC still supports a GAP executable on `PATH`
 (`conda install -c conda-forge gap` is one option) and retains its documented manual copy/paste
-fallback. The extra uses the passagemath 10.6 release line, which provides wheels for qLDPC's
-supported Python 3.10--3.14 range. If a package such as GUAVA or QDistRnd is absent from the
-in-process binding, qLDPC asks for permission to install it through GAP's PackageManager. If that
-attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing
-the package for libgap before using the executable instead. GAP integration on Windows remains
-limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
+fallback. If a package such as GUAVA or QDistRnd is absent from the in-process binding, qLDPC asks
+for permission to install it through GAP's PackageManager. If that attempt fails and a separate GAP
+executable is available, qLDPC prints instructions for installing the package for libgap before
+using the executable instead. GAP integration on Windows remains limited; see
+[issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
-The in-process adapter follows PassageMath's supported library import order: it initializes
-`sage.all__sagemath_gap` and then imports `libgap` from `sage.libs.gap.libgap`. It does not use the
-interactive-only `passagemath_gap` convenience namespace; see PassageMath's
-[import-cycle workaround](https://github.com/passagemath/passagemath/blob/f35b8847b4226074d84c4645ea2c6eacab69e70b/src/sage/features/gap.py).
+The in-process adapter initializes PassageMath's GAP support before importing libgap, rather than
+using its interactive-only convenience namespace.
 
 If installing `cvxpy` fails on macOS, follow its [platform-specific installation guidance](https://www.cvxpy.org/install) before installing qLDPC.
 
