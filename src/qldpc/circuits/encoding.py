@@ -21,12 +21,13 @@ from .common import restrict_to_qubits, with_remapped_qubits
 def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Tableau:
     """Tableau to encode physical states at its input into logical states of the given code.
 
-    If only_zero is True, this tableau maps an all-0 physical state at its input to an all-0 logical
-    state at its output.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this tableau
-    maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
-    the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
-    ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
-    conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
+    If ``only_zero is True``, this tableau maps an all-0 physical state at its input to an all-0
+    logical state at its output.  Otherwise, for all ``j`` in
+    ``{0, 1, ..., code.dimension - 1}``, this tableau maps weight-one ``X_j`` and ``Z_j`` operators
+    at its input to the logical X and Z operators of the j-th logical qubit of the code.  Weight-one
+    ``Z_j`` operators for ``j >= code.dimension`` get mapped to "Z-type" gauge operators and
+    stabilizers, and their conjugate ``X_j`` get mapped to "X-type" gauge operators and
+    destabilizers.
     """
     if only_zero:
         return stim.Tableau.from_stabilizers(
@@ -60,14 +61,16 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
 def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Circuit:
     """Circuit to encode physical states at its input into logical states of the given code.
 
-    If only_zero is True, this circuit maps an all-0 physical state at its input to an all-0 logical
-    state at its output.  Otherwise, for all j in ``{0, 1, ..., code.dimension - 1}``, this circuit
-    maps weight-one ``X_j`` and ``Z_j`` operators at its input to the logical X and Z operators of
-    the j-th logical qubit of the code.  Weight-one ``Z_j`` operators for
+    If ``only_zero is True``, this circuit maps an all-0 physical state at its input to an all-0
+    logical state at its output.  Otherwise, for all ``j`` in
+    ``{0, 1, ..., code.dimension - 1}``, this circuit maps weight-one ``X_j`` and ``Z_j`` operators
+    at its input to the logical X and Z operators of the j-th logical qubit of the code.  Weight-one
+    ``Z_j`` operators for
     ``j >= code.dimension`` get mapped to "Z-type" gauge operators and stabilizers, and their
     conjugate ``X_j`` get mapped to "X-type" gauge operators and destabilizers.
 
-    Warning: The resulting encoding circuit is not fault-tolerant.
+    .. warning::
+        The resulting encoding circuit is not fault-tolerant.
     """
     return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
 
@@ -95,7 +98,7 @@ def get_logical_tableau(
 ) -> stim.Tableau:
     """Identify the logical tableau implemented by the physical circuit or tableau.
 
-    If deform_code is True, then the physical circuit is required to have two effects, namely
+    If ``deform_code is True``, then the physical circuit is required to have two effects, namely
     (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
     (b) changing the code that encodes the logical state to::
 

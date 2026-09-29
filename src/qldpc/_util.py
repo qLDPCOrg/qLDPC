@@ -34,6 +34,7 @@ class _LoaderWithCleanup(importlib.abc.Loader):
         try:
             self.loader.exec_module(module)
         except BaseException:
+            # restore the lazy-loading state so a failed import can be retried cleanly
             module_dict = vars(module)
             loader_state = spec.loader_state
             module_dict.clear()

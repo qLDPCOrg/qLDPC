@@ -171,6 +171,28 @@ def test_get_symplectic_weight_fn() -> None:
     assert isinstance(weight_fn, numba.np.ufunc.dufunc.DUFunc)
 
 
+def test_import_numba_missing() -> None:
+    """_import_numba raises an actionable error (naming the numba extra) when numba is absent."""
+    with (
+        mock.patch.dict("sys.modules", {"numba": None}),
+        pytest.raises(ModuleNotFoundError, match=r"Try installing 'qldpc\[numba\]'"),
+    ):
+        qldpc.codes.distance._import_numba()
+
+    # the same missing-dependency error surfaces from both use_numba=True entry points
+    with (
+        mock.patch.dict("sys.modules", {"numba": None}),
+        pytest.raises(ModuleNotFoundError, match=r"Try installing 'qldpc\[numba\]'"),
+    ):
+        qldpc.codes.distance._get_hamming_weight_fn(use_numba=True)
+
+    with (
+        mock.patch.dict("sys.modules", {"numba": None}),
+        pytest.raises(ModuleNotFoundError, match=r"Try installing 'qldpc\[numba\]'"),
+    ):
+        qldpc.codes.distance._get_symplectic_weight_fn(use_numba=True)
+
+
 @pytest.mark.parametrize(
     "base_val",
     [1, 2**64 - 1, int(np.random.randint(2**64, dtype=np.uint64)) | 1],

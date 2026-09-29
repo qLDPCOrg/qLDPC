@@ -66,14 +66,14 @@ class DetectorErrorModelArrays:
         2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
         3. error_probs: an array of probabilities of occurrence for each circuit error.
 
-    In addition, DetectorErrorModelArrays keeps track of any suggestions that a
-    stim.DetectorErrorModel provides for how to decompose errors.
+    In addition, ``DetectorErrorModelArrays`` keeps track of any suggestions that a
+    ``stim.DetectorErrorModel`` provides for how to decompose errors.
 
-    A DetectorErrorModelArrays is _almost_ one-to-one with a stim.DetectorErrorModel instance.  The
-    primary differences are that a DetectorErrorModelArrays object
+    A ``DetectorErrorModelArrays`` is *almost* one-to-one with a ``stim.DetectorErrorModel``
+    instance.  The primary differences are that a ``DetectorErrorModelArrays`` object
 
         (a) merges circuit errors with identical targets, where an error's suggested decomposition
-            is part of its targets (which can be disabled with simplify=False), and
+            is part of its targets (which can be disabled with ``simplify=False``), and
         (b) does not preserve detector coordinate data.
     """
 
@@ -89,25 +89,25 @@ class DetectorErrorModelArrays:
         simplify: bool = True,
         decompose_errors: bool = False,
     ) -> None:
-        """Initialize from a stim.Circuit or a stim.DetectorErrorModel.
+        """Initialize from a ``stim.Circuit`` or a ``stim.DetectorErrorModel``.
 
         Args:
             circuit_or_dem: an error model, or a circuit whose error model is extracted with
-                stim.Circuit.detector_error_model(approximate_disjoint_errors=True).  qLDPC noise
-                channels may contain correlated ``ELSE_CORRELATED_ERROR`` chains, so the
+                ``stim.Circuit.detector_error_model(approximate_disjoint_errors=True)``.  qLDPC
+                noise channels may contain correlated ``ELSE_CORRELATED_ERROR`` chains, so the
                 disjoint-error approximation is enabled for this convenience path.  A model
                 extracted here carries no decomposition suggestions; to obtain those, extract it
-                yourself by calling circuit.detector_error_model(decompose_errors=True) and pass the
-                result.
-            simplify: If True, merge equivalent error mechanisms (see
-                DetectorErrorModelArrays.simplified).  Defaults to True.
-            decompose_errors: If True, split every error into the components that the error model
-                suggests for it, leaving errors with no suggestion alone.  Each component inherits
-                the probability of the error it came from, and the correlation between components is
-                discarded, so a split model addresses fewer detectors per error -- as a matching
-                decoder requires -- at the cost of no longer sampling like the model it came from.
-                Simplifying afterwards then merges components that coincide, combining their
-                probabilities.  Defaults to False.
+                yourself by calling ``circuit.detector_error_model(decompose_errors=True)`` and
+                pass the result.
+            simplify: If ``True``, merge equivalent error mechanisms (see
+                ``DetectorErrorModelArrays.simplified``).  Defaults to ``True``.
+            decompose_errors: If ``True``, split every error into the components that the error
+                model suggests for it, leaving errors with no suggestion alone.  Each component
+                inherits the probability of the error it came from, and the correlation between
+                components is discarded, so a split model addresses fewer detectors per error --
+                as a matching decoder requires -- at the cost of no longer sampling like the model
+                it came from.  Simplifying afterwards then merges components that coincide,
+                combining their probabilities.  Defaults to ``False``.
         """
         dem = (
             circuit_or_dem.detector_error_model(approximate_disjoint_errors=True)
@@ -193,6 +193,10 @@ class DetectorErrorModelArrays:
                 f"Got error probabilities of shape {dem_arrays.error_probs.shape} for a detector"
                 f" error model with {num_error_mechanisms} error mechanisms"
             )
+        if not np.all((0 <= dem_arrays.error_probs) & (dem_arrays.error_probs <= 1)):
+            raise ValueError(
+                "Detector error model probabilities must be finite and between 0 and 1, inclusive"
+            )
 
         dem_arrays.suggested_decompositions = dict(suggested_decompositions or {})
         if dem_arrays.suggested_decompositions:
@@ -239,8 +243,8 @@ class DetectorErrorModelArrays:
             - a set of detectors that are flipped,
             - a set of observables that are flipped.
 
-        In addition, a stim.DetectorErrorModel can come equipped with suggested decompositions of
-        errors, which splits the detector/observable targets of an error into groups.  To
+        In addition, a ``stim.DetectorErrorModel`` can come equipped with suggested decompositions
+        of errors, which splits the detector/observable targets of an error into groups.  To
         accommodate decomposition suggestions, a circuit error is identified by
 
             - a probability of occurrence,
@@ -248,7 +252,7 @@ class DetectorErrorModelArrays:
 
         Errors with no suggested decompositions have a single component.
 
-        If decompose_errors is True, all errors are decomposed into single-component errors.
+        If ``decompose_errors is True``, all errors are decomposed into single-component errors.
 
         If a detector or observable appears multiple times within one component, its occurrences
         are reduced to the original value mod 2.
@@ -704,6 +708,7 @@ def _with_higher_order_corrections(
                             if not np.any(removed_det_flip_submatrix[:, comb].sum(axis=1) % 2):
                                 combinations_to_add.add(frozenset(removed_error_indices[comb]))
 
+    # merge duplicate synthetic errors and combine their independent probabilities
     new_errors: dict[bytes, tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, float]] = {}
     for comb_to_add in combinations_to_add:
         comb = sorted(comb_to_add)

@@ -105,7 +105,10 @@ def test_parse_gap_permutations() -> None:
 def test_maybe_get_generators_from_gap() -> None:
     """Retrieve generators from GAP 4."""
     external.gap.require_package.cache_clear()
-    with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+    with (
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+    ):
         assert external.groups.maybe_get_generators_from_gap(GROUP) is None
 
     # cannot extract cycle from string

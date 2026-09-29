@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import types
 from collections.abc import Callable
 from typing import Literal
 
@@ -68,7 +69,9 @@ def get_distance_classical(
             ``cutoff=0``, it is ``0``).
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Vectorize distance calculations over batches of size ``2**block_size``.
-        use_numba: Use numba to (maybe) speed up calculations.
+        use_numba: Use numba to (maybe) speed up calculations.  Requires the optional ``numba``
+            dependency (``pip install 'qldpc[numba]'``); raises ``ModuleNotFoundError`` with
+            installation instructions if numba is not installed.
 
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
@@ -105,7 +108,9 @@ def get_distance_quantum(
         stabilizers: A matrix whose rows represent stabilizers of the code.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Vectorize distance calculations over batches of size ``2**block_size``.
-        use_numba: Use numba to (maybe) speed up calculations.
+        use_numba: Use numba to (maybe) speed up calculations.  Requires the optional ``numba``
+            dependency (``pip install 'qldpc[numba]'``); raises ``ModuleNotFoundError`` with
+            installation instructions if numba is not installed.
         homogeneous: If True, all Pauli strings (represented by rows of logical_ops and stabilizers)
             are assumed to have the same homogeneous (X or Z) type.  If False, Pauli strings may
             have mixed (X, Y, or Z) support on different qubits.
@@ -125,7 +130,7 @@ def get_distance_quantum(
             data qubits in a code, indicating the nontrivial support of the Pauli string; and
         (b) the weight of a Pauli string is the Hamming weight of the corresponding bitstring.
 
-    If homogeneous is False, then::
+    If ``homogeneous is False``, then::
 
         (a) each Pauli string is represented by a symplectic binary vector (of length 2 * data
             qubits) with the first and second halves indicating the X and Z Pauli support; and
@@ -218,6 +223,19 @@ def get_distance_quantum(
 # weight functions (Hamming and symplectic popcount) and backend selection
 
 
+def _import_numba() -> types.ModuleType:
+    """Import numba, or raise an actionable error if it is not installed.
+
+    numba is an optional runtime dependency (only needed for ``use_numba=True``), so it is not
+    installed by default alongside qldpc.
+    """
+    try:
+        import numba
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError("Failed to import numba.  Try installing 'qldpc[numba]'")
+    return numba
+
+
 def _hamming_weight_single(val: np.uint64) -> np.uint64:
     """Unbuffered version of `_hamming_weight`, useful for vectorization."""
     out = val >> np.uint64(1)
@@ -262,7 +280,7 @@ def _get_hamming_weight_fn(
     use_numba: bool = False,
 ) -> tuple[Callable[..., npt.NDArray[np.uint64]], int]:
     if use_numba:
-        import numba
+        numba = _import_numba()
 
         weight_fn = numba.vectorize([numba.uint64(numba.uint64)])(_hamming_weight_single)
         return weight_fn, 0
@@ -278,7 +296,7 @@ def _get_symplectic_weight_fn(
     use_numba: bool = False,
 ) -> tuple[Callable[..., npt.NDArray[np.uint64]], int]:
     if use_numba:
-        import numba
+        numba = _import_numba()
 
         weight_fn = numba.vectorize([numba.uint64(numba.uint64)])(_symplectic_weight_single)
         return weight_fn, 0

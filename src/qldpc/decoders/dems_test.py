@@ -362,6 +362,18 @@ def test_validating_arrays() -> None:
     with pytest.raises(ValueError, match="error probabilities of shape"):
         decoders.DetectorErrorModelArrays.from_arrays(matrix, None, np.array([0.1, 0.2, 0.3]))
 
+    for invalid_probability in [-0.1, 1.1, np.nan, np.inf, -np.inf]:
+        with pytest.raises(ValueError, match="finite and between 0 and 1"):
+            decoders.DetectorErrorModelArrays.from_arrays(
+                matrix, None, np.array([invalid_probability, 0.1])
+            )
+
+    # The endpoints are deterministic but valid probabilities.
+    assert np.array_equal(
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, np.array([0, 1])).error_probs,
+        [0, 1],
+    )
+
 
 def test_from_arrays_copies_its_inputs() -> None:
     """A DetectorErrorModelArrays built from arrays shares no state with them."""

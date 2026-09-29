@@ -96,8 +96,7 @@ Per-gate-application noise via a callback (``rule_func``)::
     )
     noisy_circuit = noise_model.noisy_circuit(circuit)
 
-Idling errors:
---------------
+.. rubric:: Idling errors
 
 ``idle_error`` applies to every qubit that is not operated on during a circuit moment.
 ``additional_error_waiting_for_m_or_r`` applies additional noise to non-collapsing qubits during a
@@ -108,8 +107,7 @@ append errors after these gates, and ``rule_func`` can select errors based on an
 encoded duration.  A rule returned by the callback takes precedence over a matching named rule.
 Identity rules and ``idle_error`` stack: when both match, both are applied.
 
-Important note:
----------------
+.. rubric:: Attribution and license
 
 This file was originally taken and modified from::
 
@@ -772,6 +770,7 @@ class NoiseRule:
                 if len(args) != 1:
                     raise ValueError(f"Expected one gate argument for {op.name!r}")
 
+                # combine independent readout flips using the chance of an odd number of flips
                 args = [self.readout_error + args[0] - 2 * self.readout_error * args[0]]
 
         noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
@@ -1041,6 +1040,7 @@ class NoiseModel:
         """Determines the noise rule to apply to a specific operation.
 
         Noise rules are consulted in the following order of precedence:
+
         1. ``rule_func`` (stim.CircuitInstruction -> NoiseRule factory).
         2. ``rules`` (name-based NoiseRules).
         3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
@@ -1050,11 +1050,12 @@ class NoiseModel:
         named ``rules``.  Clifford defaults do not apply.  Because automatic ``idle_error`` is
         evaluated separately, an identity can receive both kinds of noise.
 
-        Note: MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one
-        Pauli product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product
-        instructions are decomposed upstream by ``_split_targets_pp`` before this method is
-        invoked; hand-calling with an unsplit multi-product op raises ``ValueError`` from
-        ``_get_gate_aliases``.
+        .. note::
+            MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one Pauli
+            product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product instructions
+            are decomposed upstream by ``_split_targets_pp`` before this method is invoked;
+            hand-calling with an unsplit multi-product op raises ``ValueError`` from
+            ``_get_gate_aliases``.
 
         Args:
             op: The circuit instruction to find a noise rule for.
@@ -2055,6 +2056,7 @@ def _split_targets_pp(op: stim.CircuitInstruction) -> Iterator[stim.CircuitInstr
     assert op_type(op.name) in (CLIFFORD_PP, JUST_MEASURE_PP)
     targets = op.targets_copy()
     args = op.gate_args_copy()
+    # group combiner-linked targets so each instruction contains one Pauli product
     start = end = 0
     while end < len(targets):
         if end + 1 == len(targets) or not targets[end + 1].is_combiner:

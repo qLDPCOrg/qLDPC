@@ -16,7 +16,8 @@ import numpy as np
 
 import qldpc
 
-from .rings import GroupRing, RingArray, RingMember
+from .ring_array import RingArray
+from .rings import GroupRing, RingMember
 
 
 class WedderburnArtinTransformer:
@@ -44,9 +45,9 @@ class WedderburnArtinTransformer:
 
     and embeds elements of ``⊕_i R_i`` back into R.
 
-    References:
-    - Wedderburn-Artin theorem: https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
-    - Wedderburn's little theorem: https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem
+    For background, see the `Wedderburn-Artin theorem
+    <https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem>`_ and `Wedderburn's little
+    theorem <https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem>`_.
     """
 
     ring: GroupRing
@@ -84,8 +85,8 @@ class WedderburnArtinTransformer:
 
         Each component of N-dimensional RingArray is an (N+2)-dimensional galois.FieldArray.
 
-        If merge_blocks is True, this method treats each projected element as a block matrix in the
-        last two axes of the provided array, such that a projection with shape
+        If ``merge_blocks is True``, this method treats each projected element as a block matrix in
+        the last two axes of the provided array, such that a projection with shape
 
             (..., r, c, rb, cb)
 
@@ -128,8 +129,9 @@ class WedderburnArtinTransformer:
     def transpose(self, element: RingMember) -> RingMember:
         """Transpose the matrices representing the element within each simple component.
 
-        Warning: this transpose should not be confused with RingMember.T, which maps every group
-        member to its inverse, transposing the regular representation of a RingMember.
+        .. warning::
+            This transpose should not be confused with RingMember.T, which maps every group member
+            to its inverse, transposing the regular representation of a RingMember.
         """
         if self.ring.is_commutative:
             return element
@@ -184,9 +186,9 @@ class WedderburnArtinComponentTransformer:
     This class projects elements of R onto a simple component S corresponding to a provided PCI e,
     and embeds elements of S back into R.
 
-    References:
-    - Wedderburn-Artin theorem: https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
-    - Wedderburn's little theorem: https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem
+    For background, see the `Wedderburn-Artin theorem
+    <https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem>`_ and `Wedderburn's little
+    theorem <https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem>`_.
     """
 
     ring: GroupRing  # base ring, R
@@ -524,6 +526,7 @@ class WedderburnArtinComponentTransformer:
             ``Tr_{GF(q^d)/GF(q)}[z] = sum_{i=0}^{d-1} z^{q^i}``.
 
         See:
+
         - https://en.wikipedia.org/wiki/Field_trace
         """
         conjugates = [value ** (self.field.order**pow) for pow in range(self.degree)]
@@ -875,8 +878,8 @@ class WedderburnArtinComponentTransformer:
 
         An N-dimensional RingArray gets projected into an (N+2)-dimensional galois.FieldArray.
 
-        If merge_blocks is True, this method treats each projected element as a block matrix in the
-        last two axes of the provided array, such that a projection with shape
+        If ``merge_blocks is True``, this method treats each projected element as a block matrix in
+        the last two axes of the provided array, such that a projection with shape
 
             (..., r, c, self.size, self.size)
 

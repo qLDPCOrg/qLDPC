@@ -8,6 +8,7 @@ experiments/quantum_tanner/codes
 
 # python cache
 __pycache__
+.venv
 
 # ipython notebooks
 .ipynb_checkpoints

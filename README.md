@@ -40,6 +40,13 @@ Install the optional Relay-BP decoder with:
 python -m pip install 'qldpc[relay-bp]'
 ```
 
+Install optional numba acceleration for exact distance calculations (the `use_numba=True` argument
+to distance-computing methods) with:
+
+```bash
+python -m pip install 'qldpc[numba]'
+```
+
 For development:
 
 ```bash
@@ -49,7 +56,16 @@ python -m pip install -e '.[dev]'
 ```
 
 Some algebra tools, code lookups, and distance estimates require [GAP](https://www.gap-system.org).
-If you use Conda on Linux or macOS, install it with `conda install -c conda-forge gap`; other installations work when `gap` is available on `PATH`.
+For the recommended in-process integration, install qLDPC with its maintained libgap extra:
+
+```bash
+python -m pip install 'qldpc[gap]'
+```
+
+qLDPC uses `passagemath-gap` when it is installed, so supported GAP operations do not launch a separate process.
+If the extra is unavailable, qLDPC still supports a GAP executable on `PATH` (`conda install -c conda-forge gap` is one option) and retains its documented manual copy/paste fallback.
+If a package such as GUAVA or QDistRnd is absent from the in-process binding, qLDPC asks for permission to install it through GAP's PackageManager.
+If that attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing the package for libgap before using the executable instead.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
 The optional `sqetch` distance backend can be installed with:
