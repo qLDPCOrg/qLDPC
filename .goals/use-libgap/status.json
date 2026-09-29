@@ -1,7 +1,7 @@
 {
   "goal_id": "use-libgap",
   "status": "building",
-  "iteration": 3,
+  "iteration": 4,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
   "initial_sha": "40a571e455242e68e1a6f8e67ebaee310ad818b0",
@@ -16,6 +16,11 @@
       "iteration": 2,
       "verdict": "FAIL",
       "summary": "Dependency, package fallback, and gates pass, but the real import-contract test can skip an installed API mismatch."
+    },
+    {
+      "iteration": 3,
+      "verdict": "FAIL",
+      "summary": "Real API CI coverage is fixed, but the direct adapter sends invalid multi-statement input to libgap.eval."
     }
   ]
 }
