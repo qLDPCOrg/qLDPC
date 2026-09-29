@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import os
 import subprocess
 import types
@@ -62,10 +63,20 @@ class MockLibGap:
 def test_installed_libgap_import_contract() -> None:
     """Use the import path supplied by the installed passagemath-gap distribution."""
     try:
-        module = importlib.import_module("sage.libs.gap.libgap")
-    except (ImportError, OSError):
+        importlib.metadata.version("passagemath-gap")
+    except importlib.metadata.PackageNotFoundError:
         pytest.skip("passagemath-gap is not installed")
-    assert module.libgap is external.gap._get_libgap()  # pragma: no cover - optional dependency
+    module = importlib.import_module(
+        "sage.libs.gap.libgap"
+    )  # pragma: no cover - optional dependency
+    libgap = module.libgap  # pragma: no cover - optional dependency
+    assert libgap is external.gap._get_libgap()  # pragma: no cover - optional dependency
+    assert libgap is not None  # pragma: no cover - optional dependency
+    assert str(libgap.eval("1 + 1")) == "2"  # pragma: no cover - optional dependency
+    availability = (  # pragma: no cover - optional dependency
+        libgap.function_factory("TestPackageAvailability")("guava")
+    )
+    assert str(availability).lower() == "true"  # pragma: no cover - optional dependency
 
 
 def get_mock_process(
