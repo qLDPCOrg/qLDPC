@@ -38,6 +38,9 @@ from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_alloca
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
+_GAP_DISTANCE_BOUND_KWARGS = frozenset({"maxav"})
+_SQETCH_DISTANCE_BOUND_KWARGS = frozenset({"d_target", "k_sub", "batch_size", "seed", "device"})
+
 
 def get_scrambled_seed(seed: int) -> int:
     """Scramble a seed, allowing us to safely increment seeds in repeat-until-success protocols."""
@@ -3192,20 +3195,9 @@ class CSSCode(QuditCode):
                 ]
             )
 
-        sqetch_kwargs = {"d_target", "k_sub", "batch_size", "seed", "device"}
-        gap_kwargs = {"maxav"}
-        if backend == "auto":
-            options = set(bound_kwargs)
-            if (
-                self.field is galois.GF2
-                and options <= sqetch_kwargs
-                and external.sqetch.is_installed()
-            ):
-                backend = "sqetch"
-            elif options <= gap_kwargs and external.gap.is_installed():
-                backend = "gap"
-            else:
-                backend = "decoder"
+        backend = _resolve_distance_backend(
+            backend, bound_kwargs, is_binary=self.field is galois.GF2
+        )
 
         if backend == "decoder":
             return self.get_distance_bound_with_decoder(
@@ -3213,13 +3205,13 @@ class CSSCode(QuditCode):
             )
 
         if backend == "sqetch":
-            if unknown := set(bound_kwargs) - sqetch_kwargs:
+            if unknown := set(bound_kwargs) - _SQETCH_DISTANCE_BOUND_KWARGS:
                 raise ValueError(f"Arguments not recognized by sqetch: {sorted(unknown)}")
             return external.sqetch.get_distance_bound(
                 self, num_trials, pauli, cutoff=cutoff, **bound_kwargs
             )
 
-        if unknown_gap := sorted(set(bound_kwargs) - gap_kwargs):
+        if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
         if not external.gap.is_installed():
             raise NotImplementedError(
@@ -3659,21 +3651,6 @@ class CSSCode(QuditCode):
         return num_failures, num_discards
 
 
-def _as_pauli_bias_zxy(
-    pauli_bias: Sequence[float] | None,
-) -> npt.NDArray[np.floating] | None:
-    """Normalize an (X, Y, Z) error bias into the (Z, X, Y) order the samplers draw in.
-
-    That order is the one the Pauli enum assigns, reading each Pauli's (x, z) components as a
-    two-bit number.
-    """
-    if pauli_bias is None:
-        return None
-    assert len(pauli_bias) == 3
-    pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
-    return pauli_bias_zxy / np.sum(pauli_bias_zxy)
-
-
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
     """Join index slices together into one slice."""
     return np.concatenate(
@@ -3693,3 +3670,36 @@ def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
         not np.any(matrix[row, :pivot]) and not np.any(matrix[row, pivot + 1 :])
         for row, pivot in enumerate(pivots)
     )
+
+
+def _as_pauli_bias_zxy(
+    pauli_bias: Sequence[float] | None,
+) -> npt.NDArray[np.floating] | None:
+    """Normalize an (X, Y, Z) error bias into the (Z, X, Y) order the samplers draw in.
+
+    That order is the one the Pauli enum assigns, reading each Pauli's (x, z) components as a
+    two-bit number.
+    """
+    if pauli_bias is None:
+        return None
+    assert len(pauli_bias) == 3
+    pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
+    return pauli_bias_zxy / np.sum(pauli_bias_zxy)
+
+
+def _resolve_distance_backend(
+    backend: DistanceBackend,
+    bound_kwargs: Mapping[str, Any],
+    *,
+    is_binary: bool,
+) -> DistanceBackend:
+    """Resolve the automatic distance-bound backend."""
+    if backend != "auto":
+        return backend
+
+    options = set(bound_kwargs)
+    if is_binary and options <= _SQETCH_DISTANCE_BOUND_KWARGS and external.sqetch.is_installed():
+        return "sqetch"
+    if options <= _GAP_DISTANCE_BOUND_KWARGS and external.gap.is_installed():
+        return "gap"
+    return "decoder"
