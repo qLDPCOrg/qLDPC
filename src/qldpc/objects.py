@@ -58,8 +58,7 @@ class Pauli(enum.Enum):
 
     @staticmethod
     def from_string(string: str) -> Pauli:
-        """Build a Pauli operator from a string (case-insensitive)."""
-        string = string.upper()
+        """Build a Pauli operator from a string."""
         if string == "I":
             return Pauli.I
         elif string == "Z":
@@ -71,9 +70,22 @@ class Pauli(enum.Enum):
         raise ValueError(f"Invalid Pauli operator: {string}")
 
     @staticmethod
-    def coerce(value: PauliLike) -> Pauli:
-        """Coerce a Pauli operator or a case-insensitive "I"/"X"/"Y"/"Z" string into a Pauli."""
-        return value if isinstance(value, Pauli) else Pauli.from_string(value)
+    def coerce_xz(value: PauliXZLike) -> PauliXZ:
+        """Convert Pauli.X, Pauli.Z, or a case-insensitive "X" or "Z" string into a PauliXZ.
+
+        Raises:
+            ValueError: If the value does not identify Pauli.X or Pauli.Z.
+        """
+        if isinstance(value, str):
+            if value.upper() == "X":
+                return Pauli.X
+            if value.upper() == "Z":
+                return Pauli.Z
+        elif value is Pauli.X or value is Pauli.Z:
+            return value
+        raise ValueError(
+            f"Expected Pauli.X or Pauli.Z, or a case-insensitive 'X' or 'Z' string (got {value!r})"
+        )
 
     @property
     def index(self) -> int:
@@ -92,10 +104,8 @@ class Pauli(enum.Enum):
 PauliXZ = Literal[Pauli.X, Pauli.Z]
 PAULIS_XZ: list[PauliXZ] = [Pauli.X, Pauli.Z]
 
-# Accepted "loose" input types that can be coerced into a Pauli / PauliXZ via Pauli.coerce.
-# Strings are matched case-insensitively against "I", "X", "Y", "Z".
-PauliLike = Pauli | str
-PauliXZLike = PauliXZ | str
+# inputs that Pauli.coerce_xz converts into Pauli.X or Pauli.Z
+PauliXZLike = PauliXZ | Literal["X", "Z", "x", "z"]
 
 
 @dataclasses.dataclass(frozen=True)

@@ -18,17 +18,21 @@ def test_pauli() -> None:
     with pytest.raises(ValueError, match="Invalid Pauli operator"):
         objects.Pauli.from_string("Q")
 
-    # from_string (and therefore coerce) is case-insensitive
-    for string in ["i", "x", "y", "z"]:
-        assert objects.Pauli.from_string(string) is objects.Pauli.from_string(string.upper())
-
-    # Pauli.coerce accepts Pauli operators and (case-insensitive) strings
-    for pauli in [objects.Pauli.I, objects.Pauli.X, objects.Pauli.Y, objects.Pauli.Z]:
-        assert objects.Pauli.coerce(pauli) is pauli
-        assert objects.Pauli.coerce(str(pauli)) is pauli
-        assert objects.Pauli.coerce(str(pauli).lower()) is pauli
+    # from_string is case-sensitive, since QuditCode.from_strings relies on it
     with pytest.raises(ValueError, match="Invalid Pauli operator"):
-        objects.Pauli.coerce("Q")
+        objects.Pauli.from_string("x")
+
+    # Pauli.coerce_xz accepts Pauli.X, Pauli.Z, and case-insensitive "X" or "Z" strings
+    xz_inputs: dict[objects.PauliXZ, tuple[objects.PauliXZLike, ...]] = {
+        objects.Pauli.X: (objects.Pauli.X, "X", "x"),
+        objects.Pauli.Z: (objects.Pauli.Z, "Z", "z"),
+    }
+    for expected_pauli, values in xz_inputs.items():
+        for value in values:
+            assert objects.Pauli.coerce_xz(value) is expected_pauli
+    for invalid_value in [objects.Pauli.I, objects.Pauli.Y, "I", "y", "XZ", "", 0]:
+        with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
+            objects.Pauli.coerce_xz(invalid_value)  # type: ignore[arg-type]
 
     assert ~objects.Pauli.Z == objects.Pauli.Z.swap_xz() == objects.Pauli.X
     assert ~objects.Pauli.X == objects.Pauli.X.swap_xz() == objects.Pauli.Z

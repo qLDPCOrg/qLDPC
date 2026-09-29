@@ -3,7 +3,7 @@
 """Circuit construction utilities for quantum error-corrected memory experiments."""
 
 from collections.abc import Collection, Sequence
-from typing import NamedTuple, cast
+from typing import NamedTuple
 
 import numpy as np
 import stim
@@ -127,8 +127,9 @@ def get_memory_experiment(
         code: An error-correcting code.  Must be a qubit stabilizer (non-subsystem) codes.  If
             passed a classical code, treat it as a quantum CSS code that protects only basis-type
             logical operators (or X-type logicals, if basis is None).
-        basis: Should be Pauli.X, Pauli.Z, or None to indicate which type of logical operators to
-            track (where "None" means "both X and Z").  Default: Pauli.X.
+        basis: Pauli.X, Pauli.Z, or None to indicate which type of logical operators to track (where
+            "None" means "both X and Z").  The strings "X" and "Z" (case-insensitive) are also
+            accepted.  Default: Pauli.X.
         num_rounds: The number of syndrome measurement rounds to perform in one logical QEC cycle.
             Must be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
@@ -166,7 +167,7 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
-    basis = None if basis is None else cast(PauliXZ, Pauli.coerce(basis))
+    basis = None if basis is None else Pauli.coerce_xz(basis)
     initialization, qec_cycle, readout, _, _, qubit_ids = get_memory_experiment_parts(
         code,
         basis=basis,
@@ -216,7 +217,7 @@ def get_memory_experiment_parts(
         detector_record: A record of all detectors in the above circuits.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
-    basis = None if basis is None else cast(PauliXZ, Pauli.coerce(basis))
+    basis = None if basis is None else Pauli.coerce_xz(basis)
     if isinstance(code, codes.ClassicalCode):
         # wrap classical inputs as one-sided CSS codes for the shared circuit path
         matrix_z = code.matrix if basis is Pauli.Z else code.field.Zeros((0, len(code)))
@@ -259,11 +260,6 @@ def _get_basis_memory_experiment_parts(
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
     """
-    if basis is not Pauli.X and basis is not Pauli.Z:
-        raise ValueError(
-            "Memory experiments in a fixed basis require the basis to be Pauli.X or Pauli.Z,"
-            f" not {basis}"
-        )
     if not isinstance(code, codes.CSSCode):
         raise TypeError("Memory experiments in a fixed basis only support CSS codes")
 
@@ -442,7 +438,8 @@ def get_observables(
     Args:
         code: The code whose observables we wish to annotate.
         data_qubits: Indices of the data qubits of the code.  Default: the first len(code) integers.
-        basis: The type of observable (Pauli.X or Pauli.Z) we wish to annotate, or None for both.
+        basis: The type of observable (Pauli.X or Pauli.Z, or equivalently a case-insensitive "X"
+            or "Z" string) we wish to annotate, or None for both.
         on_measurements: If provided a sequence of measurement targets, assume that they correspond
             to measurements of the data qubits in a specified basis (which in this case is not
             allowed to be None), and define observables using these measurements.  If True, define
@@ -453,13 +450,7 @@ def get_observables(
     Returns:
         A Stim circuit of OBSERVABLE_INCLUDE instructions.
     """
-    if isinstance(basis, str):
-        basis = cast(PauliXZ, Pauli.from_string(basis))
-    if basis not in (None, Pauli.X, Pauli.Z):
-        raise ValueError(
-            f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"
-        )
-
+    basis = None if basis is None else Pauli.coerce_xz(basis)
     data_qubits = range(len(code)) if data_qubits is None else data_qubits
     if len(data_qubits) != len(code):
         raise ValueError("data_qubits must contain one target per data qubit")

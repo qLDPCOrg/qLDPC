@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from qldpc import codes
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 from .conftest import (
     _webster_x_bar_operator,
@@ -255,20 +255,23 @@ def test_build_gadget_deterministic() -> None:
 
 
 def test_build_gadget_accepts_string_basis() -> None:
-    """String Pauli inputs ("x"/"X") are accepted anywhere basis: PauliXZ is expected."""
+    """build_gadget also accepts a case-insensitive "X" or "Z" basis string."""
     from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g_pauli = build_gadget(code, x, basis=Pauli.X)
-    g_string = build_gadget(code, x, basis="x")
-    g_upper_string = build_gadget(code, x, basis="X")
-    assert g_pauli.basis is g_string.basis is g_upper_string.basis is Pauli.X
-    assert np.array_equal(g_pauli.incidence, g_string.incidence)
-    assert np.array_equal(g_pauli.HX_merged, g_upper_string.HX_merged)
-
-    with pytest.raises(ValueError, match="basis must be"):
-        build_gadget(code, x, basis="q")
+    basis_strings: dict[PauliXZ, tuple[PauliXZLike, ...]] = {
+        Pauli.X: ("X", "x"),
+        Pauli.Z: ("Z", "z"),
+    }
+    for basis, strings in basis_strings.items():
+        x = np.asarray(code.get_logical_ops(basis)[0]).astype(np.uint8)
+        gadget = build_gadget(code, x, basis=basis)
+        for string in strings:
+            gadget_from_string = build_gadget(code, x, basis=string)
+            assert gadget_from_string.basis is basis
+            assert np.array_equal(gadget.incidence, gadget_from_string.incidence)
+            assert np.array_equal(gadget.HX_merged, gadget_from_string.HX_merged)
+            assert np.array_equal(gadget.HZ_merged, gadget_from_string.HZ_merged)
 
 
 def test_build_gadget_rejects_non_x_logical() -> None:
@@ -585,8 +588,9 @@ def test_build_gadget_rejects_invalid_basis() -> None:
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    with pytest.raises(ValueError, match="basis must be"):
-        build_gadget(code, x, basis=Pauli.Y)  # type: ignore[arg-type]
+    for invalid_basis in [Pauli.Y, "y", "q"]:
+        with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
+            build_gadget(code, x, basis=invalid_basis)  # type: ignore[arg-type]
 
 
 def test_with_added_ancillas_rejects_wrong_width() -> None:

@@ -16,7 +16,7 @@ import numpy.typing as npt
 import pytest
 
 from qldpc import codes, external
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 
 def test_is_installed() -> None:
@@ -157,6 +157,22 @@ def test_get_distance_bound_validates_and_reports_dependency(
         external.sqetch.get_distance_bound(code, batch_size=0)
     with pytest.raises(ValueError, match="device must be nonnegative"):
         external.sqetch.get_distance_bound(code, device=-1)
+
+
+def test_get_distance_bound_accepts_string_pauli(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Accept a case-insensitive "X" or "Z" string in place of Pauli.X or Pauli.Z."""
+    result = types.SimpleNamespace(best_weight=3, trials_run=1)
+    estimate = unittest.mock.Mock(return_value=result)
+    monkeypatch.setitem(sys.modules, "sqetch", types.SimpleNamespace(estimate_distance=estimate))
+
+    code = codes.SurfaceCode(3, rotated=False)
+    cases: list[tuple[PauliXZ, PauliXZLike]] = [(Pauli.X, "x"), (Pauli.Z, "Z")]
+    for pauli, string in cases:
+        external.sqetch.get_distance_bound(code, pauli=pauli)
+        expected_args = estimate.call_args.args
+        external.sqetch.get_distance_bound(code, pauli=string)
+        for actual, expected in zip(estimate.call_args.args, expected_args, strict=True):
+            assert np.array_equal(actual, expected)
 
 
 def test_get_distance_bound_requires_observed_logical(monkeypatch: pytest.MonkeyPatch) -> None:

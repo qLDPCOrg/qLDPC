@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from qldpc import abstract, codes, external, math
-from qldpc.objects import PAULIS_XZ, Pauli
+from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ, PauliXZLike
 
 ####################################################################################################
 # classical code tests
@@ -1587,26 +1587,37 @@ def test_capacity_min_error_weight() -> None:
 
 
 def test_string_pauli_inputs() -> None:
-    """String Pauli inputs ("x"/"X"/"z"/"Z") are accepted anywhere a PauliXZ is expected."""
-    code = codes.SteaneCode()
+    """Methods that take Pauli.X or Pauli.Z also accept case-insensitive "X" or "Z" strings."""
+    pauli_strings: dict[PauliXZ, tuple[PauliXZLike, ...]] = {
+        Pauli.X: ("X", "x"),
+        Pauli.Z: ("Z", "z"),
+    }
+    css_code = codes.SteaneCode()
+    non_css_code = codes.FiveQubitCode()
+    for pauli, strings in pauli_strings.items():
+        for string in strings:
+            for code in [css_code, non_css_code]:
+                assert np.array_equal(code.get_logical_ops(pauli), code.get_logical_ops(string))
+                assert np.array_equal(
+                    code.get_stabilizer_ops(pauli), code.get_stabilizer_ops(string)
+                )
+                assert np.array_equal(
+                    code.get_destabilizer_ops(pauli), code.get_destabilizer_ops(string)
+                )
+                assert np.array_equal(code.get_gauge_ops(pauli), code.get_gauge_ops(string))
+            assert css_code.get_code(pauli) == css_code.get_code(string)
+            assert np.array_equal(css_code.get_matrix(pauli), css_code.get_matrix(string))
+            assert set(css_code.get_graph(pauli).edges) == set(css_code.get_graph(string).edges)
+            assert css_code.get_distance(pauli) == css_code.get_distance(string) == 3
+            assert css_code.get_distance_bound_with_decoder(string) >= 3
+            assert codes.CSSCode.classical(codes.HammingCode(3), pauli) == codes.CSSCode.classical(
+                codes.HammingCode(3), string
+            )
 
-    for pauli in PAULIS_XZ:
-        string = str(pauli)
-        lower_string = string.lower()
-
-        assert np.array_equal(code.get_logical_ops(pauli), code.get_logical_ops(string))
-        assert np.array_equal(code.get_logical_ops(pauli), code.get_logical_ops(lower_string))
-        assert np.array_equal(code.get_stabilizer_ops(pauli), code.get_stabilizer_ops(string))
-        assert np.array_equal(code.get_destabilizer_ops(pauli), code.get_destabilizer_ops(string))
-        assert code.get_distance_exact(pauli) == code.get_distance_exact(string)
-        assert code.get_distance_if_known(pauli) == code.get_distance_if_known(string)
-        assert code.get_code(pauli) == code.get_code(string)
-        assert np.array_equal(code.get_matrix(pauli), code.get_matrix(string))
-
-    classical_code = codes.HammingCode(3)
-    css_from_pauli = codes.CSSCode.classical(classical_code, Pauli.X)
-    css_from_string = codes.CSSCode.classical(classical_code, "x")
-    assert css_from_pauli.matrix_x.shape == css_from_string.matrix_x.shape
-
-    with pytest.raises(ValueError, match="Invalid Pauli operator"):
-        code.get_logical_ops("q")
+    # Pauli.Y and invalid strings are rejected instead of being treated as Pauli.X or Pauli.Z
+    with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
+        css_code.get_distance_bound_with_decoder("y")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
+        css_code.get_logical_ops("q")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
+        non_css_code.get_stabilizer_ops(Pauli.Y)  # type: ignore[arg-type]

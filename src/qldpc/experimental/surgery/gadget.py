@@ -33,7 +33,6 @@ limitations under the License.
 from __future__ import annotations
 
 import dataclasses
-from typing import cast
 
 import galois
 import numpy as np
@@ -230,10 +229,11 @@ def build_gadget(
 
     basis=Pauli.X: measures a logical X (PPM of X̄). Validates H_Z @ x == 0.
     basis=Pauli.Z: measures a logical Z (PPM of Z̄). Validates H_X @ x == 0.
+    The strings "X" and "Z" (case-insensitive) are also accepted for basis.
 
     Raises:
         ValueError: code is a subsystem code or is not over GF(2); x has an entry outside {0, 1};
-            basis is neither Pauli.X nor Pauli.Z; x fails the complementary check equation
+            basis does not identify Pauli.X or Pauli.Z; x fails the complementary check equation
             (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z); x is the zero vector; or x lies
             in the row space of the measured basis's check matrix, making it a stabilizer rather
             than a logical operator.
@@ -247,11 +247,7 @@ def build_gadget(
             f"build_gadget requires a qubit code, got one over GF({code.field.order}). The gauge "
             f"fix, the Cheeger boost and the merged-code assembly are all mod 2."
         )
-    if isinstance(basis, str):
-        try:
-            basis = cast(PauliXZ, Pauli.from_string(basis))
-        except ValueError:
-            pass  # fall through to the basis-validation error below
+    basis = Pauli.coerce_xz(basis)
     x = np.asarray(x)
     # Check before the cast to uint8, which wraps 256 to 0 and 257 to 1 rather than complaining.
     if ((x != 0) & (x != 1)).any():
@@ -262,13 +258,11 @@ def build_gadget(
         H_same = np.asarray(code.matrix_x).astype(np.uint8)
         if ((H_check @ x) % 2).any():
             raise ValueError("x is not a logical-X support (H_Z @ x != 0).")
-    elif basis is Pauli.Z:
+    else:
         H_check = np.asarray(code.matrix_x).astype(np.uint8)
         H_same = np.asarray(code.matrix_z).astype(np.uint8)
         if ((H_check @ x) % 2).any():
             raise ValueError("x is not a logical-Z support (H_X @ x != 0).")
-    else:
-        raise ValueError(f"basis must be Pauli.X or Pauli.Z, got {basis!r}")
 
     # The zero vector satisfies H @ x == 0 but measures nothing: it yields an empty support and a
     # 0x0 incidence, for which cheeger_constant reports inf.
