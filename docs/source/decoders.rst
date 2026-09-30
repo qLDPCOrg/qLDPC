@@ -184,8 +184,11 @@ return the observable flip itself:
 Erasure-aware decoders append their erasure flag after the inferred error or observable vector.
 Compiled Sinter decoders translate that flag into a discarded shot.
 
-Migrating from the previous API
--------------------------------
+Migrating from qLDPC 0.3.3
+--------------------------
+
+This section describes how the decoder API differs from that of ``qldpc==0.3.3``, and how to update
+code written for it.
 
 Breaking changes
 ~~~~~~~~~~~~~~~~
@@ -199,15 +202,16 @@ The following changes take effect without a deprecation period:
   as its shared keyword arguments, the sector-specific value now takes precedence, just as
   ``decoder_x=`` and ``decoder_z=`` take precedence over ``decoder=``.
 * A ``SinterDecoder`` whose settings support native observable prediction (``mwpm``, ``relay_bp``,
-  ``min_sum_bp``, and ``lookup_table``) now uses it. The predicted observable flips are unchanged,
-  but the ``decoder`` attribute of the resulting ``CompiledSinterDecoder`` is now that native
-  observable decoder, rather than an error decoder.
+  ``min_sum_bp``, and ``lookup_table``) now uses it. The predicted observable flips are unchanged.
+  For ``mwpm`` and ``lookup_table`` settings, however, the ``decoder`` attribute of the resulting
+  ``CompiledSinterDecoder`` is now a decoder that predicts observable flips rather than errors.
+  For other settings, the ``decoder`` attribute remains the decoder that the settings build.
 
 Deprecated usage
 ~~~~~~~~~~~~~~~~
 
-The keyword-based decoder API remains available during a deprecation period, and each use emits a
-``DeprecationWarning`` that names its replacement:
+The keyword-based decoder API of ``qldpc==0.3.3`` remains available during a deprecation period, and
+each use emits a ``DeprecationWarning`` that names its replacement:
 
 .. list-table::
    :header-rows: 1

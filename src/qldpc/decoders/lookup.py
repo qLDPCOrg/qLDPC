@@ -445,6 +445,12 @@ class _LookupDecoderBase:
             return self.default_correction.copy()
         return self.syndrome_to_error.get(key, self.default_correction).copy()
 
+    def _stack_predictions(self, predictions: list[npt.NDArray[np.int_]]) -> npt.NDArray[np.int_]:
+        """Stack predictions, one per row, into a 2D array, even if there are no predictions."""
+        return np.array(predictions, dtype=self.default_correction.dtype).reshape(
+            len(predictions), len(self.default_correction)
+        )
+
 
 class LookupDecoder(_LookupDecoderBase):
     """Decoder based on a lookup table that maps syndromes to errors.
@@ -601,7 +607,7 @@ class ObservableLookupDecoder(_LookupDecoderBase):
 
     def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of syndromes, one per row, and return predicted observable flips."""
-        return np.array([self._decode(syndrome) for syndrome in syndromes])
+        return self._stack_predictions([self._decode(syndrome) for syndrome in syndromes])
 
 
 class _WeightedLookupDecoderBase(_LookupDecoderBase):
@@ -801,7 +807,9 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
         ),
     ) -> npt.NDArray[np.int_]:
         """Decode a batch of syndromes, one per row, and return predicted observable flips."""
-        return np.array([self._decode_weighted(syndrome, penalty_func) for syndrome in syndromes])
+        return self._stack_predictions(
+            [self._decode_weighted(syndrome, penalty_func) for syndrome in syndromes]
+        )
 
 
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:

@@ -403,6 +403,23 @@ def _validate_observable_decoder(decoder: object, source: str) -> ObservableDeco
     return cast(ObservableDecoder, decoder)
 
 
+def _decode_error_batch(
+    decoder: ErrorDecoder, syndromes: npt.NDArray[np.int_]
+) -> npt.NDArray[np.int_]:
+    """Decode a batch of syndromes, one per row, and return inferred errors, one per row.
+
+    The inferred errors form a two-dimensional array even if the batch is empty.
+    """
+    syndromes = np.asarray(syndromes)
+    if hasattr(decoder, "decode_batch"):
+        return np.asarray(decoder.decode_batch(syndromes))
+    if len(syndromes) == 0:
+        # decode a trivial syndrome to identify the length of an inferred error
+        test_error = decoder.decode(np.zeros(syndromes.shape[1], dtype=syndromes.dtype))
+        return np.zeros((0, len(test_error)), dtype=np.asarray(test_error).dtype)
+    return np.array([decoder.decode(syndrome) for syndrome in syndromes])
+
+
 class _ExpandedDecoder(ErrorDecoder):
     """Wrapper for a decoder, to map decoded errors in a simplified DEM to errors in the full DEM.
 
@@ -445,11 +462,7 @@ class _ExpandedDecoder(ErrorDecoder):
         return np.asarray(original_error, dtype=syndrome.dtype)
 
     def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        simplified_errors = (
-            self._decoder.decode_batch(syndromes)
-            if hasattr(self._decoder, "decode_batch")
-            else np.array([self._decoder.decode(syndrome) for syndrome in syndromes])
-        )
+        simplified_errors = _decode_error_batch(self._decoder, syndromes)
         original_errors = np.zeros(
             (len(syndromes), self._num_original_errors + self.has_erasure_bit),
             dtype=syndromes.dtype,
@@ -482,6 +495,14 @@ def _match_error_decoder_to_dem(
     for example, if the decoder predicts observable flips rather than errors.
     """
     _reject_observable_output(decoder)
+    if getattr(decoder, "_infers_decomposed_errors", False):
+        raise ValueError(
+            "The error decoder infers errors in the components of decomposed error mechanisms,"
+            " which cannot be read as errors of the detector error model.  To predict observable"
+            " flips with decomposed errors, pass decoder settings such as"
+            " decoders.mwpm(decompose_errors=True), which build a matching decoder that predicts"
+            " observable flips natively"
+        )
     num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
     test_error = decoder.decode(np.zeros(dem.num_detectors, dtype=int))
     num_inferred_errors = len(test_error) - num_erasure_bits
@@ -506,7 +527,8 @@ class _ErrorsToObservables(ObservableDecoder):
     """
 
     def __init__(self, error_decoder: ErrorDecoder, dem: stim.DetectorErrorModel) -> None:
-        self.error_decoder = _match_error_decoder_to_dem(error_decoder, dem)
+        self.error_decoder = error_decoder
+        self._aligned_error_decoder = _match_error_decoder_to_dem(error_decoder, dem)
         self.has_erasure_bit = bool(getattr(error_decoder, "has_erasure_bit", False))
         self.observable_flip_matrix = DetectorErrorModelArrays(
             dem, simplify=False
@@ -518,11 +540,7 @@ class _ErrorsToObservables(ObservableDecoder):
 
     def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes, one per row, and return predicted observable flips."""
-        errors = np.asarray(
-            self.error_decoder.decode_batch(syndromes)
-            if hasattr(self.error_decoder, "decode_batch")
-            else [self.error_decoder.decode(syndrome) for syndrome in syndromes]
-        )
+        errors = _decode_error_batch(self._aligned_error_decoder, syndromes)
         erasure_bits = errors[:, -1:] if self.has_erasure_bit else errors[:, :0]
         errors = errors[:, : errors.shape[1] - erasure_bits.shape[1]]
         flips = np.asarray(errors @ self.observable_flip_matrix.T) % 2
@@ -830,6 +848,10 @@ def get_decoder_MWPM(
     error model.  To predict the observable flips of a detector error model instead, pass
     ``decoders.mwpm(...)`` to qldpc.decoders.get_observable_decoder, which builds a matching decoder
     that predicts observable flips natively.
+
+    If decompose_errors=True splits any error of a detector error model, the returned decoder infers
+    errors in the resulting components rather than in the model's error mechanisms, so its inferred
+    errors cannot be converted into observable flips of the model.
     """
     return _build_matching(
         pcm_or_dem,
@@ -850,6 +872,7 @@ def _build_matching(
 ) -> Any:
     """Build a pymatching.Matching, which predicts errors or (from a DEM) observable flips."""
     # identify parity check matrix and error probabilities
+    infers_decomposed_errors = False
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem, decompose_errors=decompose_errors)
         pcm = dem_arrays.detector_flip_matrix
@@ -859,6 +882,8 @@ def _build_matching(
         if predict_observables:
             # the "faults" of a matching decoder are the observables that each error flips
             decoder_args["faults_matrix"] = dem_arrays.observable_flip_matrix
+        elif decompose_errors:
+            infers_decomposed_errors = _splits_errors(pcm_or_dem, dem_arrays)
     else:
         pcm = pcm_or_dem
 
@@ -887,7 +912,23 @@ def _build_matching(
     # retrieve a matching decoder from pymatching
     import pymatching
 
-    return pymatching.Matching.from_check_matrix(pcm, **decoder_args)
+    matching = pymatching.Matching.from_check_matrix(pcm, **decoder_args)
+    if infers_decomposed_errors:
+        matching._infers_decomposed_errors = True
+    return matching
+
+
+def _splits_errors(
+    dem: stim.DetectorErrorModel, decomposed_arrays: DetectorErrorModelArrays
+) -> bool:
+    """Does decomposing the errors of a detector error model split any of its error mechanisms?"""
+    merged_arrays = DetectorErrorModelArrays(dem)
+    return (
+        merged_arrays.num_errors != decomposed_arrays.num_errors
+        or (merged_arrays.detector_flip_matrix != decomposed_arrays.detector_flip_matrix).nnz > 0
+        or (merged_arrays.observable_flip_matrix != decomposed_arrays.observable_flip_matrix).nnz
+        > 0
+    )
 
 
 class _MatchingObservableDecoder(ObservableDecoder):
@@ -1243,7 +1284,11 @@ def mwpm(
     Args:
         decompose_errors: Whether to split the errors of a detector error model along the
             decompositions that it suggests, as provided by
-            ``circuit.detector_error_model(decompose_errors=True)``.
+            ``circuit.detector_error_model(decompose_errors=True)``.  If this splits any error, an
+            error decoder built from the model infers errors in the resulting components rather
+            than in the model's error mechanisms.  Such an error decoder cannot be converted to
+            predict observable flips, but these settings still build a matching decoder that
+            predicts observable flips natively.
         ignore_non_graphlike_errors: Whether to drop errors that flip more than two detectors
             (after any decomposition), rather than raising an error.
         weights: Scalar or per-error matching weights for a parity check matrix.  A detector

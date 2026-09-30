@@ -41,6 +41,10 @@ def test_sinter_decoder() -> None:
         predicted_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots)
         assert np.array_equal(predicted_flips, expected_flips)
 
+        # decode no shots
+        no_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots[:0])
+        assert no_flips.shape == (0, expected_flips.shape[1])
+
         # decode one shot at a time
         with pytest.raises(decoders.sinter.DecoderNotCompiledError, match="needs to be compiled"):
             decoder.decode_observables(np.array([], dtype=int))
@@ -48,6 +52,23 @@ def test_sinter_decoder() -> None:
             [compiled_decoder.decode_observables(np.asarray(error)) for error in circuit_errors],
             observable_flips,
         )
+
+    # a compiled decoder exposes the decoder that its settings build
+    compiled_decoder = decoders.SinterDecoder().compile_decoder_for_dem(dem)
+    assert type(compiled_decoder.decoder).__name__ == "BpOsdDecoder"
+    assert isinstance(compiled_decoder.observable_decoder, decoders.retrieval._ErrorsToObservables)
+    compiled_decoder = decoders.SinterDecoder(decoder=decoders.mwpm()).compile_decoder_for_dem(dem)
+    assert compiled_decoder.decoder is compiled_decoder.observable_decoder
+
+    # a compiled decoder can also be constructed directly from an error decoder
+    error_decoder = decoders.get_decoder_lookup(dem, max_weight=3)
+    compiled_decoder = decoders.CompiledSinterDecoder(
+        decoders.DetectorErrorModelArrays(dem), error_decoder
+    )
+    assert compiled_decoder.decoder is error_decoder
+    assert np.array_equal(
+        compiled_decoder.decode_shots_bit_packed(bit_packed_shots), expected_flips
+    )
 
     # the trivial decoder always returns a trivial result
     decoder = decoders.TrivialDecoder()
@@ -188,6 +209,10 @@ def test_sequential_decoding() -> None:
         compiled_decoder_2.packbits(det_data)
     )
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
+
+    # decode no shots with window decoders that decode one syndrome at a time
+    no_flips = compiled_decoder_2.decode_shots(det_data[:0])
+    assert no_flips.shape == (0, dem.num_observables)
 
 
 def test_sliding_window_recompilation() -> None:

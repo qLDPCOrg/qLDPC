@@ -288,11 +288,20 @@ def test_native_observable_decoders() -> None:
             native_decoder.decode_observables(syndromes[0]),
         )
 
+        # an empty batch yields empty predictions
+        for observable_decoder in [native_decoder, converted_decoder]:
+            no_flips = observable_decoder.decode_observables_batch(syndromes[:0])
+            assert no_flips.shape == (0, dem.num_observables), spec
+            assert no_flips.dtype == np.uint8, spec
+
     # other decoders predict observable flips by converting the errors that they infer
     spec = decoders.bp_osd()
     assert not spec.predicts_observables_natively
-    assert isinstance(spec.build_observable_decoder(dem), retrieval._ErrorsToObservables)
+    bp_osd_decoder = spec.build_observable_decoder(dem)
+    assert isinstance(bp_osd_decoder, retrieval._ErrorsToObservables)
     assert isinstance(decoders.get_observable_decoder(dem), retrieval._ErrorsToObservables)
+    no_flips = bp_osd_decoder.decode_observables_batch(syndromes[:0])
+    assert no_flips.shape == (0, dem.num_observables)
 
     # native observable decoders support detector error models without observables
     dem_without_observables = stim.DetectorErrorModel("""
@@ -396,11 +405,43 @@ def test_merged_error_mechanisms() -> None:
         assert errors.shape == (2, 3 + add_erasure_bit)
         assert np.array_equal(errors, [decoder.decode(syndrome) for syndrome in syndromes])
         assert np.array_equal(errors[:, [0, 1]].sum(axis=1), [1, 0])  # one of the merged errors
+        assert decoder.decode_batch(syndromes[:0]).shape == (0, 3 + add_erasure_bit)
 
     # matching decoders merge equivalent mechanisms, and decode in batches
     decoder = retrieval._match_error_decoder_to_dem(decoders.get_decoder_MWPM(dem), dem)
     assert isinstance(decoder, retrieval._ExpandedDecoder)
     assert decoder.decode_batch(syndromes).shape == (2, 3)
+
+
+def test_decomposed_error_mechanisms() -> None:
+    """Errors in the components of decomposed error mechanisms are not read as errors of a DEM."""
+    # decomposition splits the first error, but leaves as many (merged) errors as the model has
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 ^ D1 L0
+        error(0.1) D0
+        error(0.01) D1
+    """)
+    syndrome = np.array([1, 0], dtype=int)
+
+    # a matching decoder can predict observable flips natively
+    spec = decoders.mwpm(decompose_errors=True)
+    assert np.array_equal(decoders.decode_observables(dem, syndrome, decoder=spec), [0])
+
+    # an error decoder that infers decomposed errors cannot predict observable flips
+    decoder_inputs: list[decoders.ObservableDecoderInput] = [
+        spec.build(dem),
+        lambda dem: decoders.get_decoder_MWPM(dem, decompose_errors=True),
+    ]
+    for decoder_input in decoder_inputs:
+        with pytest.raises(ValueError, match="components of decomposed error mechanisms"):
+            decoders.get_observable_decoder(dem, decoder=decoder_input)
+
+    # decomposition that splits no error leaves the error mechanisms of a model intact
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D0 D1")
+    decoder = decoders.get_observable_decoder(
+        dem, decoder=lambda dem: decoders.get_decoder_MWPM(dem, decompose_errors=True)
+    )
+    assert np.array_equal(decoder.decode_observables(syndrome), [1])
 
 
 def test_reject_prebuilt_decoder() -> None:

@@ -25,6 +25,7 @@ from .retrieval import (
     DeferredObservableDecoderInput,
     ErrorDecoder,
     ErrorDecoderInput,
+    _decode_error_batch,
     _ErrorsToObservables,
     _get_legacy_decoder_migration_message,
     _get_observable_decoder,
@@ -229,14 +230,23 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
             decoder: A decoder for that detector error model.  A decoder with a decode_observables
                 method predicts observable flips natively.  Otherwise, the decoder is an error
                 decoder, whose inferred errors are converted into observable flips.
+
+        The decoder is exposed as the .decoder attribute, and the observable decoder that predicts
+        observable flips as the .observable_decoder attribute.  These coincide for a decoder that
+        predicts observable flips natively.
         """
         self.dem_arrays = dem_arrays
-        self.decoder = decoder
-        self.observable_decoder = (
-            decoder
-            if hasattr(decoder, "decode_observables")
-            else _ErrorsToObservables(decoder, dem_arrays.to_dem())
-        )
+        self.decoder: ErrorDecoder | ObservableDecoder
+        self.observable_decoder: ObservableDecoder
+        if isinstance(decoder, _ErrorsToObservables):
+            # expose the error decoder that the converter wraps
+            self.decoder, self.observable_decoder = decoder.error_decoder, decoder
+        elif hasattr(decoder, "decode_observables"):
+            self.decoder = decoder
+            self.observable_decoder = cast(ObservableDecoder, decoder)
+        else:
+            self.decoder = decoder
+            self.observable_decoder = _ErrorsToObservables(decoder, dem_arrays.to_dem())
         self.num_detectors = dem_arrays.num_detectors
         self.num_observables = dem_arrays.num_observables
         self.num_erasure_bits = int(getattr(self.observable_decoder, "has_erasure_bit", False))
@@ -839,11 +849,7 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
             ) % 2
 
             # decode this syndrome and update the net error appropriately
-            decoded_error = (
-                decoder.decode_batch(syndromes)
-                if hasattr(decoder, "decode_batch")
-                else np.array([decoder.decode(syndrome) for syndrome in syndromes])
-            )
+            decoded_error = _decode_error_batch(decoder, syndromes)
             if getattr(decoder, "has_erasure_bit", False):
                 erased |= decoded_error[:, -1] != 0
                 decoded_error = decoded_error[:, :-1]

@@ -11,7 +11,7 @@ import inspect
 import sys
 import warnings
 from collections.abc import Callable, Mapping
-from types import ModuleType
+from types import FrameType, ModuleType
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 CallableType = TypeVar("CallableType", bound=Callable[..., object])
@@ -150,9 +150,23 @@ def get_deprecated_alias(module_name: str, name: str, aliases: Mapping[str, type
     if name not in aliases:
         raise AttributeError(f"module {module_name!r} has no attribute {name!r}")
     replacement = aliases[name]
-    warnings.warn(
-        f"{name} is deprecated; use {replacement.__name__} instead",
-        DeprecationWarning,
-        stacklevel=get_external_caller_stacklevel(),
-    )
+    if not _is_import_probe(sys._getframe(2)):
+        warnings.warn(
+            f"{name} is deprecated; use {replacement.__name__} instead",
+            DeprecationWarning,
+            stacklevel=get_external_caller_stacklevel(),
+        )
     return replacement
+
+
+def _is_import_probe(frame: FrameType | None) -> bool:
+    """Is a frame the probe that checks for names before a ``from package import ...`` statement?
+
+    Python checks that a package provides each name in ``from package import name`` before it
+    retrieves the name, so a module-level __getattr__ is called twice for one such statement.
+    """
+    return (
+        frame is not None
+        and frame.f_code.co_name == "_handle_fromlist"
+        and frame.f_globals.get("__name__") == "importlib._bootstrap"
+    )

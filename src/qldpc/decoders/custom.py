@@ -228,6 +228,10 @@ class RelayBPDecoder:
         Typecast detectors to np.uint8 for compatibility with the relay_bp package.
         """
         detectors = np.asarray(detectors, dtype=np.uint8)
+        if len(detectors) == 0:
+            # relay_bp cannot decode an empty batch
+            num_errors = self.pcm_transposed.shape[0]
+            return np.zeros((0, num_errors + self.has_erasure_bit), dtype=np.uint8)
         errors = self.decoder.decode_batch(
             detectors, parallel, progress_bar, leave_progress_bar_on_finish
         )
@@ -266,6 +270,10 @@ class RelayBPDecoder:
         progress bar by default, since Sinter decoders call it for every batch of shots.
         """
         self._require_observables()
+        if len(detectors) == 0:
+            # relay_bp cannot decode an empty batch
+            num_observables = self.observable_error_matrix_transposed.shape[1]
+            return np.zeros((0, num_observables + self.has_erasure_bit), dtype=np.uint8)
         if not self.has_erasure_bit:
             return np.asarray(
                 self.decoder.decode_observables_batch(

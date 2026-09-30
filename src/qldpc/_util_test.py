@@ -6,10 +6,12 @@ import importlib
 import pathlib
 import sys
 import uuid
+import warnings
 from types import ModuleType
 
 import pytest
 
+from qldpc import decoders
 from qldpc._util import (
     format_docstring,
     get_deprecated_alias,
@@ -86,6 +88,18 @@ def test_get_deprecated_alias() -> None:
 
     with pytest.raises(AttributeError, match=r"module 'some\.module' has no attribute 'Other'"):
         get_deprecated_alias("some.module", "Other", aliases)
+
+
+def test_deprecated_alias_import_warns_once() -> None:
+    """Importing a deprecated name from a package warns once, although Python looks it up twice."""
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        from qldpc.decoders import Decoder
+    assert Decoder is decoders.ErrorDecoder
+    assert [str(record.message) for record in records] == [
+        "Decoder is deprecated; use ErrorDecoder instead"
+    ]
+    assert records[0].filename == __file__
 
 
 def test_get_external_caller_stacklevel() -> None:

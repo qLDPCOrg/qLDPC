@@ -96,6 +96,14 @@ def test_relay_bp_observables() -> None:
         expected_flips = np.asarray(errors @ observable_flip_matrix.T) % 2
         assert np.array_equal(predicted_flips[:, : dem.num_observables], expected_flips)
 
+        # an empty batch, which relay_bp cannot decode, yields empty predictions
+        no_syndromes = syndromes[:0]
+        assert decoder.decode_batch(no_syndromes).shape == (0, errors.shape[1] + add_erasure_bit)
+        assert decoder.decode_observables_batch(no_syndromes).shape == (
+            0,
+            dem.num_observables + add_erasure_bit,
+        )
+
     # predicting observable flips requires observables
     with pytest.raises(ValueError, match="requires an observable_error_matrix"):
         decoders.get_decoder_RBP(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))

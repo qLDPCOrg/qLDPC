@@ -156,6 +156,11 @@ def test_explicit_observable_lookup_decoders() -> None:
     assert np.array_equal(weighted.decode_observables_batch(np.array([[1], [0]])), [[1], [0]])
     assert issubclass(decoders.WeightedLookupDecoder, decoders.LookupDecoder)
 
+    # an empty batch yields empty predictions
+    no_syndromes = np.zeros((0, 1), dtype=int)
+    assert decoder.decode_observables_batch(no_syndromes).shape == (0, 1)
+    assert weighted.decode_observables_batch(no_syndromes).shape == (0, 1)
+
     with pytest.raises(TypeError, match="observable flips rather than errors"):
         decoders.get_decoder(dem, decoder=decoder)  # type: ignore[arg-type]
 
