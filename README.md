@@ -61,16 +61,6 @@ If a package such as GUAVA or QDistRnd is absent from the in-process binding, qL
 If that attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing the package for libgap before using the executable instead.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
-#### Exact-distance acceleration
-
-Install optional numba acceleration for exact distance calculations with:
-
-```bash
-python -m pip install 'qldpc[numba]'
-```
-
-For a binary code, enable it with `code.get_distance(use_numba=True)` or `code.get_distance_exact(use_numba=True)`.
-
 #### `sqetch` distance estimation
 
 You can install the optional `sqetch` distance-estimation backend with:

@@ -7,7 +7,6 @@ from __future__ import annotations
 import itertools
 from unittest import mock
 
-import numba
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -40,10 +39,6 @@ def test_hamming_weight() -> None:
     weights = qldpc.codes.distance._hamming_weight(vals)
     np.testing.assert_array_equal(weights, expected_weights)
 
-    weight_fn = np.vectorize(qldpc.codes.distance._hamming_weight_single, signature="()->()")
-    weights = weight_fn(vals)
-    np.testing.assert_array_equal(weights, expected_weights)
-
     buf, out = np.random.randint(0, 2**64, size=(2, *vals.shape), dtype=vals.dtype)
     weights = qldpc.codes.distance._hamming_weight(vals, buf=buf, out=out)
     np.testing.assert_array_equal(weights, expected_weights)
@@ -57,10 +52,6 @@ def test_symplectic_weight() -> None:
     expected_weights = _bitwise_count((vals | (vals >> np.uint64(1))) & 0x5555555555555555)
     np.testing.assert_array_equal(weights, expected_weights)
 
-    weight_fn = np.vectorize(qldpc.codes.distance._symplectic_weight_single, signature="()->()")
-    weights = weight_fn(vals)
-    np.testing.assert_array_equal(weights, expected_weights)
-
     buf, out = np.random.randint(0, 2**64, size=(2, *vals.shape), dtype=vals.dtype)
     weights = qldpc.codes.distance._symplectic_weight(vals, buf=buf, out=out)
     np.testing.assert_array_equal(weights, expected_weights)
@@ -68,7 +59,7 @@ def test_symplectic_weight() -> None:
 
 
 def test_get_hamming_weight_fn() -> None:
-    """_get_hamming_weight_fn selects the right backend: numpy bitcount, fallback, or numba."""
+    """_get_hamming_weight_fn selects NumPy bitcount when available and the fallback otherwise."""
     generators = np.random.randint(2, size=(4, 64), dtype=np.uint64)
     weight_fn, nbuf = qldpc.codes.distance._get_hamming_weight_fn()
     weights_default = weight_fn(generators)
@@ -77,7 +68,7 @@ def test_get_hamming_weight_fn() -> None:
     mock_weight = getattr(np, "bitwise_count", _bitwise_count)
 
     with mock.patch.object(np, "bitwise_count", wraps=mock_weight, create=True) as patched:
-        weight_fn, nbuf = qldpc.codes.distance._get_hamming_weight_fn(use_numba=False)
+        weight_fn, nbuf = qldpc.codes.distance._get_hamming_weight_fn()
         assert weight_fn is not qldpc.codes.distance._hamming_weight
         assert nbuf == 0
 
@@ -88,7 +79,7 @@ def test_get_hamming_weight_fn() -> None:
         patched.assert_called_once()
 
     with mock.patch.object(np, "bitwise_count", None, create=True):
-        weight_fn, nbuf = qldpc.codes.distance._get_hamming_weight_fn(use_numba=False)
+        weight_fn, nbuf = qldpc.codes.distance._get_hamming_weight_fn()
         assert weight_fn is qldpc.codes.distance._hamming_weight
         assert nbuf == 1
 
@@ -102,21 +93,9 @@ def test_get_hamming_weight_fn() -> None:
         np.testing.assert_array_equal(weights, weights_default)
         assert weights is out
 
-    weight_fn, nbuf = qldpc.codes.distance._get_hamming_weight_fn(use_numba=True)
-    assert nbuf == 0
-
-    out = np.empty_like(generators)
-    weights = weight_fn(generators, out=out)
-    np.testing.assert_array_equal(weights, weights_default)
-    assert weights is out
-
-    # checked after the call above: isinstance narrows weight_fn to a numba DUFunc, whose __call__
-    # mypy cannot type-check (numba >= 0.67), so we keep weight_fn as its declared Callable here
-    assert isinstance(weight_fn, numba.np.ufunc.dufunc.DUFunc)
-
 
 def test_get_symplectic_weight_fn() -> None:
-    """_get_symplectic_weight_fn selects the right backend: numpy bitcount, fallback, or numba."""
+    """_get_symplectic_weight_fn uses NumPy bitcount when available and the fallback otherwise."""
     generators = np.random.randint(2, size=(4, 56), dtype=np.uint64)
     weight_fn, nbuf = qldpc.codes.distance._get_symplectic_weight_fn()
     weights_default = weight_fn(generators)
@@ -126,7 +105,7 @@ def test_get_symplectic_weight_fn() -> None:
 
     # Using np.bitwise_count:
     with mock.patch.object(np, "bitwise_count", wraps=mock_weight, create=True) as patched:
-        weight_fn, nbuf = qldpc.codes.distance._get_symplectic_weight_fn(use_numba=False)
+        weight_fn, nbuf = qldpc.codes.distance._get_symplectic_weight_fn()
         assert weight_fn is not qldpc.codes.distance._hamming_weight
         assert nbuf == 1
 
@@ -143,7 +122,7 @@ def test_get_symplectic_weight_fn() -> None:
 
     # Using qldpc.codes.distance._symplectic_weight:
     with mock.patch.object(np, "bitwise_count", None, create=True):
-        weight_fn, nbuf = qldpc.codes.distance._get_symplectic_weight_fn(use_numba=False)
+        weight_fn, nbuf = qldpc.codes.distance._get_symplectic_weight_fn()
         assert weight_fn is qldpc.codes.distance._symplectic_weight
         assert nbuf == 1
 
@@ -156,41 +135,6 @@ def test_get_symplectic_weight_fn() -> None:
         weights = weight_fn(generators, buf, out=out)
         np.testing.assert_array_equal(weights, weights_default)
         assert weights is out
-
-    # Using numba:
-    weight_fn, nbuf = qldpc.codes.distance._get_symplectic_weight_fn(use_numba=True)
-    assert nbuf == 0
-
-    out = np.empty_like(generators)
-    weights = weight_fn(generators, out=out)
-    assert weights is out
-    np.testing.assert_array_equal(weights, weights_default)
-
-    # checked after the call above: isinstance narrows weight_fn to a numba DUFunc, whose __call__
-    # mypy cannot type-check (numba >= 0.67), so we keep weight_fn as its declared Callable here
-    assert isinstance(weight_fn, numba.np.ufunc.dufunc.DUFunc)
-
-
-def test_import_numba_missing() -> None:
-    """_import_numba raises an actionable error (naming the numba extra) when numba is absent."""
-    with (
-        mock.patch.dict("sys.modules", {"numba": None}),
-        pytest.raises(ModuleNotFoundError, match=r"Try installing 'qldpc\[numba\]'"),
-    ):
-        qldpc.codes.distance._import_numba()
-
-    # the same missing-dependency error surfaces from both use_numba=True entry points
-    with (
-        mock.patch.dict("sys.modules", {"numba": None}),
-        pytest.raises(ModuleNotFoundError, match=r"Try installing 'qldpc\[numba\]'"),
-    ):
-        qldpc.codes.distance._get_hamming_weight_fn(use_numba=True)
-
-    with (
-        mock.patch.dict("sys.modules", {"numba": None}),
-        pytest.raises(ModuleNotFoundError, match=r"Try installing 'qldpc\[numba\]'"),
-    ):
-        qldpc.codes.distance._get_symplectic_weight_fn(use_numba=True)
 
 
 @pytest.mark.parametrize(
@@ -396,7 +340,7 @@ def test_get_distance_quantum_symplectic(block_size: int) -> None:
 
 
 def test_get_distance_classical_methods() -> None:
-    """get_distance_classical dispatches to numpy bitcount, fallback, or numba as available."""
+    """get_distance_classical dispatches to NumPy bitcount or the fallback as available."""
     generators = np.random.randint(2, size=(6, 56), dtype=np.uint64)
     distance_default = qldpc.codes.distance.get_distance_classical(generators, block_size=3)
 
@@ -426,21 +370,6 @@ def test_get_distance_classical_methods() -> None:
     ):
         distance = qldpc.codes.distance.get_distance_classical(generators, block_size=3)
         fallback.assert_called()
-        assert distance == distance_default
-
-    # Using numba:
-    with (
-        mock.patch("numpy.bitwise_count", wraps=mock_weight, create=True) as bitcount,
-        mock.patch(
-            "qldpc.codes.distance._hamming_weight",
-            wraps=qldpc.codes.distance._hamming_weight,
-        ) as fallback,
-    ):
-        distance = qldpc.codes.distance.get_distance_classical(
-            generators, block_size=3, use_numba=True
-        )
-        bitcount.assert_not_called()
-        fallback.assert_not_called()
         assert distance == distance_default
 
 
@@ -501,7 +430,7 @@ def test_cutoff_early_exit() -> None:
 
 
 def test_get_distance_quantum_methods() -> None:
-    """get_distance_quantum (homogeneous) dispatches to numpy bitcount, fallback, or numba."""
+    """Homogeneous get_distance_quantum dispatches to NumPy bitcount or the fallback."""
     stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint64)
     logical_ops = np.random.randint(2, size=(3, 56), dtype=np.uint64)
     distance_default = qldpc.codes.distance.get_distance_quantum(
@@ -520,7 +449,7 @@ def test_get_distance_quantum_methods() -> None:
         ) as fallback,
     ):
         distance = qldpc.codes.distance.get_distance_quantum(
-            logical_ops, stabilizers, block_size=3, homogeneous=True, use_numba=False
+            logical_ops, stabilizers, block_size=3, homogeneous=True
         )
         bitcount.assert_called()
         fallback.assert_not_called()
@@ -535,29 +464,14 @@ def test_get_distance_quantum_methods() -> None:
         ) as fallback,
     ):
         distance = qldpc.codes.distance.get_distance_quantum(
-            logical_ops, stabilizers, block_size=3, homogeneous=True, use_numba=False
+            logical_ops, stabilizers, block_size=3, homogeneous=True
         )
         fallback.assert_called()
         assert distance == distance_default
 
-    # Using numba:
-    with (
-        mock.patch("numpy.bitwise_count", wraps=mock_weight, create=True) as bitcount,
-        mock.patch(
-            "qldpc.codes.distance._hamming_weight",
-            wraps=qldpc.codes.distance._hamming_weight,
-        ) as fallback,
-    ):
-        distance = qldpc.codes.distance.get_distance_quantum(
-            logical_ops, stabilizers, block_size=3, homogeneous=True, use_numba=True
-        )
-        bitcount.assert_not_called()
-        fallback.assert_not_called()
-        assert distance == distance_default
-
 
 def test_get_distance_quantum_methods_symplectic() -> None:
-    """get_distance_quantum (symplectic) dispatches to numpy bitcount, fallback, or numba."""
+    """Symplectic get_distance_quantum dispatches to NumPy bitcount or the fallback."""
     stabilizers = np.random.randint(2, size=(4, 56), dtype=np.uint64)
     logical_ops = np.random.randint(2, size=(3, 56), dtype=np.uint64)
     distance_default = qldpc.codes.distance.get_distance_quantum(
@@ -576,7 +490,7 @@ def test_get_distance_quantum_methods_symplectic() -> None:
         ) as fallback,
     ):
         distance = qldpc.codes.distance.get_distance_quantum(
-            logical_ops, stabilizers, block_size=3, homogeneous=False, use_numba=False
+            logical_ops, stabilizers, block_size=3, homogeneous=False
         )
         bitcount.assert_called()
         fallback.assert_not_called()
@@ -591,24 +505,9 @@ def test_get_distance_quantum_methods_symplectic() -> None:
         ) as fallback,
     ):
         distance = qldpc.codes.distance.get_distance_quantum(
-            logical_ops, stabilizers, block_size=3, homogeneous=False, use_numba=False
+            logical_ops, stabilizers, block_size=3, homogeneous=False
         )
         fallback.assert_called()
-        assert distance == distance_default
-
-    # Using numba:
-    with (
-        mock.patch("numpy.bitwise_count", wraps=mock_weight, create=True) as bitcount,
-        mock.patch(
-            "qldpc.codes.distance._symplectic_weight",
-            wraps=qldpc.codes.distance._symplectic_weight,
-        ) as fallback,
-    ):
-        distance = qldpc.codes.distance.get_distance_quantum(
-            logical_ops, stabilizers, block_size=3, homogeneous=False, use_numba=True
-        )
-        bitcount.assert_not_called()
-        fallback.assert_not_called()
         assert distance == distance_default
 
 
