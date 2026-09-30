@@ -116,16 +116,25 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         method: Literal["__call__", "reduce", "reduceat", "accumulate", "outer", "at"],
         *inputs: npt.NDArray[np.object_],
         **kwargs: object,
-    ) -> RingArray | None:
+    ) -> RingArray | RingMember | None:
         """Intercept array operations to ensure RingArray compatibility."""
         rings = {self._ring} | {x._ring for x in inputs if isinstance(x, RingArray)}
         if len(rings) > 1:
             raise ValueError("Cannot perform operations on RingArrays with different base rings")
+        ring = getattr(self, "_ring", None)
+        if (
+            ufunc is np.matmul
+            and method == "__call__"
+            and not kwargs
+            and isinstance(ring, GroupRing)
+            and (result := _matmul_coefficients(*inputs, ring=ring)) is not None
+        ):
+            return result
         inputs = tuple(x.view(np.ndarray) if isinstance(x, RingArray) else x for x in inputs)
         result = super().__array_ufunc__(ufunc, method, *inputs, **kwargs)
         if isinstance(result, np.ndarray):
             result = result.view(RingArray)
-            result._ring = next(iter(rings), None)  # type:ignore[attr-defined]
+            result._ring = next(iter(rings))
         return result
 
     def __str__(self) -> str:
@@ -260,11 +269,12 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         ``ring_array.to_field_array()[a, b, :]`` is the vector of coefficients for the
         ``RingMember`` at ``ring_array[a, b]``.
         """
-        vals = [val.to_vector() for val in self.ravel()]
-        return np.asarray(vals, dtype=int).reshape(*self.shape, self.group.order).view(self.field)
+        return _ring_array_to_field_array(self, self.ring)
 
     @classmethod
-    def from_field_array(cls, array: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingArray:
+    def from_field_array(
+        cls, array: npt.NDArray[np.int_] | npt.NDArray[np.bool_], ring: GroupRing | Group
+    ) -> RingArray:
         """Construct a RingArray from an array of coefficients (in a finite field) for each entry.
 
         This method is the inverse of ``RingArray.to_field_array``.
@@ -277,20 +287,17 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 stacklevel=2,
             )
             array, ring = ring, array
-        array = np.asanyarray(array)
-        group = ring.group if isinstance(ring, GroupRing) else ring
-        vectors = array.reshape(array.size // group.order, group.order)
-        vals = [RingMember.from_vector(vector, ring) for vector in vectors]
-        result = np.array(vals, dtype=object).reshape(array.shape[:-1]).view(RingArray)
-        result._ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
-        return result
+        ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
+        return _ring_array_from_field_array(array, ring)
 
     def to_field_vector(self) -> galois.FieldArray:
         """Convert RingArray into a flattened 1-D vector of coefficients for each RingMember."""
         return self.to_field_array().ravel().view(self.field)
 
     @classmethod
-    def from_field_vector(cls, vector: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingArray:
+    def from_field_vector(
+        cls, vector: npt.NDArray[np.int_] | npt.NDArray[np.bool_], ring: GroupRing | Group
+    ) -> RingArray:
         """Construct a 1-D RingArray from a vector of coefficients.
 
         This method is the inverse of ``RingArray.to_field_vector``.
@@ -637,6 +644,219 @@ class Protograph(RingArray):
             stacklevel=2,
         )
         return super().__getattribute__(name)
+
+
+# Avoid replacing sparse object storage with coefficient tensors whose estimated working set is
+# larger than 64 MiB.
+_MAX_MATMUL_COEFFICIENT_BYTES = 64 << 20
+# Keep tiny products on the object path, where coefficient conversion costs more than it saves.
+_MIN_MATMUL_COEFFICIENT_WORK = 128
+
+
+@functools.lru_cache(maxsize=128)
+def _get_group_members(group: Group) -> tuple[GroupMember, ...]:
+    """Materialize group members once in coefficient-vector order."""
+    return tuple(group.generate())
+
+
+@functools.lru_cache(maxsize=512)
+def _get_group_action(
+    group: Group, factor_index: int, *, factor_on_left: bool
+) -> npt.NDArray[np.int_]:
+    """Map coefficient indices under multiplication by one group member."""
+    members = _get_group_members(group)
+    factor = members[factor_index]
+    products = (
+        (factor * member for member in members)
+        if factor_on_left
+        else (member * factor for member in members)
+    )
+    permutation = np.fromiter(
+        (group.index(product) for product in products), dtype=int, count=group.order
+    )
+    permutation.flags.writeable = False
+    return permutation
+
+
+def _ring_array_to_field_array(array: RingArray, ring: GroupRing) -> galois.FieldArray:
+    """Convert a RingArray to coefficients in the target ring's group ordering."""
+    vectors = ring.field.Zeros((array.size, ring.group.order))
+    for index, value in enumerate(array.ravel()):
+        for coefficient, member in value:
+            if coefficient:
+                vectors[index, ring.group.index(member)] = coefficient
+    return vectors.reshape(*array.shape, ring.group.order)
+
+
+def _ring_member_from_vector(
+    vector: galois.FieldArray,
+    ring: GroupRing,
+    members: tuple[GroupMember, ...],
+) -> RingMember:
+    """Construct one RingMember from validated coefficients and ordered group members."""
+    value = RingMember(ring)
+    for index in np.flatnonzero(vector):
+        value._vec[members[int(index)]] = vector[index].copy()
+    return value
+
+
+def _ring_array_from_field_array(
+    array: npt.NDArray[np.int_] | npt.NDArray[np.bool_], ring: GroupRing
+) -> RingArray:
+    """Construct a RingArray from coefficients that use the target ring's group ordering."""
+    source = np.asanyarray(array)
+    coefficients = ring.field(source.astype(int) if source.dtype == np.bool_ else source)
+    if coefficients.ndim == 0 or coefficients.shape[-1] != ring.group.order:
+        raise ValueError(
+            f"The last axis of a RingArray coefficient array must have length {ring.group.order}"
+        )
+    vectors = coefficients.reshape(-1, ring.group.order).view(ring.field)
+    members = _get_group_members(ring.group)
+    values = [_ring_member_from_vector(vector, ring, members) for vector in vectors]
+    result = np.array(values, dtype=object).reshape(coefficients.shape[:-1]).view(RingArray)
+    result._ring = ring
+    return result
+
+
+def _get_matmul_shape(
+    shape_a: tuple[int, ...], shape_b: tuple[int, ...]
+) -> tuple[tuple[int, ...], int, int, int, bool, bool] | None:
+    """Resolve NumPy matmul dimensions, returning None for incompatible operands."""
+    if not shape_a or not shape_b:
+        return None
+    vector_a = len(shape_a) == 1
+    vector_b = len(shape_b) == 1
+    rows = 1 if vector_a else shape_a[-2]
+    inner_a = shape_a[-1]
+    inner_b = shape_b[0] if vector_b else shape_b[-2]
+    cols = 1 if vector_b else shape_b[-1]
+    if inner_a != inner_b:
+        return None
+    batch_a = () if vector_a else shape_a[:-2]
+    batch_b = () if vector_b else shape_b[:-2]
+    try:
+        batch = np.broadcast_shapes(batch_a, batch_b)
+    except ValueError:
+        return None
+    return batch, rows, inner_a, cols, vector_a, vector_b
+
+
+def _supports_coefficient_operand(
+    array: RingArray | npt.NDArray[np.int_] | npt.NDArray[np.object_], ring: GroupRing
+) -> bool:
+    """Whether an operand can be represented directly as target-ring coefficients."""
+    if isinstance(array, RingArray):
+        return True
+    if isinstance(array, ring.field):
+        return True
+    return isinstance(array, np.ndarray) and (
+        np.issubdtype(array.dtype, np.integer) or np.issubdtype(array.dtype, np.bool_)
+    )
+
+
+def _get_coefficient_array(
+    array: RingArray | npt.NDArray[np.int_] | npt.NDArray[np.object_], ring: GroupRing
+) -> galois.FieldArray:
+    """Represent one matmul operand by target-ring coefficient vectors."""
+    if isinstance(array, RingArray):
+        return _ring_array_to_field_array(array, ring)
+
+    values = np.asanyarray(array)
+    if isinstance(values, ring.field):
+        scalars = values
+    else:
+        unique, inverse = np.unique(values, return_inverse=True)
+        unique_scalars = ring.field([ring._eval_int(int(value)) for value in unique])
+        scalars = unique_scalars[inverse].reshape(values.shape)
+
+    coefficients = ring.field.Zeros((*values.shape, ring.group.order))
+    coefficients[..., ring.group.index(ring.group.identity)] = scalars
+    return coefficients
+
+
+def _should_use_coefficient_matmul(
+    matrix_a: RingArray | npt.NDArray[np.int_] | npt.NDArray[np.object_],
+    matrix_b: RingArray | npt.NDArray[np.int_] | npt.NDArray[np.object_],
+    ring: GroupRing,
+    shape: tuple[tuple[int, ...], int, int, int, bool, bool],
+) -> bool:
+    """Whether dense coefficient tensors are appropriate for this product."""
+    batch, rows, inner, cols, _, _ = shape
+    batch_size = int(np.prod(batch, dtype=int)) if batch else 1
+    work = batch_size * rows * inner * cols * ring.group.order
+    if work < _MIN_MATMUL_COEFFICIENT_WORK:
+        return False
+
+    item_size = ring.field.Zeros(1).dtype.itemsize
+    input_entries = batch_size * inner * (rows + cols)
+    output_entries = batch_size * rows * cols
+    coefficient_bytes = (input_entries + 2 * output_entries) * ring.group.order * item_size
+    return coefficient_bytes <= _MAX_MATMUL_COEFFICIENT_BYTES
+
+
+def _matmul_coefficients(
+    matrix_a: RingArray | npt.NDArray[np.int_] | npt.NDArray[np.object_],
+    matrix_b: RingArray | npt.NDArray[np.int_] | npt.NDArray[np.object_],
+    *,
+    ring: GroupRing,
+    right: bool = False,
+) -> RingArray | RingMember | None:
+    """Multiply with coefficient tensors, or return None to use object arithmetic."""
+    if not (
+        _supports_coefficient_operand(matrix_a, ring)
+        and _supports_coefficient_operand(matrix_b, ring)
+    ):
+        return None
+    shape = _get_matmul_shape(matrix_a.shape, matrix_b.shape)
+    if shape is None or not _should_use_coefficient_matmul(matrix_a, matrix_b, ring, shape):
+        return None
+
+    batch, rows, inner, cols, vector_a, vector_b = shape
+    order = ring.group.order
+    coefficients_a = _get_coefficient_array(matrix_a, ring)
+    coefficients_b = _get_coefficient_array(matrix_b, ring)
+    if vector_a:
+        coefficients_a = coefficients_a[np.newaxis, ...]
+    if vector_b:
+        coefficients_b = coefficients_b[..., np.newaxis, :]
+
+    shape_a = (*batch, rows, inner, order)
+    shape_b = (*batch, inner, cols, order)
+    coefficients_a = np.broadcast_to(coefficients_a, shape_a).view(ring.field)
+    coefficients_b = np.broadcast_to(coefficients_b, shape_b).view(ring.field)
+    result = ring.field.Zeros((*batch, rows, cols, order))
+
+    coefficient_axes = tuple(range(coefficients_a.ndim - 1))
+    active_a = np.flatnonzero(np.any(coefficients_a, axis=coefficient_axes))
+    active_b = np.flatnonzero(np.any(coefficients_b, axis=coefficient_axes))
+    if len(active_a) <= len(active_b):
+        other = coefficients_b.reshape(*batch, inner, cols * order)
+        for index in active_a:
+            contribution = (coefficients_a[..., int(index)] @ other).reshape(
+                *batch, rows, cols, order
+            )
+            permutation = _get_group_action(ring.group, int(index), factor_on_left=not right)
+            result[..., permutation] += contribution
+    else:
+        batch_axes = tuple(range(len(batch)))
+        other = coefficients_a.transpose(*batch_axes, -1, -3, -2).reshape(
+            *batch, order * rows, inner
+        )
+        for index in active_b:
+            contribution = (other @ coefficients_b[..., int(index)]).reshape(
+                *batch, order, rows, cols
+            )
+            contribution = np.moveaxis(contribution, -3, -1).view(ring.field)
+            permutation = _get_group_action(ring.group, int(index), factor_on_left=right)
+            result[..., permutation] += contribution
+
+    if vector_a:
+        result = result[..., 0, :, :]
+    if vector_b:
+        result = result[..., 0, :]
+    if vector_a and vector_b:
+        return _ring_member_from_vector(result, ring, _get_group_members(ring.group))
+    return _ring_array_from_field_array(result, ring)
 
 
 def _iter_ring_arrays(obj: Any) -> Iterator[RingArray]:

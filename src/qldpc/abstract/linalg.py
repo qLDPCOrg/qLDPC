@@ -21,7 +21,7 @@ import scipy.linalg
 from qldpc import math
 
 from .groups import Group, GroupMember
-from .ring_array import RingArray
+from .ring_array import RingArray, _matmul_coefficients
 from .rings import GroupRing
 
 if TYPE_CHECKING:
@@ -53,6 +53,10 @@ def matmul(
 
     if ring.is_commutative or not right:
         return (matrix_a @ matrix_b).view(RingArray)
+
+    if (matrix := _matmul_coefficients(matrix_a, matrix_b, ring=ring, right=True)) is not None:
+        assert isinstance(matrix, RingArray)
+        return matrix
 
     # expand manually to reverse operand order within each matrix-product term
     final_shape = (*matrix_a.shape[:-1], matrix_b.shape[-1])

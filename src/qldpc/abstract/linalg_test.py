@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from qldpc import abstract
@@ -87,6 +88,39 @@ def test_matmul_and_kron_interplay(ring: abstract.GroupRing, rows: int = 2, cols
             val_ab.lift() @ random_vec,
             val_a.lift() @ (val_b.lift(right=True) @ random_vec),
         )
+
+
+def test_coefficient_matmul_right() -> None:
+    """Coefficient matmul preserves reversed multiplication in a noncommutative ring."""
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=3)
+    shape = (4, 4)
+    dense = abstract.RingArray.from_field_array(
+        ring.field.Random((*shape, ring.group.order), seed=1), ring
+    )
+    monomial = abstract.RingArray.build(np.full(shape, ring.generators[0], dtype=object), ring)
+
+    def multiply_right(
+        matrix_a: abstract.RingArray | npt.NDArray[np.int_],
+        matrix_b: abstract.RingArray | npt.NDArray[np.int_],
+    ) -> abstract.RingArray:
+        result = abstract.RingArray.build(np.zeros(shape, dtype=int), ring)
+        for row, col in np.ndindex(shape):
+            result[row, col] = sum(
+                matrix_b[index, col] * matrix_a[row, index] for index in range(shape[0])
+            )
+        return result
+
+    assert np.array_equal(
+        abstract.matmul(monomial, dense, right=True), multiply_right(monomial, dense)
+    )
+    assert np.array_equal(
+        abstract.matmul(dense, monomial, right=True), multiply_right(dense, monomial)
+    )
+
+    integers = np.eye(shape[0], dtype=int)
+    assert np.array_equal(
+        abstract.matmul(dense, integers, right=True), multiply_right(dense, integers)
+    )
 
 
 def assert_howell_pseudoinverse(
