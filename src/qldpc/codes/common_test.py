@@ -514,6 +514,48 @@ def test_exact_code_distance_method_api() -> None:
         classical_code.get_distance(bound=True, method="other")  # type: ignore[arg-type]
 
 
+def test_css_joint_distance_cache() -> None:
+    """A joint CSS search caches only the global distance, leaving sector distances independent."""
+    checks_x = [
+        [1, 1, 1, 1, 1, 1, 1],
+        [1, 0, 1, 1, 1, 0, 0],
+    ]
+    checks_z = [
+        [1, 1, 0, 1, 0, 0, 1],
+        [1, 1, 1, 0, 0, 1, 0],
+        [1, 0, 1, 1, 1, 0, 0],
+    ]
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(cutoff=0) == 2
+
+    assert code.get_distance_if_known() == 2
+    assert code.get_distance_if_known(Pauli.X) is None
+    assert code.get_distance_if_known(Pauli.Z) is None
+
+    assert code.get_distance_exact(Pauli.X, cutoff=0, method="brute_force") == 3
+    assert code.get_distance_exact(Pauli.Z, cutoff=0, method="brute_force") == 2
+    assert code.get_distance_if_known(Pauli.X) == 3
+    assert code.get_distance_if_known(Pauli.Z) == 2
+
+    code = codes.CSSCode(checks_x, checks_z)
+    code._distance_x = 3
+    with unittest.mock.patch(
+        "qldpc.codes.common.get_distance_css_brouwer_zimmermann",
+        return_value=2,
+    ) as mock_joint_distance:
+        assert code.get_distance_exact(cutoff=0) == 2
+    assert len(mock_joint_distance.call_args.args[0]) == 1
+    assert mock_joint_distance.call_args.kwargs["upper_bound"] == 3
+
+    subsystem_code = codes.CSSCode(
+        codes.BaconShorCode(3).matrix_x,
+        codes.BaconShorCode(3).matrix_z,
+        is_subsystem_code=True,
+    )
+    with unittest.mock.patch("qldpc.codes.common.get_distance_quantum", return_value=3):
+        assert subsystem_code.get_distance_exact(Pauli.X) == 3
+
+
 @pytest.mark.parametrize("field", [2, 3])
 def test_conversions_quantum(field: int, bits: int = 5, checks: int = 3) -> None:
     """Conversions between matrix and graph representations of a code."""

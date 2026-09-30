@@ -249,10 +249,177 @@ def test_binary_row_reduction_and_information_sets() -> None:
     information_sets = qldpc.codes.distance._get_information_set_generators(
         basis, np.eye(3, dtype=np.uint8)
     )
-    assert [rank for _, _, rank in information_sets] == [3, 3, 2]
+    assert [rank for _, _, rank, _ in information_sets] == [3, 3, 2]
     assert not qldpc.codes.distance._get_information_set_generators(
         np.zeros((1, 3), dtype=np.uint8), None
     )
+
+    basis = np.array(
+        [
+            [1, 0, 1, 1, 0, 1],
+            [0, 1, 0, 1, 1, 0],
+            [1, 0, 0, 0, 1, 1],
+        ],
+        dtype=np.uint8,
+    )
+    information_sets = qldpc.codes.distance._get_information_set_generators(basis, None)
+    assert [rank for _, _, rank, _ in information_sets] == [3, 3]
+
+
+def test_fixed_weight_supports() -> None:
+    """Batched combinadic unranking enumerates every fixed-weight support."""
+    for dimension in range(1, 8):
+        for weight in range(1, dimension + 1):
+            actual = qldpc.codes.distance._iter_fixed_weight_supports(
+                dimension,
+                weight,
+                batch_size=3,
+            )
+            actual_supports = {tuple(support) for batch in actual for support in batch}
+            expected_supports = set(itertools.combinations(range(dimension), weight))
+            assert actual_supports == expected_supports
+
+    with mock.patch(
+        "qldpc.codes.distance.math.comb",
+        return_value=np.iinfo(np.int64).max + 1,
+    ):
+        batches = qldpc.codes.distance._iter_fixed_weight_supports(3, 2, batch_size=2)
+        assert [batch.tolist() for batch in batches] == [
+            [[0, 1], [0, 2]],
+            [[1, 2]],
+        ]
+
+
+def test_select_brouwer_zimmermann_information_sets() -> None:
+    """Partial sets are retained only when they strengthen the active certificate."""
+    generators = np.empty((10, 0), dtype=np.uint8)
+    pivots = np.empty(0, dtype=int)
+    information_sets = [(generators, None, rank, pivots) for rank in (10, 6, 2)]
+    selected = qldpc.codes.distance._select_brouwer_zimmermann_information_sets(
+        information_sets,
+        dimension=10,
+        upper_bound=6,
+        weight_divisor=1,
+    )
+    assert [rank for _, _, rank, _ in selected] == [10, 6]
+
+    selected = qldpc.codes.distance._select_brouwer_zimmermann_information_sets(
+        information_sets,
+        dimension=10,
+        upper_bound=12,
+        weight_divisor=1,
+    )
+    assert [rank for _, _, rank, _ in selected] == [10, 6, 2]
+
+    selected = qldpc.codes.distance._select_brouwer_zimmermann_information_sets(
+        information_sets[1:],
+        dimension=10,
+        upper_bound=6,
+        weight_divisor=1,
+    )
+    assert selected == information_sets[1:]
+
+
+def test_brouwer_zimmermann_search_state() -> None:
+    """A search state handles partial pivots, quotient labels, cutoffs, and completed work."""
+    weight_func, _ = qldpc.codes.distance._get_hamming_weight_fn()
+    search = qldpc.codes.distance._BrouwerZimmermannSearch(
+        [(np.array([[3], [2]], dtype=np.uint64), np.ones((2, 1), dtype=np.uint64), 0)],
+        weight_func,
+        dimension=2,
+        cutoff=1,
+        batch_size=2,
+        weight_divisor=1,
+        best=3,
+        lower_bound=0,
+    )
+    assert search.advance() == 1
+    assert search.advance() == 1
+
+
+def test_brouwer_zimmermann_setup_dispatches() -> None:
+    """BZ setup can dispatch to exhaustive search and a shared search can reach its cutoff."""
+    basis = np.array(
+        [
+            [1, 1, 0, 1],
+            [1, 0, 1, 1],
+            [0, 1, 1, 1],
+        ],
+        dtype=np.uint8,
+    )
+    information_set = [(basis, None, 3, np.array([0, 1, 2]))]
+    with (
+        mock.patch("qldpc.codes.distance._exhaustive_is_cheaper", return_value=False),
+        mock.patch(
+            "qldpc.codes.distance._get_information_set_generators",
+            return_value=information_set,
+        ),
+        mock.patch("qldpc.codes.distance._brute_force_is_cheaper", return_value=True),
+        mock.patch(
+            "qldpc.codes.distance._get_distance_quantum_brute_force",
+            return_value=2,
+        ),
+    ):
+        prepared = qldpc.codes.distance._prepare_brouwer_zimmermann_search(
+            basis,
+            None,
+            cutoff=0,
+            block_size=2,
+            weight_divisor=1,
+            upper_bound=4,
+        )
+    assert prepared == 2
+
+    search = mock.Mock()
+    search.finished = False
+    search.advance.return_value = 1
+    with (
+        mock.patch(
+            "qldpc.codes.distance._get_brouwer_zimmermann_initial_upper_bound",
+            return_value=3,
+        ),
+        mock.patch(
+            "qldpc.codes.distance._prepare_brouwer_zimmermann_search",
+            return_value=search,
+        ),
+    ):
+        distance = qldpc.codes.distance._get_distance_brouwer_zimmermann_many(
+            [(basis, None)],
+            cutoff=1,
+            block_size=2,
+        )
+    assert distance == 1
+
+
+def test_css_brouwer_zimmermann_special_inputs() -> None:
+    """The joint CSS helper handles empty, trivial, and nontrivial quotient sectors."""
+    empty = np.empty((0, 4), dtype=np.uint8)
+    assert (
+        qldpc.codes.get_distance_css_brouwer_zimmermann(
+            [(empty, empty)],
+            cutoff=0,
+        )
+        == 4
+    )
+    assert (
+        qldpc.codes.get_distance_css_brouwer_zimmermann(
+            [([[1, 0]], [[1, 0]])],
+            cutoff=0,
+        )
+        == 0
+    )
+
+    with mock.patch(
+        "qldpc.codes.distance._get_distance_brouwer_zimmermann_many",
+        return_value=2,
+    ) as mock_search:
+        distance = qldpc.codes.get_distance_css_brouwer_zimmermann(
+            [([[1, 1]], [])],
+            cutoff=0,
+            upper_bound=3,
+        )
+    assert distance == 2
+    assert mock_search.call_args.kwargs["upper_bound"] == 3
 
 
 @pytest.mark.usefixtures("force_information_sets")
@@ -280,6 +447,39 @@ def test_brouwer_zimmermann_random_cross_checks() -> None:
             logical_ops, stabilizers, cutoff=0, method="brute_force"
         )
         assert qldpc.codes.get_distance_quantum(logical_ops, stabilizers, cutoff=0) == expected
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_brouwer_zimmermann_shared_search() -> None:
+    """A shared BZ search returns the minimum distance across nested codes."""
+    rng = np.random.default_rng(119)
+    basis_a = _get_random_full_rank_matrix(rng, 5, 8)
+    basis_b = _get_random_full_rank_matrix(rng, 5, 9)
+    labels_b = np.vstack(
+        [
+            np.zeros((2, 3), dtype=np.uint8),
+            np.eye(3, dtype=np.uint8),
+        ]
+    )
+
+    expected_a = qldpc.codes.get_distance_classical(
+        basis_a,
+        cutoff=0,
+        method="brute_force",
+    )
+    expected_b = qldpc.codes.get_distance_quantum(
+        basis_b[2:],
+        basis_b[:2],
+        cutoff=0,
+        homogeneous=True,
+        method="brute_force",
+    )
+    actual = qldpc.codes.distance._get_distance_brouwer_zimmermann_many(
+        [(basis_a, None), (basis_b, labels_b)],
+        cutoff=0,
+        block_size=2,
+    )
+    assert actual == min(expected_a, expected_b)
 
 
 @pytest.mark.usefixtures("force_information_sets")

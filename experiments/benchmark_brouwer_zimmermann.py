@@ -11,6 +11,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 
+import galois
+import numpy as np
+
 import qldpc
 from qldpc.objects import Pauli
 
@@ -35,6 +38,34 @@ def median_seconds(call: Callable[[], int], repeats: int) -> tuple[int, float]:
     if len(results) != 1:
         raise RuntimeError(f"Exact-distance calls disagreed: {sorted(results)}")
     return results.pop(), statistics.median(samples)
+
+
+def get_random_checks(
+    rng: np.random.Generator,
+    num_rows: int,
+    num_cols: int,
+) -> galois.FieldArray:
+    """Sample a full-row-rank binary matrix."""
+    while True:
+        matrix = galois.GF2(rng.integers(0, 2, size=(num_rows, num_cols)))
+        if np.linalg.matrix_rank(matrix) == num_rows:
+            return matrix
+
+
+def get_dense_css_code() -> qldpc.codes.CSSCode:
+    """Build a reproducible dense [[100, 30, 6]] CSS benchmark code."""
+    rng = np.random.default_rng(10030)
+    checks_x = get_random_checks(rng, 35, 100)
+    kernel_x = checks_x.null_space()
+    # Drawing Z checks from this kernel enforces CSS orthogonality.
+    checks_z = get_random_checks(rng, 35, len(kernel_x)) @ kernel_x
+    return qldpc.codes.CSSCode(checks_x, checks_z)
+
+
+def get_uncached_distance(code: qldpc.codes.CSSCode) -> int:
+    """Compute a code distance without reusing a previous result."""
+    code.forget_distance()
+    return int(code.get_distance_exact(cutoff=0))
 
 
 def get_cases() -> list[BenchmarkCase]:
@@ -130,6 +161,16 @@ def main() -> None:
     print(
         f"\nBZ-only scalability: Hamming(6) d={distance}, "
         f"median={seconds:.6f}s (brute force has 2**57 codewords)"
+    )
+
+    large_css = get_dense_css_code()
+    distance, seconds = median_seconds(
+        partial(get_uncached_distance, large_css),
+        args.repeats,
+    )
+    print(
+        f"CSS-only scalability: dense [[100, 30, {distance}]] "
+        f"median={seconds:.6f}s per joint X/Z search"
     )
 
 
