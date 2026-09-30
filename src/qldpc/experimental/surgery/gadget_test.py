@@ -568,8 +568,9 @@ def test_build_gadget_rejects_invalid_basis() -> None:
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    with pytest.raises(ValueError, match="basis must be"):
-        build_gadget(code, x, basis=Pauli.Y)  # type: ignore[arg-type]
+    for invalid_basis in [Pauli.Y, "y", "q"]:
+        with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
+            build_gadget(code, x, basis=invalid_basis)  # type: ignore[arg-type]
 
 
 def test_with_added_ancillas_rejects_wrong_width() -> None:
