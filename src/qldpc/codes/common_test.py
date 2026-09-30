@@ -485,6 +485,12 @@ def test_distance_qudit() -> None:
     ):
         assert code.get_distance(bound=True) == -1
 
+    # generic subsystem codes use gauge equivalence with both exact binary methods
+    subsystem_code = codes.QuditCode(codes.BaconShorCode(3).matrix, is_subsystem_code=True)
+    for method in ("brouwer_zimmermann", "brute_force"):
+        subsystem_code.forget_distance()
+        assert subsystem_code.get_distance_exact(method=method) == 3
+
     # the distance of dimension-0 codes is undefined
     assert np.isnan(codes.QuditCode([[0, 1]]).get_distance())
 
@@ -494,6 +500,68 @@ def test_distance_qudit() -> None:
         assert code.get_distance_exact(cutoff=len(code)) <= len(code)
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
+
+
+def test_exact_code_distance_method_api() -> None:
+    """High-level exact-distance methods forward the selected binary method."""
+    classical_code = codes.RepetitionCode(3)
+    with unittest.mock.patch(
+        "qldpc.codes.common.get_distance_classical", return_value=3
+    ) as classical_kernel:
+        for classical_distance in (
+            classical_code.get_distance,
+            classical_code.get_distance_exact,
+        ):
+            classical_code.forget_distance()
+            classical_kernel.reset_mock()
+            assert classical_distance() == 3
+            assert classical_kernel.call_args.kwargs == {
+                "cutoff": 1,
+                "method": "brouwer_zimmermann",
+            }
+        classical_code.forget_distance()
+        assert classical_code.get_distance_exact(method="brute_force") == 3
+        assert classical_kernel.call_args.kwargs == {
+            "cutoff": 1,
+            "method": "brute_force",
+        }
+
+    quantum_code = codes.QuditCode(codes.FiveQubitCode().matrix)
+    with unittest.mock.patch(
+        "qldpc.codes.common.get_distance_quantum", return_value=3
+    ) as quantum_kernel:
+        for quantum_distance in (
+            quantum_code.get_distance,
+            quantum_code.get_distance_exact,
+        ):
+            quantum_code.forget_distance()
+            quantum_kernel.reset_mock()
+            assert quantum_distance() == 3
+            assert quantum_kernel.call_args.kwargs == {
+                "cutoff": 1,
+                "homogeneous": False,
+                "method": "brouwer_zimmermann",
+            }
+
+    css_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
+    with unittest.mock.patch(
+        "qldpc.codes.common.get_distance_quantum", return_value=3
+    ) as css_kernel:
+        for css_distance in (
+            lambda: css_code.get_distance(Pauli.X),
+            lambda: css_code.get_distance_exact(Pauli.X),
+        ):
+            css_code.forget_distance()
+            css_kernel.reset_mock()
+            assert css_distance() == 3
+            assert css_kernel.call_args.kwargs == {
+                "cutoff": 1,
+                "homogeneous": True,
+                "method": "brouwer_zimmermann",
+            }
+
+    with pytest.raises(ValueError, match="only available for exact distance"):
+        classical_code.get_distance(bound=True, method="brute_force")
 
 
 @pytest.mark.parametrize("field", [2, 3])

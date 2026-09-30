@@ -61,6 +61,14 @@ If a package such as GUAVA or QDistRnd is absent from the in-process binding, qL
 If that attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing the package for libgap before using the executable instead.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
+#### Exact-distance acceleration
+
+Exact binary distance calculations use the Brouwer--Zimmermann algorithm by default. It constructs
+several information-set bases and stops once its lower bound meets the lightest codeword found. The
+calculation remains exponential in the worst case, but is substantially faster than exhaustive
+enumeration for many codes with distance small relative to their dimension. Select the historical
+enumerator explicitly with `code.get_distance_exact(method="brute_force")`.
+
 #### `sqetch` distance estimation
 
 You can install the optional `sqetch` distance-estimation backend with:
