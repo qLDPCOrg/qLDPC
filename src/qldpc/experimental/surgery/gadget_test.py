@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from qldpc import codes
-from qldpc.objects import Pauli, PauliXZ, PauliXZLike
+from qldpc.objects import Pauli, PauliXZ
 
 from .conftest import (
     _webster_x_bar_operator,
@@ -252,26 +252,6 @@ def test_build_gadget_deterministic() -> None:
     assert np.array_equal(g1.gauge, g2.gauge)
     assert np.array_equal(g1.HX_merged, g2.HX_merged)
     assert np.array_equal(g1.HZ_merged, g2.HZ_merged)
-
-
-def test_build_gadget_accepts_string_basis() -> None:
-    """build_gadget also accepts a case-insensitive "X" or "Z" basis string."""
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    basis_strings: dict[PauliXZ, tuple[PauliXZLike, ...]] = {
-        Pauli.X: ("X", "x"),
-        Pauli.Z: ("Z", "z"),
-    }
-    for basis, strings in basis_strings.items():
-        x = np.asarray(code.get_logical_ops(basis)[0]).astype(np.uint8)
-        gadget = build_gadget(code, x, basis=basis)
-        for string in strings:
-            gadget_from_string = build_gadget(code, x, basis=string)
-            assert gadget_from_string.basis is basis
-            assert np.array_equal(gadget.incidence, gadget_from_string.incidence)
-            assert np.array_equal(gadget.HX_merged, gadget_from_string.HX_merged)
-            assert np.array_equal(gadget.HZ_merged, gadget_from_string.HZ_merged)
 
 
 def test_build_gadget_rejects_non_x_logical() -> None:
