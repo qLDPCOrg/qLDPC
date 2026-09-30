@@ -1486,18 +1486,13 @@ def mwpm(
             predicts observable flips natively.
         ignore_non_graphlike_errors: Whether to drop errors that flip more than two detectors
             (after any decomposition), rather than raising an error.
-        enable_correlations: Whether to use the two-pass correlated matching of pymatching, which
-            exploits correlations between the components of a decomposed error mechanism, such as
-            the X and Z components of a Pauli-Y error.  Correlated matching only predicts the
-            observable flips of a detector error model, so it cannot decode a parity check matrix
-            or be used by a window decoder.  The model must suggest a decomposition for every error
-            mechanism that flips more than two detectors (unless ignore_non_graphlike_errors=True),
-            as provided by ``circuit.detector_error_model(decompose_errors=True)``.  Correlated
-            matching builds its matching graph from the model and these decompositions, so it is
-            incompatible with decompose_errors=True and with all of the options below.  A
-            SubgraphDecoder does not pass decompositions to the models of its subgraphs.  See
-            help(pymatching.Matching.from_detector_error_model) and
-            https://arxiv.org/abs/1310.0863.
+        enable_correlations: Whether to use the correlated matching of pymatching.  Correlated
+            matching only predicts the observable flips of a detector error model, so it cannot
+            decode a parity check matrix or be used by a window decoder.  It uses the
+            decompositions that the model suggests for its errors, so it is incompatible with
+            decompose_errors=True and with all of the options below.  A SubgraphDecoder does not
+            pass these decompositions to the models of its subgraphs.  See
+            help(pymatching.Matching.from_detector_error_model).
         weights: Scalar or per-error matching weights for a parity check matrix.  A detector
             error model supplies its own weights, so this must be None when decoding one.
         error_probabilities: Scalar or per-error probabilities for a parity check matrix, from

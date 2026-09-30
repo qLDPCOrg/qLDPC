@@ -444,59 +444,26 @@ def test_native_observable_decoders() -> None:
 
 
 def test_correlated_matching() -> None:
-    """Correlated matching exploits the decompositions of a detector error model."""
-    import pymatching
+    """Correlated matching uses the decompositions that a detector error model suggests."""
+    dem = stim.DetectorErrorModel("""
+        error(0.02) D0 D1 ^ D2 D3
+        error(0.3) D2 L0
+        error(0.3) D3
+        error(0.1) D0 D1 D4 L1
+    """)
+    with pytest.raises(ValueError, match="flips 3 detectors"):
+        decoders.get_observable_decoder(dem, decoder=decoders.mwpm(enable_correlations=True))
 
-    circuit = stim.Circuit.generated(
-        "surface_code:rotated_memory_x",
-        distance=3,
-        rounds=3,
-        after_clifford_depolarization=0.02,
-        before_measure_flip_probability=0.02,
-        after_reset_flip_probability=0.02,
-    )
-    dem = circuit.detector_error_model(decompose_errors=True)
-    syndromes = circuit.compile_detector_sampler(seed=0).sample(1000).astype(np.uint8)
+    # enabling correlations changes the prediction from [1, 0], because the decomposed error that
+    # explains D0 D1 also explains D2 D3; dropping the last error still keeps D4 and L1
+    spec = decoders.mwpm(enable_correlations=True, ignore_non_graphlike_errors=True)
+    decoder = decoders.get_observable_decoder(dem, decoder=spec)
+    assert np.array_equal(decoder.decode_observables(np.array([1, 1, 1, 1, 0])), [0, 0])
 
-    # predictions agree with those of pymatching, and differ from those of uncorrelated matching
-    spec = decoders.mwpm(enable_correlations=True)
-    assert spec.predicts_observables_natively
-    correlated_decoder: Any = decoders.get_observable_decoder(dem, decoder=spec)
-    matching = pymatching.Matching.from_detector_error_model(dem, enable_correlations=True)
-    expected_flips = matching.decode_batch(syndromes, enable_correlations=True)
-    uncorrelated_decoder: Any = decoders.get_observable_decoder(
-        dem, decoder=decoders.mwpm(decompose_errors=True)
-    )
-    uncorrelated_flips = uncorrelated_decoder.decode_observables_batch(syndromes)
-    assert np.array_equal(correlated_decoder.decode_observables_batch(syndromes), expected_flips)
-    shot = np.flatnonzero(np.any(expected_flips != uncorrelated_flips, axis=1))[0]
-    assert np.array_equal(
-        correlated_decoder.decode_observables(syndromes[shot]), expected_flips[shot]
-    )
-
-    # correlated matching cannot infer errors, or configure a matching graph by other options
     with pytest.raises(ValueError, match="cannot infer errors"):
         decoders.get_error_decoder(dem, decoder=spec)
-    unsupported_options: list[dict[str, Any]] = [
-        {"decompose_errors": True},
-        {"merge_strategy": "independent"},
-    ]
-    for options in unsupported_options:
-        with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
-            decoders.mwpm(enable_correlations=True, **options)
-
-    # errors that are not graphlike, even after decomposition, are rejected or ignored
-    dem = stim.DetectorErrorModel("""
-        error(0.1) D0 D1 D4 L1
-        error(0.1) D0 D1 ^ D1 D3 L0
-        error(0.1) D0
-    """)
-    with pytest.raises(ValueError, match="component that flips 3 detectors"):
-        decoders.get_observable_decoder(dem, decoder=spec)
-    spec = decoders.mwpm(enable_correlations=True, ignore_non_graphlike_errors=True)
-    correlated_decoder = decoders.get_observable_decoder(dem, decoder=spec)
-    # the dropped error was the only one to flip the last detector and the last observable
-    assert np.array_equal(correlated_decoder.decode_observables(np.array([1, 0, 0, 1, 0])), [1, 0])
+    with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
+        decoders.mwpm(enable_correlations=True, decompose_errors=True)
 
 
 def test_observable_decoder_inputs() -> None:

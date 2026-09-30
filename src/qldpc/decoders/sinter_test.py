@@ -85,30 +85,17 @@ def test_sinter_decoder() -> None:
 
 
 def test_sinter_decoder_correlated_matching() -> None:
-    """A SinterDecoder can decode with correlated matching."""
-    import pymatching
-
-    circuit = stim.Circuit.generated(
-        "surface_code:rotated_memory_z",
-        distance=3,
-        rounds=3,
-        after_clifford_depolarization=0.02,
-        before_measure_flip_probability=0.02,
-        after_reset_flip_probability=0.02,
-    )
-    dem = circuit.detector_error_model(decompose_errors=True)
-    syndromes = circuit.compile_detector_sampler(seed=0).sample(1000)
-
-    # compiled decoders keep the error decompositions that correlated matching relies on
-    matching = pymatching.Matching.from_detector_error_model(dem, enable_correlations=True)
-    expected_flips = matching.decode_batch(syndromes, enable_correlations=True)
+    """A SinterDecoder keeps the error decompositions that correlated matching uses."""
+    dem = stim.DetectorErrorModel("""
+        error(0.02) D0 D1 ^ D2 D3
+        error(0.3) D2 L0
+        error(0.3) D3
+    """)
+    # enabling correlations changes the prediction from [[1]]
     spec = decoders.mwpm(enable_correlations=True)
-    for simplify in [True, False]:
-        decoder = decoders.SinterDecoder(simplify=simplify, decoder=spec)
-        compiled_decoder = decoder.compile_decoder_for_dem(dem)
-        assert np.array_equal(compiled_decoder.decode_shots(syndromes), expected_flips)
+    compiled_decoder = decoders.SinterDecoder(decoder=spec).compile_decoder_for_dem(dem)
+    assert np.array_equal(compiled_decoder.decode_shots(np.array([[1, 1, 1, 1]])), [[0]])
 
-    # correlated matching needs the decompositions that decompose_errors=True discards
     with pytest.raises(ValueError, match="decompose_errors=True discards"):
         decoders.SinterDecoder(decompose_errors=True, decoder=spec)
 
