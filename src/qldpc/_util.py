@@ -7,10 +7,12 @@ from __future__ import annotations
 import importlib.abc
 import importlib.machinery
 import importlib.util
+import inspect
 import sys
-from collections.abc import Callable
+import warnings
+from collections.abc import Callable, Mapping
 from types import ModuleType
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 CallableType = TypeVar("CallableType", bound=Callable[..., object])
 
@@ -90,3 +92,67 @@ def format_docstring(**substitutions: object) -> Callable[[CallableType], Callab
         return func
 
     return decorator
+
+
+def get_external_caller_stacklevel() -> int:
+    """Find the stacklevel of the first caller outside qLDPC implementation modules.
+
+    Passing this stacklevel to warnings.warn attributes a warning to the user code that called into
+    qLDPC, however deeply nested the call that emits the warning.  Test modules are co-located with
+    the modules that they test (as qldpc.<...>_test), so they are treated as external callers.
+    """
+    stacklevel = 1
+    frame = inspect.currentframe()
+    if frame is None:  # pragma: no cover
+        return 2
+    frame = frame.f_back
+    while frame is not None:
+        module = str(frame.f_globals.get("__name__", ""))
+        if not module.startswith("qldpc.") or module.endswith("_test"):
+            break
+        stacklevel += 1
+        frame = frame.f_back
+    return stacklevel
+
+
+def get_deprecated_alias(module_name: str, name: str, aliases: Mapping[str, type]) -> Any:
+    """Retrieve the replacement for a deprecated name, and warn that the name is deprecated.
+
+    This function backs module-level __getattr__ functions (PEP 562), which Python calls only for
+    names that a module does not define.  A deprecated name thereby refers to the same object as its
+    replacement, which preserves isinstance checks, subclassing, and unpickling, while still warning
+    whenever the deprecated name is accessed.  For example::
+
+        _DEPRECATED_ALIASES = {"OldName": NewName}
+
+        if TYPE_CHECKING:
+            OldName = NewName  # so that type checkers still flag misspelled names
+        else:
+
+            def __getattr__(name: str) -> Any:
+                return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+
+    A package that re-exports a deprecated name should define the same kind of __getattr__ in its
+    __init__.py, rather than importing the deprecated name (which would warn at import time), and
+    may list the deprecated name in __all__ so that star imports still define it.
+
+    Args:
+        module_name: The name of the module whose attribute is being retrieved.
+        name: The name of the attribute being retrieved.
+        aliases: A map from each deprecated name in the module to its replacement.
+
+    Returns:
+        The replacement for the deprecated name.
+
+    Raises:
+        AttributeError: If the name is not a deprecated alias.
+    """
+    if name not in aliases:
+        raise AttributeError(f"module {module_name!r} has no attribute {name!r}")
+    replacement = aliases[name]
+    warnings.warn(
+        f"{name} is deprecated; use {replacement.__name__} instead",
+        DeprecationWarning,
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    return replacement

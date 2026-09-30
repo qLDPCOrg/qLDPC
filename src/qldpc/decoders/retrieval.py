@@ -17,10 +17,9 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc._util import format_docstring
+from qldpc._util import format_docstring, get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
-from .common import _get_external_caller_stacklevel
 from .custom import (
     PLACEHOLDER_ERROR_RATE,
     BatchErrorDecoder,
@@ -244,7 +243,7 @@ def _resolve_decoder(
             warnings.warn(
                 _get_legacy_decoder_migration_message(pcm_or_dem, decoder_args),
                 DeprecationWarning,
-                stacklevel=_get_external_caller_stacklevel(),
+                stacklevel=get_external_caller_stacklevel(),
             )
         return _get_legacy_decoder(pcm_or_dem, decoder_args)
 

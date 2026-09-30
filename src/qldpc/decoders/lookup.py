@@ -16,9 +16,10 @@ import scipy.sparse
 import stim
 
 from qldpc import codes, math
+from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
-from .common import _get_external_caller_stacklevel, with_erasure_bits
+from .common import with_erasure_bits
 from .dems import DetectorErrorModelArrays
 
 
@@ -532,7 +533,7 @@ class LookupDecoder(_LookupDecoderBase):
             warnings.warn(
                 "predict_observable_flips=True is deprecated; use ObservableLookupDecoder instead",
                 DeprecationWarning,
-                stacklevel=_get_external_caller_stacklevel(),
+                stacklevel=get_external_caller_stacklevel(),
             )
         super().__init__(
             pcm_or_dem,
@@ -721,7 +722,7 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
                 "predict_observable_flips=True is deprecated; use"
                 " WeightedObservableLookupDecoder instead",
                 DeprecationWarning,
-                stacklevel=_get_external_caller_stacklevel(),
+                stacklevel=get_external_caller_stacklevel(),
             )
         super().__init__(
             pcm_or_dem,

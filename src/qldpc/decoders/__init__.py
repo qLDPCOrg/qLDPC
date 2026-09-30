@@ -2,9 +2,10 @@
 
 from typing import TYPE_CHECKING, Any
 
+from qldpc._util import get_deprecated_alias
+
 from . import custom, sinter
 from .common import (
-    _get_deprecated_alias,
     with_erasure_bits,
 )
 from .custom import (
@@ -57,11 +58,9 @@ from .sinter import (
     CompiledSubgraphDecoder,
     CompiledTrivialDecoder,
     ObservableDecoder,
-    SequentialSinterDecoder,
     SequentialWindowDecoder,
     SlidingWindowDecoder,
     SubgraphDecoder,
-    SubgraphSinterDecoder,
     TrivialDecoder,
 )
 
@@ -129,9 +128,11 @@ if TYPE_CHECKING:
     from .custom import BatchDecoder as BatchDecoder
     from .custom import Decoder as Decoder
     from .sinter import CompiledSinterDecoder as CompiledSinterDecoder
+    from .sinter import SequentialSinterDecoder as SequentialSinterDecoder
     from .sinter import SinterDecoder as SinterDecoder
+    from .sinter import SubgraphSinterDecoder as SubgraphSinterDecoder
 else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of decoder classes and protocols, with a DeprecationWarning."""
-        return _get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)

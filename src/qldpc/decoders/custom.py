@@ -17,10 +17,11 @@ import scipy.sparse
 import stim
 
 from qldpc import codes, math
+from qldpc._util import get_deprecated_alias
 from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
-from .common import _get_deprecated_alias, with_erasure_bits
+from .common import with_erasure_bits
 from .dems import DetectorErrorModelArrays
 
 if TYPE_CHECKING:
@@ -689,4 +690,4 @@ else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of decoder protocols, with a DeprecationWarning."""
-        return _get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)

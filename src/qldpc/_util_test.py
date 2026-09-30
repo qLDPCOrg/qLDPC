@@ -10,7 +10,12 @@ from types import ModuleType
 
 import pytest
 
-from qldpc._util import format_docstring, lazy_import
+from qldpc._util import (
+    format_docstring,
+    get_deprecated_alias,
+    get_external_caller_stacklevel,
+    lazy_import,
+)
 
 
 def test_lazy_import() -> None:
@@ -67,3 +72,22 @@ def test_format_docstring_without_docstring() -> None:
 
     assert func.__doc__ is None
     assert func() is None
+
+
+def test_get_deprecated_alias() -> None:
+    """A deprecated alias resolves to its replacement, warning at the caller's line."""
+
+    class NewName: ...
+
+    aliases = {"OldName": NewName}
+    with pytest.warns(DeprecationWarning, match="OldName is deprecated; use NewName instead") as w:
+        assert get_deprecated_alias("some.module", "OldName", aliases) is NewName
+    assert w[0].filename == __file__
+
+    with pytest.raises(AttributeError, match=r"module 'some\.module' has no attribute 'Other'"):
+        get_deprecated_alias("some.module", "Other", aliases)
+
+
+def test_get_external_caller_stacklevel() -> None:
+    """Test modules are external callers, so a call from here has stacklevel 1."""
+    assert get_external_caller_stacklevel() == 1

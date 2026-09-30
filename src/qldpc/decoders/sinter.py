@@ -16,7 +16,8 @@ import numpy.typing as npt
 import sinter
 import stim
 
-from .common import _get_deprecated_alias, _get_external_caller_stacklevel
+from qldpc._util import get_deprecated_alias, get_external_caller_stacklevel
+
 from .dems import DetectorErrorModelArrays
 from .retrieval import (
     _OBSERVABLE_DECODER_ADVICE,
@@ -105,7 +106,7 @@ class ObservableDecoder(_SinterDecoder):
             warnings.warn(
                 _get_legacy_decoder_migration_message(None, decoder_kwargs),
                 DeprecationWarning,
-                stacklevel=_get_external_caller_stacklevel(),
+                stacklevel=get_external_caller_stacklevel(),
             )
         if "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs:
             raise ValueError(
@@ -520,18 +521,6 @@ class SubgraphDecoder(ObservableDecoder):
         )
 
 
-class SubgraphSinterDecoder(SubgraphDecoder):
-    """Deprecated alias for SubgraphDecoder."""
-
-    def __getattribute__(self, name: str) -> Any:
-        warnings.warn(
-            f"{SubgraphSinterDecoder} is DEPRECATED; use {SubgraphDecoder} instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return super().__getattribute__(name)
-
-
 class CompiledSubgraphDecoder(CompiledObservableDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
@@ -807,18 +796,6 @@ class _ExpandedDecoder(ErrorDecoder):
             simplified_errors = simplified_errors[:, :-1]
         original_errors[:, self._simplified_to_original_index] = simplified_errors
         return original_errors
-
-
-class SequentialSinterDecoder(SequentialWindowDecoder):
-    """Deprecated alias for SequentialWindowDecoder."""
-
-    def __getattribute__(self, name: str) -> Any:
-        warnings.warn(
-            f"{SequentialSinterDecoder} is DEPRECATED; use {SequentialWindowDecoder} instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return super().__getattribute__(name)
 
 
 class CompiledSequentialWindowDecoder(CompiledObservableDecoder):
@@ -1184,17 +1161,21 @@ def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
 
 _DEPRECATED_ALIASES = {
     "CompiledSinterDecoder": CompiledObservableDecoder,
+    "SequentialSinterDecoder": SequentialWindowDecoder,
     "SinterDecoder": ObservableDecoder,
+    "SubgraphSinterDecoder": SubgraphDecoder,
 }
 
 
 # Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
 if TYPE_CHECKING:
-    SinterDecoder = ObservableDecoder
     CompiledSinterDecoder = CompiledObservableDecoder
+    SequentialSinterDecoder = SequentialWindowDecoder
+    SinterDecoder = ObservableDecoder
+    SubgraphSinterDecoder = SubgraphDecoder
 else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of observable decoders, with a DeprecationWarning."""
-        return _get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)

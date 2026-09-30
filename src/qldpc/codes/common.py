@@ -24,7 +24,7 @@ import stim
 from typing_extensions import Self
 
 from qldpc import abstract, decoders, external, math
-from qldpc._util import format_docstring
+from qldpc._util import format_docstring, get_external_caller_stacklevel
 from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, QuditPauli
@@ -3825,7 +3825,7 @@ class CSSCode(QuditCode):
                         matrix, legacy_args, argument_name=argument_name
                     ),
                     DeprecationWarning,
-                    stacklevel=decoders.common._get_external_caller_stacklevel(),
+                    stacklevel=get_external_caller_stacklevel(),
                 )
         decoder_x_kwargs = decoder_kwargs | (decoder_x_kwargs or {})
         decoder_z_kwargs = decoder_kwargs | (decoder_z_kwargs or {})

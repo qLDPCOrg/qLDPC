@@ -510,11 +510,11 @@ def test_sliding_window_validation() -> None:
 
 
 def test_deprecated_aliases() -> None:
-    """The deprecated aliases of the sinter decoders warn when they are used."""
-    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
-        assert decoders.SubgraphSinterDecoder([[0]]).simplify
-    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
-        assert decoders.SequentialSinterDecoder([[0]]).simplify
+    """Deprecated aliases of sinter decoders warn when accessed, and refer to their replacements."""
+    with pytest.warns(DeprecationWarning, match="SubgraphSinterDecoder is deprecated"):
+        assert decoders.SubgraphSinterDecoder is decoders.SubgraphDecoder
+    with pytest.warns(DeprecationWarning, match="SequentialSinterDecoder is deprecated"):
+        assert decoders.sinter.SequentialSinterDecoder is decoders.SequentialWindowDecoder
 
 
 def test_sinter_decoder_with_erasure() -> None:

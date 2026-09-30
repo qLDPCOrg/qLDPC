@@ -285,7 +285,8 @@ def test_deprecations() -> None:
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_array(), matrix)
 
-    # the Protograph alias warns on use
-    protograph = abstract.RingArray.build([[1]], ring).view(abstract.Protograph)
-    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
-        _ = protograph.ring
+    # the Protograph alias warns on use, and refers to RingArray itself
+    with pytest.warns(DeprecationWarning, match="Protograph is deprecated; use RingArray"):
+        assert abstract.Protograph is abstract.RingArray
+    with pytest.warns(DeprecationWarning, match="Protograph is deprecated; use RingArray"):
+        assert abstract.ring_array.Protograph is abstract.RingArray

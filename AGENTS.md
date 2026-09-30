@@ -23,6 +23,8 @@ Do not copy transient project history, machine-specific paths, or local-session 
   Preserve those import paths when moving implementation code.
 - Treat imports from ordinary `qldpc.*` packages as public and keep them working.
   Use a tested `DeprecationWarning` shim for a necessary rename or move rather than breaking an import.
+  For a renamed class or other module-level name, resolve the old name with [`qldpc._util.get_deprecated_alias`](src/qldpc/_util.py) from a module-level `__getattr__`, both in the defining module and in any `__init__.py` that re-exports it, and keep the old name in `__all__`.
+  The old name then refers to the same object as the new one, so `isinstance`, subclassing, and unpickling keep working.
 - Everything under [`src/qldpc/experimental/`](src/qldpc/experimental/) is explicitly unstable and can change without a deprecation period.
   Do not infer that this weaker guarantee applies elsewhere.
 - Keep complete lists of public symbols in `__all__` and AutoAPI.
