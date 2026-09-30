@@ -4,7 +4,7 @@
 
 import typing
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 import ldpc
 import numpy as np
@@ -545,8 +545,11 @@ def test_sliding_window_validation() -> None:
         detector(1) D1
         error(0.1) D0 D1
     """)
-    # a mapping that violates its annotation by handing back a non-integer time index
-    detector_to_time = typing.cast("Callable[[int], int]", lambda detector: detector / 2)
+
+    # a mapping that hands back a non-integer time index
+    def detector_to_time(detector: int) -> typing.Any:
+        return detector / 2
+
     decoder = decoders.SlidingWindowDecoder(
         1, 1, detector_to_time=detector_to_time, decoder=decoders.lookup_table(max_weight=1)
     )
@@ -555,7 +558,10 @@ def test_sliding_window_validation() -> None:
 
     # an integral time index is a time index whatever its type, as an array lookup returns
     times = np.array([0, 1])
-    array_lookup = typing.cast("Callable[[int], int]", lambda detector: times[detector])
+
+    def array_lookup(detector: int) -> typing.Any:
+        return times[detector]
+
     decoder = decoders.SlidingWindowDecoder(
         1, 1, detector_to_time=array_lookup, decoder=decoders.lookup_table(max_weight=1)
     )

@@ -12,7 +12,7 @@ import sys
 import warnings
 from collections.abc import Callable, Mapping
 from types import FrameType, ModuleType
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar
 
 CallableType = TypeVar("CallableType", bound=Callable[..., object])
 
@@ -60,7 +60,7 @@ def lazy_import(name: str) -> ModuleType:
     spec = importlib.util.find_spec(name)
     if spec is None or spec.loader is None:
         raise ModuleNotFoundError(f"No module named {name!r}", name=name)
-    loader = _LoaderWithCleanup(cast(importlib.abc.Loader, spec.loader))
+    loader = _LoaderWithCleanup(spec.loader)
     spec.loader = importlib.util.LazyLoader(loader)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module

@@ -13,7 +13,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable, Sequence
-from typing import Protocol, cast
+from typing import Protocol
 
 import pyperclip
 
@@ -59,7 +59,7 @@ def _get_libgap() -> _LibGap | None:
         module = importlib.import_module("sage.libs.gap.libgap")
     except (ImportError, OSError):
         return None
-    return cast(_LibGap | None, getattr(module, "libgap", None))
+    return getattr(module, "libgap", None)
 
 
 @functools.cache

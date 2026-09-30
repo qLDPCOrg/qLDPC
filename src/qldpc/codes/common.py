@@ -13,7 +13,7 @@ import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from typing import Any, cast
+from typing import Any
 
 import galois
 import numpy as np
@@ -3661,9 +3661,9 @@ class CSSCode(QuditCode):
         Stacking two codes with parameters ``[n_1, k_1, d_1]`` and ``[n_2, k_2, d_2]``, for example,
         results in a single code with parameters ``[n_1 + n_2, k_1 + k_2, min(d_1, d_2)]``.
         """
-        if any(not isinstance(code, CSSCode) for code in codes):
+        css_codes = [code for code in codes if isinstance(code, CSSCode)]
+        if len(css_codes) != len(codes):
             raise TypeError("CSSCode.stack requires CSSCode inputs")
-        css_codes = cast(list[CSSCode], codes)
         code_x = ClassicalCode.stack([code.code_x for code in css_codes])
         code_z = ClassicalCode.stack([code.code_z for code in css_codes])
         code = CSSCode(
