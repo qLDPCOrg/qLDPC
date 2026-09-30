@@ -31,9 +31,11 @@ from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, PauliXZLike, QuditPau
 
 from .distance import (
     DistanceBackend,
+    DistanceMethod,
     get_distance_classical,
     get_distance_quantum,
     validate_distance_backend,
+    validate_distance_method,
 )
 from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_allocation
 
@@ -463,6 +465,7 @@ class ClassicalCode(AbstractCode):
         bound: int | bool | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         use_numba: bool = False,
+        method: DistanceMethod = "brouwer_zimmermann",
         **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
@@ -475,19 +478,24 @@ class ClassicalCode(AbstractCode):
                 Hamming distance between this vector and a code word.  Default: None.
             use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
                 optional ``numba`` dependency and cannot be combined with ``bound``.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
+                ``"brute_force"`` retains exhaustive enumeration.  A non-default method cannot be
+                combined with ``bound``.  Nonbinary and vector-distance calculations retain their
+                existing exhaustive implementations.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
         _validate_numba_usage(use_numba, bound=bound)
+        _validate_distance_method_usage(method, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact(vector=vector, use_numba=use_numba)
+            return self.get_distance_exact(vector=vector, use_numba=use_numba, method=method)
         return self.get_distance_bound(num_trials=int(bound), vector=vector, **bound_kwargs)
 
     def get_distance_exact(
@@ -496,8 +504,9 @@ class ClassicalCode(AbstractCode):
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         cutoff: int = 1,
         use_numba: bool = False,
+        method: DistanceMethod = "brouwer_zimmermann",
     ) -> int | float:
-        """Compute the minimum Hamming weight of nontrivial code words by brute force.
+        """Compute the exact minimum Hamming weight of nontrivial code words.
 
         Args:
             vector: If not None, rather than computing the code distance, compute the minimum
@@ -505,10 +514,14 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
             use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
                 optional ``numba`` dependency.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
+                ``"brute_force"`` retains exhaustive enumeration.  Nonbinary and vector-distance
+                calculations retain their existing exhaustive implementations.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_method(method)
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
@@ -519,7 +532,12 @@ class ClassicalCode(AbstractCode):
 
         # we do not know the exact distance, so compute it
         if self.field is galois.GF2 and vector is None:
-            distance = get_distance_classical(self.generator, cutoff=cutoff, use_numba=use_numba)
+            distance = get_distance_classical(
+                self.generator,
+                cutoff=cutoff,
+                use_numba=use_numba,
+                method=method,
+            )
             if cutoff <= 1:
                 self._distance = int(distance)
 
@@ -1858,6 +1876,7 @@ class QuditCode(AbstractCode):
         *,
         bound: int | bool | None = None,
         use_numba: bool = False,
+        method: DistanceMethod = "brouwer_zimmermann",
         **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
@@ -1868,32 +1887,47 @@ class QuditCode(AbstractCode):
                 randomized upper bounds; see help(get_distance_bound).
             use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
                 optional ``numba`` dependency and cannot be combined with ``bound``.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
+                ``"brute_force"`` retains exhaustive enumeration.  A non-default method cannot be
+                combined with ``bound``.  Nonbinary calculations retain their existing exhaustive
+                implementation.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
         _validate_numba_usage(use_numba, bound=bound)
+        _validate_distance_method_usage(method, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact(use_numba=use_numba)
+            return self.get_distance_exact(use_numba=use_numba, method=method)
         return self.get_distance_bound(num_trials=int(bound), **bound_kwargs)
 
-    def get_distance_exact(self, *, cutoff: int = 1, use_numba: bool = False) -> int | float:
-        """Compute the minimum weight of nontrivial logical operators by brute force.
+    def get_distance_exact(
+        self,
+        *,
+        cutoff: int = 1,
+        use_numba: bool = False,
+        method: DistanceMethod = "brouwer_zimmermann",
+    ) -> int | float:
+        """Compute the exact minimum weight of nontrivial logical operators.
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
             use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
                 optional ``numba`` dependency.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
+                ``"brute_force"`` retains exhaustive enumeration.  Nonbinary calculations retain
+                their existing exhaustive implementation.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_method(method)
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
 
@@ -1912,6 +1946,7 @@ class QuditCode(AbstractCode):
                 cutoff=cutoff,
                 homogeneous=False,
                 use_numba=use_numba,
+                method=method,
             )
 
         else:
@@ -3062,6 +3097,7 @@ class CSSCode(QuditCode):
         *,
         bound: int | bool | None = None,
         use_numba: bool = False,
+        method: DistanceMethod = "brouwer_zimmermann",
         **bound_kwargs: Any,
     ) -> int | float:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
@@ -3076,19 +3112,24 @@ class CSSCode(QuditCode):
                 randomized upper bounds; see help(get_distance_bound).
             use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
                 optional ``numba`` dependency and cannot be combined with ``bound``.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
+                ``"brute_force"`` retains exhaustive enumeration.  A non-default method cannot be
+                combined with ``bound``.  Nonbinary calculations retain their existing exhaustive
+                implementation.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
         _validate_numba_usage(use_numba, bound=bound)
+        _validate_distance_method_usage(method, bound=bound)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
                     stacklevel=2,
                 )
-            return self.get_distance_exact(pauli, use_numba=use_numba)
+            return self.get_distance_exact(pauli, use_numba=use_numba, method=method)
         return self.get_distance_bound(num_trials=int(bound), pauli=pauli, **bound_kwargs)
 
     def get_distance_exact(
@@ -3097,8 +3138,9 @@ class CSSCode(QuditCode):
         *,
         cutoff: int = 1,
         use_numba: bool = False,
+        method: DistanceMethod = "brouwer_zimmermann",
     ) -> int | float:
-        """Compute the minimum weight of nontrivial logical operators by brute force.
+        """Compute the exact minimum weight of nontrivial logical operators.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3108,10 +3150,14 @@ class CSSCode(QuditCode):
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
             use_numba: Use numba to accelerate exact binary distance calculations.  Requires the
                 optional ``numba`` dependency.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
+                ``"brute_force"`` retains exhaustive enumeration.  Nonbinary calculations retain
+                their existing exhaustive implementation.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
+        validate_distance_method(method)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
@@ -3126,8 +3172,8 @@ class CSSCode(QuditCode):
 
         if pauli is None:
             return min(
-                self.get_distance_exact(Pauli.X, cutoff=cutoff, use_numba=use_numba),
-                self.get_distance_exact(Pauli.Z, cutoff=cutoff, use_numba=use_numba),
+                self.get_distance_exact(Pauli.X, cutoff=cutoff, use_numba=use_numba, method=method),
+                self.get_distance_exact(Pauli.Z, cutoff=cutoff, use_numba=use_numba, method=method),
             )
 
         # we do not know the exact distance, so compute it
@@ -3143,6 +3189,7 @@ class CSSCode(QuditCode):
                 cutoff=cutoff,
                 homogeneous=True,
                 use_numba=use_numba,
+                method=method,
             )
 
         else:
@@ -3783,3 +3830,14 @@ def _validate_numba_usage(
         raise ValueError("use_numba is only available for exact distance calculations")
     if use_numba and not supported:
         raise ValueError("use_numba is only available for binary code-distance calculations")
+
+
+def _validate_distance_method_usage(
+    method: DistanceMethod,
+    *,
+    bound: int | bool | None = None,
+) -> None:
+    """Validate exact-distance method selection at the high-level API."""
+    validate_distance_method(method)
+    if bound and method != "brouwer_zimmermann":
+        raise ValueError("method is only available for exact distance calculations")

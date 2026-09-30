@@ -63,6 +63,12 @@ GAP integration on Windows remains limited; see [issue #294](https://github.com/
 
 #### Exact-distance acceleration
 
+Exact binary distance calculations use the Brouwer--Zimmermann algorithm by default. It constructs
+several information-set bases and stops once its lower bound meets the lightest codeword found. The
+calculation remains exponential in the worst case, but is substantially faster than exhaustive
+enumeration for many codes with distance small relative to their dimension. Select the historical
+enumerator explicitly with `code.get_distance_exact(method="brute_force")`.
+
 Install optional numba acceleration for exact distance calculations with:
 
 ```bash

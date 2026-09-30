@@ -485,6 +485,12 @@ def test_distance_qudit() -> None:
     ):
         assert code.get_distance(bound=True) == -1
 
+    # generic subsystem codes use gauge equivalence with both exact binary methods
+    subsystem_code = codes.QuditCode(codes.BaconShorCode(3).matrix, is_subsystem_code=True)
+    for method in ("brouwer_zimmermann", "brute_force"):
+        subsystem_code.forget_distance()
+        assert subsystem_code.get_distance_exact(method=method) == 3
+
     # the distance of dimension-0 codes is undefined
     assert np.isnan(codes.QuditCode([[0, 1]]).get_distance())
 
@@ -509,7 +515,18 @@ def test_numba_code_distance_api() -> None:
             classical_code.forget_distance()
             classical_kernel.reset_mock()
             assert classical_distance(use_numba=True) == 3
-            assert classical_kernel.call_args.kwargs == {"cutoff": 1, "use_numba": True}
+            assert classical_kernel.call_args.kwargs == {
+                "cutoff": 1,
+                "method": "brouwer_zimmermann",
+                "use_numba": True,
+            }
+        classical_code.forget_distance()
+        assert classical_code.get_distance_exact(method="brute_force") == 3
+        assert classical_kernel.call_args.kwargs == {
+            "cutoff": 1,
+            "method": "brute_force",
+            "use_numba": False,
+        }
 
     quantum_code = codes.QuditCode(codes.FiveQubitCode().matrix)
     with unittest.mock.patch(
@@ -525,6 +542,7 @@ def test_numba_code_distance_api() -> None:
             assert quantum_kernel.call_args.kwargs == {
                 "cutoff": 1,
                 "homogeneous": False,
+                "method": "brouwer_zimmermann",
                 "use_numba": True,
             }
 
@@ -542,11 +560,14 @@ def test_numba_code_distance_api() -> None:
             assert css_kernel.call_args.kwargs == {
                 "cutoff": 1,
                 "homogeneous": True,
+                "method": "brouwer_zimmermann",
                 "use_numba": True,
             }
 
     with pytest.raises(ValueError, match="only available for exact distance"):
         classical_code.get_distance(bound=True, use_numba=True)
+    with pytest.raises(ValueError, match="only available for exact distance"):
+        classical_code.get_distance(bound=True, method="brute_force")
     ternary_code = codes.RepetitionCode(3, field=3)
     ternary_code.forget_distance()
     with pytest.raises(ValueError, match="only available for binary code-distance"):
