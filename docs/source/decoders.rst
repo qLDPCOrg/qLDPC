@@ -100,11 +100,15 @@ arguments each accept either kind of decoder:
   code-capacity detector error model whose detectors are the stabilizers (or parity checks) of the
   code and whose observables are its logical operators (or, for a classical code, its bits). A
   shared Sinter-style decoder is compiled separately for each CSS sector. Stim detector error models
-  are binary, so such a decoder is rejected for a code over another field.
+  are binary, so such a decoder is rejected for a code over another field. A callable explicitly
+  annotated to return an observable decoder is treated as an observable-decoder constructor and is
+  built from the same detector error model.
 * A prebuilt observable decoder, such as an
   :class:`decoders.ObservableLookupDecoder <qldpc.decoders.lookup.ObservableLookupDecoder>` built with
   the stabilizers and logical operators of a CSS sector, predicts logical flips directly, over any
-  field.
+  field. Detector, observable, and field metadata is validated when a decoder exposes it. Built-in
+  observable decoders expose this metadata; a raw precompiled decoder that only provides Sinter's
+  bit-packed interface must do so as well.
 
 The two kinds can be mixed across CSS sectors:
 

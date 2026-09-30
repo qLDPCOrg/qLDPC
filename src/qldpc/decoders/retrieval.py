@@ -196,14 +196,20 @@ def is_prebuilt_decoder(decoder: object) -> bool:
     """Whether a decoder input is an already-built decoder, rather than settings or a constructor.
 
     A decoder input is prebuilt if it is not a DecoderSpec or a class, and it has a decode_errors,
-    decode, or decode_observables method.  Methods that consume decoder inputs interpret them in the
-    same way.
+    decode, decode_observables, or decode_shots_bit_packed method.  Methods that consume decoder
+    inputs interpret them in the same way.
     """
     return (
         decoder is not None
         and not isinstance(decoder, (DecoderSpec, type))
         and any(
-            hasattr(decoder, method) for method in ("decode_errors", "decode", "decode_observables")
+            hasattr(decoder, method)
+            for method in (
+                "decode_errors",
+                "decode",
+                "decode_observables",
+                "decode_shots_bit_packed",
+            )
         )
     )
 

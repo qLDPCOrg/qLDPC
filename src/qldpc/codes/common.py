@@ -871,7 +871,7 @@ class ClassicalCode(AbstractCode):
         max_error_rate: float = 0.1,
         *,
         min_error_weight: int = 1,
-        decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoder = None,
+        decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -906,12 +906,14 @@ class ClassicalCode(AbstractCode):
           check matrix of this code.  If decoder is None, the default decoder is chosen by
           qldpc.decoders.get_error_decoder.  An error decoder infers an error from its syndrome,
           and decoding fails if that error differs from the sampled error.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``,
-          which is compiled for a detector error model whose detectors are the parity checks of
-          this code and whose observables are its bits.  Stim detector error models are binary, so
-          such a decoder is rejected for a code over another field.
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
+          observable-decoder constructor with an observable return annotation.  It is built for a
+          detector error model whose detectors are the parity checks of this code and whose
+          observables are its bits.  Stim detector error models are binary, so such a decoder is
+          rejected for a code over another field.
         - An observable decoder prebuilt to predict the bits of an error from its syndrome, such as
           an ObservableLookupDecoder built with ``observable_flip_matrix=code.field.Identity(n)``.
+          Its detector and observable dimensions are checked when the decoder exposes them.
 
         Any remaining keyword arguments are deprecated decoder-selection and construction arguments
         for qldpc.decoders.get_decoder.
@@ -946,7 +948,7 @@ class ClassicalCode(AbstractCode):
         budget reached, and ``F_k = 0`` is assumed above that.
         """
         code_capacity_decoder = get_code_capacity_decoder(
-            self.matrix, self.field.Identity(len(self)), decoder, decoder_kwargs
+            self.matrix, None, decoder, decoder_kwargs
         )
 
         # sample errors of fixed weight and record failure/discard counts
@@ -2337,7 +2339,11 @@ class QuditCode(AbstractCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
-        decoder: decoders.DeferredErrorDecoderInput | decoders.SinterDecoder = None,
+        decoder: (
+            decoders.DeferredErrorDecoderInput
+            | decoders.ObservableDecoderConstructor
+            | decoders.SinterDecoder
+        ) = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -2365,11 +2371,12 @@ class QuditCode(AbstractCode):
           chosen by qldpc.decoders.get_error_decoder.  An error decoder infers a symplectic error
           from its syndrome, and decoding fails if that error and the sampled error have different
           logical actions.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``,
-          which is compiled for a detector error model whose detectors are the stabilizer generators
-          of the code, whose observables are its logical operators, and whose error mechanisms are
-          the single-qubit X, Y, and Z errors.  Stim detector error models are binary, so such a
-          decoder is rejected for a code over another field.
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
+          observable-decoder constructor with an observable return annotation.  It is built for a
+          detector error model whose detectors are the stabilizer generators of the code, whose
+          observables are its logical operators, and whose error mechanisms are the single-qubit X,
+          Y, and Z errors.  Stim detector error models are binary, so such a decoder is rejected for
+          a code over another field.
 
         Either kind of decoder decodes syndromes of an internal syndrome matrix, so a prebuilt
         decoder is rejected.  Any remaining keyword arguments are deprecated decoder-selection and
@@ -2405,19 +2412,20 @@ class QuditCode(AbstractCode):
         syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
         observable_matrix = -math.symplectic_conjugate(self.get_logical_ops())
 
-        # the error mechanisms of a detector error model for a Sinter-style decoder are single-qudit
-        # X, Z, and Y errors, so that a Y error has the weight of one error mechanism
-        identity = self.field.Identity(len(self))
-        zeros = self.field.Zeros((len(self), len(self)))
-        dem_errors = np.vstack(
-            [np.hstack([identity, zeros, identity]), np.hstack([zeros, identity, identity])]
-        ).view(self.field)
+        # A detector error model uses single-qudit X, Z, and Y error mechanisms.  Their fixed
+        # relative probabilities match the requested bias; their overall placeholder scale is
+        # independent of the physical rates at which the returned estimator is evaluated.
+        dem_error_weights = None
+        if pauli_bias_zxy is not None:
+            weights_xzy = 3 * pauli_bias_zxy[[1, 0, 2]]
+            dem_error_weights = np.repeat(weights_xzy, len(self))
         code_capacity_decoder = get_code_capacity_decoder(
             syndrome_matrix,
             observable_matrix,
             decoder,
             decoder_kwargs,
-            dem_errors=dem_errors,
+            symplectic_dem_errors=True,
+            dem_error_weights=dem_error_weights,
             prebuilt_rejection_reason=_QUDIT_SYNDROME_MATRIX_REASON,
         )
 
@@ -3818,9 +3826,9 @@ class CSSCode(QuditCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
-        decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoder = None,
-        decoder_x: decoders.ErrorDecoderInput | decoders.ObservableDecoder = None,
-        decoder_z: decoders.ErrorDecoderInput | decoders.ObservableDecoder = None,
+        decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
+        decoder_x: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
+        decoder_z: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
@@ -3858,13 +3866,15 @@ class CSSCode(QuditCode):
           decoder from a parity check matrix, or an error decoder prebuilt for the stabilizer
           matrix of its sector.  An error decoder infers an error, whose products with the logical
           operators of the sector are its prediction.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``,
-          which is compiled for a detector error model whose detectors are the stabilizers of its
-          sector and whose observables are the logical operators of its sector.  Stim detector
-          error models are binary, so such a decoder is rejected for a code over another field.
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
+          observable-decoder constructor with an observable return annotation.  It is built for a
+          detector error model whose detectors are the stabilizers of its sector and whose
+          observables are the logical operators of its sector.  Stim detector error models are
+          binary, so such a decoder is rejected for a code over another field.
         - An observable decoder prebuilt to predict the logical flips of its sector from syndromes
           of its sector, such as an ObservableLookupDecoder built with the stabilizer matrix of its
-          sector and ``observable_flip_matrix`` set to the logical operators of its sector.
+          sector and ``observable_flip_matrix`` set to the logical operators of its sector.  It must
+          have detector and observable dimensions compatible with the sector.
 
         If ``decoder_x`` or ``decoder_z`` is None, the corresponding sector is decoded as
         configured by the shared ``decoder`` argument.  A shared Sinter-style decoder is compiled

@@ -397,6 +397,14 @@ def test_classical_capacity_with_observable_decoders() -> None:
     )
     with pytest.raises(ValueError, match="has num_observables=1"):
         codes.RepetitionCode(3).get_logical_error_rate_func(1, decoder=compiled_decoder)
+    wrong_syndrome_lookup = decoders.ObservableLookupDecoder(
+        code.field([[1, 1, 0]]),
+        max_weight=1,
+        observable_flip_matrix=code.field.Identity(3),
+        error_channel=[0.1] * 3,
+    )
+    with pytest.raises(ValueError, match="has num_detectors=1"):
+        codes.RepetitionCode(3).get_logical_error_rate_func(1, decoder=wrong_syndrome_lookup)
 
     # randomized distance bounds still require error decoders
     vector = np.zeros(num_bits, dtype=int)
@@ -1750,7 +1758,10 @@ def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPat
     # prebuilt decoders, of either kind, are rejected
     compiled_decoder = decoder.compile_decoder_for_dem(stim.DetectorErrorModel())
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
-        code_as_qudit_code.get_logical_error_rate_func(0, decoder=compiled_decoder)  # type:ignore
+        code_as_qudit_code.get_logical_error_rate_func(
+            0,
+            decoder=compiled_decoder,  # type: ignore[arg-type]
+        )
 
     # Sinter-style decoders cannot decode nonbinary codes
     nonbinary_code = codes.QuditCode(codes.ToricCode(4, field=3).matrix)
@@ -1760,8 +1771,10 @@ def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPat
     # the observables of a qudit code are the symplectic products of an error with the logical
     # operators of the code, which carry signs over an odd-characteristic field
     captured_decoders: list[monte_carlo.CodeCapacityDecoder] = []
+    captured_decoder_kwargs: list[dict[str, Any]] = []
 
     def get_code_capacity_decoder(*args: Any, **kwargs: Any) -> monte_carlo.CodeCapacityDecoder:
+        captured_decoder_kwargs.append(kwargs)
         captured_decoders.append(monte_carlo.get_code_capacity_decoder(*args, **kwargs))
         return captured_decoders[-1]
 
@@ -1779,6 +1792,20 @@ def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPat
             decoder_for_code.syndrome_matrix @ error,
             nonbinary_code.get_stabilizer_ops() @ math.symplectic_conjugate(error),
         )
+
+    # Sinter compilation uses direct single-Pauli effects and preserves the caller's Pauli bias
+    code_as_qudit_code.get_logical_error_rate_func(
+        0,
+        pauli_bias=(0.2, 0.3, 0.5),
+        decoder=decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1)),
+    )
+    decoder_kwargs = captured_decoder_kwargs[-1]
+    assert decoder_kwargs["symplectic_dem_errors"] is True
+    assert "dem_errors" not in decoder_kwargs
+    assert np.allclose(
+        decoder_kwargs["dem_error_weights"],
+        np.repeat([0.6, 1.5, 0.9], len(code_as_qudit_code)),
+    )
 
 
 def test_css_capacity_with_observable_decoders() -> None:
@@ -1822,12 +1849,25 @@ def test_css_capacity_with_observable_decoders() -> None:
         observable_flip_matrix=code.get_logical_ops(Pauli.X),
         error_channel=[0.1] * len(code),
     )
+    kwargs["pauli_bias"] = (0, 1, 0)
     failures, _ = _get_capacity_counts(code, decoder_x=decoder_x, decoder_z=decoder_z, **kwargs)
     assert failures[1] == 0
 
     # but not shared by sectors with different stabilizers
     with pytest.raises(ValueError, match="stabilizer matrices differ"):
         code.get_logical_error_rate_func(0, decoder=decoder_x)
+
+    class _ExternalCompiledDecoder:
+        def decode_shots_bit_packed(
+            self, *, bit_packed_detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            raise AssertionError("shared compiled decoder should be rejected")  # pragma: no cover
+
+    with pytest.raises(ValueError, match="stabilizer matrices differ"):
+        code.get_logical_error_rate_func(
+            0,
+            decoder=_ExternalCompiledDecoder(),  # type: ignore[arg-type]
+        )
 
     # or logical operators
     steane_code = codes.SteaneCode()

@@ -470,9 +470,20 @@ def test_error_rate_func_single_weight() -> None:
 class _FixedObservableDecoder(decoders.ObservableDecoder):
     """Observable decoder that returns a fixed output, and records the syndromes it decodes."""
 
-    def __init__(self, output: npt.ArrayLike, has_erasure_bit: bool = False) -> None:
+    def __init__(
+        self,
+        output: npt.ArrayLike,
+        has_erasure_bit: bool = False,
+        *,
+        num_detectors: int = 1,
+        num_observables: int | None = None,
+    ) -> None:
         self.output = np.asarray(output)
         self.has_erasure_bit = has_erasure_bit
+        self.num_detectors = num_detectors
+        self.num_observables = (
+            len(self.output) - int(has_erasure_bit) if num_observables is None else num_observables
+        )
         self.syndromes: list[npt.NDArray[np.int_]] = []
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
@@ -540,6 +551,30 @@ def test_get_code_capacity_dem() -> None:
         dem_arrays.observable_flip_matrix.toarray(), observable_matrix @ dem_errors
     )
 
+    # symplectic X, Z, and Y mechanisms are constructed directly, with caller-supplied probabilities
+    syndrome_matrix = galois.GF2([[1, 0, 0, 1]])
+    observable_matrix = galois.GF2([[0, 1, 1, 0]])
+    error_probs = np.arange(1, 7) / 100
+    dem = monte_carlo.get_code_capacity_dem(
+        syndrome_matrix,
+        observable_matrix,
+        symplectic_errors=True,
+        error_probs=error_probs,
+    )
+    dem_arrays = decoders.DetectorErrorModelArrays(dem, simplify=False)
+    assert np.array_equal(dem_arrays.detector_flip_matrix.toarray(), [[1, 0, 0, 1, 1, 1]])
+    assert np.array_equal(dem_arrays.observable_flip_matrix.toarray(), [[0, 1, 1, 0, 1, 1]])
+    assert np.array_equal(dem_arrays.error_probs, error_probs)
+    with pytest.raises(ValueError, match="requires an observable_matrix"):
+        monte_carlo.get_code_capacity_dem(syndrome_matrix, None, symplectic_errors=True)
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        monte_carlo.get_code_capacity_dem(
+            syndrome_matrix,
+            observable_matrix,
+            galois.GF2.Identity(4),
+            symplectic_errors=True,
+        )
+
     # Stim detector error models are binary
     field = galois.GF(3)
     with pytest.raises(ValueError, match="cannot decode a code over GF"):
@@ -597,6 +632,14 @@ def test_code_capacity_decoder_from_error_decoder() -> None:
     assert isinstance(decoder.decoder, monte_carlo._ErrorsToFieldObservablesDecoder)
     assert isinstance(decoder.decoder.error_decoder, decoders.LookupDecoder)
 
+    # None represents an identity observable map without materializing a dense identity matrix
+    decoder = monte_carlo.get_code_capacity_decoder(
+        syndrome_matrix, None, _FixedErrorDecoder([2, 1, 0])
+    )
+    assert decoder.observable_matrix is None and decoder.num_observables == 3
+    assert decoder.reuse_for(syndrome_matrix, None) is decoder
+    assert decoder.get_failure_and_erasure(field([2, 1, 0])) == (False, False)
+
 
 def test_code_capacity_decoder_from_observable_decoder() -> None:
     """A prebuilt observable decoder is used as is, and its predictions are validated."""
@@ -628,7 +671,9 @@ def test_code_capacity_decoder_from_observable_decoder() -> None:
         ([0, 5], "not elements of GF"),
     ]:
         decoder = monte_carlo.get_code_capacity_decoder(
-            syndrome_matrix, observable_matrix, _FixedObservableDecoder(output)
+            syndrome_matrix,
+            observable_matrix,
+            _FixedObservableDecoder(output, num_observables=2),
         )
         with pytest.raises(ValueError, match=message):
             decoder.decode(field([0]))
@@ -642,6 +687,30 @@ def test_code_capacity_decoder_from_observable_decoder() -> None:
         syndrome_matrix, observable_matrix, _BothDecoder([1, 0, 1])
     )
     assert isinstance(decoder.decoder, monte_carlo._ErrorsToFieldObservablesDecoder)
+    assert decoder.get_failure_and_erasure(error) == (False, False)
+
+    # an object with both decode and decode_observables keeps its legacy error-decoder semantics
+    class _DecodeOnlyBoth:
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.array([1, 0, 1])
+
+        def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            raise AssertionError("decode_observables should not be called")  # pragma: no cover
+
+    decoder = monte_carlo.get_code_capacity_decoder(
+        syndrome_matrix, observable_matrix, _DecodeOnlyBoth()
+    )
+    assert isinstance(decoder.decoder, monte_carlo._ErrorsToFieldObservablesDecoder)
+    assert decoder.get_failure_and_erasure(error) == (False, False)
+
+    # the ObservableDecoder protocol does not require optional dimension metadata
+    class _NoDimensions:
+        def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.array([2, 1])
+
+    decoder = monte_carlo.get_code_capacity_decoder(
+        syndrome_matrix, observable_matrix, _NoDimensions()
+    )
     assert decoder.get_failure_and_erasure(error) == (False, False)
 
     # prebuilt observable decoders are rejected where a caller asks for that
@@ -719,11 +788,66 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
             code.field.Zeros((3, 3)), observable_matrix, compiled_decoder
         )
 
+    # a typed observable constructor is built from the code-capacity detector error model
+    def observable_constructor(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+
+    decoder = monte_carlo.get_code_capacity_decoder(
+        code.matrix, observable_matrix, observable_constructor
+    )
+    assert decoder.get_failure_and_erasure(code.field([1, 0, 0])) == (False, False)
+
+    # relative mechanism weights are scaled by a fixed placeholder probability
+    weighted_sinter_decoder = _BitPackedSinterDecoder(np.zeros((1, 1), dtype=np.uint8))
+    monte_carlo.get_code_capacity_decoder(
+        code.matrix,
+        observable_matrix,
+        weighted_sinter_decoder,
+        dem_error_weights=np.array([1, 2, 3]),
+    )
+    weighted_dem_arrays = decoders.DetectorErrorModelArrays(
+        weighted_sinter_decoder.dems[0], simplify=False
+    )
+    assert np.array_equal(
+        weighted_dem_arrays.error_probs / weighted_dem_arrays.error_probs[0], [1, 2, 3]
+    )
+
+    # external compiled Sinter decoders are recognized as prebuilt
+    external_compiled = _BitPackedCompiledDecoder(np.zeros((1, 1), dtype=np.uint8))
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
+        monte_carlo.get_code_capacity_decoder(
+            code.matrix,
+            observable_matrix,
+            external_compiled,
+            prebuilt_rejection_reason="it is a test",
+        )
+
     # a Sinter-style decoder cannot decode a nonbinary code
     field = galois.GF(3)
     with pytest.raises(ValueError, match="cannot decode a code over GF"):
         monte_carlo.get_code_capacity_decoder(
             field(code.matrix), field(observable_matrix), decoders.TrivialDecoder()
+        )
+    with pytest.raises(ValueError, match="is binary, so it cannot decode a code over GF"):
+        monte_carlo.get_code_capacity_decoder(
+            field(code.matrix), field(observable_matrix), compiled_decoder
+        )
+    with pytest.raises(ValueError, match="is binary, so it cannot decode a code over GF"):
+        monte_carlo.get_code_capacity_decoder(
+            field(code.matrix),
+            field(observable_matrix),
+            _BitPackedCompiledDecoder(np.zeros((1, 1), dtype=np.uint8)),
+        )
+
+    binary_lookup = decoders.ObservableLookupDecoder(
+        code.matrix,
+        max_weight=1,
+        observable_flip_matrix=observable_matrix,
+        error_channel=[0.1] * len(code),
+    )
+    with pytest.raises(ValueError, match=r"built over GF\(2\).+sector is over GF\(3\)"):
+        monte_carlo.get_code_capacity_decoder(
+            field(code.matrix), field(observable_matrix), binary_lookup
         )
 
 
@@ -732,6 +856,14 @@ def test_code_capacity_decoder_from_bit_packed_sinter_decoder() -> None:
     syndrome_matrix = galois.GF2(np.eye(9, dtype=int))
     observable_matrix = galois.GF2(np.eye(9, dtype=int))
     error = galois.GF2([1, 0, 0, 0, 0, 0, 0, 0, 1])
+
+    # a raw precompiled decoder needs dimension metadata before it can be used directly
+    with pytest.raises(ValueError, match="does not declare num_detectors"):
+        monte_carlo.get_code_capacity_decoder(
+            syndrome_matrix,
+            observable_matrix,
+            _BitPackedCompiledDecoder(np.array([[1, 1]], dtype=np.uint8)),
+        )
 
     # nine observables take two bytes, so the prediction [1, 0, ..., 0, 1] is packed as [1, 1]
     sinter_decoder = _BitPackedSinterDecoder(np.array([[1, 1]], dtype=np.uint8))
@@ -785,6 +917,7 @@ def test_code_capacity_decoder_reuse() -> None:
     reused_decoder = decoder.reuse_for(syndrome_matrix, observables_b)
     assert reused_decoder is not None
     assert reused_decoder.decoder.error_decoder is decoder.decoder.error_decoder  # type:ignore
+    assert reused_decoder.observable_matrix is not None
     assert np.array_equal(reused_decoder.observable_matrix, observables_b)
 
     # an observable decoder is not
@@ -808,3 +941,11 @@ def test_is_prebuilt_observable_decoder() -> None:
     assert not monte_carlo.is_prebuilt_observable_decoder(decoders.relay_bp().build(matrix))
     assert monte_carlo.compiles_for_dem(decoders.TrivialDecoder())
     assert not monte_carlo.compiles_for_dem(decoders.TrivialDecoder)
+
+    class _UnannotatedConstructor:
+        def __call__(self, dem: stim.DetectorErrorModel) -> Any:
+            return None  # pragma: no cover
+
+    assert monte_carlo.constructs_observable_decoder(_FixedObservableDecoder)
+    assert not monte_carlo.constructs_observable_decoder(lambda matrix: None)
+    assert not monte_carlo.constructs_observable_decoder(_UnannotatedConstructor())

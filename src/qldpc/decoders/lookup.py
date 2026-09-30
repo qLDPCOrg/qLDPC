@@ -83,6 +83,7 @@ class _LookupDecoderBase:
         # observable flips, which it does with the deprecated predict_observable_flips=True
         self.predict_observable_flips = predict_observable_flips
         self.decode_returns_observables = predict_observable_flips
+        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -129,6 +130,21 @@ class _LookupDecoderBase:
             elif (error_weight := penalty_func(error)) <= error_penalty.get(syndrome, np.inf):
                 error_penalty[syndrome] = error_weight
                 self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(error)
+
+    def _save_interface_metadata(
+        self,
+        pcm: IntegerArray,
+        observable_flip_matrix: IntegerArray | None,
+        predict_observable_flips: bool,
+    ) -> None:
+        """Record dimensions and the field so prebuilt-decoder compatibility can be checked."""
+        self.num_detectors = pcm.shape[0]
+        self.num_observables = (
+            observable_flip_matrix.shape[0]
+            if predict_observable_flips and observable_flip_matrix is not None
+            else 0
+        )
+        self.field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
 
     def _build_syndrome_map_from_observable_flips(
         self,
@@ -674,6 +690,7 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
         # observable flips, which it does with the deprecated predict_observable_flips=True
         self.predict_observable_flips = predict_observable_flips
         self.decode_returns_observables = predict_observable_flips
+        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
