@@ -476,9 +476,9 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` retains exhaustive enumeration.  A non-default method cannot be
-                combined with ``bound``.  Nonbinary and vector-distance calculations retain their
-                existing exhaustive implementations.
+                ``"brute_force"`` enumerates every nonzero code word.  A non-default method cannot
+                be combined with ``bound``.  Nonbinary and vector-distance calculations always use
+                exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -508,8 +508,8 @@ class ClassicalCode(AbstractCode):
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` retains exhaustive enumeration.  Nonbinary and vector-distance
-                calculations retain their existing exhaustive implementations.
+                ``"brute_force"`` enumerates every nonzero code word.  Nonbinary and vector-distance
+                calculations always use exhaustive enumeration.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -1872,9 +1872,9 @@ class QuditCode(AbstractCode):
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` retains exhaustive enumeration.  A non-default method cannot be
-                combined with ``bound``.  Nonbinary calculations retain their existing exhaustive
-                implementation.
+                ``"brute_force"`` enumerates every nontrivial logical operator.  A non-default
+                method cannot be combined with ``bound``.  Nonbinary calculations always use
+                exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -1901,8 +1901,8 @@ class QuditCode(AbstractCode):
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` retains exhaustive enumeration.  Nonbinary calculations retain
-                their existing exhaustive implementation.
+                ``"brute_force"`` enumerates every nontrivial logical operator.  Nonbinary
+                calculations always use exhaustive enumeration.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -3087,9 +3087,9 @@ class CSSCode(QuditCode):
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` retains exhaustive enumeration.  A non-default method cannot be
-                combined with ``bound``.  Nonbinary calculations retain their existing exhaustive
-                implementation.
+                ``"brute_force"`` enumerates every nontrivial logical operator.  A non-default
+                method cannot be combined with ``bound``.  Nonbinary calculations always use
+                exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -3121,8 +3121,8 @@ class CSSCode(QuditCode):
                 default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` retains exhaustive enumeration.  Nonbinary calculations retain
-                their existing exhaustive implementation.
+                ``"brute_force"`` enumerates every nontrivial logical operator.  Nonbinary
+                calculations always use exhaustive enumeration.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.

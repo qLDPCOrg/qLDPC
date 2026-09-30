@@ -68,10 +68,10 @@ Exact distances
 
 Binary exact-distance calculations use Brouwer--Zimmermann enumeration by default. The implementation
 searches fixed-weight combinations in disjoint information-set bases and stops when the resulting
-lower bound meets the best codeword weight found. Pass ``method="brute_force"`` to retain exhaustive
-enumeration over every generator combination. Both methods support the same ``cutoff`` convention:
-return as soon as an observed upper bound is at most the cutoff. The default cutoff of one therefore
-remains exact for valid codes.
+lower bound meets the best codeword weight found. Pass ``method="brute_force"`` to enumerate every
+generator combination instead. Both methods support the same ``cutoff`` convention: return as soon
+as an observed upper bound is at most the cutoff. The default cutoff of one is therefore exact for
+valid codes.
 
 For a classical code the search minimizes over nonzero codewords. For a CSS code it searches the X
 and Z logical sectors separately, excluding the corresponding stabilizer row space. For a general

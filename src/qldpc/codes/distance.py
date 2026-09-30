@@ -134,8 +134,8 @@ def get_distance_quantum(
             have mixed (X, Y, or Z) support on different qubits.
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) uses an
             exclusion-aware search over the logical space modulo stabilizers.  ``"brute_force"``
-            enumerates every stabilizer and nonzero logical combination, and retains the historical
-            requirement that those input rows be independent.
+            enumerates every stabilizer and nonzero logical combination, and requires those input
+            rows to be linearly independent.
 
     Returns:
         The exact minimum weight of a nontrivial logical operator in ``logical_ops`` modulo
@@ -170,8 +170,8 @@ def get_distance_quantum(
             raise ValueError("Symplectic operators must have an even number of columns")
 
         # For small searches, exhaustive vectorized enumeration is cheaper than building BZ's
-        # quotient basis and information sets.  The inputs must already have the independent-row
-        # structure required by the historical enumerator.
+        # quotient basis and information sets.  This shortcut applies only when the input rows are
+        # linearly independent, as exhaustive enumeration requires.
         if len(logical_matrix) + len(stabilizer_matrix) <= 20:
             combined_rank = len(
                 _get_independent_rows(np.vstack([stabilizer_matrix, logical_matrix]))
