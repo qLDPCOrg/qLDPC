@@ -500,6 +500,24 @@ def test_distance_qudit() -> None:
         assert code.get_distance_exact() == 2
 
 
+def test_exact_code_distance_method_api() -> None:
+    """High-level exact-distance methods forward the selected binary method."""
+    classical_code = codes.ClassicalCode(codes.RepetitionCode(3).matrix)
+    qudit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
+    css_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
+    for kernel, get_distance in (
+        ("get_distance_classical", lambda: classical_code.get_distance(method="brute_force")),
+        ("get_distance_quantum", lambda: qudit_code.get_distance(method="brute_force")),
+        ("get_distance_quantum", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
+    ):
+        with unittest.mock.patch(f"qldpc.codes.common.{kernel}", return_value=3) as mock_kernel:
+            assert get_distance() == 3
+        assert mock_kernel.call_args.kwargs["method"] == "brute_force"
+
+    with pytest.raises(ValueError, match="Unknown distance method"):
+        classical_code.get_distance(bound=True, method="other")  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize("field", [2, 3])
 def test_conversions_quantum(field: int, bits: int = 5, checks: int = 3) -> None:
     """Conversions between matrix and graph representations of a code."""

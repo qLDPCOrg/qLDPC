@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import itertools
+import math
+from collections.abc import Callable, Iterator
 from typing import Literal
 
 import numpy as np
@@ -16,6 +18,7 @@ _MASK0F = np.uint64(0x0F0F0F0F0F0F0F0F)
 _MASK01 = np.uint64(0x0101010101010101)
 
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
+DistanceMethod = Literal["brouwer_zimmermann", "brute_force"]
 
 
 def validate_distance_backend(backend: DistanceBackend) -> None:
@@ -27,8 +30,17 @@ def validate_distance_backend(backend: DistanceBackend) -> None:
         )
 
 
+def validate_distance_method(method: DistanceMethod) -> None:
+    """Validate an exact-distance method selector."""
+    if method not in ("brouwer_zimmermann", "brute_force"):
+        raise ValueError(
+            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' or "
+            "'brute_force'."
+        )
+
+
 ####################################################################################################
-# exact distance via brute-force enumeration over logical-op and stabilizer combinations
+# exact binary distance
 
 
 def _assert_binary(vectors: npt.ArrayLike, name: str) -> None:
@@ -57,29 +69,45 @@ def get_distance_classical(
     *,
     cutoff: int = 1,
     block_size: int = 15,
+    method: DistanceMethod = "brouwer_zimmermann",
 ) -> int:
     """Distance of a classical linear binary code.
 
     Args:
         generators: The generator matrix of the classical code whose distance we want to compute.
-            Its rows must be linearly independent; otherwise a nonzero combination of rows can be
-            the zero vector, and the returned value is not a true distance (in exact mode,
-            ``cutoff=0``, it is ``0``).
+            Brouwer-Zimmermann mode reduces redundant rows to an independent basis.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Vectorize distance calculations over batches of size ``2**block_size``.
+        method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) enumerates
+            fixed-weight combinations in several information-set bases and stops once its lower
+            and upper bounds meet.  ``"brute_force"`` enumerates every nonzero codeword.
 
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
         Hamming weight of a nontrivial code word.
     """
+    validate_distance_method(method)
+    _assert_binary(generators, "generators")
+    if method == "brouwer_zimmermann":
+        matrix = _as_binary_matrix(generators)
+        basis = _get_independent_rows(matrix)
+        if not len(basis):
+            return matrix.shape[1]
+        return _get_distance_brouwer_zimmermann(
+            basis,
+            labels=None,
+            cutoff=cutoff,
+            block_size=block_size,
+        )
 
-    # This calculation is exactly the same as in the quantum case, but with no stabilizers
+    # Classical brute force is the quantum calculation with no stabilizers.
     return get_distance_quantum(
         logical_ops=generators,
         stabilizers=[],
         cutoff=cutoff,
         block_size=block_size,
         homogeneous=True,
+        method=method,
     )
 
 
@@ -90,20 +118,24 @@ def get_distance_quantum(
     cutoff: int = 1,
     block_size: int = 15,
     homogeneous: bool = False,
+    method: DistanceMethod = "brouwer_zimmermann",
 ) -> int:
     """Distance of a binary quantum code.
 
     Args:
         logical_ops: A matrix whose rows represent logical operators of the code.  These rows must
-            be linearly independent modulo the stabilizers; otherwise a nonzero combination of
-            them can be a stabilizer (weight ``0`` modulo stabilizers), and the returned value is
-            not a true distance (in exact mode, ``cutoff=0``, it is ``0``).
+            span a complement of the stabilizers in the logical space.  Brouwer-Zimmermann mode
+            reduces redundant rows and excludes the stabilizer row space from candidate witnesses.
         stabilizers: A matrix whose rows represent stabilizers of the code.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Vectorize distance calculations over batches of size ``2**block_size``.
         homogeneous: If True, all Pauli strings (represented by rows of logical_ops and stabilizers)
             are assumed to have the same homogeneous (X or Z) type.  If False, Pauli strings may
             have mixed (X, Y, or Z) support on different qubits.
+        method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) uses an
+            exclusion-aware search over the logical space modulo stabilizers.  ``"brute_force"``
+            enumerates every stabilizer and nonzero logical combination, and requires those input
+            rows to be linearly independent.
 
     Returns:
         The exact minimum weight of a nontrivial logical operator in ``logical_ops`` modulo
@@ -126,8 +158,344 @@ def get_distance_quantum(
             qubits) with the first and second halves indicating the X and Z Pauli support; and
         (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
     """
+    validate_distance_method(method)
     _assert_binary(logical_ops, "logical_ops")
     _assert_binary(stabilizers, "stabilizers")
+    if method == "brouwer_zimmermann":
+        logical_matrix = _as_binary_matrix(logical_ops)
+        stabilizer_matrix = _as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
+        num_bits = logical_matrix.shape[1]
+        physical_size = num_bits if homogeneous else num_bits // 2
+        if not homogeneous and num_bits % 2:
+            raise ValueError("Symplectic operators must have an even number of columns")
+
+        # Exhaustive enumeration of the input rows avoids building the quotient basis and
+        # information sets, but requires the rows to be linearly independent.
+        num_rows = len(logical_matrix) + len(stabilizer_matrix)
+        if _exhaustive_is_cheaper(num_rows, num_bits) and num_rows == len(
+            _get_independent_rows(np.vstack([stabilizer_matrix, logical_matrix]))
+        ):
+            return _get_distance_quantum_brute_force(
+                logical_matrix,
+                stabilizer_matrix,
+                cutoff=cutoff,
+                block_size=block_size,
+                homogeneous=homogeneous,
+            )
+
+        basis, labels = _get_nested_code_basis(logical_matrix, stabilizer_matrix)
+        if labels.shape[1] == 0:
+            return 0 if len(logical_matrix) else physical_size
+
+        divisor = 1
+        if not homogeneous:
+            basis = _symplectic_to_hamming(basis)
+            divisor = 2
+
+        distance = _get_distance_brouwer_zimmermann(
+            basis,
+            labels,
+            cutoff=cutoff * divisor,
+            block_size=block_size,
+            weight_divisor=divisor,
+        )
+        return distance // divisor
+
+    return _get_distance_quantum_brute_force(
+        logical_ops,
+        stabilizers,
+        cutoff=cutoff,
+        block_size=block_size,
+        homogeneous=homogeneous,
+    )
+
+
+def _as_binary_matrix(
+    vectors: npt.ArrayLike, *, num_cols: int | None = None
+) -> npt.NDArray[np.uint8]:
+    """Convert a collection of binary rows to a two-dimensional uint8 array."""
+    matrix = np.asarray(vectors, dtype=np.uint8)
+    if matrix.size == 0:
+        if num_cols is None:
+            if matrix.ndim != 2:
+                raise ValueError("Cannot infer the width of an empty binary matrix")
+            num_cols = matrix.shape[1]
+        return np.empty((0, num_cols), dtype=np.uint8)
+    matrix = np.atleast_2d(matrix)
+    if matrix.ndim != 2:
+        raise ValueError("Binary generators must be a two-dimensional matrix")
+    if num_cols is not None and matrix.shape[1] != num_cols:
+        raise ValueError(
+            f"Binary matrices have incompatible widths {num_cols} and {matrix.shape[1]}"
+        )
+    return matrix
+
+
+def _row_reduce_binary(
+    matrix: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8] | None = None,
+    *,
+    columns: npt.NDArray[np.int_] | None = None,
+) -> tuple[
+    npt.NDArray[np.uint8],
+    npt.NDArray[np.uint8] | None,
+    npt.NDArray[np.int_],
+]:
+    """Row-reduce a binary matrix over selected columns, transforming labels in parallel."""
+    matrix = matrix.copy()
+    labels = None if labels is None else labels.copy()
+    columns = np.arange(matrix.shape[1], dtype=int) if columns is None else columns
+    pivots: list[int] = []
+    pivot_row = 0
+
+    for col in columns:
+        candidates = np.flatnonzero(matrix[pivot_row:, col])
+        if not len(candidates):
+            continue
+        source_row = pivot_row + int(candidates[0])
+        if source_row != pivot_row:
+            matrix[[pivot_row, source_row]] = matrix[[source_row, pivot_row]]
+            if labels is not None:
+                labels[[pivot_row, source_row]] = labels[[source_row, pivot_row]]
+
+        rows_to_clear = np.flatnonzero(matrix[:, col])
+        rows_to_clear = rows_to_clear[rows_to_clear != pivot_row]
+        matrix[rows_to_clear] ^= matrix[pivot_row]
+        if labels is not None:
+            labels[rows_to_clear] ^= labels[pivot_row]
+
+        pivots.append(int(col))
+        pivot_row += 1
+        if pivot_row == len(matrix):
+            break
+
+    return matrix, labels, np.asarray(pivots, dtype=int)
+
+
+def _get_independent_rows(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Return a row-reduced basis for the row space of a binary matrix."""
+    reduced, _, pivots = _row_reduce_binary(matrix)
+    return reduced[: len(pivots)]
+
+
+def _get_nested_code_basis(
+    logical_ops: npt.NDArray[np.uint8],
+    stabilizers: npt.NDArray[np.uint8],
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Build an adapted basis for ``span(stabilizers, logical_ops) / span(stabilizers)``."""
+    stabilizer_basis = _get_independent_rows(stabilizers)
+    stabilizer_pivots = [int(np.flatnonzero(row)[0]) for row in stabilizer_basis]
+    reduced_logical_ops = logical_ops.copy()
+    for row, pivot in zip(stabilizer_basis, stabilizer_pivots, strict=True):
+        reduced_logical_ops[reduced_logical_ops[:, pivot] == 1] ^= row
+
+    logical_quotient = _get_independent_rows(reduced_logical_ops)
+    basis = np.vstack([stabilizer_basis, logical_quotient]).astype(np.uint8, copy=False)
+    labels = np.zeros((len(basis), len(logical_quotient)), dtype=np.uint8)
+    labels[len(stabilizer_basis) :] = np.eye(len(logical_quotient), dtype=np.uint8)
+    return basis, labels
+
+
+def _get_information_set_generators(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8] | None,
+) -> list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8] | None, int]]:
+    """Construct disjoint full information sets and one residual-rank set."""
+    dimension, length = basis.shape
+    active_columns = np.arange(length, dtype=int)
+    working = basis
+    working_labels = labels
+    information_sets: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8] | None, int]] = []
+
+    while len(active_columns):
+        working, working_labels, pivots = _row_reduce_binary(
+            working, working_labels, columns=active_columns
+        )
+        rank = len(pivots)
+        if not rank:
+            break
+        information_sets.append((working, working_labels, rank))
+        if rank < dimension:
+            break
+
+        pivot_set = set(pivots)
+        active_columns = np.asarray(
+            [col for col in active_columns if col not in pivot_set and np.any(working[:, col])],
+            dtype=int,
+        )
+
+    return information_sets
+
+
+def _iter_fixed_weight_supports(
+    dimension: int, weight: int, batch_size: int
+) -> Iterator[npt.NDArray[np.int_]]:
+    """Yield batches of row-index combinations with a fixed Hamming weight."""
+    combinations = itertools.combinations(range(dimension), weight)
+    flattened = itertools.chain.from_iterable(combinations)
+    while True:
+        flat_batch = np.fromiter(
+            itertools.islice(flattened, batch_size * weight),
+            dtype=np.int_,
+        )
+        if not len(flat_batch):
+            return
+        yield flat_batch.reshape(-1, weight)
+
+
+def _get_packed_row_weights(
+    rows: npt.NDArray[np.uint64],
+    weight_func: Callable[..., npt.NDArray[np.uint64]],
+) -> npt.NDArray[np.uint64]:
+    """Compute Hamming weights of packed binary rows without narrow-integer overflow."""
+    word_weights = np.asarray(weight_func(rows), dtype=np.uint64)
+    return word_weights.sum(axis=-1, dtype=np.uint64)
+
+
+def _get_distance_brouwer_zimmermann(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8] | None,
+    *,
+    cutoff: int,
+    block_size: int,
+    weight_divisor: int = 1,
+) -> int:
+    """Compute an exact nested-code distance with the Brouwer-Zimmermann algorithm.
+
+    The information-set lower bound follows Algorithm 1 of
+    https://arxiv.org/abs/1603.06757.  Nonzero ``labels`` identify rows outside an excluded
+    subcode; transforming them alongside the generators makes the upper-bound search exact for
+    logical operators modulo stabilizers.
+    """
+    dimension = len(basis)
+    weight_func, _ = _get_hamming_weight_fn()
+    packed_basis = _rows_to_ints(basis, dtype=np.uint64)
+    eligible = np.ones(dimension, dtype=bool) if labels is None else np.any(labels, axis=1)
+    best = int(_get_packed_row_weights(packed_basis[eligible], weight_func).min())
+    if best <= cutoff:
+        return best
+
+    batch_size = 1 << block_size
+
+    if _exhaustive_is_cheaper(dimension, basis.shape[1]):
+        # The adapted basis separates excluded and eligible rows, so the vectorized Gray-code
+        # enumerator can search the same nested space without per-combination label filtering.
+        return _get_distance_quantum_brute_force(
+            basis[eligible],
+            basis[~eligible],
+            cutoff=cutoff,
+            block_size=block_size,
+            homogeneous=True,
+        )
+
+    information_sets = _get_information_set_generators(basis, labels)
+    ranks = [rank for _, _, rank in information_sets]
+    if _brute_force_is_cheaper(
+        dimension=dimension,
+        num_logical_rows=int(np.count_nonzero(eligible)),
+        ranks=ranks,
+        upper_bound=best,
+        weight_divisor=weight_divisor,
+    ):
+        return _get_distance_quantum_brute_force(
+            basis[eligible],
+            basis[~eligible],
+            cutoff=cutoff,
+            block_size=block_size,
+            homogeneous=True,
+        )
+
+    packed_sets = [
+        (
+            _rows_to_ints(generators, dtype=np.uint64),
+            None if set_labels is None else _rows_to_ints(set_labels, dtype=np.uint64),
+            rank,
+        )
+        for generators, set_labels, rank in information_sets
+    ]
+
+    for weight in range(1, dimension + 1):
+        for supports in _iter_fixed_weight_supports(dimension, weight, batch_size):
+            for generators, set_labels, _ in packed_sets:
+                words = np.bitwise_xor.reduce(generators[supports], axis=1)
+                if set_labels is not None:
+                    combined_labels = np.bitwise_xor.reduce(set_labels[supports], axis=1)
+                    words = words[np.any(combined_labels, axis=1)]
+                    if not len(words):
+                        continue
+                candidate = int(_get_packed_row_weights(words, weight_func).min())
+                best = min(best, candidate)
+                if best <= cutoff:
+                    return best
+
+        lower_bound = sum(max(0, weight + 1 - (dimension - rank)) for _, _, rank in packed_sets)
+        if weight_divisor > 1:
+            lower_bound += (-lower_bound) % weight_divisor
+        if lower_bound >= best:
+            return best
+
+    return best
+
+
+def _exhaustive_is_cheaper(dimension: int, length: int) -> bool:
+    """Estimate whether enumerating every codeword is cheaper than building information sets.
+
+    Setup costs dominate the Brouwer-Zimmermann search for dimensions up to 20.  For long,
+    low-dimensional codes, byte-wise elimination for each information set can cost more than packed
+    ``uint64`` enumeration of all ``2**dimension`` codewords.
+    """
+    return dimension <= 20 or (dimension < 63 and 1 << dimension <= 128 * dimension * length)
+
+
+def _brute_force_is_cheaper(
+    *,
+    dimension: int,
+    num_logical_rows: int,
+    ranks: list[int],
+    upper_bound: int,
+    weight_divisor: int,
+) -> bool:
+    """Estimate whether exhaustive nested-code enumeration will outperform BZ.
+
+    The BZ estimate conservatively assumes that the search must certify the current upper bound.
+    Empirically, the vectorized exhaustive kernel is about 150 times cheaper per candidate than the
+    fixed-weight BZ enumerator on moderately sized quantum codes.
+    """
+    bz_candidates = 0
+    for weight in range(1, dimension + 1):
+        bz_candidates += len(ranks) * math.comb(dimension, weight)
+        lower_bound = sum(max(0, weight + 1 - (dimension - rank)) for rank in ranks)
+        lower_bound += (-lower_bound) % weight_divisor
+        if lower_bound >= upper_bound:
+            break
+    exhaustive_candidates = ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows)
+    return exhaustive_candidates <= 150 * bz_candidates
+
+
+def _symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Map ``(X | Z)`` to ``(X | Z | X xor Z)``, doubling symplectic weight.
+
+    This is the ``Saved_isometry`` reduction from https://arxiv.org/abs/2408.10743.
+    """
+    half_width = vectors.shape[1] // 2
+    vectors_x = vectors[:, :half_width]
+    vectors_z = vectors[:, half_width:]
+    return np.hstack([vectors_x, vectors_z, vectors_x ^ vectors_z])
+
+
+####################################################################################################
+# exact distance via brute-force enumeration over logical-op and stabilizer combinations
+
+
+def _get_distance_quantum_brute_force(
+    logical_ops: npt.ArrayLike,
+    stabilizers: npt.ArrayLike,
+    *,
+    cutoff: int,
+    block_size: int,
+    homogeneous: bool,
+) -> int:
+    """Brute-force binary quantum distance implementation."""
     num_bits = np.shape(logical_ops)[-1]
 
     if homogeneous:

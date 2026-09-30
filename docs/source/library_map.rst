@@ -63,6 +63,24 @@ Some built-in families carry known parameters from their construction or the lit
 methods also accept explicit promises, such as equal X and Z distances. These values and promises
 are trusted rather than recomputed automatically; exact distance calculations can be exponential.
 
+Exact distances
+~~~~~~~~~~~~~~~
+
+Binary exact-distance calculations use Brouwer--Zimmermann enumeration by default. The implementation
+searches fixed-weight combinations in disjoint information-set bases and stops when the resulting
+lower bound meets the best codeword weight found. Pass ``method="brute_force"`` to enumerate every
+generator combination instead. Both methods support the same ``cutoff`` convention: return as soon
+as an observed upper bound is at most the cutoff. The default cutoff of one is therefore exact for
+valid codes.
+
+For a classical code the search minimizes over nonzero codewords. For a CSS code it searches the X
+and Z logical sectors separately, excluding the corresponding stabilizer row space. For a general
+binary stabilizer or subsystem code, qLDPC maps each symplectic row
+:math:`(x,z)` to :math:`(x,z,x+z)`. The mapped Hamming weight is exactly twice the original
+symplectic weight, so the same exclusion-aware Brouwer--Zimmermann engine applies without counting a
+Y operator twice. These algorithms follow `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_ and
+the corresponding `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
+
 Distance bounds
 ~~~~~~~~~~~~~~~
 
