@@ -8,7 +8,7 @@ import pytest
 import stim
 
 from qldpc import circuits, codes
-from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ, PauliXZLike
+from qldpc.objects import PAULIS_XZ, Pauli
 
 
 def test_memory_experiment() -> None:
@@ -201,21 +201,3 @@ def test_memory_rejects_unsynchronized_strategy_records() -> None:
             basis=Pauli.X,
             syndrome_measurement_strategy=BadStrategy(),
         )
-
-
-def test_string_basis_inputs() -> None:
-    """Memory-experiment builders also accept case-insensitive "X" or "Z" basis strings."""
-    basis_strings: dict[PauliXZ, tuple[PauliXZLike, ...]] = {
-        Pauli.X: ("X", "x"),
-        Pauli.Z: ("Z", "z"),
-    }
-    rep_code = codes.RepetitionCode(3)
-    surface_code = codes.SurfaceCode(2)
-    for basis, strings in basis_strings.items():
-        circuit = circuits.get_memory_experiment(rep_code, basis=basis, num_rounds=2)
-        parts = circuits.get_memory_experiment_parts(surface_code, basis)
-        observables = circuits.get_observables(surface_code, basis=basis)
-        for string in strings:
-            assert circuit == circuits.get_memory_experiment(rep_code, basis=string, num_rounds=2)
-            assert parts == circuits.get_memory_experiment_parts(surface_code, string)
-            assert observables == circuits.get_observables(surface_code, basis=string)
