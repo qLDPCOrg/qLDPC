@@ -38,7 +38,15 @@ from .distance import (
     validate_distance_backend,
     validate_distance_method,
 )
-from .monte_carlo import ErrorRateFunc, get_error_and_erasure, get_sample_allocation
+from .monte_carlo import (
+    CodeCapacityDecoder,
+    ErrorRateFunc,
+    compiles_for_dem,
+    get_code_capacity_decoder,
+    get_error_and_erasure,
+    get_sample_allocation,
+    is_prebuilt_observable_decoder,
+)
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
@@ -863,7 +871,7 @@ class ClassicalCode(AbstractCode):
         max_error_rate: float = 0.1,
         *,
         min_error_weight: int = 1,
-        decoder: decoders.ErrorDecoderInput = None,
+        decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -889,12 +897,26 @@ class ClassicalCode(AbstractCode):
         The logical error rate returned by the constructed function is the probability with which a
         code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
 
-        Errors are decoded by a decoder built from decoder settings, such as
-        ``decoder=decoders.bp_osd(...)``, by a constructor that builds an error decoder from a
-        parity check matrix, or by a decoder prebuilt for the parity check matrix of this code.  If
-        decoder is None, the default decoder is chosen by qldpc.decoders.get_error_decoder.  Any
-        remaining keyword arguments are deprecated decoder-selection and construction arguments for
-        qldpc.decoders.get_decoder.
+        Here the observables of the code are its bits, so decoding succeeds only if the decoder
+        predicts the value of every bit of the sampled error.  The decoder argument accepts either
+        an error decoder or an observable decoder:
+
+        - Decoder settings such as ``decoder=decoders.bp_osd(...)``, a constructor that builds an
+          error decoder from a parity check matrix, or an error decoder prebuilt for the parity
+          check matrix of this code.  If decoder is None, the default decoder is chosen by
+          qldpc.decoders.get_error_decoder.  An error decoder infers an error from its syndrome,
+          and decoding fails if that error differs from the sampled error.
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
+          observable-decoder constructor with an observable return annotation.  It is built for a
+          detector error model whose detectors are the parity checks of this code and whose
+          observables are its bits.  Stim detector error models are binary, so such a decoder is
+          rejected for a code over another field.
+        - An observable decoder prebuilt to predict the bits of an error from its syndrome, such as
+          an ObservableLookupDecoder built with ``observable_flip_matrix=code.field.Identity(n)``.
+          Its detector and observable dimensions are checked when the decoder exposes them.
+
+        Any remaining keyword arguments are deprecated decoder-selection and construction arguments
+        for qldpc.decoders.get_decoder.
 
         The basic idea in this method is to think of the fidelity
 
@@ -925,7 +947,9 @@ class ClassicalCode(AbstractCode):
         declared to be decoded perfectly.  The sum runs only as far as the heaviest weight the
         budget reached, and ``F_k = 0`` is assumed above that.
         """
-        error_decoder = decoders.resolve_decoder(self.matrix, decoder, decoder_kwargs)
+        code_capacity_decoder = get_code_capacity_decoder(
+            self.matrix, None, decoder, decoder_kwargs
+        )
 
         # sample errors of fixed weight and record failure/discard counts
         sample_allocation = get_sample_allocation(
@@ -935,7 +959,7 @@ class ClassicalCode(AbstractCode):
         num_discards = np.zeros(sample_allocation.size, dtype=int)
         for weight in np.nonzero(sample_allocation)[0].tolist():
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
-                weight, sample_allocation[weight], error_decoder
+                weight, sample_allocation[weight], code_capacity_decoder
             )
         return ErrorRateFunc(
             sample_allocation,
@@ -947,7 +971,7 @@ class ClassicalCode(AbstractCode):
         )
 
     def _sample_failure_and_discard_counts(
-        self, error_weight: int, num_samples: int, decoder: decoders.ErrorDecoder
+        self, error_weight: int, num_samples: int, decoder: CodeCapacityDecoder
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
@@ -962,12 +986,9 @@ class ClassicalCode(AbstractCode):
             error[error_locations] = np.random.choice(self.field.elements[1:], size=error_weight)
 
             # decode the error
-            syndrome = self.matrix @ error
-            decoded_error, erasure = get_error_and_erasure(decoder, syndrome)
-            if erasure:
-                num_discards += 1
-            elif np.any(decoded_error - error):
-                num_failures += 1
+            failure, erasure = decoder.get_failure_and_erasure(error)
+            num_failures += failure
+            num_discards += erasure
 
         return num_failures, num_discards
 
@@ -2318,7 +2339,11 @@ class QuditCode(AbstractCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
-        decoder: decoders.DeferredErrorDecoderInput = None,
+        decoder: (
+            decoders.DeferredErrorDecoderInput
+            | decoders.ObservableDecoderConstructor
+            | decoders.SinterDecoder
+        ) = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -2337,12 +2362,25 @@ class QuditCode(AbstractCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
-        Errors are decoded by a decoder built from decoder settings, such as
-        ``decoder=decoders.bp_osd(...)``, or from a constructor that builds an error decoder from a
-        parity check matrix.  If decoder is None, the default decoder is chosen by
-        qldpc.decoders.get_error_decoder.  The decoder decodes symplectic errors against an internal
-        syndrome matrix, so a prebuilt decoder is rejected.  Any remaining keyword arguments are
-        deprecated decoder-selection and construction arguments for qldpc.decoders.get_decoder.
+        Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
+        its symplectic products with the logical operators of the code.  The decoder argument
+        accepts either an error decoder or an observable decoder:
+
+        - Decoder settings such as ``decoder=decoders.bp_osd(...)``, or a constructor that builds an
+          error decoder from a parity check matrix.  If decoder is None, the default decoder is
+          chosen by qldpc.decoders.get_error_decoder.  An error decoder infers a symplectic error
+          from its syndrome, and decoding fails if that error and the sampled error have different
+          logical actions.
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
+          observable-decoder constructor with an observable return annotation.  It is built for a
+          detector error model whose detectors are the stabilizer generators of the code, whose
+          observables are its logical operators, and whose error mechanisms are the single-qubit X,
+          Y, and Z errors.  Stim detector error models are binary, so such a decoder is rejected for
+          a code over another field.
+
+        Either kind of decoder decodes syndromes of an internal syndrome matrix, so a prebuilt
+        decoder is rejected.  Any remaining keyword arguments are deprecated decoder-selection and
+        construction arguments for qldpc.decoders.get_decoder.
 
         For a subsystem code, errors are decoded against the stabilizer generators of the code, so
         a syndrome has one entry per stabilizer generator.  These generators can be high-weight
@@ -2362,20 +2400,34 @@ class QuditCode(AbstractCode):
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        decoders.reject_prebuilt_decoder(decoder, _QUDIT_SYNDROME_MATRIX_REASON)
         pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
-        # build the matrix that takes an error to its syndrome against the stabilizer generators of
-        # the code.  The syndrome of an error e against a generator s is their symplectic product
-        # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``.  The
-        # decoder is built to invert this same matrix, so a decoded error is a solution to the
-        # syndrome it was handed.  The matrix is a field array, from which get_error_decoder selects
-        # a decoder appropriate to the field.
+        # Build the matrices that take an error to its syndrome against the stabilizer generators of
+        # the code, and to its observable values against the logical operators of the code.  The
+        # syndrome of an error e against a generator s is their symplectic product
+        # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``, and
+        # likewise for logical operators.  An error decoder is built to invert the syndrome matrix,
+        # so a decoded error is a solution to the syndrome it was handed.  The matrix is a field
+        # array, from which get_error_decoder selects a decoder appropriate to the field.
         syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
-        error_decoder = decoders.resolve_decoder(syndrome_matrix, decoder, decoder_kwargs)
+        observable_matrix = -math.symplectic_conjugate(self.get_logical_ops())
 
-        # identify logical operators
-        logical_ops = self.get_logical_ops()
+        # A detector error model uses single-qudit X, Z, and Y error mechanisms.  Their fixed
+        # relative probabilities match the requested bias; their overall placeholder scale is
+        # independent of the physical rates at which the returned estimator is evaluated.
+        dem_error_weights = None
+        if pauli_bias_zxy is not None:
+            weights_xzy = 3 * pauli_bias_zxy[[1, 0, 2]]
+            dem_error_weights = np.repeat(weights_xzy, len(self))
+        code_capacity_decoder = get_code_capacity_decoder(
+            syndrome_matrix,
+            observable_matrix,
+            decoder,
+            decoder_kwargs,
+            symplectic_dem_errors=True,
+            dem_error_weights=dem_error_weights,
+            prebuilt_rejection_reason=_QUDIT_SYNDROME_MATRIX_REASON,
+        )
 
         # sample errors of fixed weight and record failure/discard counts
         sample_allocation = get_sample_allocation(
@@ -2387,9 +2439,7 @@ class QuditCode(AbstractCode):
             num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
                 weight,
                 sample_allocation[weight],
-                error_decoder,
-                syndrome_matrix,
-                logical_ops,
+                code_capacity_decoder,
                 pauli_bias_zxy,
             )
         return ErrorRateFunc(
@@ -2405,18 +2455,15 @@ class QuditCode(AbstractCode):
         self,
         error_weight: int,
         num_samples: int,
-        decoder: decoders.ErrorDecoder,
-        syndrome_matrix: npt.NDArray[np.int_],
-        logical_ops: npt.NDArray[np.int_],
+        decoder: CodeCapacityDecoder,
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
-        Syndromes are computed with syndrome_matrix, which is the matrix that the decoder is built
-        to invert, so that a decoded error is a solution to the syndrome it was handed.  It is built
-        from the stabilizer generators of the code, which for a subsystem code are a strict subset
-        of the parity checks (the gauge generators), so a syndrome vector has one entry per
-        stabilizer generator rather than one per gauge generator.
+        Syndromes are computed with the syndrome matrix of the decoder, which is built from the
+        stabilizer generators of the code.  For a subsystem code, these are a strict subset of the
+        parity checks (the gauge generators), so a syndrome vector has one entry per stabilizer
+        generator rather than one per gauge generator.
 
         Return logical error and discard counts.
         """
@@ -2440,12 +2487,9 @@ class QuditCode(AbstractCode):
             )
 
             error = np.concatenate([error_x, error_z]).view(self.field)
-            syndrome = syndrome_matrix @ error
-            decoded_error, erasure = get_error_and_erasure(decoder, syndrome)
-            if erasure:
-                num_discards += 1
-            elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
-                num_failures += 1
+            failure, erasure = decoder.get_failure_and_erasure(error)
+            num_failures += failure
+            num_discards += erasure
 
         return num_failures, num_discards
 
@@ -3782,9 +3826,9 @@ class CSSCode(QuditCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
-        decoder: decoders.ErrorDecoderInput = None,
-        decoder_x: decoders.ErrorDecoderInput = None,
-        decoder_z: decoders.ErrorDecoderInput = None,
+        decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
+        decoder_x: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
+        decoder_z: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
@@ -3807,20 +3851,37 @@ class CSSCode(QuditCode):
 
         The X-type and Z-type parts of each error are decoded independently, by two decoders:
 
-        - The X-sector decoder infers X-type errors from their syndrome with respect to the Z-type
-          stabilizers, ``code.get_stabilizer_ops(Pauli.Z, canonicalized=False)``.
-        - The Z-sector decoder infers Z-type errors from their syndrome with respect to the X-type
-          stabilizers, ``code.get_stabilizer_ops(Pauli.X, canonicalized=False)``.
+        - The X-sector decoder decodes the syndrome of an X-type error with respect to the Z-type
+          stabilizers, ``code.get_stabilizer_ops(Pauli.Z, canonicalized=False)``, to predict which
+          Z-type logical operators, ``code.get_logical_ops(Pauli.Z)``, the error anticommutes with.
+        - The Z-sector decoder decodes the syndrome of a Z-type error with respect to the X-type
+          stabilizers, ``code.get_stabilizer_ops(Pauli.X, canonicalized=False)``, to predict which
+          X-type logical operators, ``code.get_logical_ops(Pauli.X)``, the error anticommutes with.
 
-        The ``decoder_x`` and ``decoder_z`` arguments configure these decoders, and each accepts
-        decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an error
-        decoder from a parity check matrix, or a decoder prebuilt for the stabilizer matrix listed
-        above for its sector (the Z-type stabilizers for ``decoder_x``, and the X-type stabilizers
-        for ``decoder_z``).  If ``decoder_x`` or ``decoder_z`` is None, the corresponding sector is
-        decoded as configured by the shared ``decoder`` argument.  A prebuilt shared decoder is
-        rejected if it would decode both sectors, unless the X-type and Z-type stabilizer matrices
-        are equal.  If all of these arguments are None, the default decoder is chosen by
-        qldpc.decoders.get_error_decoder.
+        A sample fails if either prediction is wrong.  The ``decoder_x`` and ``decoder_z``
+        arguments configure these decoders, and each independently accepts either an error decoder
+        or an observable decoder:
+
+        - Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an error
+          decoder from a parity check matrix, or an error decoder prebuilt for the stabilizer
+          matrix of its sector.  An error decoder infers an error, whose products with the logical
+          operators of the sector are its prediction.
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
+          observable-decoder constructor with an observable return annotation.  It is built for a
+          detector error model whose detectors are the stabilizers of its sector and whose
+          observables are the logical operators of its sector.  Stim detector error models are
+          binary, so such a decoder is rejected for a code over another field.
+        - An observable decoder prebuilt to predict the logical flips of its sector from syndromes
+          of its sector, such as an ObservableLookupDecoder built with the stabilizer matrix of its
+          sector and ``observable_flip_matrix`` set to the logical operators of its sector.  It must
+          have detector and observable dimensions compatible with the sector.
+
+        If ``decoder_x`` or ``decoder_z`` is None, the corresponding sector is decoded as
+        configured by the shared ``decoder`` argument.  A shared Sinter-style decoder is compiled
+        separately for each sector.  A shared prebuilt decoder is rejected if it would decode both
+        sectors, unless the X-type and Z-type stabilizer matrices are equal (and, for a prebuilt
+        observable decoder, so are the X-type and Z-type logical operators).  If all of these
+        arguments are None, the default decoder is chosen by qldpc.decoders.get_error_decoder.
 
         The ``decoder_x_kwargs``, ``decoder_z_kwargs``, and remaining keyword arguments are
         deprecated decoder-selection and construction arguments for qldpc.decoders.get_decoder, for
@@ -3850,11 +3911,13 @@ class CSSCode(QuditCode):
         stabilizer_ops_x = self.get_stabilizer_ops(Pauli.X, canonicalized=False)
         stabilizer_ops_z = self.get_stabilizer_ops(Pauli.Z, canonicalized=False)
 
-        # reject a shared prebuilt decoder that would decode both sectors
+        # reject a shared prebuilt decoder that would decode both sectors.  A Sinter-style decoder
+        # is compiled for each sector, so it is not prebuilt.
         if (
             decoder_x is None
             and decoder_z is None
             and decoders.is_prebuilt_decoder(decoder)
+            and not compiles_for_dem(decoder)
             and not np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
         ):
             raise ValueError(
@@ -3889,25 +3952,38 @@ class CSSCode(QuditCode):
         decoder_x_kwargs = decoder_kwargs | (decoder_x_kwargs or {})
         decoder_z_kwargs = decoder_kwargs | (decoder_z_kwargs or {})
 
+        # identify logical operators
+        logicals_x = self.get_logical_ops(Pauli.X)
+        logicals_z = self.get_logical_ops(Pauli.Z)
+
         same_x_and_z = (
             np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
             and decoder_x_input is decoder_z_input
             and decoder_x_kwargs == decoder_z_kwargs
         )
-        error_decoder_x = decoders.resolve_decoder(
-            stabilizer_ops_z, decoder_x_input, decoder_x_kwargs, warn_deprecated=False
+        code_capacity_decoder_x = get_code_capacity_decoder(
+            stabilizer_ops_z, logicals_z, decoder_x_input, decoder_x_kwargs, warn_deprecated=False
         )
-        error_decoder_z = (
-            error_decoder_x
+        code_capacity_decoder_z = (
+            code_capacity_decoder_x.reuse_for(stabilizer_ops_x, logicals_x)
             if same_x_and_z
-            else decoders.resolve_decoder(
-                stabilizer_ops_x, decoder_z_input, decoder_z_kwargs, warn_deprecated=False
-            )
+            else None
         )
-
-        # identify logical operators
-        logicals_x = self.get_logical_ops(Pauli.X)
-        logicals_z = self.get_logical_ops(Pauli.Z)
+        if code_capacity_decoder_z is None:
+            if same_x_and_z and is_prebuilt_observable_decoder(decoder_z_input):
+                raise ValueError(
+                    "A shared prebuilt observable decoder cannot decode both CSS sectors, whose"
+                    " logical operators differ.  Pass decoder_x= and decoder_z= with observable"
+                    " decoders built for their respective sectors, or pass decoder settings such as"
+                    " decoder=decoders.bp_osd(...)"
+                )
+            code_capacity_decoder_z = get_code_capacity_decoder(
+                stabilizer_ops_x,
+                logicals_x,
+                decoder_z_input,
+                decoder_z_kwargs,
+                warn_deprecated=False,
+            )
 
         # sample errors of fixed weight and record failure/discard counts
         sample_allocation = get_sample_allocation(
@@ -3920,12 +3996,8 @@ class CSSCode(QuditCode):
                 self._sample_css_failure_and_discard_counts(
                     weight,
                     sample_allocation[weight],
-                    error_decoder_x,
-                    error_decoder_z,
-                    stabilizer_ops_x,
-                    stabilizer_ops_z,
-                    logicals_x,
-                    logicals_z,
+                    code_capacity_decoder_x,
+                    code_capacity_decoder_z,
                     pauli_bias_zxy,
                 )
             )
@@ -3942,21 +4014,17 @@ class CSSCode(QuditCode):
         self,
         error_weight: int,
         num_samples: int,
-        decoder_x: decoders.ErrorDecoder,
-        decoder_z: decoders.ErrorDecoder,
-        stabilizer_ops_x: npt.NDArray[np.int_],
-        stabilizer_ops_z: npt.NDArray[np.int_],
-        logicals_x: npt.NDArray[np.int_],
-        logicals_z: npt.NDArray[np.int_],
+        decoder_x: CodeCapacityDecoder,
+        decoder_z: CodeCapacityDecoder,
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
-        Syndromes are computed against the stabilizer generators in stabilizer_ops_x and
-        stabilizer_ops_z, which are the matrices that decoder_z and decoder_x are respectively built
-        to invert.  For a subsystem code the stabilizer generators are a strict subset of the parity
-        checks (the gauge generators), so a syndrome vector has one entry per stabilizer generator
-        rather than one per gauge generator.
+        Syndromes are computed against the stabilizer generators of the sector of each decoder: the
+        Z-type stabilizers for decoder_x, and the X-type stabilizers for decoder_z.  For a subsystem
+        code the stabilizer generators are a strict subset of the parity checks (the gauge
+        generators), so a syndrome vector has one entry per stabilizer generator rather than one per
+        gauge generator.
 
         Return logical error and discard counts.
         """
@@ -3973,14 +4041,12 @@ class CSSCode(QuditCode):
             error_z[error_locs_z] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_z)
             )
-            syndrome_z = stabilizer_ops_x @ error_z
-            decoded_error_z, erasure = get_error_and_erasure(decoder_z, syndrome_z)
+            failure_z, erasure = decoder_z.get_failure_and_erasure(error_z)
             if erasure:
                 num_discards += 1
                 continue
 
-            failure_z = np.any(logicals_x @ (decoded_error_z - error_z))
-            if not getattr(decoder_x, "has_erasure_bit", False) and failure_z:
+            if not decoder_x.can_discard and failure_z:
                 # If we are _not_ post-selecting and there _was_ a decoding failure, then there is
                 # no need to consider X-type errors, because we will record one failure either way.
                 num_failures += 1
@@ -3992,12 +4058,11 @@ class CSSCode(QuditCode):
             error_x[error_locs_x] = np.random.choice(
                 range(1, self.field.order), size=len(error_locs_x)
             )
-            syndrome_x = stabilizer_ops_z @ error_x
-            decoded_error_x, erasure = get_error_and_erasure(decoder_x, syndrome_x)
+            failure_x, erasure = decoder_x.get_failure_and_erasure(error_x)
             if erasure:
                 num_discards += 1
                 continue
-            if failure_z or np.any(logicals_z @ (decoded_error_x - error_x)):
+            if failure_z or failure_x:
                 num_failures += 1
 
         return num_failures, num_discards

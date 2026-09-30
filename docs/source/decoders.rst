@@ -8,10 +8,11 @@ qLDPC distinguishes two kinds of decoders:
 * an :class:`decoders.ObservableDecoder <qldpc.decoders.protocols.ObservableDecoder>` maps a syndrome
   (detection events) to predicted observable flips, with a ``decode_observables`` method.
 
-The distinction matters when composing decoders. Code-capacity estimates, decoder-based distance
-bounds, logical-operator reduction, and sliding-window decoders all work with physical errors, so
-they need error decoders. Circuit-level simulations only need to know which observables flipped, so
-they use observable decoders. Some decoders are both: a
+The distinction matters when composing decoders. Decoder-based distance bounds, logical-operator
+reduction, and sliding-window decoders all work with physical errors, so they need error decoders.
+Circuit-level simulations only need to know which observables flipped, so they use observable
+decoders. Code-capacity estimates only need to know whether decoding changed the logical state, so
+they accept either kind (see `Code-capacity estimates`_). Some decoders are both: a
 :class:`decoders.RelayBPDecoder <qldpc.decoders.custom.RelayBPDecoder>` infers errors and predicts
 observable flips. Exact distance calculations do not need a decoder.
 
@@ -81,6 +82,51 @@ A CSS code decodes X-type and Z-type errors independently. ``decoder_x`` infers 
 their syndrome with respect to the Z-type stabilizers, and ``decoder_z`` infers Z-type errors from
 their syndrome with respect to the X-type stabilizers. A sector that is not configured explicitly
 falls back to the shared ``decoder=`` argument.
+
+Code-capacity estimates
+-----------------------
+
+A code-capacity estimate samples errors, decodes their syndromes, and counts a failure whenever the
+decoder mispredicts the logical action of a sampled error. It therefore only ever asks which logical
+operators (observables) an error flips, and its ``decoder=``, ``decoder_x=``, and ``decoder_z=``
+arguments each accept either kind of decoder:
+
+* An error decoder (decoder settings, a constructor, or, where accepted, a prebuilt error decoder)
+  infers a physical error, and the logical operators flipped by that error are its prediction. This
+  is the default, and ``decoder=None`` still selects BP+OSD or GUF. Decoder settings build an error
+  decoder here, even if the configured decoder could predict observable flips natively.
+* A Sinter-style decoder, such as
+  ``decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=2))``, is compiled for a
+  code-capacity detector error model whose detectors are the stabilizers (or parity checks) of the
+  code and whose observables are its logical operators (or, for a classical code, its bits). A
+  shared Sinter-style decoder is compiled separately for each CSS sector. Stim detector error models
+  are binary, so such a decoder is rejected for a code over another field. A callable explicitly
+  annotated to return an observable decoder is treated as an observable-decoder constructor and is
+  built from the same detector error model.
+* A prebuilt observable decoder, such as an
+  :class:`decoders.ObservableLookupDecoder <qldpc.decoders.lookup.ObservableLookupDecoder>` built with
+  the stabilizers and logical operators of a CSS sector, predicts logical flips directly, over any
+  field. Detector, observable, and field metadata is validated when a decoder exposes it. Built-in
+  observable decoders expose this metadata; a raw precompiled decoder that only provides Sinter's
+  bit-packed interface must do so as well.
+
+The two kinds can be mixed across CSS sectors:
+
+.. code-block:: python
+
+   estimator = css_code.get_logical_error_rate_func(
+       num_samples=10_000,
+       decoder_x=decoders.bp_lsd(max_iter=30),
+       decoder_z=decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=2)),
+   )
+
+Direct observable decoding can lower the estimated logical error rate of a degenerate code, because
+the most likely logical class of an error need not contain the most likely individual error. The
+predictions of every decoder are validated: an inferred error or predicted observable vector with
+the wrong length, entries outside the field of the code, or malformed erasure flags raises an error,
+as does a prebuilt or compiled decoder built for a different number of detectors or observables.
+Decoder-based distance bounds still require error decoders, since they inspect the weights of the
+errors that a decoder infers.
 
 Predicting observable flips
 ---------------------------
@@ -174,14 +220,16 @@ caller knows the matrix being decoded: by ``decoders.get_error_decoder``,
 estimators of classical codes; by ``ClassicalCode.get_distance_bound`` when given a ``vector``
 (whose syndrome is computed with the parity check matrix of the code); and per sector (as
 ``decoder_x=`` and ``decoder_z=``) by the code-capacity estimators of CSS codes. A shared prebuilt
-``decoder=`` for a CSS code is rejected unless its two stabilizer matrices are equal.
+``decoder=`` for a CSS code is rejected unless its two stabilizer matrices are equal (and, for a
+prebuilt observable decoder, so are its two sets of logical operators).
 
 Some methods decode a matrix that they construct internally, and therefore reject prebuilt decoders:
 decoder-based distance bounds of codes (other than a classical distance bound to a ``vector``),
 logical-operator reduction, the code-capacity estimators of non-CSS codes, and Sinter decoders,
 which build a new decoder for every (simplified) detector error model, window, or subgraph that they
 decode. These methods accept a ``DecoderSpec`` or a constructor. A constructor can fix custom
-options with ``functools.partial`` or a ``lambda``.
+options with ``functools.partial`` or a ``lambda``. The code-capacity estimators of non-CSS codes
+also accept a Sinter-style decoder, which they compile for their internal detector error model.
 
 Lookup-table outputs
 --------------------
