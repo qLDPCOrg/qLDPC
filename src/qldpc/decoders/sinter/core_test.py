@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""Core Sinter decoder tests."""
+
+from .. import sinter_test
+
+test_erasure_signalled_in_an_added_byte = sinter_test.test_erasure_signalled_in_an_added_byte
+test_observable_decoders_reject_prebuilt_decoders = (
+    sinter_test.test_observable_decoders_reject_prebuilt_decoders
+)
+test_predict_observables_with_erasure = sinter_test.test_predict_observables_with_erasure
+test_rejected_decoder_arguments = sinter_test.test_rejected_decoder_arguments
+test_sinter_decoder = sinter_test.test_sinter_decoder
+test_sinter_decoder_classes_and_aliases = sinter_test.test_sinter_decoder_classes_and_aliases
+test_sinter_decoder_correlated_matching = sinter_test.test_sinter_decoder_correlated_matching
+test_sinter_decoder_with_erasure = sinter_test.test_sinter_decoder_with_erasure
+test_unsimplified_dense_decoder = sinter_test.test_unsimplified_dense_decoder

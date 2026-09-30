@@ -7,6 +7,8 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
+
 
 def with_erasure_bits(
     errors: npt.NDArray[np.int_], erased: npt.NDArray[np.bool_] | bool

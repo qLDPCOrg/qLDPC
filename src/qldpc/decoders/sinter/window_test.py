@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""Sequential and sliding-window Sinter decoder tests."""
+
+from .. import sinter_test
+
+test_compiled_decoder_input_validation = sinter_test.test_compiled_decoder_input_validation
+test_observable_decoders_reject_prebuilt_decoders = (
+    sinter_test.test_observable_decoders_reject_prebuilt_decoders
+)
+test_rejected_decoder_arguments = sinter_test.test_rejected_decoder_arguments
+test_sequential_decoding = sinter_test.test_sequential_decoding
+test_sequential_decoding_with_merged_window_errors = (
+    sinter_test.test_sequential_decoding_with_merged_window_errors
+)
+test_sequential_window_decoder_erasure_with_merged_window_errors = (
+    sinter_test.test_sequential_window_decoder_erasure_with_merged_window_errors
+)
+test_sequential_window_decoder_with_erasure = (
+    sinter_test.test_sequential_window_decoder_with_erasure
+)
+test_sliding_window_ignores_undecoded_detectors = (
+    sinter_test.test_sliding_window_ignores_undecoded_detectors
+)
+test_sliding_window_recompilation = sinter_test.test_sliding_window_recompilation
+test_sliding_window_time_coordinate = sinter_test.test_sliding_window_time_coordinate
+test_sliding_window_time_gaps = sinter_test.test_sliding_window_time_gaps
+test_sliding_window_validation = sinter_test.test_sliding_window_validation
+test_window_region_validation = sinter_test.test_window_region_validation

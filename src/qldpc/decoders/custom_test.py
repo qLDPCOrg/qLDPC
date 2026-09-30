@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import functools
 import itertools
+import pickle
 import unittest.mock
 
 import galois
@@ -18,6 +19,46 @@ import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
+
+
+def test_custom_package_exports() -> None:
+    """The split package preserves its public class imports and deprecated aliases."""
+    from qldpc.decoders import custom
+
+    assert custom.CompositeDecoder is decoders.CompositeDecoder
+    assert custom.DirectDecoder is decoders.DirectDecoder
+    assert custom.GUFDecoder is decoders.GUFDecoder
+    assert custom.ILPDecoder is decoders.ILPDecoder
+    assert custom.RelayBPDecoder is decoders.RelayBPDecoder
+    assert custom.PLACEHOLDER_ERROR_RATE == 1e-3
+
+    with pytest.warns(DeprecationWarning, match="Decoder is deprecated; use ErrorDecoder"):
+        assert custom.Decoder is decoders.ErrorDecoder
+    with pytest.warns(DeprecationWarning, match="BatchDecoder is deprecated"):
+        assert custom.BatchDecoder is decoders.BatchErrorDecoder
+
+
+@pytest.mark.parametrize(
+    ("decoder_class", "module_name"),
+    [
+        (decoders.CompositeDecoder, "qldpc.decoders.custom.composition"),
+        (decoders.DirectDecoder, "qldpc.decoders.custom.composition"),
+        (decoders.GUFDecoder, "qldpc.decoders.custom.guf"),
+        (decoders.ILPDecoder, "qldpc.decoders.custom.ilp"),
+        (decoders.RelayBPDecoder, "qldpc.decoders.custom.relay_bp"),
+    ],
+)
+def test_custom_class_pickle_paths(decoder_class: type, module_name: str) -> None:
+    """Custom classes use split canonical paths and remain loadable from the old facade path."""
+    assert decoder_class.__module__ == module_name
+    name = decoder_class.__name__
+    payload = pickle.dumps(decoder_class, protocol=0)
+    old_payload = payload.replace(
+        f"{module_name}\n{name}".encode(),
+        f"qldpc.decoders.custom\n{name}".encode(),
+    )
+    assert pickle.loads(old_payload) is decoder_class  # noqa: S301 - compatibility payload
+    assert pickle.loads(payload) is decoder_class  # noqa: S301 - trusted round trip
 
 
 def test_batch_decoding_by_alias() -> None:
@@ -50,7 +91,7 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     errors = np.array([error, error])
     syndromes = np.array([syndrome, syndrome])
 
-    decoder = decoders.get_decoder_RBP(matrix)
+    decoder = decoders.get_decoder_rbp(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
 
@@ -62,12 +103,12 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
         decoder.compute_observables()
 
     # decode from a sparse parity check matrix
-    decoder = decoders.get_decoder_RBP(scipy.sparse.dok_matrix(matrix))
+    decoder = decoders.get_decoder_rbp(scipy.sparse.dok_matrix(matrix))
     assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
 
     # decode from a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
-    decoder = decoders.get_decoder_RBP(dem)
+    decoder = decoders.get_decoder_rbp(dem)
     assert np.array_equal(error, decoder.decode(syndrome))
 
     # fail to initialize a relay-bp decoder because relay-bp is not installed
@@ -79,7 +120,7 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
 
     # fail to initialize a relay-bp decoder from an unrecognized name
     with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder_RBP(np.array([[]]), name="invalid_name")
+        decoders.get_decoder_rbp(np.array([[]]), name="invalid_name")
 
     # fail when a decoder name string is passed where the matrix should be
     with pytest.raises(TypeError, match="breaking change"):
@@ -108,7 +149,7 @@ def test_relay_bp_observables() -> None:
         # relay_bp advances a seeded random number generator with every decode, so compare the
         # outputs of freshly built decoders
         get_decoder = functools.partial(
-            decoders.get_decoder_RBP, dem, add_erasure_bit=add_erasure_bit
+            decoders.get_decoder_rbp, dem, add_erasure_bit=add_erasure_bit
         )
         predicted_flips = get_decoder().decode_observables_batch(syndromes, progress_bar=False)
         assert predicted_flips.shape == (len(syndromes), dem.num_observables + add_erasure_bit)
@@ -135,7 +176,7 @@ def test_relay_bp_observables() -> None:
 
     # predicting observable flips requires observables
     with pytest.raises(ValueError, match="requires an observable_error_matrix"):
-        decoders.get_decoder_RBP(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))
+        decoders.get_decoder_rbp(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))
 
 
 def test_ilp_decoder(toy_problem: ToyProblem) -> None:

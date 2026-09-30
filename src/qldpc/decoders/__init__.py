@@ -1,12 +1,29 @@
 # SPDX-License-Identifier: Apache-2.0
 
+"""Decoder protocols, builders, implementations, conversion helpers, and Sinter adapters."""
+
 from typing import TYPE_CHECKING, Any
 
 from qldpc._util import get_deprecated_alias
 
-from . import custom, sinter
+from . import builders, custom, sinter
+from .builders import (
+    get_decoder_bf,
+    get_decoder_bp_lsd,
+    get_decoder_bp_osd,
+    get_decoder_guf,
+    get_decoder_ilp,
+    get_decoder_lookup,
+    get_decoder_mwpm,
+    get_decoder_rbp,
+)
 from .common import (
     with_erasure_bits,
+)
+from .conversion import (
+    ErrorsToObservablesDecoder,
+    ExpandedErrorDecoder,
+    match_error_decoder_to_dem,
 )
 from .custom import (
     CompositeDecoder,
@@ -42,8 +59,6 @@ from .retrieval import (
     DeferredObservableDecoderInput,
     ErrorDecoderConstructor,
     ErrorDecoderInput,
-    ErrorsToObservablesDecoder,
-    ExpandedErrorDecoder,
     ObservableDecoderConstructor,
     ObservableDecoderInput,
     PcmOrDem,
@@ -53,14 +68,6 @@ from .retrieval import (
     decode,
     decode_observables,
     get_decoder,
-    get_decoder_BF,
-    get_decoder_BP_LSD,
-    get_decoder_BP_OSD,
-    get_decoder_GUF,
-    get_decoder_ILP,
-    get_decoder_lookup,
-    get_decoder_MWPM,
-    get_decoder_RBP,
     get_error_decoder,
     get_legacy_decoder_migration_message,
     get_observable_decoder,
@@ -68,7 +75,6 @@ from .retrieval import (
     ilp,
     is_prebuilt_decoder,
     lookup_table,
-    match_error_decoder_to_dem,
     min_sum_bp,
     mwpm,
     reject_prebuilt_decoder,
@@ -147,7 +153,14 @@ __all__ = [
     "get_decoder_ILP",
     "get_decoder_MWPM",
     "get_decoder_RBP",
+    "get_decoder_bf",
+    "get_decoder_bp_lsd",
+    "get_decoder_bp_osd",
+    "get_decoder_guf",
+    "get_decoder_ilp",
     "get_decoder_lookup",
+    "get_decoder_mwpm",
+    "get_decoder_rbp",
     "get_error_decoder",
     "get_legacy_decoder_migration_message",
     "get_observable_decoder",
@@ -170,9 +183,28 @@ __all__ = [
 # Deprecated names remain importable (including by star imports, since they are listed in __all__),
 # and resolve at runtime through a module-level __getattr__ (PEP 562) that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
-DEPRECATED_ALIASES = custom.DEPRECATED_ALIASES | sinter.DEPRECATED_ALIASES
+DEPRECATED_ALIASES = (
+    custom.DEPRECATED_ALIASES
+    | sinter.DEPRECATED_ALIASES
+    | {
+        "get_decoder_BF": builders.get_decoder_bf,
+        "get_decoder_BP_LSD": builders.get_decoder_bp_lsd,
+        "get_decoder_BP_OSD": builders.get_decoder_bp_osd,
+        "get_decoder_GUF": builders.get_decoder_guf,
+        "get_decoder_ILP": builders.get_decoder_ilp,
+        "get_decoder_MWPM": builders.get_decoder_mwpm,
+        "get_decoder_RBP": builders.get_decoder_rbp,
+    }
+)
 
 if TYPE_CHECKING:
+    from .builders import get_decoder_bf as get_decoder_BF
+    from .builders import get_decoder_bp_lsd as get_decoder_BP_LSD
+    from .builders import get_decoder_bp_osd as get_decoder_BP_OSD
+    from .builders import get_decoder_guf as get_decoder_GUF
+    from .builders import get_decoder_ilp as get_decoder_ILP
+    from .builders import get_decoder_mwpm as get_decoder_MWPM
+    from .builders import get_decoder_rbp as get_decoder_RBP
     from .custom import BatchDecoder as BatchDecoder
     from .custom import Decoder as Decoder
     from .sinter import SequentialSinterDecoder as SequentialSinterDecoder

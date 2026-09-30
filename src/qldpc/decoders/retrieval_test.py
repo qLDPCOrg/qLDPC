@@ -17,7 +17,7 @@ import pytest
 import stim
 
 from qldpc import decoders
-from qldpc.decoders import retrieval
+from qldpc.decoders import builders, conversion, retrieval
 
 
 def test_custom_decoder(pytestconfig: pytest.Config) -> None:
@@ -386,7 +386,7 @@ def test_native_observable_decoders() -> None:
     """Decoders that predict observable flips natively agree with ones that convert errors."""
     dem, syndromes = _get_circuit_data()
     native_decoder_types: list[tuple[decoders.DecoderSpec[Any], type[Any]]] = [
-        (decoders.mwpm(), retrieval._MatchingObservableDecoder),
+        (decoders.mwpm(), builders.MatchingObservableDecoder),
         (decoders.relay_bp(), decoders.RelayBPDecoder),
         (decoders.min_sum_bp(gamma0=0.5), decoders.RelayBPDecoder),
         (decoders.lookup_table(max_weight=2), decoders.ObservableLookupDecoder),
@@ -395,7 +395,7 @@ def test_native_observable_decoders() -> None:
         assert spec.predicts_observables_natively
         native_decoder: Any = decoders.get_observable_decoder(dem, decoder=spec)
         assert isinstance(native_decoder, native_decoder_type)
-        converted_decoder = retrieval.ErrorsToObservablesDecoder(spec.build(dem), dem)
+        converted_decoder = conversion.ErrorsToObservablesDecoder(spec.build(dem), dem)
         assert np.array_equal(
             native_decoder.decode_observables_batch(syndromes),
             converted_decoder.decode_observables_batch(syndromes),
@@ -419,8 +419,8 @@ def test_native_observable_decoders() -> None:
     spec = decoders.bp_osd()
     assert not spec.predicts_observables_natively
     bp_osd_decoder = spec.build_observable_decoder(dem)
-    assert isinstance(bp_osd_decoder, retrieval.ErrorsToObservablesDecoder)
-    assert isinstance(decoders.get_observable_decoder(dem), retrieval.ErrorsToObservablesDecoder)
+    assert isinstance(bp_osd_decoder, conversion.ErrorsToObservablesDecoder)
+    assert isinstance(decoders.get_observable_decoder(dem), conversion.ErrorsToObservablesDecoder)
     no_flips = bp_osd_decoder.decode_observables_batch(syndromes[:0])
     assert no_flips.shape == (0, dem.num_observables)
 
@@ -543,10 +543,10 @@ def test_merged_error_mechanisms() -> None:
 
     # GUF decoders merge equivalent mechanisms, and decode one syndrome at a time
     for add_erasure_bit in [False, True]:
-        merging_decoder = decoders.get_decoder_GUF(dem, add_erasure_bit=add_erasure_bit)
+        merging_decoder = decoders.get_decoder_guf(dem, add_erasure_bit=add_erasure_bit)
         assert len(merging_decoder.decode(syndromes[0])) == 2 + add_erasure_bit
-        decoder: Any = retrieval.match_error_decoder_to_dem(merging_decoder, dem)
-        assert isinstance(decoder, retrieval.ExpandedErrorDecoder)
+        decoder: Any = conversion.match_error_decoder_to_dem(merging_decoder, dem)
+        assert isinstance(decoder, conversion.ExpandedErrorDecoder)
         errors = decoder.decode_batch(syndromes)
         assert errors.shape == (2, 3 + add_erasure_bit)
         assert np.array_equal(errors, [decoder.decode(syndrome) for syndrome in syndromes])
@@ -554,8 +554,8 @@ def test_merged_error_mechanisms() -> None:
         assert decoder.decode_batch(syndromes[:0]).shape == (0, 3 + add_erasure_bit)
 
     # matching decoders merge equivalent mechanisms, and decode in batches
-    decoder = retrieval.match_error_decoder_to_dem(decoders.get_decoder_MWPM(dem), dem)
-    assert isinstance(decoder, retrieval.ExpandedErrorDecoder)
+    decoder = conversion.match_error_decoder_to_dem(decoders.get_decoder_mwpm(dem), dem)
+    assert isinstance(decoder, conversion.ExpandedErrorDecoder)
     assert decoder.decode_batch(syndromes).shape == (2, 3)
 
 
@@ -576,7 +576,7 @@ def test_decomposed_error_mechanisms() -> None:
     # an error decoder that infers decomposed errors cannot predict observable flips
     decoder_inputs: list[decoders.ObservableDecoderInput] = [
         spec.build(dem),
-        lambda dem: decoders.get_decoder_MWPM(dem, decompose_errors=True),
+        lambda dem: decoders.get_decoder_mwpm(dem, decompose_errors=True),
     ]
     for decoder_input in decoder_inputs:
         with pytest.raises(ValueError, match="components of decomposed error mechanisms"):
@@ -585,7 +585,7 @@ def test_decomposed_error_mechanisms() -> None:
     # decomposition that splits no error leaves the error mechanisms of a model intact
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D0 D1")
     decoder = decoders.get_observable_decoder(
-        dem, decoder=lambda dem: decoders.get_decoder_MWPM(dem, decompose_errors=True)
+        dem, decoder=lambda dem: decoders.get_decoder_mwpm(dem, decompose_errors=True)
     )
     assert np.array_equal(decoder.decode_observables(syndrome), [1])
 
@@ -631,9 +631,9 @@ def test_erasure_bit_request() -> None:
     erasing_decoders: list[
         tuple[Callable[..., decoders.ErrorDecoder], decoders.DecoderSpec[decoders.ErrorDecoder]]
     ] = [
-        (decoders.get_decoder_RBP, decoders.relay_bp(add_erasure_bit=True)),
-        (decoders.get_decoder_ILP, decoders.ilp(add_erasure_bit=True)),
-        (decoders.get_decoder_GUF, decoders.guf(add_erasure_bit=True)),
+        (decoders.get_decoder_rbp, decoders.relay_bp(add_erasure_bit=True)),
+        (decoders.get_decoder_ilp, decoders.ilp(add_erasure_bit=True)),
+        (decoders.get_decoder_guf, decoders.guf(add_erasure_bit=True)),
         (decoders.get_decoder_lookup, decoders.lookup_table(max_weight=2, add_erasure_bit=True)),
     ]
     for decoder_getter, decoder_spec in erasing_decoders:
@@ -648,10 +648,10 @@ def test_erasure_bit_request() -> None:
     unerasing_decoders: list[
         tuple[Callable[..., decoders.ErrorDecoder], dict[str, object], str]
     ] = [
-        (decoders.get_decoder_BF, {"with_BF": True}, "BF"),
-        (decoders.get_decoder_BP_OSD, {"with_BP_OSD": True}, "BP_OSD"),
-        (decoders.get_decoder_MWPM, {"with_MWPM": True}, "MWPM"),
-        (decoders.get_decoder_BP_LSD, {"with_BP_LSD": True}, "BP_LSD"),
+        (decoders.get_decoder_bf, {"with_BF": True}, "BF"),
+        (decoders.get_decoder_bp_osd, {"with_BP_OSD": True}, "BP_OSD"),
+        (decoders.get_decoder_mwpm, {"with_MWPM": True}, "MWPM"),
+        (decoders.get_decoder_bp_lsd, {"with_BP_LSD": True}, "BP_LSD"),
     ]
     for decoder_getter, decoder_args, decoder_name in unerasing_decoders:
         with pytest.raises(ValueError, match=rf"The {decoder_name} decoder cannot signal erasure"):
@@ -674,11 +674,11 @@ def test_erasure_bit_request() -> None:
 def test_erasure_bit_support_decorator() -> None:
     """A getter declared to support erasure must return a decoder that does so."""
 
-    @retrieval._erasure_bit_support(True)
+    @builders._erasure_bit_support("inconsistent", supported=True)
     def get_decoder_inconsistent(
         matrix: npt.NDArray[np.int_], *, add_erasure_bit: bool = False
     ) -> decoders.ErrorDecoder:
-        return decoders.get_decoder_BP_OSD(matrix)
+        return decoders.get_decoder_bp_osd(matrix)
 
     with pytest.raises(ValueError, match=r"The inconsistent decoder cannot signal erasure"):
         get_decoder_inconsistent(np.eye(1, dtype=int), add_erasure_bit=True)

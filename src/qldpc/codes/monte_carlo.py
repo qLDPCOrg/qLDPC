@@ -26,7 +26,7 @@ import scipy.special
 import stim
 
 from qldpc import decoders, math
-from qldpc.decoders.custom import PLACEHOLDER_ERROR_RATE
+from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE
 
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 

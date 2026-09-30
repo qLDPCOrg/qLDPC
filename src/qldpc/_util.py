@@ -115,7 +115,7 @@ def get_external_caller_stacklevel() -> int:
     return stacklevel
 
 
-def get_deprecated_alias(module_name: str, name: str, aliases: Mapping[str, type]) -> Any:
+def get_deprecated_alias(module_name: str, name: str, aliases: Mapping[str, Any]) -> Any:
     """Retrieve the replacement for a deprecated name, and warn that the name is deprecated.
 
     This function backs module-level __getattr__ functions (PEP 562), which Python calls only for

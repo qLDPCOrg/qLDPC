@@ -16,7 +16,7 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc import codes, math
+from qldpc import math
 from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
@@ -407,6 +407,8 @@ class _LookupDecoderBase:
         When post-selecting (keep is not None), errors whose syndrome is nontrivial on any dropped
         bit are skipped, and dropped bits are omitted from the yielded syndrome.
         """
+        from qldpc import codes
+
         dtype = matrix.dtype
         # rewrite the checks so multiplying by an error produces its syndrome
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)

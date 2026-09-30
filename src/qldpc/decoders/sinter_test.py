@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for sinter.py."""
+"""Shared test cases for the split Sinter decoder package."""
+
+# The co-located core/subgraph/window test modules collect the cases that belong to them.
+__test__ = False
 
 import typing
 import warnings
