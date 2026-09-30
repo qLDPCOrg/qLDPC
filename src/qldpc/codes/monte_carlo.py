@@ -6,20 +6,26 @@ These utilities turn the failure and discard counts collected by the .get_logica
 methods of the code classes into logical error and discard rate estimates, and support the sampling
 that those methods perform.  They depend only on the decoder interface and on the binomial weight
 distribution, not on the code classes themselves, so they live in their own module.
+
+Code-capacity sampling only ever asks a decoder which observables an error flips (see
+CodeCapacityDecoder and get_code_capacity_decoder).  An error decoder is used by converting the
+errors that it infers into observable flips.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable
-from typing import TypeVar
+from collections.abc import Iterable, Mapping
+from typing import Any, TypeVar
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.special
+import stim
 
 from qldpc import decoders, math
+from qldpc.decoders.custom import PLACEHOLDER_ERROR_RATE
 
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 
@@ -429,3 +435,376 @@ def get_error_and_erasure(
     if getattr(decoder, "has_erasure_bit", False):
         return error[:-1].view(type(syndrome)), bool(error[-1])
     return error.view(type(syndrome)), False
+
+
+################################################################################
+# decoders for code-capacity sampling
+
+
+def get_code_capacity_dem(
+    syndrome_matrix: galois.FieldArray,
+    observable_matrix: galois.FieldArray,
+    dem_errors: galois.FieldArray | None = None,
+) -> stim.DetectorErrorModel:
+    """Build the detector error model of one sector of a code-capacity experiment.
+
+    Error mechanism j of the model is the error in column j of dem_errors, which is the identity
+    matrix by default, so that each error location is an error mechanism.  An error mechanism flips
+    the detectors of its syndrome ``syndrome_matrix @ error``, and the observables of its observable
+    values ``observable_matrix @ error``.  Every error mechanism is assigned the same placeholder
+    probability, so a decoder compiled for the model makes the same decisions at every physical
+    error rate.  A code-capacity estimate reuses the decoding outcomes of fixed-weight errors at
+    every physical error rate, so it requires such a decoder.
+
+    Raises:
+        ValueError: If the matrices are not binary, since Stim detector error models are binary.
+    """
+    field = type(syndrome_matrix)
+    if getattr(field, "order", 2) != 2:
+        raise ValueError(
+            "A Sinter-style decoder is compiled for a Stim detector error model, which is binary, so"
+            f" it cannot decode a code over {field.name}.  Pass decoder settings such as"
+            " decoders.guf(), or a prebuilt observable decoder (such as an ObservableLookupDecoder)"
+            " built for this code, instead"
+        )
+    if dem_errors is None:
+        dem_errors = field.Identity(syndrome_matrix.shape[1])
+    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+        np.asarray(syndrome_matrix @ dem_errors, dtype=np.uint8),
+        np.asarray(observable_matrix @ dem_errors, dtype=np.uint8),
+        PLACEHOLDER_ERROR_RATE,
+    )
+    return dem_arrays.to_dem()
+
+
+@dataclasses.dataclass(frozen=True)
+class CodeCapacityDecoder:
+    """Observable decoder for one sector of a code-capacity experiment.
+
+    A code-capacity experiment samples errors, and decodes the syndrome ``syndrome_matrix @ error``
+    of each error to predict the values ``observable_matrix @ error`` of its observables.  Decoding
+    fails if the prediction differs from these values, and is discarded if the decoder signals
+    erasure by setting any of the num_erasure_flags flags that it appends to each prediction.  Both
+    matrices are arrays over the field of the code.
+
+    Build a CodeCapacityDecoder with get_code_capacity_decoder.
+    """
+
+    # predicts the values of the observables of an error from its syndrome
+    decoder: decoders.ObservableDecoder
+    # maps an error to the syndrome that the decoder decodes
+    syndrome_matrix: galois.FieldArray
+    # maps an error to the values of its observables
+    observable_matrix: galois.FieldArray
+    # number of erasure flags that the decoder appends to each prediction
+    num_erasure_flags: int = 0
+
+    @property
+    def field(self) -> type[galois.FieldArray]:
+        """The field of the syndromes and observables of this decoder."""
+        return type(self.syndrome_matrix)
+
+    @property
+    def num_observables(self) -> int:
+        """The number of observables that this decoder predicts."""
+        return len(self.observable_matrix)
+
+    @property
+    def can_discard(self) -> bool:
+        """Whether this decoder can signal erasure, and thereby discard a sample."""
+        return self.num_erasure_flags > 0
+
+    @staticmethod
+    def from_error_decoder(
+        error_decoder: decoders.ErrorDecoder,
+        syndrome_matrix: galois.FieldArray,
+        observable_matrix: galois.FieldArray,
+    ) -> CodeCapacityDecoder:
+        """Predict observables by converting the errors that an error decoder infers."""
+        observable_decoder = _ErrorsToFieldObservablesDecoder(error_decoder, observable_matrix)
+        return CodeCapacityDecoder(
+            observable_decoder,
+            syndrome_matrix,
+            observable_matrix,
+            int(observable_decoder.has_erasure_bit),
+        )
+
+    def reuse_for(
+        self, syndrome_matrix: galois.FieldArray, observable_matrix: galois.FieldArray
+    ) -> CodeCapacityDecoder | None:
+        """Reuse this decoder for another sector with the same syndrome matrix, if possible.
+
+        The decoder is reused as is if the observable matrices are also equal.  An error decoder is
+        reused with a different observable matrix, since the errors that it infers do not depend on
+        observables.  Otherwise, return None: an observable decoder only predicts the observables
+        that it was built for.
+        """
+        if not np.array_equal(syndrome_matrix, self.syndrome_matrix):
+            return None
+        if np.array_equal(observable_matrix, self.observable_matrix):
+            return self
+        if isinstance(self.decoder, _ErrorsToFieldObservablesDecoder):
+            return CodeCapacityDecoder.from_error_decoder(
+                self.decoder.error_decoder, syndrome_matrix, observable_matrix
+            )
+        return None
+
+    def decode(self, syndrome: galois.FieldArray) -> tuple[galois.FieldArray, bool]:
+        """Predict the observable values of an error from its syndrome, and whether it was erased.
+
+        Raises:
+            ValueError: If the decoder returns a prediction of the wrong shape, with entries that
+                are not elements of the field of the code, or with erasure flags other than 0 or 1.
+        """
+        prediction = np.asarray(self.decoder.decode_observables(syndrome.view(np.ndarray)))
+        _validate_decoder_output(
+            prediction,
+            self.num_observables,
+            self.num_erasure_flags,
+            self.field,
+            "An observable decoder predicted observable values",
+        )
+        observables = self.field(prediction[: self.num_observables].astype(int))
+        return observables, bool(np.any(prediction[self.num_observables :]))
+
+    def get_failure_and_erasure(self, error: galois.FieldArray) -> tuple[bool, bool]:
+        """Decode the syndrome of an error, and report whether decoding failed or was erased.
+
+        Decoding fails if the predicted observable values differ from those of the error.  An erased
+        sample is not a failure.
+        """
+        predicted_observables, erased = self.decode(self.syndrome_matrix @ error)
+        if erased:
+            return False, True
+        return bool(np.any(predicted_observables != self.observable_matrix @ error)), False
+
+
+def get_code_capacity_decoder(
+    syndrome_matrix: galois.FieldArray,
+    observable_matrix: galois.FieldArray,
+    decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoder,
+    decoder_args: Mapping[str, object] | None = None,
+    *,
+    dem_errors: galois.FieldArray | None = None,
+    prebuilt_rejection_reason: str | None = None,
+    warn_deprecated: bool = True,
+) -> CodeCapacityDecoder:
+    """Build an observable decoder for one sector of a code-capacity experiment.
+
+    Code-capacity sampling decodes the syndrome ``syndrome_matrix @ error`` of each sampled error to
+    predict its observable values ``observable_matrix @ error``.  The decoder input is resolved into
+    an observable decoder as follows:
+
+    - A Sinter-style decoder (an object with a compile_decoder_for_dem method, such as a
+      decoders.SinterDecoder) is compiled for the detector error model that get_code_capacity_dem
+      builds from the two matrices and dem_errors.  This requires the matrices to be binary.
+    - A prebuilt observable decoder (an object with a decode_observables method, or a compiled
+      Sinter decoder with a decode_shots_bit_packed method, that is not also an error decoder) is
+      used as is.  It must predict the observable values ``observable_matrix @ error`` from the
+      syndrome ``syndrome_matrix @ error``.
+    - Anything else (None, decoder settings, a constructor, or a prebuilt error decoder, together
+      with any deprecated decoder_args) builds an error decoder for syndrome_matrix, exactly as
+      qldpc.decoders.resolve_decoder does.  The observable values of the errors that it infers are
+      its predictions.  A decoder that is both an error decoder and an observable decoder, such as a
+      RelayBPDecoder, is used as an error decoder.
+
+    Args:
+        syndrome_matrix: The matrix that maps an error to its syndrome.
+        observable_matrix: The matrix that maps an error to its observable values.
+        decoder: The decoder input.
+        decoder_args: Deprecated keyword-based decoder options, which build an error decoder.
+        dem_errors: The errors of the error mechanisms of the detector error model for which a
+            Sinter-style decoder is compiled, as columns of a matrix.  Defaults to the identity
+            matrix, making each error location an error mechanism.
+        prebuilt_rejection_reason: If not None, reject a prebuilt (error or observable) decoder,
+            with this reason; see help(qldpc.decoders.reject_prebuilt_decoder).  A Sinter-style
+            decoder is compiled here, so it is not rejected.
+        warn_deprecated: Whether to warn when decoder_args is nonempty.
+
+    Returns:
+        A CodeCapacityDecoder.
+    """
+    decoder_args = decoder_args or {}
+    if not decoder_args and compiles_for_dem(decoder):
+        dem = get_code_capacity_dem(syndrome_matrix, observable_matrix, dem_errors)
+        compiled_decoder = decoder.compile_decoder_for_dem(dem=dem)  # type:ignore[union-attr]
+        return _get_observable_code_capacity_decoder(
+            compiled_decoder,
+            syndrome_matrix,
+            observable_matrix,
+            "A decoder compiled by compile_decoder_for_dem",
+        )
+
+    if prebuilt_rejection_reason is not None:
+        decoders.reject_prebuilt_decoder(decoder, prebuilt_rejection_reason)
+
+    if not decoder_args and is_prebuilt_observable_decoder(decoder):
+        return _get_observable_code_capacity_decoder(
+            decoder, syndrome_matrix, observable_matrix, "A prebuilt observable decoder"
+        )
+
+    error_decoder = decoders.resolve_decoder(
+        syndrome_matrix,
+        decoder,  # type:ignore[arg-type]
+        decoder_args,
+        warn_deprecated=warn_deprecated,
+    )
+    return CodeCapacityDecoder.from_error_decoder(error_decoder, syndrome_matrix, observable_matrix)
+
+
+def compiles_for_dem(decoder: object) -> bool:
+    """Whether a decoder input is a Sinter-style decoder, compiled for a detector error model.
+
+    Such a decoder, like a decoders.SinterDecoder, has a compile_decoder_for_dem method.
+    """
+    return not isinstance(decoder, type) and callable(
+        getattr(decoder, "compile_decoder_for_dem", None)
+    )
+
+
+def is_prebuilt_observable_decoder(decoder: object) -> bool:
+    """Whether a decoder input is a prebuilt decoder that predicts observables, but not errors.
+
+    Such a decoder has a decode_observables method, or is a compiled Sinter decoder with a
+    decode_shots_bit_packed method.  It is not a Sinter-style decoder that still has to be compiled
+    for a detector error model (see compiles_for_dem), and it is not an error decoder: a decoder
+    that can do both, such as a RelayBPDecoder, is used as an error decoder.
+    """
+    return (
+        not isinstance(decoder, (type, decoders.DecoderSpec, decoders.ErrorDecoder))
+        and not compiles_for_dem(decoder)
+        and (
+            isinstance(decoder, decoders.ObservableDecoder)
+            or callable(getattr(decoder, "decode_shots_bit_packed", None))
+        )
+    )
+
+
+def _get_observable_code_capacity_decoder(
+    decoder: object,
+    syndrome_matrix: galois.FieldArray,
+    observable_matrix: galois.FieldArray,
+    source: str,
+) -> CodeCapacityDecoder:
+    """Wrap a prebuilt or compiled observable decoder, checking that it fits the given matrices."""
+    num_detectors, num_observables = len(syndrome_matrix), len(observable_matrix)
+    observable_decoder: decoders.ObservableDecoder
+    if isinstance(decoder, decoders.CompiledSinterDecoder):
+        observable_decoder, num_erasure_flags = decoder, decoder.num_erasure_bits
+    elif isinstance(decoder, decoders.ObservableDecoder):
+        num_erasure_flags = int(bool(getattr(decoder, "has_erasure_bit", False)))
+        observable_decoder = decoder
+    elif callable(getattr(decoder, "decode_shots_bit_packed", None)):
+        observable_decoder = _BitPackedObservableDecoder(decoder, num_observables)
+        num_erasure_flags = 1
+    else:
+        raise TypeError(
+            f"{source} must provide a decode_observables or decode_shots_bit_packed method"
+        )
+
+    for name, expected in [("num_detectors", num_detectors), ("num_observables", num_observables)]:
+        value = getattr(decoder, name, None)
+        if isinstance(value, (int, np.integer)) and value != expected:
+            raise ValueError(
+                f"{source} has {name}={value}, but this code-capacity sector has {expected}.  An"
+                " observable decoder must be built for the syndromes and observables of the sector"
+                " that it decodes"
+            )
+    return CodeCapacityDecoder(
+        observable_decoder, syndrome_matrix, observable_matrix, num_erasure_flags
+    )
+
+
+def _validate_decoder_output(
+    output: npt.NDArray[Any],
+    num_values: int,
+    num_erasure_flags: int,
+    field: type[galois.FieldArray],
+    source: str,
+) -> None:
+    """Check that a decoder output holds num_values field elements followed by erasure flags."""
+    expected_shape = (num_values + num_erasure_flags,)
+    if output.shape != expected_shape:
+        flags = f" and {num_erasure_flags} erasure flag(s)" if num_erasure_flags else ""
+        raise ValueError(
+            f"{source} of shape {output.shape}, but expected shape {expected_shape}:"
+            f" {num_values} value(s){flags}"
+        )
+    if not (np.issubdtype(output.dtype, np.integer) or np.issubdtype(output.dtype, np.bool_)):
+        raise ValueError(f"{source} of dtype {output.dtype}, but expected integers")
+    values, erasure_flags = output[:num_values].astype(int), output[num_values:].astype(int)
+    if np.any(values < 0) or np.any(values >= field.order):
+        raise ValueError(f"{source} with entries that are not elements of {field.name}")
+    if np.any((erasure_flags != 0) & (erasure_flags != 1)):
+        raise ValueError(f"{source} with erasure flags that are not 0 or 1")
+
+
+class _ErrorsToFieldObservablesDecoder(decoders.ObservableDecoder):
+    """Observable decoder that converts the errors that an error decoder infers into observables.
+
+    The observable values of an inferred error are ``observable_matrix @ error``, over the field of
+    observable_matrix.  If the error decoder signals erasure, its erasure bit is appended to each
+    prediction.
+    """
+
+    def __init__(
+        self, error_decoder: decoders.ErrorDecoder, observable_matrix: galois.FieldArray
+    ) -> None:
+        self.error_decoder = error_decoder
+        self.observable_matrix = observable_matrix
+        self.has_erasure_bit = bool(getattr(error_decoder, "has_erasure_bit", False))
+
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return predicted observable values."""
+        field = type(self.observable_matrix)
+        num_error_locations = self.observable_matrix.shape[1]
+        error = np.asarray(self.error_decoder.decode_errors(syndrome))
+        _validate_decoder_output(
+            error,
+            num_error_locations,
+            int(self.has_erasure_bit),
+            field,
+            "An error decoder inferred an error",
+        )
+        observables = self.observable_matrix @ field(error[:num_error_locations].astype(int))
+        return np.concatenate([observables.view(np.ndarray), error[num_error_locations:]])
+
+
+class _BitPackedObservableDecoder(decoders.ObservableDecoder):
+    """Observable decoder that wraps a compiled Sinter decoder with bit-packed inputs and outputs.
+
+    The compiled decoder predicts one bit-packed byte per eight observables, and may add one byte,
+    which asks for the shot to be discarded if it is nonzero.  Each prediction of this decoder ends
+    with an erasure flag that is set if the shot is to be discarded.
+    """
+
+    has_erasure_bit = True
+
+    def __init__(self, compiled_decoder: Any, num_observables: int) -> None:
+        self.compiled_decoder = compiled_decoder
+        self.num_observables = num_observables
+
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return predicted observable flips and an erasure flag."""
+        packed_syndrome = np.packbits(
+            np.asarray(syndrome, dtype=np.uint8).reshape(1, -1), bitorder="little", axis=1
+        )
+        packed_prediction = np.asarray(
+            self.compiled_decoder.decode_shots_bit_packed(
+                bit_packed_detection_event_data=packed_syndrome
+            ),
+            dtype=np.uint8,
+        )
+        num_bytes = -(-self.num_observables // 8)
+        if packed_prediction.shape not in [(1, num_bytes), (1, num_bytes + 1)]:
+            raise ValueError(
+                f"A compiled Sinter decoder predicted bit-packed observable flips of shape"
+                f" {packed_prediction.shape} for one shot, but {self.num_observables} observables"
+                f" take shape (1, {num_bytes}), or (1, {num_bytes + 1}) with a byte added to signal"
+                " discards"
+            )
+        flips = np.unpackbits(
+            packed_prediction[0, :num_bytes], count=self.num_observables, bitorder="little"
+        )
+        erased = bool(np.any(packed_prediction[0, num_bytes:]))
+        return np.append(flips, np.uint8(erased))

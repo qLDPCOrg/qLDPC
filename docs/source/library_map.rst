@@ -213,8 +213,9 @@ and build it for a parity-check matrix or Stim detector error model with ``.buil
 the settings as ``decoder=`` to a method that decodes. The default decoder is GUF for a nonbinary
 field array and BP+OSD otherwise. ``qldpc.decoders.get_observable_decoder`` builds a decoder that predicts the
 observable flips of a detector error model instead, and ``qldpc.decoders.SinterDecoder`` does so for
-Sinter. See :doc:`Choosing a decoder <decoders>` for the difference between error and observable
-decoders, custom decoders, and per-sector CSS choices.
+Sinter. Code-capacity estimators accept either kind of decoder. See
+:doc:`Choosing a decoder <decoders>` for the difference between error and observable decoders,
+custom decoders, and per-sector CSS choices.
 
 .. code-block:: python
 
