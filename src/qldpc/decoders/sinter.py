@@ -105,7 +105,7 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
         if (
             decompose_errors
             and isinstance(decoder, DecoderSpec)
-            and dict(decoder._options).get("enable_correlations")
+            and decoder.options.get("enable_correlations")
         ):
             raise ValueError(
                 "Correlated matching (enable_correlations=True) uses the decompositions that a"

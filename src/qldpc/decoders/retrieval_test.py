@@ -230,6 +230,11 @@ def test_decoder_specs() -> None:
     channel = np.array([0.1, 0.2])
     assert "error_channel=array" in repr(decoders.bf(error_channel=channel))
 
+    # a spec exposes a copy of its options, which cannot modify the spec
+    spec = decoders.lookup_table(max_weight=2)
+    spec.options["max_weight"] = 3
+    assert spec.options["max_weight"] == 2
+
     # a spec that was not built by a helper still has a (less concise) representation
     spec = decoders.DecoderSpec("custom", decoders.get_decoder_lookup, (("max_weight", 1),))
     assert repr(spec).startswith("DecoderSpec('custom', ")

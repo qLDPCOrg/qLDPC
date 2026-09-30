@@ -64,9 +64,14 @@ class DecoderSpec(Generic[_DecoderT_co]):
     _options: tuple[tuple[str, object], ...]
     _observable_builder: Callable[..., ObservableDecoder] | None = None
 
+    @property
+    def options(self) -> dict[str, object]:
+        """A copy of the options with which this spec builds a decoder, including defaults."""
+        return dict(self._options)
+
     def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
         """Build an error decoder for a parity-check matrix or detector error model."""
-        return self._builder(pcm_or_dem, **dict(self._options))
+        return self._builder(pcm_or_dem, **self.options)
 
     @property
     def predicts_observables_natively(self) -> bool:
@@ -82,7 +87,7 @@ class DecoderSpec(Generic[_DecoderT_co]):
         """
         if self._observable_builder is not None:
             return _validate_observable_decoder(
-                self._observable_builder(dem, **dict(self._options)), "A decoder spec"
+                self._observable_builder(dem, **self.options), "A decoder spec"
             )
         return ErrorsToObservablesDecoder(self.build(dem), dem)
 
@@ -270,7 +275,7 @@ def _build_decoder(pcm_or_dem: PcmOrDem, decoder: ObservableDecoderInput) -> tup
         default_getter = get_decoder_GUF if is_nonbinary else get_decoder_BP_OSD
         built_decoder, source = default_getter(pcm_or_dem), "The default decoder"
     elif isinstance(decoder, DecoderSpec):
-        built_decoder = decoder._builder(pcm_or_dem, **dict(decoder._options))
+        built_decoder = decoder.build(pcm_or_dem)
         source = "A decoder spec"
     elif is_prebuilt_decoder(decoder):
         built_decoder, source = decoder, "A prebuilt decoder"
@@ -1538,7 +1543,7 @@ def mwpm(
             name: param.default for name, param in inspect.signature(mwpm).parameters.items()
         }
         compatible_options = ("ignore_non_graphlike_errors", "enable_correlations")
-        for name, value in spec._options:
+        for name, value in spec.options.items():
             if name not in compatible_options and not _is_default_value(value, defaults[name]):
                 raise ValueError(
                     f"The MWPM option {name}={value!r} is not supported with"
