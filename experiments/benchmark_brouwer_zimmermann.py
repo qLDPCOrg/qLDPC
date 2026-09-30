@@ -23,7 +23,7 @@ class BenchmarkCase:
     get_distance: Callable[[qldpc.codes.DistanceMethod], int]
 
 
-def _median_seconds(call: Callable[[], int], repeats: int) -> tuple[int, float]:
+def median_seconds(call: Callable[[], int], repeats: int) -> tuple[int, float]:
     """Return the common result and median end-to-end runtime of a callable."""
     call()
     results: set[int] = set()
@@ -37,7 +37,7 @@ def _median_seconds(call: Callable[[], int], repeats: int) -> tuple[int, float]:
     return results.pop(), statistics.median(samples)
 
 
-def _get_cases() -> list[BenchmarkCase]:
+def get_cases() -> list[BenchmarkCase]:
     """Build representative classical, CSS, and non-CSS benchmark cases."""
     hamming = qldpc.codes.HammingCode(5)
     steane = qldpc.codes.CSSCode.stack([qldpc.codes.SteaneCode()] * 7)
@@ -71,7 +71,7 @@ def _get_cases() -> list[BenchmarkCase]:
     ]
 
 
-def _run_comparisons(
+def run_comparisons(
     cases: list[BenchmarkCase],
     *,
     repeats: int,
@@ -81,11 +81,11 @@ def _run_comparisons(
     print(f"\nEnd-to-end timings (median of {repeats})")
     print("-" * 88)
     for case in cases:
-        distance_bz, seconds_bz = _median_seconds(
+        distance_bz, seconds_bz = median_seconds(
             partial(case.get_distance, "brouwer_zimmermann"),
             repeats,
         )
-        distance_brute, seconds_brute = _median_seconds(
+        distance_brute, seconds_brute = median_seconds(
             partial(case.get_distance, "brute_force"),
             repeats,
         )
@@ -115,15 +115,15 @@ def main() -> None:
     if args.minimum_speedup <= 0:
         parser.error("--minimum-speedup must be positive")
 
-    cases = _get_cases()
-    _run_comparisons(
+    cases = get_cases()
+    run_comparisons(
         cases,
         repeats=args.repeats,
         minimum_speedup=args.minimum_speedup,
     )
 
     large_hamming = qldpc.codes.HammingCode(6)
-    distance, seconds = _median_seconds(
+    distance, seconds = median_seconds(
         lambda: qldpc.codes.get_distance_classical(large_hamming.generator),
         args.repeats,
     )
