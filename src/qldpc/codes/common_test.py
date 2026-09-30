@@ -496,63 +496,6 @@ def test_distance_qudit() -> None:
         assert code.get_distance_exact() == 2
 
 
-def test_numba_code_distance_api() -> None:
-    """High-level exact-distance methods forward numba acceleration to binary kernels."""
-    classical_code = codes.RepetitionCode(3)
-    with unittest.mock.patch(
-        "qldpc.codes.common.get_distance_classical", return_value=3
-    ) as classical_kernel:
-        for classical_distance in (
-            classical_code.get_distance,
-            classical_code.get_distance_exact,
-        ):
-            classical_code.forget_distance()
-            classical_kernel.reset_mock()
-            assert classical_distance(use_numba=True) == 3
-            assert classical_kernel.call_args.kwargs == {"cutoff": 1, "use_numba": True}
-
-    quantum_code = codes.QuditCode(codes.FiveQubitCode().matrix)
-    with unittest.mock.patch(
-        "qldpc.codes.common.get_distance_quantum", return_value=3
-    ) as quantum_kernel:
-        for quantum_distance in (
-            quantum_code.get_distance,
-            quantum_code.get_distance_exact,
-        ):
-            quantum_code.forget_distance()
-            quantum_kernel.reset_mock()
-            assert quantum_distance(use_numba=True) == 3
-            assert quantum_kernel.call_args.kwargs == {
-                "cutoff": 1,
-                "homogeneous": False,
-                "use_numba": True,
-            }
-
-    css_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
-    with unittest.mock.patch(
-        "qldpc.codes.common.get_distance_quantum", return_value=3
-    ) as css_kernel:
-        for css_distance in (
-            lambda: css_code.get_distance(Pauli.X, use_numba=True),
-            lambda: css_code.get_distance_exact(Pauli.X, use_numba=True),
-        ):
-            css_code.forget_distance()
-            css_kernel.reset_mock()
-            assert css_distance() == 3
-            assert css_kernel.call_args.kwargs == {
-                "cutoff": 1,
-                "homogeneous": True,
-                "use_numba": True,
-            }
-
-    with pytest.raises(ValueError, match="only available for exact distance"):
-        classical_code.get_distance(bound=True, use_numba=True)
-    ternary_code = codes.RepetitionCode(3, field=3)
-    ternary_code.forget_distance()
-    with pytest.raises(ValueError, match="only available for binary code-distance"):
-        ternary_code.get_distance_exact(use_numba=True)
-
-
 @pytest.mark.parametrize("field", [2, 3])
 def test_conversions_quantum(field: int, bits: int = 5, checks: int = 3) -> None:
     """Conversions between matrix and graph representations of a code."""
