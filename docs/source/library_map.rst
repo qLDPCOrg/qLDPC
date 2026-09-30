@@ -208,9 +208,13 @@ checks do not commute, make sure you intend to build a subsystem code and test t
 Choose or supply a decoder
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``qldpc.decoders.get_decoder`` accepts a parity-check matrix or Stim detector error model. It uses
-GUF by default for a nonbinary field array and BP+OSD otherwise. Select one named decoder with its
-``with_<NAME>`` option, pass a ``decoder_constructor``, or supply a ``static_decoder``.
+Configure a decoder with a typed helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``,
+and build it for a parity-check matrix or Stim detector error model with ``.build(...)``, or pass
+the settings as ``decoder=`` to a method that decodes. The default decoder is GUF for a nonbinary
+field array and BP+OSD otherwise. ``qldpc.decoders.get_observable_decoder`` builds a decoder that predicts the
+observable flips of a detector error model instead, and ``qldpc.decoders.SinterDecoder`` does so for
+Sinter. See :doc:`Choosing a decoder <decoders>` for the difference between error and observable
+decoders, custom decoders, and per-sector CSS choices.
 
 .. code-block:: python
 
@@ -220,8 +224,8 @@ GUF by default for a nonbinary field array and BP+OSD otherwise. Select one name
 
    code = codes.RepetitionCode(5)
    syndrome = np.array([1, 0, 0, 0])
-   decoder = decoders.get_decoder(code.matrix)
-   correction = decoder.decode(syndrome)
+   decoder = decoders.bp_osd().build(code.matrix)
+   correction = decoder.decode_errors(syndrome)
 
 Only some decoders can signal an erasure. Those decoders append the erasure flag as the last entry
 of each inferred error.

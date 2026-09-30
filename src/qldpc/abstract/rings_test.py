@@ -160,20 +160,24 @@ def test_deprecations() -> None:
         ring_member = abstract.RingMember.from_vector(ring, vector)  # type:ignore[arg-type]
     assert np.array_equal(ring_member.to_vector(), vector)
 
-    # the Element alias warns on use
-    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
-        abstract.Element(ring, ring.group.identity).to_vector()
+    # the Element alias warns on use, and refers to RingMember itself
+    with pytest.warns(DeprecationWarning, match="Element is deprecated; use RingMember"):
+        assert abstract.Element is abstract.RingMember
+    with pytest.warns(DeprecationWarning, match="Element is deprecated; use RingMember"):
+        assert rings.Element is abstract.RingMember
 
 
 def test_ring_array_compat_shim() -> None:
     """RingArray/Protograph remain importable from rings.py, the module they moved out of."""
-    from qldpc.abstract.rings import Protograph, RingArray
+    from qldpc.abstract.rings import RingArray
 
     assert RingArray is ring_array.RingArray is abstract.RingArray
-    assert Protograph is ring_array.Protograph is abstract.Protograph
+    with pytest.warns(DeprecationWarning, match="Protograph is deprecated"):
+        from qldpc.abstract.rings import Protograph
+    assert Protograph is abstract.RingArray
 
     with pytest.raises(AttributeError, match=r"module .* has no attribute 'not_a_real_export'"):
-        rings.not_a_real_export  # noqa: B018 (deliberately trigger the module __getattr__)
+        rings.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018 (trigger __getattr__)
 
 
 def test_ring_array_pickle_compat() -> None:
@@ -185,4 +189,5 @@ def test_ring_array_pickle_compat() -> None:
     """
     unpickler = pickle.Unpickler(io.BytesIO())  # noqa: S301
     assert unpickler.find_class("qldpc.abstract.rings", "RingArray") is ring_array.RingArray
-    assert unpickler.find_class("qldpc.abstract.rings", "Protograph") is ring_array.Protograph
+    with pytest.warns(DeprecationWarning, match="Protograph is deprecated"):
+        assert unpickler.find_class("qldpc.abstract.rings", "Protograph") is ring_array.RingArray

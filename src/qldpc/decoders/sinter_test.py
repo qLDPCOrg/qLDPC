@@ -4,8 +4,9 @@
 
 import typing
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
+import ldpc
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -33,21 +34,42 @@ def test_sinter_decoder() -> None:
 
     # try decoders with and without a decode_batch method
     for decoder in [
-        decoders.SinterDecoder(with_BP_OSD=True),
-        decoders.SinterDecoder(with_RBP="MinSumBPDecoderF32"),
-        decoders.SinterDecoder(with_MWPM=True),
+        decoders.SinterDecoder(decoder=decoders.bp_osd()),
+        decoders.SinterDecoder(decoder=decoders.min_sum_bp()),
+        decoders.SinterDecoder(decoder=decoders.mwpm()),
     ]:
         compiled_decoder = decoder.compile_decoder_for_dem(dem)
         predicted_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots)
         assert np.array_equal(predicted_flips, expected_flips)
 
+        # decode no shots
+        no_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots[:0])
+        assert no_flips.shape == (0, expected_flips.shape[1])
+
         # decode one shot at a time
-        with pytest.raises(decoders.sinter.DecoderNotCompiledError, match="needs to be compiled"):
-            decoder.decode(np.array([], dtype=int))
+        with pytest.raises(decoders.DecoderNotCompiledError, match="needs to be compiled"):
+            decoder.decode_observables(np.array([], dtype=int))
         assert np.array_equal(
-            [compiled_decoder.decode(np.asarray(error)) for error in circuit_errors],
+            [compiled_decoder.decode_observables(np.asarray(error)) for error in circuit_errors],
             observable_flips,
         )
+
+    # a compiled decoder exposes the decoder that its settings build
+    compiled_decoder = decoders.SinterDecoder().compile_decoder_for_dem(dem)
+    assert isinstance(compiled_decoder.decoder, ldpc.BpOsdDecoder)
+    assert isinstance(compiled_decoder.observable_decoder, decoders.ErrorsToObservablesDecoder)
+    compiled_decoder = decoders.SinterDecoder(decoder=decoders.mwpm()).compile_decoder_for_dem(dem)
+    assert compiled_decoder.decoder is compiled_decoder.observable_decoder
+
+    # a compiled decoder can also be constructed directly from an error decoder
+    error_decoder = decoders.get_decoder_lookup(dem, max_weight=3)
+    compiled_decoder = decoders.CompiledSinterDecoder(
+        decoders.DetectorErrorModelArrays(dem), error_decoder
+    )
+    assert compiled_decoder.decoder is error_decoder
+    assert np.array_equal(
+        compiled_decoder.decode_shots_bit_packed(bit_packed_shots), expected_flips
+    )
 
     # the trivial decoder always returns a trivial result
     decoder = decoders.TrivialDecoder()
@@ -62,6 +84,40 @@ def test_sinter_decoder() -> None:
     )
 
 
+def test_sinter_decoder_classes_and_aliases() -> None:
+    """Sinter decoders are observable decoders, and deprecated decoder names remain aliases."""
+    for sinter_class, decoder_class in [
+        (sinter.Decoder, decoders.SinterDecoder),
+        (sinter.CompiledDecoder, decoders.CompiledSinterDecoder),
+    ]:
+        assert sinter_class in decoder_class.__mro__
+        assert decoders.ObservableDecoder in decoder_class.__mro__
+
+    with pytest.warns(DeprecationWarning, match="BatchDecoder is deprecated"):
+        assert decoders.BatchDecoder is decoders.BatchErrorDecoder
+    with pytest.warns(DeprecationWarning, match="Decoder is deprecated"):
+        assert decoders.custom.Decoder is decoders.ErrorDecoder
+    with pytest.raises(AttributeError, match="has no attribute"):
+        _ = decoders.NotADecoder  # type: ignore[attr-defined]
+
+    # star imports, which retrieve every name in __all__, define the deprecated names
+    with pytest.warns(DeprecationWarning, match="is deprecated"):
+        star_imports = {name: getattr(decoders, name) for name in decoders.__all__}
+    assert star_imports["SubgraphSinterDecoder"] is decoders.SubgraphDecoder
+    assert star_imports["Decoder"] is decoders.ErrorDecoder
+
+    # an uncompiled observable decoder cannot decode
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    # the deprecated decode methods of these classes are hidden from type checkers
+    decoder: typing.Any = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    with pytest.raises(decoders.DecoderNotCompiledError, match="compile_decoder_for_dem"):
+        decoder.decode(np.array([1], dtype=int))
+
+    compiled: typing.Any = decoder.compile_decoder_for_dem(dem)
+    with pytest.warns(DeprecationWarning, match="decode is deprecated"):
+        assert np.array_equal(compiled.decode(np.array([1], dtype=int)), [1])
+
+
 def test_unsimplified_dense_decoder() -> None:
     """A dense decoder is built for the error mechanisms that its model declares.
 
@@ -74,7 +130,9 @@ def test_unsimplified_dense_decoder() -> None:
         error(0.1) D0 L0
         error(0.1) D1
     """)
-    compiled = decoders.SinterDecoder(simplify=False, with_GUF=True).compile_decoder_for_dem(dem)
+    compiled = decoders.SinterDecoder(
+        simplify=False, decoder=decoders.guf()
+    ).compile_decoder_for_dem(dem)
     assert compiled.decode_shots(np.array([[1, 0]], dtype=np.uint8)).tolist() == [[1]]
 
 
@@ -90,7 +148,7 @@ def test_subgraph_decoding() -> None:
     det_data, obs_data, _err_data = sampler.sample(100)
 
     # build a monolithic lookup-table decoder, compile, and predict observable flips
-    decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
+    decoder_1 = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=3))
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
@@ -98,7 +156,9 @@ def test_subgraph_decoding() -> None:
     assert np.array_equal(predicted_flips_1, compiled_decoder_1.packbits(obs_data))
 
     # build a subgraph decoder, compile, and predict observable flips
-    decoder_2 = decoders.SubgraphDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
+    decoder_2 = decoders.SubgraphDecoder(
+        [[0], [1], [2]], decoder=decoders.lookup_table(max_weight=1)
+    )
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
@@ -125,7 +185,7 @@ def test_sequential_decoding() -> None:
     det_data, obs_data, _err_data = sampler.sample(100)
 
     # build a monolithic lookup-table decoder, compile, and predict observable flips
-    decoder_1 = decoders.SinterDecoder(with_lookup=True, max_weight=3)
+    decoder_1 = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=3))
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
@@ -133,7 +193,9 @@ def test_sequential_decoding() -> None:
     assert np.array_equal(predicted_flips_1, compiled_decoder_1.packbits(obs_data))
 
     # build a sequential decoder, compile, and predict observable flips
-    decoder_2 = decoders.SequentialWindowDecoder([[0], [1], [2]], with_lookup=True, max_weight=1)
+    decoder_2 = decoders.SequentialWindowDecoder(
+        [[0], [1], [2]], decoder=decoders.lookup_table(max_weight=1)
+    )
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
@@ -141,12 +203,16 @@ def test_sequential_decoding() -> None:
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
 
     # build an equivalent sliding window decoder, compile, and predict observable flips
-    decoder_2 = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
+    decoder_2 = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup_table(max_weight=1))
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
     )
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
+
+    # decode no shots with window decoders that decode one syndrome at a time
+    no_flips = compiled_decoder_2.decode_shots(det_data[:0])
+    assert no_flips.shape == (0, dem.num_observables)
 
 
 def test_sliding_window_recompilation() -> None:
@@ -159,7 +225,7 @@ def test_sliding_window_recompilation() -> None:
     one_round = stim.DetectorErrorModel("detector(0) D0\ndetector(0) D1\nerror(0.1) D0 D1")
     two_rounds = stim.DetectorErrorModel("detector(0) D0\ndetector(1) D1\nerror(0.1) D0 D1")
 
-    decoder = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
+    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup_table(max_weight=1))
     decoder.compile_decoder_for_dem(two_rounds)
 
     # the second model puts both detectors in one window, read from its own coordinates
@@ -188,7 +254,7 @@ def test_sliding_window_time_coordinate() -> None:
             dem.append("error", 0.1, targets)
         return dem
 
-    decoder = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
+    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup_table(max_weight=1))
 
     # the first coordinate counts rounds, so it is read in preference to any later one
     compiled = decoder.compile_decoder_for_dem(dem_with_coords([(0, 0), (0, 1), (1, 2), (1, 3)]))
@@ -213,7 +279,7 @@ def test_sliding_window_time_coordinate() -> None:
 
 
 def test_sequential_decoding_with_merged_window_errors() -> None:
-    """SequentialWindowDecoder wraps with _ExpandedDecoder when window errors merge.
+    """SequentialWindowDecoder wraps with ExpandedErrorDecoder when window errors merge.
 
     Consider two globally distinct errors:
         E0: flips D0, D1, L0,
@@ -233,11 +299,11 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
         error(0.2) D0 D2 L0
     """)
 
-    sinter_decoder = decoders.SequentialWindowDecoder([[0], [1, 2]], with_BP_OSD=True)
+    sinter_decoder = decoders.SequentialWindowDecoder([[0], [1, 2]], decoder=decoders.bp_osd())
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
     assert isinstance(
         compiled_sinter_decoder.window_decoders[0],
-        decoders.sinter._ExpandedDecoder,
+        decoders.ExpandedErrorDecoder,
     )
 
     # Check correctness on explicit shots: no error, E0, and E1 individually.
@@ -263,7 +329,7 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
         error(0) D0 D3 L1
     """)
     compiled_sinter_decoder = decoders.SequentialWindowDecoder(
-        [[0], [1, 2, 3]], simplify=False, with_BP_OSD=True
+        [[0], [1, 2, 3]], simplify=False, decoder=decoders.bp_osd()
     ).compile_decoder_for_dem(dem)
     # the decoded error is one that can occur, not the zero-probability error
     assert np.array_equal(
@@ -272,25 +338,112 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
 
 
 def test_rejected_decoder_arguments() -> None:
-    """Decoder arguments that a SinterDecoder cannot honor are rejected."""
-    with pytest.raises(ValueError, match="DEFUNCT"):
+    """Decoder arguments that an ObservableDecoder cannot honor are rejected."""
+    with (
+        pytest.warns(DeprecationWarning, match="free-form decoder options"),
+        pytest.raises(ValueError, match="DEFUNCT"),
+    ):
         decoders.SinterDecoder(priors_arg="error_channel")
 
-    # a SinterDecoder converts decoded errors into observable flips itself
+    # a constructor of an observable decoder is built natively
     dem = stim.DetectorErrorModel("""
         error(0.3) D0 L0 L1
         error(0.1) D1 L1
     """)
-    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=2, predict_observable_flips=True)
-    with pytest.raises(ValueError, match="must predict errors"):
+
+    def build_observable_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        return decoders.ObservableLookupDecoder(dem, 2)
+
+    decoder = decoders.SinterDecoder(decoder=build_observable_decoder)
+    compiled = decoder.compile_decoder_for_dem(dem)
+    assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
+    assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
+
+    # ... but window decoders need error decoders
+    window_decoder = decoders.SequentialWindowDecoder(
+        [[0], [1]],
+        decoder=build_observable_decoder,  # type: ignore[arg-type]
+    )
+    with pytest.raises(TypeError, match="predicts observable flips rather than errors"):
+        window_decoder.compile_decoder_for_dem(dem)
+
+    # an observable decoder without a batch method decodes one shot at a time
+    class SingleShotDecoder:
+        def __init__(self, dem: stim.DetectorErrorModel) -> None:
+            self.lookup = decoders.ObservableLookupDecoder(dem, 2)
+
+        def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return self.lookup.decode_observables(syndrome)
+
+    compiled = decoders.SinterDecoder(decoder=SingleShotDecoder).compile_decoder_for_dem(dem)
+    assert np.array_equal(compiled.decode_shots(np.array([[1, 0], [0, 1]])), [[1, 1], [0, 1]])
+
+    # a prebuilt observable decoder is rejected, like a prebuilt error decoder, because a
+    # SinterDecoder builds a new decoder for each (simplified) detector error model
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
+        decoders.SinterDecoder(
+            decoder=decoders.ObservableLookupDecoder(dem, 2)  # type: ignore[arg-type]
+        )
+
+    # the deprecated keyword API is rejected in the same way
+    with pytest.warns(DeprecationWarning):
+        decoder = decoders.SinterDecoder(
+            with_lookup=True, max_weight=2, predict_observable_flips=True
+        )
+    with (
+        pytest.warns(DeprecationWarning),
+        pytest.raises(TypeError, match="observable flips rather than errors"),
+    ):
         decoder.compile_decoder_for_dem(dem)
 
     # window decoders are built the same way, so they reject it too
-    window_decoder = decoders.SequentialWindowDecoder(
-        [[0], [1]], with_lookup=True, max_weight=1, predict_observable_flips=True
-    )
-    with pytest.raises(ValueError, match="must predict errors"):
+    with pytest.warns(DeprecationWarning):
+        window_decoder = decoders.SequentialWindowDecoder(
+            [[0], [1]], with_lookup=True, max_weight=1, predict_observable_flips=True
+        )
+    with (
+        pytest.warns(DeprecationWarning),
+        pytest.raises(TypeError, match="observable flips rather than errors"),
+    ):
         window_decoder.compile_decoder_for_dem(dem)
+
+
+def test_observable_decoders_reject_prebuilt_decoders() -> None:
+    """A prebuilt error decoder cannot be rebuilt for each model that an observable decoder sees."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    prebuilt = decoders.LookupDecoder(dem, max_weight=1)
+    for build_decoder, reason in [
+        (
+            lambda: decoders.SinterDecoder(decoder=prebuilt),  # type: ignore[arg-type]
+            "detector error model",
+        ),
+        (
+            lambda: decoders.SubgraphDecoder([[0]], decoder=prebuilt),  # type: ignore[arg-type]
+            "each subgraph",
+        ),
+        (
+            lambda: decoders.SequentialWindowDecoder([[0]], decoder=prebuilt),  # type: ignore[arg-type]
+            "each window",
+        ),
+        (
+            lambda: decoders.SlidingWindowDecoder(1, 1, decoder=prebuilt),  # type: ignore[arg-type]
+            "each window",
+        ),
+    ]:
+        with pytest.raises(
+            ValueError, match=f"prebuilt decoder cannot be passed as decoder=.*{reason}"
+        ):
+            build_decoder()
+    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
+        decoders.SinterDecoder(static_decoder=prebuilt)
+
+    # a decoder constructor is built for each model
+    decoder = decoders.SequentialWindowDecoder(
+        [[0]], decoder=lambda dem: decoders.LookupDecoder(dem, max_weight=1)
+    )
+    assert np.array_equal(
+        decoder.compile_decoder_for_dem(dem).decode_observables(np.array([1])), [1]
+    )
 
 
 def test_window_region_validation() -> None:
@@ -304,7 +457,7 @@ def test_window_region_validation() -> None:
         error(0.1) D2 L2
     """)
     decoder = decoders.SequentialWindowDecoder(
-        [[0], [1, 2]], [[0, 1], [2]], with_lookup=True, max_weight=1
+        [[0], [1, 2]], [[0, 1], [2]], decoder=decoders.lookup_table(max_weight=1)
     )
     with pytest.raises(ValueError, match="cannot be decoded before"):
         decoder.compile_decoder_for_dem(dem)
@@ -323,13 +476,13 @@ def test_compiled_decoder_input_validation() -> None:
     with pytest.raises(ValueError, match="per subgraph"):
         decoders.CompiledSubgraphDecoder([[0]], [[0], [1]], [], 2, 2)
     subgraph_decoder = decoders.SubgraphDecoder(
-        [[0], [1]], with_lookup=True, max_weight=1
+        [[0], [1]], decoder=decoders.lookup_table(max_weight=1)
     ).compile_decoder_for_dem(dem)
     with pytest.raises(ValueError, match="detectors per shot"):
         subgraph_decoder.decode_shots(wide_shots)
 
     window_decoder = decoders.SequentialWindowDecoder(
-        [[0], [1]], with_lookup=True, max_weight=1
+        [[0], [1]], decoder=decoders.lookup_table(max_weight=1)
     ).compile_decoder_for_dem(dem)
     with pytest.raises(ValueError, match="per window"):
         decoders.CompiledSequentialWindowDecoder(window_decoder.dem_arrays, [[0]], [], [])
@@ -346,12 +499,12 @@ def test_sliding_window_time_gaps() -> None:
         error(0.1) D0 D1
         error(0.1) D1 D2
     """)
-    decoder = decoders.SlidingWindowDecoder(1, 1, with_lookup=True, max_weight=1)
+    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup_table(max_weight=1))
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1], [2]]
 
     # a window is dropped for committing nothing, even when it detects something
-    decoder = decoders.SlidingWindowDecoder(2, 1, with_lookup=True, max_weight=1)
+    decoder = decoders.SlidingWindowDecoder(2, 1, decoder=decoders.lookup_table(max_weight=1))
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1], [2]]
 
@@ -368,12 +521,16 @@ def test_sliding_window_ignores_undecoded_detectors() -> None:
         error(0.1) D1 D2
         error(0.1) D3
     """)
-    decoder = decoders.SlidingWindowDecoder(1, 1, [[0, 1]], with_lookup=True, max_weight=1)
+    decoder = decoders.SlidingWindowDecoder(
+        1, 1, [[0, 1]], decoder=decoders.lookup_table(max_weight=1)
+    )
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1]]
 
     # a coordinate-less detector that does get windowed is still rejected
-    decoder = decoders.SlidingWindowDecoder(1, 1, [[1, 2]], with_lookup=True, max_weight=1)
+    decoder = decoders.SlidingWindowDecoder(
+        1, 1, [[1, 2]], decoder=decoders.lookup_table(max_weight=1)
+    )
     with pytest.raises(ValueError, match="no coordinates"):
         decoder.compile_decoder_for_dem(dem)
 
@@ -388,42 +545,87 @@ def test_sliding_window_validation() -> None:
         detector(1) D1
         error(0.1) D0 D1
     """)
-    # a mapping that violates its annotation by handing back a non-integer time index
-    detector_to_time = typing.cast("Callable[[int], int]", lambda detector: detector / 2)
+
+    # a mapping that hands back a non-integer time index
+    def detector_to_time(detector: int) -> typing.Any:
+        return detector / 2
+
     decoder = decoders.SlidingWindowDecoder(
-        1, 1, detector_to_time=detector_to_time, with_lookup=True, max_weight=1
+        1, 1, detector_to_time=detector_to_time, decoder=decoders.lookup_table(max_weight=1)
     )
     with pytest.raises(TypeError, match="non-integer"):
         decoder.compile_decoder_for_dem(dem)
 
     # an integral time index is a time index whatever its type, as an array lookup returns
     times = np.array([0, 1])
-    array_lookup = typing.cast("Callable[[int], int]", lambda detector: times[detector])
+
+    def array_lookup(detector: int) -> typing.Any:
+        return times[detector]
+
     decoder = decoders.SlidingWindowDecoder(
-        1, 1, detector_to_time=array_lookup, with_lookup=True, max_weight=1
+        1, 1, detector_to_time=array_lookup, decoder=decoders.lookup_table(max_weight=1)
     )
     assert list(decoder.compile_decoder_for_dem(dem).window_detectors) == [[0], [1]]
 
 
 def test_deprecated_aliases() -> None:
-    """The deprecated aliases of the sinter decoders warn when they are used."""
-    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
-        assert decoders.SubgraphSinterDecoder([[0]]).simplify
-    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
-        assert decoders.SequentialSinterDecoder([[0]]).simplify
+    """Deprecated aliases of sinter decoders warn when accessed, and refer to their replacements."""
+    with pytest.warns(DeprecationWarning, match="SubgraphSinterDecoder is deprecated"):
+        assert decoders.SubgraphSinterDecoder is decoders.SubgraphDecoder
+    with pytest.warns(DeprecationWarning, match="SequentialSinterDecoder is deprecated"):
+        assert decoders.sinter.SequentialSinterDecoder is decoders.SequentialWindowDecoder
+    with pytest.warns(DeprecationWarning, match="Decoder is deprecated; use ErrorDecoder"):
+        assert decoders.sinter.Decoder is decoders.ErrorDecoder
+
+
+def test_native_observable_decoders_on_subgraphs() -> None:
+    """Native observable decoders agree with converted error decoders, even without observables.
+
+    A subgraph that owns no observables, such as one CSS sector of a memory experiment, decodes a
+    detector error model without observables.
+    """
+    circuit = stim.Circuit.generated(
+        "surface_code:rotated_memory_z", distance=3, rounds=2, after_clifford_depolarization=0.01
+    )
+    dem = circuit.detector_error_model(decompose_errors=True)
+    detection_events = circuit.compile_detector_sampler(seed=0).sample(200).astype(np.uint8)
+    num_detectors = dem.num_detectors
+    subgraph_detectors = [range(num_detectors // 2), range(num_detectors // 2, num_detectors)]
+
+    for spec in [
+        decoders.mwpm(),
+        decoders.relay_bp(),
+        decoders.min_sum_bp(gamma0=0.5),
+        decoders.lookup_table(max_weight=1),
+    ]:
+        assert spec.predicts_observables_natively
+        predicted_flips = []
+        decoder_inputs: list[decoders.DeferredObservableDecoderInput] = [spec, spec.build]
+        for decoder in decoder_inputs:
+            sinter_decoder = decoders.SubgraphDecoder(
+                subgraph_detectors, [[0], []], decompose_errors=True, decoder=decoder
+            )
+            compiled = sinter_decoder.compile_decoder_for_dem(dem)
+            predicted_flips.append(compiled.decode_shots(detection_events))
+        assert predicted_flips[0].shape == (len(detection_events), dem.num_observables)
+        assert np.array_equal(predicted_flips[0], predicted_flips[1]), spec
 
 
 def test_sinter_decoder_with_erasure() -> None:
-    """compile_decoder_for_dem expands the DEM with an erasure observable when has_erasure_bit."""
+    """A compiled decoder appends an erasure bit to its predictions if its inner decoder erases."""
     dem = stim.DetectorErrorModel("""
         error(0.1) D0
         error(0.1) D1 L0
     """)
-    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=1, add_erasure_bit=True)
+    decoder = decoders.SinterDecoder(
+        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True)
+    )
     compiled = decoder.compile_decoder_for_dem(dem)
 
-    # one extra observable for the erasure bit
-    assert compiled.dem_arrays.num_observables == dem.num_observables + 1
+    # one erasure bit, predicted natively by an ObservableLookupDecoder
+    assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
+    assert compiled.num_observables == dem.num_observables
+    assert compiled.num_erasure_bits == 1
 
     # known syndromes: correct observables, erasure bit = 0
     shots = np.array([[1, 0], [0, 1]], dtype=np.uint8)
@@ -442,7 +644,9 @@ def test_erasure_signalled_in_an_added_byte(num_observables: int) -> None:
     dem = stim.DetectorErrorModel(
         "\n".join(f"error(0.1) D{oo} L{oo}" for oo in range(num_observables))
     )
-    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=1, add_erasure_bit=True)
+    decoder = decoders.SinterDecoder(
+        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True)
+    )
     compiled = decoder.compile_decoder_for_dem(dem)
 
     # no weight-one error explains a syndrome of weight two, so that shot is erased
@@ -467,7 +671,9 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
     detection_events[1, 0] = True
     detection_events[2, :2] = True  # no weight-one error explains this syndrome, so it is erased
 
-    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=1, add_erasure_bit=True)
+    decoder = decoders.SinterDecoder(
+        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True)
+    )
     predictions = sinter.predict_observables(
         dem=dem, dets=detection_events, decoder="qldpc", custom_decoders={"qldpc": decoder}
     )
@@ -502,7 +708,7 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
             dem=dem,
             dets=detection_events,
             decoder="qldpc",
-            custom_decoders={"qldpc": WideDecoder(with_lookup=True, max_weight=1)},
+            custom_decoders={"qldpc": WideDecoder(decoder=decoders.lookup_table(max_weight=1))},
         )
 
 
@@ -512,7 +718,7 @@ def test_subgraph_partition_warnings() -> None:
     contested_dem = stim.DetectorErrorModel("error(0.1) D0 D1 L0")
     with pytest.warns(UserWarning, match="can be predicted by more than one subgraph") as contested:
         decoders.SubgraphDecoder(
-            [[0], [1]], with_lookup=True, max_weight=1
+            [[0], [1]], decoder=decoders.lookup_table(max_weight=1)
         ).compile_decoder_for_dem(contested_dem)
 
     # the warning names the code that compiled the decoder, not the library that raised it
@@ -522,7 +728,7 @@ def test_subgraph_partition_warnings() -> None:
     uncovered_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L0")
     with pytest.warns(UserWarning, match="belong to no subgraph"):
         decoders.SubgraphDecoder(
-            [[0]], [[0]], with_lookup=True, max_weight=1
+            [[0]], [[0]], decoder=decoders.lookup_table(max_weight=1)
         ).compile_decoder_for_dem(uncovered_dem)
 
     # a partition that gives each subgraph only the observables its own detectors witness is silent
@@ -530,7 +736,9 @@ def test_subgraph_partition_warnings() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         decoders.SubgraphDecoder(
-            [[0], [1]], [[0], [1]], with_lookup=True, max_weight=1
+            [[0], [1]],
+            [[0], [1]],
+            decoder=decoders.lookup_table(max_weight=1),
         ).compile_decoder_for_dem(sound_dem)
 
 
@@ -542,7 +750,7 @@ def test_subgraph_decoder_with_erasure() -> None:
         error(0.1) D2 L1
     """)
     decoder = decoders.SubgraphDecoder(
-        [[0, 1], [2]], with_lookup=True, max_weight=1, add_erasure_bit=True
+        [[0, 1], [2]], decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True)
     )
     compiled = decoder.compile_decoder_for_dem(dem)
 
@@ -580,7 +788,9 @@ def test_sequential_window_decoder_with_erasure() -> None:
         detector(1) D1
         error(0.1) D0 D1 L0
     """)
-    decoder = decoders.SequentialWindowDecoder([[0], [1]], with_GUF=True, add_erasure_bit=True)
+    decoder = decoders.SequentialWindowDecoder(
+        [[0], [1]], decoder=decoders.guf(add_erasure_bit=True)
+    )
     compiled = decoder.compile_decoder_for_dem(dem)
     assert compiled.num_observables == dem.num_observables
     assert compiled.num_erasure_bits == 1
@@ -614,11 +824,11 @@ def test_sequential_window_decoder_erasure_with_merged_window_errors() -> None:
         detector D4
     """)
     compiled = decoders.SequentialWindowDecoder(
-        [[0, 1, 4], [2, 3]], with_GUF=True, add_erasure_bit=True
+        [[0, 1, 4], [2, 3]], decoder=decoders.guf(add_erasure_bit=True)
     ).compile_decoder_for_dem(dem)
 
     window_decoder = compiled.window_decoders[0]
-    assert isinstance(window_decoder, decoders.sinter._ExpandedDecoder)
+    assert isinstance(window_decoder, decoders.ExpandedErrorDecoder)
     assert window_decoder.has_erasure_bit
 
     # the expanded error spans every error of the window, followed by the erasure bit

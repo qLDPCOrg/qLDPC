@@ -21,6 +21,7 @@ import numpy.typing as npt
 from typing_extensions import Self
 
 import qldpc
+from qldpc._util import get_deprecated_alias
 
 from .groups import CyclicGroup, Group, GroupMember, NestedSequence, TrivialGroup
 from .rings import GroupRing, RingMember
@@ -637,18 +638,6 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         )
 
 
-class Protograph(RingArray):
-    """Deprecated alias for RingArray."""
-
-    def __getattribute__(self, name: str) -> Any:
-        warnings.warn(
-            f"{Protograph} is DEPRECATED; use {RingArray} instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return super().__getattribute__(name)
-
-
 # Avoid replacing sparse object storage with coefficient tensors whose estimated working set is
 # larger than 64 MiB.
 _MAX_MATMUL_COEFFICIENT_BYTES = 64 << 20
@@ -920,3 +909,16 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
         matrix = matrix.transpose(0, 1, 3, 2)
 
     return matrix
+
+
+DEPRECATED_ALIASES = {"Protograph": RingArray}
+
+# Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
+# Type checkers instead see plain aliases, so that they still flag misspelled attributes.
+if TYPE_CHECKING:
+    Protograph = RingArray
+else:
+
+    def __getattr__(name: str) -> Any:
+        """Resolve deprecated names of ring arrays, with a DeprecationWarning."""
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

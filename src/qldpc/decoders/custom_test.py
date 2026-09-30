@@ -14,9 +14,34 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import scipy.sparse
+import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
+
+
+def test_batch_decoding_by_alias() -> None:
+    """An error decoder that only implements decode and decode_batch decodes batches."""
+    matrix = np.eye(2, dtype=int)
+    syndromes = np.eye(2, dtype=int)
+
+    class OldDecoder(decoders.ErrorDecoder):
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return syndrome
+
+        def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return syndromes
+
+    old_decoder = OldDecoder()
+    assert np.array_equal(old_decoder.decode_errors(syndromes[0]), syndromes[0])
+    assert np.array_equal(decoders.batch_decode_errors(old_decoder, syndromes), syndromes)
+
+    composite_decoder = decoders.CompositeDecoder((old_decoder, 1), (old_decoder, 1))
+    assert composite_decoder.decoders == (old_decoder, old_decoder)
+    assert np.array_equal(composite_decoder.decode_batch(syndromes), syndromes)
+
+    direct_decoder = decoders.DirectDecoder.from_indirect(old_decoder, matrix)
+    assert np.array_equal(direct_decoder.decode_batch(syndromes), np.zeros_like(syndromes))
 
 
 def test_relay_bp(toy_problem: ToyProblem) -> None:
@@ -50,11 +75,11 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
         unittest.mock.patch.dict("sys.modules", {"relay_bp": None}),
         pytest.raises(ImportError, match="Failed to import relay-bp"),
     ):
-        decoders.get_decoder(np.array([[]]), with_RBP=True)
+        decoders.get_error_decoder(np.array([[]]), decoder=decoders.relay_bp())
 
     # fail to initialize a relay-bp decoder from an unrecognized name
     with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder(np.array([[]]), with_RBP=True, name="invalid_name")
+        decoders.get_decoder_RBP(np.array([[]]), name="invalid_name")
 
     # fail when a decoder name string is passed where the matrix should be
     with pytest.raises(TypeError, match="breaking change"):
@@ -68,6 +93,44 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     # must be rejected under `python -O` as well
     with pytest.raises(ValueError, match="Cannot specify an observable_error_matrix"):
         decoders.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
+
+
+def test_relay_bp_observables() -> None:
+    """A RelayBPDecoder predicts observable flips, with or without an erasure bit."""
+    circuit = stim.Circuit.generated(
+        "repetition_code:memory", distance=3, rounds=3, after_clifford_depolarization=0.02
+    )
+    dem = circuit.detector_error_model()
+    syndromes = circuit.compile_detector_sampler(seed=0).sample(100).astype(int)
+    observable_flip_matrix = decoders.DetectorErrorModelArrays(dem).observable_flip_matrix
+
+    for add_erasure_bit in [False, True]:
+        decoder = decoders.get_decoder_RBP(dem, add_erasure_bit=add_erasure_bit)
+        predicted_flips = decoder.decode_observables_batch(syndromes, progress_bar=False)
+        assert predicted_flips.shape == (len(syndromes), dem.num_observables + add_erasure_bit)
+        assert np.array_equal(
+            predicted_flips, [decoder.decode_observables(syndrome) for syndrome in syndromes]
+        )
+
+        # the predicted flips are those of the inferred errors
+        errors = decoder.decode_batch(syndromes, progress_bar=False)
+        if add_erasure_bit:
+            assert np.array_equal(predicted_flips[:, -1], errors[:, -1])
+            errors = errors[:, :-1]
+        expected_flips = np.asarray(errors @ observable_flip_matrix.T) % 2
+        assert np.array_equal(predicted_flips[:, : dem.num_observables], expected_flips)
+
+        # an empty batch, which relay_bp cannot decode, yields empty predictions
+        no_syndromes = syndromes[:0]
+        assert decoder.decode_batch(no_syndromes).shape == (0, errors.shape[1] + add_erasure_bit)
+        assert decoder.decode_observables_batch(no_syndromes).shape == (
+            0,
+            dem.num_observables + add_erasure_bit,
+        )
+
+    # predicting observable flips requires observables
+    with pytest.raises(ValueError, match="requires an observable_error_matrix"):
+        decoders.get_decoder_RBP(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))
 
 
 def test_ilp_decoder(toy_problem: ToyProblem) -> None:
@@ -197,10 +260,10 @@ def test_invalid_ilp() -> None:
     syndrome = np.array([0, 1], dtype=int)
 
     with pytest.raises(ValueError, match="could not be found"):
-        decoders.decode(matrix, syndrome, with_ILP=True)
+        decoders.get_error_decoder(matrix, decoder=decoders.ilp()).decode(syndrome)
 
     with pytest.raises(ValueError, match="ILP decoding only supports prime number fields"):
-        decoders.decode(galois.GF(4)(matrix), syndrome, with_ILP=True)
+        decoders.get_error_decoder(galois.GF(4)(matrix), decoder=decoders.ilp()).decode(syndrome)
 
 
 def test_generalized_union_find() -> None:
@@ -211,12 +274,23 @@ def test_generalized_union_find() -> None:
     error[[3, 4]] = 1
     matrix = code.matrix_z
     syndrome = matrix @ error
-    assert np.count_nonzero(decoders.decode(matrix, syndrome, with_GUF=True)) > 2
-    assert np.count_nonzero(decoders.decode(matrix, syndrome, with_GUF=True, max_weight=2)) == 2
+    assert (
+        np.count_nonzero(
+            decoders.get_error_decoder(matrix, decoder=decoders.guf()).decode(syndrome)
+        )
+        > 2
+    )
+    assert (
+        np.count_nonzero(
+            decoders.get_error_decoder(matrix, decoder=decoders.guf(max_weight=2)).decode(syndrome)
+        )
+        == 2
+    )
 
     # cover the trivial syndrome with the generalized Union-Find decoer
     assert np.array_equal(
-        np.zeros_like(error), decoders.decode(matrix, np.zeros_like(syndrome), with_GUF=True)
+        np.zeros_like(error),
+        decoders.get_error_decoder(matrix, decoder=decoders.guf()).decode(np.zeros_like(syndrome)),
     )
 
 
@@ -325,7 +399,7 @@ def test_composite_erasure() -> None:
 def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     """Composite and direct decoders, built from other decoders."""
     matrix, error, syndrome = toy_problem
-    decoder = decoders.get_decoder(matrix, with_MWPM=True)
+    decoder = decoders.get_error_decoder(matrix, decoder=decoders.mwpm())
 
     # decode corrupted code words directly
     direct_decoder = decoders.DirectDecoder.from_indirect(decoder, matrix)

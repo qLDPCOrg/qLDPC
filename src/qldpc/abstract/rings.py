@@ -30,6 +30,7 @@ import sympy.abc
 import sympy.core
 
 from qldpc import external
+from qldpc._util import get_deprecated_alias
 
 from ._monomials import iter_monomial_terms
 from .groups import AbelianGroup, Group, GroupMember, resolve_field
@@ -525,32 +526,25 @@ class RingMember:
         return vector
 
 
-class Element(RingMember):
-    """Deprecated alias for RingMember."""
+DEPRECATED_ALIASES = {"Element": RingMember}
 
-    def __getattribute__(self, name: str) -> Any:
-        warnings.warn(
-            f"{Element} is DEPRECATED; use {RingMember} instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return super().__getattribute__(name)
+# Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
+# Type checkers instead see plain aliases, so that they still flag misspelled attributes.
+if TYPE_CHECKING:
+    Element = RingMember
+else:
 
+    def __getattr__(name: str) -> Any:
+        """Resolve deprecated names, and lazily re-export names that moved to ``.ring_array``.
 
-_RING_ARRAY_REEXPORTS = ("RingArray", "Protograph")
+        The lazy re-export preserves ``qldpc.abstract.rings.RingArray`` (and the deprecated
+        ``Protograph`` alias) as a valid, if no longer canonical, import path -- including for
+        unpickling objects saved before the split -- without importing ``.ring_array`` eagerly at
+        module load time, which would recreate the import cycle (``.ring_array`` imports
+        ``GroupRing``/``RingMember`` from here) that motivated splitting it out in the first place.
+        """
+        if name in ("RingArray", "Protograph"):
+            from . import ring_array
 
-
-def __getattr__(name: str) -> Any:
-    """Lazily re-export names that moved to ``.ring_array``, for backward compatibility.
-
-    This preserves ``qldpc.abstract.rings.RingArray`` (and the deprecated ``Protograph`` alias) as
-    a valid, if no longer canonical, import path -- including for unpickling objects saved before
-    the split -- without importing ``.ring_array`` eagerly at module load time, which would
-    recreate the import cycle (``.ring_array`` imports ``GroupRing``/``RingMember`` from here) that
-    motivated splitting it out in the first place.
-    """
-    if name in _RING_ARRAY_REEXPORTS:
-        from . import ring_array
-
-        return getattr(ring_array, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+            return getattr(ring_array, name)
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

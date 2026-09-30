@@ -17,7 +17,7 @@ import sympy
 from sympy.abc import x, y
 
 import qldpc
-from qldpc import abstract, codes
+from qldpc import abstract, codes, decoders
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
@@ -1166,7 +1166,7 @@ def test_toric_codes() -> None:
     assert_valid_subgraphs(code)
 
     # check minimal logical operator weights
-    code.reduce_logical_ops(with_ILP=True)
+    code.reduce_logical_ops(decoder=decoders.ilp())
     assert (
         {distance}
         == {sum(op) for op in code.get_logical_ops(Pauli.X).view(np.ndarray)}

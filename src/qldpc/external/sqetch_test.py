@@ -9,14 +9,14 @@ import itertools
 import sys
 import types
 import unittest.mock
-from typing import Literal, cast
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
 import pytest
 
 from qldpc import codes, external
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import Pauli
 
 
 def test_is_installed() -> None:
@@ -38,7 +38,7 @@ def _row_span(rows: npt.NDArray[np.uint8]) -> set[tuple[int, ...]]:
 
 def _dressed_distance_oracle(code: codes.CSSCode, pauli: Literal[Pauli.X, Pauli.Z]) -> int:
     """Find the minimum-weight target-type operator modulo target-type gauges."""
-    check_pauli = cast(Literal[Pauli.X, Pauli.Z], pauli.swap_xz())
+    check_pauli = pauli.swap_xz()
     check = np.asarray(code.get_stabilizer_ops(check_pauli), dtype=np.uint8)
     quotient = np.vstack(
         [
@@ -100,8 +100,9 @@ def test_matrix_conversion_rejects_unsupported_inputs() -> None:
     with pytest.raises(ValueError, match="only supports CSS codes over GF\\(2\\)"):
         external.sqetch._get_binary_matrices(codes.BaconShorCode(3, field=3), Pauli.Z)
 
+    invalid_pauli: Any = Pauli.Y
     with pytest.raises(ValueError, match=r"require Pauli\.X or Pauli\.Z"):
-        external.sqetch._get_binary_matrices(codes.SteaneCode(), cast(PauliXZ, Pauli.Y))
+        external.sqetch._get_binary_matrices(codes.SteaneCode(), invalid_pauli)
 
 
 def test_get_distance_bound_forwards_options(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import TYPE_CHECKING, Any
+
+from qldpc._util import get_deprecated_alias
+
+from . import ring_array, rings
 from ._monomials import (
     get_coefficient_and_exponents,
     iter_monomial_terms,
@@ -33,11 +38,9 @@ from .linalg import (
     matmul,
 )
 from .ring_array import (
-    Protograph,
     RingArray,
 )
 from .rings import (
-    Element,
     GroupRing,
     RingMember,
 )
@@ -81,3 +84,17 @@ __all__ = [
     "matmul",
     "resolve_field",
 ]
+
+# Deprecated names remain importable (including by star imports, since they are listed in __all__),
+# and resolve at runtime through a module-level __getattr__ (PEP 562) that warns when accessed.
+# Type checkers instead see plain aliases, so that they still flag misspelled attributes.
+DEPRECATED_ALIASES = ring_array.DEPRECATED_ALIASES | rings.DEPRECATED_ALIASES
+
+if TYPE_CHECKING:
+    from .ring_array import Protograph as Protograph
+    from .rings import Element as Element
+else:
+
+    def __getattr__(name: str) -> Any:
+        """Resolve deprecated names of abstract-algebra classes, with a DeprecationWarning."""
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

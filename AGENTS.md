@@ -23,10 +23,14 @@ Do not copy transient project history, machine-specific paths, or local-session 
   Preserve those import paths when moving implementation code.
 - Treat imports from ordinary `qldpc.*` packages as public and keep them working.
   Use a tested `DeprecationWarning` shim for a necessary rename or move rather than breaking an import.
+  For a renamed module-level name, see [`qldpc._util.get_deprecated_alias`](src/qldpc/_util.py).
 - Everything under [`src/qldpc/experimental/`](src/qldpc/experimental/) is explicitly unstable and can change without a deprecation period.
   Do not infer that this weaker guarantee applies elsewhere.
 - Keep complete lists of public symbols in `__all__` and AutoAPI.
   Human-written docs should explain what packages do and show representative tasks, not duplicate a class catalogue.
+- A module should not use a private (underscore-prefixed) name from another module.
+  Needing to do so indicates that the name should be public and documented.
+  A test module may use private names of the module that it tests.
 
 ## Repository map
 
@@ -93,9 +97,10 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 
 ### Decoders
 
-- [`decoders.get_decoder`](src/qldpc/decoders/retrieval.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
-- Select at most one `with_<NAME>` decoder.
-  Supply a custom decoder through `decoder_constructor` or `static_decoder`.
+- [`decoders.get_error_decoder`](src/qldpc/decoders/retrieval.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
+- Keep error decoders (`decode_errors`, with `decode` as an alias) distinct from observable decoders (`decode_observables`).
+  Code that consumes a user-supplied error decoder coerces it with `decoders.as_error_decoder` and calls `decode_errors`.
+- A method that decodes a matrix it constructs itself must reject prebuilt decoders with `decoders.reject_prebuilt_decoder`.
 - Only decoders that declare erasure support may append an erasure flag.
   They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
 - Detector-error-model decomposition indices and remaps must remain valid after cancellation and simplification.

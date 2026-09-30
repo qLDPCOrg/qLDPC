@@ -26,6 +26,7 @@ The other notebooks in this group are standalone technical examples.
    :maxdepth: 1
 
    basics
+   decoders
    bivariate_bicycle_codes
    noise_models
    transversal_gates

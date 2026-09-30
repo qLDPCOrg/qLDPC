@@ -415,7 +415,7 @@ def _get_error_probs_by_weight(
 
 
 def get_error_and_erasure(
-    decoder: decoders.Decoder,
+    decoder: decoders.ErrorDecoder | decoders.SupportsDecode,
     syndrome: galois.FieldArray,
 ) -> tuple[galois.FieldArray, bool]:
     """Decode a syndrome and return the inferred error together with an erasure flag.
@@ -425,7 +425,7 @@ def get_error_and_erasure(
     bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
     correction was found normally.  The erasure bit is stripped before returning the error.
     """
-    error = decoder.decode(syndrome.view(np.ndarray))
+    error = decoders.as_error_decoder(decoder).decode_errors(syndrome.view(np.ndarray))
     if getattr(decoder, "has_erasure_bit", False):
         return error[:-1].view(type(syndrome)), bool(error[-1])
     return error.view(type(syndrome)), False

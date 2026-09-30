@@ -7,14 +7,16 @@ from __future__ import annotations
 import itertools
 import random
 import unittest.mock
+import warnings
 from collections.abc import Iterator, Sequence
 
 import galois
 import networkx as nx
 import numpy as np
+import numpy.typing as npt
 import pytest
 
-from qldpc import abstract, codes, external, math
+from qldpc import abstract, codes, decoders, external, math
 from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
@@ -301,7 +303,9 @@ def test_classical_capacity() -> None:
 
     # with an erasure-enabled decoder, unrecognised syndromes are discarded
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
+        num_samples=1,
+        max_error_rate=1,
+        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
@@ -950,7 +954,9 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
 
     # with an erasure-enabled decoder, unrecognised syndromes are discarded
     logical_error_rate_func = code.get_logical_error_rate_func(
-        num_samples=1, max_error_rate=1, with_lookup=True, max_weight=0, add_erasure_bit=True
+        num_samples=1,
+        max_error_rate=1,
+        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
@@ -984,7 +990,9 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     # error, a distance-3 code leaves no single-qudit error uncorrected, whatever Paulis it applies.
     qudit_code = codes.QuditCode(codes.SurfaceCode(3, field=3).matrix)
     logical_error_rate_func = qudit_code.get_logical_error_rate_func(
-        num_samples=400, max_error_rate=1 / len(qudit_code), with_lookup=True, max_weight=2
+        num_samples=400,
+        max_error_rate=1 / len(qudit_code),
+        decoder=decoders.lookup_table(max_weight=2),
     )
     assert logical_error_rate_func.infidelities[1] == 0
 
@@ -1204,6 +1212,7 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
     """Decoder-specific arguments bypass optional-backend probes."""
     code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     code.forget_distance()
+    decoder = decoders.bp_lsd()
 
     with (
         unittest.mock.patch(
@@ -1220,14 +1229,153 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
             return_value=3,
         ) as decoder_bound,
     ):
-        assert code.get_distance_bound(pauli=Pauli.X, with_BP_LSD=True) == 3
+        assert code.get_distance_bound(pauli=Pauli.X, decoder=decoder) == 3
 
     decoder_bound.assert_called_once_with(
         Pauli.X,
         1,
         cutoff=None,
-        with_BP_LSD=True,
+        decoder=decoder,
     )
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        code.get_distance_bound(pauli=Pauli.X, decoder=decoder, backend="sqetch")
+
+    with unittest.mock.patch.object(code, "get_distance", return_value=3) as get_distance:
+        assert code.get_code_params(bound=True, decoder=decoder) == (7, 1, 3)
+    get_distance.assert_called_once_with(bound=True, decoder=decoder)
+
+    # non-CSS codes do not support decoder-based distance bounds
+    non_css = codes.FiveQubitCode()
+    non_css.forget_distance()
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        pytest.raises(ValueError, match="not recognized for distance bounding"),
+    ):
+        non_css.get_code_params(bound=True, decoder=decoder)
+
+
+def test_legacy_decoder_warning_location() -> None:
+    """A high-level legacy decoder warning points to the user's call site."""
+    code = codes.RepetitionCode(3)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        code.get_logical_error_rate_func(1, with_lookup=True, max_weight=1)
+    assert caught[0].filename == __file__
+
+    # legacy sector-specific arguments override shared arguments, like decoder_x and decoder_z
+    received_tags: list[str] = []
+
+    def build_tagged_decoder(matrix: npt.NDArray[np.int_], tag: str) -> decoders.ErrorDecoder:
+        received_tags.append(tag)
+        return decoders.LookupDecoder(matrix, max_weight=1)
+
+    with pytest.warns(DeprecationWarning):
+        codes.SurfaceCode(2).get_logical_error_rate_func(
+            1,
+            decoder_x_kwargs={"tag": "sector-x"},
+            decoder_z_kwargs={"tag": "sector-z"},
+            decoder_constructor=build_tagged_decoder,
+            tag="shared",
+        )
+    assert received_tags == ["sector-x", "sector-z"]
+
+    # legacy sector-specific arguments of a CSS code name their sector-specific replacements
+    css_code = codes.SurfaceCode(2)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        css_code.get_logical_error_rate_func(
+            1,
+            decoder_x_kwargs={"with_lookup": True, "max_weight": 1},
+            decoder_z_kwargs={"with_MWPM": True},
+        )
+    messages = [str(warning.message) for warning in caught]
+    assert all(warning.filename == __file__ for warning in caught)
+    assert any("decoder_x=decoders.lookup_table(...)" in message for message in messages)
+    assert any("decoder_z=decoders.mwpm(...)" in message for message in messages)
+
+
+def test_css_rejects_shared_prebuilt_decoders_for_unequal_sectors() -> None:
+    """A decoder built for one CSS matrix is not silently reused for another."""
+    code = codes.SurfaceCode(3)
+    stabilizer_ops_x = code.get_stabilizer_ops(Pauli.X, canonicalized=False)
+    stabilizer_ops_z = code.get_stabilizer_ops(Pauli.Z, canonicalized=False)
+    decoder = decoders.LookupDecoder(stabilizer_ops_z, max_weight=0)
+    with pytest.raises(ValueError, match=r"decoder_x=.*decoder_z="):
+        code.get_logical_error_rate_func(0, decoder=decoder)
+    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
+        code.get_logical_error_rate_func(0, static_decoder=decoder)
+
+    # prebuilt decoders are accepted when each is built for the stabilizer matrix of its sector
+    decoder_z = decoders.LookupDecoder(stabilizer_ops_x, max_weight=0)
+    assert code.get_logical_error_rate_func(0, decoder_x=decoder, decoder_z=decoder_z)
+
+
+def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
+    """A prebuilt decoder cannot decode a matrix that a method constructs internally."""
+    code = codes.SurfaceCode(3)
+    decoder = decoders.LookupDecoder(
+        code.get_stabilizer_ops(Pauli.Z, canonicalized=False), max_weight=2
+    )
+    code.forget_distance()
+    for pauli in [None, Pauli.X, Pauli.Z]:
+        with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
+            code.get_distance_bound(pauli=pauli, decoder=decoder)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
+        code.get_distance_bound_with_decoder(Pauli.X, decoder=decoder)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
+        code.reduce_logical_ops(decoder=decoder)  # type: ignore[arg-type]
+
+    # the static_decoder argument has been removed, in favor of decoder=
+    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
+        code.reduce_logical_ops(static_decoder=decoder)
+    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
+        code.get_distance_bound(static_decoder=decoder)
+
+    # a prebuilt decoder for a QuditCode would need to decode an internal syndrome matrix
+    qudit_code = codes.FiveQubitCode()
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
+        qudit_code.get_logical_error_rate_func(0, decoder=decoder)  # type: ignore[arg-type]
+
+    # a classical code accepts a prebuilt decoder for its parity check matrix only when bounding
+    # the distance to a vector, which decodes syndromes of that parity check matrix
+    classical_code = codes.HammingCode(3)
+    classical_decoder = decoders.LookupDecoder(classical_code.matrix, max_weight=1)
+    vector = np.zeros(len(classical_code), dtype=int)
+    vector[0] = 1
+    assert classical_code.get_distance_bound(vector=vector, decoder=classical_decoder) == 1
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
+        classical_code.get_distance_bound(decoder=classical_decoder)
+
+    # decoder settings are rebuilt for each internal matrix
+    assert code.get_distance_bound(decoder=decoders.lookup_table(max_weight=3)) == 3
+    assert code.reduce_logical_ops(decoder=decoders.lookup_table(max_weight=3))
+
+
+def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
+    """Distance bounds and logical-operator reduction handle erasure and give up on failure."""
+    # an erasure bit is stripped from decoded errors, and an erased decoding is retried
+    erasing_decoder = decoders.lookup_table(max_weight=3, add_erasure_bit=True)
+    classical_code = codes.ClassicalCode(codes.HammingCode(3).matrix)  # distance not yet known
+    assert classical_code.get_distance_bound(decoder=erasing_decoder) == 3
+    code = codes.SurfaceCode(3)
+    code.forget_distance()
+    assert code.get_distance_bound(decoder=erasing_decoder) == 3
+    code.reduce_logical_ops(decoder=erasing_decoder)
+    assert all(np.count_nonzero(op) == 3 for op in code.get_logical_ops().view(np.ndarray))
+    classical_code.forget_distance()
+
+    # a decoder that cannot find a consistent error gives up, rather than retrying forever
+    failing_decoder = decoders.lookup_table(max_weight=0)
+    for search in [
+        lambda: classical_code.get_distance_bound(decoder=failing_decoder),
+        lambda: codes.SurfaceCode(3).get_distance_bound_with_decoder(
+            Pauli.X, decoder=failing_decoder
+        ),
+        lambda: codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 0, decoder=failing_decoder),
+    ]:
+        with pytest.raises(ValueError, match="failed to infer an error"):
+            search()
 
 
 def test_css_auto_distance_bound_backend_selection() -> None:
@@ -1264,7 +1412,7 @@ def test_css_auto_distance_bound_backend_selection() -> None:
         ) as decoder_bound,
     ):
         assert code.get_distance_bound(pauli=Pauli.Z) == 5
-    decoder_bound.assert_called_once_with(Pauli.Z, 1, cutoff=None)
+    decoder_bound.assert_called_once_with(Pauli.Z, 1, cutoff=None, decoder=None)
 
     qudit_code = codes.SurfaceCode(2, field=3)
     qudit_code.forget_distance()
@@ -1313,7 +1461,7 @@ def test_css_distance_bound_backend_selection() -> None:
         code, "get_distance_bound_with_decoder", return_value=3
     ) as bound:
         assert code.get_distance_bound(num_trials=2, pauli=Pauli.X, backend="decoder") == 3
-    bound.assert_called_once_with(Pauli.X, 2, cutoff=None)
+    bound.assert_called_once_with(Pauli.X, 2, cutoff=None, decoder=None)
 
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
@@ -1467,9 +1615,7 @@ def test_css_capacity() -> None:
         num_samples=1,
         max_error_rate=1,
         pauli_bias=(0, 0, 1),
-        with_lookup=True,
-        max_weight=0,
-        add_erasure_bit=True,
+        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func_z(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_z(0.5, discard_rate=True)[0] > 0  # Z syndromes → erasure
@@ -1479,9 +1625,7 @@ def test_css_capacity() -> None:
         num_samples=1,
         max_error_rate=1,
         pauli_bias=(1, 0, 0),
-        with_lookup=True,
-        max_weight=0,
-        add_erasure_bit=True,
+        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
@@ -1495,9 +1639,7 @@ def test_css_capacity() -> None:
         num_samples=20,
         max_error_rate=1,
         pauli_bias=(0, 0, 1),
-        with_lookup=True,
-        max_weight=1,
-        add_erasure_bit=True,
+        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0.5)[0] > 0  # Z-sector failures are recorded
     assert logical_error_rate_func(0.5, discard_rate=True)[0] == 0  # and nothing is discarded
@@ -1531,14 +1673,14 @@ def test_capacity_pauli_bias_convention() -> None:
     signatures: dict[tuple[int, int, int], tuple[bool, bool]] = {}
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
         fails = code.get_logical_error_rate_func(
-            300, error_rate, pauli_bias, with_lookup=True, max_weight=1
+            300, error_rate, pauli_bias, decoder=decoders.lookup_table(max_weight=1)
         )
         discards = code.get_logical_error_rate_func(
             300,
             error_rate,
             pauli_bias,
-            decoder_x_kwargs={"with_lookup": True, "max_weight": 0, "add_erasure_bit": True},
-            decoder_z_kwargs={"with_lookup": True, "max_weight": 1},
+            decoder_x=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+            decoder_z=decoders.lookup_table(max_weight=1),
         )
         signatures[pauli_bias] = (
             bool(fails.infidelities[1] > 0),
@@ -1565,7 +1707,9 @@ def test_capacity_min_error_weight() -> None:
     ]
     for code, max_weight in zip(all_codes, [1, 2, 1]):
         baseline = code.get_logical_error_rate_func(
-            num_samples=1000, max_error_rate=0.2, with_lookup=True, max_weight=max_weight
+            num_samples=1000,
+            max_error_rate=0.2,
+            decoder=decoders.lookup_table(max_weight=max_weight),
         )
         assert baseline.num_failures[1] == 0  # the premise: weight-1 errors are always corrected
 
@@ -1573,8 +1717,7 @@ def test_capacity_min_error_weight() -> None:
             num_samples=1000,
             max_error_rate=0.2,
             min_error_weight=2,
-            with_lookup=True,
-            max_weight=max_weight,
+            decoder=decoders.lookup_table(max_weight=max_weight),
         )
         assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
 
