@@ -148,10 +148,12 @@ def test_explicit_observable_lookup_decoders() -> None:
     decoder = decoders.ObservableLookupDecoder(dem, max_weight=1)
     assert not hasattr(decoder, "decode")
     assert np.array_equal(decoder.decode_observables(syndrome), [1])
+    assert np.array_equal(decoder.decode_observables_batch(np.array([[1], [0]])), [[1], [0]])
 
     weighted = decoders.WeightedObservableLookupDecoder(dem, max_weight=1)
     assert not hasattr(weighted, "decode")
     assert np.array_equal(weighted.decode_observables(syndrome), [1])
+    assert np.array_equal(weighted.decode_observables_batch(np.array([[1], [0]])), [[1], [0]])
     assert issubclass(decoders.WeightedLookupDecoder, decoders.LookupDecoder)
 
     with pytest.raises(TypeError, match="observable flips rather than errors"):
@@ -166,11 +168,11 @@ def test_explicit_observable_lookup_decoders() -> None:
             dem, max_weight=1, predict_observable_flips=True
         )
     for legacy_decoder in [legacy, legacy_weighted]:
-        assert legacy_decoder.decodes_observables
+        assert legacy_decoder._decode_returns_observables
         assert np.array_equal(legacy_decoder.decode(syndrome), [1])
         with pytest.raises(TypeError, match="observable flips rather than errors"):
             decoders.get_decoder(dem, decoder=legacy_decoder)
-    assert not decoders.LookupDecoder(dem, max_weight=1).decodes_observables
+    assert not decoders.LookupDecoder(dem, max_weight=1)._decode_returns_observables
 
 
 def test_tie_breaking() -> None:

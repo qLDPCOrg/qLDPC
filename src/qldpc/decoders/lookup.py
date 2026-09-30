@@ -77,9 +77,11 @@ class _LookupDecoderBase:
                 " observable_flip_matrix"
             )
 
-        # save attributes; decodes_observables marks a decoder whose output is observable flips
+        # save attributes; the private marker declares that .decode returns observable flips, as it
+        # does with the deprecated predict_observable_flips=True, so that this decoder is rejected
+        # where an error decoder is required
         self.predict_observable_flips = predict_observable_flips
-        self.decodes_observables = predict_observable_flips
+        self._decode_returns_observables = predict_observable_flips
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -597,6 +599,10 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         """Decode a syndrome and return predicted observable flips."""
         return self._decode(syndrome)
 
+    def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of syndromes, one per row, and return predicted observable flips."""
+        return np.array([self._decode(syndrome) for syndrome in syndromes])
+
 
 class _WeightedLookupDecoderBase(_LookupDecoderBase):
     """Shared implementation of weighted lookup-table decoders.
@@ -627,9 +633,11 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
             )
         )
 
-        # save attributes; decodes_observables marks a decoder whose output is observable flips
+        # save attributes; the private marker declares that .decode returns observable flips, as it
+        # does with the deprecated predict_observable_flips=True, so that this decoder is rejected
+        # where an error decoder is required
         self.predict_observable_flips = predict_observable_flips
-        self.decodes_observables = predict_observable_flips
+        self._decode_returns_observables = predict_observable_flips
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -784,6 +792,16 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
     ) -> npt.NDArray[np.int_]:
         """Decode a syndrome and return predicted observable flips."""
         return self._decode_weighted(syndrome, penalty_func)
+
+    def decode_observables_batch(
+        self,
+        syndromes: npt.NDArray[np.int_],
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = lambda vec: int(
+            np.count_nonzero(vec)
+        ),
+    ) -> npt.NDArray[np.int_]:
+        """Decode a batch of syndromes, one per row, and return predicted observable flips."""
+        return np.array([self._decode_weighted(syndrome, penalty_func) for syndrome in syndromes])
 
 
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:

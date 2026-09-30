@@ -9,7 +9,7 @@ import itertools
 import pathlib
 import warnings
 from collections.abc import Callable, Collection, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -18,12 +18,18 @@ import stim
 
 from qldpc._util import get_deprecated_alias, get_external_caller_stacklevel
 
+from .custom import ObservableDecoder
 from .dems import DetectorErrorModelArrays
 from .retrieval import (
-    _OBSERVABLE_DECODER_ADVICE,
     DeferredErrorDecoderInput,
+    DeferredObservableDecoderInput,
     ErrorDecoder,
+    ErrorDecoderInput,
+    _ErrorsToObservables,
     _get_legacy_decoder_migration_message,
+    _get_observable_decoder,
+    _match_error_decoder_to_dem,
+    _reject_observable_output,
     _reject_prebuilt_decoder,
     _reject_removed_decoder_args,
     _resolve_decoder,
@@ -48,21 +54,27 @@ class DecoderNotCompiledError(Exception):
     pass
 
 
-class ObservableDecoder(_SinterDecoder):
+class SinterDecoder(_SinterDecoder, ObservableDecoder):
     """Sinter-compatible decoder that predicts observable flips.
 
-    An ObservableDecoder stores settings for an inner error decoder, which maps a syndrome to an
-    inferred error.  When Sinter compiles an ObservableDecoder for a detector error model, the
-    ObservableDecoder builds the inner error decoder for that model, and the compiled decoder maps
-    the errors that it infers to the observable flips that they induce.
+    A SinterDecoder stores settings for an inner decoder.  When Sinter compiles a SinterDecoder for
+    a detector error model, the SinterDecoder builds the inner decoder for that model, and returns a
+    CompiledSinterDecoder that predicts observable flips.  If the inner decoder can predict
+    observable flips natively (as MWPM, Relay-BP, and lookup-table decoders can), it is built in
+    that mode.  Otherwise, it is built as an error decoder, and the compiled decoder converts the
+    errors that it infers into observable flips.
+
+    A SinterDecoder is an observable decoder only once compiled: its own .decode_observables method
+    raises a DecoderNotCompiledError.
     """
 
-    decodes_observables = True
+    # declares that the .decode method of this class (which is deprecated) returns observable flips
+    _decode_returns_observables = True
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
     _prebuilt_decoder_rejection_reason = (
-        "an ObservableDecoder builds a new error decoder for each (simplified) detector error model"
-        " that it is compiled for"
+        "a SinterDecoder builds a new decoder for each (simplified) detector error model that it is"
+        " compiled for"
     )
 
     def __init__(
@@ -70,34 +82,28 @@ class ObservableDecoder(_SinterDecoder):
         *,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: DeferredErrorDecoderInput = None,
+        decoder: DeferredObservableDecoderInput = None,
         **decoder_kwargs: object,
     ) -> None:
-        """Initialize an observable decoder.
+        """Initialize a SinterDecoder.
 
-        An ObservableDecoder is used by Sinter to decode events from a detector error model and
-        predict observable flips.  See help(sinter.Decoder) for additional information.
+        A SinterDecoder is used by Sinter to decode events from a detector error model and predict
+        observable flips.  See help(sinter.Decoder) for additional information.
 
         Args:
             simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
-                constructor that builds an error decoder from a detector error model, or None to
-                select the default error decoder.  A prebuilt decoder is rejected, because the
-                inner decoder is built for each (simplified) detector error model.
+            decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
+                that builds an error decoder or an observable decoder from a detector error model,
+                or None to select the default decoder.  A prebuilt decoder is rejected, because the
+                inner decoder is built for each (simplified) detector error model.  See
+                help(qldpc.decoders.get_observable_decoder).
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
         _reject_removed_decoder_args(decoder_kwargs)
         _reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
-        if getattr(decoder, "decodes_observables", False):
-            name = type(self).__name__
-            raise TypeError(
-                f"The decoder of a {name} predicts observable flips rather than errors, but a {name}"
-                " converts inferred errors into observable flips itself.  "
-                + _OBSERVABLE_DECODER_ADVICE
-            )
         self.simplify = simplify
         self.decompose_errors = decompose_errors
         self.decoder_input = decoder
@@ -110,12 +116,12 @@ class ObservableDecoder(_SinterDecoder):
             )
         if "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs:
             raise ValueError(
-                "The 'priors_arg' and 'log_likelihood_priors' arguments to an ObservableDecoder are"
+                "The 'priors_arg' and 'log_likelihood_priors' arguments to a SinterDecoder are"
                 " DEFUNCT and should no longer be necessary.\nIf you need these arguments restored,"
                 " please open an issue at https://github.com/qLDPCOrg/qLDPC/issues"
             )
 
-    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> CompiledObservableDecoder:
+    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> CompiledSinterDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
@@ -123,27 +129,13 @@ class ObservableDecoder(_SinterDecoder):
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
-        decoder_dem = dem_arrays.to_dem()
-        decoder = _resolve_decoder(
-            decoder_dem,
+        observable_decoder = _get_observable_decoder(
+            dem_arrays.to_dem(),
             self.decoder_input,
             self.decoder_kwargs.copy(),
             warn_deprecated=False,
         )
-        _check_decodes_errors(decoder)
-
-        # A decoder that merges equivalent error mechanisms infers fewer errors than this model
-        # declares, so wrap it to map its errors back onto the model before they reach the
-        # observables.  An erasure bit is not an error mechanism, so it does not count toward the
-        # width being compared here.
-        num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
-        test_error = decoder.decode(np.zeros(decoder_dem.num_detectors, dtype=int))
-        if len(test_error) - num_erasure_bits < decoder_dem.num_errors:
-            decoder = _ExpandedDecoder(decoder, decoder_dem)
-
-        if getattr(decoder, "has_erasure_bit", False):
-            dem_arrays = dem_arrays.with_erasure()
-        return CompiledObservableDecoder(dem_arrays, decoder)
+        return CompiledSinterDecoder(dem_arrays, observable_decoder)
 
     def decode_via_files(
         self,
@@ -184,7 +176,7 @@ class ObservableDecoder(_SinterDecoder):
         observable_flips.tofile(obs_predictions_b8_out_path)
 
     if TYPE_CHECKING:
-        # Hide this compatibility method from mypy, so that an ObservableDecoder does not satisfy
+        # Hide this compatibility method from mypy, so that a SinterDecoder does not satisfy
         # the ErrorDecoder protocol, which requires a decode method.
         decode: None
     else:
@@ -192,7 +184,7 @@ class ObservableDecoder(_SinterDecoder):
         def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             """Compatibility shim that rejects decoding before this decoder is compiled.
 
-            An ObservableDecoder never decodes syndromes to errors, and must be compiled for a
+            An SinterDecoder never decodes syndromes to errors, and must be compiled for a
             detector error model before it predicts observable flips.
             """
             return self.decode_observables(syndrome)
@@ -200,16 +192,18 @@ class ObservableDecoder(_SinterDecoder):
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Reject decoding before this observable decoder is compiled."""
         raise DecoderNotCompiledError(
-            "This ObservableDecoder needs to be compiled in order to decode.  Please compile with"
-            " ObservableDecoder.compile_decoder_for_dem, and call decode_observables or"
+            "This SinterDecoder needs to be compiled in order to decode.  Please compile with"
+            " SinterDecoder.compile_decoder_for_dem, and call decode_observables or"
             " decode_shots on the compiled decoder"
         )
 
 
-class CompiledObservableDecoder(_SinterCompiledDecoder):
+class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     """Observable decoder compiled to a specific detector error model.
 
-    Instances are constructed by ObservableDecoder.compile_decoder_for_dem.
+    Instances are constructed by SinterDecoder.compile_decoder_for_dem.  A CompiledSinterDecoder
+    predicts observable flips with an inner observable decoder, which may be an error decoder whose
+    inferred errors are converted into observable flips.
 
     When the decoder being wrapped signals erasure with an erasure bit, .decode_shots appends one
     erasure bit to the observable flips of every shot, and .decode_shots_bit_packed reports those
@@ -221,14 +215,31 @@ class CompiledObservableDecoder(_SinterCompiledDecoder):
     num_detectors: int
     num_observables: int
     num_erasure_bits: int = 0
-    decodes_observables = True
 
-    def __init__(self, dem_arrays: DetectorErrorModelArrays, decoder: ErrorDecoder) -> None:
+    # declares that the .decode method of this class (which is deprecated) returns observable flips
+    _decode_returns_observables = True
+
+    def __init__(
+        self, dem_arrays: DetectorErrorModelArrays, decoder: ErrorDecoder | ObservableDecoder
+    ) -> None:
+        """Initialize a decoder compiled to a specific detector error model.
+
+        Args:
+            dem_arrays: The detector error model to decode.
+            decoder: A decoder for that detector error model.  A decoder with a decode_observables
+                method predicts observable flips natively.  Otherwise, the decoder is an error
+                decoder, whose inferred errors are converted into observable flips.
+        """
         self.dem_arrays = dem_arrays
         self.decoder = decoder
+        self.observable_decoder = (
+            decoder
+            if hasattr(decoder, "decode_observables")
+            else _ErrorsToObservables(decoder, dem_arrays.to_dem())
+        )
         self.num_detectors = dem_arrays.num_detectors
-        self.num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
-        self.num_observables = dem_arrays.num_observables - self.num_erasure_bits
+        self.num_observables = dem_arrays.num_observables
+        self.num_erasure_bits = int(getattr(self.observable_decoder, "has_erasure_bit", False))
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -271,17 +282,18 @@ class CompiledObservableDecoder(_SinterCompiledDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        if hasattr(self.decoder, "decode_batch"):
-            predicted_errors = self.decoder.decode_batch(detection_event_data)
-            return predicted_errors @ self.dem_arrays.observable_flip_matrix.T % 2
-
-        num_shots = len(detection_event_data)
-        num_observables = self.dem_arrays.observable_flip_matrix.shape[0]
-        observable_flips = np.zeros((num_shots, num_observables), dtype=np.uint8)
-        for row, syndrome in enumerate(detection_event_data):
-            predicted_errors = self.decoder.decode(syndrome)
-            observable_flips[row] = self.dem_arrays.observable_flip_matrix @ predicted_errors
-        return np.asarray(observable_flips, dtype=np.uint8) % 2
+        if hasattr(self.observable_decoder, "decode_observables_batch"):
+            observable_flips = self.observable_decoder.decode_observables_batch(
+                detection_event_data
+            )
+        else:
+            observable_flips = [
+                self.observable_decoder.decode_observables(syndrome)
+                for syndrome in detection_event_data
+            ]
+        return np.asarray(observable_flips, dtype=np.uint8).reshape(
+            len(detection_event_data), self.num_observables + self.num_erasure_bits
+        )
 
     def packbits(self, data: npt.NDArray[np.uint8], axis: int = -1) -> npt.NDArray[np.uint8]:
         """Bit-pack the data along an axis.
@@ -309,7 +321,7 @@ class CompiledObservableDecoder(_SinterCompiledDecoder):
         )
 
     if TYPE_CHECKING:
-        # Hide this deprecated method from mypy, so that a CompiledObservableDecoder does not
+        # Hide this deprecated method from mypy, so that a CompiledSinterDecoder does not
         # satisfy the ErrorDecoder protocol, which requires a decode method.
         decode: None
     else:
@@ -320,7 +332,7 @@ class CompiledObservableDecoder(_SinterCompiledDecoder):
             Predicts observable flips.
             """
             warnings.warn(
-                "CompiledObservableDecoder.decode is deprecated; use decode_observables",
+                "CompiledSinterDecoder.decode is deprecated; use decode_observables",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -332,12 +344,12 @@ class CompiledObservableDecoder(_SinterCompiledDecoder):
         return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
 
-class TrivialDecoder(ObservableDecoder):
+class TrivialDecoder(SinterDecoder):
     """A trivial decoder that unconditionally predicts null errors/logical flips."""
 
     def __init__(self) -> None: ...
 
-    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> CompiledObservableDecoder:
+    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> CompiledSinterDecoder:
         """Creates a decoder preconfigured for the given detector error model.
 
         See help(sinter.Decoder) for additional information.
@@ -345,7 +357,7 @@ class TrivialDecoder(ObservableDecoder):
         return CompiledTrivialDecoder(dem.num_detectors, dem.num_observables)
 
 
-class CompiledTrivialDecoder(CompiledObservableDecoder):
+class CompiledTrivialDecoder(CompiledSinterDecoder):
     """A compiled trivial decoder that unconditionally predicts null errors/logical flips."""
 
     def __init__(self, num_detectors: int, num_observables: int) -> None:
@@ -376,7 +388,7 @@ class CompiledTrivialDecoder(CompiledObservableDecoder):
         return np.zeros(shape, dtype=np.uint8)
 
 
-class SubgraphDecoder(ObservableDecoder):
+class SubgraphDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
     A SubgraphDecoder splits the Tanner graph of a detector error model into subgraphs, and decodes
@@ -400,9 +412,7 @@ class SubgraphDecoder(ObservableDecoder):
     CSS code, where each sector owns the observables of the opposite type.
     """
 
-    _prebuilt_decoder_rejection_reason = (
-        "a SubgraphDecoder builds a new error decoder for each subgraph"
-    )
+    _prebuilt_decoder_rejection_reason = "a SubgraphDecoder builds a new decoder for each subgraph"
 
     def __init__(
         self,
@@ -411,7 +421,7 @@ class SubgraphDecoder(ObservableDecoder):
         *,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: DeferredErrorDecoderInput = None,
+        decoder: DeferredObservableDecoderInput = None,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize an observable decoder that splits a model into disjoint subgraphs.
@@ -429,13 +439,13 @@ class SubgraphDecoder(ObservableDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
-                constructor that builds an error decoder from a detector error model, or None to
-                select the default error decoder.  A prebuilt decoder is rejected, because an inner
-                decoder is built for each subgraph.
+            decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
+                that builds an error decoder or an observable decoder from a detector error model,
+                or None to select the default decoder.  A prebuilt decoder is rejected, because an
+                inner decoder is built for each subgraph.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
-        ObservableDecoder.__init__(
+        SinterDecoder.__init__(
             self,
             simplify=simplify,
             decompose_errors=decompose_errors,
@@ -499,7 +509,7 @@ class SubgraphDecoder(ObservableDecoder):
             ).to_detector_error_model()
 
             # compile the decoder for this subgraph
-            subgraph_decoder = ObservableDecoder.compile_decoder_for_dem(self, subgraph_dem)
+            subgraph_decoder = SinterDecoder.compile_decoder_for_dem(self, subgraph_dem)
             subgraph_decoders.append(subgraph_decoder)
 
             # collect the erasure bit of this subgraph past the observables of the whole model
@@ -521,7 +531,7 @@ class SubgraphDecoder(ObservableDecoder):
         )
 
 
-class CompiledSubgraphDecoder(CompiledObservableDecoder):
+class CompiledSubgraphDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     This decoder splits a decoding problem into subgraphs that are decoded independently.
@@ -535,7 +545,7 @@ class CompiledSubgraphDecoder(CompiledObservableDecoder):
         self,
         subgraph_detectors: Sequence[Sequence[int] | slice],
         subgraph_observables: Sequence[Sequence[int] | slice],
-        subgraph_decoders: Sequence[CompiledObservableDecoder],
+        subgraph_decoders: Sequence[CompiledSinterDecoder],
         num_detectors: int,
         num_observables: int,
         num_erasure_bits: int = 0,
@@ -582,7 +592,7 @@ class CompiledSubgraphDecoder(CompiledObservableDecoder):
         return observable_flips
 
 
-class SequentialWindowDecoder(ObservableDecoder):
+class SequentialWindowDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
     A SequentialWindowDecoder splits a detector error model into (possibly overlapping) "windows".
@@ -645,11 +655,12 @@ class SequentialWindowDecoder(ObservableDecoder):
                 when compiling a decoder for a DEM.
             decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
                 constructor that builds an error decoder from a detector error model, or None to
-                select the default error decoder.  A prebuilt decoder is rejected, because an inner
+                select the default error decoder.  Windows commit the errors that they infer, so
+                they require error decoders.  A prebuilt decoder is rejected, because an inner
                 decoder is built for each window.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
-        ObservableDecoder.__init__(
+        SinterDecoder.__init__(
             self,
             simplify=simplify,
             decompose_errors=decompose_errors,
@@ -700,21 +711,16 @@ class SequentialWindowDecoder(ObservableDecoder):
             window_dem = window_dem_arrays.to_dem()
             window_decoder = _resolve_decoder(
                 window_dem,
-                self.decoder_input,
+                # the __init__ method of a window decoder only accepts inputs for error decoders
+                cast(ErrorDecoderInput, self.decoder_input),
                 self.decoder_kwargs.copy(),
                 warn_deprecated=False,
             )
-            _check_decodes_errors(window_decoder)
-
-            # Restricting the DEM to this window may result in several error mechanisms that are
-            # equivalent, which the window_decoder will merge into one error mechanism.  In this
-            # case, wrap the decoder into an _ExpandedDecoder that maps decoded errors in the
-            # simplified DEM to errors in the full DEM.  An erasure bit is not an error mechanism,
-            # so it does not count toward the width being compared here.
-            num_erasure_bits = int(getattr(window_decoder, "has_erasure_bit", False))
-            test_error = window_decoder.decode(np.zeros(window_dem.num_detectors, dtype=int))
-            if len(test_error) - num_erasure_bits < window_dem.num_errors:
-                window_decoder = _ExpandedDecoder(window_decoder, window_dem)
+            # Windows commit inferred errors, so they need error decoders.  Restricting the DEM to
+            # this window may leave equivalent error mechanisms, which the window_decoder may merge
+            # into one, so align the errors that it infers with the error mechanisms of the window.
+            _reject_observable_output(window_decoder)
+            window_decoder = _match_error_decoder_to_dem(window_decoder, window_dem)
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -740,65 +746,7 @@ class SequentialWindowDecoder(ObservableDecoder):
         )
 
 
-class _ExpandedDecoder(ErrorDecoder):
-    """Wrapper for a decoder, to map decoded errors in a simplified DEM to errors in the full DEM.
-
-    A decoder that merges equivalent error mechanisms infers fewer errors than the DEM it was built
-    for declares.  That happens when a DEM restricted to a window leaves equivalent mechanisms
-    behind, and it happens when a caller asks for a model whose equivalent mechanisms are left
-    unmerged.  This wrapper expands decoded errors in the simplified DEM to equivalent errors in the
-    original DEM, and passes any erasure bit through as the last entry.
-    """
-
-    def __init__(self, decoder: ErrorDecoder, dem: stim.DetectorErrorModel) -> None:
-        self._decoder = decoder
-        self.has_erasure_bit = bool(getattr(decoder, "has_erasure_bit", False))
-
-        original_errors = DetectorErrorModelArrays.get_circuit_errors(dem)
-        simplified_errors = DetectorErrorModelArrays.get_merged_circuit_errors(original_errors)
-        self._num_original_errors = len(original_errors)
-
-        # map each detector/observable signature to an original error index
-        signature_to_original_error_index = {
-            signature: original_error_index
-            for original_error_index, (_, signature) in enumerate(original_errors)
-        }
-
-        # locate each simplified error among the original errors
-        self._simplified_to_original_index = np.array(
-            [signature_to_original_error_index[signature] for _, signature in simplified_errors],
-            dtype=np.intp,
-        )
-
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        simplified_error = self._decoder.decode(syndrome)
-        original_error = np.zeros(
-            self._num_original_errors + self.has_erasure_bit, dtype=syndrome.dtype
-        )
-        if self.has_erasure_bit:
-            original_error[-1] = simplified_error[-1]
-            simplified_error = simplified_error[:-1]
-        original_error[self._simplified_to_original_index] = simplified_error
-        return np.asarray(original_error, dtype=syndrome.dtype)
-
-    def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        simplified_errors = (
-            self._decoder.decode_batch(syndromes)
-            if hasattr(self._decoder, "decode_batch")
-            else np.array([self._decoder.decode(syndrome) for syndrome in syndromes])
-        )
-        original_errors = np.zeros(
-            (len(syndromes), self._num_original_errors + self.has_erasure_bit),
-            dtype=syndromes.dtype,
-        )
-        if self.has_erasure_bit:
-            original_errors[:, -1] = simplified_errors[:, -1]
-            simplified_errors = simplified_errors[:, :-1]
-        original_errors[:, self._simplified_to_original_index] = simplified_errors
-        return original_errors
-
-
-class CompiledSequentialWindowDecoder(CompiledObservableDecoder):
+class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors, compiled to a specific circuit.
 
     This decoder splits a decoding problem into (possibly overlapping) windows that are decoded
@@ -985,11 +933,12 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 when compiling a decoder for a DEM.
             decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
                 constructor that builds an error decoder from a detector error model, or None to
-                select the default error decoder.  A prebuilt decoder is rejected, because an inner
+                select the default error decoder.  Windows commit the errors that they infer, so
+                they require error decoders.  A prebuilt decoder is rejected, because an inner
                 decoder is built for each window.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
-        ObservableDecoder.__init__(
+        SinterDecoder.__init__(
             self,
             simplify=simplify,
             decompose_errors=decompose_errors,
@@ -1083,16 +1032,6 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         return SequentialWindowDecoder.compile_decoder_for_dem(self, dem)
 
 
-def _check_decodes_errors(decoder: ErrorDecoder) -> None:
-    """Reject a decoder whose output is observable flips rather than an inferred error."""
-    if getattr(decoder, "decodes_observables", False):
-        raise ValueError(
-            "An observable decoder converts inferred errors into observable flips itself, so the"
-            " decoder that it wraps must predict errors rather than observable flips.  "
-            + _OBSERVABLE_DECODER_ADVICE
-        )
-
-
 def _warn_about_subgraph_partition(
     flip_errors: npt.NDArray[np.int_],
     flip_observables: npt.NDArray[np.int_],
@@ -1159,10 +1098,8 @@ def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
     return candidates[0] if len(candidates) == 1 else 0
 
 
-_DEPRECATED_ALIASES = {
-    "CompiledSinterDecoder": CompiledObservableDecoder,
+_DEPRECATED_ALIASES: dict[str, type] = {
     "SequentialSinterDecoder": SequentialWindowDecoder,
-    "SinterDecoder": ObservableDecoder,
     "SubgraphSinterDecoder": SubgraphDecoder,
 }
 
@@ -1170,9 +1107,7 @@ _DEPRECATED_ALIASES = {
 # Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
 if TYPE_CHECKING:
-    CompiledSinterDecoder = CompiledObservableDecoder
     SequentialSinterDecoder = SequentialWindowDecoder
-    SinterDecoder = ObservableDecoder
     SubgraphSinterDecoder = SubgraphDecoder
 else:
 

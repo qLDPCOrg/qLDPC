@@ -1,26 +1,31 @@
 Choosing a decoder
 ==================
 
-qLDPC separates two decoding tasks:
+qLDPC distinguishes two kinds of decoders:
 
-* an :class:`~qldpc.decoders.custom.ErrorDecoder` maps a parity-check syndrome to an inferred
-  physical error; and
-* an :class:`~qldpc.decoders.sinter.ObservableDecoder` compiles against a Stim detector error model
-  and maps detection events to predicted observable flips.
+* an :class:`~qldpc.decoders.custom.ErrorDecoder` maps a syndrome to an inferred physical error,
+  with a ``decode`` method; and
+* an :class:`~qldpc.decoders.custom.ObservableDecoder` maps a syndrome (detection events) to
+  predicted observable flips, with a ``decode_observables`` method.
 
-This distinction matters when composing decoders. qLDPC's code-capacity estimators consume an error
-decoder, while Sinter simulations consume an observable decoder, which wraps an error decoder and
-performs the error-to-observable conversion after decoding. Decoder-based randomized distance bounds
-specifically require an error decoder because they operate on physical candidate errors; exact
-distance calculations do not require a decoder.
+The distinction matters when composing decoders. Code-capacity estimates, decoder-based distance
+bounds, logical-operator reduction, and sliding-window decoders all work with physical errors, so
+they need error decoders. Circuit-level simulations only need to know which observables flipped,
+so they use observable decoders. Some decoders are both: a
+:class:`~qldpc.decoders.custom.RelayBPDecoder` infers errors and predicts observable flips. Exact
+distance calculations do not need a decoder.
+
+A :class:`~qldpc.decoders.sinter.SinterDecoder` is the observable decoder that Sinter uses. It
+stores decoder settings, and builds an observable decoder for each detector error model that Sinter
+compiles it for.
 
 The :doc:`decoders example notebook <examples/decoders>` walks through the workflows on this page.
 
-Configuring error decoders
---------------------------
+Configuring decoders
+--------------------
 
-Use a typed helper to defer construction until the consuming method knows its parity-check matrix or
-detector error model:
+Use a typed helper to configure a decoder. The consuming method builds the decoder once it knows
+which parity-check matrix or detector error model to decode:
 
 .. code-block:: python
 
@@ -41,16 +46,15 @@ The helpers are available directly under ``qldpc.decoders``:
 * :func:`~qldpc.decoders.retrieval.bf`
 * :func:`~qldpc.decoders.retrieval.mwpm`
 * :func:`~qldpc.decoders.retrieval.relay_bp`
+* :func:`~qldpc.decoders.retrieval.min_sum_bp`
 * :func:`~qldpc.decoders.retrieval.lookup_table`
 * :func:`~qldpc.decoders.retrieval.ilp`
 * :func:`~qldpc.decoders.retrieval.guf`
 
 Each helper returns a :class:`~qldpc.decoders.retrieval.DecoderSpec`, which only stores settings.
-The signature of a helper lists its options explicitly, so they are visible to autocomplete and
-static-analysis tools, and a misspelled option raises a ``TypeError``. The exceptions are
-``relay_bp`` and ``ilp``, which forward additional options to the chosen Relay-BP decoder class and
-to ``cvxpy.Problem.solve``, respectively. The ``mwpm`` helper omits PyMatching options, such as
-``faults_matrix``, that would make the decoder return observable flips rather than errors. Passing
+The signature of a helper lists the options of its decoder explicitly, so they are visible to
+autocomplete and static-analysis tools, and a misspelled option raises a ``TypeError``. The
+exception is ``ilp``, which forwards additional options to ``cvxpy.Problem.solve``. Passing
 ``decoder=None`` retains qLDPC's default: BP+OSD for binary inputs and generalized union-find for
 nonbinary field arrays.
 
@@ -75,47 +79,35 @@ their syndrome with respect to the Z-type stabilizers, and ``decoder_z`` infers 
 their syndrome with respect to the X-type stabilizers. A sector that is not configured explicitly
 falls back to the shared ``decoder=`` argument.
 
-Custom and prebuilt decoders
-----------------------------
-
-Any object with a ``decode`` method that maps a syndrome to an inferred error satisfies the
-:class:`~qldpc.decoders.custom.ErrorDecoder` protocol. A custom decoder may also define:
-
-* ``decode_batch``, which decodes a two-dimensional array of syndromes (one per row) and satisfies
-  :class:`~qldpc.decoders.custom.BatchErrorDecoder`, so that observable decoders decode shots in
-  batches;
-* ``has_erasure_bit = True``, to declare that it appends an erasure flag to each inferred error; and
-* ``decodes_observables = True``, to declare that its output is observable flips rather than
-  errors, so that it is rejected where an error decoder is required.
-
-Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
-
-* a constructor, such as a decoder class, or any other callable that builds an error decoder from a
-  parity-check matrix or detector error model; or
-* a prebuilt error decoder, which is used as is.
-
-A prebuilt decoder is tied to the matrix used to construct it, so it is only accepted where the
-caller knows the matrix being decoded: by ``decoders.decode`` and ``decoders.get_decoder``, by the
-code-capacity estimators of classical codes, by ``ClassicalCode.get_distance_bound`` when given a
-``vector`` (whose syndrome is computed with the parity check matrix of the code), and per sector (as
-``decoder_x=`` and ``decoder_z=``) by the code-capacity estimators of CSS codes. A shared prebuilt
-``decoder=`` for a CSS code is rejected unless its two stabilizer matrices are equal.
-
-Some methods decode a matrix that they construct internally, and therefore reject prebuilt decoders:
-decoder-based distance bounds of codes (other than a classical distance bound to a ``vector``),
-logical-operator reduction, the code-capacity estimators of non-CSS codes, and observable decoders,
-which build a new error decoder for every detector error model, window, or subgraph that they
-decode. These methods accept a ``DecoderSpec`` or a constructor. A
-constructor can fix custom options with ``functools.partial`` or a ``lambda``.
-
 Predicting observable flips
 ---------------------------
 
-Wrap error-decoder settings or a constructor in an observable decoder for Sinter:
+:func:`~qldpc.decoders.retrieval.get_observable_decoder` builds an observable decoder for a
+detector error model, and :func:`~qldpc.decoders.retrieval.decode_observables` predicts the
+observable flips of one syndrome:
 
 .. code-block:: python
 
-   observable_decoder = decoders.ObservableDecoder(
+   observable_decoder = decoders.get_observable_decoder(dem, decoder=decoders.mwpm())
+   predicted_flips = observable_decoder.decode_observables(syndrome)
+
+Some decoders can predict observable flips natively, without first inferring an error. Their
+settings build a native observable decoder wherever observable flips are wanted:
+
+* ``mwpm`` builds a PyMatching decoder that tracks observables along matched paths;
+* ``relay_bp`` and ``min_sum_bp`` build a :class:`~qldpc.decoders.custom.RelayBPDecoder`; and
+* ``lookup_table`` builds an :class:`~qldpc.decoders.lookup.ObservableLookupDecoder`, which maps each
+  syndrome directly to its most likely observable flip.
+
+The settings of any other decoder build an error decoder, whose inferred errors are converted into
+observable flips. ``DecoderSpec.predicts_observables_natively`` reports which of these applies.
+
+For Sinter, wrap decoder settings (or a constructor) in a
+:class:`~qldpc.decoders.sinter.SinterDecoder`, or in one of its subclasses:
+
+.. code-block:: python
+
+   sinter_decoder = decoders.SinterDecoder(
        decoder=decoders.mwpm(),
        decompose_errors=True,
    )
@@ -126,11 +118,51 @@ Wrap error-decoder settings or a constructor in an observable decoder for Sinter
        decoder=decoders.bp_lsd(max_iter=30),
    )
 
-An :class:`~qldpc.decoders.sinter.ObservableDecoder` is compiled for a detector error model before
-it predicts flips. Its compiled form exposes ``decode_observables`` for one shot and ``decode_shots``
-for a batch. Window and subgraph decoders use the same explicit ``decoder=`` argument for their
-inner error decoder. Sinter passes decoders to its worker processes by pickling them, so a custom
-error decoder that is used with several workers should be defined in an importable module.
+A ``SinterDecoder`` is compiled for a detector error model before it predicts flips. Its compiled
+form, a :class:`~qldpc.decoders.sinter.CompiledSinterDecoder`, exposes ``decode_observables`` for
+one shot and ``decode_shots`` for a batch. A ``SinterDecoder`` and a
+:class:`~qldpc.decoders.sinter.SubgraphDecoder` use native observable decoders where possible.
+Window decoders (:class:`~qldpc.decoders.sinter.SequentialWindowDecoder` and
+:class:`~qldpc.decoders.sinter.SlidingWindowDecoder`) commit the errors that they infer in each
+window, so they always use error decoders. Sinter passes decoders to its worker processes by
+pickling them, so a custom decoder that is used with several workers should be defined in an
+importable module.
+
+Custom and prebuilt decoders
+----------------------------
+
+Any object with a ``decode`` method that maps a syndrome to an inferred error satisfies the
+:class:`~qldpc.decoders.custom.ErrorDecoder` protocol, and any object with a ``decode_observables``
+method that maps a syndrome to predicted observable flips satisfies the
+:class:`~qldpc.decoders.custom.ObservableDecoder` protocol. A custom decoder may also define:
+
+* ``decode_batch`` or ``decode_observables_batch``, which decode a two-dimensional array of
+  syndromes (one per row), to satisfy :class:`~qldpc.decoders.custom.BatchErrorDecoder` or
+  :class:`~qldpc.decoders.custom.BatchObservableDecoder`, so that Sinter decoders decode shots in
+  batches; and
+* ``has_erasure_bit = True``, to declare that it appends an erasure flag to each inferred error or
+  predicted observable flip.
+
+Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
+
+* a constructor, such as a decoder class, or any other callable that builds a decoder from a
+  parity-check matrix or detector error model; or
+* a prebuilt decoder, which is used as is.
+
+A prebuilt decoder is tied to the matrix used to construct it, so it is only accepted where the
+caller knows the matrix being decoded: by ``decoders.decode``, ``decoders.get_decoder``,
+``decoders.decode_observables``, and ``decoders.get_observable_decoder``; by the code-capacity
+estimators of classical codes; by ``ClassicalCode.get_distance_bound`` when given a ``vector`` (whose
+syndrome is computed with the parity check matrix of the code); and per sector (as ``decoder_x=``
+and ``decoder_z=``) by the code-capacity estimators of CSS codes. A shared prebuilt ``decoder=`` for
+a CSS code is rejected unless its two stabilizer matrices are equal.
+
+Some methods decode a matrix that they construct internally, and therefore reject prebuilt decoders:
+decoder-based distance bounds of codes (other than a classical distance bound to a ``vector``),
+logical-operator reduction, the code-capacity estimators of non-CSS codes, and Sinter decoders,
+which build a new decoder for every (simplified) detector error model, window, or subgraph that they
+decode. These methods accept a ``DecoderSpec`` or a constructor. A constructor can fix custom
+options with ``functools.partial`` or a ``lambda``.
 
 Lookup-table outputs
 --------------------
@@ -140,9 +172,9 @@ Lookup-table outputs
 observable-flip matrix to group candidate errors by logical effect, but their output is a
 representative physical error.
 
-Use :class:`~qldpc.decoders.lookup.ObservableLookupDecoder` or
-:class:`~qldpc.decoders.lookup.WeightedObservableLookupDecoder` when the desired output is the
-observable flip itself:
+:class:`~qldpc.decoders.lookup.ObservableLookupDecoder` and
+:class:`~qldpc.decoders.lookup.WeightedObservableLookupDecoder` are observable decoders, which
+return the observable flip itself:
 
 .. code-block:: python
 
@@ -150,7 +182,7 @@ observable flip itself:
    predicted_flips = observable_lookup.decode_observables(syndrome)
 
 Erasure-aware decoders append their erasure flag after the inferred error or observable vector.
-Sinter-compatible compiled decoders translate that flag into a discarded shot.
+Compiled Sinter decoders translate that flag into a discarded shot.
 
 Migrating from the previous API
 -------------------------------
@@ -163,11 +195,13 @@ The following changes take effect without a deprecation period:
 * The ``static_decoder`` argument has been removed. Pass a prebuilt decoder as ``decoder=`` instead,
   where a prebuilt decoder is accepted (see above), and otherwise pass decoder settings or a
   constructor.
-* ``qldpc.circuits.memory.alpha_syndrome.DEFAULT_SINTER_DECODER`` has been renamed to
-  ``DEFAULT_OBSERVABLE_DECODER``.
 * When the deprecated ``decoder_x_kwargs`` or ``decoder_z_kwargs`` of a CSS code set the same option
   as its shared keyword arguments, the sector-specific value now takes precedence, just as
   ``decoder_x=`` and ``decoder_z=`` take precedence over ``decoder=``.
+* A ``SinterDecoder`` whose settings support native observable prediction (``mwpm``, ``relay_bp``,
+  ``min_sum_bp``, and ``lookup_table``) now uses it. The predicted observable flips are unchanged,
+  but the ``decoder`` attribute of the resulting ``CompiledSinterDecoder`` is now that native
+  observable decoder, rather than an error decoder.
 
 Deprecated usage
 ~~~~~~~~~~~~~~~~
@@ -192,10 +226,8 @@ The keyword-based decoder API remains available during a deprecation period, and
      - ``ObservableLookupDecoder(...)`` and its ``decode_observables`` method
    * - ``WeightedLookupDecoder(..., predict_observable_flips=True)``
      - ``WeightedObservableLookupDecoder(...)`` and its ``decode_observables`` method
-   * - ``SinterDecoder`` and ``CompiledSinterDecoder``
-     - ``ObservableDecoder`` and ``CompiledObservableDecoder``
-   * - ``CompiledObservableDecoder.decode``
-     - ``CompiledObservableDecoder.decode_observables``
+   * - ``CompiledSinterDecoder.decode``
+     - ``CompiledSinterDecoder.decode_observables``
    * - ``SubgraphSinterDecoder`` and ``SequentialSinterDecoder``
      - ``SubgraphDecoder`` and ``SequentialWindowDecoder``
    * - ``Decoder`` and ``BatchDecoder``

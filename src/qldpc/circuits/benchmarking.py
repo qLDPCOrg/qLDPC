@@ -166,7 +166,7 @@ def get_state_prep_diagnostic_tasks(
     As an example, if::
 
         tasks = get_state_prep_diagnostic_tasks(...)
-        decoder = qldpc.decoders.ObservableDecoder(...)
+        decoder = qldpc.decoders.SinterDecoder(...)
 
     then we can collect statistics with::
 

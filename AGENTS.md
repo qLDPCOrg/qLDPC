@@ -100,8 +100,11 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
   A one-argument custom constructor is also accepted.
 - A prebuilt error decoder is accepted only where the caller knows the matrix being decoded.
   Reject it with `retrieval._reject_prebuilt_decoder(decoder, reason)` wherever a method decodes a matrix that it constructs, such as an effective check matrix, a window, or a simplified detector error model.
-- Keep error decoders (`syndrome -> inferred error`) distinct from observable decoders (`detection events -> observable flips`).
-  An object whose output is observable flips sets `decodes_observables = True`, and is rejected where an error decoder is required.
+- Keep error decoders (`ErrorDecoder`: `decode`, syndrome -> inferred error) distinct from observable decoders (`ObservableDecoder`: `decode_observables`, syndrome -> observable flips).
+  A decoder may be both, like `RelayBPDecoder`, but a `decode` method must never return observable flips.
+  Validate the output length of an error decoder against the matrix or detector error model it decodes, as `retrieval._match_error_decoder_to_dem` does.
+- `SinterDecoder` is the Sinter-facing observable decoder.
+  It uses a native observable decoder when a `DecoderSpec` supports one (`DecoderSpec.predicts_observables_natively`), and otherwise converts inferred errors into observable flips; window decoders always need error decoders.
 - Keep each typed helper's options and defaults in sync with the decoder it configures; `retrieval_test.py` checks this.
 - Only decoders that declare erasure support may append an erasure flag.
   They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.

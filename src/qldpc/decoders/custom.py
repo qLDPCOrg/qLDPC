@@ -44,6 +44,26 @@ class BatchErrorDecoder(ErrorDecoder, Protocol):
         """Decode a batch of error syndromes and return inferred errors."""
 
 
+class ObservableDecoder(Protocol):
+    """Protocol for a decoder that maps a syndrome to predicted observable flips.
+
+    An observable decoder is built for a specific set of observables, such as those of a detector
+    error model, and predicts which of them an error with the given syndrome flips.  If an
+    observable decoder signals erasure (``has_erasure_bit = True``), it appends an erasure flag to
+    each prediction.
+    """
+
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return predicted observable flips."""
+
+
+class BatchObservableDecoder(ObservableDecoder, Protocol):
+    """Protocol for an observable decoder that can decode in batches."""
+
+    def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes, one per row, and return predicted observable flips."""
+
+
 class RelayBPDecoder:
     """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
@@ -55,6 +75,10 @@ class RelayBPDecoder:
     ``relay_bp.ObservableDecoderRunner`` class, ``RelayBPDecoder`` wraps the
     ``relay_bp.decoder.DynDecoder`` in a ``relay_bp.ObservableDecoderRunner`` at initialization
     time.
+
+    A RelayBPDecoder is both an error decoder and an observable decoder: ``.decode`` returns an
+    inferred error, and ``.decode_observables`` returns predicted observable flips.  Predicting
+    observable flips requires an ``observable_error_matrix``, which a detector error model provides.
 
     .. important::
         Relay-BP has two integration constraints:
@@ -162,12 +186,17 @@ class RelayBPDecoder:
         elif isinstance(pcm, scipy.sparse.spmatrix):
             pcm = pcm.tocsc()
             pcm.sort_indices()
+        # a detector error model provides an observable_error_matrix, possibly with no observables
+        self.has_observable_error_matrix = observable_error_matrix is not None
         if observable_error_matrix is None:
             observable_error_matrix = np.empty((0, 0), dtype=np.uint8)
 
         # build the decoder, retaining the parity checks that judge an inferred error
         self.has_erasure_bit = add_erasure_bit
         self.pcm_transposed = scipy.sparse.csr_matrix(pcm, dtype=np.uint8).T.tocsr()
+        self.observable_error_matrix_transposed = scipy.sparse.csr_matrix(
+            observable_error_matrix, dtype=np.uint8
+        ).T.tocsr()
         self.decoder = relay_bp.ObservableDecoderRunner(
             getattr(relay_bp, name)(pcm, np.asarray(error_priors), **decoder_args),
             observable_error_matrix,
@@ -206,6 +235,64 @@ class RelayBPDecoder:
             return errors
         erased = ~self._reproduces_syndrome(np.asarray(errors), detectors)
         return with_erasure_bits(errors, erased)
+
+    def decode_observables(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return predicted observable flips.
+
+        If initialized with ``add_erasure_bit=True``, append an erasure bit that is set to 1 when
+        the inferred error does not reproduce the syndrome.
+        """
+        self._require_observables()
+        if not self.has_erasure_bit:
+            return np.asarray(
+                self.decoder.decode_observables(np.asarray(detectors, dtype=np.uint8))
+            )
+        return self._errors_to_observable_flips(self.decode(detectors)[None, :])[0]
+
+    def decode_observables_batch(
+        self,
+        /,
+        detectors: npt.NDArray[np.int_],
+        parallel: bool = False,
+        progress_bar: bool = False,
+        leave_progress_bar_on_finish: bool = False,
+    ) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes, one per row, and return predicted observable flips.
+
+        If initialized with ``add_erasure_bit=True``, append an erasure bit to each prediction that
+        is set to 1 when the inferred error does not reproduce the syndrome.
+
+        Unlike relay_bp.ObservableDecoderRunner.decode_observables_batch, this method shows no
+        progress bar by default, since Sinter decoders call it for every batch of shots.
+        """
+        self._require_observables()
+        if not self.has_erasure_bit:
+            return np.asarray(
+                self.decoder.decode_observables_batch(
+                    np.asarray(detectors, dtype=np.uint8),
+                    parallel,
+                    progress_bar,
+                    leave_progress_bar_on_finish,
+                )
+            )
+        errors = self.decode_batch(detectors, parallel, progress_bar, leave_progress_bar_on_finish)
+        return self._errors_to_observable_flips(errors)
+
+    def _require_observables(self) -> None:
+        """Raise an error if this decoder was not given observables to predict."""
+        if not self.has_observable_error_matrix:
+            raise ValueError(
+                "Predicting observable flips with a RelayBPDecoder requires an"
+                " observable_error_matrix, or a detector error model with observables"
+            )
+
+    def _errors_to_observable_flips(
+        self, errors_and_erasure_bits: npt.NDArray[np.int_]
+    ) -> npt.NDArray[np.int_]:
+        """Convert inferred errors, each with an erasure bit appended, into observable flips."""
+        errors = np.asarray(errors_and_erasure_bits[:, :-1], dtype=np.uint8)
+        flips = np.asarray(errors @ self.observable_error_matrix_transposed) & 1
+        return np.hstack([flips, errors_and_erasure_bits[:, -1:]]).astype(np.uint8)
 
     def _reproduces_syndrome(
         self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]

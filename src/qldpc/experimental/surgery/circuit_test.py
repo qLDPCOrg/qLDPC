@@ -547,7 +547,7 @@ def test_single_ppm_ler_monotone_in_p() -> None:
                 json_metadata={"p": float(p)},
             )
         )
-    sinter_decoder = decoders.ObservableDecoder()
+    sinter_decoder = decoders.SinterDecoder()
     results = sinter.collect(
         tasks=tasks,
         decoders=["custom"],
@@ -592,7 +592,7 @@ def test_single_ppm_ler_with_final_detectors_below_threshold() -> None:
         rounds=3,
         noise_model=DepolarizingNoiseModel(p),
     )
-    sinter_decoder = decoders.ObservableDecoder()
+    sinter_decoder = decoders.SinterDecoder()
     results = sinter.collect(
         tasks=[sinter.Task(circuit=circuit, json_metadata={"p": float(p)})],
         decoders=["custom"],

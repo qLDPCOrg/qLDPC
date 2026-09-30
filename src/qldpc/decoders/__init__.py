@@ -10,11 +10,13 @@ from .common import (
 )
 from .custom import (
     BatchErrorDecoder,
+    BatchObservableDecoder,
     CompositeDecoder,
     DirectDecoder,
     ErrorDecoder,
     GUFDecoder,
     ILPDecoder,
+    ObservableDecoder,
     RelayBPDecoder,
 )
 from .dems import (
@@ -30,13 +32,17 @@ from .lookup import (
 from .retrieval import (
     DecoderSpec,
     DeferredErrorDecoderInput,
+    DeferredObservableDecoderInput,
     ErrorDecoderConstructor,
     ErrorDecoderInput,
+    ObservableDecoderConstructor,
+    ObservableDecoderInput,
     PcmOrDem,
     bf,
     bp_lsd,
     bp_osd,
     decode,
+    decode_observables,
     get_decoder,
     get_decoder_BF,
     get_decoder_BP_LSD,
@@ -46,19 +52,21 @@ from .retrieval import (
     get_decoder_lookup,
     get_decoder_MWPM,
     get_decoder_RBP,
+    get_observable_decoder,
     guf,
     ilp,
     lookup_table,
+    min_sum_bp,
     mwpm,
     relay_bp,
 )
 from .sinter import (
-    CompiledObservableDecoder,
     CompiledSequentialWindowDecoder,
+    CompiledSinterDecoder,
     CompiledSubgraphDecoder,
     CompiledTrivialDecoder,
-    ObservableDecoder,
     SequentialWindowDecoder,
+    SinterDecoder,
     SlidingWindowDecoder,
     SubgraphDecoder,
     TrivialDecoder,
@@ -67,7 +75,7 @@ from .sinter import (
 __all__ = [
     "BatchDecoder",
     "BatchErrorDecoder",
-    "CompiledObservableDecoder",
+    "BatchObservableDecoder",
     "CompiledSequentialWindowDecoder",
     "CompiledSinterDecoder",
     "CompiledSubgraphDecoder",
@@ -76,6 +84,7 @@ __all__ = [
     "Decoder",
     "DecoderSpec",
     "DeferredErrorDecoderInput",
+    "DeferredObservableDecoderInput",
     "DetectorErrorModelArrays",
     "DirectDecoder",
     "ErrorDecoder",
@@ -86,6 +95,8 @@ __all__ = [
     "ILPDecoder",
     "LookupDecoder",
     "ObservableDecoder",
+    "ObservableDecoderConstructor",
+    "ObservableDecoderInput",
     "ObservableLookupDecoder",
     "PcmOrDem",
     "RelayBPDecoder",
@@ -102,6 +113,7 @@ __all__ = [
     "bp_lsd",
     "bp_osd",
     "decode",
+    "decode_observables",
     "get_decoder",
     "get_decoder_BF",
     "get_decoder_BP_LSD",
@@ -111,9 +123,11 @@ __all__ = [
     "get_decoder_MWPM",
     "get_decoder_RBP",
     "get_decoder_lookup",
+    "get_observable_decoder",
     "guf",
     "ilp",
     "lookup_table",
+    "min_sum_bp",
     "mwpm",
     "relay_bp",
     "with_erasure_bits",
@@ -127,9 +141,7 @@ _DEPRECATED_ALIASES = custom._DEPRECATED_ALIASES | sinter._DEPRECATED_ALIASES
 if TYPE_CHECKING:
     from .custom import BatchDecoder as BatchDecoder
     from .custom import Decoder as Decoder
-    from .sinter import CompiledSinterDecoder as CompiledSinterDecoder
     from .sinter import SequentialSinterDecoder as SequentialSinterDecoder
-    from .sinter import SinterDecoder as SinterDecoder
     from .sinter import SubgraphSinterDecoder as SubgraphSinterDecoder
 else:
 

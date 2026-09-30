@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import scipy.sparse
+import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
@@ -54,7 +55,7 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
 
     # fail to initialize a relay-bp decoder from an unrecognized name
     with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder(np.array([[]]), decoder=decoders.relay_bp(name="invalid_name"))
+        decoders.get_decoder_RBP(np.array([[]]), name="invalid_name")
 
     # fail when a decoder name string is passed where the matrix should be
     with pytest.raises(TypeError, match="breaking change"):
@@ -68,6 +69,36 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     # must be rejected under `python -O` as well
     with pytest.raises(ValueError, match="Cannot specify an observable_error_matrix"):
         decoders.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
+
+
+def test_relay_bp_observables() -> None:
+    """A RelayBPDecoder predicts observable flips, with or without an erasure bit."""
+    circuit = stim.Circuit.generated(
+        "repetition_code:memory", distance=3, rounds=3, after_clifford_depolarization=0.02
+    )
+    dem = circuit.detector_error_model()
+    syndromes = circuit.compile_detector_sampler(seed=0).sample(100).astype(int)
+    observable_flip_matrix = decoders.DetectorErrorModelArrays(dem).observable_flip_matrix
+
+    for add_erasure_bit in [False, True]:
+        decoder = decoders.get_decoder_RBP(dem, add_erasure_bit=add_erasure_bit)
+        predicted_flips = decoder.decode_observables_batch(syndromes, progress_bar=False)
+        assert predicted_flips.shape == (len(syndromes), dem.num_observables + add_erasure_bit)
+        assert np.array_equal(
+            predicted_flips, [decoder.decode_observables(syndrome) for syndrome in syndromes]
+        )
+
+        # the predicted flips are those of the inferred errors
+        errors = decoder.decode_batch(syndromes, progress_bar=False)
+        if add_erasure_bit:
+            assert np.array_equal(predicted_flips[:, -1], errors[:, -1])
+            errors = errors[:, :-1]
+        expected_flips = np.asarray(errors @ observable_flip_matrix.T) % 2
+        assert np.array_equal(predicted_flips[:, : dem.num_observables], expected_flips)
+
+    # predicting observable flips requires observables
+    with pytest.raises(ValueError, match="requires an observable_error_matrix"):
+        decoders.get_decoder_RBP(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))
 
 
 def test_ilp_decoder(toy_problem: ToyProblem) -> None:

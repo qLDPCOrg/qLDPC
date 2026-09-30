@@ -30,7 +30,7 @@ from .syndrome_measurement import SyndromeMeasurementStrategy, validate_syndrome
 GateSchedule = list[list[tuple[int, int]]]
 
 # default decoder used to estimate logical error rates while searching for a measurement schedule
-DEFAULT_OBSERVABLE_DECODER = decoders.ObservableDecoder()
+DEFAULT_SINTER_DECODER = decoders.SinterDecoder()
 
 
 class AlphaSyndrome(SyndromeMeasurementStrategy):
@@ -48,7 +48,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def __init__(
         self,
         noise_model: NoiseModel,
-        decoder: sinter.Decoder | str = DEFAULT_OBSERVABLE_DECODER,
+        decoder: sinter.Decoder | str = DEFAULT_SINTER_DECODER,
         iters_per_step: int = 1000,
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),

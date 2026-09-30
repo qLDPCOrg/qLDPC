@@ -197,8 +197,10 @@ Choose or supply a decoder
 ``qldpc.decoders.get_decoder`` accepts a parity-check matrix or Stim detector error model. It uses
 GUF by default for a nonbinary field array and BP+OSD otherwise. Configure a decoder with a typed
 helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``, then pass the resulting spec as
-``decoder=``. See :doc:`Choosing a decoder <decoders>` for custom constructors, Sinter-compatible
-observable decoders, and per-sector CSS choices.
+``decoder=``. ``qldpc.decoders.get_observable_decoder`` builds a decoder that predicts the
+observable flips of a detector error model instead, and ``qldpc.decoders.SinterDecoder`` does so for
+Sinter. See :doc:`Choosing a decoder <decoders>` for the difference between error and observable
+decoders, custom decoders, and per-sector CSS choices.
 
 .. code-block:: python
 
