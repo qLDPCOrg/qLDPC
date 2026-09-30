@@ -945,7 +945,6 @@ def get_decoder_MWPM(
     *,
     decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
-    enable_correlations: bool = False,
     **decoder_args: object,
 ) -> BatchErrorDecoder:
     """Decoder based on minimum weight perfect matching (MWPM).
@@ -955,8 +954,6 @@ def get_decoder_MWPM(
         decompose_errors: Whether to apply suggested decompositions of error mechanisms.
         ignore_non_graphlike_errors: Whether to ignore errors that trigger > 2 detectors (after
             decomposition, if applicable).
-        enable_correlations: Must be False.  Correlated matching only predicts observable flips, so
-            it cannot build a decoder that infers errors; see help(qldpc.decoders.mwpm).
         **decoder_args: Additional keyword arguments passed to
             pymatching.Matching.from_check_matrix.
 
@@ -975,14 +972,6 @@ def get_decoder_MWPM(
     errors in the resulting components rather than in the model's error mechanisms, so its inferred
     errors cannot be converted into observable flips of the model.
     """
-    if enable_correlations:
-        raise ValueError(
-            "Correlated matching (enable_correlations=True) predicts observable flips, and cannot"
-            " infer errors.  To predict the observable flips of a detector error model with"
-            " correlated matching, pass decoders.mwpm(enable_correlations=True) to a method that"
-            " predicts observable flips, such as decoders.get_observable_decoder or a"
-            " decoders.SinterDecoder"
-        )
     matching = _build_matching(
         pcm_or_dem,
         decompose_errors=decompose_errors,
@@ -1090,6 +1079,21 @@ class _MatchingObservableDecoder(ObservableDecoder):
         )
 
 
+def _get_error_decoder_MWPM(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    enable_correlations: bool = False,
+    **decoder_args: Any,
+) -> BatchErrorDecoder:
+    """Build the error decoder of decoders.mwpm, which correlated matching cannot provide."""
+    if enable_correlations:
+        raise ValueError(
+            "Correlated matching (enable_correlations=True) cannot infer errors; it can only"
+            " predict observable flips, as with decoders.get_observable_decoder"
+        )
+    return get_decoder_MWPM(pcm_or_dem, **decoder_args)
+
+
 def _get_observable_decoder_MWPM(
     dem: stim.DetectorErrorModel,
     *,
@@ -1121,12 +1125,10 @@ def _get_observable_decoder_MWPM(
 def _build_correlated_matching(
     dem: stim.DetectorErrorModel, *, ignore_non_graphlike_errors: bool
 ) -> Any:
-    """Build a pymatching.Matching that predicts observable flips with correlated matching.
+    """Build a pymatching.Matching for correlated matching of a detector error model.
 
-    Correlated matching requires every error mechanism of the detector error model to flip at most
-    two detectors, or else to suggest a decomposition into components that each flip at most two
-    detectors.  Other error mechanisms are dropped if ignore_non_graphlike_errors is True, and
-    rejected otherwise.
+    Errors with a component that flips more than two detectors are dropped if
+    ignore_non_graphlike_errors is True, and rejected otherwise.
     """
     import pymatching
 
@@ -1486,12 +1488,9 @@ def mwpm(
             predicts observable flips natively.
         ignore_non_graphlike_errors: Whether to drop errors that flip more than two detectors
             (after any decomposition), rather than raising an error.
-        enable_correlations: Whether to use the correlated matching of pymatching.  Correlated
-            matching only predicts the observable flips of a detector error model, so it cannot
-            decode a parity check matrix or be used by a window decoder.  It uses the
-            decompositions that the model suggests for its errors, so it is incompatible with
-            decompose_errors=True and with all of the options below.  A SubgraphDecoder does not
-            pass these decompositions to the models of its subgraphs.  See
+        enable_correlations: Whether to use correlated matching, which predicts observable flips
+            from the error decompositions that a detector error model suggests.  Incompatible with
+            decompose_errors=True and the options below.  See
             help(pymatching.Matching.from_detector_error_model).
         weights: Scalar or per-error matching weights for a parity check matrix.  A detector
             error model supplies its own weights, so this must be None when decoding one.
@@ -1520,7 +1519,7 @@ def mwpm(
     """
     spec = _decoder_spec(
         "mwpm",
-        get_decoder_MWPM,
+        _get_error_decoder_MWPM,
         _get_observable_decoder_MWPM,
         decompose_errors=decompose_errors,
         ignore_non_graphlike_errors=ignore_non_graphlike_errors,
@@ -1542,8 +1541,7 @@ def mwpm(
             if name not in compatible_options and not _is_default_value(value, defaults[name]):
                 raise ValueError(
                     f"The MWPM option {name}={value!r} is not supported with"
-                    " enable_correlations=True, because correlated matching builds its matching"
-                    " graph directly from the decompositions that a detector error model suggests"
+                    " enable_correlations=True"
                 )
     return spec
 
