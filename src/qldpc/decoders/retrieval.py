@@ -19,6 +19,18 @@ import stim
 from qldpc._util import get_deprecated_alias, get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
+from .adapters.dem import (
+    ErrorsToObservablesDecoder as _ErrorsToObservablesDecoder,
+)
+from .adapters.dem import (
+    ExpandedErrorDecoder as _ExpandedErrorDecoder,
+)
+from .adapters.dem import (
+    match_error_decoder_to_dem as _match_error_decoder_to_dem,
+)
+from .adapters.dem import (
+    validate_observable_decoder as _validate_observable_decoder,
+)
 from .builders import (
     get_decoder_bf as _get_decoder_bf,
 )
@@ -49,18 +61,6 @@ from .builders import (
     get_decoder_rbp as _get_decoder_rbp,
 )
 from .common import PLACEHOLDER_ERROR_RATE
-from .conversion import (
-    ErrorsToObservablesDecoder as _ErrorsToObservablesDecoder,
-)
-from .conversion import (
-    ExpandedErrorDecoder as _ExpandedErrorDecoder,
-)
-from .conversion import (
-    match_error_decoder_to_dem as _match_error_decoder_to_dem,
-)
-from .conversion import (
-    validate_observable_decoder as _validate_observable_decoder,
-)
 from .custom import GUFDecoder, ILPDecoder, RelayBPDecoder
 from .lookup import LookupDecoder
 from .protocols import (

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for adapters.py."""
+"""Unit tests for adapters/backends.py."""
 
 from __future__ import annotations
 

@@ -17,7 +17,8 @@ import pytest
 import stim
 
 from qldpc import decoders
-from qldpc.decoders import builders, conversion, retrieval
+from qldpc.decoders import builders, retrieval
+from qldpc.decoders.adapters import dem as dem_adapters
 
 
 def test_custom_decoder(pytestconfig: pytest.Config) -> None:
@@ -395,7 +396,7 @@ def test_native_observable_decoders() -> None:
         assert spec.predicts_observables_natively
         native_decoder: Any = decoders.get_observable_decoder(dem, decoder=spec)
         assert isinstance(native_decoder, native_decoder_type)
-        converted_decoder = conversion.ErrorsToObservablesDecoder(spec.build(dem), dem)
+        converted_decoder = dem_adapters.ErrorsToObservablesDecoder(spec.build(dem), dem)
         assert np.array_equal(
             native_decoder.decode_observables_batch(syndromes),
             converted_decoder.decode_observables_batch(syndromes),
@@ -419,8 +420,8 @@ def test_native_observable_decoders() -> None:
     spec = decoders.bp_osd()
     assert not spec.predicts_observables_natively
     bp_osd_decoder = spec.build_observable_decoder(dem)
-    assert isinstance(bp_osd_decoder, conversion.ErrorsToObservablesDecoder)
-    assert isinstance(decoders.get_observable_decoder(dem), conversion.ErrorsToObservablesDecoder)
+    assert isinstance(bp_osd_decoder, dem_adapters.ErrorsToObservablesDecoder)
+    assert isinstance(decoders.get_observable_decoder(dem), dem_adapters.ErrorsToObservablesDecoder)
     no_flips = bp_osd_decoder.decode_observables_batch(syndromes[:0])
     assert no_flips.shape == (0, dem.num_observables)
 
@@ -545,8 +546,8 @@ def test_merged_error_mechanisms() -> None:
     for add_erasure_bit in [False, True]:
         merging_decoder = decoders.get_decoder_guf(dem, add_erasure_bit=add_erasure_bit)
         assert len(merging_decoder.decode(syndromes[0])) == 2 + add_erasure_bit
-        decoder: Any = conversion.match_error_decoder_to_dem(merging_decoder, dem)
-        assert isinstance(decoder, conversion.ExpandedErrorDecoder)
+        decoder: Any = dem_adapters.match_error_decoder_to_dem(merging_decoder, dem)
+        assert isinstance(decoder, dem_adapters.ExpandedErrorDecoder)
         errors = decoder.decode_batch(syndromes)
         assert errors.shape == (2, 3 + add_erasure_bit)
         assert np.array_equal(errors, [decoder.decode(syndrome) for syndrome in syndromes])
@@ -554,8 +555,8 @@ def test_merged_error_mechanisms() -> None:
         assert decoder.decode_batch(syndromes[:0]).shape == (0, 3 + add_erasure_bit)
 
     # matching decoders merge equivalent mechanisms, and decode in batches
-    decoder = conversion.match_error_decoder_to_dem(decoders.get_decoder_mwpm(dem), dem)
-    assert isinstance(decoder, conversion.ExpandedErrorDecoder)
+    decoder = dem_adapters.match_error_decoder_to_dem(decoders.get_decoder_mwpm(dem), dem)
+    assert isinstance(decoder, dem_adapters.ExpandedErrorDecoder)
     assert decoder.decode_batch(syndromes).shape == (2, 3)
 
 

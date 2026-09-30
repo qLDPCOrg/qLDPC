@@ -137,10 +137,11 @@ def test_clean_import_order() -> None:
 import warnings
 with warnings.catch_warnings():
     warnings.simplefilter("error", DeprecationWarning)
-    from qldpc.decoders import builders, conversion, retrieval
+    from qldpc.decoders import builders, retrieval
+    from qldpc.decoders.adapters import dem as dem_adapters
     from qldpc import decoders
     assert decoders.get_decoder_bp_osd is builders.get_decoder_bp_osd
-    assert decoders.ErrorsToObservablesDecoder is conversion.ErrorsToObservablesDecoder
+    assert decoders.ErrorsToObservablesDecoder is dem_adapters.ErrorsToObservablesDecoder
     assert retrieval.bp_osd()._builder is builders.get_decoder_bp_osd
 """
     subprocess.run([sys.executable, "-c", code], check=True)

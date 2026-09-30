@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Any
 from qldpc._util import get_deprecated_alias
 
 from . import builders, custom, sinter
+from .adapters.dem import (
+    ErrorsToObservablesDecoder,
+    ExpandedErrorDecoder,
+    match_error_decoder_to_dem,
+)
 from .builders import (
     get_decoder_bf,
     get_decoder_bp_lsd,
@@ -17,13 +22,13 @@ from .builders import (
     get_decoder_mwpm,
     get_decoder_rbp,
 )
-from .common import (
-    with_erasure_bits,
+from .capabilities import (
+    compiles_for_dem,
+    is_prebuilt_observable_decoder,
 )
-from .conversion import (
-    ErrorsToObservablesDecoder,
-    ExpandedErrorDecoder,
-    match_error_decoder_to_dem,
+from .common import (
+    get_error_and_erasure,
+    with_erasure_bits,
 )
 from .custom import (
     CompositeDecoder,
@@ -143,6 +148,7 @@ __all__ = [
     "bf",
     "bp_lsd",
     "bp_osd",
+    "compiles_for_dem",
     "decode",
     "decode_observables",
     "get_decoder",
@@ -161,12 +167,14 @@ __all__ = [
     "get_decoder_lookup",
     "get_decoder_mwpm",
     "get_decoder_rbp",
+    "get_error_and_erasure",
     "get_error_decoder",
     "get_legacy_decoder_migration_message",
     "get_observable_decoder",
     "guf",
     "ilp",
     "is_prebuilt_decoder",
+    "is_prebuilt_observable_decoder",
     "lookup_table",
     "match_error_decoder_to_dem",
     "min_sum_bp",

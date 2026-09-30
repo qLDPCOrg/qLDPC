@@ -29,6 +29,7 @@ from qldpc._util import networkx as nx
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, PauliXZLike, QuditPauli
 
+from .code_capacity import CodeCapacityDecoder, get_code_capacity_decoder
 from .distance import (
     DistanceBackend,
     DistanceMethod,
@@ -39,13 +40,8 @@ from .distance import (
     validate_distance_method,
 )
 from .monte_carlo import (
-    CodeCapacityDecoder,
     ErrorRateFunc,
-    compiles_for_dem,
-    get_code_capacity_decoder,
-    get_error_and_erasure,
     get_sample_allocation,
-    is_prebuilt_observable_decoder,
 )
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
@@ -92,7 +88,7 @@ def _decode_consistently(
     check_matrix = np.asanyarray(check_matrix).view(field)
     for _ in range(_MAX_DECODING_ATTEMPTS):
         syndrome = np.asanyarray(get_syndrome()).view(field)
-        error, erased = get_error_and_erasure(decoder, syndrome)
+        error, erased = decoders.get_error_and_erasure(decoder, syndrome)
         if not erased and np.array_equal(check_matrix @ error.view(field), syndrome):
             return error.view(field)
     raise ValueError(
@@ -3917,7 +3913,7 @@ class CSSCode(QuditCode):
             decoder_x is None
             and decoder_z is None
             and decoders.is_prebuilt_decoder(decoder)
-            and not compiles_for_dem(decoder)
+            and not decoders.compiles_for_dem(decoder)
             and not np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
         ):
             raise ValueError(
@@ -3970,7 +3966,7 @@ class CSSCode(QuditCode):
             else None
         )
         if code_capacity_decoder_z is None:
-            if same_x_and_z and is_prebuilt_observable_decoder(decoder_z_input):
+            if same_x_and_z and decoders.is_prebuilt_observable_decoder(decoder_z_input):
                 raise ValueError(
                     "A shared prebuilt observable decoder cannot decode both CSS sectors, whose"
                     " logical operators differ.  Pass decoder_x= and decoder_z= with observable"

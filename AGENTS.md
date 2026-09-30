@@ -36,14 +36,16 @@ Do not copy transient project history, machine-specific paths, or local-session 
 
 | Area | What it does | Tests and examples |
 | --- | --- | --- |
-| [`src/qldpc/codes/common.py`](src/qldpc/codes/common.py) | `AbstractCode`, `ClassicalCode`, `QuditCode`, and `CSSCode`; logicals, stabilizers, distance, concatenation, and error-rate interfaces | [`common_test.py`](src/qldpc/codes/common_test.py), [`monte_carlo_test.py`](src/qldpc/codes/monte_carlo_test.py) |
+| [`src/qldpc/codes/common.py`](src/qldpc/codes/common.py) | `AbstractCode`, `ClassicalCode`, `QuditCode`, and `CSSCode`; logicals, stabilizers, distance, concatenation, and error-rate interfaces | [`common_test.py`](src/qldpc/codes/common_test.py) |
+| [`src/qldpc/codes/monte_carlo.py`](src/qldpc/codes/monte_carlo.py) | Fixed-weight sample allocation, rate estimation, and statistical uncertainty | [`monte_carlo_test.py`](src/qldpc/codes/monte_carlo_test.py) |
+| [`src/qldpc/codes/code_capacity.py`](src/qldpc/codes/code_capacity.py) | Code-capacity detector error models, observable-decoder orchestration, and sector reuse | [`code_capacity_test.py`](src/qldpc/codes/code_capacity_test.py), [`common_test.py`](src/qldpc/codes/common_test.py) |
 | [`src/qldpc/codes/classical.py`](src/qldpc/codes/classical.py) | Classical code families | [`classical_test.py`](src/qldpc/codes/classical_test.py), [`basics.ipynb`](examples/basics.ipynb) |
 | [`src/qldpc/codes/quantum.py`](src/qldpc/codes/quantum.py) | Quantum, CSS, subsystem, product, and geometric code families | [`quantum_test.py`](src/qldpc/codes/quantum_test.py), [`bivariate_bicycle_codes.ipynb`](examples/bivariate_bicycle_codes.ipynb) |
 | [`src/qldpc/codes/distance.py`](src/qldpc/codes/distance.py) | Exact binary classical and quantum distance enumeration | [`distance_test.py`](src/qldpc/codes/distance_test.py) |
 | [`src/qldpc/abstract/`](src/qldpc/abstract/) | Groups, group rings, `RingArray`, semisimple linear algebra, and Wedderburn--Artin transforms | Co-located `*_test.py` files in the same directory |
 | [`src/qldpc/math.py`](src/qldpc/math.py) | Symplectic and finite-field array helpers | [`math_test.py`](src/qldpc/math_test.py) |
 | [`src/qldpc/objects.py`](src/qldpc/objects.py) | Pauli labels, graph nodes, Cayley complexes, and chain complexes | [`objects_test.py`](src/qldpc/objects_test.py) |
-| [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocol/adapters, implementations, DEM arrays, retrieval, Sinter, and windowed decoding | Co-located tests plus [`logical_error_rates/`](examples/logical_error_rates/) |
+| [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocols, capability checks, adapters, implementations, DEM arrays, retrieval, Sinter, and windowed decoding | Co-located tests plus [`logical_error_rates/`](examples/logical_error_rates/) |
 | [`src/qldpc/circuits/`](src/qldpc/circuits/) | Stim circuits, bookkeeping, encoders, memory experiments, noise, benchmarking, and transversal operations | Co-located tests plus [`noise_models.ipynb`](examples/noise_models.ipynb) and [`transversal_gates.ipynb`](examples/transversal_gates.ipynb) |
 | [`src/qldpc/external/`](src/qldpc/external/) | GAP, GUAVA, QDistRnd, GroupNames, and code-database integrations | Co-located tests use controlled substitutes for processes, input, and network access |
 | [`src/qldpc/cache.py`](src/qldpc/cache.py) | Persistent disk-cache helpers for expensive computations | [`cache_test.py`](src/qldpc/cache_test.py) |
@@ -63,7 +65,10 @@ AbstractCode
 
 The methods in `codes/common.py` share cached and mutable state for standard form, logical and gauge operators, parameters, and code transformations.
 Do not split them into mixins merely to reduce the file length.
-Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
+Free-standing statistical Monte Carlo helpers live in `codes/monte_carlo.py`.
+Code-capacity detector-error-model and decoder orchestration lives in `codes/code_capacity.py`.
+Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed
+observable adapters live in `decoders/observable_adapters.py`.
 
 ## Core invariants
 
@@ -101,7 +106,7 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 - Keep error decoders (`decode_errors`, with `decode` as an alias) distinct from observable decoders (`decode_observables`).
   Code that consumes a user-supplied error decoder coerces it with `decoders.as_error_decoder` and calls `decode_errors`.
 - A method that decodes a matrix it constructs itself must reject prebuilt decoders with `decoders.reject_prebuilt_decoder`.
-- Code-capacity estimators resolve their `decoder=`, `decoder_x=`, and `decoder_z=` inputs with [`codes.monte_carlo.get_code_capacity_decoder`](src/qldpc/codes/monte_carlo.py), which always yields an observable decoder: error decoders are wrapped so that their inferred errors become logical predictions.
+- Code-capacity estimators resolve their `decoder=`, `decoder_x=`, and `decoder_z=` inputs with [`codes.code_capacity.get_code_capacity_decoder`](src/qldpc/codes/code_capacity.py), which always yields an observable decoder: error decoders are wrapped so that their inferred errors become logical predictions.
   Keep `decoders.get_error_decoder` and `decoders.resolve_decoder` error-decoder-specific, and dispatch on explicit capabilities (`compile_decoder_for_dem`, `decode_observables`, the `ErrorDecoder` protocol), never on output length.
 - Only decoders that declare erasure support may append an erasure flag.
   They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.

@@ -131,6 +131,10 @@ arguments each accept either kind of decoder:
   observable decoders expose this metadata; a raw precompiled decoder that only provides Sinter's
   bit-packed interface must do so as well.
 
+The low-level detector-error-model and decoder orchestration is in
+:mod:`qldpc.codes.code_capacity`; the fixed-weight sampling statistics are in
+:mod:`qldpc.codes.monte_carlo`.
+
 The two kinds can be mixed across CSS sectors:
 
 .. code-block:: python
@@ -236,8 +240,8 @@ qLDPC's implementation classes have canonical paths at
 :class:`decoders.GUFDecoder <qldpc.decoders.custom.guf.GUFDecoder>`,
 :class:`decoders.CompositeDecoder <qldpc.decoders.custom.composition.CompositeDecoder>`, and
 :class:`decoders.DirectDecoder <qldpc.decoders.custom.composition.DirectDecoder>`.
-:class:`decoders.ErrorsToObservablesDecoder <qldpc.decoders.conversion.ErrorsToObservablesDecoder>`
-and :class:`decoders.ExpandedErrorDecoder <qldpc.decoders.conversion.ExpandedErrorDecoder>` are the
+:class:`decoders.ErrorsToObservablesDecoder <qldpc.decoders.adapters.dem.ErrorsToObservablesDecoder>`
+and :class:`decoders.ExpandedErrorDecoder <qldpc.decoders.adapters.dem.ExpandedErrorDecoder>` are the
 conversion adapters.  The package-root imports remain stable facades.
 
 Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:

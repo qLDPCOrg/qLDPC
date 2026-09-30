@@ -12,7 +12,7 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from ..conversion import match_error_decoder_to_dem
+from ..adapters.dem import match_error_decoder_to_dem
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, batch_decode_errors
 from ..retrieval import DeferredErrorDecoderInput, resolve_decoder

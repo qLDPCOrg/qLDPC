@@ -8,8 +8,8 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from .dems import DetectorErrorModelArrays
-from .protocols import (
+from ..dems import DetectorErrorModelArrays
+from ..protocols import (
     BatchErrorDecoder,
     ErrorDecoder,
     ObservableDecoder,

@@ -15,7 +15,7 @@ import stim
 
 from qldpc._util import get_external_caller_stacklevel
 
-from ..conversion import ErrorsToObservablesDecoder
+from ..adapters.dem import ErrorsToObservablesDecoder
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
 from ..retrieval import (

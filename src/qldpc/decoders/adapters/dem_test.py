@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for conversion.py compatibility."""
+"""Unit tests for adapters/dem.py compatibility."""
 
 from __future__ import annotations
 
@@ -11,24 +11,25 @@ from typing import Any
 import pytest
 
 from qldpc import decoders
-from qldpc.decoders import conversion, retrieval
+from qldpc.decoders import retrieval
+from qldpc.decoders.adapters import dem
 
 
 def test_conversion_root_exports_are_canonical() -> None:
-    """Root conversion exports are warning-free and use conversion.py identities."""
+    """Root conversion exports are warning-free and use adapters/dem.py identities."""
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
-        assert decoders.ExpandedErrorDecoder is conversion.ExpandedErrorDecoder
-        assert decoders.ErrorsToObservablesDecoder is conversion.ErrorsToObservablesDecoder
-        assert decoders.match_error_decoder_to_dem is conversion.match_error_decoder_to_dem
+        assert decoders.ExpandedErrorDecoder is dem.ExpandedErrorDecoder
+        assert decoders.ErrorsToObservablesDecoder is dem.ErrorsToObservablesDecoder
+        assert decoders.match_error_decoder_to_dem is dem.match_error_decoder_to_dem
 
 
 @pytest.mark.parametrize(
     ("old_name", "replacement"),
     [
-        ("ExpandedErrorDecoder", conversion.ExpandedErrorDecoder),
-        ("ErrorsToObservablesDecoder", conversion.ErrorsToObservablesDecoder),
-        ("match_error_decoder_to_dem", conversion.match_error_decoder_to_dem),
+        ("ExpandedErrorDecoder", dem.ExpandedErrorDecoder),
+        ("ErrorsToObservablesDecoder", dem.ErrorsToObservablesDecoder),
+        ("match_error_decoder_to_dem", dem.match_error_decoder_to_dem),
     ],
 )
 def test_deprecated_retrieval_conversion_paths(old_name: str, replacement: Any) -> None:
@@ -44,9 +45,9 @@ def test_deprecated_retrieval_conversion_paths(old_name: str, replacement: Any) 
 @pytest.mark.parametrize(
     "replacement",
     [
-        conversion.ExpandedErrorDecoder,
-        conversion.ErrorsToObservablesDecoder,
-        conversion.match_error_decoder_to_dem,
+        dem.ExpandedErrorDecoder,
+        dem.ErrorsToObservablesDecoder,
+        dem.match_error_decoder_to_dem,
     ],
 )
 def test_old_conversion_pickle_paths(replacement: Any) -> None:
@@ -54,7 +55,7 @@ def test_old_conversion_pickle_paths(replacement: Any) -> None:
     name = replacement.__name__
     payload = pickle.dumps(replacement, protocol=0)
     payload = payload.replace(
-        f"qldpc.decoders.conversion\n{name}".encode(),
+        f"qldpc.decoders.adapters.dem\n{name}".encode(),
         f"qldpc.decoders.retrieval\n{name}".encode(),
     )
     with pytest.warns(DeprecationWarning, match=name):
