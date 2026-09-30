@@ -3139,6 +3139,7 @@ class CSSCode(QuditCode):
             self._distance = distance if pauli is None else self._distance
             return distance
 
+        # Subclasses with specialized formulas keep control of their exact-distance calculation.
         if (
             pauli is None
             and method == "brouwer_zimmermann"
@@ -3153,6 +3154,7 @@ class CSSCode(QuditCode):
             for sector_pauli in PAULIS_XZ:
                 known_distance = self.get_distance_if_known(sector_pauli)
                 if known_distance is not None:
+                    # A known sector caps the sectors that still need to be searched.
                     sector_bound = int(known_distance)
                     upper_bound = (
                         sector_bound if upper_bound is None else min(upper_bound, sector_bound)
@@ -3173,6 +3175,7 @@ class CSSCode(QuditCode):
                 upper_bound=upper_bound,
             )
             if cutoff <= 1:
+                # The joint search proves only the minimum, not either individual sector distance.
                 self._distance = distance
             return distance
 

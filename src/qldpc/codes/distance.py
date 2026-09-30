@@ -244,6 +244,7 @@ def get_distance_css_brouwer_zimmermann(
             problems.append((basis, labels))
             continue
 
+        # A supplied but trivial quotient has distance zero; an empty sector contributes its width.
         sector_distance = 0 if len(logical_matrix) else logical_matrix.shape[1]
         best = sector_distance if best is None else min(best, sector_distance)
 
@@ -364,10 +365,12 @@ def _get_information_set_generators(
         labels,
         nonzero_columns,
     )
+    # Each full set consumes one pivot column per basis row.
     max_full_sets = len(nonzero_columns) // len(basis)
     if sum(rank == len(basis) for _, _, rank, _ in best) == max_full_sets:
         return best
 
+    # A fixed seed makes the bounded packing heuristic reproducible.
     rng = np.random.default_rng(0)
     for _ in range(8):
         candidate = _get_information_set_generators_for_columns(
@@ -436,6 +439,7 @@ def _iter_fixed_weight_supports(
     num_supports = math.comb(dimension, weight)
     max_rank = np.iinfo(np.int64).max
     if num_supports <= max_rank:
+        # Unrank consecutive combinadic indices as whole NumPy batches.
         binomial_tables = [
             np.asarray(
                 [min(math.comb(value, index), max_rank) for value in range(dimension)],
@@ -458,6 +462,7 @@ def _iter_fixed_weight_supports(
             yield supports
         return
 
+    # Stream supports when their ranks cannot be represented exactly by int64.
     combinations = itertools.combinations(range(dimension), weight)
     flattened = itertools.chain.from_iterable(combinations)
     while True:
@@ -520,6 +525,7 @@ class _BrouwerZimmermannSearch:
         weight = self.next_weight
         for supports in _iter_fixed_weight_supports(self.dimension, weight, self.batch_size):
             for generators, set_labels, rank in self.packed_sets:
+                # Packed rows omit pivots, whose weight follows directly from the support.
                 pivot_weights: int | npt.NDArray[np.uint64]
                 if rank == self.dimension:
                     pivot_weights = weight
@@ -535,6 +541,7 @@ class _BrouwerZimmermannSearch:
                 if not np.any(lighter):
                     continue
                 if set_labels is not None:
+                    # Quotient labels matter only for candidates that can improve the bound.
                     combined_labels = np.bitwise_xor.reduce(
                         set_labels[supports[lighter]],
                         axis=1,
@@ -664,6 +671,7 @@ def _prepare_brouwer_zimmermann_search(
 
     information_sets = _get_information_set_generators(basis, labels)
     weight_func, _ = _get_hamming_weight_fn()
+    # Systematic rows are all coefficient-weight-one candidates.
     for generators, set_labels, _, _ in information_sets:
         eligible_rows = (
             np.ones(dimension, dtype=bool) if set_labels is None else np.any(set_labels, axis=1)
@@ -709,6 +717,7 @@ def _prepare_brouwer_zimmermann_search(
         )
         return min(best, distance)
 
+    # Remove systematic pivots; advance() restores their known weight arithmetically.
     packed_sets = [
         (
             _rows_to_ints(np.delete(generators, pivots, axis=1), dtype=np.uint64),
@@ -761,6 +770,7 @@ def _get_distance_brouwer_zimmermann_many(
     while searches:
         advanced = False
         for search in searches:
+            # Share witnesses between sectors, but keep each lower certificate independent.
             search.update_upper_bound(int(best))
             if search.finished:
                 continue

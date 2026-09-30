@@ -57,6 +57,7 @@ def get_dense_css_code() -> qldpc.codes.CSSCode:
     rng = np.random.default_rng(10030)
     checks_x = get_random_checks(rng, 35, 100)
     kernel_x = checks_x.null_space()
+    # Drawing Z checks from this kernel enforces CSS orthogonality.
     checks_z = get_random_checks(rng, 35, len(kernel_x)) @ kernel_x
     return qldpc.codes.CSSCode(checks_x, checks_z)
 
