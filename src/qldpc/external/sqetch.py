@@ -17,7 +17,7 @@ import galois
 import numpy as np
 import numpy.typing as npt
 
-from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
+from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ, PauliXZLike
 
 if TYPE_CHECKING:
     from qldpc.codes import CSSCode
@@ -68,7 +68,7 @@ def _get_binary_matrices(
 def get_distance_bound(
     code: CSSCode,
     num_trials: int = 1,
-    pauli: PauliXZ = Pauli.Z,
+    pauli: PauliXZLike = Pauli.Z,
     *,
     cutoff: int | None = None,
     d_target: int | None = None,
@@ -88,8 +88,9 @@ def get_distance_bound(
     Args:
         code: Binary CSS code whose distance is being estimated.
         num_trials: Number of randomized trials.
-        pauli: Pauli sector to estimate.  Opposite-Pauli stabilizers and logical operators are
-            passed to ``sqetch``; subsystem codes use dressed-distance semantics.
+        pauli: Pauli sector to estimate (Pauli.X or Pauli.Z, or equivalently a case-insensitive
+            "X" or "Z" string).  Opposite-Pauli stabilizers and logical operators are passed to
+            ``sqetch``; subsystem codes use dressed-distance semantics.
         cutoff: Stop once a bound is at most this value.
         d_target: Backend-specific strict early-stop target.  This takes precedence over ``cutoff``.
         k_sub: Dimension of the per-trial null-space sketch.
@@ -118,7 +119,7 @@ def get_distance_bound(
     if d_target is None and cutoff is not None:
         d_target = cutoff + 1
 
-    h_check, logical = _get_binary_matrices(code, pauli)
+    h_check, logical = _get_binary_matrices(code, Pauli.coerce_xz(pauli))
     sqetch = _get_sqetch()
     try:
         result = sqetch.estimate_distance(
