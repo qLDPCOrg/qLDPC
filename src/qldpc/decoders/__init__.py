@@ -2,15 +2,9 @@
 
 from typing import TYPE_CHECKING, Any
 
-from qldpc._util import get_deprecated_alias, lazy_import
+from qldpc._util import get_deprecated_alias
 
 from . import custom, sinter
-
-# decoders from the ldpc and pymatching packages, which are imported only once used
-if TYPE_CHECKING:
-    from . import adapters
-else:
-    adapters = lazy_import("qldpc.decoders.adapters")
 from .common import (
     with_erasure_bits,
 )
@@ -85,6 +79,7 @@ from .sinter import (
     CompiledSinterDecoder,
     CompiledSubgraphDecoder,
     CompiledTrivialDecoder,
+    DecoderNotCompiledError,
     SequentialWindowDecoder,
     SinterDecoder,
     SlidingWindowDecoder,
@@ -102,6 +97,7 @@ __all__ = [
     "CompiledTrivialDecoder",
     "CompositeDecoder",
     "Decoder",
+    "DecoderNotCompiledError",
     "DecoderSpec",
     "DeferredErrorDecoderInput",
     "DeferredObservableDecoderInput",

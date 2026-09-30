@@ -72,7 +72,7 @@ def test_error_decoder_coercion() -> None:
 
     # a wrapped decoder decodes with, and reads attributes of, the object that it wraps
     bare_decoder = BareDecoder()
-    decoder: Any = decoders.custom.as_error_decoder(bare_decoder)
+    decoder: Any = decoders.as_error_decoder(bare_decoder)
     assert decoder.decoder is bare_decoder
     assert repr(decoder) == f"WrappedErrorDecoder({bare_decoder!r})"
     assert np.array_equal(decoder.decode_errors(syndromes[0]), [2, 0])
@@ -84,16 +84,16 @@ def test_error_decoder_coercion() -> None:
     assert copy.copy(decoder).decoder is bare_decoder
 
     # batch decoding methods are provided if the wrapped object has them
-    decoder = decoders.custom.as_error_decoder(BareBatchDecoder())
+    decoder = decoders.as_error_decoder(BareBatchDecoder())
     assert np.array_equal(decoder.decode_errors_batch(syndromes), 3 * syndromes)
-    assert np.array_equal(decoders.custom.batch_decode_errors(decoder, syndromes), 3 * syndromes)
+    assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), 3 * syndromes)
 
     # an error decoder is returned as is, and its batches are decoded one syndrome at a time
     error_decoder = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
-    assert decoders.custom.as_error_decoder(error_decoder) is error_decoder
-    batch = decoders.custom.batch_decode_errors(error_decoder, syndromes)
+    assert decoders.as_error_decoder(error_decoder) is error_decoder
+    batch = decoders.batch_decode_errors(error_decoder, syndromes)
     assert np.array_equal(batch, syndromes)
-    assert decoders.custom.batch_decode_errors(error_decoder, syndromes[:0]).shape == (0, 2)
+    assert decoders.batch_decode_errors(error_decoder, syndromes[:0]).shape == (0, 2)
 
     # objects that predict observable flips, or that do not decode, are rejected
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
@@ -107,9 +107,33 @@ def test_error_decoder_coercion() -> None:
     ]
     for observable_decoder in observable_decoders:
         with pytest.raises(TypeError, match="observable flips rather than errors"):
-            decoders.custom.as_error_decoder(observable_decoder)
+            decoders.as_error_decoder(observable_decoder)
     with pytest.raises(TypeError, match="callable decode_errors or decode method"):
-        decoders.custom.as_error_decoder(object())
+        decoders.as_error_decoder(object())
+
+
+def test_batch_decoding_by_alias() -> None:
+    """An error decoder that only implements decode and decode_batch decodes batches."""
+    matrix = np.eye(2, dtype=int)
+    syndromes = np.eye(2, dtype=int)
+
+    class OldDecoder(decoders.ErrorDecoder):
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return syndrome
+
+        def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return syndromes
+
+    old_decoder = OldDecoder()
+    assert np.array_equal(old_decoder.decode_errors(syndromes[0]), syndromes[0])
+    assert np.array_equal(decoders.batch_decode_errors(old_decoder, syndromes), syndromes)
+
+    composite_decoder = decoders.CompositeDecoder((old_decoder, 1), (old_decoder, 1))
+    assert composite_decoder.decoders == (old_decoder, old_decoder)
+    assert np.array_equal(composite_decoder.decode_batch(syndromes), syndromes)
+
+    direct_decoder = decoders.DirectDecoder.from_indirect(old_decoder, matrix)
+    assert np.array_equal(direct_decoder.decode_batch(syndromes), np.zeros_like(syndromes))
 
 
 def test_relay_bp(toy_problem: ToyProblem) -> None:

@@ -9,7 +9,17 @@ import functools
 import inspect
 import warnings
 from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import Any, Generic, Literal, ParamSpec, Protocol, TypeAlias, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Literal,
+    ParamSpec,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    cast,
+)
 
 import galois
 import numpy as np
@@ -17,7 +27,7 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc._util import format_docstring, get_external_caller_stacklevel
+from qldpc._util import format_docstring, get_deprecated_alias, get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from .custom import (
@@ -286,8 +296,8 @@ def _build_error_decoder(
 def get_decoder(pcm_or_dem: PcmOrDem, **decoder_args: object) -> Any:
     """Retrieve a decoder (DEPRECATED).
 
-    Use qldpc.decoders.get_error_decoder instead, passing decoder settings as ``decoder=``, such as
-    ``decoders.get_error_decoder(pcm_or_dem, decoder=decoders.bp_lsd(max_iter=30))``.
+    Build a decoder with decoder settings instead, as in
+    ``decoders.bp_lsd(max_iter=30).build(pcm_or_dem)``.
 
     This method looks for a keyword "with_<DECODER_NAME>: bool" argument, and returns
     ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.  At most one such argument may be
@@ -303,12 +313,7 @@ def get_decoder(pcm_or_dem: PcmOrDem, **decoder_args: object) -> Any:
     returns from its decode method.
     """
     warnings.warn(
-        _get_deprecated_function_message(
-            "decoders.get_decoder",
-            "decoders.get_error_decoder(pcm_or_dem{})",
-            pcm_or_dem,
-            decoder_args,
-        ),
+        _get_deprecated_function_message("decoders.get_decoder", pcm_or_dem, decoder_args),
         DeprecationWarning,
         stacklevel=get_external_caller_stacklevel(),
     )
@@ -320,17 +325,15 @@ def decode(
 ) -> npt.NDArray[np.int_]:
     """Construct a decoder and decode a syndrome (DEPRECATED).
 
-    Build a decoder with qldpc.decoders.get_error_decoder instead, and call its decode method.
+    Build a decoder with decoder settings instead, and call its decode method, as in
+    ``decoders.bp_lsd(max_iter=30).build(pcm_or_dem).decode(syndrome)``.
 
     This method builds a decoder with the deprecated keyword arguments that
     qldpc.decoders.get_decoder accepts, and returns the result of decoding the syndrome.
     """
     warnings.warn(
         _get_deprecated_function_message(
-            "decoders.decode",
-            "decoders.get_error_decoder(pcm_or_dem{}).decode(syndrome)",
-            pcm_or_dem,
-            decoder_args,
+            "decoders.decode", pcm_or_dem, decoder_args, decodes_syndrome=True
         ),
         DeprecationWarning,
         stacklevel=get_external_caller_stacklevel(),
@@ -339,8 +342,13 @@ def decode(
 
 
 def _get_legacy_decoder(pcm_or_dem: PcmOrDem, decoder_args: Mapping[str, object]) -> Any:
-    """Build a decoder with the deprecated keyword-based API, as decoders.get_decoder did."""
+    """Build a decoder with the deprecated keyword-based API of decoders.get_decoder.
+
+    A static decoder is returned as is, even if it is a class.
+    """
     decoder_input = _get_legacy_decoder_input(pcm_or_dem, decoder_args)
+    if decoder_input is decoder_args.get("static_decoder"):
+        return decoder_input
     return _build_error_decoder(pcm_or_dem, decoder_input, validate=False)
 
 
@@ -457,18 +465,23 @@ def _get_legacy_decoder_replacement(
             "decoder_x".
     """
     if (decoder_constructor := decoder_args.get("decoder_constructor")) is not None:
-        constructor_name = getattr(decoder_constructor, "__name__", "MyDecoder")
-        return f"{argument_name}={constructor_name}"
-    if decoder_args.get("static_decoder") is not None:
-        return f"{argument_name}=static_decoder"
+        return f"{argument_name}={_get_constructor_name(decoder_constructor)}"
+    return f"{argument_name}=decoders.{_get_legacy_helper_name(pcm_or_dem, decoder_args)}(...)"
+
+
+def _get_constructor_name(decoder_constructor: object) -> str:
+    """The name of a decoder constructor, for use in a message."""
+    return getattr(decoder_constructor, "__name__", "MyDecoder")
+
+
+def _get_legacy_helper_name(pcm_or_dem: PcmOrDem | None, decoder_args: Mapping[str, object]) -> str:
+    """The name of the typed helper that replaces deprecated decoder-selection arguments."""
     selected = [name for name in DECODER_CONSTRUCTORS if decoder_args.get(f"with_{name}", False)]
     if len(selected) == 1:
-        helper_name = _LEGACY_HELPER_NAMES[selected[0]]
-    elif isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
-        helper_name = "guf"
-    else:
-        helper_name = "bp_osd"
-    return f"{argument_name}=decoders.{helper_name}(...)"
+        return _LEGACY_HELPER_NAMES[selected[0]]
+    if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
+        return "guf"
+    return "bp_osd"
 
 
 def get_legacy_decoder_migration_message(
@@ -515,26 +528,33 @@ def get_legacy_decoder_migration_message(
 
 def _get_deprecated_function_message(
     function_name: str,
-    replacement_template: str,
     pcm_or_dem: PcmOrDem,
     decoder_args: Mapping[str, object],
+    *,
+    decodes_syndrome: bool = False,
 ) -> str:
-    """Describe the replacement for a call to a deprecated function that builds a decoder.
+    """Describe the replacement for a call to decoders.get_decoder or decoders.decode.
 
     Args:
         function_name: The name of the deprecated function, such as "decoders.get_decoder".
-        replacement_template: The replacing call, with a "{}" in place of any decoder argument.
         pcm_or_dem: The matrix or detector error model to decode, which determines the default
             decoder.
         decoder_args: The deprecated decoder-selection and construction arguments of the call.
+        decodes_syndrome: Whether the deprecated function decodes a syndrome.
     """
-    decoder_argument = (
-        ", " + _get_legacy_decoder_replacement(pcm_or_dem, decoder_args) if decoder_args else ""
-    )
-    message = (
-        f"{function_name} is deprecated; use {replacement_template.format(decoder_argument)}"
-        " instead"
-    )
+    if (decoder_constructor := decoder_args.get("decoder_constructor")) is not None:
+        other_args = ", ..." if len(decoder_args) > 1 else ""
+        replacement = f"{_get_constructor_name(decoder_constructor)}(pcm_or_dem{other_args})"
+    elif decoder_args.get("static_decoder") is not None:
+        replacement = "static_decoder"
+    elif decoder_args:
+        helper_name = _get_legacy_helper_name(pcm_or_dem, decoder_args)
+        replacement = f"decoders.{helper_name}(...).build(pcm_or_dem)"
+    else:
+        replacement = "decoders.get_error_decoder(pcm_or_dem)"
+    if decodes_syndrome:
+        replacement += ".decode(syndrome)"
+    message = f"{function_name} is deprecated; use {replacement} instead"
     if decoder_args.get("predict_observable_flips"):
         message += (
             ".  To predict observable flips, construct an ObservableLookupDecoder directly and call"
@@ -813,8 +833,7 @@ def get_decoder_BP_OSD(
         **decoder_args: Additional keyword arguments passed to ldpc.BpOsdDecoder.
 
     Returns:
-        A qldpc.decoders.adapters.BpOsdDecoder, which is an ldpc.BpOsdDecoder that also provides
-        the decode_errors method of an ErrorDecoder.
+        An ldpc.BpOsdDecoder, of a subclass that is also an ErrorDecoder.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -852,8 +871,7 @@ def get_decoder_BP_LSD(
         **decoder_args: Additional keyword arguments passed to ldpc.bplsd_decoder.BpLsdDecoder.
 
     Returns:
-        A qldpc.decoders.adapters.BpLsdDecoder, which is an ldpc.bplsd_decoder.BpLsdDecoder that
-        also provides the decode_errors method of an ErrorDecoder.
+        An ldpc.bplsd_decoder.BpLsdDecoder, of a subclass that is also an ErrorDecoder.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -891,8 +909,7 @@ def get_decoder_BF(
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
 
     Returns:
-        A qldpc.decoders.adapters.BeliefFindDecoder, which is an ldpc.BeliefFindDecoder that also
-        provides the decode_errors method of an ErrorDecoder.
+        An ldpc.BeliefFindDecoder, of a subclass that is also an ErrorDecoder.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -947,9 +964,8 @@ def get_decoder_MWPM(
             pymatching.Matching.from_check_matrix.
 
     Returns:
-        A qldpc.decoders.adapters.Matching, which is a pymatching.Matching (built as by
-        pymatching.Matching.from_check_matrix) that also provides the decode_errors method of an
-        ErrorDecoder.
+        A pymatching.Matching (built as by pymatching.Matching.from_check_matrix), of a subclass
+        that is also an ErrorDecoder.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -982,8 +998,7 @@ def _build_matching(
 ) -> Any:
     """Build a pymatching.Matching, which predicts errors or (from a DEM) observable flips.
 
-    A matching decoder that predicts errors is a qldpc.decoders.adapters.Matching, which is also an
-    ErrorDecoder.
+    A matching decoder that predicts errors is also an ErrorDecoder.
     """
     # identify parity check matrix and error probabilities
     infers_decomposed_errors = False
@@ -1720,3 +1735,16 @@ DECODER_CONSTRUCTORS: dict[str, Callable[..., ErrorDecoder]] = {
     "RBP": get_decoder_RBP,
     "lookup": get_decoder_lookup,
 }
+
+DEPRECATED_ALIASES: dict[str, type] = {"Decoder": ErrorDecoder, "BatchDecoder": BatchErrorDecoder}
+
+# Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
+# Type checkers instead see plain aliases, so that they still flag misspelled attributes.
+if TYPE_CHECKING:
+    Decoder = ErrorDecoder
+    BatchDecoder = BatchErrorDecoder
+else:
+
+    def __getattr__(name: str) -> Any:
+        """Resolve deprecated names of decoder protocols, with a DeprecationWarning."""
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

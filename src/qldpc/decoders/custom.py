@@ -167,6 +167,14 @@ def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder
     raise TypeError(f"{source} must provide a callable decode_errors or decode method")
 
 
+def _get_batch_error_decoding_method(
+    decoder: ErrorDecoder,
+) -> Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]] | None:
+    """The decode_errors_batch method of an error decoder, its alias decode_batch, or None."""
+    method = getattr(decoder, "decode_errors_batch", None) or getattr(decoder, "decode_batch", None)
+    return cast(Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]] | None, method)
+
+
 def batch_decode_errors(
     decoder: ErrorDecoder, syndromes: npt.NDArray[np.int_]
 ) -> npt.NDArray[np.int_]:
@@ -175,8 +183,8 @@ def batch_decode_errors(
     The inferred errors form a two-dimensional array even if the batch is empty.
     """
     syndromes = np.asarray(syndromes)
-    if hasattr(decoder, "decode_errors_batch"):
-        return np.asarray(decoder.decode_errors_batch(syndromes))
+    if (decode_errors_batch := _get_batch_error_decoding_method(decoder)) is not None:
+        return np.asarray(decode_errors_batch(syndromes))
     if len(syndromes) == 0:
         # decode a trivial syndrome to identify the length of an inferred error
         test_error = decoder.decode_errors(np.zeros(syndromes.shape[1], dtype=syndromes.dtype))
@@ -802,8 +810,8 @@ class CompositeDecoder(ErrorDecoder):
     def __init__(
         self, *decoders_and_syndrome_lengths: tuple[ErrorDecoder | SupportsDecode, int]
     ) -> None:
-        decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
-        self.decoders = tuple(as_error_decoder(decoder) for decoder in decoders)
+        self.decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
+        self._error_decoders = tuple(as_error_decoder(decoder) for decoder in self.decoders)
         self.erasing_decoders = tuple(
             bool(getattr(decoder, "has_erasure_bit", False)) for decoder in self.decoders
         )
@@ -814,7 +822,8 @@ class CompositeDecoder(ErrorDecoder):
         )
 
         self.decode_batch_implemented = all(
-            hasattr(decoder, "decode_errors_batch") for decoder in self.decoders
+            _get_batch_error_decoding_method(decoder) is not None
+            for decoder in self._error_decoders
         )
         if self.decode_batch_implemented:
             self.decode_errors_batch = self.decode_batch = self._decode_batch
@@ -831,7 +840,7 @@ class CompositeDecoder(ErrorDecoder):
         return self._join_segments(
             [
                 decoder.decode_errors(syndrome[slice])
-                for decoder, slice in zip(self.decoders, self.slices)
+                for decoder, slice in zip(self._error_decoders, self.slices)
             ]
         )
 
@@ -839,8 +848,8 @@ class CompositeDecoder(ErrorDecoder):
         """Decode a batch of error syndromes by parts."""
         return self._join_segments(
             [
-                cast(BatchErrorDecoder, decoder).decode_errors_batch(syndromes[:, slice])
-                for decoder, slice in zip(self.decoders, self.slices)
+                batch_decode_errors(decoder, syndromes[:, slice])
+                for decoder, slice in zip(self._error_decoders, self.slices)
             ]
         )
 
@@ -917,13 +926,12 @@ class DirectDecoder:
 
         decode_batch_func: Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]] | None = None
 
-        if hasattr(error_decoder, "decode_errors_batch"):
-            batch_decoder = cast(BatchErrorDecoder, error_decoder)
+        if (decode_errors_batch := _get_batch_error_decoding_method(error_decoder)) is not None:
 
             def decode_batch_func(candidate_words: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
                 candidate_words = candidate_words.view(field)
                 syndromes = candidate_words @ field_matrix.T
-                errors = batch_decoder.decode_errors_batch(syndromes.view(np.ndarray)).view(field)
+                errors = decode_errors_batch(syndromes.view(np.ndarray)).view(field)
                 check_subtractable(errors, candidate_words)
                 return (candidate_words - errors).view(np.ndarray)
 

@@ -71,7 +71,7 @@ def test_decoder_selection() -> None:
     syndrome = np.array([1, 1, 0], dtype=int)
 
     # a falsy request is consumed rather than passed on to the requested decoder
-    with pytest.warns(DeprecationWarning, match=r"decoder=decoders\.bf"):
+    with pytest.warns(DeprecationWarning, match=r"decoders\.bf\(\.\.\.\)\.build"):
         decoded_error = decoders.decode(matrix, syndrome, with_BF=True, with_MWPM=False)
     assert np.array_equal([1, 1], decoded_error)
 
@@ -85,9 +85,9 @@ def test_decoder_selection() -> None:
         warnings.simplefilter("always")
         decoders.decode(matrix, syndrome, with_BF=True)
     assert caught[0].filename == __file__
-    assert "decoder=decoders.bf(...)" in str(caught[0].message)
+    assert "decoders.bf(...).build(pcm_or_dem)" in str(caught[0].message)
 
-    with pytest.warns(DeprecationWarning, match=r"decoder=decoders\.bp_osd"):
+    with pytest.warns(DeprecationWarning, match=r"decoders\.bp_osd\(\.\.\.\)\.build"):
         decoders.get_decoder(matrix, max_iter=1)
 
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
@@ -125,12 +125,14 @@ def test_deprecated_decoder_functions(pytestconfig: pytest.Config) -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         decoders.get_decoder(matrix)
+        decoders.get_decoder(matrix, decoder_constructor=CustomDecoder, scale=2)
         decoders.decode(matrix, syndrome, with_lookup=True, max_weight=1)
     assert [str(warning.message) for warning in caught] == [
         "decoders.get_decoder is deprecated; use decoders.get_error_decoder(pcm_or_dem) instead",
+        "decoders.get_decoder is deprecated; use CustomDecoder(pcm_or_dem, ...) instead",
         (
-            "decoders.decode is deprecated; use decoders.get_error_decoder(pcm_or_dem,"
-            " decoder=decoders.lookup_table(...)).decode(syndrome) instead"
+            "decoders.decode is deprecated; use"
+            " decoders.lookup_table(...).build(pcm_or_dem).decode(syndrome) instead"
         ),
     ]
     assert all(warning.filename == __file__ for warning in caught)
@@ -147,6 +149,7 @@ def test_deprecated_decoder_functions(pytestconfig: pytest.Config) -> None:
         # a static decoder is returned as is, and admits no other arguments
         static_decoder = CustomDecoder(matrix)
         assert decoders.get_decoder(matrix, static_decoder=static_decoder) is static_decoder
+        assert decoders.get_decoder(matrix, static_decoder=CustomDecoder) is CustomDecoder
         with pytest.raises(ValueError, match="cannot process decoding arguments"):
             decoders.get_decoder(matrix, static_decoder=static_decoder, with_BF=True)
 
@@ -154,7 +157,7 @@ def test_deprecated_decoder_functions(pytestconfig: pytest.Config) -> None:
         decoder = decoders.get_decoder(galois.GF(3)(matrix))
         assert isinstance(decoder, decoders.GUFDecoder)
 
-    with pytest.warns(DeprecationWarning, match="decoder=static_decoder"):
+    with pytest.warns(DeprecationWarning, match=r"use static_decoder\.decode\(syndrome\)"):
         decoded_error = decoders.decode(matrix, syndrome, static_decoder=static_decoder)
     assert np.array_equal(decoded_error, error)
 
@@ -163,7 +166,7 @@ def test_deprecated_decoder_functions(pytestconfig: pytest.Config) -> None:
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
         decoders.resolve_decoder(matrix, None, {"static_decoder": static_decoder})
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
-        decoders.retrieval.resolve_observable_decoder(dem, None, {"static_decoder": static_decoder})
+        decoders.resolve_observable_decoder(dem, None, {"static_decoder": static_decoder})
     with pytest.raises(ValueError, match="Cannot combine decoder"):
         decoders.resolve_decoder(matrix, static_decoder, {"with_BF": True})
 
@@ -194,6 +197,14 @@ def test_legacy_decoder_migration_messages() -> None:
         warnings.simplefilter("error")
         decoders.resolve_decoder(matrix, None, {"with_BF": True}, warn_deprecated=False)
         decoders.resolve_decoder(matrix, decoders.bf(), {})
+
+
+def test_deprecated_aliases() -> None:
+    """Deprecated names of decoder protocols warn, and refer to their replacements."""
+    with pytest.warns(DeprecationWarning, match="Decoder is deprecated; use ErrorDecoder"):
+        assert retrieval.Decoder is decoders.ErrorDecoder
+    with pytest.warns(DeprecationWarning, match="BatchDecoder is deprecated"):
+        assert retrieval.BatchDecoder is decoders.BatchErrorDecoder
 
 
 def test_decoder_specs() -> None:
@@ -674,7 +685,7 @@ def test_decoding() -> None:
     syndrome = syndrome.view(field)
     error = error.view(field)
     assert np.array_equal(error, decoders.get_error_decoder(matrix).decode(syndrome))
-    with pytest.warns(DeprecationWarning, match=r"decoder=decoders\.guf"):
+    with pytest.warns(DeprecationWarning, match=r"decoders\.guf\(\.\.\.\)\.build"):
         assert decoders.get_decoder(matrix, max_weight=1)
 
     # decode from a detector error model

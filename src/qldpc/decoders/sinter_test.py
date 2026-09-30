@@ -47,7 +47,7 @@ def test_sinter_decoder() -> None:
         assert no_flips.shape == (0, expected_flips.shape[1])
 
         # decode one shot at a time
-        with pytest.raises(decoders.sinter.DecoderNotCompiledError, match="needs to be compiled"):
+        with pytest.raises(decoders.DecoderNotCompiledError, match="needs to be compiled"):
             decoder.decode_observables(np.array([], dtype=int))
         assert np.array_equal(
             [compiled_decoder.decode_observables(np.asarray(error)) for error in circuit_errors],
@@ -57,9 +57,7 @@ def test_sinter_decoder() -> None:
     # a compiled decoder exposes the decoder that its settings build
     compiled_decoder = decoders.SinterDecoder().compile_decoder_for_dem(dem)
     assert isinstance(compiled_decoder.decoder, ldpc.BpOsdDecoder)
-    assert isinstance(
-        compiled_decoder.observable_decoder, decoders.retrieval.ErrorsToObservablesDecoder
-    )
+    assert isinstance(compiled_decoder.observable_decoder, decoders.ErrorsToObservablesDecoder)
     compiled_decoder = decoders.SinterDecoder(decoder=decoders.mwpm()).compile_decoder_for_dem(dem)
     assert compiled_decoder.decoder is compiled_decoder.observable_decoder
 
@@ -111,7 +109,7 @@ def test_sinter_decoder_classes_and_aliases() -> None:
     # an uncompiled observable decoder cannot decode
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     decoder = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
-    with pytest.raises(decoders.sinter.DecoderNotCompiledError, match="compile_decoder_for_dem"):
+    with pytest.raises(decoders.DecoderNotCompiledError, match="compile_decoder_for_dem"):
         typing.cast(typing.Any, decoder).decode(np.array([1], dtype=int))
 
     compiled = decoder.compile_decoder_for_dem(dem)
@@ -306,7 +304,7 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
     assert isinstance(
         compiled_sinter_decoder.window_decoders[0],
-        decoders.retrieval.ExpandedErrorDecoder,
+        decoders.ExpandedErrorDecoder,
     )
 
     # Check correctness on explicit shots: no error, E0, and E1 individually.
@@ -571,6 +569,8 @@ def test_deprecated_aliases() -> None:
         assert decoders.SubgraphSinterDecoder is decoders.SubgraphDecoder
     with pytest.warns(DeprecationWarning, match="SequentialSinterDecoder is deprecated"):
         assert decoders.sinter.SequentialSinterDecoder is decoders.SequentialWindowDecoder
+    with pytest.warns(DeprecationWarning, match="Decoder is deprecated; use ErrorDecoder"):
+        assert decoders.sinter.Decoder is decoders.ErrorDecoder
 
 
 def test_native_observable_decoders_on_subgraphs() -> None:
@@ -823,7 +823,7 @@ def test_sequential_window_decoder_erasure_with_merged_window_errors() -> None:
     ).compile_decoder_for_dem(dem)
 
     window_decoder = compiled.window_decoders[0]
-    assert isinstance(window_decoder, decoders.retrieval.ExpandedErrorDecoder)
+    assert isinstance(window_decoder, decoders.ExpandedErrorDecoder)
     assert window_decoder.has_erasure_bit
 
     # the expanded error spans every error of the window, followed by the erasure bit

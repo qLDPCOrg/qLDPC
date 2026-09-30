@@ -1104,6 +1104,7 @@ def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
 
 
 DEPRECATED_ALIASES: dict[str, type] = {
+    "Decoder": ErrorDecoder,
     "SequentialSinterDecoder": SequentialWindowDecoder,
     "SubgraphSinterDecoder": SubgraphDecoder,
 }
@@ -1112,6 +1113,7 @@ DEPRECATED_ALIASES: dict[str, type] = {
 # Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
 if TYPE_CHECKING:
+    Decoder = ErrorDecoder
     SequentialSinterDecoder = SequentialWindowDecoder
     SubgraphSinterDecoder = SubgraphDecoder
 else:
