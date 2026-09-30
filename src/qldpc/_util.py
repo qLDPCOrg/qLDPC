@@ -123,14 +123,14 @@ def get_deprecated_alias(module_name: str, name: str, aliases: Mapping[str, type
     replacement, which preserves isinstance checks, subclassing, and unpickling, while still warning
     whenever the deprecated name is accessed.  For example::
 
-        _DEPRECATED_ALIASES = {"OldName": NewName}
+        DEPRECATED_ALIASES = {"OldName": NewName}
 
         if TYPE_CHECKING:
             OldName = NewName  # so that type checkers still flag misspelled names
         else:
 
             def __getattr__(name: str) -> Any:
-                return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+                return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)
 
     A package that re-exports a deprecated name should define the same kind of __getattr__ in its
     __init__.py, rather than importing the deprecated name (which would warn at import time), and

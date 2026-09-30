@@ -911,7 +911,7 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     return matrix
 
 
-_DEPRECATED_ALIASES = {"Protograph": RingArray}
+DEPRECATED_ALIASES = {"Protograph": RingArray}
 
 # Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
@@ -921,4 +921,4 @@ else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of ring arrays, with a DeprecationWarning."""
-        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

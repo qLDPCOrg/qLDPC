@@ -88,7 +88,7 @@ __all__ = [
 # Deprecated names remain importable (including by star imports, since they are listed in __all__),
 # and resolve at runtime through a module-level __getattr__ (PEP 562) that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
-_DEPRECATED_ALIASES = ring_array._DEPRECATED_ALIASES | rings._DEPRECATED_ALIASES
+DEPRECATED_ALIASES = ring_array.DEPRECATED_ALIASES | rings.DEPRECATED_ALIASES
 
 if TYPE_CHECKING:
     from .ring_array import Protograph as Protograph
@@ -97,4 +97,4 @@ else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of abstract-algebra classes, with a DeprecationWarning."""
-        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

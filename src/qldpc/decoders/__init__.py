@@ -2,9 +2,15 @@
 
 from typing import TYPE_CHECKING, Any
 
-from qldpc._util import get_deprecated_alias
+from qldpc._util import get_deprecated_alias, lazy_import
 
 from . import custom, sinter
+
+# decoders from the ldpc and pymatching packages, which are imported only once used
+if TYPE_CHECKING:
+    from . import adapters
+else:
+    adapters = lazy_import("qldpc.decoders.adapters")
 from .common import (
     with_erasure_bits,
 )
@@ -18,6 +24,10 @@ from .custom import (
     ILPDecoder,
     ObservableDecoder,
     RelayBPDecoder,
+    SupportsDecode,
+    WrappedErrorDecoder,
+    as_error_decoder,
+    batch_decode_errors,
 )
 from .dems import (
     DetectorErrorModelArrays,
@@ -35,6 +45,8 @@ from .retrieval import (
     DeferredObservableDecoderInput,
     ErrorDecoderConstructor,
     ErrorDecoderInput,
+    ErrorsToObservablesDecoder,
+    ExpandedErrorDecoder,
     ObservableDecoderConstructor,
     ObservableDecoderInput,
     PcmOrDem,
@@ -52,13 +64,21 @@ from .retrieval import (
     get_decoder_lookup,
     get_decoder_MWPM,
     get_decoder_RBP,
+    get_error_decoder,
+    get_legacy_decoder_migration_message,
     get_observable_decoder,
     guf,
     ilp,
+    is_prebuilt_decoder,
     lookup_table,
+    match_error_decoder_to_dem,
     min_sum_bp,
     mwpm,
+    reject_prebuilt_decoder,
+    reject_removed_decoder_args,
     relay_bp,
+    resolve_decoder,
+    resolve_observable_decoder,
 )
 from .sinter import (
     CompiledSequentialWindowDecoder,
@@ -90,6 +110,8 @@ __all__ = [
     "ErrorDecoder",
     "ErrorDecoderConstructor",
     "ErrorDecoderInput",
+    "ErrorsToObservablesDecoder",
+    "ExpandedErrorDecoder",
     "FlipPattern",
     "GUFDecoder",
     "ILPDecoder",
@@ -106,9 +128,13 @@ __all__ = [
     "SlidingWindowDecoder",
     "SubgraphDecoder",
     "SubgraphSinterDecoder",
+    "SupportsDecode",
     "TrivialDecoder",
     "WeightedLookupDecoder",
     "WeightedObservableLookupDecoder",
+    "WrappedErrorDecoder",
+    "as_error_decoder",
+    "batch_decode_errors",
     "bf",
     "bp_lsd",
     "bp_osd",
@@ -123,20 +149,28 @@ __all__ = [
     "get_decoder_MWPM",
     "get_decoder_RBP",
     "get_decoder_lookup",
+    "get_error_decoder",
+    "get_legacy_decoder_migration_message",
     "get_observable_decoder",
     "guf",
     "ilp",
+    "is_prebuilt_decoder",
     "lookup_table",
+    "match_error_decoder_to_dem",
     "min_sum_bp",
     "mwpm",
+    "reject_prebuilt_decoder",
+    "reject_removed_decoder_args",
     "relay_bp",
+    "resolve_decoder",
+    "resolve_observable_decoder",
     "with_erasure_bits",
 ]
 
 # Deprecated names remain importable (including by star imports, since they are listed in __all__),
 # and resolve at runtime through a module-level __getattr__ (PEP 562) that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
-_DEPRECATED_ALIASES = custom._DEPRECATED_ALIASES | sinter._DEPRECATED_ALIASES
+DEPRECATED_ALIASES = custom.DEPRECATED_ALIASES | sinter.DEPRECATED_ALIASES
 
 if TYPE_CHECKING:
     from .custom import BatchDecoder as BatchDecoder
@@ -147,4 +181,4 @@ else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of decoder classes and protocols, with a DeprecationWarning."""
-        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

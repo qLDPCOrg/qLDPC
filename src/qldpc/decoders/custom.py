@@ -8,7 +8,7 @@ import functools
 import itertools
 import warnings
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import galois
 import numpy as np
@@ -31,17 +31,46 @@ PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
 
 class ErrorDecoder(Protocol):
-    """Protocol for a decoder that maps a syndrome to an inferred error."""
+    """Protocol for a decoder that maps a syndrome to an inferred error.
+
+    An error decoder has a ``decode_errors`` method, and a ``decode`` method that is an alias for
+    it.  A subclass of ErrorDecoder may implement either one, and inherits the other.
+
+    Methods of qLDPC that accept an error decoder also accept any object whose ``decode`` method
+    returns an inferred error, such as a decoder from the ldpc package, and wrap it to provide
+    ``decode_errors``.
+    """
+
+    def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error."""
+        if type(self).decode is not ErrorDecoder.decode:
+            return self.decode(syndrome)
+        raise NotImplementedError(f"{type(self).__name__} must implement decode_errors or decode")
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
+        """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
+        return self.decode_errors(syndrome)
 
 
 class BatchErrorDecoder(ErrorDecoder, Protocol):
-    """Protocol for an error decoder that can decode in batches."""
+    """Protocol for an error decoder that can decode in batches.
+
+    A batch error decoder has a ``decode_errors_batch`` method, and a ``decode_batch`` method that
+    is an alias for it.  A subclass of BatchErrorDecoder may implement either one, and inherits the
+    other.
+    """
+
+    def decode_errors_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes, one per row, and return inferred errors."""
+        if type(self).decode_batch is not BatchErrorDecoder.decode_batch:
+            return self.decode_batch(syndromes)
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement decode_errors_batch or decode_batch"
+        )
 
     def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode a batch of error syndromes and return inferred errors."""
+        """Decode a batch of error syndromes, one per row (alias for decode_errors_batch)."""
+        return self.decode_errors_batch(syndromes)
 
 
 class ObservableDecoder(Protocol):
@@ -64,7 +93,98 @@ class BatchObservableDecoder(ObservableDecoder, Protocol):
         """Decode a batch of error syndromes, one per row, and return predicted observable flips."""
 
 
-class RelayBPDecoder:
+class SupportsDecode(Protocol):
+    """Protocol for an object whose decode method returns an inferred error.
+
+    Such an object, for example a decoder from the ldpc package, is accepted wherever an error
+    decoder is, and is wrapped to provide the decode_errors method of an ErrorDecoder.
+    """
+
+    def decode(self, syndrome: Any, /) -> Any:
+        """Decode an error syndrome and return an inferred error."""
+
+
+_OBSERVABLE_DECODER_ADVICE = (
+    "Pass error-decoder settings such as decoders.bp_osd(...), or pass the observable decoder where"
+    " one is accepted, such as to decoders.get_observable_decoder or decoders.SinterDecoder"
+)
+
+
+class WrappedErrorDecoder(ErrorDecoder):
+    """Error decoder that wraps an object whose decode method returns an inferred error.
+
+    The wrapped object is the .decoder attribute.  Its decode method provides decode_errors, its
+    decode_batch method (if any) provides decode_errors_batch, and its other attributes are
+    readable from the wrapper.
+    """
+
+    def __init__(self, decoder: SupportsDecode) -> None:
+        self.decoder = decoder
+
+    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: Any, **kwargs: Any) -> Any:
+        """Decode an error syndrome and return an inferred error."""
+        return self.decoder.decode(syndrome, *args, **kwargs)
+
+    decode = decode_errors
+
+    def __getattr__(self, name: str) -> Any:
+        """Read an attribute of the wrapped object, reading decode_errors_batch as decode_batch.
+
+        Special (dunder) attributes are not read from the wrapped object, which keeps copying and
+        unpickling from recursing before the wrapped object is set.
+        """
+        if name == "decoder" or (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(name)
+        return getattr(self.decoder, "decode_batch" if name == "decode_errors_batch" else name)
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.decoder!r})"
+
+
+def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder:
+    """Coerce an object into an error decoder, or raise an error if it is not one.
+
+    An object with a decode_errors method is returned as is.  An object with only a decode method is
+    wrapped in a WrappedErrorDecoder.  An object that predicts observable flips is rejected; this
+    includes an object whose decode_returns_observables attribute is True, which declares that its
+    decode method returns observable flips.
+
+    Args:
+        decoder: The object to coerce.
+        source: A description of the object, which begins any error message.
+    """
+    predicts_observables = TypeError(
+        f"{source} predicts observable flips rather than errors.  " + _OBSERVABLE_DECODER_ADVICE
+    )
+    if getattr(decoder, "decode_returns_observables", False):
+        raise predicts_observables
+    if callable(getattr(decoder, "decode_errors", None)):
+        return cast(ErrorDecoder, decoder)
+    if callable(getattr(decoder, "decode", None)):
+        return WrappedErrorDecoder(cast(SupportsDecode, decoder))
+    if hasattr(decoder, "decode_observables"):
+        raise predicts_observables
+    raise TypeError(f"{source} must provide a callable decode_errors or decode method")
+
+
+def batch_decode_errors(
+    decoder: ErrorDecoder, syndromes: npt.NDArray[np.int_]
+) -> npt.NDArray[np.int_]:
+    """Decode a batch of syndromes, one per row, and return inferred errors, one per row.
+
+    The inferred errors form a two-dimensional array even if the batch is empty.
+    """
+    syndromes = np.asarray(syndromes)
+    if hasattr(decoder, "decode_errors_batch"):
+        return np.asarray(decoder.decode_errors_batch(syndromes))
+    if len(syndromes) == 0:
+        # decode a trivial syndrome to identify the length of an inferred error
+        test_error = decoder.decode_errors(np.zeros(syndromes.shape[1], dtype=syndromes.dtype))
+        return np.zeros((0, len(test_error)), dtype=np.asarray(test_error).dtype)
+    return np.array([decoder.decode_errors(syndrome) for syndrome in syndromes])
+
+
+class RelayBPDecoder(BatchErrorDecoder):
     """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
     Requires ``relay_bp`` to be installed, for example via ``pip install 'qldpc[relay-bp]'``.
@@ -76,8 +196,9 @@ class RelayBPDecoder:
     ``relay_bp.decoder.DynDecoder`` in a ``relay_bp.ObservableDecoderRunner`` at initialization
     time.
 
-    A RelayBPDecoder is both an error decoder and an observable decoder: ``.decode`` returns an
-    inferred error, and ``.decode_observables`` returns predicted observable flips.  Predicting
+    A RelayBPDecoder is both an error decoder and an observable decoder: ``.decode_errors`` (or its
+    alias ``.decode``) returns an inferred error, and ``.decode_observables`` returns predicted
+    observable flips.  Predicting
     observable flips requires an ``observable_error_matrix``, which a detector error model provides.
 
     .. important::
@@ -203,7 +324,7 @@ class RelayBPDecoder:
             include_decode_result,
         )
 
-    def decode(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+    def decode_errors(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error.
 
         Typecast detectors to np.uint8 for compatibility with the relay_bp package.
@@ -215,7 +336,11 @@ class RelayBPDecoder:
         erased = ~self._reproduces_syndrome(np.asarray(error)[None, :], detectors[None, :])
         return with_erasure_bits(error, erased[0])
 
-    def decode_batch(
+    def decode(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
+        return self.decode_errors(detectors)
+
+    def decode_errors_batch(
         self,
         /,
         detectors: npt.NDArray[np.int_],
@@ -240,6 +365,19 @@ class RelayBPDecoder:
         erased = ~self._reproduces_syndrome(np.asarray(errors), detectors)
         return with_erasure_bits(errors, erased)
 
+    def decode_batch(
+        self,
+        /,
+        detectors: npt.NDArray[np.int_],
+        parallel: bool = False,
+        progress_bar: bool = True,
+        leave_progress_bar_on_finish: bool = False,
+    ) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes (alias for decode_errors_batch)."""
+        return self.decode_errors_batch(
+            detectors, parallel, progress_bar, leave_progress_bar_on_finish
+        )
+
     def decode_observables(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return predicted observable flips.
 
@@ -251,7 +389,7 @@ class RelayBPDecoder:
             return np.asarray(
                 self.decoder.decode_observables(np.asarray(detectors, dtype=np.uint8))
             )
-        return self._errors_to_observable_flips(self.decode(detectors)[None, :])[0]
+        return self._errors_to_observable_flips(self.decode_errors(detectors)[None, :])[0]
 
     def decode_observables_batch(
         self,
@@ -283,7 +421,9 @@ class RelayBPDecoder:
                     leave_progress_bar_on_finish,
                 )
             )
-        errors = self.decode_batch(detectors, parallel, progress_bar, leave_progress_bar_on_finish)
+        errors = self.decode_errors_batch(
+            detectors, parallel, progress_bar, leave_progress_bar_on_finish
+        )
         return self._errors_to_observable_flips(errors)
 
     def _require_observables(self) -> None:
@@ -335,7 +475,7 @@ class RelayBPDecoder:
         return outer_func
 
 
-class ILPDecoder:
+class ILPDecoder(ErrorDecoder):
     """Decoder based on solving an integer linear program (ILP).
 
     An integer program that is allowed to run to completion either finds an error of minimum weight
@@ -389,7 +529,7 @@ class ILPDecoder:
 
         self.decoder_args = decoder_args
 
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+    def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         import cvxpy
 
@@ -473,7 +613,7 @@ class ILPDecoder:
         return constraints
 
 
-class GUFDecoder:
+class GUFDecoder(ErrorDecoder):
     """The generalized Union-Find (GUF) decoder in https://arxiv.org/abs/2103.08049.
 
     If passed a max_weight argument, this decoder tries to find an error with
@@ -530,6 +670,12 @@ class GUFDecoder:
         self.graph = self.code.graph.to_undirected()
 
     def decode(
+        self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
+    ) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
+        return self.decode_errors(syndrome, max_weight=max_weight)
+
+    def decode_errors(
         self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error.
@@ -637,7 +783,7 @@ class GUFDecoder:
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
 
 
-class CompositeDecoder:
+class CompositeDecoder(ErrorDecoder):
     """Decoder for a composite syndrome from multiple independent code blocks.
 
     A CompositeDecoder is instantiated from a sequence of tuples, where each tuple contains
@@ -653,8 +799,11 @@ class CompositeDecoder:
     is set whenever any code block is erased.
     """
 
-    def __init__(self, *decoders_and_syndrome_lengths: tuple[ErrorDecoder, int]) -> None:
-        self.decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
+    def __init__(
+        self, *decoders_and_syndrome_lengths: tuple[ErrorDecoder | SupportsDecode, int]
+    ) -> None:
+        decoders, syndrome_lengths = zip(*decoders_and_syndrome_lengths)
+        self.decoders = tuple(as_error_decoder(decoder) for decoder in decoders)
         self.erasing_decoders = tuple(
             bool(getattr(decoder, "has_erasure_bit", False)) for decoder in self.decoders
         )
@@ -665,29 +814,32 @@ class CompositeDecoder:
         )
 
         self.decode_batch_implemented = all(
-            hasattr(decoder, "decode_batch") for decoder in self.decoders
+            hasattr(decoder, "decode_errors_batch") for decoder in self.decoders
         )
         if self.decode_batch_implemented:
-            self.decode_batch = self._decode_batch
+            self.decode_errors_batch = self.decode_batch = self._decode_batch
 
     @staticmethod
     def from_copies(
-        decoder: ErrorDecoder, syndrome_length: int, num_copies: int
+        decoder: ErrorDecoder | SupportsDecode, syndrome_length: int, num_copies: int
     ) -> CompositeDecoder:
         """Initialize a CompositeDecoder from copies of a given decoder and syndrome_length."""
         return CompositeDecoder(*[(decoder, syndrome_length)] * num_copies)
 
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+    def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome by parts."""
         return self._join_segments(
-            [decoder.decode(syndrome[slice]) for decoder, slice in zip(self.decoders, self.slices)]
+            [
+                decoder.decode_errors(syndrome[slice])
+                for decoder, slice in zip(self.decoders, self.slices)
+            ]
         )
 
     def _decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes by parts."""
         return self._join_segments(
             [
-                decoder.decode_batch(syndromes[:, slice])
+                cast(BatchErrorDecoder, decoder).decode_errors_batch(syndromes[:, slice])
                 for decoder, slice in zip(self.decoders, self.slices)
             ]
         )
@@ -738,10 +890,13 @@ class DirectDecoder:
         return self.decode_func(word)
 
     @staticmethod
-    def from_indirect(decoder: ErrorDecoder, matrix: IntegerArray) -> DirectDecoder:
+    def from_indirect(
+        decoder: ErrorDecoder | SupportsDecode, matrix: IntegerArray
+    ) -> DirectDecoder:
         """Instantiate a DirectDecoder from an indirect decoder and a parity check matrix."""
         field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         field_matrix = matrix.view(field)
+        error_decoder = as_error_decoder(decoder)
 
         def check_subtractable(errors: npt.NDArray[np.int_], words: npt.NDArray[np.int_]) -> None:
             """Reject inferred errors that cannot be subtracted from candidate code words."""
@@ -756,25 +911,26 @@ class DirectDecoder:
         def decode_func(candidate_word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             candidate_word = candidate_word.view(field)
             syndrome = field_matrix @ candidate_word
-            error = decoder.decode(syndrome.view(np.ndarray)).view(field)
+            error = error_decoder.decode_errors(syndrome.view(np.ndarray)).view(field)
             check_subtractable(error, candidate_word)
             return (candidate_word - error).view(np.ndarray)
 
         decode_batch_func: Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]] | None = None
 
-        if hasattr(decoder, "decode_batch"):
+        if hasattr(error_decoder, "decode_errors_batch"):
+            batch_decoder = cast(BatchErrorDecoder, error_decoder)
 
             def decode_batch_func(candidate_words: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
                 candidate_words = candidate_words.view(field)
                 syndromes = candidate_words @ field_matrix.T
-                errors = decoder.decode_batch(syndromes.view(np.ndarray)).view(field)
+                errors = batch_decoder.decode_errors_batch(syndromes.view(np.ndarray)).view(field)
                 check_subtractable(errors, candidate_words)
                 return (candidate_words - errors).view(np.ndarray)
 
         return DirectDecoder(decode_func, decode_batch_func)
 
 
-_DEPRECATED_ALIASES = {"Decoder": ErrorDecoder, "BatchDecoder": BatchErrorDecoder}
+DEPRECATED_ALIASES = {"Decoder": ErrorDecoder, "BatchDecoder": BatchErrorDecoder}
 
 # Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
@@ -785,4 +941,4 @@ else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of decoder protocols, with a DeprecationWarning."""
-        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

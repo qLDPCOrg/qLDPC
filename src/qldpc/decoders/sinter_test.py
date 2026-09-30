@@ -6,6 +6,7 @@ import typing
 import warnings
 from collections.abc import Callable, Sequence
 
+import ldpc
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -55,8 +56,10 @@ def test_sinter_decoder() -> None:
 
     # a compiled decoder exposes the decoder that its settings build
     compiled_decoder = decoders.SinterDecoder().compile_decoder_for_dem(dem)
-    assert type(compiled_decoder.decoder).__name__ == "BpOsdDecoder"
-    assert isinstance(compiled_decoder.observable_decoder, decoders.retrieval._ErrorsToObservables)
+    assert isinstance(compiled_decoder.decoder, ldpc.BpOsdDecoder)
+    assert isinstance(
+        compiled_decoder.observable_decoder, decoders.retrieval.ErrorsToObservablesDecoder
+    )
     compiled_decoder = decoders.SinterDecoder(decoder=decoders.mwpm()).compile_decoder_for_dem(dem)
     assert compiled_decoder.decoder is compiled_decoder.observable_decoder
 
@@ -279,7 +282,7 @@ def test_sliding_window_time_coordinate() -> None:
 
 
 def test_sequential_decoding_with_merged_window_errors() -> None:
-    """SequentialWindowDecoder wraps with _ExpandedDecoder when window errors merge.
+    """SequentialWindowDecoder wraps with ExpandedErrorDecoder when window errors merge.
 
     Consider two globally distinct errors:
         E0: flips D0, D1, L0,
@@ -303,7 +306,7 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
     assert isinstance(
         compiled_sinter_decoder.window_decoders[0],
-        decoders.retrieval._ExpandedDecoder,
+        decoders.retrieval.ExpandedErrorDecoder,
     )
 
     # Check correctness on explicit shots: no error, E0, and E1 individually.
@@ -390,7 +393,10 @@ def test_rejected_decoder_arguments() -> None:
         decoder = decoders.SinterDecoder(
             with_lookup=True, max_weight=2, predict_observable_flips=True
         )
-    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="must predict errors"):
+    with (
+        pytest.warns(DeprecationWarning),
+        pytest.raises(TypeError, match="observable flips rather than errors"),
+    ):
         decoder.compile_decoder_for_dem(dem)
 
     # window decoders are built the same way, so they reject it too
@@ -398,7 +404,10 @@ def test_rejected_decoder_arguments() -> None:
         window_decoder = decoders.SequentialWindowDecoder(
             [[0], [1]], with_lookup=True, max_weight=1, predict_observable_flips=True
         )
-    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="must predict errors"):
+    with (
+        pytest.warns(DeprecationWarning),
+        pytest.raises(TypeError, match="observable flips rather than errors"),
+    ):
         window_decoder.compile_decoder_for_dem(dem)
 
 
@@ -814,7 +823,7 @@ def test_sequential_window_decoder_erasure_with_merged_window_errors() -> None:
     ).compile_decoder_for_dem(dem)
 
     window_decoder = compiled.window_decoders[0]
-    assert isinstance(window_decoder, decoders.retrieval._ExpandedDecoder)
+    assert isinstance(window_decoder, decoders.retrieval.ExpandedErrorDecoder)
     assert window_decoder.has_erasure_bit
 
     # the expanded error spans every error of the window, followed by the erasure bit

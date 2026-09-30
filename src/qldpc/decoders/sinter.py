@@ -18,22 +18,20 @@ import stim
 
 from qldpc._util import get_deprecated_alias, get_external_caller_stacklevel
 
-from .custom import ObservableDecoder
+from .custom import ObservableDecoder, as_error_decoder, batch_decode_errors
 from .dems import DetectorErrorModelArrays
 from .retrieval import (
     DeferredErrorDecoderInput,
     DeferredObservableDecoderInput,
     ErrorDecoder,
     ErrorDecoderInput,
-    _decode_error_batch,
-    _ErrorsToObservables,
-    _get_legacy_decoder_migration_message,
-    _get_observable_decoder,
-    _match_error_decoder_to_dem,
-    _reject_observable_output,
-    _reject_prebuilt_decoder,
-    _reject_removed_decoder_args,
-    _resolve_decoder,
+    ErrorsToObservablesDecoder,
+    get_legacy_decoder_migration_message,
+    match_error_decoder_to_dem,
+    reject_prebuilt_decoder,
+    reject_removed_decoder_args,
+    resolve_decoder,
+    resolve_observable_decoder,
 )
 
 # sinter does not ship type information, so mypy treats sinter.Decoder and sinter.CompiledDecoder as
@@ -69,8 +67,8 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
     raises a DecoderNotCompiledError.
     """
 
-    # declares that the .decode method of this class (which is deprecated) returns observable flips
-    _decode_returns_observables = True
+    # the deprecated .decode method of this class returns observable flips
+    decode_returns_observables = True
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
     _prebuilt_decoder_rejection_reason = (
@@ -103,15 +101,15 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
                 help(qldpc.decoders.get_observable_decoder).
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
-        _reject_removed_decoder_args(decoder_kwargs)
-        _reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
+        reject_removed_decoder_args(decoder_kwargs)
+        reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
         self.simplify = simplify
         self.decompose_errors = decompose_errors
         self.decoder_input = decoder
         self.decoder_kwargs = decoder_kwargs
         if decoder_kwargs:
             warnings.warn(
-                _get_legacy_decoder_migration_message(None, decoder_kwargs),
+                get_legacy_decoder_migration_message(None, decoder_kwargs),
                 DeprecationWarning,
                 stacklevel=get_external_caller_stacklevel(),
             )
@@ -130,7 +128,7 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
-        observable_decoder = _get_observable_decoder(
+        observable_decoder = resolve_observable_decoder(
             dem_arrays.to_dem(),
             self.decoder_input,
             self.decoder_kwargs.copy(),
@@ -217,8 +215,8 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     num_observables: int
     num_erasure_bits: int = 0
 
-    # declares that the .decode method of this class (which is deprecated) returns observable flips
-    _decode_returns_observables = True
+    # the deprecated .decode method of this class returns observable flips
+    decode_returns_observables = True
 
     def __init__(
         self, dem_arrays: DetectorErrorModelArrays, decoder: ErrorDecoder | ObservableDecoder
@@ -238,7 +236,7 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         self.dem_arrays = dem_arrays
         self.decoder: ErrorDecoder | ObservableDecoder
         self.observable_decoder: ObservableDecoder
-        if isinstance(decoder, _ErrorsToObservables):
+        if isinstance(decoder, ErrorsToObservablesDecoder):
             # expose the error decoder that the converter wraps
             self.decoder, self.observable_decoder = decoder.error_decoder, decoder
         elif hasattr(decoder, "decode_observables"):
@@ -246,7 +244,9 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
             self.observable_decoder = cast(ObservableDecoder, decoder)
         else:
             self.decoder = decoder
-            self.observable_decoder = _ErrorsToObservables(decoder, dem_arrays.to_dem())
+            self.observable_decoder = ErrorsToObservablesDecoder(
+                as_error_decoder(decoder, "The decoder"), dem_arrays.to_dem()
+            )
         self.num_detectors = dem_arrays.num_detectors
         self.num_observables = dem_arrays.num_observables
         self.num_erasure_bits = int(getattr(self.observable_decoder, "has_erasure_bit", False))
@@ -719,7 +719,7 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.error_probs[d_errors],
             )
             window_dem = window_dem_arrays.to_dem()
-            window_decoder = _resolve_decoder(
+            window_decoder = resolve_decoder(
                 window_dem,
                 # the __init__ method of a window decoder only accepts inputs for error decoders
                 cast(ErrorDecoderInput, self.decoder_input),
@@ -729,8 +729,7 @@ class SequentialWindowDecoder(SinterDecoder):
             # Windows commit inferred errors, so they need error decoders.  Restricting the DEM to
             # this window may leave equivalent error mechanisms, which the window_decoder may merge
             # into one, so align the errors that it infers with the error mechanisms of the window.
-            _reject_observable_output(window_decoder)
-            window_decoder = _match_error_decoder_to_dem(window_decoder, window_dem)
+            window_decoder = match_error_decoder_to_dem(window_decoder, window_dem)
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -849,7 +848,7 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
             ) % 2
 
             # decode this syndrome and update the net error appropriately
-            decoded_error = _decode_error_batch(decoder, syndromes)
+            decoded_error = batch_decode_errors(decoder, syndromes)
             if getattr(decoder, "has_erasure_bit", False):
                 erased |= decoded_error[:, -1] != 0
                 decoded_error = decoded_error[:, :-1]
@@ -1104,7 +1103,7 @@ def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
     return candidates[0] if len(candidates) == 1 else 0
 
 
-_DEPRECATED_ALIASES: dict[str, type] = {
+DEPRECATED_ALIASES: dict[str, type] = {
     "SequentialSinterDecoder": SequentialWindowDecoder,
     "SubgraphSinterDecoder": SubgraphDecoder,
 }
@@ -1119,4 +1118,4 @@ else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of observable decoders, with a DeprecationWarning."""
-        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

@@ -162,7 +162,7 @@ def test_explicit_observable_lookup_decoders() -> None:
     assert weighted.decode_observables_batch(no_syndromes).shape == (0, 1)
 
     with pytest.raises(TypeError, match="observable flips rather than errors"):
-        decoders.get_decoder(dem, decoder=decoder)  # type: ignore[arg-type]
+        decoders.get_error_decoder(dem, decoder=decoder)  # type: ignore[arg-type]
 
     # deprecated lookup decoders that predict observable flips are marked as such, so they are
     # rejected where an error decoder is required
@@ -173,11 +173,11 @@ def test_explicit_observable_lookup_decoders() -> None:
             dem, max_weight=1, predict_observable_flips=True
         )
     for legacy_decoder in [legacy, legacy_weighted]:
-        assert legacy_decoder._decode_returns_observables
+        assert legacy_decoder.decode_returns_observables
         assert np.array_equal(legacy_decoder.decode(syndrome), [1])
         with pytest.raises(TypeError, match="observable flips rather than errors"):
-            decoders.get_decoder(dem, decoder=legacy_decoder)
-    assert not decoders.LookupDecoder(dem, max_weight=1)._decode_returns_observables
+            decoders.get_error_decoder(dem, decoder=legacy_decoder)
+    assert not decoders.LookupDecoder(dem, max_weight=1).decode_returns_observables
 
 
 def test_tie_breaking() -> None:
@@ -249,8 +249,23 @@ def test_invalid_arguments() -> None:
         decoders.LookupDecoder(dem, 1, error_channel=[0.1])
     with pytest.raises(ValueError, match="both an error_channel and a penalty_func"):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], penalty_func=lambda _: 0.0)
-    with pytest.raises(ValueError, match=r"requires providing a stim\.DetectorErrorModel"):
-        decoders.ObservableLookupDecoder(pcm, 1, error_channel=[0.1, 0.1])
+
+    # an observable lookup decoder built from a parity check matrix requires observables
+    for decoder_class in [
+        decoders.ObservableLookupDecoder,
+        decoders.WeightedObservableLookupDecoder,
+    ]:
+        with pytest.raises(ValueError, match="requires an observable_flip_matrix"):
+            decoder_class(pcm, 1)
+
+    # a detector error model without observables predicts trivial observable flips
+    dem_without_observables = stim.DetectorErrorModel("error(0.1) D0\nerror(0.1) D0 D1")
+    for decoder_class in [
+        decoders.ObservableLookupDecoder,
+        decoders.WeightedObservableLookupDecoder,
+    ]:
+        observable_decoder = decoder_class(dem_without_observables, 1)
+        assert observable_decoder.decode_observables(np.array([1, 0])).shape == (0,)
 
     # reject malformed channels and invalid probabilities
     for error_channel in [np.array([0.1]), np.array([[0.1, 0.2]])]:

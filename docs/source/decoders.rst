@@ -4,7 +4,7 @@ Choosing a decoder
 qLDPC distinguishes two kinds of decoders:
 
 * an :class:`~qldpc.decoders.custom.ErrorDecoder` maps a syndrome to an inferred physical error,
-  with a ``decode`` method; and
+  with a ``decode_errors`` method, or its alias ``decode``; and
 * an :class:`~qldpc.decoders.custom.ObservableDecoder` maps a syndrome (detection events) to
   predicted observable flips, with a ``decode_observables`` method.
 
@@ -37,7 +37,11 @@ which parity-check matrix or detector error model to decode:
    syndrome = np.array([1, 0, 0, 0])
 
    settings = decoders.bp_lsd(max_iter=30, bp_method="minimum_sum")
-   correction = decoders.decode(code.matrix, syndrome, decoder=settings)
+   error_decoder = decoders.get_error_decoder(code.matrix, decoder=settings)
+   correction = error_decoder.decode(syndrome)
+
+:func:`~qldpc.decoders.retrieval.get_error_decoder` builds an error decoder for a parity-check
+matrix or detector error model.
 
 The helpers are available directly under ``qldpc.decoders``:
 
@@ -131,17 +135,25 @@ importable module.
 Custom and prebuilt decoders
 ----------------------------
 
-Any object with a ``decode`` method that maps a syndrome to an inferred error satisfies the
-:class:`~qldpc.decoders.custom.ErrorDecoder` protocol, and any object with a ``decode_observables``
-method that maps a syndrome to predicted observable flips satisfies the
+A custom error decoder subclasses :class:`~qldpc.decoders.custom.ErrorDecoder` and implements
+``decode_errors``, which maps a syndrome to an inferred error. The subclass inherits ``decode`` as an
+alias for ``decode_errors``. A custom observable decoder implements ``decode_observables``, which
+maps a syndrome to predicted observable flips, to satisfy the
 :class:`~qldpc.decoders.custom.ObservableDecoder` protocol. A custom decoder may also define:
 
-* ``decode_batch`` or ``decode_observables_batch``, which decode a two-dimensional array of
+* ``decode_errors_batch`` or ``decode_observables_batch``, which decode a two-dimensional array of
   syndromes (one per row), to satisfy :class:`~qldpc.decoders.custom.BatchErrorDecoder` or
   :class:`~qldpc.decoders.custom.BatchObservableDecoder`, so that Sinter decoders decode shots in
   batches; and
 * ``has_erasure_bit = True``, to declare that it appends an erasure flag to each inferred error or
   predicted observable flip.
+
+Methods that use an error decoder also accept any object whose ``decode`` method returns an inferred
+error, such as a decoder built directly with the ldpc package, and wrap it in a
+:class:`~qldpc.decoders.custom.WrappedErrorDecoder`. The getters of library decoders, such as
+:func:`~qldpc.decoders.retrieval.get_decoder_BP_OSD`, return subclasses of the library's decoder
+classes from :mod:`qldpc.decoders.adapters`; for example, ``get_decoder_BP_OSD`` returns an
+``ldpc.BpOsdDecoder`` that is also an ``ErrorDecoder``.
 
 Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
 
@@ -150,7 +162,7 @@ Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
 * a prebuilt decoder, which is used as is.
 
 A prebuilt decoder is tied to the matrix used to construct it, so it is only accepted where the
-caller knows the matrix being decoded: by ``decoders.decode``, ``decoders.get_decoder``,
+caller knows the matrix being decoded: by ``decoders.get_error_decoder``,
 ``decoders.decode_observables``, and ``decoders.get_observable_decoder``; by the code-capacity
 estimators of classical codes; by ``ClassicalCode.get_distance_bound`` when given a ``vector`` (whose
 syndrome is computed with the parity check matrix of the code); and per sector (as ``decoder_x=``
@@ -181,6 +193,9 @@ return the observable flip itself:
    observable_lookup = decoders.ObservableLookupDecoder(dem, max_weight=2)
    predicted_flips = observable_lookup.decode_observables(syndrome)
 
+An observable lookup decoder built from a parity-check matrix, rather than a detector error model,
+requires an ``observable_flip_matrix`` that specifies which errors flip which observables.
+
 Erasure-aware decoders append their erasure flag after the inferred error or observable vector.
 Compiled Sinter decoders translate that flag into a discarded shot.
 
@@ -195,9 +210,10 @@ Breaking changes
 
 The following changes take effect without a deprecation period:
 
-* The ``static_decoder`` argument has been removed. Pass a prebuilt decoder as ``decoder=`` instead,
-  where a prebuilt decoder is accepted (see above), and otherwise pass decoder settings or a
-  constructor.
+* The ``static_decoder`` argument has been removed, except from the deprecated
+  ``decoders.get_decoder`` and ``decoders.decode``. Pass a prebuilt decoder as ``decoder=``
+  instead, where a prebuilt decoder is accepted (see above), and otherwise pass decoder settings or
+  a constructor.
 * When the deprecated ``decoder_x_kwargs`` or ``decoder_z_kwargs`` of a CSS code set the same option
   as its shared keyword arguments, the sector-specific value now takes precedence, just as
   ``decoder_x=`` and ``decoder_z=`` take precedence over ``decoder=``.
@@ -211,13 +227,18 @@ Deprecated usage
 ~~~~~~~~~~~~~~~~
 
 The keyword-based decoder API of ``qldpc==0.3.3`` remains available during a deprecation period, and
-each use emits a ``DeprecationWarning`` that names its replacement:
+each use emits a ``DeprecationWarning`` that names its replacement. In particular,
+``decoders.get_decoder`` and ``decoders.decode`` behave as they did in ``qldpc==0.3.3``:
 
 .. list-table::
    :header-rows: 1
 
    * - Deprecated usage
      - Replacement
+   * - ``decoders.get_decoder(pcm_or_dem, ...)``
+     - ``decoders.get_error_decoder(pcm_or_dem, decoder=...)``
+   * - ``decoders.decode(pcm_or_dem, syndrome, ...)``
+     - ``decoders.get_error_decoder(pcm_or_dem, decoder=...).decode(syndrome)``
    * - ``with_BP_LSD=True, max_iter=30``
      - ``decoder=decoders.bp_lsd(max_iter=30)``
    * - free-form decoder options without ``with_<NAME>``

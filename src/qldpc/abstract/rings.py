@@ -526,7 +526,7 @@ class RingMember:
         return vector
 
 
-_DEPRECATED_ALIASES = {"Element": RingMember}
+DEPRECATED_ALIASES = {"Element": RingMember}
 
 # Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
@@ -547,4 +547,4 @@ else:
             from . import ring_array
 
             return getattr(ring_array, name)
-        return get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)

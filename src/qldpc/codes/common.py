@@ -652,7 +652,7 @@ class ClassicalCode(AbstractCode):
                 f"The {backend!r} distance backend is only available for CSSCode instances."
             )
         if vector is None:
-            decoders.retrieval._reject_prebuilt_decoder(decoder, _CLASSICAL_DISTANCE_BOUND_REASON)
+            decoders.reject_prebuilt_decoder(decoder, _CLASSICAL_DISTANCE_BOUND_REASON)
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
@@ -663,7 +663,7 @@ class ClassicalCode(AbstractCode):
         else:
             check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
             syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
-        error_decoder = decoders.get_decoder(check_matrix, decoder=decoder, **decoder_kwargs)
+        error_decoder = decoders.resolve_decoder(check_matrix, decoder, decoder_kwargs)
 
         def get_syndrome() -> npt.NDArray[np.int_]:
             """Get a syndrome to decode, randomizing its overlap with code words if necessary."""
@@ -874,8 +874,8 @@ class ClassicalCode(AbstractCode):
         Errors are decoded by a decoder built from decoder settings, such as
         ``decoder=decoders.bp_osd(...)``, by a constructor that builds an error decoder from a
         parity check matrix, or by a decoder prebuilt for the parity check matrix of this code.  If
-        decoder is None, the default decoder is chosen by qldpc.decoders.get_decoder.  Any remaining
-        keyword arguments are deprecated decoder-selection and construction arguments for
+        decoder is None, the default decoder is chosen by qldpc.decoders.get_error_decoder.  Any
+        remaining keyword arguments are deprecated decoder-selection and construction arguments for
         qldpc.decoders.get_decoder.
 
         The basic idea in this method is to think of the fidelity
@@ -907,7 +907,7 @@ class ClassicalCode(AbstractCode):
         declared to be decoded perfectly.  The sum runs only as far as the heaviest weight the
         budget reached, and ``F_k = 0`` is assumed above that.
         """
-        error_decoder = decoders.get_decoder(self.matrix, decoder=decoder, **decoder_kwargs)
+        error_decoder = decoders.resolve_decoder(self.matrix, decoder, decoder_kwargs)
 
         # sample errors of fixed weight and record failure/discard counts
         sample_allocation = get_sample_allocation(
@@ -2306,7 +2306,7 @@ class QuditCode(AbstractCode):
         Errors are decoded by a decoder built from decoder settings, such as
         ``decoder=decoders.bp_osd(...)``, or from a constructor that builds an error decoder from a
         parity check matrix.  If decoder is None, the default decoder is chosen by
-        qldpc.decoders.get_decoder.  The decoder decodes symplectic errors against an internal
+        qldpc.decoders.get_error_decoder.  The decoder decodes symplectic errors against an internal
         syndrome matrix, so a prebuilt decoder is rejected.  Any remaining keyword arguments are
         deprecated decoder-selection and construction arguments for qldpc.decoders.get_decoder.
 
@@ -2328,17 +2328,17 @@ class QuditCode(AbstractCode):
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        decoders.retrieval._reject_prebuilt_decoder(decoder, _QUDIT_SYNDROME_MATRIX_REASON)
+        decoders.reject_prebuilt_decoder(decoder, _QUDIT_SYNDROME_MATRIX_REASON)
         pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
         # build the matrix that takes an error to its syndrome against the stabilizer generators of
         # the code.  The syndrome of an error e against a generator s is their symplectic product
         # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``.  The
         # decoder is built to invert this same matrix, so a decoded error is a solution to the
-        # syndrome it was handed.  The matrix is a field array, from which get_decoder selects a
-        # decoder appropriate to the field.
+        # syndrome it was handed.  The matrix is a field array, from which get_error_decoder selects
+        # a decoder appropriate to the field.
         syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
-        error_decoder = decoders.get_decoder(syndrome_matrix, decoder=decoder, **decoder_kwargs)
+        error_decoder = decoders.resolve_decoder(syndrome_matrix, decoder, decoder_kwargs)
 
         # identify logical operators
         logical_ops = self.get_logical_ops()
@@ -3321,7 +3321,7 @@ class CSSCode(QuditCode):
         """
         validate_distance_backend(backend)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
-        decoders.retrieval._reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
+        decoders.reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
         if num_trials == 0 or cutoff == len(self):
@@ -3451,7 +3451,7 @@ class CSSCode(QuditCode):
         choice of the logical operators in ``L_z``.
         """
         pauli = Pauli.coerce_xz(pauli)
-        decoders.retrieval._reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
+        decoders.reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
         cutoff = cutoff or 0
 
         # pretend without loss of generality that we are computing the X-distance
@@ -3461,9 +3461,7 @@ class CSSCode(QuditCode):
 
         # initialize a decoder and a trivial effective syndrome
         effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
-        error_decoder = decoders.get_decoder(
-            effective_check_matrix, decoder=decoder, **decoder_kwargs
-        )
+        error_decoder = decoders.resolve_decoder(effective_check_matrix, decoder, decoder_kwargs)
         effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
         def get_effective_syndrome() -> npt.NDArray[np.int_]:
@@ -3520,7 +3518,7 @@ class CSSCode(QuditCode):
         """
         pauli = Pauli.coerce_xz(pauli)
         assert 0 <= logical_index < self.dimension
-        decoders.retrieval._reject_prebuilt_decoder(decoder, _REDUCE_LOGICAL_OP_REASON)
+        decoders.reject_prebuilt_decoder(decoder, _REDUCE_LOGICAL_OP_REASON)
 
         # effective check matrix = syndromes and dual-pauli logical operators
         code = self.get_code(pauli.swap_xz())
@@ -3532,9 +3530,7 @@ class CSSCode(QuditCode):
         effective_syndrome = np.zeros((code.num_checks + self.dimension), dtype=int)
         effective_syndrome[dual_op_index] = 1
 
-        error_decoder = decoders.get_decoder(
-            effective_check_matrix, decoder=decoder, **decoder_kwargs
-        )
+        error_decoder = decoders.resolve_decoder(effective_check_matrix, decoder, decoder_kwargs)
         candidate_logical_op = _decode_consistently(
             error_decoder, effective_check_matrix, lambda: effective_syndrome, self.field
         )
@@ -3738,7 +3734,7 @@ class CSSCode(QuditCode):
         decoded as configured by the shared ``decoder`` argument.  A prebuilt shared decoder is
         rejected if it would decode both sectors, unless the X-type and Z-type stabilizer matrices
         are equal.  If all of these arguments are None, the default decoder is chosen by
-        qldpc.decoders.get_decoder.
+        qldpc.decoders.get_error_decoder.
 
         The ``decoder_x_kwargs``, ``decoder_z_kwargs``, and remaining keyword arguments are
         deprecated decoder-selection and construction arguments for qldpc.decoders.get_decoder, for
@@ -3772,7 +3768,7 @@ class CSSCode(QuditCode):
         if (
             decoder_x is None
             and decoder_z is None
-            and decoders.retrieval._is_prebuilt_decoder(decoder)
+            and decoders.is_prebuilt_decoder(decoder)
             and not np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
         ):
             raise ValueError(
@@ -3790,7 +3786,7 @@ class CSSCode(QuditCode):
 
         # reject removed arguments, and warn about deprecated arguments, naming their replacements
         for removed_args in [decoder_kwargs, decoder_x_kwargs or {}, decoder_z_kwargs or {}]:
-            decoders.retrieval._reject_removed_decoder_args(removed_args)
+            decoders.reject_removed_decoder_args(removed_args)
         for argument_name, matrix, legacy_args in [
             ("decoder", stabilizer_ops_z, decoder_kwargs),
             ("decoder_x", stabilizer_ops_z, decoder_x_kwargs),
@@ -3798,7 +3794,7 @@ class CSSCode(QuditCode):
         ]:
             if legacy_args:
                 warnings.warn(
-                    decoders.retrieval._get_legacy_decoder_migration_message(
+                    decoders.get_legacy_decoder_migration_message(
                         matrix, legacy_args, argument_name=argument_name
                     ),
                     DeprecationWarning,
@@ -3812,13 +3808,13 @@ class CSSCode(QuditCode):
             and decoder_x_input is decoder_z_input
             and decoder_x_kwargs == decoder_z_kwargs
         )
-        error_decoder_x = decoders.retrieval._resolve_decoder(
+        error_decoder_x = decoders.resolve_decoder(
             stabilizer_ops_z, decoder_x_input, decoder_x_kwargs, warn_deprecated=False
         )
         error_decoder_z = (
             error_decoder_x
             if same_x_and_z
-            else decoders.retrieval._resolve_decoder(
+            else decoders.resolve_decoder(
                 stabilizer_ops_x, decoder_z_input, decoder_z_kwargs, warn_deprecated=False
             )
         )

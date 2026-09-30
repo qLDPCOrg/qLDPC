@@ -8,6 +8,7 @@ import collections
 import itertools
 import warnings
 from collections.abc import Callable, Collection, Iterator, Sequence
+from typing import overload
 
 import galois
 import numpy as np
@@ -20,6 +21,7 @@ from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from .common import with_erasure_bits
+from .custom import ErrorDecoder
 from .dems import DetectorErrorModelArrays
 
 
@@ -77,11 +79,10 @@ class _LookupDecoderBase:
                 " observable_flip_matrix"
             )
 
-        # save attributes; the private marker declares that .decode returns observable flips, as it
-        # does with the deprecated predict_observable_flips=True, so that this decoder is rejected
-        # where an error decoder is required
+        # save attributes; decode_returns_observables declares whether a decode method returns
+        # observable flips, which it does with the deprecated predict_observable_flips=True
         self.predict_observable_flips = predict_observable_flips
-        self._decode_returns_observables = predict_observable_flips
+        self.decode_returns_observables = predict_observable_flips
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -235,7 +236,9 @@ class _LookupDecoderBase:
             dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
             pcm = dem_arrays.detector_flip_matrix
             error_channel = dem_arrays.error_probs
-            if dem_arrays.num_observables > 0:
+            # errors are grouped by observable flip if there are observables, or if predicting
+            # observable flips, which are trivial (empty) if there are no observables
+            if dem_arrays.num_observables > 0 or predict_observable_flips:
                 observable_flip_matrix = dem_arrays.observable_flip_matrix
         else:
             pcm = pcm_or_dem
@@ -276,8 +279,8 @@ class _LookupDecoderBase:
         if predict_observable_flips:
             if observable_flip_matrix is None:
                 raise ValueError(
-                    "Predicting observable flips with a LookupDecoder requires providing a"
-                    " stim.DetectorErrorModel with observables or an observable_flip_matrix"
+                    "A lookup decoder that predicts observable flips requires an"
+                    " observable_flip_matrix when it is built from a parity check matrix"
                 )
             output_length = observable_flip_matrix.shape[0]
         else:
@@ -452,7 +455,7 @@ class _LookupDecoderBase:
         )
 
 
-class LookupDecoder(_LookupDecoderBase):
+class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     """Decoder based on a lookup table that maps syndromes to errors.
 
     Accepts a parity check matrix (PCM) or detector error model (DEM) for ``pcm_or_dem``.  If
@@ -556,7 +559,7 @@ class LookupDecoder(_LookupDecoderBase):
             symplectic=symplectic,
         )
 
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+    def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         return self._decode(syndrome)
 
@@ -570,19 +573,47 @@ class ObservableLookupDecoder(_LookupDecoderBase):
     observable flip, a vector of length ``num_observables`` over the field of the parity check
     matrix.  Decode with the ``.decode_observables`` method.
 
-    Grouping errors by observable flip requires a detector error model with observables, or an
-    ``observable_flip_matrix``.  If initialized with ``add_erasure_bit=True``, this decoder appends
-    an erasure bit to each predicted observable flip.
+    An ObservableLookupDecoder is built from a detector error model, or from a parity check matrix
+    together with an ``observable_flip_matrix`` whose rows specify which errors flip which
+    observables.  If initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit
+    to each predicted observable flip.
     """
+
+    @overload
+    def __init__(
+        self,
+        pcm_or_dem: stim.DetectorErrorModel,
+        max_weight: int,
+        *,
+        post_select: Collection[int] = (),
+        add_erasure_bit: bool | None = None,
+        confidence_ratio: float | None = None,
+        symplectic: bool = False,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        pcm_or_dem: IntegerArray,
+        max_weight: int,
+        *,
+        observable_flip_matrix: IntegerArray,
+        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        post_select: Collection[int] = (),
+        add_erasure_bit: bool | None = None,
+        confidence_ratio: float | None = None,
+        symplectic: bool = False,
+    ) -> None: ...
 
     def __init__(
         self,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         max_weight: int,
         *,
+        observable_flip_matrix: IntegerArray | None = None,
         error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
-        observable_flip_matrix: IntegerArray | None = None,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
@@ -639,11 +670,10 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
             )
         )
 
-        # save attributes; the private marker declares that .decode returns observable flips, as it
-        # does with the deprecated predict_observable_flips=True, so that this decoder is rejected
-        # where an error decoder is required
+        # save attributes; decode_returns_observables declares whether a decode method returns
+        # observable flips, which it does with the deprecated predict_observable_flips=True
         self.predict_observable_flips = predict_observable_flips
-        self._decode_returns_observables = predict_observable_flips
+        self.decode_returns_observables = predict_observable_flips
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -748,7 +778,7 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
             symplectic=symplectic,
         )
 
-    def decode(
+    def decode_errors(
         self,
         syndrome: npt.NDArray[np.int_],
         penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = lambda vec: int(
@@ -758,6 +788,16 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
         """Decode an error syndrome and return an inferred error."""
         return self._decode_weighted(syndrome, penalty_func)
 
+    def decode(
+        self,
+        syndrome: npt.NDArray[np.int_],
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = lambda vec: int(
+            np.count_nonzero(vec)
+        ),
+    ) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
+        return self.decode_errors(syndrome, penalty_func)
+
 
 class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
     """Weighted lookup-table decoder that maps syndromes to observable flips.
@@ -765,9 +805,32 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
     A WeightedObservableLookupDecoder records the same candidate errors as a WeightedLookupDecoder
     (see help(WeightedLookupDecoder)).  Its ``.decode_observables`` method selects the candidate
     error that minimizes a provided penalty function, and returns the observable flip that this
-    error induces.  Predicting observable flips requires a detector error model with observables,
-    or an ``observable_flip_matrix``.
+    error induces.  A WeightedObservableLookupDecoder is built from a detector error model, or from
+    a parity check matrix together with an ``observable_flip_matrix``.
     """
+
+    @overload
+    def __init__(
+        self,
+        pcm_or_dem: stim.DetectorErrorModel,
+        max_weight: int,
+        *,
+        post_select: Collection[int] = (),
+        add_erasure_bit: bool = False,
+        symplectic: bool = False,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        pcm_or_dem: IntegerArray,
+        max_weight: int,
+        *,
+        observable_flip_matrix: IntegerArray,
+        post_select: Collection[int] = (),
+        add_erasure_bit: bool = False,
+        symplectic: bool = False,
+    ) -> None: ...
 
     def __init__(
         self,

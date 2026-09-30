@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import pickle
+import re
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -32,23 +33,36 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
         def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             return np.asarray(error)
 
-    with pytest.warns(DeprecationWarning, match="decoder_constructor.*decoder="):
-        assert decoders.decode(matrix, syndrome, decoder_constructor=CustomDecoder) is error
-    assert decoders.decode(matrix, syndrome, decoder=CustomDecoder) is error
-    assert decoders.decode(matrix, syndrome, decoder=CustomDecoder(matrix)) is error
+    # a subclass of ErrorDecoder that implements only decode inherits decode_errors
+    assert decoders.get_error_decoder(matrix, decoder=CustomDecoder).decode(syndrome) is error
+    assert CustomDecoder(matrix).decode_errors(syndrome) is error
+    assert (
+        decoders.get_error_decoder(matrix, decoder=CustomDecoder(matrix)).decode_errors(syndrome)
+        is error
+    )
+
+    # an object with only a decode method is wrapped to provide decode_errors
+    class BareDecoder:
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.asarray(error)
+
+    bare_decoder = BareDecoder()
+    wrapped_decoder: Any = decoders.get_error_decoder(matrix, decoder=bare_decoder)
+    assert wrapped_decoder.decoder is bare_decoder
+    assert wrapped_decoder.decode_errors(syndrome) is error
+    assert not hasattr(wrapped_decoder, "decode_errors_batch")
+
+    # a subclass of ErrorDecoder must implement a decoding method
+    class IncompleteDecoder(decoders.ErrorDecoder): ...
+
+    with pytest.raises(NotImplementedError, match="must implement decode_errors"):
+        IncompleteDecoder().decode_errors(syndrome)
 
     # injected decoders are validated, which must survive `python -O`
-    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="must be callable"):
-        decoders.get_decoder(matrix, decoder_constructor=0)
-    with pytest.raises(TypeError, match="callable decode method"):
-        decoders.get_decoder(matrix, decoder=lambda _: 0)  # type: ignore[arg-type]
-
-    # the static_decoder argument has been removed, in favor of decoder=
-    for decoder_args in [{"static_decoder": CustomDecoder(matrix)}, {"static_decoder": None}]:
-        with pytest.raises(TypeError, match="static_decoder argument has been removed"):
-            decoders.get_decoder(matrix, **decoder_args)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="Cannot combine decoder"):
-        decoders.get_decoder(matrix, decoder=CustomDecoder(matrix), with_BF=True)
+    with pytest.raises(TypeError, match="callable decode_errors or decode method"):
+        decoders.get_error_decoder(matrix, decoder=lambda _: 0)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="decoder must be decoder settings"):
+        decoders.get_error_decoder(matrix, decoder=0)  # type: ignore[arg-type]
 
 
 def test_decoder_selection() -> None:
@@ -62,7 +76,7 @@ def test_decoder_selection() -> None:
     assert np.array_equal([1, 1], decoded_error)
 
     with (
-        pytest.warns(DeprecationWarning, match="pass exactly one"),
+        pytest.warns(DeprecationWarning, match="get_decoder is deprecated"),
         pytest.raises(ValueError, match="Only one decoder"),
     ):
         decoders.get_decoder(matrix, with_BF=True, with_MWPM=True)
@@ -93,6 +107,95 @@ def test_decoder_selection() -> None:
     assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
 
 
+def test_deprecated_decoder_functions(pytestconfig: pytest.Config) -> None:
+    """The deprecated get_decoder and decode functions behave as they did, and name replacements."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
+    matrix = np.random.randint(2, size=(3, 4))
+    error = np.random.randint(2, size=matrix.shape[1])
+    syndrome = (matrix @ error) % 2
+
+    class CustomDecoder:
+        def __init__(self, matrix: npt.NDArray[np.int_], scale: int = 1) -> None:
+            self.scale = scale
+
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return self.scale * np.asarray(error)
+
+    # warnings name the replacing call, and point at the caller
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        decoders.get_decoder(matrix)
+        decoders.decode(matrix, syndrome, with_lookup=True, max_weight=1)
+    assert [str(warning.message) for warning in caught] == [
+        "decoders.get_decoder is deprecated; use decoders.get_error_decoder(pcm_or_dem) instead",
+        (
+            "decoders.decode is deprecated; use decoders.get_error_decoder(pcm_or_dem,"
+            " decoder=decoders.lookup_table(...)).decode(syndrome) instead"
+        ),
+    ]
+    assert all(warning.filename == __file__ for warning in caught)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+
+        # a decoder constructor receives the remaining arguments, and is returned as is
+        decoder = decoders.get_decoder(matrix, decoder_constructor=CustomDecoder, scale=2)
+        assert isinstance(decoder, CustomDecoder) and decoder.scale == 2
+        with pytest.raises(TypeError, match="must be callable"):
+            decoders.get_decoder(matrix, decoder_constructor=0)
+
+        # a static decoder is returned as is, and admits no other arguments
+        static_decoder = CustomDecoder(matrix)
+        assert decoders.get_decoder(matrix, static_decoder=static_decoder) is static_decoder
+        with pytest.raises(ValueError, match="cannot process decoding arguments"):
+            decoders.get_decoder(matrix, static_decoder=static_decoder, with_BF=True)
+
+        # the default decoder depends on the field
+        decoder = decoders.get_decoder(galois.GF(3)(matrix))
+        assert isinstance(decoder, decoders.GUFDecoder)
+
+    with pytest.warns(DeprecationWarning, match="decoder=static_decoder"):
+        decoded_error = decoders.decode(matrix, syndrome, static_decoder=static_decoder)
+    assert np.array_equal(decoded_error, error)
+
+    # the static_decoder argument has been removed from other methods, in favor of decoder=
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
+        decoders.resolve_decoder(matrix, None, {"static_decoder": static_decoder})
+    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
+        decoders.retrieval.resolve_observable_decoder(dem, None, {"static_decoder": static_decoder})
+    with pytest.raises(ValueError, match="Cannot combine decoder"):
+        decoders.resolve_decoder(matrix, static_decoder, {"with_BF": True})
+
+
+def test_legacy_decoder_migration_messages() -> None:
+    """Deprecated keyword arguments of methods warn with the decoder input that replaces them."""
+    matrix = np.eye(2, dtype=int)
+    expected_messages: list[tuple[dict[str, object], str]] = [
+        ({"decoder_constructor": decoders.LookupDecoder}, "for example decoder=LookupDecoder"),
+        ({"with_lookup": True, "predict_observable_flips": True}, "ObservableLookupDecoder"),
+        ({"with_BF": True}, r"with_BF keyword .* use decoder=decoders\.bf\(\.\.\.\)"),
+        ({"with_BF": True, "with_MWPM": True}, "pass exactly one"),
+        ({"max_iter": 5}, r"move them into decoder=decoders\.bp_osd\(\.\.\.\)"),
+    ]
+    for decoder_args, expected_message in expected_messages:
+        message = retrieval.get_legacy_decoder_migration_message(matrix, decoder_args)
+        assert re.search(expected_message, message), message
+    message = retrieval.get_legacy_decoder_migration_message(
+        galois.GF(3)(matrix), {"max_weight": 1}, argument_name="decoder_x"
+    )
+    assert "decoder_x=decoders.guf(...)" in message
+
+    # deprecated arguments build a decoder, warning unless an outer API has already warned
+    with pytest.warns(DeprecationWarning, match="with_BF keyword"):
+        decoder = decoders.resolve_decoder(matrix, None, {"with_BF": True})
+    assert np.array_equal(decoder.decode_errors(np.array([1, 0])), [1, 0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        decoders.resolve_decoder(matrix, None, {"with_BF": True}, warn_deprecated=False)
+        decoders.resolve_decoder(matrix, decoders.bf(), {})
+
+
 def test_decoder_specs() -> None:
     """Typed decoder specs defer construction and survive process serialization."""
     matrix = np.eye(2, dtype=int)
@@ -100,7 +203,9 @@ def test_decoder_specs() -> None:
 
     spec = decoders.lookup_table(max_weight=1)
     restored = pickle.loads(pickle.dumps(spec))  # noqa: S301 - trusted in-memory round trip
-    assert np.array_equal(decoders.decode(matrix, syndrome, decoder=restored), syndrome)
+    assert np.array_equal(
+        decoders.get_error_decoder(matrix, decoder=restored).decode(syndrome), syndrome
+    )
 
     # a spec displays the helper call that reproduces it, omitting default options
     assert repr(decoders.bp_osd()) == "decoders.bp_osd()"
@@ -274,7 +379,7 @@ def test_native_observable_decoders() -> None:
         assert spec.predicts_observables_natively
         native_decoder: Any = decoders.get_observable_decoder(dem, decoder=spec)
         assert isinstance(native_decoder, native_decoder_type)
-        converted_decoder = retrieval._ErrorsToObservables(spec.build(dem), dem)
+        converted_decoder = retrieval.ErrorsToObservablesDecoder(spec.build(dem), dem)
         assert np.array_equal(
             native_decoder.decode_observables_batch(syndromes),
             converted_decoder.decode_observables_batch(syndromes),
@@ -298,8 +403,8 @@ def test_native_observable_decoders() -> None:
     spec = decoders.bp_osd()
     assert not spec.predicts_observables_natively
     bp_osd_decoder = spec.build_observable_decoder(dem)
-    assert isinstance(bp_osd_decoder, retrieval._ErrorsToObservables)
-    assert isinstance(decoders.get_observable_decoder(dem), retrieval._ErrorsToObservables)
+    assert isinstance(bp_osd_decoder, retrieval.ErrorsToObservablesDecoder)
+    assert isinstance(decoders.get_observable_decoder(dem), retrieval.ErrorsToObservablesDecoder)
     no_flips = bp_osd_decoder.decode_observables_batch(syndromes[:0])
     assert no_flips.shape == (0, dem.num_observables)
 
@@ -344,7 +449,7 @@ def test_observable_decoder_inputs() -> None:
     assert decoders.get_observable_decoder(dem, decoder=observable_lookup) is observable_lookup
 
     # deprecated decoder-selection arguments are converted by an internal path
-    observable_decoder = retrieval._get_observable_decoder(
+    observable_decoder = retrieval.resolve_observable_decoder(
         dem, None, {"with_lookup": True, "max_weight": 2}, warn_deprecated=False
     )
     assert np.array_equal(
@@ -352,7 +457,7 @@ def test_observable_decoder_inputs() -> None:
     )
 
     # invalid inputs
-    with pytest.raises(TypeError, match="decoder must be a DecoderSpec"):
+    with pytest.raises(TypeError, match="decoder must be decoder settings"):
         decoders.get_observable_decoder(dem, decoder=object())  # type: ignore[arg-type]
 
     def build_invalid_decoder(dem: stim.DetectorErrorModel) -> Any:
@@ -376,7 +481,10 @@ def test_error_decoder_output_is_validated() -> None:
         )
 
     # the deprecated LookupDecoder(..., predict_observable_flips=True) is rejected explicitly
-    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="returns observable"):
+    with (
+        pytest.warns(DeprecationWarning),
+        pytest.raises(TypeError, match="observable flips rather than errors"),
+    ):
         decoders.get_observable_decoder(
             dem,
             decoder=lambda dem: decoders.LookupDecoder(
@@ -399,8 +507,8 @@ def test_merged_error_mechanisms() -> None:
     for add_erasure_bit in [False, True]:
         merging_decoder = decoders.get_decoder_GUF(dem, add_erasure_bit=add_erasure_bit)
         assert len(merging_decoder.decode(syndromes[0])) == 2 + add_erasure_bit
-        decoder: Any = retrieval._match_error_decoder_to_dem(merging_decoder, dem)
-        assert isinstance(decoder, retrieval._ExpandedDecoder)
+        decoder: Any = retrieval.match_error_decoder_to_dem(merging_decoder, dem)
+        assert isinstance(decoder, retrieval.ExpandedErrorDecoder)
         errors = decoder.decode_batch(syndromes)
         assert errors.shape == (2, 3 + add_erasure_bit)
         assert np.array_equal(errors, [decoder.decode(syndrome) for syndrome in syndromes])
@@ -408,8 +516,8 @@ def test_merged_error_mechanisms() -> None:
         assert decoder.decode_batch(syndromes[:0]).shape == (0, 3 + add_erasure_bit)
 
     # matching decoders merge equivalent mechanisms, and decode in batches
-    decoder = retrieval._match_error_decoder_to_dem(decoders.get_decoder_MWPM(dem), dem)
-    assert isinstance(decoder, retrieval._ExpandedDecoder)
+    decoder = retrieval.match_error_decoder_to_dem(decoders.get_decoder_MWPM(dem), dem)
+    assert isinstance(decoder, retrieval.ExpandedErrorDecoder)
     assert decoder.decode_batch(syndromes).shape == (2, 3)
 
 
@@ -450,9 +558,9 @@ def test_reject_prebuilt_decoder() -> None:
     prebuilt = decoders.LookupDecoder(matrix, max_weight=1)
     reason = "the matrix is new"
     for decoder in [None, decoders.lookup_table(max_weight=1), decoders.LookupDecoder]:
-        retrieval._reject_prebuilt_decoder(decoder, reason)
+        retrieval.reject_prebuilt_decoder(decoder, reason)
     with pytest.raises(ValueError, match="cannot be passed as decoder= here because the matrix"):
-        retrieval._reject_prebuilt_decoder(prebuilt, reason)
+        retrieval.reject_prebuilt_decoder(prebuilt, reason)
 
 
 def test_invalid_explicit_decoder_inputs() -> None:
@@ -463,18 +571,18 @@ def test_invalid_explicit_decoder_inputs() -> None:
     )
 
     with pytest.raises(TypeError, match="observable flips rather than errors"):
-        decoders.get_decoder(matrix, decoder=observable)  # type: ignore[arg-type]
+        decoders.get_error_decoder(matrix, decoder=observable)  # type: ignore[arg-type]
 
     def observable_factory(_matrix: object) -> object:
         return observable
 
     with pytest.raises(TypeError, match="predicts observable flips rather than errors"):
-        decoders.get_decoder(
+        decoders.get_error_decoder(
             matrix,
             decoder=observable_factory,  # type: ignore[arg-type]
         )
-    with pytest.raises(TypeError, match="DecoderSpec"):
-        decoders.get_decoder(matrix, decoder=object())  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="decoder must be decoder settings"):
+        decoders.get_error_decoder(matrix, decoder=object())  # type: ignore[arg-type]
 
 
 def test_erasure_bit_request() -> None:
@@ -494,7 +602,7 @@ def test_erasure_bit_request() -> None:
         direct_args = {"max_weight": 2} if decoder_getter is decoders.get_decoder_lookup else {}
         decoder = decoder_getter(matrix, add_erasure_bit=True, **direct_args)
         assert getattr(decoder, "has_erasure_bit", False)
-        decoder = decoders.get_decoder(matrix, decoder=decoder_spec)
+        decoder = decoders.get_error_decoder(matrix, decoder=decoder_spec)
         assert getattr(decoder, "has_erasure_bit", False)
 
     # every decoder that cannot signal erasure rejects direct and routed requests consistently; the
@@ -514,11 +622,7 @@ def test_erasure_bit_request() -> None:
             pytest.warns(DeprecationWarning),
             pytest.raises(ValueError, match=rf"The {decoder_name} decoder cannot signal erasure"),
         ):
-            decoders.get_decoder(
-                matrix,
-                add_erasure_bit=True,
-                **decoder_args,  # type: ignore[arg-type]
-            )
+            decoders.get_decoder(matrix, add_erasure_bit=True, **decoder_args)
         assert decoder_getter(matrix, add_erasure_bit=False)
 
     # BP+OSD is the default for a binary matrix
@@ -548,7 +652,9 @@ def test_decoding() -> None:
     error = np.array([1, 1], dtype=int)
     syndrome = np.array([1, 1, 0], dtype=int)
 
-    assert np.array_equal(error, decoders.decode(matrix, syndrome))  # default, BP+OSD
+    assert np.array_equal(
+        error, decoders.get_error_decoder(matrix).decode(syndrome)
+    )  # default, BP+OSD
     for decoder in [
         decoders.bp_lsd(),
         decoders.bf(),
@@ -558,34 +664,38 @@ def test_decoding() -> None:
         decoders.guf(),
         decoders.lookup_table(max_weight=2),
     ]:
-        assert np.array_equal(error, decoders.decode(matrix, syndrome, decoder=decoder))
+        assert np.array_equal(
+            error, decoders.get_error_decoder(matrix, decoder=decoder).decode(syndrome)
+        )
 
     # default to GUF with non-binary fields
     field = galois.GF(3)
     matrix = matrix.view(field)
     syndrome = syndrome.view(field)
     error = error.view(field)
-    assert np.array_equal(error, decoders.decode(matrix, syndrome))
+    assert np.array_equal(error, decoders.get_error_decoder(matrix).decode(syndrome))
     with pytest.warns(DeprecationWarning, match=r"decoder=decoders\.guf"):
         assert decoders.get_decoder(matrix, max_weight=1)
 
     # decode from a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
     for decoder in [decoders.bp_lsd(), decoders.mwpm(), decoders.ilp(), decoders.guf()]:
-        assert np.array_equal(error, decoders.decode(dem, syndrome, decoder=decoder))
+        assert np.array_equal(
+            error, decoders.get_error_decoder(dem, decoder=decoder).decode(syndrome)
+        )
 
     # a MWPM decoder built from a DEM takes its error weights from that DEM
     with pytest.raises(ValueError, match="Cannot set error weights"):
-        decoders.get_decoder(dem, decoder=decoders.mwpm(weights=[1.0, 1.0]))
+        decoders.get_error_decoder(dem, decoder=decoders.mwpm(weights=[1.0, 1.0]))
 
     # add a non-graphlike error mechanism, which MWPM can ignore upon request
     matrix = np.hstack([matrix, np.ones((3, 1))])
     error = np.concatenate([error, [0]])
     dem.append("error", 0.125, [stim.DemTarget.relative_detector_id(ii) for ii in range(3)])
     with pytest.raises(ValueError, match="non-graphlike error"):
-        decoders.decode(dem, syndrome, decoder=decoders.mwpm())
+        decoders.get_error_decoder(dem, decoder=decoders.mwpm()).decode(syndrome)
     decoder = decoders.mwpm(ignore_non_graphlike_errors=True)
-    assert np.array_equal(error, decoders.decode(dem, syndrome, decoder=decoder))
+    assert np.array_equal(error, decoders.get_error_decoder(dem, decoder=decoder).decode(syndrome))
 
 
 def test_non_graphlike_over_a_field() -> None:
@@ -594,6 +704,8 @@ def test_non_graphlike_over_a_field() -> None:
     syndrome = np.array([1, 0, 0], dtype=int)
 
     with pytest.raises(ValueError, match="column 0 of the parity check matrix addresses 3"):
-        decoders.decode(matrix, syndrome, decoder=decoders.mwpm())
+        decoders.get_error_decoder(matrix, decoder=decoders.mwpm()).decode(syndrome)
     decoder = decoders.mwpm(ignore_non_graphlike_errors=True)
-    assert np.array_equal([0, 1], decoders.decode(matrix, syndrome, decoder=decoder))
+    assert np.array_equal(
+        [0, 1], decoders.get_error_decoder(matrix, decoder=decoder).decode(syndrome)
+    )

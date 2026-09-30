@@ -23,12 +23,14 @@ Do not copy transient project history, machine-specific paths, or local-session 
   Preserve those import paths when moving implementation code.
 - Treat imports from ordinary `qldpc.*` packages as public and keep them working.
   Use a tested `DeprecationWarning` shim for a necessary rename or move rather than breaking an import.
-  For a renamed class or other module-level name, resolve the old name with [`qldpc._util.get_deprecated_alias`](src/qldpc/_util.py) from a module-level `__getattr__`, both in the defining module and in any `__init__.py` that re-exports it, and keep the old name in `__all__`.
-  The old name then refers to the same object as the new one, so `isinstance`, subclassing, and unpickling keep working.
+  For a renamed module-level name, see [`qldpc._util.get_deprecated_alias`](src/qldpc/_util.py).
 - Everything under [`src/qldpc/experimental/`](src/qldpc/experimental/) is explicitly unstable and can change without a deprecation period.
   Do not infer that this weaker guarantee applies elsewhere.
 - Keep complete lists of public symbols in `__all__` and AutoAPI.
   Human-written docs should explain what packages do and show representative tasks, not duplicate a class catalogue.
+- A module should not use a private (underscore-prefixed) name from another module.
+  Needing to do so indicates that the name should be public and documented.
+  A test module may use private names of the module that it tests.
 
 ## Repository map
 
@@ -95,17 +97,10 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 
 ### Decoders
 
-- [`decoders.get_decoder`](src/qldpc/decoders/retrieval.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
-- Configure named error decoders with typed helpers such as `decoders.bp_lsd(...)`, and pass the resulting `DecoderSpec` as `decoder=`.
-  A one-argument custom constructor is also accepted.
-- A prebuilt error decoder is accepted only where the caller knows the matrix being decoded.
-  Reject it with `retrieval._reject_prebuilt_decoder(decoder, reason)` wherever a method decodes a matrix that it constructs, such as an effective check matrix, a window, or a simplified detector error model.
-- Keep error decoders (`ErrorDecoder`: `decode`, syndrome -> inferred error) distinct from observable decoders (`ObservableDecoder`: `decode_observables`, syndrome -> observable flips).
-  A decoder may be both, like `RelayBPDecoder`, but a `decode` method must never return observable flips.
-  Validate the output length of an error decoder against the matrix or detector error model it decodes, as `retrieval._match_error_decoder_to_dem` does.
-- `SinterDecoder` is the Sinter-facing observable decoder.
-  It uses a native observable decoder when a `DecoderSpec` supports one (`DecoderSpec.predicts_observables_natively`), and otherwise converts inferred errors into observable flips; window decoders always need error decoders.
-- Keep each typed helper's options and defaults in sync with the decoder it configures; `retrieval_test.py` checks this.
+- [`decoders.get_error_decoder`](src/qldpc/decoders/retrieval.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
+- Keep error decoders (`decode_errors`, with `decode` as an alias) distinct from observable decoders (`decode_observables`).
+  Code that consumes a user-supplied error decoder coerces it with `decoders.as_error_decoder` and calls `decode_errors`.
+- A method that decodes a matrix it constructs itself must reject prebuilt decoders with `decoders.reject_prebuilt_decoder`.
 - Only decoders that declare erasure support may append an erasure flag.
   They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
 - Detector-error-model decomposition indices and remaps must remain valid after cancellation and simplification.

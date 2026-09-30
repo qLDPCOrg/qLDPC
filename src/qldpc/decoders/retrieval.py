@@ -28,6 +28,9 @@ from .custom import (
     ILPDecoder,
     ObservableDecoder,
     RelayBPDecoder,
+    SupportsDecode,
+    as_error_decoder,
+    batch_decode_errors,
 )
 from .dems import DetectorErrorModelArrays
 from .lookup import LookupDecoder, ObservableLookupDecoder
@@ -57,7 +60,10 @@ class DecoderSpec(Generic[_DecoderT_co]):
 
     def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
         """Build an error decoder for a parity-check matrix or detector error model."""
-        return self._builder(pcm_or_dem, **dict(self._options))
+        return cast(
+            _DecoderT_co,
+            as_error_decoder(self._builder(pcm_or_dem, **dict(self._options)), "A decoder spec"),
+        )
 
     @property
     def predicts_observables_natively(self) -> bool:
@@ -75,7 +81,7 @@ class DecoderSpec(Generic[_DecoderT_co]):
             return _validate_observable_decoder(
                 self._observable_builder(dem, **dict(self._options)), "A decoder spec"
             )
-        return _ErrorsToObservables(_validate_error_decoder(self.build(dem), "A decoder spec"), dem)
+        return ErrorsToObservablesDecoder(self.build(dem), dem)
 
     def __repr__(self) -> str:
         """Show the helper call that reproduces this spec, omitting default options."""
@@ -105,7 +111,7 @@ def _is_default_value(value: object, default: object) -> bool:
 class ErrorDecoderConstructor(Protocol):
     """Callable that builds an error decoder from a matrix or detector error model."""
 
-    def __call__(self, pcm_or_dem: PcmOrDem, /) -> ErrorDecoder:
+    def __call__(self, pcm_or_dem: PcmOrDem, /) -> ErrorDecoder | SupportsDecode:
         """Build an error decoder."""
 
 
@@ -124,12 +130,13 @@ matrix or detector error model that they construct themselves, and so must build
 """
 
 ErrorDecoderInput: TypeAlias = (
-    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | ErrorDecoder | None
+    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | ErrorDecoder | SupportsDecode | None
 )
 """Decoder settings, a decoder constructor, a prebuilt error decoder, or None for the default.
 
 This is accepted by methods that decode a matrix or detector error model that the caller knows, so
-that the caller can prebuild a decoder for it.
+that the caller can prebuild a decoder for it.  A prebuilt error decoder may be any object whose
+decode method returns an inferred error.
 """
 
 DeferredObservableDecoderInput: TypeAlias = (
@@ -147,6 +154,7 @@ ObservableDecoderInput: TypeAlias = (
     | ErrorDecoderConstructor
     | ObservableDecoderConstructor
     | ErrorDecoder
+    | SupportsDecode
     | ObservableDecoder
     | None
 )
@@ -157,10 +165,17 @@ caller knows.  An error decoder is used by converting the errors that it infers 
 flips.
 """
 
-_OBSERVABLE_DECODER_ADVICE = (
-    "Pass error-decoder settings such as decoders.bp_osd(...), or pass the observable decoder where"
-    " one is accepted, such as to decoders.get_observable_decoder or decoders.SinterDecoder"
-)
+# the typed helper that replaces each deprecated with_<NAME> decoder-selection keyword
+_LEGACY_HELPER_NAMES = {
+    "BF": "bf",
+    "BP_LSD": "bp_lsd",
+    "BP_OSD": "bp_osd",
+    "GUF": "guf",
+    "ILP": "ilp",
+    "MWPM": "mwpm",
+    "RBP": "relay_bp",
+    "lookup": "lookup_table",
+}
 
 
 def _decoder_spec(
@@ -174,35 +189,42 @@ def _decoder_spec(
     return DecoderSpec(helper_name, builder, tuple(options.items()), observable_builder)
 
 
-def _is_prebuilt_decoder(decoder: object) -> bool:
+def is_prebuilt_decoder(decoder: object) -> bool:
     """Whether a decoder input is an already-built decoder, rather than settings or a constructor.
 
-    This classification matches the order in which _resolve_decoder interprets a decoder input.
+    A decoder input is prebuilt if it is not a DecoderSpec or a class, and it has a decode_errors,
+    decode, or decode_observables method.  Methods that consume decoder inputs interpret them in the
+    same way.
     """
     return (
         decoder is not None
         and not isinstance(decoder, (DecoderSpec, type))
-        and (hasattr(decoder, "decode") or hasattr(decoder, "decode_observables"))
+        and any(
+            hasattr(decoder, method) for method in ("decode_errors", "decode", "decode_observables")
+        )
     )
 
 
-def _reject_prebuilt_decoder(decoder: object, reason: str) -> None:
+def reject_prebuilt_decoder(decoder: object, reason: str) -> None:
     """Raise an error if given a prebuilt decoder, which cannot be rebuilt for a new matrix.
 
     Args:
-        decoder: A decoder input, as passed to get_decoder.
+        decoder: A decoder input, as passed to get_error_decoder.
         reason: A clause that completes the error message "A prebuilt decoder cannot be passed as
             decoder= here because {reason}.", such as "windows are decoded independently".
     """
-    if _is_prebuilt_decoder(decoder):
+    if is_prebuilt_decoder(decoder):
         raise ValueError(
             f"A prebuilt decoder cannot be passed as decoder= here because {reason}.  Pass decoder"
             " settings such as decoder=decoders.bp_osd(...), or a decoder constructor, instead"
         )
 
 
-def _reject_removed_decoder_args(decoder_args: Mapping[str, object]) -> None:
-    """Raise an error if given a decoder argument that has been removed."""
+def reject_removed_decoder_args(decoder_args: Mapping[str, object]) -> None:
+    """Raise an error if given the static_decoder argument.
+
+    Only the deprecated decoders.get_decoder and decoders.decode accept static_decoder.
+    """
     if "static_decoder" in decoder_args:
         raise TypeError(
             "The static_decoder argument has been removed; pass a prebuilt decoder as decoder="
@@ -210,111 +232,222 @@ def _reject_removed_decoder_args(decoder_args: Mapping[str, object]) -> None:
         )
 
 
-def decode(
-    pcm_or_dem: PcmOrDem,
-    syndrome: npt.NDArray[np.int_],
-    *,
-    decoder: ErrorDecoderInput = None,
-    **decoder_args: object,
-) -> npt.NDArray[np.int_]:
-    """Construct a decoder and decode a syndrome.
+def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None) -> ErrorDecoder:
+    """Build or retrieve a decoder that maps a syndrome to an inferred error.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model.
-        syndrome: The syndrome to decode.
-        decoder: Decoder settings from a helper such as ``decoders.bp_osd(...)``, a prebuilt error
-            decoder, a constructor that builds an error decoder from pcm_or_dem, or None to select
-            the default decoder.  See help(qldpc.decoders.get_decoder).
-        **decoder_args: Deprecated decoder-selection and construction arguments.
+        decoder: One of the following, or None (the default) to select the default decoder:
+
+            - Decoder settings from a helper such as ``decoders.bp_osd(...)``.
+            - A constructor that builds an error decoder from pcm_or_dem.
+            - A prebuilt error decoder for pcm_or_dem, which is returned as is.
+
+            Any object whose decode method returns an inferred error, such as a decoder from the
+            ldpc package, is accepted as an error decoder, and is wrapped to provide decode_errors.
 
     Returns:
-        The inferred error.
-    """
-    error_decoder = _resolve_decoder(pcm_or_dem, decoder, decoder_args)
-    return error_decoder.decode(syndrome)
-
-
-def get_decoder(
-    pcm_or_dem: PcmOrDem,
-    *,
-    decoder: ErrorDecoderInput = None,
-    **decoder_args: object,
-) -> ErrorDecoder:
-    """Build or retrieve an error decoder.
-
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model.
-        decoder: Decoder settings from a helper such as ``decoders.bp_osd(...)``, a prebuilt error
-            decoder, a constructor that builds an error decoder from pcm_or_dem, or None to select
-            the default decoder.  A prebuilt decoder is returned as is, so it must have been built
-            for pcm_or_dem.
-        **decoder_args: Deprecated decoder-selection and construction arguments.
-
-    Returns:
-        An error decoder configured for pcm_or_dem.
+        An error decoder for pcm_or_dem.
 
     If decoder is None, this method defaults to generalized union-find (GUF) for non-binary parity
     check matrices, and BP+OSD otherwise.
-
-    The legacy ``with_<NAME>``, ``decoder_constructor``, and free-form decoder arguments remain
-    available during a deprecation period.  The ``static_decoder`` argument has been removed; pass a
-    prebuilt decoder as ``decoder=`` instead.
     """
-    return _resolve_decoder(pcm_or_dem, decoder, decoder_args)
+    return _build_error_decoder(pcm_or_dem, decoder)
 
 
-def _resolve_decoder(
+def _build_error_decoder(
+    pcm_or_dem: PcmOrDem, decoder: ErrorDecoderInput, *, validate: bool = True
+) -> Any:
+    """Build or retrieve an error decoder.
+
+    If validate is False, return whatever the decoder input builds or is, without checking that it
+    is an error decoder.  The deprecated decoders.get_decoder returns decoders in this way.
+    """
+    built_decoder: object
+    if decoder is None:
+        is_nonbinary = isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2
+        default_getter = get_decoder_GUF if is_nonbinary else get_decoder_BP_OSD
+        built_decoder, source = default_getter(pcm_or_dem), "The default decoder"
+    elif isinstance(decoder, DecoderSpec):
+        built_decoder = decoder._builder(pcm_or_dem, **dict(decoder._options))
+        source = "A decoder spec"
+    elif is_prebuilt_decoder(decoder):
+        built_decoder, source = decoder, "A prebuilt decoder"
+    elif callable(decoder):
+        built_decoder, source = decoder(pcm_or_dem), "A decoder constructor"
+    else:
+        raise TypeError(
+            "decoder must be decoder settings such as decoders.bp_osd(...), a decoder constructor,"
+            " a prebuilt error decoder, or None"
+        )
+    return as_error_decoder(built_decoder, source) if validate else built_decoder
+
+
+def get_decoder(pcm_or_dem: PcmOrDem, **decoder_args: object) -> Any:
+    """Retrieve a decoder (DEPRECATED).
+
+    Use qldpc.decoders.get_error_decoder instead, passing decoder settings as ``decoder=``, such as
+    ``decoders.get_error_decoder(pcm_or_dem, decoder=decoders.bp_lsd(max_iter=30))``.
+
+    This method looks for a keyword "with_<DECODER_NAME>: bool" argument, and returns
+    ``get_decoder_<DECODER_NAME>(pcm_or_dem, **decoder_args)``.  At most one such argument may be
+    truthy.
+
+    This method also recognizes the following keyword arguments for injecting a custom decoder:
+
+    - decoder_constructor: return ``decoder_constructor(pcm_or_dem, **decoder_args)``.
+    - static_decoder: ignore all other arguments and return static_decoder.
+
+    If no decoder is specified, this method defaults to generalized union-find (GUF) for non-binary
+    parity check matrices, and BP+OSD otherwise.  The decoder is returned without checking what it
+    returns from its decode method.
+    """
+    warnings.warn(
+        _get_deprecated_function_message(
+            "decoders.get_decoder",
+            "decoders.get_error_decoder(pcm_or_dem{})",
+            pcm_or_dem,
+            decoder_args,
+        ),
+        DeprecationWarning,
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    return _get_legacy_decoder(pcm_or_dem, decoder_args)
+
+
+def decode(
+    pcm_or_dem: PcmOrDem, syndrome: npt.NDArray[np.int_], **decoder_args: object
+) -> npt.NDArray[np.int_]:
+    """Construct a decoder and decode a syndrome (DEPRECATED).
+
+    Build a decoder with qldpc.decoders.get_error_decoder instead, and call its decode method.
+
+    This method builds a decoder with the deprecated keyword arguments that
+    qldpc.decoders.get_decoder accepts, and returns the result of decoding the syndrome.
+    """
+    warnings.warn(
+        _get_deprecated_function_message(
+            "decoders.decode",
+            "decoders.get_error_decoder(pcm_or_dem{}).decode(syndrome)",
+            pcm_or_dem,
+            decoder_args,
+        ),
+        DeprecationWarning,
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    return _get_legacy_decoder(pcm_or_dem, decoder_args).decode(syndrome)
+
+
+def _get_legacy_decoder(pcm_or_dem: PcmOrDem, decoder_args: Mapping[str, object]) -> Any:
+    """Build a decoder with the deprecated keyword-based API, as decoders.get_decoder did."""
+    decoder_input = _get_legacy_decoder_input(pcm_or_dem, decoder_args)
+    return _build_error_decoder(pcm_or_dem, decoder_input, validate=False)
+
+
+def _get_legacy_decoder_input(
+    pcm_or_dem: PcmOrDem, decoder_args: Mapping[str, object]
+) -> ErrorDecoderInput:
+    """Translate deprecated decoder-selection and construction arguments into a decoder input."""
+    decoder_args = dict(decoder_args)
+
+    # optionally inject a decoder constructor
+    if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
+        if not callable(decoder_constructor):
+            raise TypeError("The decoder_constructor argument must be callable")
+        return functools.partial(decoder_constructor, **decoder_args)
+
+    # optionally inject a static decoder, which admits no other arguments
+    if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
+        if decoder_args:
+            raise ValueError("If passed a static decoder, we cannot process decoding arguments")
+        return cast(ErrorDecoderInput, static_decoder)
+
+    # look for a recognized decoder, consuming every request
+    decoder_names = [
+        name for name in DECODER_CONSTRUCTORS if decoder_args.pop(f"with_{name}", False)
+    ]
+    if len(decoder_names) > 1:
+        raise ValueError(
+            "Only one decoder can be requested at a time, but received requests for: "
+            + ", ".join(decoder_names)
+        )
+    if decoder_names:
+        (decoder_name,) = decoder_names
+    elif isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
+        decoder_name = "GUF"  # use GUF by default for codes over non-binary fields
+    else:
+        decoder_name = "BP_OSD"  # use BP+OSD by default otherwise
+
+    # the decoder getters accept free-form decoder options, which a typed helper might not
+    return _decoder_spec(
+        _LEGACY_HELPER_NAMES[decoder_name], DECODER_CONSTRUCTORS[decoder_name], **decoder_args
+    )
+
+
+def resolve_decoder(
     pcm_or_dem: PcmOrDem,
     decoder: ErrorDecoderInput,
-    decoder_args: dict[str, object],
+    decoder_args: Mapping[str, object],
     *,
     warn_deprecated: bool = True,
 ) -> ErrorDecoder:
-    """Resolve an error decoder, optionally suppressing a warning emitted by an outer API."""
-    _reject_removed_decoder_args(decoder_args)
+    """Build an error decoder from a decoder input, or from deprecated keyword arguments.
+
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model.
+        decoder: Decoder settings, a decoder constructor, a prebuilt error decoder, or None to
+            select the default decoder.
+        decoder_args: Deprecated keyword-based decoder options forwarded by a compatibility API.
+        warn_deprecated: Whether to warn when decoder_args is nonempty.  Set this to False only when
+            the calling API has already emitted its own deprecation warning.
+
+    Returns:
+        An error decoder for pcm_or_dem.
+
+    This function supports high-level APIs that accept deprecated keyword-based decoder options.
+    New APIs that accept only ``decoder=`` should call :func:`get_error_decoder`.
+    """
+    decoder = _merge_legacy_decoder_args(
+        pcm_or_dem, decoder, decoder_args, warn_deprecated=warn_deprecated
+    )
+    return cast(ErrorDecoder, _build_error_decoder(pcm_or_dem, decoder))
+
+
+def _merge_legacy_decoder_args(
+    pcm_or_dem: PcmOrDem,
+    decoder: ErrorDecoderInput,
+    decoder_args: Mapping[str, object],
+    *,
+    warn_deprecated: bool = True,
+) -> ErrorDecoderInput:
+    """Translate deprecated keyword arguments, if any, into the decoder input that replaces them.
+
+    Deprecated keyword arguments emit a DeprecationWarning, unless warn_deprecated is False because
+    an outer API has already warned about them.  They cannot be combined with a decoder input.
+    """
+    reject_removed_decoder_args(decoder_args)
+    if not decoder_args:
+        return decoder
     if decoder is not None:
-        if decoder_args:
-            raise ValueError(
-                "Cannot combine decoder= with deprecated decoder-selection or construction arguments"
-            )
-        if _predicts_only_observables(decoder):
-            raise TypeError(
-                "decoder predicts observable flips rather than errors.  "
-                + _OBSERVABLE_DECODER_ADVICE
-            )
-        if isinstance(decoder, DecoderSpec):
-            return _validate_error_decoder(decoder.build(pcm_or_dem), "A decoder spec")
-        if isinstance(decoder, type):
-            return _validate_error_decoder(decoder(pcm_or_dem), "A decoder constructor")
-        if hasattr(decoder, "decode"):
-            return _validate_error_decoder(decoder, "A static decoder")
-        if callable(decoder):
-            return _validate_error_decoder(decoder(pcm_or_dem), "A decoder constructor")
-        raise TypeError(
-            "decoder must be a DecoderSpec, an error decoder, a decoder constructor, or None"
+        raise ValueError(
+            "Cannot combine decoder= with deprecated decoder-selection or construction arguments"
         )
-
-    if decoder_args:
-        if warn_deprecated:
-            warnings.warn(
-                _get_legacy_decoder_migration_message(pcm_or_dem, decoder_args),
-                DeprecationWarning,
-                stacklevel=get_external_caller_stacklevel(),
-            )
-        return _get_legacy_decoder(pcm_or_dem, decoder_args)
-
-    if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
-        return get_decoder_GUF(pcm_or_dem)
-    return get_decoder_BP_OSD(pcm_or_dem)
+    if warn_deprecated:
+        warnings.warn(
+            get_legacy_decoder_migration_message(pcm_or_dem, decoder_args),
+            DeprecationWarning,
+            stacklevel=get_external_caller_stacklevel(),
+        )
+    return _get_legacy_decoder_input(pcm_or_dem, decoder_args)
 
 
-def _get_legacy_decoder_migration_message(
+def _get_legacy_decoder_replacement(
     pcm_or_dem: PcmOrDem | None,
     decoder_args: Mapping[str, object],
     *,
     argument_name: str = "decoder",
 ) -> str:
-    """Describe the typed replacement for one legacy decoder request.
+    """The argument that replaces deprecated decoder arguments, such as "decoder=decoders.bf(...)".
 
     Args:
         pcm_or_dem: The matrix or detector error model to decode, if known, which determines the
@@ -323,77 +456,91 @@ def _get_legacy_decoder_migration_message(
         argument_name: The name of the argument that replaces decoder_args, such as "decoder" or
             "decoder_x".
     """
+    if (decoder_constructor := decoder_args.get("decoder_constructor")) is not None:
+        constructor_name = getattr(decoder_constructor, "__name__", "MyDecoder")
+        return f"{argument_name}={constructor_name}"
+    if decoder_args.get("static_decoder") is not None:
+        return f"{argument_name}=static_decoder"
+    selected = [name for name in DECODER_CONSTRUCTORS if decoder_args.get(f"with_{name}", False)]
+    if len(selected) == 1:
+        helper_name = _LEGACY_HELPER_NAMES[selected[0]]
+    elif isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
+        helper_name = "guf"
+    else:
+        helper_name = "bp_osd"
+    return f"{argument_name}=decoders.{helper_name}(...)"
+
+
+def get_legacy_decoder_migration_message(
+    pcm_or_dem: PcmOrDem | None,
+    decoder_args: Mapping[str, object],
+    *,
+    argument_name: str = "decoder",
+) -> str:
+    """Describe the typed replacement for deprecated decoder arguments of a method.
+
+    Args:
+        pcm_or_dem: The matrix or detector error model to decode, if known, which determines the
+            default decoder.
+        decoder_args: The deprecated decoder-selection and construction arguments.
+        argument_name: The name of the argument that replaces decoder_args, such as "decoder" or
+            "decoder_x".
+    """
+    replacement = _get_legacy_decoder_replacement(
+        pcm_or_dem, decoder_args, argument_name=argument_name
+    )
     if decoder_args.get("decoder_constructor") is not None:
         return (
-            f"The decoder_constructor keyword is deprecated; pass the constructor as {argument_name}="
-            f" instead, for example {argument_name}=MyDecoder"
+            "The decoder_constructor keyword is deprecated; pass the constructor as"
+            f" {argument_name}= instead, for example {replacement}"
         )
     if decoder_args.get("predict_observable_flips"):
         return (
             "predict_observable_flips=True is deprecated; construct an ObservableLookupDecoder"
             " directly and call decode_observables(...) instead"
         )
-
-    helper_names = {
-        "BF": "bf",
-        "BP_LSD": "bp_lsd",
-        "BP_OSD": "bp_osd",
-        "GUF": "guf",
-        "ILP": "ilp",
-        "MWPM": "mwpm",
-        "RBP": "relay_bp",
-        "lookup": "lookup_table",
-    }
     selected = [name for name in DECODER_CONSTRUCTORS if decoder_args.get(f"with_{name}", False)]
     if len(selected) == 1:
-        old_name = f"with_{selected[0]}"
-        helper_name = helper_names[selected[0]]
         return (
-            f"The {old_name} keyword and free-form decoder options are deprecated; use"
-            f" {argument_name}=decoders.{helper_name}(...) instead"
+            f"The with_{selected[0]} keyword and free-form decoder options are deprecated; use"
+            f" {replacement} instead"
         )
     if len(selected) > 1:
         return (
             "The with_<NAME> decoder-selection keywords are deprecated; pass exactly one typed"
             f" decoder specification such as {argument_name}=decoders.bp_osd(...) instead"
         )
-
-    helper_name = (
-        "guf"
-        if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2
-        else "bp_osd"
-    )
-    return (
-        "Passing free-form decoder options is deprecated; move them into"
-        f" {argument_name}=decoders.{helper_name}(...) instead"
-    )
+    return f"Passing free-form decoder options is deprecated; move them into {replacement} instead"
 
 
-def _predicts_only_observables(decoder: object) -> bool:
-    """Whether a prebuilt decoder predicts observable flips, and cannot infer errors.
+def _get_deprecated_function_message(
+    function_name: str,
+    replacement_template: str,
+    pcm_or_dem: PcmOrDem,
+    decoder_args: Mapping[str, object],
+) -> str:
+    """Describe the replacement for a call to a deprecated function that builds a decoder.
 
-    An object can infer errors if it has a decode method, unless it declares (with the private
-    _decode_returns_observables attribute) that its decode method returns observable flips, as the
-    deprecated LookupDecoder(..., predict_observable_flips=True) does.
+    Args:
+        function_name: The name of the deprecated function, such as "decoders.get_decoder".
+        replacement_template: The replacing call, with a "{}" in place of any decoder argument.
+        pcm_or_dem: The matrix or detector error model to decode, which determines the default
+            decoder.
+        decoder_args: The deprecated decoder-selection and construction arguments of the call.
     """
-    if getattr(decoder, "_decode_returns_observables", False):
-        return True
-    return (
-        not isinstance(decoder, (DecoderSpec, type))
-        and hasattr(decoder, "decode_observables")
-        and not hasattr(decoder, "decode")
+    decoder_argument = (
+        ", " + _get_legacy_decoder_replacement(pcm_or_dem, decoder_args) if decoder_args else ""
     )
-
-
-def _validate_error_decoder(decoder: object, source: str) -> ErrorDecoder:
-    """Validate and type-narrow an object expected to decode syndromes to errors."""
-    if _predicts_only_observables(decoder):
-        raise TypeError(
-            f"{source} predicts observable flips rather than errors.  " + _OBSERVABLE_DECODER_ADVICE
+    message = (
+        f"{function_name} is deprecated; use {replacement_template.format(decoder_argument)}"
+        " instead"
+    )
+    if decoder_args.get("predict_observable_flips"):
+        message += (
+            ".  To predict observable flips, construct an ObservableLookupDecoder directly and call"
+            " decode_observables(...)"
         )
-    if not hasattr(decoder, "decode") or not callable(decoder.decode):
-        raise TypeError(f"{source} must provide a callable decode method")
-    return cast(ErrorDecoder, decoder)
+    return message
 
 
 def _validate_observable_decoder(decoder: object, source: str) -> ObservableDecoder:
@@ -403,24 +550,7 @@ def _validate_observable_decoder(decoder: object, source: str) -> ObservableDeco
     return cast(ObservableDecoder, decoder)
 
 
-def _decode_error_batch(
-    decoder: ErrorDecoder, syndromes: npt.NDArray[np.int_]
-) -> npt.NDArray[np.int_]:
-    """Decode a batch of syndromes, one per row, and return inferred errors, one per row.
-
-    The inferred errors form a two-dimensional array even if the batch is empty.
-    """
-    syndromes = np.asarray(syndromes)
-    if hasattr(decoder, "decode_batch"):
-        return np.asarray(decoder.decode_batch(syndromes))
-    if len(syndromes) == 0:
-        # decode a trivial syndrome to identify the length of an inferred error
-        test_error = decoder.decode(np.zeros(syndromes.shape[1], dtype=syndromes.dtype))
-        return np.zeros((0, len(test_error)), dtype=np.asarray(test_error).dtype)
-    return np.array([decoder.decode(syndrome) for syndrome in syndromes])
-
-
-class _ExpandedDecoder(ErrorDecoder):
+class ExpandedErrorDecoder(BatchErrorDecoder):
     """Wrapper for a decoder, to map decoded errors in a simplified DEM to errors in the full DEM.
 
     A decoder that merges equivalent error mechanisms infers fewer errors than the DEM it was built
@@ -450,8 +580,9 @@ class _ExpandedDecoder(ErrorDecoder):
             dtype=np.intp,
         )
 
-    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        simplified_error = self._decoder.decode(syndrome)
+    def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error of the full DEM."""
+        simplified_error = self._decoder.decode_errors(syndrome)
         original_error = np.zeros(
             self._num_original_errors + self.has_erasure_bit, dtype=syndrome.dtype
         )
@@ -461,8 +592,9 @@ class _ExpandedDecoder(ErrorDecoder):
         original_error[self._simplified_to_original_index] = simplified_error
         return np.asarray(original_error, dtype=syndrome.dtype)
 
-    def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        simplified_errors = _decode_error_batch(self._decoder, syndromes)
+    def decode_errors_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of error syndromes and return inferred errors of the full DEM."""
+        simplified_errors = batch_decode_errors(self._decoder, syndromes)
         original_errors = np.zeros(
             (len(syndromes), self._num_original_errors + self.has_erasure_bit),
             dtype=syndromes.dtype,
@@ -474,18 +606,7 @@ class _ExpandedDecoder(ErrorDecoder):
         return original_errors
 
 
-def _reject_observable_output(decoder: object) -> None:
-    """Reject a decoder whose .decode method returns observable flips rather than errors."""
-    if getattr(decoder, "_decode_returns_observables", False):
-        raise ValueError(
-            "The decoder returns observable flips rather than errors from its decode method, so it"
-            " must predict errors rather than observable flips.  " + _OBSERVABLE_DECODER_ADVICE
-        )
-
-
-def _match_error_decoder_to_dem(
-    decoder: ErrorDecoder, dem: stim.DetectorErrorModel
-) -> ErrorDecoder:
+def match_error_decoder_to_dem(decoder: ErrorDecoder, dem: stim.DetectorErrorModel) -> ErrorDecoder:
     """Check that an error decoder infers errors of a detector error model, and align them with it.
 
     A decoder that merges equivalent error mechanisms infers fewer errors than the detector error
@@ -494,7 +615,6 @@ def _match_error_decoder_to_dem(
     any other width is rejected, since it cannot be read as an error of the model.  This happens,
     for example, if the decoder predicts observable flips rather than errors.
     """
-    _reject_observable_output(decoder)
     if getattr(decoder, "_infers_decomposed_errors", False):
         raise ValueError(
             "The error decoder infers errors in the components of decomposed error mechanisms,"
@@ -504,14 +624,14 @@ def _match_error_decoder_to_dem(
             " observable flips natively"
         )
     num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
-    test_error = decoder.decode(np.zeros(dem.num_detectors, dtype=int))
+    test_error = decoder.decode_errors(np.zeros(dem.num_detectors, dtype=int))
     num_inferred_errors = len(test_error) - num_erasure_bits
     circuit_errors = DetectorErrorModelArrays.get_circuit_errors(dem)
     num_merged_errors = len(DetectorErrorModelArrays.get_merged_circuit_errors(circuit_errors))
     if num_inferred_errors == len(circuit_errors):
         return decoder
     if num_inferred_errors == num_merged_errors:
-        return _ExpandedDecoder(decoder, dem)
+        return ExpandedErrorDecoder(decoder, dem)
     raise ValueError(
         f"An error decoder inferred an error of length {num_inferred_errors} for a detector error"
         f" model with {len(circuit_errors)} error mechanisms ({num_merged_errors} after merging"
@@ -520,7 +640,7 @@ def _match_error_decoder_to_dem(
     )
 
 
-class _ErrorsToObservables(ObservableDecoder):
+class ErrorsToObservablesDecoder(ObservableDecoder):
     """Observable decoder that converts errors that an error decoder infers into observable flips.
 
     If the error decoder signals erasure, its erasure bit is appended to each prediction.
@@ -528,7 +648,7 @@ class _ErrorsToObservables(ObservableDecoder):
 
     def __init__(self, error_decoder: ErrorDecoder, dem: stim.DetectorErrorModel) -> None:
         self.error_decoder = error_decoder
-        self._aligned_error_decoder = _match_error_decoder_to_dem(error_decoder, dem)
+        self._aligned_error_decoder = match_error_decoder_to_dem(error_decoder, dem)
         self.has_erasure_bit = bool(getattr(error_decoder, "has_erasure_bit", False))
         self.observable_flip_matrix = DetectorErrorModelArrays(
             dem, simplify=False
@@ -540,7 +660,7 @@ class _ErrorsToObservables(ObservableDecoder):
 
     def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes, one per row, and return predicted observable flips."""
-        errors = _decode_error_batch(self._aligned_error_decoder, syndromes)
+        errors = batch_decode_errors(self._aligned_error_decoder, syndromes)
         erasure_bits = errors[:, -1:] if self.has_erasure_bit else errors[:, :0]
         errors = errors[:, : errors.shape[1] - erasure_bits.shape[1]]
         flips = np.asarray(errors @ self.observable_flip_matrix.T) % 2
@@ -583,6 +703,8 @@ def get_observable_decoder(
             - A prebuilt error decoder or observable decoder for dem.
 
             An error decoder is used by converting the errors that it infers into observable flips.
+            Any object whose decode method returns an inferred error, such as a decoder from the
+            ldpc package, is accepted as an error decoder.
 
     Returns:
         An observable decoder for dem.
@@ -590,69 +712,51 @@ def get_observable_decoder(
     If decoder is None, this method defaults to BP+OSD, whose inferred errors are converted into
     observable flips.
     """
-    return _get_observable_decoder(dem, decoder, {})
+    return resolve_observable_decoder(dem, decoder, {})
 
 
-def _get_observable_decoder(
+def resolve_observable_decoder(
     dem: stim.DetectorErrorModel,
     decoder: ObservableDecoderInput,
-    decoder_args: dict[str, object],
+    decoder_args: Mapping[str, object],
     *,
     warn_deprecated: bool = True,
 ) -> ObservableDecoder:
-    """Build an observable decoder, optionally suppressing a warning emitted by an outer API."""
-    if isinstance(decoder, DecoderSpec) and not decoder_args:
+    """Build an observable decoder from a decoder input, or from deprecated keyword arguments.
+
+    Args:
+        dem: A detector error model.
+        decoder: Decoder settings, a constructor or prebuilt instance of an error or observable
+            decoder, or None to select the default decoder.  See
+            help(qldpc.decoders.get_observable_decoder).
+        decoder_args: Deprecated keyword-based decoder options forwarded by a compatibility API.
+        warn_deprecated: Whether to warn when decoder_args is nonempty.  Set this to False only when
+            the calling API has already emitted its own deprecation warning.
+
+    Returns:
+        An observable decoder for dem.
+
+    This function supports high-level APIs that accept deprecated keyword-based decoder options.
+    New APIs that accept only ``decoder=`` should call :func:`get_observable_decoder`.
+    """
+    if decoder_args:
+        # deprecated keyword arguments build a decoder, which may predict observable flips natively
+        decoder = _merge_legacy_decoder_args(
+            dem, cast(ErrorDecoderInput, decoder), decoder_args, warn_deprecated=warn_deprecated
+        )
+    elif isinstance(decoder, DecoderSpec):
         return decoder.build_observable_decoder(dem)
 
     # build or retrieve a decoder, which may predict observable flips or infer errors
-    built_decoder: object = decoder
-    if decoder_args or decoder is None:
-        built_decoder = _resolve_decoder(
-            dem, cast(ErrorDecoderInput, decoder), decoder_args, warn_deprecated=warn_deprecated
-        )
-    elif isinstance(decoder, type) or not (
-        hasattr(decoder, "decode") or hasattr(decoder, "decode_observables")
-    ):
-        if not callable(decoder):
-            raise TypeError(
-                "decoder must be a DecoderSpec, a decoder constructor, a prebuilt decoder, or None"
-            )
-        built_decoder = decoder(dem)
+    built_decoder = (
+        decoder
+        if is_prebuilt_decoder(decoder)
+        else _build_error_decoder(dem, cast(ErrorDecoderInput, decoder), validate=False)
+    )
 
     if hasattr(built_decoder, "decode_observables"):
         return _validate_observable_decoder(built_decoder, "A decoder")
-    _reject_observable_output(built_decoder)
-    return _ErrorsToObservables(_validate_error_decoder(built_decoder, "A decoder"), dem)
-
-
-def _get_legacy_decoder(pcm_or_dem: PcmOrDem, decoder_args: dict[str, object]) -> ErrorDecoder:
-    """Support the deprecated keyword-based decoder API."""
-    # optionally inject a decoder constructor
-    if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
-        if not callable(decoder_constructor):
-            raise TypeError("The decoder_constructor argument must be callable")
-        return _validate_error_decoder(
-            decoder_constructor(pcm_or_dem, **decoder_args), "A decoder constructor"
-        )
-
-    # look for and construct a recognized decoder, consuming every request
-    decoder_names = [
-        name for name in DECODER_CONSTRUCTORS if decoder_args.pop(f"with_{name}", False)
-    ]
-    if len(decoder_names) > 1:
-        raise ValueError(
-            "Only one decoder can be requested at a time, but received requests for: "
-            + ", ".join(decoder_names)
-        )
-    if decoder_names:
-        return DECODER_CONSTRUCTORS[decoder_names[0]](pcm_or_dem, **decoder_args)
-
-    # use GUF by default for codes over non-binary fields
-    if isinstance(pcm_or_dem, galois.FieldArray) and type(pcm_or_dem).order != 2:
-        return DECODER_CONSTRUCTORS["GUF"](pcm_or_dem, **decoder_args)
-
-    # use BP+OSD by default otherwise
-    return DECODER_CONSTRUCTORS["BP_OSD"](pcm_or_dem, **decoder_args)
+    return ErrorsToObservablesDecoder(as_error_decoder(built_decoder, "A decoder"), dem)
 
 
 def _erasure_bit_support(
@@ -709,7 +813,8 @@ def get_decoder_BP_OSD(
         **decoder_args: Additional keyword arguments passed to ldpc.BpOsdDecoder.
 
     Returns:
-        A decoder constructed by the ldpc package.
+        A qldpc.decoders.adapters.BpOsdDecoder, which is an ldpc.BpOsdDecoder that also provides
+        the decode_errors method of an ErrorDecoder.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -719,10 +824,10 @@ def get_decoder_BP_OSD(
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2005.07016
     """
-    import ldpc
+    from . import adapters
 
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return ldpc.BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
+    return adapters.BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
 @_erasure_bit_support(False)
@@ -747,7 +852,8 @@ def get_decoder_BP_LSD(
         **decoder_args: Additional keyword arguments passed to ldpc.bplsd_decoder.BpLsdDecoder.
 
     Returns:
-        A decoder constructed by the ldpc package.
+        A qldpc.decoders.adapters.BpLsdDecoder, which is an ldpc.bplsd_decoder.BpLsdDecoder that
+        also provides the decode_errors method of an ErrorDecoder.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -757,10 +863,10 @@ def get_decoder_BP_LSD(
     - Documentation: https://software.roffe.eu/ldpc/quantum_decoder.html
     - Reference: https://arxiv.org/abs/2406.18655
     """
-    import ldpc
+    from . import adapters
 
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return ldpc.bplsd_decoder.BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
+    return adapters.BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
 @_erasure_bit_support(False)
@@ -785,7 +891,8 @@ def get_decoder_BF(
         **decoder_args: Additional keyword arguments passed to ldpc.BeliefFindDecoder.
 
     Returns:
-        A decoder constructed by the ldpc package.
+        A qldpc.decoders.adapters.BeliefFindDecoder, which is an ldpc.BeliefFindDecoder that also
+        provides the decode_errors method of an ErrorDecoder.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -799,10 +906,10 @@ def get_decoder_BF(
       - https://arxiv.org/abs/2103.08049
       - https://arxiv.org/abs/2209.01180
     """
-    import ldpc
+    from . import adapters
 
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return ldpc.BeliefFindDecoder(pcm, error_channel=error_channel, **decoder_args)
+    return adapters.BeliefFindDecoder(pcm, error_channel=error_channel, **decoder_args)
 
 
 def _to_ldpc_inputs(
@@ -840,7 +947,9 @@ def get_decoder_MWPM(
             pymatching.Matching.from_check_matrix.
 
     Returns:
-        A decoder constructed by pymatching.Matching.from_check_matrix.
+        A qldpc.decoders.adapters.Matching, which is a pymatching.Matching (built as by
+        pymatching.Matching.from_check_matrix) that also provides the decode_errors method of an
+        ErrorDecoder.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -853,13 +962,14 @@ def get_decoder_MWPM(
     errors in the resulting components rather than in the model's error mechanisms, so its inferred
     errors cannot be converted into observable flips of the model.
     """
-    return _build_matching(
+    matching = _build_matching(
         pcm_or_dem,
         decompose_errors=decompose_errors,
         ignore_non_graphlike_errors=ignore_non_graphlike_errors,
         predict_observables=False,
         **decoder_args,
     )
+    return cast(BatchErrorDecoder, matching)
 
 
 def _build_matching(
@@ -870,7 +980,11 @@ def _build_matching(
     predict_observables: bool,
     **decoder_args: object,
 ) -> Any:
-    """Build a pymatching.Matching, which predicts errors or (from a DEM) observable flips."""
+    """Build a pymatching.Matching, which predicts errors or (from a DEM) observable flips.
+
+    A matching decoder that predicts errors is a qldpc.decoders.adapters.Matching, which is also an
+    ErrorDecoder.
+    """
     # identify parity check matrix and error probabilities
     infers_decomposed_errors = False
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
@@ -909,10 +1023,13 @@ def _build_matching(
             " you can try 'ignore_non_graphlike_errors=True'"
         )
 
-    # retrieve a matching decoder from pymatching
+    # build a matching decoder, as pymatching.Matching.from_check_matrix does
     import pymatching
 
-    matching = pymatching.Matching.from_check_matrix(pcm, **decoder_args)
+    from . import adapters
+
+    matching = pymatching.Matching() if predict_observables else adapters.Matching()
+    matching.load_from_check_matrix(pcm, **decoder_args)
     if infers_decomposed_errors:
         matching._infers_decomposed_errors = True
     return matching
@@ -1017,15 +1134,8 @@ def get_decoder_lookup(
 def _get_observable_lookup_decoder(
     dem: stim.DetectorErrorModel, **decoder_args: object
 ) -> ObservableDecoder:
-    """Build a lookup table that maps syndromes of a detector error model to observable flips.
-
-    An ObservableLookupDecoder groups errors by the observables that they flip, which requires
-    observables.  Without them, every error flips no observables, so fall back to an error lookup
-    table, whose inferred errors are converted into (empty) observable flips.
-    """
-    if dem.num_observables == 0:
-        return _ErrorsToObservables(get_decoder_lookup(dem, **decoder_args), dem)
-    return ObservableLookupDecoder(dem, **decoder_args)  # type:ignore[arg-type]
+    """Build a lookup table that maps syndromes of a detector error model to observable flips."""
+    return ObservableLookupDecoder(dem, **decoder_args)  # type:ignore[call-overload]
 
 
 @_erasure_bit_support(True)
