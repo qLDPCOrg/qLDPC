@@ -9,19 +9,11 @@ from .common import (
     with_erasure_bits,
 )
 from .custom import (
-    BatchErrorDecoder,
-    BatchObservableDecoder,
     CompositeDecoder,
     DirectDecoder,
-    ErrorDecoder,
     GUFDecoder,
     ILPDecoder,
-    ObservableDecoder,
     RelayBPDecoder,
-    SupportsDecode,
-    WrappedErrorDecoder,
-    as_error_decoder,
-    batch_decode_errors,
 )
 from .dems import (
     DetectorErrorModelArrays,
@@ -32,6 +24,17 @@ from .lookup import (
     ObservableLookupDecoder,
     WeightedLookupDecoder,
     WeightedObservableLookupDecoder,
+)
+from .protocols import (
+    BatchErrorDecoder,
+    BatchObservableDecoder,
+    ErrorDecoder,
+    ObservableDecoder,
+    SupportsDecode,
+    WrappedErrorDecoder,
+    as_error_decoder,
+    batch_decode_errors,
+    supports_batch_decoding,
 )
 from .retrieval import (
     DecoderSpec,
@@ -160,6 +163,7 @@ __all__ = [
     "relay_bp",
     "resolve_decoder",
     "resolve_observable_decoder",
+    "supports_batch_decoding",
     "with_erasure_bits",
 ]
 

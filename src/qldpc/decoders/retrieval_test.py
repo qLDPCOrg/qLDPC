@@ -59,7 +59,7 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
         IncompleteDecoder().decode_errors(syndrome)
 
     # injected decoders are validated, which must survive `python -O`
-    with pytest.raises(TypeError, match="callable decode_errors or decode method"):
+    with pytest.raises(TypeError, match="must be an ErrorDecoder, or have a decode method"):
         decoders.get_error_decoder(matrix, decoder=lambda _: 0)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="decoder must be decoder settings"):
         decoders.get_error_decoder(matrix, decoder=0)  # type: ignore[arg-type]
@@ -475,7 +475,7 @@ def test_observable_decoder_inputs() -> None:
         return object()
 
     spec = decoders.DecoderSpec("custom", decoders.get_decoder_lookup, (), build_invalid_decoder)
-    with pytest.raises(TypeError, match="must provide a callable decode_observables method"):
+    with pytest.raises(TypeError, match="must provide a decode_observables method"):
         spec.build_observable_decoder(dem)
 
 

@@ -9,7 +9,7 @@ import itertools
 import pathlib
 import warnings
 from collections.abc import Callable, Collection, Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -18,13 +18,11 @@ import stim
 
 from qldpc._util import get_deprecated_alias, get_external_caller_stacklevel
 
-from .custom import ObservableDecoder, as_error_decoder, batch_decode_errors
 from .dems import DetectorErrorModelArrays
+from .protocols import ErrorDecoder, ObservableDecoder, as_error_decoder, batch_decode_errors
 from .retrieval import (
     DeferredErrorDecoderInput,
     DeferredObservableDecoderInput,
-    ErrorDecoder,
-    ErrorDecoderInput,
     ErrorsToObservablesDecoder,
     get_legacy_decoder_migration_message,
     match_error_decoder_to_dem,
@@ -239,9 +237,8 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         if isinstance(decoder, ErrorsToObservablesDecoder):
             # expose the error decoder that the converter wraps
             self.decoder, self.observable_decoder = decoder.error_decoder, decoder
-        elif hasattr(decoder, "decode_observables"):
-            self.decoder = decoder
-            self.observable_decoder = cast(ObservableDecoder, decoder)
+        elif isinstance(decoder, ObservableDecoder):
+            self.decoder = self.observable_decoder = decoder
         else:
             self.decoder = decoder
             self.observable_decoder = ErrorsToObservablesDecoder(
@@ -635,6 +632,9 @@ class SequentialWindowDecoder(SinterDecoder):
         "a SequentialWindowDecoder builds a new error decoder for each window"
     )
 
+    # the __init__ method of a window decoder only accepts inputs for error decoders
+    decoder_input: DeferredErrorDecoderInput
+
     def __init__(
         self,
         detection_regions: Sequence[Collection[int]],
@@ -721,8 +721,7 @@ class SequentialWindowDecoder(SinterDecoder):
             window_dem = window_dem_arrays.to_dem()
             window_decoder = resolve_decoder(
                 window_dem,
-                # the __init__ method of a window decoder only accepts inputs for error decoders
-                cast(ErrorDecoderInput, self.decoder_input),
+                self.decoder_input,
                 self.decoder_kwargs.copy(),
                 warn_deprecated=False,
             )

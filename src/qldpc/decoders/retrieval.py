@@ -18,7 +18,6 @@ from typing import (
     Protocol,
     TypeAlias,
     TypeVar,
-    cast,
 )
 
 import galois
@@ -30,20 +29,17 @@ import stim
 from qldpc._util import format_docstring, get_deprecated_alias, get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
-from .custom import (
-    PLACEHOLDER_ERROR_RATE,
+from .custom import PLACEHOLDER_ERROR_RATE, GUFDecoder, ILPDecoder, RelayBPDecoder
+from .dems import DetectorErrorModelArrays
+from .lookup import LookupDecoder, ObservableLookupDecoder
+from .protocols import (
     BatchErrorDecoder,
     ErrorDecoder,
-    GUFDecoder,
-    ILPDecoder,
     ObservableDecoder,
-    RelayBPDecoder,
     SupportsDecode,
     as_error_decoder,
     batch_decode_errors,
 )
-from .dems import DetectorErrorModelArrays
-from .lookup import LookupDecoder, ObservableLookupDecoder
 
 _Parameters = ParamSpec("_Parameters")
 _Decoder = TypeVar("_Decoder", bound=ErrorDecoder)
@@ -70,10 +66,7 @@ class DecoderSpec(Generic[_DecoderT_co]):
 
     def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
         """Build an error decoder for a parity-check matrix or detector error model."""
-        return cast(
-            _DecoderT_co,
-            as_error_decoder(self._builder(pcm_or_dem, **dict(self._options)), "A decoder spec"),
-        )
+        return self._builder(pcm_or_dem, **dict(self._options))
 
     @property
     def predicts_observables_natively(self) -> bool:
@@ -262,16 +255,14 @@ def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None
     If decoder is None, this method defaults to generalized union-find (GUF) for non-binary parity
     check matrices, and BP+OSD otherwise.
     """
-    return _build_error_decoder(pcm_or_dem, decoder)
+    return as_error_decoder(*_build_decoder(pcm_or_dem, decoder))
 
 
-def _build_error_decoder(
-    pcm_or_dem: PcmOrDem, decoder: ErrorDecoderInput, *, validate: bool = True
-) -> Any:
-    """Build or retrieve an error decoder.
+def _build_decoder(pcm_or_dem: PcmOrDem, decoder: ObservableDecoderInput) -> tuple[object, str]:
+    """Build or retrieve a decoder from a decoder input, without checking what kind it is.
 
-    If validate is False, return whatever the decoder input builds or is, without checking that it
-    is an error decoder.  The deprecated decoders.get_decoder returns decoders in this way.
+    Returns:
+        The decoder, and a description of where it came from, for use in error messages.
     """
     built_decoder: object
     if decoder is None:
@@ -290,7 +281,7 @@ def _build_error_decoder(
             "decoder must be decoder settings such as decoders.bp_osd(...), a decoder constructor,"
             " a prebuilt error decoder, or None"
         )
-    return as_error_decoder(built_decoder, source) if validate else built_decoder
+    return built_decoder, source
 
 
 def get_decoder(pcm_or_dem: PcmOrDem, **decoder_args: object) -> Any:
@@ -344,18 +335,27 @@ def decode(
 def _get_legacy_decoder(pcm_or_dem: PcmOrDem, decoder_args: Mapping[str, object]) -> Any:
     """Build a decoder with the deprecated keyword-based API of decoders.get_decoder.
 
-    A static decoder is returned as is, even if it is a class.
+    The decoder is returned without checking what kind of decoder it is.  A static decoder, which
+    admits no other arguments, is returned as is, even if it is a class.
     """
-    decoder_input = _get_legacy_decoder_input(pcm_or_dem, decoder_args)
-    if decoder_input is decoder_args.get("static_decoder"):
-        return decoder_input
-    return _build_error_decoder(pcm_or_dem, decoder_input, validate=False)
+    static_decoder = decoder_args.get("static_decoder")
+    if decoder_args.get("decoder_constructor") is None and static_decoder is not None:
+        if len(decoder_args) > 1:
+            raise ValueError("If passed a static decoder, we cannot process decoding arguments")
+        return static_decoder
+    built_decoder, _ = _build_decoder(
+        pcm_or_dem, _get_legacy_decoder_input(pcm_or_dem, decoder_args)
+    )
+    return built_decoder
 
 
 def _get_legacy_decoder_input(
     pcm_or_dem: PcmOrDem, decoder_args: Mapping[str, object]
 ) -> ErrorDecoderInput:
-    """Translate deprecated decoder-selection and construction arguments into a decoder input."""
+    """Translate deprecated decoder-selection and construction arguments into a decoder input.
+
+    The static_decoder argument is handled by _get_legacy_decoder, or rejected, before this.
+    """
     decoder_args = dict(decoder_args)
 
     # optionally inject a decoder constructor
@@ -363,12 +363,6 @@ def _get_legacy_decoder_input(
         if not callable(decoder_constructor):
             raise TypeError("The decoder_constructor argument must be callable")
         return functools.partial(decoder_constructor, **decoder_args)
-
-    # optionally inject a static decoder, which admits no other arguments
-    if (static_decoder := decoder_args.pop("static_decoder", None)) is not None:
-        if decoder_args:
-            raise ValueError("If passed a static decoder, we cannot process decoding arguments")
-        return cast(ErrorDecoderInput, static_decoder)
 
     # look for a recognized decoder, consuming every request
     decoder_names = [
@@ -415,19 +409,19 @@ def resolve_decoder(
     This function supports high-level APIs that accept deprecated keyword-based decoder options.
     New APIs that accept only ``decoder=`` should call :func:`get_error_decoder`.
     """
-    decoder = _merge_legacy_decoder_args(
+    decoder_input = _merge_legacy_decoder_args(
         pcm_or_dem, decoder, decoder_args, warn_deprecated=warn_deprecated
     )
-    return cast(ErrorDecoder, _build_error_decoder(pcm_or_dem, decoder))
+    return as_error_decoder(*_build_decoder(pcm_or_dem, decoder_input))
 
 
 def _merge_legacy_decoder_args(
     pcm_or_dem: PcmOrDem,
-    decoder: ErrorDecoderInput,
+    decoder: ObservableDecoderInput,
     decoder_args: Mapping[str, object],
     *,
     warn_deprecated: bool = True,
-) -> ErrorDecoderInput:
+) -> ObservableDecoderInput:
     """Translate deprecated keyword arguments, if any, into the decoder input that replaces them.
 
     Deprecated keyword arguments emit a DeprecationWarning, unless warn_deprecated is False because
@@ -565,9 +559,9 @@ def _get_deprecated_function_message(
 
 def _validate_observable_decoder(decoder: object, source: str) -> ObservableDecoder:
     """Validate and type-narrow an object expected to decode syndromes to observable flips."""
-    if not hasattr(decoder, "decode_observables") or not callable(decoder.decode_observables):
-        raise TypeError(f"{source} must provide a callable decode_observables method")
-    return cast(ObservableDecoder, decoder)
+    if not isinstance(decoder, ObservableDecoder):
+        raise TypeError(f"{source} must provide a decode_observables method")
+    return decoder
 
 
 class ExpandedErrorDecoder(BatchErrorDecoder):
@@ -762,21 +756,16 @@ def resolve_observable_decoder(
     if decoder_args:
         # deprecated keyword arguments build a decoder, which may predict observable flips natively
         decoder = _merge_legacy_decoder_args(
-            dem, cast(ErrorDecoderInput, decoder), decoder_args, warn_deprecated=warn_deprecated
+            dem, decoder, decoder_args, warn_deprecated=warn_deprecated
         )
     elif isinstance(decoder, DecoderSpec):
         return decoder.build_observable_decoder(dem)
 
     # build or retrieve a decoder, which may predict observable flips or infer errors
-    built_decoder = (
-        decoder
-        if is_prebuilt_decoder(decoder)
-        else _build_error_decoder(dem, cast(ErrorDecoderInput, decoder), validate=False)
-    )
-
-    if hasattr(built_decoder, "decode_observables"):
-        return _validate_observable_decoder(built_decoder, "A decoder")
-    return ErrorsToObservablesDecoder(as_error_decoder(built_decoder, "A decoder"), dem)
+    built_decoder, source = _build_decoder(dem, decoder)
+    if isinstance(built_decoder, ObservableDecoder):
+        return built_decoder
+    return ErrorsToObservablesDecoder(as_error_decoder(built_decoder, source), dem)
 
 
 def _erasure_bit_support(
@@ -985,7 +974,7 @@ def get_decoder_MWPM(
         predict_observables=False,
         **decoder_args,
     )
-    return cast(BatchErrorDecoder, matching)
+    return matching
 
 
 def _build_matching(

@@ -108,15 +108,14 @@ def test_sinter_decoder_classes_and_aliases() -> None:
 
     # an uncompiled observable decoder cannot decode
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    decoder = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    # the deprecated decode methods of these classes are hidden from type checkers
+    decoder: typing.Any = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
     with pytest.raises(decoders.DecoderNotCompiledError, match="compile_decoder_for_dem"):
-        typing.cast(typing.Any, decoder).decode(np.array([1], dtype=int))
+        decoder.decode(np.array([1], dtype=int))
 
-    compiled = decoder.compile_decoder_for_dem(dem)
+    compiled: typing.Any = decoder.compile_decoder_for_dem(dem)
     with pytest.warns(DeprecationWarning, match="decode is deprecated"):
-        assert np.array_equal(
-            typing.cast(typing.Any, compiled).decode(np.array([1], dtype=int)), [1]
-        )
+        assert np.array_equal(compiled.decode(np.array([1], dtype=int)), [1])
 
 
 def test_unsimplified_dense_decoder() -> None:

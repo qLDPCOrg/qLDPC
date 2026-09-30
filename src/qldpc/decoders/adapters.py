@@ -16,7 +16,7 @@ import ldpc
 import ldpc.bplsd_decoder
 import pymatching
 
-from .custom import BatchErrorDecoder, ErrorDecoder
+from .protocols import BatchErrorDecoder, ErrorDecoder
 
 
 class BpOsdDecoder(ldpc.BpOsdDecoder, ErrorDecoder):

@@ -3,9 +3,9 @@ Choosing a decoder
 
 qLDPC distinguishes two kinds of decoders:
 
-* an :class:`decoders.ErrorDecoder <qldpc.decoders.custom.ErrorDecoder>` maps a syndrome to an
+* an :class:`decoders.ErrorDecoder <qldpc.decoders.protocols.ErrorDecoder>` maps a syndrome to an
   inferred physical error, with a ``decode_errors`` method, or its alias ``decode``; and
-* an :class:`decoders.ObservableDecoder <qldpc.decoders.custom.ObservableDecoder>` maps a syndrome
+* an :class:`decoders.ObservableDecoder <qldpc.decoders.protocols.ObservableDecoder>` maps a syndrome
   (detection events) to predicted observable flips, with a ``decode_observables`` method.
 
 The distinction matters when composing decoders. Code-capacity estimates, decoder-based distance
@@ -139,24 +139,24 @@ Custom and prebuilt decoders
 ----------------------------
 
 A custom error decoder subclasses
-:class:`decoders.ErrorDecoder <qldpc.decoders.custom.ErrorDecoder>` and implements
+:class:`decoders.ErrorDecoder <qldpc.decoders.protocols.ErrorDecoder>` and implements
 ``decode_errors``, which maps a syndrome to an inferred error. The subclass inherits ``decode`` as
 an alias for ``decode_errors``. A custom observable decoder implements ``decode_observables``, which
 maps a syndrome to predicted observable flips, to satisfy the
-:class:`decoders.ObservableDecoder <qldpc.decoders.custom.ObservableDecoder>` protocol. A custom
+:class:`decoders.ObservableDecoder <qldpc.decoders.protocols.ObservableDecoder>` protocol. A custom
 decoder may also define:
 
 * ``decode_errors_batch`` or ``decode_observables_batch``, which decode a two-dimensional array of
   syndromes (one per row), to satisfy
-  :class:`decoders.BatchErrorDecoder <qldpc.decoders.custom.BatchErrorDecoder>` or
-  :class:`decoders.BatchObservableDecoder <qldpc.decoders.custom.BatchObservableDecoder>`, so that
+  :class:`decoders.BatchErrorDecoder <qldpc.decoders.protocols.BatchErrorDecoder>` or
+  :class:`decoders.BatchObservableDecoder <qldpc.decoders.protocols.BatchObservableDecoder>`, so that
   Sinter decoders decode shots in batches; and
 * ``has_erasure_bit = True``, to declare that it appends an erasure flag to each inferred error or
   predicted observable flip.
 
 Methods that use an error decoder also accept any object whose ``decode`` method returns an inferred
 error, such as a decoder built directly with the ldpc package, and wrap it in a
-:class:`decoders.WrappedErrorDecoder <qldpc.decoders.custom.WrappedErrorDecoder>`. The getters of
+:class:`decoders.WrappedErrorDecoder <qldpc.decoders.protocols.WrappedErrorDecoder>`. The getters of
 library decoders, such as
 :func:`decoders.get_decoder_BP_OSD <qldpc.decoders.retrieval.get_decoder_BP_OSD>`, return subclasses
 of the library's decoder classes from :mod:`qldpc.decoders.adapters`; for example,

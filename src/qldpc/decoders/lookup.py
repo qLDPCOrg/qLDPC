@@ -21,8 +21,8 @@ from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from .common import with_erasure_bits
-from .custom import ErrorDecoder
 from .dems import DetectorErrorModelArrays
+from .protocols import ErrorDecoder
 
 
 class _LookupDecoderBase:
