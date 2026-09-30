@@ -693,6 +693,9 @@ def test_decoding() -> None:
     assert np.array_equal(
         error, decoders.get_error_decoder(matrix).decode(syndrome)
     )  # default, BP+OSD
+    assert np.array_equal(
+        error, decoders.get_error_decoder(matrix.astype(np.int32)).decode(syndrome)
+    )  # ldpc itself rejects int32 matrices
     for decoder in [
         decoders.bp_lsd(),
         decoders.bf(),

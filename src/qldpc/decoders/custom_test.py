@@ -105,15 +105,20 @@ def test_relay_bp_observables() -> None:
     observable_flip_matrix = decoders.DetectorErrorModelArrays(dem).observable_flip_matrix
 
     for add_erasure_bit in [False, True]:
-        decoder = decoders.get_decoder_RBP(dem, add_erasure_bit=add_erasure_bit)
-        predicted_flips = decoder.decode_observables_batch(syndromes, progress_bar=False)
+        # relay_bp advances a seeded random number generator with every decode, so compare the
+        # outputs of freshly built decoders
+        get_decoder = functools.partial(
+            decoders.get_decoder_RBP, dem, add_erasure_bit=add_erasure_bit
+        )
+        predicted_flips = get_decoder().decode_observables_batch(syndromes, progress_bar=False)
         assert predicted_flips.shape == (len(syndromes), dem.num_observables + add_erasure_bit)
+        decoder = get_decoder()
         assert np.array_equal(
             predicted_flips, [decoder.decode_observables(syndrome) for syndrome in syndromes]
         )
 
         # the predicted flips are those of the inferred errors
-        errors = decoder.decode_batch(syndromes, progress_bar=False)
+        errors = get_decoder().decode_batch(syndromes, progress_bar=False)
         if add_erasure_bit:
             assert np.array_equal(predicted_flips[:, -1], errors[:, -1])
             errors = errors[:, :-1]

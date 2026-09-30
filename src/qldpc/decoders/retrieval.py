@@ -936,6 +936,9 @@ def _to_ldpc_inputs(
     else:
         pcm = pcm_or_dem
         error_channel = [error_rate] * pcm.shape[1] if error_channel is None else error_channel
+    if pcm.dtype.kind in "biu":
+        # ldpc rejects most integer dtypes, including the int32 that NumPy often uses on Windows
+        pcm = pcm.astype(np.uint8, copy=False)
     return pcm, list(error_channel)
 
 
