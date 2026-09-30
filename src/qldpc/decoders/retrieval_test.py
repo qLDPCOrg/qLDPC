@@ -449,21 +449,20 @@ def test_correlated_matching() -> None:
         error(0.02) D0 D1 ^ D2 D3
         error(0.3) D2 L0
         error(0.3) D3
-        error(0.1) D0 D1 D4 L1
     """)
-    with pytest.raises(ValueError, match="flips 3 detectors"):
-        decoders.get_observable_decoder(dem, decoder=decoders.mwpm(enable_correlations=True))
+    spec = decoders.mwpm(enable_correlations=True)
 
-    # enabling correlations changes the prediction from [1, 0], because the decomposed error that
-    # explains D0 D1 also explains D2 D3; dropping the last error still keeps D4 and L1
-    spec = decoders.mwpm(enable_correlations=True, ignore_non_graphlike_errors=True)
+    # enabling correlations changes the prediction from [1], because the decomposed error that
+    # explains D0 D1 also explains D2 D3
     decoder = decoders.get_observable_decoder(dem, decoder=spec)
-    assert np.array_equal(decoder.decode_observables(np.array([1, 1, 1, 1, 0])), [0, 0])
+    assert np.array_equal(decoder.decode_observables(np.array([1, 1, 1, 1])), [0])
 
     with pytest.raises(ValueError, match="cannot infer errors"):
         decoders.get_error_decoder(dem, decoder=spec)
     with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
         decoders.mwpm(enable_correlations=True, decompose_errors=True)
+    with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
+        decoders.mwpm(enable_correlations=True, ignore_non_graphlike_errors=True)
 
 
 def test_observable_decoder_inputs() -> None:

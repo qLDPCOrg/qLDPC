@@ -1105,12 +1105,10 @@ def _get_observable_decoder_MWPM(
     """Build a matching decoder that predicts the observable flips of a detector error model."""
     if enable_correlations:
         # decoders.mwpm has rejected the remaining options, which correlated matching ignores
-        return _MatchingObservableDecoder(
-            _build_correlated_matching(
-                dem, ignore_non_graphlike_errors=ignore_non_graphlike_errors
-            ),
-            enable_correlations=True,
-        )
+        import pymatching
+
+        matching = pymatching.Matching.from_detector_error_model(dem, enable_correlations=True)
+        return _MatchingObservableDecoder(matching, enable_correlations=True)
     return _MatchingObservableDecoder(
         _build_matching(
             dem,
@@ -1120,52 +1118,6 @@ def _get_observable_decoder_MWPM(
             **decoder_args,
         )
     )
-
-
-def _build_correlated_matching(
-    dem: stim.DetectorErrorModel, *, ignore_non_graphlike_errors: bool
-) -> Any:
-    """Build a pymatching.Matching for correlated matching of a detector error model.
-
-    Errors with a component that flips more than two detectors are dropped if
-    ignore_non_graphlike_errors is True, and rejected otherwise.
-    """
-    import pymatching
-
-    flat_dem = dem.flattened()
-    circuit_errors = iter(DetectorErrorModelArrays.get_circuit_errors(flat_dem))
-    graphlike_dem = stim.DetectorErrorModel()
-    for instruction in flat_dem:
-        if instruction.type == "error":
-            _, components = next(circuit_errors)
-            max_component_size = max((len(comp.detectors) for comp in components), default=0)
-            if max_component_size > 2:
-                if ignore_non_graphlike_errors:
-                    continue
-                raise ValueError(
-                    "Correlated matching requires every error mechanism of a detector error model"
-                    " to flip at most two detectors, or to suggest a decomposition into components"
-                    " that each flip at most two detectors, but the detector error model contains"
-                    f" the error mechanism '{instruction}', which has a component that flips"
-                    f" {max_component_size} detectors.  Stim suggests decompositions for the errors"
-                    " of a circuit via circuit.detector_error_model(decompose_errors=True).  If"
-                    " that does not work either, you can try 'ignore_non_graphlike_errors=True'"
-                )
-        graphlike_dem.append(instruction)
-
-    # keep the detectors and observables that only dropped error mechanisms referred to
-    if graphlike_dem.num_detectors < dem.num_detectors:
-        graphlike_dem.append(
-            "detector", [], [stim.DemTarget.relative_detector_id(dem.num_detectors - 1)]
-        )
-    if graphlike_dem.num_observables < dem.num_observables:
-        graphlike_dem.append(
-            "logical_observable",
-            [],
-            [stim.DemTarget.logical_observable_id(dem.num_observables - 1)],
-        )
-
-    return pymatching.Matching.from_detector_error_model(graphlike_dem, enable_correlations=True)
 
 
 @_erasure_bit_support(True)
@@ -1490,7 +1442,7 @@ def mwpm(
             (after any decomposition), rather than raising an error.
         enable_correlations: Whether to use correlated matching, which predicts observable flips
             from the error decompositions that a detector error model suggests.  Incompatible with
-            decompose_errors=True and the options below.  See
+            all other options.  See
             help(pymatching.Matching.from_detector_error_model).
         weights: Scalar or per-error matching weights for a parity check matrix.  A detector
             error model supplies its own weights, so this must be None when decoding one.
@@ -1536,9 +1488,8 @@ def mwpm(
         defaults = {
             name: param.default for name, param in inspect.signature(mwpm).parameters.items()
         }
-        compatible_options = ("ignore_non_graphlike_errors", "enable_correlations")
         for name, value in spec.options.items():
-            if name not in compatible_options and not _is_default_value(value, defaults[name]):
+            if name != "enable_correlations" and not _is_default_value(value, defaults[name]):
                 raise ValueError(
                     f"The MWPM option {name}={value!r} is not supported with"
                     " enable_correlations=True"
