@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pickle
+
 import ldpc
 import ldpc.bplsd_decoder
 import numpy as np
@@ -36,3 +38,19 @@ def test_adapters() -> None:
     assert np.array_equal(matching.decode_errors(syndromes[0]), errors[0])
     assert np.array_equal(matching.decode_errors_batch(syndromes), errors)
     assert np.array_equal(matching.decode_batch(syndromes), errors)
+
+
+def test_old_pickle_class_lookups() -> None:
+    """Pickles naming classes in qldpc.decoders.adapters resolve to facade classes."""
+    for name, adapted_class in [
+        ("BpOsdDecoder", adapters.BpOsdDecoder),
+        ("BpLsdDecoder", adapters.BpLsdDecoder),
+        ("BeliefFindDecoder", adapters.BeliefFindDecoder),
+        ("Matching", adapters.Matching),
+    ]:
+        payload = pickle.dumps(adapted_class, protocol=0)
+        payload = payload.replace(
+            f"qldpc.decoders.adapters.backends\n{name}".encode(),
+            f"qldpc.decoders.adapters\n{name}".encode(),
+        )
+        assert pickle.loads(payload) is adapted_class  # noqa: S301 - compatibility payload

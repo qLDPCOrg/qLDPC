@@ -68,7 +68,7 @@ Do not split them into mixins merely to reduce the file length.
 Free-standing statistical Monte Carlo helpers live in `codes/monte_carlo.py`.
 Code-capacity detector-error-model and decoder orchestration lives in `codes/code_capacity.py`.
 Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed
-observable adapters live in `decoders/observable_adapters.py`.
+observable adapters live in `decoders/adapters/observables.py`.
 
 ## Core invariants
 

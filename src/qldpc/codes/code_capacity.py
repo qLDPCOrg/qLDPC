@@ -26,7 +26,7 @@ from qldpc.decoders.adapters.observables import (
     validate_decoder_output,
 )
 from qldpc.decoders.capabilities import constructs_observable_decoder
-from qldpc.decoders.custom import PLACEHOLDER_ERROR_RATE
+from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE
 
 
 def get_code_capacity_dem(
