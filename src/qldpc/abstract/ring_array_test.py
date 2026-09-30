@@ -18,27 +18,43 @@ from qldpc.abstract import ring_array as ring_array_module
 def _object_matmul(
     matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
 ) -> abstract.RingArray | abstract.RingMember:
-    """Multiply through NumPy's object-array implementation as a test oracle."""
-    result = np.matmul(matrix_a.view(np.ndarray), matrix_b.view(np.ndarray))
-    if isinstance(result, np.ndarray):
-        ring_array = result.view(abstract.RingArray)
-        ring_array._ring = matrix_a.ring
-        return ring_array
-    assert isinstance(result, abstract.RingMember)
-    return result
+    """Multiply with RingMember arithmetic, as a reference for the coefficient-array kernel."""
+    product = np.matmul(matrix_a.view(np.ndarray), matrix_b.view(np.ndarray))
+    if isinstance(product, abstract.RingMember):
+        return product
+    product = product.view(abstract.RingArray)
+    product._ring = matrix_a.ring
+    return product
 
 
-def _assert_matmul_equal(
-    result: abstract.RingArray | abstract.RingMember,
+def _coefficient_matmul(
+    matrix_a: abstract.RingArray | npt.NDArray[np.int_],
+    matrix_b: abstract.RingArray | npt.NDArray[np.int_],
+    *,
+    right: bool = False,
+) -> abstract.RingArray | abstract.RingMember:
+    """Multiply with the coefficient-array kernel, asserting that it applies."""
+    ring = next(mm.ring for mm in (matrix_a, matrix_b) if isinstance(mm, abstract.RingArray))
+    product = ring_array_module._coefficient_matmul(matrix_a, matrix_b, ring=ring, right=right)
+    assert product is not None
+    return product
+
+
+def _assert_products_equal(
+    product: abstract.RingArray | abstract.RingMember,
     expected: abstract.RingArray | abstract.RingMember,
 ) -> None:
-    """Compare matmul results while preserving scalar result types."""
+    """Assert that two matrix products (or vector inner products) are equal."""
     if isinstance(expected, abstract.RingMember):
-        assert isinstance(result, abstract.RingMember)
-        assert result == expected
+        assert isinstance(product, abstract.RingMember) and product == expected
     else:
-        assert isinstance(result, abstract.RingArray)
-        assert np.array_equal(result, expected)
+        assert isinstance(product, abstract.RingArray) and np.array_equal(product, expected)
+
+
+@pytest.fixture
+def always_use_coefficients(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Multiply RingArrays with coefficient arrays, however small the product."""
+    monkeypatch.setattr(ring_array_module, "_MIN_MATMUL_COEFFICIENT_WORK", 0)
 
 
 def test_printing() -> None:
@@ -175,8 +191,7 @@ def test_field_array_conversion() -> None:
     coefficients = ring.field.Random((2, 3, ring.group.order), seed=1)
     matrix = abstract.RingArray.from_field_array(coefficients, ring)
     expected = coefficients.copy()
-    coefficients[:] = 0
-
+    coefficients[:] = 0  # the RingArray does not share memory with its coefficients
     assert type(matrix.to_field_array()) is ring.field
     assert np.array_equal(matrix.to_field_array(), expected)
 
@@ -184,16 +199,19 @@ def test_field_array_conversion() -> None:
     assert empty.shape == (2, 0)
     assert empty.to_field_array().shape == (2, 0, ring.group.order)
 
+    # any array of integer values is a valid array of coefficients
+    identity = np.eye(ring.group.order, dtype=int)
+    for integer_valued in [identity.astype(bool), identity.astype(float), identity.astype(object)]:
+        matrix = abstract.RingArray.from_field_array(integer_valued, ring)
+        assert np.array_equal(matrix.to_field_array(), identity)
+
     with pytest.raises(ValueError, match="last axis"):
         abstract.RingArray.from_field_array(ring.field.Zeros((2, ring.group.order + 1)), ring)
     with pytest.raises(ValueError, match="last axis"):
         abstract.RingArray.from_field_array(ring.field(0), ring)
 
-    bool_coefficients = np.eye(ring.group.order, dtype=bool)
-    bool_array = abstract.RingArray.from_field_array(bool_coefficients, ring)
-    assert np.array_equal(bool_array.to_field_array(), bool_coefficients)
 
-
+@pytest.mark.usefixtures("always_use_coefficients")
 @pytest.mark.parametrize(
     "ring",
     [
@@ -203,127 +221,117 @@ def test_field_array_conversion() -> None:
     ],
 )
 def test_coefficient_matmul(ring: abstract.GroupRing) -> None:
-    """Coefficient matmul agrees with object arithmetic across groups and fields."""
-    coefficients_a = ring.field.Random((4, 5, ring.group.order), seed=1)
-    coefficients_b = ring.field.Random((5, 3, ring.group.order), seed=2)
-    matrix_a = abstract.RingArray.from_field_array(coefficients_a, ring)
-    matrix_b = abstract.RingArray.from_field_array(coefficients_b, ring)
-    _assert_matmul_equal(matrix_a @ matrix_b, _object_matmul(matrix_a, matrix_b))
+    """The coefficient-array kernel agrees with RingMember arithmetic."""
 
-
-def test_coefficient_matmul_sparse_right_operand() -> None:
-    """Ordinary multiplication handles a sparse right operand over a noncommutative ring."""
-    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=3)
-    dense = abstract.RingArray.from_field_array(
-        ring.field.Random((4, 4, ring.group.order), seed=1), ring
-    )
-    sparse = abstract.RingArray.build(np.full((4, 4), ring.generators[0], dtype=object), ring)
-    _assert_matmul_equal(dense @ sparse, _object_matmul(dense, sparse))
-
-
-def test_coefficient_matmul_shapes() -> None:
-    """Coefficient matmul implements NumPy's vector and broadcast shape conventions."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(31), field=2)
-
-    def build(shape: tuple[int, ...], seed: int) -> abstract.RingArray:
-        coefficients = ring.field.Random((*shape, ring.group.order), seed=seed)
+    def random_matrix(*shape: int) -> abstract.RingArray:
+        coefficients = ring.field.Random((*shape, ring.group.order), seed=np.random.randint(2**31))
         return abstract.RingArray.from_field_array(coefficients, ring)
 
-    shapes = [
-        ((5,), (5,)),
-        ((3, 5), (5,)),
-        ((5,), (5, 4)),
-        ((3, 5), (5, 4)),
-        ((2, 3, 5), (5, 4)),
-        ((1, 3, 5), (2, 5, 4)),
-        ((2, 1, 3, 5), (1, 4, 5, 2)),
-    ]
-    for seed, (shape_a, shape_b) in enumerate(shapes):
-        matrix_a = build(shape_a, seed)
-        matrix_b = build(shape_b, seed + len(shapes))
+    # vector and batched products, following the shape conventions of numpy.matmul
+    for shape_a, shape_b in [
+        ((3,), (3,)),
+        ((2, 3), (3,)),
+        ((3,), (3, 2)),
+        ((2, 3), (3, 4)),
+        ((2, 1, 2, 3), (3, 3, 2)),
+    ]:
+        matrix_a, matrix_b = random_matrix(*shape_a), random_matrix(*shape_b)
         expected = _object_matmul(matrix_a, matrix_b)
-        result = matrix_a @ matrix_b
-        assert type(result) is type(expected)
-        _assert_matmul_equal(result, expected)
+        _assert_products_equal(_coefficient_matmul(matrix_a, matrix_b), expected)
+        _assert_products_equal(matrix_a @ matrix_b, expected)
+
+    # the kernel loops over group members in whichever operand has fewer of them
+    dense = random_matrix(3, 3)
+    monomial = abstract.RingArray.build(np.full((3, 3), ring.generators[0], dtype=object), ring)
+    for matrix_a, matrix_b in [(dense, monomial), (monomial, dense)]:
+        _assert_products_equal(
+            _coefficient_matmul(matrix_a, matrix_b), _object_matmul(matrix_a, matrix_b)
+        )
 
 
+@pytest.mark.usefixtures("always_use_coefficients")
 def test_coefficient_matmul_mixed_operands() -> None:
-    """Integer and same-field operands use the identity coefficient slice."""
+    """Integer and same-field operands of a RingArray product are scalars in the ring."""
     ring = abstract.GroupRing(abstract.CyclicGroup(7), field=3)
-    coefficients = ring.field.Random((4, 4, ring.group.order), seed=1)
-    matrix = abstract.RingArray.from_field_array(coefficients, ring)
-    integers = np.arange(16).reshape(4, 4) % ring.field.characteristic
-    field_matrix = ring.field(integers)
-    ring_integers = abstract.RingArray.build(integers, ring)
+    matrix = abstract.RingArray.from_field_array(
+        ring.field.Random((3, 3, ring.group.order), seed=0), ring
+    )
+    integers = np.array([[0, 1, -1], [2, 4, 0], [1, 1, 1]])
+    ring_integers = abstract.RingArray.build(integers % 3, ring)  # -1 = 2 in GF(3)
 
-    _assert_matmul_equal(matrix @ integers, _object_matmul(matrix, ring_integers))
-    _assert_matmul_equal(integers @ matrix, _object_matmul(ring_integers, matrix))
-    field_result = matrix @ field_matrix
-    assert isinstance(field_result, abstract.RingArray)
-    _assert_matmul_equal(field_result, _object_matmul(matrix, ring_integers))
-
-    with pytest.raises(TypeError):
-        _ = matrix @ np.eye(4)
+    _assert_products_equal(
+        _coefficient_matmul(matrix, integers), _object_matmul(matrix, ring_integers)
+    )
+    _assert_products_equal(
+        _coefficient_matmul(integers, matrix), _object_matmul(ring_integers, matrix)
+    )
+    _assert_products_equal(
+        _coefficient_matmul(matrix, ring.field(integers % 3)), _object_matmul(matrix, ring_integers)
+    )
 
 
 def test_coefficient_matmul_equivalent_group_orderings() -> None:
-    """Equal rings may enumerate equivalent group elements in different orders."""
+    """Equal rings may enumerate the members of their groups in different orders."""
     group = abstract.CyclicGroup(5)
     members = tuple(group.generate())
 
     def generate_reversed() -> Iterator[abstract.GroupMember]:
         yield from reversed(members)
 
-    reversed_group = abstract.Group(*group.generators, generate_func=generate_reversed)
     ring = abstract.GroupRing(group)
-    reversed_ring = abstract.GroupRing(reversed_group)
+    reversed_ring = abstract.GroupRing(
+        abstract.Group(*group.generators, generate_func=generate_reversed)
+    )
     assert ring == reversed_ring
 
-    values_a: npt.NDArray[np.object_] = np.resize(members, (4, 4))
+    matrix_a = abstract.RingArray.build(np.resize(np.array(members, dtype=object), (4, 4)), ring)
     coefficients_b = reversed_ring.field.Zeros((4, 4, reversed_ring.group.order))
-    coefficients_b[..., 0] = 1
-    matrix_a = abstract.RingArray.build(values_a, ring)
+    coefficients_b[..., 0] = 1  # the first member in reversed order is the last member of the group
     matrix_b = abstract.RingArray.from_field_array(coefficients_b, reversed_ring)
-    assert all(
-        value == abstract.RingMember(reversed_ring, members[-1]) for value in matrix_b.ravel()
-    )
-    result = matrix_a @ matrix_b
-    assert isinstance(result, abstract.RingArray)
-    assert result.ring is ring
-    _assert_matmul_equal(result, _object_matmul(matrix_a, matrix_b))
+    assert matrix_b[0, 0] == abstract.RingMember(ring, members[-1])
+
+    # the product is expressed in terms of the group-member ordering of the left operand's ring
+    for left, right in [(matrix_a, matrix_b), (matrix_b, matrix_a)]:
+        product = _coefficient_matmul(left, right)
+        assert isinstance(product, abstract.RingArray)
+        assert product.ring is left.ring
+        _assert_products_equal(product, _object_matmul(left, right))
 
 
 def test_matmul_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unsupported, incompatible, and memory-heavy products retain object/NumPy behavior."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(7))
-    matrix = abstract.RingArray.build(np.arange(16).reshape(4, 4) % 2, ring)
+    """Products that the coefficient-array kernel does not handle fall back to numpy."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(7), field=4)
+    matrix = abstract.RingArray.build(np.eye(4, dtype=int), ring)
     expected = _object_matmul(matrix, matrix)
 
+    def kernel(
+        matrix_a: abstract.RingArray | npt.NDArray[np.int_ | np.float64 | np.object_],
+        matrix_b: abstract.RingArray | npt.NDArray[np.int_ | np.float64 | np.object_],
+    ) -> abstract.RingArray | abstract.RingMember | None:
+        return ring_array_module._coefficient_matmul(matrix_a, matrix_b, ring=ring)
+
+    # products that are too small, or too large
+    _assert_products_equal(_coefficient_matmul(matrix, matrix), expected)
+    assert kernel(matrix[:1, :1], matrix[:1, :1]) is None
     monkeypatch.setattr(ring_array_module, "_MAX_MATMUL_COEFFICIENT_BYTES", 0)
-    _assert_matmul_equal(matrix @ matrix, expected)
+    assert kernel(matrix, matrix) is None
+    _assert_products_equal(matrix @ matrix, expected)
+    monkeypatch.undo()
 
-    with pytest.raises(ValueError):
-        _ = matrix @ abstract.RingArray.build(np.ones((3, 2), dtype=int), ring)
-    with pytest.raises(ValueError):
-        _ = np.stack([matrix, matrix]) @ np.stack([matrix, matrix, matrix])
+    # operands without coefficients in the ring, or with incompatible shapes
+    assert kernel(matrix, np.eye(4)) is None
+    assert kernel(matrix, galois.GF(2)(np.eye(4, dtype=int))) is None
+    assert kernel(matrix, matrix[:3]) is None
+    assert kernel(np.stack([matrix] * 2), np.stack([matrix] * 3)) is None
+    assert kernel(np.asarray(ring.one, dtype=object).view(abstract.RingArray), matrix) is None
 
-    scalar = abstract.RingArray(np.asarray(ring.one, dtype=object))
-    with pytest.raises(ValueError):
-        _ = scalar @ matrix
-
-    ring_out = abstract.RingArray.build(np.zeros((4, 4), dtype=int), ring)
-    with pytest.raises(TypeError):
-        np.matmul(matrix, matrix, out=ring_out)
-    ndarray_out = np.empty((4, 4), dtype=object)
-    result = np.matmul(matrix, matrix, out=ndarray_out)
+    # nondefault keyword arguments and unknown rings
+    result = np.matmul(matrix, matrix, out=np.empty((4, 4), dtype=object))
     assert isinstance(result, abstract.RingArray)
-    _assert_matmul_equal(result, expected)
-
-    raw_view = np.asarray(matrix, dtype=object).view(abstract.RingArray)
-    assert raw_view._ring is None
-    raw_result = raw_view @ raw_view
-    assert isinstance(raw_result, abstract.RingArray)
-    assert np.array_equal(raw_result.view(np.ndarray), expected.view(np.ndarray))
+    _assert_products_equal(result, expected)
+    unknown_ring = np.asarray(matrix, dtype=object).view(abstract.RingArray)
+    assert unknown_ring.ring is None
+    assert np.array_equal((unknown_ring @ unknown_ring).view(np.ndarray), expected.view(np.ndarray))
 
 
 def test_ring_row_reduction(
