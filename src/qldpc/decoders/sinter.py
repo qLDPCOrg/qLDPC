@@ -16,15 +16,22 @@ import numpy.typing as npt
 import sinter
 import stim
 
-from .common import _get_external_caller_stacklevel
+from .common import _get_deprecated_alias, _get_external_caller_stacklevel
 from .dems import DetectorErrorModelArrays
 from .retrieval import (
+    _OBSERVABLE_DECODER_ADVICE,
+    DeferredErrorDecoderInput,
     ErrorDecoder,
-    ErrorDecoderInput,
     _get_legacy_decoder_migration_message,
+    _reject_prebuilt_decoder,
+    _reject_removed_decoder_args,
     _resolve_decoder,
 )
 
+# sinter does not ship type information, so mypy treats sinter.Decoder and sinter.CompiledDecoder as
+# Any.  A subclass of Any is assumed to have every attribute, so it would structurally satisfy the
+# ErrorDecoder protocol, and mypy would accept an observable decoder wherever an error decoder is
+# required.  Empty stand-in base classes let mypy check observable decoders by their own attributes.
 if TYPE_CHECKING:
 
     class _SinterDecoder: ...
@@ -41,16 +48,28 @@ class DecoderNotCompiledError(Exception):
 
 
 class ObservableDecoder(_SinterDecoder):
-    """Sinter-compatible decoder that predicts observable flips."""
+    """Sinter-compatible decoder that predicts observable flips.
+
+    An ObservableDecoder stores settings for an inner error decoder, which maps a syndrome to an
+    inferred error.  When Sinter compiles an ObservableDecoder for a detector error model, the
+    ObservableDecoder builds the inner error decoder for that model, and the compiled decoder maps
+    the errors that it infers to the observable flips that they induce.
+    """
 
     decodes_observables = True
+
+    # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
+    _prebuilt_decoder_rejection_reason = (
+        "an ObservableDecoder builds a new error decoder for each (simplified) detector error model"
+        " that it is compiled for"
+    )
 
     def __init__(
         self,
         *,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: ErrorDecoderInput = None,
+        decoder: DeferredErrorDecoderInput = None,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize an observable decoder.
@@ -63,10 +82,21 @@ class ObservableDecoder(_SinterDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Error-decoder settings, a prebuilt error decoder, a custom constructor, or None
-                to select the default error decoder.
+            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
+                constructor that builds an error decoder from a detector error model, or None to
+                select the default error decoder.  A prebuilt decoder is rejected, because the
+                inner decoder is built for each (simplified) detector error model.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
+        _reject_removed_decoder_args(decoder_kwargs)
+        _reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
+        if getattr(decoder, "decodes_observables", False):
+            name = type(self).__name__
+            raise TypeError(
+                f"The decoder of a {name} predicts observable flips rather than errors, but a {name}"
+                " converts inferred errors into observable flips itself.  "
+                + _OBSERVABLE_DECODER_ADVICE
+            )
         self.simplify = simplify
         self.decompose_errors = decompose_errors
         self.decoder_input = decoder
@@ -153,25 +183,25 @@ class ObservableDecoder(_SinterDecoder):
         observable_flips.tofile(obs_predictions_b8_out_path)
 
     if TYPE_CHECKING:
-        # Keep the runtime compatibility shim out of the error-decoder structural type.
+        # Hide this compatibility method from mypy, so that an ObservableDecoder does not satisfy
+        # the ErrorDecoder protocol, which requires a decode method.
         decode: None
     else:
 
         def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Deprecated uncompiled decode method."""
-            warnings.warn(
-                "ObservableDecoder.decode is deprecated; compile the decoder and use"
-                " decode_observables or decode_shots",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+            """Compatibility shim that rejects decoding before this decoder is compiled.
+
+            An ObservableDecoder never decodes syndromes to errors, and must be compiled for a
+            detector error model before it predicts observable flips.
+            """
             return self.decode_observables(syndrome)
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Reject decoding before this observable decoder is compiled."""
         raise DecoderNotCompiledError(
             "This ObservableDecoder needs to be compiled in order to decode.  Please compile with"
-            " ObservableDecoder.compile_decoder_for_dem"
+            " ObservableDecoder.compile_decoder_for_dem, and call decode_observables or"
+            " decode_shots on the compiled decoder"
         )
 
 
@@ -278,7 +308,8 @@ class CompiledObservableDecoder(_SinterCompiledDecoder):
         )
 
     if TYPE_CHECKING:
-        # Keep the runtime compatibility shim out of the error-decoder structural type.
+        # Hide this deprecated method from mypy, so that a CompiledObservableDecoder does not
+        # satisfy the ErrorDecoder protocol, which requires a decode method.
         decode: None
     else:
 
@@ -368,6 +399,10 @@ class SubgraphDecoder(ObservableDecoder):
     CSS code, where each sector owns the observables of the opposite type.
     """
 
+    _prebuilt_decoder_rejection_reason = (
+        "a SubgraphDecoder builds a new error decoder for each subgraph"
+    )
+
     def __init__(
         self,
         subgraph_detectors: Sequence[Collection[int]],
@@ -375,7 +410,7 @@ class SubgraphDecoder(ObservableDecoder):
         *,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: ErrorDecoderInput = None,
+        decoder: DeferredErrorDecoderInput = None,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize an observable decoder that splits a model into disjoint subgraphs.
@@ -393,8 +428,10 @@ class SubgraphDecoder(ObservableDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Error-decoder settings, a prebuilt error decoder, a custom constructor, or None
-                to select the default error decoder.
+            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
+                constructor that builds an error decoder from a detector error model, or None to
+                select the default error decoder.  A prebuilt decoder is rejected, because an inner
+                decoder is built for each subgraph.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
         ObservableDecoder.__init__(
@@ -585,6 +622,10 @@ class SequentialWindowDecoder(ObservableDecoder):
     is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
     """
 
+    _prebuilt_decoder_rejection_reason = (
+        "a SequentialWindowDecoder builds a new error decoder for each window"
+    )
+
     def __init__(
         self,
         detection_regions: Sequence[Collection[int]],
@@ -592,7 +633,7 @@ class SequentialWindowDecoder(ObservableDecoder):
         *,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: ErrorDecoderInput = None,
+        decoder: DeferredErrorDecoderInput = None,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize an observable decoder that splits a detector error model into windows.
@@ -613,8 +654,10 @@ class SequentialWindowDecoder(ObservableDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Error-decoder settings, a prebuilt error decoder, a custom constructor, or None
-                to select the default error decoder.
+            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
+                constructor that builds an error decoder from a detector error model, or None to
+                select the default error decoder.  A prebuilt decoder is rejected, because an inner
+                decoder is built for each window.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
         ObservableDecoder.__init__(
@@ -928,7 +971,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         *,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: ErrorDecoderInput = None,
+        decoder: DeferredErrorDecoderInput = None,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize an observable decoder that splits a model into temporal windows.
@@ -963,8 +1006,10 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Error-decoder settings, a prebuilt error decoder, a custom constructor, or None
-                to select the default error decoder.
+            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
+                constructor that builds an error decoder from a detector error model, or None to
+                select the default error decoder.  A prebuilt decoder is rejected, because an inner
+                decoder is built for each window.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
         ObservableDecoder.__init__(
@@ -1063,16 +1108,12 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
 
 def _check_decodes_errors(decoder: ErrorDecoder) -> None:
     """Reject a decoder whose output is observable flips rather than an inferred error."""
-    if getattr(decoder, "predict_observable_flips", False):
+    if getattr(decoder, "decodes_observables", False):
         raise ValueError(
-            "A sinter decoder maps decoded circuit errors to observable flips itself, so the decoder"
-            " that it wraps must predict errors rather than observable flips"
+            "An observable decoder converts inferred errors into observable flips itself, so the"
+            " decoder that it wraps must predict errors rather than observable flips.  "
+            + _OBSERVABLE_DECODER_ADVICE
         )
-
-
-# Compatibility aliases for the former Sinter-oriented names.
-SinterDecoder = ObservableDecoder
-CompiledSinterDecoder = CompiledObservableDecoder
 
 
 def _warn_about_subgraph_partition(
@@ -1139,3 +1180,21 @@ def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:
         if varies(coordinate) and never_decreases(coordinate)
     ]
     return candidates[0] if len(candidates) == 1 else 0
+
+
+_DEPRECATED_ALIASES = {
+    "CompiledSinterDecoder": CompiledObservableDecoder,
+    "SinterDecoder": ObservableDecoder,
+}
+
+
+# Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
+# Type checkers instead see plain aliases, so that they still flag misspelled attributes.
+if TYPE_CHECKING:
+    SinterDecoder = ObservableDecoder
+    CompiledSinterDecoder = CompiledObservableDecoder
+else:
+
+    def __getattr__(name: str) -> Any:
+        """Resolve deprecated names of observable decoders, with a DeprecationWarning."""
+        return _get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)

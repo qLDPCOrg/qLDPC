@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import TYPE_CHECKING, Any
+
+from . import custom, sinter
 from .common import (
+    _get_deprecated_alias,
     with_erasure_bits,
 )
 from .custom import (
-    BatchDecoder,
     BatchErrorDecoder,
     CompositeDecoder,
-    Decoder,
     DirectDecoder,
     ErrorDecoder,
     GUFDecoder,
@@ -26,28 +28,23 @@ from .lookup import (
 )
 from .retrieval import (
     DecoderSpec,
+    DeferredErrorDecoderInput,
     ErrorDecoderConstructor,
     ErrorDecoderInput,
+    PcmOrDem,
     bf,
     bp_lsd,
     bp_osd,
     decode,
     get_decoder,
     get_decoder_BF,
-    get_decoder_bf,
     get_decoder_BP_LSD,
-    get_decoder_bp_lsd,
     get_decoder_BP_OSD,
-    get_decoder_bp_osd,
     get_decoder_GUF,
-    get_decoder_guf,
     get_decoder_ILP,
-    get_decoder_ilp,
     get_decoder_lookup,
     get_decoder_MWPM,
-    get_decoder_mwpm,
     get_decoder_RBP,
-    get_decoder_rbp,
     guf,
     ilp,
     lookup_table,
@@ -57,13 +54,11 @@ from .retrieval import (
 from .sinter import (
     CompiledObservableDecoder,
     CompiledSequentialWindowDecoder,
-    CompiledSinterDecoder,
     CompiledSubgraphDecoder,
     CompiledTrivialDecoder,
     ObservableDecoder,
     SequentialSinterDecoder,
     SequentialWindowDecoder,
-    SinterDecoder,
     SlidingWindowDecoder,
     SubgraphDecoder,
     SubgraphSinterDecoder,
@@ -81,6 +76,7 @@ __all__ = [
     "CompositeDecoder",
     "Decoder",
     "DecoderSpec",
+    "DeferredErrorDecoderInput",
     "DetectorErrorModelArrays",
     "DirectDecoder",
     "ErrorDecoder",
@@ -92,6 +88,7 @@ __all__ = [
     "LookupDecoder",
     "ObservableDecoder",
     "ObservableLookupDecoder",
+    "PcmOrDem",
     "RelayBPDecoder",
     "SequentialSinterDecoder",
     "SequentialWindowDecoder",
@@ -114,14 +111,7 @@ __all__ = [
     "get_decoder_ILP",
     "get_decoder_MWPM",
     "get_decoder_RBP",
-    "get_decoder_bf",
-    "get_decoder_bp_lsd",
-    "get_decoder_bp_osd",
-    "get_decoder_guf",
-    "get_decoder_ilp",
     "get_decoder_lookup",
-    "get_decoder_mwpm",
-    "get_decoder_rbp",
     "guf",
     "ilp",
     "lookup_table",
@@ -129,3 +119,19 @@ __all__ = [
     "relay_bp",
     "with_erasure_bits",
 ]
+
+# Deprecated names remain importable (including by star imports, since they are listed in __all__),
+# and resolve at runtime through a module-level __getattr__ (PEP 562) that warns when accessed.
+# Type checkers instead see plain aliases, so that they still flag misspelled attributes.
+_DEPRECATED_ALIASES = custom._DEPRECATED_ALIASES | sinter._DEPRECATED_ALIASES
+
+if TYPE_CHECKING:
+    from .custom import BatchDecoder as BatchDecoder
+    from .custom import Decoder as Decoder
+    from .sinter import CompiledSinterDecoder as CompiledSinterDecoder
+    from .sinter import SinterDecoder as SinterDecoder
+else:
+
+    def __getattr__(name: str) -> Any:
+        """Resolve deprecated names of decoder classes and protocols, with a DeprecationWarning."""
+        return _get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)

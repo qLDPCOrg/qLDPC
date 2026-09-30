@@ -20,7 +20,7 @@ from qldpc import codes, math
 from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
-from .common import with_erasure_bits
+from .common import _get_deprecated_alias, with_erasure_bits
 from .dems import DetectorErrorModelArrays
 
 if TYPE_CHECKING:
@@ -41,14 +41,6 @@ class BatchErrorDecoder(ErrorDecoder, Protocol):
 
     def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes and return inferred errors."""
-
-
-class Decoder(ErrorDecoder, Protocol):
-    """Deprecated name for ErrorDecoder."""
-
-
-class BatchDecoder(BatchErrorDecoder, Protocol):
-    """Deprecated name for BatchErrorDecoder."""
 
 
 class RelayBPDecoder:
@@ -684,3 +676,17 @@ class DirectDecoder:
                 return (candidate_words - errors).view(np.ndarray)
 
         return DirectDecoder(decode_func, decode_batch_func)
+
+
+_DEPRECATED_ALIASES = {"Decoder": ErrorDecoder, "BatchDecoder": BatchErrorDecoder}
+
+# Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
+# Type checkers instead see plain aliases, so that they still flag misspelled attributes.
+if TYPE_CHECKING:
+    Decoder = ErrorDecoder
+    BatchDecoder = BatchErrorDecoder
+else:
+
+    def __getattr__(name: str) -> Any:
+        """Resolve deprecated names of decoder protocols, with a DeprecationWarning."""
+        return _get_deprecated_alias(__name__, name, _DEPRECATED_ALIASES)

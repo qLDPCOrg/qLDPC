@@ -50,11 +50,11 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
         unittest.mock.patch.dict("sys.modules", {"relay_bp": None}),
         pytest.raises(ImportError, match="Failed to import relay-bp"),
     ):
-        decoders.get_decoder(np.array([[]]), with_RBP=True)
+        decoders.get_decoder(np.array([[]]), decoder=decoders.relay_bp())
 
     # fail to initialize a relay-bp decoder from an unrecognized name
     with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder(np.array([[]]), with_RBP=True, name="invalid_name")
+        decoders.get_decoder(np.array([[]]), decoder=decoders.relay_bp(name="invalid_name"))
 
     # fail when a decoder name string is passed where the matrix should be
     with pytest.raises(TypeError, match="breaking change"):
@@ -197,10 +197,10 @@ def test_invalid_ilp() -> None:
     syndrome = np.array([0, 1], dtype=int)
 
     with pytest.raises(ValueError, match="could not be found"):
-        decoders.decode(matrix, syndrome, with_ILP=True)
+        decoders.decode(matrix, syndrome, decoder=decoders.ilp())
 
     with pytest.raises(ValueError, match="ILP decoding only supports prime number fields"):
-        decoders.decode(galois.GF(4)(matrix), syndrome, with_ILP=True)
+        decoders.decode(galois.GF(4)(matrix), syndrome, decoder=decoders.ilp())
 
 
 def test_generalized_union_find() -> None:
@@ -211,12 +211,15 @@ def test_generalized_union_find() -> None:
     error[[3, 4]] = 1
     matrix = code.matrix_z
     syndrome = matrix @ error
-    assert np.count_nonzero(decoders.decode(matrix, syndrome, with_GUF=True)) > 2
-    assert np.count_nonzero(decoders.decode(matrix, syndrome, with_GUF=True, max_weight=2)) == 2
+    assert np.count_nonzero(decoders.decode(matrix, syndrome, decoder=decoders.guf())) > 2
+    assert (
+        np.count_nonzero(decoders.decode(matrix, syndrome, decoder=decoders.guf(max_weight=2))) == 2
+    )
 
     # cover the trivial syndrome with the generalized Union-Find decoer
     assert np.array_equal(
-        np.zeros_like(error), decoders.decode(matrix, np.zeros_like(syndrome), with_GUF=True)
+        np.zeros_like(error),
+        decoders.decode(matrix, np.zeros_like(syndrome), decoder=decoders.guf()),
     )
 
 
@@ -325,7 +328,7 @@ def test_composite_erasure() -> None:
 def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     """Composite and direct decoders, built from other decoders."""
     matrix, error, syndrome = toy_problem
-    decoder = decoders.get_decoder(matrix, with_MWPM=True)
+    decoder = decoders.get_decoder(matrix, decoder=decoders.mwpm())
 
     # decode corrupted code words directly
     direct_decoder = decoders.DirectDecoder.from_indirect(decoder, matrix)

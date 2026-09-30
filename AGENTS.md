@@ -94,11 +94,13 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 ### Decoders
 
 - [`decoders.get_decoder`](src/qldpc/decoders/retrieval.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
-- Configure named error decoders with typed helpers such as `decoders.bp_lsd(...)` and pass the
-  resulting spec as `decoder=`.
-  A prebuilt error decoder or one-argument custom constructor is also accepted.
-- Keep error decoders (`syndrome -> inferred error`) distinct from observable decoders
-  (`detection events -> observable flips`).
+- Configure named error decoders with typed helpers such as `decoders.bp_lsd(...)`, and pass the resulting `DecoderSpec` as `decoder=`.
+  A one-argument custom constructor is also accepted.
+- A prebuilt error decoder is accepted only where the caller knows the matrix being decoded.
+  Reject it with `retrieval._reject_prebuilt_decoder(decoder, reason)` wherever a method decodes a matrix that it constructs, such as an effective check matrix, a window, or a simplified detector error model.
+- Keep error decoders (`syndrome -> inferred error`) distinct from observable decoders (`detection events -> observable flips`).
+  An object whose output is observable flips sets `decodes_observables = True`, and is rejected where an error decoder is required.
+- Keep each typed helper's options and defaults in sync with the decoder it configures; `retrieval_test.py` checks this.
 - Only decoders that declare erasure support may append an erasure flag.
   They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
 - Detector-error-model decomposition indices and remaps must remain valid after cancellation and simplification.

@@ -23,71 +23,9 @@ from .dems import DetectorErrorModelArrays
 
 
 class _LookupDecoderBase:
-    """Shared implementation for error- and observable-lookup decoders.
+    """Shared implementation of lookup-table decoders.
 
-    Accepts a parity check matrix (PCM) or detector error model (DEM) for ``pcm_or_dem``.  If
-    provided a DEM, this decoder extracts a PCM, ``error_channel``, and ``observable_flip_matrix``
-    from the DEM, which are used as described below.
-
-    In addition to a PCM, this decoder needs to be initialized with some choice of ``max_weight``.
-    The decoder enumerates all errors with ``weight <= max_weight`` in order of decreasing weight.
-    For each ``error``, the decoder computes the corresponding ``syndrome``, and nominally adds an
-    ``syndrome -> error`` entry to the lookup table, overriding any past entry for ``syndrome``.
-
-    If provided an ``error_channel`` of independent probabilities for each "primitive" error
-    mechanism (which associated with one column of a PCM, or one entry in a DEM), this method
-    constructs a penalty function, ``penalty_func``, that penalizes unlikely errors.  In this case,
-    a candidate ``syndrome -> new_error`` entry encountered during enumeration will only override a
-    past entry in the lookup table if ``penalty_func(new_error) <= penalty_func(old_error)``.
-    Errors are enumerated in decreasing weight, so an equal penalty resolves in favor of the
-    lighter error.
-    Alternatively, this decoder supports the use of a user-provided ``penalty_func``, which must map
-    an error (represented as a binary vector of length ``num_primitive_error_mechanisms``) to a real
-    number (i.e., a penalty).
-
-    If provided an ``observable_flip_matrix`` (shape ``num_observables × num_primitive_errors``),
-    this decoder maps each syndrome to an error that induces the most likely observable flip for
-    that syndrome, which may be different from the single most likely error.  Concretely: errors
-    consistent with a given syndrome are grouped by their observable flip value; the total
-    probability of each group is the sum of the probabilities of its member errors, restricted to
-    the errors of ``weight <= max_weight`` that this decoder enumerates.  This decoder then assigns
-    each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
-    total probability.
-
-    If initialized with ``predict_observable_flips=True``, this decoder maps each syndrome directly
-    to its most likely observable flip, rather than to a representative ``error``.  In this case
-    the decoded output is a vector of length ``num_observables`` over the field of the parity check
-    matrix.  Predicting observable flips requires an ``observable_flip_matrix``.
-
-    If provided a ``post_select`` collection of syndrome-bit (i.e., detector) indices, this decoder
-    post-selects on those bits being trivial: when constructing the lookup table, it ignores
-    syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
-    keys in the lookup table.  For consistency with the post-selection options in sinter, syndromes
-    passed to ``LookupDecoder.decode`` should still contain all syndrome bits.  A syndrome that is
-    nonzero on a post-selected bit is one that the lookup table was never given, so it decodes
-    identically to a syndrome that was never enumerated.
-
-    If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors.
-    If asked to decode a syndrome that was not observed when constructing the lookup table, the
-    erasure bit is set to 1.  The erasure bit is set to 0 otherwise.
-
-    If initialized with a positive ``confidence_ratio`` (which then requires an
-    ``observable_flip_matrix``), this decoder handles ambiguous syndromes -- those consistent with
-    more than one observable flip -- by declining to guess unless one flip is clearly dominant.
-    Letting ``prob_top`` and ``prob_rest`` be the net probabilities of the most likely observable
-    flip and of all other flips combined (summed over the enumerated ``weight <= max_weight``
-    errors, grouped as above), the decoder assigns the most likely flip iff it is at least
-    ``confidence_ratio`` times as likely as the rest, i.e. ``prob_top >= confidence_ratio *
-    prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
-    erasure, identically to a syndrome that was never enumerated.  A positive ``confidence_ratio``
-    therefore auto-enables the erasure bit, setting ``add_erasure_bit=True``.  At the extreme,
-    ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
-    probability, erasing every syndrome with a competing flip that can actually occur.
-
-    If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
-    that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
-    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
-    ``[X|Z]`` support.
+    See help(LookupDecoder) for details.
     """
 
     def __init__(
@@ -138,8 +76,9 @@ class _LookupDecoderBase:
                 " observable_flip_matrix"
             )
 
-        # save attributes
+        # save attributes; decodes_observables marks a decoder whose output is observable flips
         self.predict_observable_flips = predict_observable_flips
+        self.decodes_observables = predict_observable_flips
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -505,7 +444,71 @@ class _LookupDecoderBase:
 
 
 class LookupDecoder(_LookupDecoderBase):
-    """Lookup-table decoder that maps syndromes to inferred errors."""
+    """Decoder based on a lookup table that maps syndromes to errors.
+
+    Accepts a parity check matrix (PCM) or detector error model (DEM) for ``pcm_or_dem``.  If
+    provided a DEM, this decoder extracts a PCM, ``error_channel``, and ``observable_flip_matrix``
+    from the DEM, which are used as described below.
+
+    In addition to a PCM, this decoder needs to be initialized with some choice of ``max_weight``.
+    The decoder enumerates all errors with ``weight <= max_weight`` in order of decreasing weight.
+    For each ``error``, the decoder computes the corresponding ``syndrome``, and nominally adds an
+    ``syndrome -> error`` entry to the lookup table, overriding any past entry for ``syndrome``.
+
+    If provided an ``error_channel`` of independent probabilities for each "primitive" error
+    mechanism (which associated with one column of a PCM, or one entry in a DEM), this method
+    constructs a penalty function, ``penalty_func``, that penalizes unlikely errors.  In this case,
+    a candidate ``syndrome -> new_error`` entry encountered during enumeration will only override a
+    past entry in the lookup table if ``penalty_func(new_error) <= penalty_func(old_error)``.
+    Errors are enumerated in decreasing weight, so an equal penalty resolves in favor of the
+    lighter error.
+    Alternatively, this decoder supports the use of a user-provided ``penalty_func``, which must map
+    an error (represented as a binary vector of length ``num_primitive_error_mechanisms``) to a real
+    number (i.e., a penalty).
+
+    If provided an ``observable_flip_matrix`` (shape ``num_observables × num_primitive_errors``),
+    this decoder maps each syndrome to an error that induces the most likely observable flip for
+    that syndrome, which may be different from the single most likely error.  Concretely: errors
+    consistent with a given syndrome are grouped by their observable flip value; the total
+    probability of each group is the sum of the probabilities of its member errors, restricted to
+    the errors of ``weight <= max_weight`` that this decoder enumerates.  This decoder then assigns
+    each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
+    total probability.
+
+    The deprecated ``predict_observable_flips=True`` option makes ``.decode`` return the most likely
+    observable flip for each syndrome, rather than a representative ``error``.  Use an
+    ObservableLookupDecoder instead, whose ``.decode_observables`` method returns observable flips.
+
+    If provided a ``post_select`` collection of syndrome-bit (i.e., detector) indices, this decoder
+    post-selects on those bits being trivial: when constructing the lookup table, it ignores
+    syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
+    keys in the lookup table.  For consistency with the post-selection options in sinter, syndromes
+    passed to ``.decode`` should still contain all syndrome bits.  A syndrome that is
+    nonzero on a post-selected bit is one that the lookup table was never given, so it decodes
+    identically to a syndrome that was never enumerated.
+
+    If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors.
+    If asked to decode a syndrome that was not observed when constructing the lookup table, the
+    erasure bit is set to 1.  The erasure bit is set to 0 otherwise.
+
+    If initialized with a positive ``confidence_ratio`` (which then requires an
+    ``observable_flip_matrix``), this decoder handles ambiguous syndromes -- those consistent with
+    more than one observable flip -- by declining to guess unless one flip is clearly dominant.
+    Letting ``prob_top`` and ``prob_rest`` be the net probabilities of the most likely observable
+    flip and of all other flips combined (summed over the enumerated ``weight <= max_weight``
+    errors, grouped as above), the decoder assigns the most likely flip iff it is at least
+    ``confidence_ratio`` times as likely as the rest, i.e. ``prob_top >= confidence_ratio *
+    prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
+    erasure, identically to a syndrome that was never enumerated.  A positive ``confidence_ratio``
+    therefore auto-enables the erasure bit, setting ``add_erasure_bit=True``.  At the extreme,
+    ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
+    probability, erasing every syndrome with a competing flip that can actually occur.
+
+    If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
+    that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
+    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
+    ``[X|Z]`` support.
+    """
 
     def __init__(
         self,
@@ -550,9 +553,18 @@ class LookupDecoder(_LookupDecoderBase):
 
 
 class ObservableLookupDecoder(_LookupDecoderBase):
-    """Lookup-table decoder that maps syndromes directly to observable flips."""
+    """Decoder based on a lookup table that maps syndromes directly to observable flips.
 
-    decodes_observables = True
+    An ObservableLookupDecoder builds the same lookup table as a LookupDecoder, and accepts the same
+    options (see help(LookupDecoder)).  However, rather than mapping each syndrome to a
+    representative error, an ObservableLookupDecoder maps each syndrome to its most likely
+    observable flip, a vector of length ``num_observables`` over the field of the parity check
+    matrix.  Decode with the ``.decode_observables`` method.
+
+    Grouping errors by observable flip requires a detector error model with observables, or an
+    ``observable_flip_matrix``.  If initialized with ``add_erasure_bit=True``, this decoder appends
+    an erasure bit to each predicted observable flip.
+    """
 
     def __init__(
         self,
@@ -586,12 +598,9 @@ class ObservableLookupDecoder(_LookupDecoderBase):
 
 
 class _WeightedLookupDecoderBase(_LookupDecoderBase):
-    """Shared implementation for weighted lookup decoders.
+    """Shared implementation of weighted lookup-table decoders.
 
-    A WeightedLookupDecoder is a LookupDecoder that, when initialized, records *all* errors that are
-    consistent with a given syndrome.  The WeightedLookupDecoder then minimizes a penalty function
-    that is provided to the .decode method.  A WeightedLookupDecoder can thereby be initialized
-    once, and subsequently asked to decode with different penalty functions.
+    See help(WeightedLookupDecoder) for details.
     """
 
     def __init__(
@@ -617,8 +626,9 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
             )
         )
 
-        # save attributes
+        # save attributes; decodes_observables marks a decoder whose output is observable flips
         self.predict_observable_flips = predict_observable_flips
+        self.decodes_observables = predict_observable_flips
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -681,7 +691,19 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
 
 
 class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
-    """Weighted lookup-table decoder that maps syndromes to inferred errors."""
+    """Lookup-table decoder that maps syndromes to errors, with a penalty function chosen later.
+
+    A WeightedLookupDecoder is a LookupDecoder that, when initialized, records *all* errors of
+    ``weight <= max_weight`` that are consistent with each syndrome.  The WeightedLookupDecoder then
+    minimizes a penalty function that is provided to the ``.decode`` method.  A
+    WeightedLookupDecoder can thereby be initialized once, and subsequently asked to decode with
+    different penalty functions.  The default penalty function is the Hamming weight of an error.
+
+    The ``pcm_or_dem``, ``max_weight``, ``observable_flip_matrix``, ``post_select``,
+    ``add_erasure_bit``, and ``symplectic`` options behave as they do for a LookupDecoder; see
+    help(LookupDecoder).  The deprecated ``predict_observable_flips=True`` option makes ``.decode``
+    return observable flips; use a WeightedObservableLookupDecoder instead.
+    """
 
     def __init__(
         self,
@@ -723,9 +745,14 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
 
 
 class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
-    """Weighted lookup-table decoder that maps syndromes directly to observable flips."""
+    """Weighted lookup-table decoder that maps syndromes to observable flips.
 
-    decodes_observables = True
+    A WeightedObservableLookupDecoder records the same candidate errors as a WeightedLookupDecoder
+    (see help(WeightedLookupDecoder)).  Its ``.decode_observables`` method selects the candidate
+    error that minimizes a provided penalty function, and returns the observable flip that this
+    error induces.  Predicting observable flips requires a detector error model with observables,
+    or an ``observable_flip_matrix``.
+    """
 
     def __init__(
         self,
