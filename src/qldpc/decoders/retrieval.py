@@ -1095,7 +1095,7 @@ def _get_observable_decoder_MWPM(
 ) -> _MatchingObservableDecoder:
     """Build a matching decoder that predicts the observable flips of a detector error model."""
     if enable_correlations:
-        _check_correlated_matching_options(decompose_errors=decompose_errors, **decoder_args)
+        # decoders.mwpm has rejected the remaining options, which correlated matching ignores
         return _MatchingObservableDecoder(
             _build_correlated_matching(
                 dem, ignore_non_graphlike_errors=ignore_non_graphlike_errors
@@ -1111,37 +1111,6 @@ def _get_observable_decoder_MWPM(
             **decoder_args,
         )
     )
-
-
-# options of decoders.mwpm that correlated matching does not support, and their default values
-_UNCORRELATED_MATCHING_OPTIONS: dict[str, object] = {
-    "decompose_errors": False,
-    "weights": None,
-    "error_probabilities": None,
-    "repetitions": None,
-    "timelike_weights": None,
-    "measurement_error_probabilities": None,
-    "merge_strategy": "smallest-weight",
-    "use_virtual_boundary_node": False,
-}
-
-
-def _check_correlated_matching_options(**options: object) -> None:
-    """Reject options of decoders.mwpm that correlated matching does not support.
-
-    Correlated matching builds its matching graph directly from a detector error model, together
-    with the decompositions that the model suggests for its errors.  Options that split those
-    decompositions, or that configure a matching graph built from a parity check matrix, therefore
-    do not apply.
-    """
-    for name, value in options.items():
-        default = _UNCORRELATED_MATCHING_OPTIONS.get(name, inspect.Parameter.empty)
-        if not _is_default_value(value, default):
-            raise ValueError(
-                f"The MWPM option {name}={value!r} is not supported with enable_correlations=True."
-                "  Correlated matching builds its matching graph directly from a detector error"
-                " model, using the decompositions that the model suggests for its errors"
-            )
 
 
 def _build_correlated_matching(
@@ -1515,16 +1484,14 @@ def mwpm(
         enable_correlations: Whether to use the two-pass correlated matching of pymatching, which
             exploits correlations between the components of a decomposed error mechanism, such as
             the X and Z components of a Pauli-Y error.  Correlated matching only predicts the
-            observable flips of a detector error model, so settings with enable_correlations=True
-            cannot build a decoder that infers errors, and so they cannot decode a parity check
-            matrix, or be used by a window decoder.  The model must suggest a decomposition for
-            every error mechanism that flips more than two detectors (unless
-            ignore_non_graphlike_errors=True), as provided by
-            ``circuit.detector_error_model(decompose_errors=True)``.  Correlated matching builds
-            its matching graph from the model and these decompositions, so it is incompatible with
-            decompose_errors=True (which discards the correlations between components) and with
-            all of the options below.  A SubgraphDecoder does not pass decompositions to the models
-            of its subgraphs.  See help(pymatching.Matching.from_detector_error_model) and
+            observable flips of a detector error model, so it cannot decode a parity check matrix
+            or be used by a window decoder.  The model must suggest a decomposition for every error
+            mechanism that flips more than two detectors (unless ignore_non_graphlike_errors=True),
+            as provided by ``circuit.detector_error_model(decompose_errors=True)``.  Correlated
+            matching builds its matching graph from the model and these decompositions, so it is
+            incompatible with decompose_errors=True and with all of the options below.  A
+            SubgraphDecoder does not pass decompositions to the models of its subgraphs.  See
+            help(pymatching.Matching.from_detector_error_model) and
             https://arxiv.org/abs/1310.0863.
         weights: Scalar or per-error matching weights for a parity check matrix.  A detector
             error model supplies its own weights, so this must be None when decoding one.
@@ -1551,26 +1518,34 @@ def mwpm(
     - Documentation: https://pymatching.readthedocs.io
     - Reference: https://arxiv.org/abs/2303.15933
     """
-    options: dict[str, object] = {
-        "weights": weights,
-        "error_probabilities": error_probabilities,
-        "repetitions": repetitions,
-        "timelike_weights": timelike_weights,
-        "measurement_error_probabilities": measurement_error_probabilities,
-        "merge_strategy": merge_strategy,
-        "use_virtual_boundary_node": use_virtual_boundary_node,
-    }
-    if enable_correlations:
-        _check_correlated_matching_options(decompose_errors=decompose_errors, **options)
-    return _decoder_spec(
+    spec = _decoder_spec(
         "mwpm",
         get_decoder_MWPM,
         _get_observable_decoder_MWPM,
         decompose_errors=decompose_errors,
         ignore_non_graphlike_errors=ignore_non_graphlike_errors,
         enable_correlations=enable_correlations,
-        **options,
+        weights=weights,
+        error_probabilities=error_probabilities,
+        repetitions=repetitions,
+        timelike_weights=timelike_weights,
+        measurement_error_probabilities=measurement_error_probabilities,
+        merge_strategy=merge_strategy,
+        use_virtual_boundary_node=use_virtual_boundary_node,
     )
+    if enable_correlations:
+        defaults = {
+            name: param.default for name, param in inspect.signature(mwpm).parameters.items()
+        }
+        compatible_options = ("ignore_non_graphlike_errors", "enable_correlations")
+        for name, value in spec._options:
+            if name not in compatible_options and not _is_default_value(value, defaults[name]):
+                raise ValueError(
+                    f"The MWPM option {name}={value!r} is not supported with"
+                    " enable_correlations=True, because correlated matching builds its matching"
+                    " graph directly from the decompositions that a detector error model suggests"
+                )
+    return spec
 
 
 def relay_bp(

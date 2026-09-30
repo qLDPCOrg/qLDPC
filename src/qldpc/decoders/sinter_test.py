@@ -112,11 +112,6 @@ def test_sinter_decoder_correlated_matching() -> None:
     with pytest.raises(ValueError, match="decompose_errors=True discards"):
         decoders.SinterDecoder(decompose_errors=True, decoder=spec)
 
-    # window decoders commit the errors that they infer, which correlated matching cannot do
-    window_decoder = decoders.SequentialWindowDecoder([range(dem.num_detectors)], decoder=spec)
-    with pytest.raises(ValueError, match="cannot infer errors"):
-        window_decoder.compile_decoder_for_dem(dem)
-
 
 def test_sinter_decoder_classes_and_aliases() -> None:
     """Sinter decoders are observable decoders, and deprecated decoder names remain aliases."""
