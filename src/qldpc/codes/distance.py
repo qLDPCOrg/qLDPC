@@ -169,24 +169,19 @@ def get_distance_quantum(
         if not homogeneous and num_bits % 2:
             raise ValueError("Symplectic operators must have an even number of columns")
 
-        # For small searches, exhaustive vectorized enumeration is cheaper than building BZ's
-        # quotient basis and information sets.  This shortcut applies only when the input rows are
-        # linearly independent, as exhaustive enumeration requires.
-        if len(logical_matrix) + len(stabilizer_matrix) <= 20:
-            combined_rank = len(
-                _get_independent_rows(np.vstack([stabilizer_matrix, logical_matrix]))
+        # Exhaustive enumeration of the input rows avoids building the quotient basis and
+        # information sets, but requires the rows to be linearly independent.
+        num_rows = len(logical_matrix) + len(stabilizer_matrix)
+        if _exhaustive_is_cheaper(num_rows, num_bits) and num_rows == len(
+            _get_independent_rows(np.vstack([stabilizer_matrix, logical_matrix]))
+        ):
+            return _get_distance_quantum_brute_force(
+                logical_matrix,
+                stabilizer_matrix,
+                cutoff=cutoff,
+                block_size=block_size,
+                homogeneous=homogeneous,
             )
-            stabilizer_rank = len(_get_independent_rows(stabilizer_matrix))
-            if combined_rank == len(logical_matrix) + len(
-                stabilizer_matrix
-            ) and stabilizer_rank == len(stabilizer_matrix):
-                return _get_distance_quantum_brute_force(
-                    logical_matrix,
-                    stabilizer_matrix,
-                    cutoff=cutoff,
-                    block_size=block_size,
-                    homogeneous=homogeneous,
-                )
 
         basis, labels = _get_nested_code_basis(logical_matrix, stabilizer_matrix)
         if labels.shape[1] == 0:
@@ -382,21 +377,12 @@ def _get_distance_brouwer_zimmermann(
 
     batch_size = 1 << block_size
 
-    # When the entire code has fewer words than the estimated information-set setup work, enumerate
-    # it once instead of storing a full-width generator for every information set.  This prevents
-    # quadratic setup in the block length for long, low-dimensional codes.
-    # Elimination operates on byte-valued rows, while enumeration operates on packed uint64 words.
-    # Account for that width difference, with margin for dense pivot clearing, when comparing their
-    # dominant work estimates.
-    estimated_setup_work = 128 * dimension * basis.shape[1]
-    exhaustive_is_cheaper = dimension < 63 and 1 << dimension <= estimated_setup_work
-    if exhaustive_is_cheaper:
+    if _exhaustive_is_cheaper(dimension, basis.shape[1]):
         # The adapted basis separates excluded and eligible rows, so the vectorized Gray-code
         # enumerator can search the same nested space without per-combination label filtering.
-        logical_rows = eligible
         return _get_distance_quantum_brute_force(
-            basis[logical_rows],
-            basis[~logical_rows],
+            basis[eligible],
+            basis[~eligible],
             cutoff=cutoff,
             block_size=block_size,
             homogeneous=True,
@@ -449,6 +435,16 @@ def _get_distance_brouwer_zimmermann(
             return best
 
     return best
+
+
+def _exhaustive_is_cheaper(dimension: int, length: int) -> bool:
+    """Estimate whether enumerating every codeword is cheaper than building information sets.
+
+    Setup costs dominate the Brouwer-Zimmermann search for dimensions up to 20.  For long,
+    low-dimensional codes, byte-wise elimination for each information set can cost more than packed
+    ``uint64`` enumeration of all ``2**dimension`` codewords.
+    """
+    return dimension <= 20 or (dimension < 63 and 1 << dimension <= 128 * dimension * length)
 
 
 def _brute_force_is_cheaper(
