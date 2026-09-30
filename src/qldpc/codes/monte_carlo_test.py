@@ -946,6 +946,12 @@ def test_is_prebuilt_observable_decoder() -> None:
         def __call__(self, dem: stim.DetectorErrorModel) -> Any:
             return None  # pragma: no cover
 
+    def unresolved_constructor(dem: stim.DetectorErrorModel) -> Any:
+        return None  # pragma: no cover
+
+    unresolved_constructor.__annotations__["return"] = "MissingDecoder"
+
     assert monte_carlo.constructs_observable_decoder(_FixedObservableDecoder)
     assert not monte_carlo.constructs_observable_decoder(lambda matrix: None)
     assert not monte_carlo.constructs_observable_decoder(_UnannotatedConstructor())
+    assert not monte_carlo.constructs_observable_decoder(unresolved_constructor)
