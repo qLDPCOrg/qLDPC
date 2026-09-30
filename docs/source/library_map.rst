@@ -241,6 +241,10 @@ Build and simulate a memory circuit
    code = codes.SurfaceCode(3)
    circuit = circuits.get_memory_experiment(code, basis=Pauli.Z, num_rounds=3)
 
+Memory experiments also accept subsystem codes. Each round measures commuting layers of gauge
+checks in sequence (by default, all X-type and then all Z-type checks of a CSS code), and detectors
+track products of gauge outcomes within one layer that equal stabilizers.
+
 Circuit utilities reject nonbinary codes. Encoding circuits are not fault-tolerant, and
 transversal-gate searches can be exponential. For sliding-window decoding, detector coordinates are
 only a heuristic source of time; pass ``detector_to_time`` when a model uses another convention.

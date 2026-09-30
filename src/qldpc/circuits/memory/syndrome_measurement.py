@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import abc
 import collections
+from collections.abc import Sequence
 
+import numpy as np
 import stim
 
-from qldpc import codes
+from qldpc import codes, math
 from qldpc._util import networkx as nx
 from qldpc.objects import Pauli
 
@@ -34,12 +36,22 @@ def validate_syndrome_qubit_ids(
         ValueError: If the code is a subsystem code or the qubit layout is invalid.
     """
     if code.is_subsystem_code:
-        raise ValueError("Syndrome measurement strategies require a non-subsystem code")
+        raise ValueError(
+            "Syndrome measurement strategies require a non-subsystem code (measure the gauge checks"
+            " of a subsystem code with SyndromeMeasurementStrategy.get_subsystem_circuit)"
+        )
     return QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
-    """Base class for a syndrome measurement strategy."""
+    """Base class for a syndrome measurement strategy.
+
+    Subclasses define how to measure the (mutually commuting) parity checks of a stabilizer code by
+    implementing get_circuit.  The gauge checks of a subsystem code need not commute, so they cannot
+    all be measured at once.  Instead, get_subsystem_circuit partitions the gauge checks of a code
+    into layers of mutually commuting checks (see get_gauge_layers), and then measures one layer at
+    a time with get_circuit.
+    """
 
     @restrict_to_qubits
     @abc.abstractmethod
@@ -57,6 +69,117 @@ class SyndromeMeasurementStrategy(abc.ABC):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
+
+    def get_gauge_layers(self, code: codes.QuditCode) -> tuple[tuple[int, ...], ...]:
+        """Partition the parity checks of a code into layers of mutually commuting checks.
+
+        The layers are measured one at a time, in the returned order, by get_subsystem_circuit.  A
+        memory experiment uses these layers to define detectors: any product of the checks in a
+        single layer that is a stabilizer of the code should have the same value in consecutive
+        rounds of syndrome measurement.  A subsystem-code memory experiment therefore requires that
+        such single-layer products of checks generate all of the stabilizers that it tracks.
+
+        By default, the checks of a CSS code are split into a layer of all X-type checks followed by
+        a layer of all Z-type checks, as in the gauge measurement schedule for Bacon-Shor codes in
+        arXiv:quant-ph/0610063.  The checks of a non-CSS code are split into layers by greedily
+        coloring a graph whose edges connect non-commuting checks.  Subclasses may override this
+        method to choose a different schedule.
+
+        Args:
+            code: The code whose checks we want to partition.
+
+        Returns:
+            tuple[tuple[int, ...], ...]: The indices (rows of code.matrix) of the checks in each
+            layer.
+        """
+        if isinstance(code, codes.CSSCode):
+            layers = (range(code.num_checks_x), range(code.num_checks_x, code.num_checks))
+            return tuple(tuple(layer) for layer in layers if layer)
+
+        # color a graph whose vertices are checks and whose edges connect non-commuting checks
+        commutators = code.matrix @ math.symplectic_conjugate(code.matrix).T
+        graph = nx.Graph()
+        graph.add_nodes_from(range(code.num_checks))
+        graph.add_edges_from(zip(*map(np.ndarray.tolist, np.nonzero(commutators))))
+        coloring = nx.greedy_color(graph, "smallest_last")
+        color_to_checks: dict[int, list[int]] = collections.defaultdict(list)
+        for check, color in sorted(coloring.items()):
+            color_to_checks[color].append(check)
+        return tuple(tuple(color_to_checks[color]) for color in sorted(color_to_checks))
+
+    @restrict_to_qubits
+    def get_subsystem_circuit(
+        self,
+        code: codes.QuditCode,
+        qubit_ids: QubitIDs | None = None,
+        *,
+        layers: Sequence[Sequence[int]] | None = None,
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Construct a circuit that measures the checks of a code one commuting layer at a time.
+
+        The checks in each layer define a stabilizer code, whose checks are measured with
+        self.get_circuit.  The circuits for different layers are applied sequentially, so the
+        measurement of one layer completes before the measurement of the next layer begins.  This
+        method thereby supports subsystem codes, whose (gauge) checks need not commute.
+
+        Args:
+            code: The code whose checks we want to measure.
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits, with one
+                check qubit per row of code.matrix.  Defaults to QubitIDs.from_code(code).
+            layers: A partition of the checks of the code (identified by their rows in code.matrix)
+                into layers of mutually commuting checks.  Defaults to self.get_gauge_layers(code).
+
+        Returns:
+            stim.Circuit: A circuit that measures all checks of the code.
+            circuits.MeasurementRecord: The record of measurements in the circuit.
+        """
+        qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
+        layers = self.get_gauge_layers(code) if layers is None else layers
+        validate_gauge_layers(code, layers)
+
+        circuit = stim.Circuit()
+        measurement_record = MeasurementRecord()
+        for layer in layers:
+            checks = sorted(layer)
+            layer_code: codes.QuditCode
+            if isinstance(code, codes.CSSCode):
+                checks_x = [check for check in checks if check < code.num_checks_x]
+                checks_z = [check - code.num_checks_x for check in checks[len(checks_x) :]]
+                layer_code = codes.CSSCode(
+                    code.matrix_x[checks_x], code.matrix_z[checks_z], is_subsystem_code=False
+                )
+            else:
+                layer_code = codes.QuditCode(code.matrix[checks], is_subsystem_code=False)
+            layer_qubit_ids = QubitIDs(
+                qubit_ids.data,
+                [qubit_ids.check[check] for check in checks],
+                qubit_ids.ancilla,
+                reference=qubit_ids.reference,
+            )
+            layer_circuit, layer_record = self.get_circuit(layer_code, layer_qubit_ids)
+            layer_record.validate_num_measurements(layer_circuit.num_measurements)
+            circuit += layer_circuit
+            measurement_record.append(layer_record)
+        return circuit, measurement_record
+
+
+def validate_gauge_layers(code: codes.QuditCode, layers: Sequence[Sequence[int]]) -> None:
+    """Validate a partition of the checks of a code into layers of mutually commuting checks.
+
+    Args:
+        code: The code whose checks are partitioned.
+        layers: The indices (rows of code.matrix) of the checks in each layer.
+
+    Raises:
+        ValueError: If the layers do not partition the checks of the code, or if a layer contains
+            checks that do not commute.
+    """
+    if sorted(check for layer in layers for check in layer) != list(range(code.num_checks)):
+        raise ValueError("Gauge layers must partition the parity checks of the code")
+    for layer in layers:
+        checks = code.matrix[list(layer)]
+        if np.any(checks @ math.symplectic_conjugate(checks).T):
+            raise ValueError(f"Gauge layer {tuple(layer)} contains checks that do not commute")
 
 
 class EdgeColoring(SyndromeMeasurementStrategy):
