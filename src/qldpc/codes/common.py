@@ -476,9 +476,9 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nonzero code word.  A non-default method cannot
-                be combined with ``bound``.  Nonbinary and vector-distance calculations always use
-                exhaustive enumeration.
+                ``"brute_force"`` enumerates every nonzero code word and cannot be combined with
+                ``bound``.  Nonbinary and vector-distance calculations always use exhaustive
+                enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -1872,9 +1872,8 @@ class QuditCode(AbstractCode):
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nontrivial logical operator.  A non-default
-                method cannot be combined with ``bound``.  Nonbinary calculations always use
-                exhaustive enumeration.
+                ``"brute_force"`` enumerates every nontrivial logical operator and cannot be
+                combined with ``bound``.  Nonbinary calculations always use exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -3087,9 +3086,8 @@ class CSSCode(QuditCode):
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nontrivial logical operator.  A non-default
-                method cannot be combined with ``bound``.  Nonbinary calculations always use
-                exhaustive enumeration.
+                ``"brute_force"`` enumerates every nontrivial logical operator and cannot be
+                combined with ``bound``.  Nonbinary calculations always use exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -3793,5 +3791,5 @@ def _validate_distance_method_usage(
 ) -> None:
     """Validate exact-distance method selection at the high-level API."""
     validate_distance_method(method)
-    if bound and method != "brouwer_zimmermann":
-        raise ValueError("method is only available for exact distance calculations")
+    if bound and method == "brute_force":
+        raise ValueError("method='brute_force' is only available for exact distance calculations")
