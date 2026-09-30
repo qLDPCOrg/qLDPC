@@ -33,6 +33,7 @@ from .distance import (
     DistanceBackend,
     DistanceMethod,
     get_distance_classical,
+    get_distance_css_brouwer_zimmermann,
     get_distance_quantum,
     validate_distance_backend,
     validate_distance_method,
@@ -3136,6 +3137,43 @@ class CSSCode(QuditCode):
             self._distance_x = distance if pauli is Pauli.X else self._distance_x
             self._distance_z = distance if pauli is Pauli.Z else self._distance_z
             self._distance = distance if pauli is None else self._distance
+            return distance
+
+        if (
+            pauli is None
+            and method == "brouwer_zimmermann"
+            and self.field is galois.GF2
+            and type(self)._get_distance_exact is CSSCode._get_distance_exact
+        ):
+            if self._equal_distance_xz:
+                return self.get_distance_exact(Pauli.X, cutoff=cutoff, method=method)
+
+            sectors: list[tuple[npt.ArrayLike, npt.ArrayLike]] = []
+            upper_bound: int | None = None
+            for sector_pauli in PAULIS_XZ:
+                known_distance = self.get_distance_if_known(sector_pauli)
+                if known_distance is not None:
+                    sector_bound = int(known_distance)
+                    upper_bound = (
+                        sector_bound if upper_bound is None else min(upper_bound, sector_bound)
+                    )
+                    continue
+
+                logical_ops = self.get_logical_ops(sector_pauli)
+                stabilizers = self.get_stabilizer_ops(sector_pauli, canonicalized=True)
+                if self.is_subsystem_code:
+                    stabilizers = np.vstack([stabilizers, self.get_gauge_ops(sector_pauli)]).view(
+                        self.field
+                    )
+                sectors.append((logical_ops, stabilizers))
+
+            distance = get_distance_css_brouwer_zimmermann(
+                sectors,
+                cutoff=cutoff,
+                upper_bound=upper_bound,
+            )
+            if cutoff <= 1:
+                self._distance = distance
             return distance
 
         if pauli is None:

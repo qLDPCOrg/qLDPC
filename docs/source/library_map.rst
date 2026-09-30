@@ -73,13 +73,15 @@ generator combination instead. Both methods support the same ``cutoff`` conventi
 as an observed upper bound is at most the cutoff. The default cutoff of one is therefore exact for
 valid codes.
 
-For a classical code the search minimizes over nonzero codewords. For a CSS code it searches the X
-and Z logical sectors separately, excluding the corresponding stabilizer row space. For a general
-binary stabilizer or subsystem code, qLDPC maps each symplectic row
-:math:`(x,z)` to :math:`(x,z,x+z)`. The mapped Hamming weight is exactly twice the original
-symplectic weight, so the same exclusion-aware Brouwer--Zimmermann engine applies without counting a
-Y operator twice. These algorithms follow `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_ and
-the corresponding `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
+For a classical code the search minimizes over nonzero codewords. An X- or Z-distance request for a
+CSS code searches the corresponding logical sector while excluding its stabilizer row space. A
+request for the minimum CSS distance advances both sectors in step: they share the best logical
+operator weight found while retaining independent lower-bound certificates. For a general binary
+stabilizer or subsystem code, qLDPC maps each symplectic row :math:`(x,z)` to
+:math:`(x,z,x+z)`. The mapped Hamming weight is exactly twice the original symplectic weight, so the
+same exclusion-aware Brouwer--Zimmermann engine applies without counting a Y operator twice. These
+algorithms follow `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_ and the corresponding
+`quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
 
 Distance bounds
 ~~~~~~~~~~~~~~~

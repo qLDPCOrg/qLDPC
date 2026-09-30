@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import itertools
 import math
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
@@ -210,6 +211,55 @@ def get_distance_quantum(
     )
 
 
+def get_distance_css_brouwer_zimmermann(
+    sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+    *,
+    cutoff: int,
+    block_size: int = 15,
+    upper_bound: int | None = None,
+) -> int:
+    """Compute the minimum distance across homogeneous binary CSS sectors.
+
+    Args:
+        sectors: Logical operators and stabilizers for every sector to search.  All operators use
+            homogeneous binary support vectors rather than symplectic vectors.
+        cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
+        block_size: Vectorize distance calculations over batches of size ``2**block_size``.
+        upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
+            is the minimum of this bound and the distances of the supplied sectors.
+
+    Returns:
+        The minimum exact distance across the supplied sectors and optional upper bound.  As with
+        :func:`get_distance_quantum`, a result at or below ``cutoff`` is an observed upper bound.
+    """
+    problems: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
+    best = upper_bound
+    for logical_ops, stabilizers in sectors:
+        _assert_binary(logical_ops, "logical_ops")
+        _assert_binary(stabilizers, "stabilizers")
+        logical_matrix = _as_binary_matrix(logical_ops)
+        stabilizer_matrix = _as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
+        basis, labels = _get_nested_code_basis(logical_matrix, stabilizer_matrix)
+        if labels.shape[1]:
+            problems.append((basis, labels))
+            continue
+
+        sector_distance = 0 if len(logical_matrix) else logical_matrix.shape[1]
+        best = sector_distance if best is None else min(best, sector_distance)
+
+    if best is not None and best <= cutoff:
+        return best
+    if not problems:
+        assert best is not None
+        return best
+    return _get_distance_brouwer_zimmermann_many(
+        problems,
+        cutoff=cutoff,
+        block_size=block_size,
+        upper_bound=best,
+    )
+
+
 def _as_binary_matrix(
     vectors: npt.ArrayLike, *, num_cols: int | None = None
 ) -> npt.NDArray[np.uint8]:
@@ -299,22 +349,74 @@ def _get_nested_code_basis(
 def _get_information_set_generators(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8] | None,
-) -> list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8] | None, int]]:
-    """Construct disjoint full information sets and one residual-rank set."""
-    dimension, length = basis.shape
-    active_columns = np.arange(length, dtype=int)
+) -> list[
+    tuple[
+        npt.NDArray[np.uint8],
+        npt.NDArray[np.uint8] | None,
+        int,
+        npt.NDArray[np.int_],
+    ]
+]:
+    """Construct a large deterministic packing of disjoint information sets."""
+    nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
+    best = _get_information_set_generators_for_columns(
+        basis,
+        labels,
+        nonzero_columns,
+    )
+    max_full_sets = len(nonzero_columns) // len(basis)
+    if sum(rank == len(basis) for _, _, rank, _ in best) == max_full_sets:
+        return best
+
+    rng = np.random.default_rng(0)
+    for _ in range(8):
+        candidate = _get_information_set_generators_for_columns(
+            basis,
+            labels,
+            rng.permutation(nonzero_columns),
+        )
+        candidate_ranks = tuple(rank for _, _, rank, _ in candidate)
+        best_ranks = tuple(rank for _, _, rank, _ in best)
+        if candidate_ranks > best_ranks:
+            best = candidate
+        if sum(rank == len(basis) for _, _, rank, _ in best) == max_full_sets:
+            break
+    return best
+
+
+def _get_information_set_generators_for_columns(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8] | None,
+    columns: npt.NDArray[np.int_],
+) -> list[
+    tuple[
+        npt.NDArray[np.uint8],
+        npt.NDArray[np.uint8] | None,
+        int,
+        npt.NDArray[np.int_],
+    ]
+]:
+    """Construct disjoint information sets in a specified column order."""
+    dimension = len(basis)
+    active_columns = columns
     working = basis
     working_labels = labels
-    information_sets: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8] | None, int]] = []
+    information_sets: list[
+        tuple[
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8] | None,
+            int,
+            npt.NDArray[np.int_],
+        ]
+    ] = []
 
     while len(active_columns):
         working, working_labels, pivots = _row_reduce_binary(
             working, working_labels, columns=active_columns
         )
         rank = len(pivots)
-        if not rank:
-            break
-        information_sets.append((working, working_labels, rank))
+        assert rank
+        information_sets.append((working, working_labels, rank, pivots))
         if rank < dimension:
             break
 
@@ -331,6 +433,31 @@ def _iter_fixed_weight_supports(
     dimension: int, weight: int, batch_size: int
 ) -> Iterator[npt.NDArray[np.int_]]:
     """Yield batches of row-index combinations with a fixed Hamming weight."""
+    num_supports = math.comb(dimension, weight)
+    max_rank = np.iinfo(np.int64).max
+    if num_supports <= max_rank:
+        binomial_tables = [
+            np.asarray(
+                [min(math.comb(value, index), max_rank) for value in range(dimension)],
+                dtype=np.int64,
+            )
+            for index in range(1, weight + 1)
+        ]
+        for start in range(0, num_supports, batch_size):
+            remainders = np.arange(
+                start,
+                min(start + batch_size, num_supports),
+                dtype=np.int64,
+            )
+            supports = np.empty((len(remainders), weight), dtype=np.int_)
+            for index in range(weight, 0, -1):
+                table = binomial_tables[index - 1]
+                choices = np.searchsorted(table, remainders, side="right") - 1
+                supports[:, index - 1] = choices
+                remainders -= table[choices]
+            yield supports
+        return
+
     combinations = itertools.combinations(range(dimension), weight)
     flattened = itertools.chain.from_iterable(combinations)
     while True:
@@ -352,6 +479,301 @@ def _get_packed_row_weights(
     return word_weights.sum(axis=-1, dtype=np.uint64)
 
 
+@dataclass
+class _BrouwerZimmermannSearch:
+    """State for one resumable Brouwer-Zimmermann search."""
+
+    packed_sets: list[
+        tuple[
+            npt.NDArray[np.uint64],
+            npt.NDArray[np.uint64] | None,
+            int,
+        ]
+    ]
+    weight_func: Callable[..., npt.NDArray[np.uint64]]
+    dimension: int
+    cutoff: int
+    batch_size: int
+    weight_divisor: int
+    best: int
+    lower_bound: int
+    next_weight: int = 1
+
+    @property
+    def finished(self) -> bool:
+        """Whether this sector cannot improve the shared upper bound."""
+        return (
+            self.best <= self.cutoff
+            or self.lower_bound >= self.best
+            or self.next_weight > self.dimension
+        )
+
+    def update_upper_bound(self, upper_bound: int) -> None:
+        """Import a witness found by another search."""
+        self.best = min(self.best, upper_bound)
+
+    def advance(self) -> int:
+        """Search one coefficient weight and return the best shared upper bound."""
+        if self.finished:
+            return self.best
+
+        weight = self.next_weight
+        for supports in _iter_fixed_weight_supports(self.dimension, weight, self.batch_size):
+            for generators, set_labels, rank in self.packed_sets:
+                pivot_weights: int | npt.NDArray[np.uint64]
+                if rank == self.dimension:
+                    pivot_weights = weight
+                else:
+                    pivot_weights = np.asarray(
+                        np.count_nonzero(supports < rank, axis=1),
+                        dtype=np.uint64,
+                    )
+                words = np.bitwise_xor.reduce(generators[supports], axis=1)
+                weights = _get_packed_row_weights(words, self.weight_func)
+                weights += pivot_weights
+                lighter = weights < self.best
+                if not np.any(lighter):
+                    continue
+                if set_labels is not None:
+                    combined_labels = np.bitwise_xor.reduce(
+                        set_labels[supports[lighter]],
+                        axis=1,
+                    )
+                    eligible = np.any(combined_labels, axis=1)
+                    if not np.any(eligible):
+                        continue
+                    lighter_weights = weights[lighter][eligible]
+                else:
+                    lighter_weights = weights[lighter]
+                self.best = int(lighter_weights.min())
+                if self.best <= self.cutoff:
+                    return self.best
+
+        ranks = [rank for _, _, rank in self.packed_sets]
+        self.lower_bound = _get_brouwer_zimmermann_lower_bound(
+            self.dimension,
+            ranks,
+            completed_weight=weight,
+            weight_divisor=self.weight_divisor,
+        )
+        self.next_weight += 1
+        return self.best
+
+
+def _get_brouwer_zimmermann_lower_bound(
+    dimension: int,
+    ranks: list[int],
+    *,
+    completed_weight: int,
+    weight_divisor: int,
+) -> int:
+    """Lower-bound distance after searching through one coefficient weight."""
+    lower_bound = sum(max(0, completed_weight + 1 - (dimension - rank)) for rank in ranks)
+    if weight_divisor > 1:
+        lower_bound += (-lower_bound) % weight_divisor
+    return lower_bound
+
+
+def _get_brouwer_zimmermann_initial_upper_bound(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8] | None,
+) -> int:
+    """Return the lightest eligible row in a nested-code basis."""
+    weight_func, _ = _get_hamming_weight_fn()
+    packed_basis = _rows_to_ints(basis, dtype=np.uint64)
+    eligible = np.ones(len(basis), dtype=bool) if labels is None else np.any(labels, axis=1)
+    return int(_get_packed_row_weights(packed_basis[eligible], weight_func).min())
+
+
+def _select_brouwer_zimmermann_information_sets(
+    information_sets: Sequence[
+        tuple[
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8] | None,
+            int,
+            npt.NDArray[np.int_],
+        ]
+    ],
+    *,
+    dimension: int,
+    upper_bound: int,
+    weight_divisor: int,
+) -> list[
+    tuple[
+        npt.NDArray[np.uint8],
+        npt.NDArray[np.uint8] | None,
+        int,
+        npt.NDArray[np.int_],
+    ]
+]:
+    """Retain partial sets that can strengthen certification of the current upper bound."""
+    num_full_sets = sum(rank == dimension for _, _, rank, _ in information_sets)
+    if not num_full_sets:
+        return list(information_sets)
+    full_set_ranks = [dimension] * num_full_sets
+    full_set_certifying_weight = next(
+        (
+            completed_weight
+            for completed_weight in range(dimension + 1)
+            if _get_brouwer_zimmermann_lower_bound(
+                dimension,
+                full_set_ranks,
+                completed_weight=completed_weight,
+                weight_divisor=weight_divisor,
+            )
+            >= upper_bound
+        ),
+        dimension + 1,
+    )
+    return [
+        information_set
+        for information_set in information_sets
+        if information_set[2] == dimension
+        or dimension - information_set[2] < full_set_certifying_weight
+    ]
+
+
+def _prepare_brouwer_zimmermann_search(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8] | None,
+    *,
+    cutoff: int,
+    block_size: int,
+    weight_divisor: int,
+    upper_bound: int,
+) -> int | _BrouwerZimmermannSearch:
+    """Prepare one BZ search, or return immediately when another route is cheaper."""
+    dimension = len(basis)
+    eligible = np.ones(dimension, dtype=bool) if labels is None else np.any(labels, axis=1)
+    best = min(
+        upper_bound,
+        _get_brouwer_zimmermann_initial_upper_bound(basis, labels),
+    )
+    if best <= cutoff:
+        return best
+
+    if _exhaustive_is_cheaper(dimension, basis.shape[1]):
+        distance = _get_distance_quantum_brute_force(
+            basis[eligible],
+            basis[~eligible],
+            cutoff=cutoff,
+            block_size=block_size,
+            homogeneous=True,
+        )
+        return min(best, distance)
+
+    information_sets = _get_information_set_generators(basis, labels)
+    weight_func, _ = _get_hamming_weight_fn()
+    for generators, set_labels, _, _ in information_sets:
+        eligible_rows = (
+            np.ones(dimension, dtype=bool) if set_labels is None else np.any(set_labels, axis=1)
+        )
+        packed_generators = _rows_to_ints(generators[eligible_rows], dtype=np.uint64)
+        best = min(
+            best,
+            int(_get_packed_row_weights(packed_generators, weight_func).min()),
+        )
+    if best <= cutoff:
+        return best
+
+    information_sets = _select_brouwer_zimmermann_information_sets(
+        information_sets,
+        dimension=dimension,
+        upper_bound=best,
+        weight_divisor=weight_divisor,
+    )
+    ranks = [rank for _, _, rank, _ in information_sets]
+    completed_weight = 1 if information_sets else 0
+    lower_bound = _get_brouwer_zimmermann_lower_bound(
+        dimension,
+        ranks,
+        completed_weight=completed_weight,
+        weight_divisor=weight_divisor,
+    )
+    if lower_bound >= best:
+        return best
+
+    if _brute_force_is_cheaper(
+        dimension=dimension,
+        num_logical_rows=int(np.count_nonzero(eligible)),
+        ranks=ranks,
+        upper_bound=best,
+        weight_divisor=weight_divisor,
+    ):
+        distance = _get_distance_quantum_brute_force(
+            basis[eligible],
+            basis[~eligible],
+            cutoff=cutoff,
+            block_size=block_size,
+            homogeneous=True,
+        )
+        return min(best, distance)
+
+    packed_sets = [
+        (
+            _rows_to_ints(np.delete(generators, pivots, axis=1), dtype=np.uint64),
+            None if set_labels is None else _rows_to_ints(set_labels, dtype=np.uint64),
+            rank,
+        )
+        for generators, set_labels, rank, pivots in information_sets
+    ]
+    return _BrouwerZimmermannSearch(
+        packed_sets,
+        weight_func,
+        dimension,
+        cutoff,
+        1 << block_size,
+        weight_divisor,
+        best,
+        lower_bound,
+        completed_weight + 1,
+    )
+
+
+def _get_distance_brouwer_zimmermann_many(
+    problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8] | None]],
+    *,
+    cutoff: int,
+    block_size: int,
+    weight_divisor: int = 1,
+    upper_bound: int | None = None,
+) -> int:
+    """Search nested codes in step while sharing their best upper bound."""
+    best = min(
+        *(_get_brouwer_zimmermann_initial_upper_bound(basis, labels) for basis, labels in problems),
+        math.inf if upper_bound is None else upper_bound,
+    )
+    searches: list[_BrouwerZimmermannSearch] = []
+    for basis, labels in problems:
+        prepared = _prepare_brouwer_zimmermann_search(
+            basis,
+            labels,
+            cutoff=cutoff,
+            block_size=block_size,
+            weight_divisor=weight_divisor,
+            upper_bound=int(best),
+        )
+        if isinstance(prepared, int):
+            best = min(best, prepared)
+        else:
+            searches.append(prepared)
+
+    while searches:
+        advanced = False
+        for search in searches:
+            search.update_upper_bound(int(best))
+            if search.finished:
+                continue
+            best = min(best, search.advance())
+            advanced = True
+            if best <= cutoff:
+                return int(best)
+        if not advanced:
+            break
+
+    return int(best)
+
+
 def _get_distance_brouwer_zimmermann(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8] | None,
@@ -367,74 +789,12 @@ def _get_distance_brouwer_zimmermann(
     subcode; transforming them alongside the generators makes the upper-bound search exact for
     logical operators modulo stabilizers.
     """
-    dimension = len(basis)
-    weight_func, _ = _get_hamming_weight_fn()
-    packed_basis = _rows_to_ints(basis, dtype=np.uint64)
-    eligible = np.ones(dimension, dtype=bool) if labels is None else np.any(labels, axis=1)
-    best = int(_get_packed_row_weights(packed_basis[eligible], weight_func).min())
-    if best <= cutoff:
-        return best
-
-    batch_size = 1 << block_size
-
-    if _exhaustive_is_cheaper(dimension, basis.shape[1]):
-        # The adapted basis separates excluded and eligible rows, so the vectorized Gray-code
-        # enumerator can search the same nested space without per-combination label filtering.
-        return _get_distance_quantum_brute_force(
-            basis[eligible],
-            basis[~eligible],
-            cutoff=cutoff,
-            block_size=block_size,
-            homogeneous=True,
-        )
-
-    information_sets = _get_information_set_generators(basis, labels)
-    ranks = [rank for _, _, rank in information_sets]
-    if _brute_force_is_cheaper(
-        dimension=dimension,
-        num_logical_rows=int(np.count_nonzero(eligible)),
-        ranks=ranks,
-        upper_bound=best,
+    return _get_distance_brouwer_zimmermann_many(
+        [(basis, labels)],
+        cutoff=cutoff,
+        block_size=block_size,
         weight_divisor=weight_divisor,
-    ):
-        return _get_distance_quantum_brute_force(
-            basis[eligible],
-            basis[~eligible],
-            cutoff=cutoff,
-            block_size=block_size,
-            homogeneous=True,
-        )
-
-    packed_sets = [
-        (
-            _rows_to_ints(generators, dtype=np.uint64),
-            None if set_labels is None else _rows_to_ints(set_labels, dtype=np.uint64),
-            rank,
-        )
-        for generators, set_labels, rank in information_sets
-    ]
-
-    for weight in range(1, dimension + 1):
-        for supports in _iter_fixed_weight_supports(dimension, weight, batch_size):
-            for generators, set_labels, _ in packed_sets:
-                words = np.bitwise_xor.reduce(generators[supports], axis=1)
-                if set_labels is not None:
-                    combined_labels = np.bitwise_xor.reduce(set_labels[supports], axis=1)
-                    words = words[np.any(combined_labels, axis=1)]
-                    if not len(words):
-                        continue
-                candidate = int(_get_packed_row_weights(words, weight_func).min())
-                best = min(best, candidate)
-                if best <= cutoff:
-                    return best
-
-        lower_bound = sum(max(0, weight + 1 - (dimension - rank)) for _, _, rank in packed_sets)
-        if weight_divisor > 1:
-            lower_bound += (-lower_bound) % weight_divisor
-        if lower_bound >= best:
-            return best
-
-    return best
+    )
 
 
 def _exhaustive_is_cheaper(dimension: int, length: int) -> bool:
@@ -458,7 +818,7 @@ def _brute_force_is_cheaper(
     """Estimate whether exhaustive nested-code enumeration will outperform BZ.
 
     The BZ estimate conservatively assumes that the search must certify the current upper bound.
-    Empirically, the vectorized exhaustive kernel is about 150 times cheaper per candidate than the
+    Empirically, the vectorized exhaustive kernel is about 20 times cheaper per candidate than the
     fixed-weight BZ enumerator on moderately sized quantum codes.
     """
     bz_candidates = 0
@@ -469,7 +829,7 @@ def _brute_force_is_cheaper(
         if lower_bound >= upper_bound:
             break
     exhaustive_candidates = ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows)
-    return exhaustive_candidates <= 150 * bz_candidates
+    return exhaustive_candidates <= 20 * bz_candidates
 
 
 def _symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
