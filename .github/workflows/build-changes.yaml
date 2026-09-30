@@ -45,15 +45,36 @@ jobs:
     name: Windows check (Python 3.14)
     if: github.event.pull_request.draft == false
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
           python-version: 3.14
-          enable-cache: true
+          # The steps below manage the uv cache, because relay-bp has no Windows wheels, so an
+          # uncached install spends minutes compiling it.  setup-uv's own cache would never be
+          # reused here: its key hashes pyproject.toml, which every run of this workflow changes.
+          enable-cache: false
+          cache-local-path: ${{ runner.temp }}/uv-cache
+      - name: Restore uv cache
+        id: restore-uv-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: uv-windows-py3.14-${{ hashFiles('pyproject.toml') }}
+          restore-keys: uv-windows-py3.14-
       - name: Install package and dependencies
         run: uv sync --extra relay-bp --group ci-test
+      # save the cache now, so that it survives a later timeout
+      - name: Prune uv cache
+        if: steps.restore-uv-cache.outputs.cache-hit != 'true'
+        run: uv cache prune --ci  # keeps the wheels that uv built from source
+      - name: Save uv cache
+        if: steps.restore-uv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: ${{ steps.restore-uv-cache.outputs.cache-primary-key }}
       - name: Run pytest
         run: uv run --extra relay-bp --group ci-test python checks/pytest_.py

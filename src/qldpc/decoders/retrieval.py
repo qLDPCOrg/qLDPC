@@ -64,9 +64,14 @@ class DecoderSpec(Generic[_DecoderT_co]):
     _options: tuple[tuple[str, object], ...]
     _observable_builder: Callable[..., ObservableDecoder] | None = None
 
+    @property
+    def options(self) -> dict[str, object]:
+        """A copy of the options with which this spec builds a decoder, including defaults."""
+        return dict(self._options)
+
     def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
         """Build an error decoder for a parity-check matrix or detector error model."""
-        return self._builder(pcm_or_dem, **dict(self._options))
+        return self._builder(pcm_or_dem, **self.options)
 
     @property
     def predicts_observables_natively(self) -> bool:
@@ -82,7 +87,7 @@ class DecoderSpec(Generic[_DecoderT_co]):
         """
         if self._observable_builder is not None:
             return _validate_observable_decoder(
-                self._observable_builder(dem, **dict(self._options)), "A decoder spec"
+                self._observable_builder(dem, **self.options), "A decoder spec"
             )
         return ErrorsToObservablesDecoder(self.build(dem), dem)
 
@@ -276,7 +281,7 @@ def _build_decoder(pcm_or_dem: PcmOrDem, decoder: ObservableDecoderInput) -> tup
         default_getter = get_decoder_GUF if is_nonbinary else get_decoder_BP_OSD
         built_decoder, source = default_getter(pcm_or_dem), "The default decoder"
     elif isinstance(decoder, DecoderSpec):
-        built_decoder = decoder._builder(pcm_or_dem, **dict(decoder._options))
+        built_decoder = decoder.build(pcm_or_dem)
         source = "A decoder spec"
     elif is_prebuilt_decoder(decoder):
         built_decoder, source = decoder, "A prebuilt decoder"
@@ -937,6 +942,9 @@ def _to_ldpc_inputs(
     else:
         pcm = pcm_or_dem
         error_channel = [error_rate] * pcm.shape[1] if error_channel is None else error_channel
+    if pcm.dtype.kind in "biu":
+        # ldpc rejects most integer dtypes, including the int32 that NumPy often uses on Windows
+        pcm = pcm.astype(np.uint8, copy=False)
     return pcm, list(error_channel)
 
 
@@ -1061,16 +1069,38 @@ def _splits_errors(
 class _MatchingObservableDecoder(ObservableDecoder):
     """Observable decoder based on a pymatching.Matching that predicts observable flips."""
 
-    def __init__(self, matching: Any) -> None:
+    def __init__(self, matching: Any, *, enable_correlations: bool = False) -> None:
         self.matching = matching
+        self.enable_correlations = enable_correlations
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return predicted observable flips."""
-        return np.asarray(self.matching.decode(syndrome), dtype=np.uint8)
+        return np.asarray(
+            self.matching.decode(syndrome, enable_correlations=self.enable_correlations),
+            dtype=np.uint8,
+        )
 
     def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes, one per row, and return predicted observable flips."""
-        return np.asarray(self.matching.decode_batch(syndromes), dtype=np.uint8)
+        return np.asarray(
+            self.matching.decode_batch(syndromes, enable_correlations=self.enable_correlations),
+            dtype=np.uint8,
+        )
+
+
+def _get_error_decoder_MWPM(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    enable_correlations: bool = False,
+    **decoder_args: Any,
+) -> BatchErrorDecoder:
+    """Build the error decoder of decoders.mwpm, which correlated matching cannot provide."""
+    if enable_correlations:
+        raise ValueError(
+            "Correlated matching (enable_correlations=True) cannot infer errors; it can only"
+            " predict observable flips, as with decoders.get_observable_decoder"
+        )
+    return get_decoder_MWPM(pcm_or_dem, **decoder_args)
 
 
 def _get_observable_decoder_MWPM(
@@ -1078,9 +1108,16 @@ def _get_observable_decoder_MWPM(
     *,
     decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
+    enable_correlations: bool = False,
     **decoder_args: object,
 ) -> _MatchingObservableDecoder:
     """Build a matching decoder that predicts the observable flips of a detector error model."""
+    if enable_correlations:
+        # decoders.mwpm has rejected the remaining options, which correlated matching ignores
+        import pymatching
+
+        matching = pymatching.Matching.from_detector_error_model(dem, enable_correlations=True)
+        return _MatchingObservableDecoder(matching, enable_correlations=True)
     return _MatchingObservableDecoder(
         _build_matching(
             dem,
@@ -1379,6 +1416,7 @@ def mwpm(
     *,
     decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
+    enable_correlations: bool = False,
     weights: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
     error_probabilities: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
     repetitions: int | None = None,
@@ -1411,6 +1449,10 @@ def mwpm(
             predicts observable flips natively.
         ignore_non_graphlike_errors: Whether to drop errors that flip more than two detectors
             (after any decomposition), rather than raising an error.
+        enable_correlations: Whether to use correlated matching, which predicts observable flips
+            from the error decompositions that a detector error model suggests.  Incompatible with
+            all other options.  See
+            help(pymatching.Matching.from_detector_error_model).
         weights: Scalar or per-error matching weights for a parity check matrix.  A detector
             error model supplies its own weights, so this must be None when decoding one.
         error_probabilities: Scalar or per-error probabilities for a parity check matrix, from
@@ -1436,12 +1478,13 @@ def mwpm(
     - Documentation: https://pymatching.readthedocs.io
     - Reference: https://arxiv.org/abs/2303.15933
     """
-    return _decoder_spec(
+    spec = _decoder_spec(
         "mwpm",
-        get_decoder_MWPM,
+        _get_error_decoder_MWPM,
         _get_observable_decoder_MWPM,
         decompose_errors=decompose_errors,
         ignore_non_graphlike_errors=ignore_non_graphlike_errors,
+        enable_correlations=enable_correlations,
         weights=weights,
         error_probabilities=error_probabilities,
         repetitions=repetitions,
@@ -1450,6 +1493,17 @@ def mwpm(
         merge_strategy=merge_strategy,
         use_virtual_boundary_node=use_virtual_boundary_node,
     )
+    if enable_correlations:
+        defaults = {
+            name: param.default for name, param in inspect.signature(mwpm).parameters.items()
+        }
+        for name, value in spec.options.items():
+            if name != "enable_correlations" and not _is_default_value(value, defaults[name]):
+                raise ValueError(
+                    f"The MWPM option {name}={value!r} is not supported with"
+                    " enable_correlations=True"
+                )
+    return spec
 
 
 def relay_bp(

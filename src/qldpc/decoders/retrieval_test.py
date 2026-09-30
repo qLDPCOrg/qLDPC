@@ -230,6 +230,11 @@ def test_decoder_specs() -> None:
     channel = np.array([0.1, 0.2])
     assert "error_channel=array" in repr(decoders.bf(error_channel=channel))
 
+    # a spec exposes a copy of its options, which cannot modify the spec
+    spec = decoders.lookup_table(max_weight=2)
+    spec.options["max_weight"] = 3
+    assert spec.options["max_weight"] == 2
+
     # a spec that was not built by a helper still has a (less concise) representation
     spec = decoders.DecoderSpec("custom", decoders.get_decoder_lookup, (("max_weight", 1),))
     assert repr(spec).startswith("DecoderSpec('custom', ")
@@ -436,6 +441,28 @@ def test_native_observable_decoders() -> None:
     )
     assert getattr(erasing_decoder, "has_erasure_bit", False)
     assert erasing_decoder.decode_observables(syndromes[0]).shape == (dem.num_observables + 1,)
+
+
+def test_correlated_matching() -> None:
+    """Correlated matching uses the decompositions that a detector error model suggests."""
+    dem = stim.DetectorErrorModel("""
+        error(0.02) D0 D1 ^ D2 D3
+        error(0.3) D2 L0
+        error(0.3) D3
+    """)
+    spec = decoders.mwpm(enable_correlations=True)
+
+    # enabling correlations changes the prediction from [1], because the decomposed error that
+    # explains D0 D1 also explains D2 D3
+    decoder = decoders.get_observable_decoder(dem, decoder=spec)
+    assert np.array_equal(decoder.decode_observables(np.array([1, 1, 1, 1])), [0])
+
+    with pytest.raises(ValueError, match="cannot infer errors"):
+        decoders.get_error_decoder(dem, decoder=spec)
+    with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
+        decoders.mwpm(enable_correlations=True, decompose_errors=True)
+    with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
+        decoders.mwpm(enable_correlations=True, ignore_non_graphlike_errors=True)
 
 
 def test_observable_decoder_inputs() -> None:
@@ -666,6 +693,9 @@ def test_decoding() -> None:
     assert np.array_equal(
         error, decoders.get_error_decoder(matrix).decode(syndrome)
     )  # default, BP+OSD
+    assert np.array_equal(
+        error, decoders.get_error_decoder(matrix.astype(np.int32)).decode(syndrome)
+    )  # ldpc itself rejects int32 matrices
     for decoder in [
         decoders.bp_lsd(),
         decoders.bf(),

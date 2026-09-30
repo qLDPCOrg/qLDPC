@@ -84,6 +84,22 @@ def test_sinter_decoder() -> None:
     )
 
 
+def test_sinter_decoder_correlated_matching() -> None:
+    """A SinterDecoder keeps the error decompositions that correlated matching uses."""
+    dem = stim.DetectorErrorModel("""
+        error(0.02) D0 D1 ^ D2 D3
+        error(0.3) D2 L0
+        error(0.3) D3
+    """)
+    # enabling correlations changes the prediction from [[1]]
+    spec = decoders.mwpm(enable_correlations=True)
+    compiled_decoder = decoders.SinterDecoder(decoder=spec).compile_decoder_for_dem(dem)
+    assert np.array_equal(compiled_decoder.decode_shots(np.array([[1, 1, 1, 1]])), [[0]])
+
+    with pytest.raises(ValueError, match="decompose_errors=True discards"):
+        decoders.SinterDecoder(decompose_errors=True, decoder=spec)
+
+
 def test_sinter_decoder_classes_and_aliases() -> None:
     """Sinter decoders are observable decoders, and deprecated decoder names remain aliases."""
     for sinter_class, decoder_class in [
