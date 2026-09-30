@@ -373,6 +373,57 @@ def test_brouwer_zimmermann_information_set_paths() -> None:
     )
 
 
+def test_brouwer_zimmermann_dispatch_paths() -> None:
+    """Default dispatch covers exhaustive and information-set search paths exactly."""
+    code = qldpc.codes.QuditCode.stack([qldpc.codes.FiveQubitCode()] * 5)
+    logical_ops = code.get_logical_ops()
+    stabilizers = code.get_stabilizer_ops()
+    expected = qldpc.codes.get_distance_quantum(
+        logical_ops, stabilizers, cutoff=0, method="brute_force"
+    )
+    with mock.patch(
+        "qldpc.codes.distance._brute_force_is_cheaper", return_value=False
+    ) as brute_force_is_cheaper:
+        assert qldpc.codes.get_distance_quantum(logical_ops, stabilizers, cutoff=0) == expected
+        assert qldpc.codes.get_distance_quantum(logical_ops, stabilizers, cutoff=6) <= 3
+    brute_force_is_cheaper.assert_called()
+
+    with mock.patch("qldpc.codes.distance._brute_force_is_cheaper", return_value=True):
+        assert qldpc.codes.get_distance_quantum(logical_ops, stabilizers, cutoff=0) == expected
+
+    identity = np.eye(21, dtype=np.uint8)
+    with mock.patch("qldpc.codes.distance._brute_force_is_cheaper", return_value=False):
+        assert (
+            qldpc.codes.get_distance_quantum(
+                identity[-1:],
+                identity[:-1],
+                homogeneous=True,
+                cutoff=0,
+                block_size=0,
+            )
+            == 1
+        )
+        # Every input row has weight at least two; the weight-one witness appears only after
+        # information-set row reduction.
+        basis = np.zeros((21, 22), dtype=np.uint8)
+        basis[:20, :20] = np.eye(20, dtype=np.uint8)
+        basis[:, 20:] = 1
+        assert (
+            qldpc.codes.distance._get_distance_brouwer_zimmermann(
+                basis, None, cutoff=1, block_size=0
+            )
+            == 1
+        )
+
+    assert not qldpc.codes.distance._brute_force_is_cheaper(
+        dimension=20,
+        num_logical_rows=20,
+        ranks=[20, 20],
+        upper_bound=3,
+        weight_divisor=2,
+    )
+
+
 def test_brouwer_zimmermann_invariance() -> None:
     """Row operations and coordinate permutations preserve BZ distance."""
     rng = np.random.default_rng(811)

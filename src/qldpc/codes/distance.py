@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 from collections.abc import Callable, Iterator
 from typing import Literal
 
@@ -168,6 +169,25 @@ def get_distance_quantum(
         if not homogeneous and num_bits % 2:
             raise ValueError("Symplectic operators must have an even number of columns")
 
+        # For small searches, exhaustive vectorized enumeration is cheaper than building BZ's
+        # quotient basis and information sets.  The inputs must already have the independent-row
+        # structure required by the historical enumerator.
+        if len(logical_matrix) + len(stabilizer_matrix) <= 20:
+            combined_rank = len(
+                _get_independent_rows(np.vstack([stabilizer_matrix, logical_matrix]))
+            )
+            stabilizer_rank = len(_get_independent_rows(stabilizer_matrix))
+            if combined_rank == len(logical_matrix) + len(
+                stabilizer_matrix
+            ) and stabilizer_rank == len(stabilizer_matrix):
+                return _get_distance_quantum_brute_force(
+                    logical_matrix,
+                    stabilizer_matrix,
+                    cutoff=cutoff,
+                    block_size=block_size,
+                    homogeneous=homogeneous,
+                )
+
         basis, labels = _get_nested_code_basis(logical_matrix, stabilizer_matrix)
         if labels.shape[1] == 0:
             return 0 if len(logical_matrix) else physical_size
@@ -269,21 +289,15 @@ def _get_nested_code_basis(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Build an adapted basis for ``span(stabilizers, logical_ops) / span(stabilizers)``."""
     stabilizer_basis = _get_independent_rows(stabilizers)
-    basis_rows = list(stabilizer_basis)
-    rank = len(stabilizer_basis)
-    logical_basis: list[npt.NDArray[np.uint8]] = []
+    stabilizer_pivots = [int(np.flatnonzero(row)[0]) for row in stabilizer_basis]
+    reduced_logical_ops = logical_ops.copy()
+    for row, pivot in zip(stabilizer_basis, stabilizer_pivots, strict=True):
+        reduced_logical_ops[reduced_logical_ops[:, pivot] == 1] ^= row
 
-    for logical_op in logical_ops:
-        candidate = np.asarray([*basis_rows, logical_op], dtype=np.uint8)
-        candidate_rank = len(_get_independent_rows(candidate))
-        if candidate_rank > rank:
-            basis_rows.append(logical_op)
-            logical_basis.append(logical_op)
-            rank = candidate_rank
-
-    basis = np.asarray(basis_rows, dtype=np.uint8).reshape(-1, logical_ops.shape[1])
-    labels = np.zeros((len(basis), len(logical_basis)), dtype=np.uint8)
-    labels[len(stabilizer_basis) :] = np.eye(len(logical_basis), dtype=np.uint8)
+    logical_quotient = _get_independent_rows(reduced_logical_ops)
+    basis = np.vstack([stabilizer_basis, logical_quotient]).astype(np.uint8, copy=False)
+    labels = np.zeros((len(basis), len(logical_quotient)), dtype=np.uint8)
+    labels[len(stabilizer_basis) :] = np.eye(len(logical_quotient), dtype=np.uint8)
     return basis, labels
 
 
@@ -366,7 +380,6 @@ def _get_distance_brouwer_zimmermann(
     if best <= cutoff:
         return best
 
-    packed_labels = None if labels is None else _rows_to_ints(labels, dtype=np.uint64)
     batch_size = 1 << block_size
 
     # When the entire code has fewer words than the estimated information-set setup work, enumerate
@@ -378,20 +391,34 @@ def _get_distance_brouwer_zimmermann(
     estimated_setup_work = 128 * dimension * basis.shape[1]
     exhaustive_is_cheaper = dimension < 63 and 1 << dimension <= estimated_setup_work
     if exhaustive_is_cheaper:
-        for weight in range(2, dimension + 1):
-            for supports in _iter_fixed_weight_supports(dimension, weight, batch_size):
-                words = np.bitwise_xor.reduce(packed_basis[supports], axis=1)
-                if packed_labels is not None:
-                    combined_labels = np.bitwise_xor.reduce(packed_labels[supports], axis=1)
-                    words = words[np.any(combined_labels, axis=1)]
-                    if not len(words):
-                        continue
-                best = min(best, int(_get_packed_row_weights(words, weight_func).min()))
-                if best <= cutoff:
-                    return best
-        return best
+        # The adapted basis separates excluded and eligible rows, so the vectorized Gray-code
+        # enumerator can search the same nested space without per-combination label filtering.
+        logical_rows = eligible
+        return _get_distance_quantum_brute_force(
+            basis[logical_rows],
+            basis[~logical_rows],
+            cutoff=cutoff,
+            block_size=block_size,
+            homogeneous=True,
+        )
 
     information_sets = _get_information_set_generators(basis, labels)
+    ranks = [rank for _, _, rank in information_sets]
+    if _brute_force_is_cheaper(
+        dimension=dimension,
+        num_logical_rows=int(np.count_nonzero(eligible)),
+        ranks=ranks,
+        upper_bound=best,
+        weight_divisor=weight_divisor,
+    ):
+        return _get_distance_quantum_brute_force(
+            basis[eligible],
+            basis[~eligible],
+            cutoff=cutoff,
+            block_size=block_size,
+            homogeneous=True,
+        )
+
     packed_sets = [
         (
             _rows_to_ints(generators, dtype=np.uint64),
@@ -422,6 +449,31 @@ def _get_distance_brouwer_zimmermann(
             return best
 
     return best
+
+
+def _brute_force_is_cheaper(
+    *,
+    dimension: int,
+    num_logical_rows: int,
+    ranks: list[int],
+    upper_bound: int,
+    weight_divisor: int,
+) -> bool:
+    """Estimate whether exhaustive nested-code enumeration will outperform BZ.
+
+    The BZ estimate conservatively assumes that the search must certify the current upper bound.
+    Empirically, the vectorized exhaustive kernel is about 150 times cheaper per candidate than the
+    fixed-weight BZ enumerator on moderately sized quantum codes.
+    """
+    bz_candidates = 0
+    for weight in range(1, dimension + 1):
+        bz_candidates += len(ranks) * math.comb(dimension, weight)
+        lower_bound = sum(max(0, weight + 1 - (dimension - rank)) for rank in ranks)
+        lower_bound += (-lower_bound) % weight_divisor
+        if lower_bound >= upper_bound:
+            break
+    exhaustive_candidates = ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows)
+    return exhaustive_candidates <= 150 * bz_candidates
 
 
 def _symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
