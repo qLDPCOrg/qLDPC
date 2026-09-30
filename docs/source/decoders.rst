@@ -108,6 +108,27 @@ settings build a native observable decoder wherever observable flips are wanted:
 The settings of any other decoder build an error decoder, whose inferred errors are converted into
 observable flips. ``DecoderSpec.predicts_observables_natively`` reports which of these applies.
 
+``decoders.mwpm(enable_correlations=True)`` configures PyMatching's two-pass correlated matching,
+which exploits correlations between the components of decomposed errors, such as the X and Z
+components of a Pauli-Y error. Correlated matching only predicts the observable flips of a detector
+error model that suggests those decompositions, as
+``circuit.detector_error_model(decompose_errors=True)`` does (and as Sinter does by default when it
+extracts a detector error model from a circuit):
+
+.. code-block:: python
+
+   dem = circuit.detector_error_model(decompose_errors=True)
+   observable_decoder = decoders.get_observable_decoder(
+       dem, decoder=decoders.mwpm(enable_correlations=True)
+   )
+   sinter_decoder = decoders.SinterDecoder(decoder=decoders.mwpm(enable_correlations=True))
+
+Such settings cannot build an error decoder, so they cannot decode a parity-check matrix or be used
+by a window decoder. Leave ``decompose_errors=False`` on the Sinter decoder, which would otherwise
+discard the decompositions that correlated matching relies on. A ``SubgraphDecoder`` does not pass
+these decompositions to the detector error models of its subgraphs, so correlated matching of a
+subgraph requires every error mechanism in that subgraph to flip at most two of its detectors.
+
 For Sinter, wrap decoder settings (or a constructor) in a
 :class:`decoders.SinterDecoder <qldpc.decoders.sinter.SinterDecoder>`, or in one of its subclasses:
 

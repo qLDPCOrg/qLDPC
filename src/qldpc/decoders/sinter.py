@@ -21,6 +21,7 @@ from qldpc._util import get_deprecated_alias, get_external_caller_stacklevel
 from .dems import DetectorErrorModelArrays
 from .protocols import ErrorDecoder, ObservableDecoder, as_error_decoder, batch_decode_errors
 from .retrieval import (
+    DecoderSpec,
     DeferredErrorDecoderInput,
     DeferredObservableDecoderInput,
     ErrorsToObservablesDecoder,
@@ -101,6 +102,16 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
         """
         reject_removed_decoder_args(decoder_kwargs)
         reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
+        if (
+            decompose_errors
+            and isinstance(decoder, DecoderSpec)
+            and dict(decoder._options).get("enable_correlations")
+        ):
+            raise ValueError(
+                "Correlated matching (enable_correlations=True) uses the decompositions that a"
+                " detector error model suggests for its errors, which decompose_errors=True"
+                " discards.  Leave decompose_errors=False to decode with correlated matching"
+            )
         self.simplify = simplify
         self.decompose_errors = decompose_errors
         self.decoder_input = decoder

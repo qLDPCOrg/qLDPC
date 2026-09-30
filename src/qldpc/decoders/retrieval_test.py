@@ -438,6 +438,80 @@ def test_native_observable_decoders() -> None:
     assert erasing_decoder.decode_observables(syndromes[0]).shape == (dem.num_observables + 1,)
 
 
+def test_correlated_matching() -> None:
+    """Correlated matching exploits the decompositions of a detector error model."""
+    import pymatching
+
+    circuit = stim.Circuit.generated(
+        "surface_code:rotated_memory_x",
+        distance=3,
+        rounds=3,
+        after_clifford_depolarization=0.02,
+        before_measure_flip_probability=0.02,
+        after_reset_flip_probability=0.02,
+    )
+    dem = circuit.detector_error_model(decompose_errors=True)
+    syndromes = circuit.compile_detector_sampler(seed=0).sample(1000).astype(np.uint8)
+
+    spec = decoders.mwpm(enable_correlations=True)
+    assert spec.predicts_observables_natively
+    assert repr(spec) == "decoders.mwpm(enable_correlations=True)"
+    correlated_decoder: Any = decoders.get_observable_decoder(dem, decoder=spec)
+    assert isinstance(correlated_decoder, retrieval._MatchingObservableDecoder)
+
+    # predictions agree with those of pymatching, and differ from those of uncorrelated matching
+    matching = pymatching.Matching.from_detector_error_model(dem, enable_correlations=True)
+    expected_flips = matching.decode_batch(syndromes, enable_correlations=True)
+    uncorrelated_decoder: Any = decoders.get_observable_decoder(
+        dem, decoder=decoders.mwpm(decompose_errors=True)
+    )
+    uncorrelated_flips = uncorrelated_decoder.decode_observables_batch(syndromes)
+    correlated_flips = correlated_decoder.decode_observables_batch(syndromes)
+    assert np.array_equal(correlated_flips, expected_flips)
+    assert not np.array_equal(correlated_flips, uncorrelated_flips)
+    for syndrome, flips in zip(syndromes[:10], expected_flips[:10]):
+        assert np.array_equal(correlated_decoder.decode_observables(syndrome), flips)
+        assert np.array_equal(decoders.decode_observables(dem, syndrome, decoder=spec), flips)
+
+    # correlated matching cannot infer errors
+    with pytest.raises(ValueError, match="cannot infer errors"):
+        decoders.get_error_decoder(dem, decoder=spec)
+    with pytest.raises(ValueError, match="cannot infer errors"):
+        decoders.get_decoder_MWPM(dem, enable_correlations=True)
+
+    # options that configure an uncorrelated matching graph are rejected
+    unsupported_options: list[dict[str, Any]] = [
+        {"decompose_errors": True},
+        {"weights": 1.0},
+        {"error_probabilities": 0.1},
+        {"repetitions": 2},
+        {"timelike_weights": 1.0},
+        {"measurement_error_probabilities": 0.1},
+        {"merge_strategy": "independent"},
+        {"use_virtual_boundary_node": True},
+    ]
+    for options in unsupported_options:
+        (name,) = options
+        with pytest.raises(ValueError, match=rf"option {name}=.* not supported"):
+            decoders.mwpm(enable_correlations=True, **options)
+    with pytest.raises(ValueError, match=r"option weights=1\.0 is not supported"):
+        retrieval._get_observable_decoder_MWPM(dem, enable_correlations=True, weights=1.0)
+
+    # errors that are not graphlike, even after decomposition, are rejected or ignored
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 D1 D4 L1
+        error(0.1) D0 D1 ^ D1 D3 L0
+        error(0.1) D0
+    """)
+    with pytest.raises(ValueError, match="component that flips 3 detectors"):
+        decoders.get_observable_decoder(dem, decoder=spec)
+    spec = decoders.mwpm(enable_correlations=True, ignore_non_graphlike_errors=True)
+    correlated_decoder = decoders.get_observable_decoder(dem, decoder=spec)
+    # the dropped error was the only one to flip the last detector and the last observable
+    assert np.array_equal(correlated_decoder.decode_observables(np.array([1, 0, 0, 0, 0])), [0, 0])
+    assert np.array_equal(correlated_decoder.decode_observables(np.array([1, 0, 0, 1, 0])), [1, 0])
+
+
 def test_observable_decoder_inputs() -> None:
     """Observable decoders are built from settings, constructors, and prebuilt decoders."""
     dem, syndromes = _get_circuit_data()
