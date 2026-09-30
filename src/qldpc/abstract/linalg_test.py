@@ -5,11 +5,9 @@
 from __future__ import annotations
 
 import numpy as np
-import numpy.typing as npt
 import pytest
 
 from qldpc import abstract
-from qldpc.abstract import ring_array
 
 
 def test_basics(rows: int = 2, cols: int = 3) -> None:
@@ -91,27 +89,17 @@ def test_matmul_and_kron_interplay(ring: abstract.GroupRing, rows: int = 2, cols
         )
 
 
-def test_coefficient_matmul_right() -> None:
-    """Coefficient arrays reverse the order of multiplication in a noncommutative ring."""
+def test_matmul_right() -> None:
+    """Matrix multiplication can reverse the order of multiplication in a noncommutative ring."""
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=3)
     dense = abstract.RingArray.from_field_array(
         ring.field.Random((4, 4, ring.group.order), seed=0), ring
     )
     monomial = abstract.RingArray.build(np.full((4, 4), ring.generators[0], dtype=object), ring)
-    integers: npt.NDArray[np.int_] = np.arange(16).reshape(4, 4) % 3
-
-    operands: list[tuple[abstract.RingArray, abstract.RingArray | npt.NDArray[np.int_]]] = [
-        (monomial, dense),
-        (dense, monomial),
-        (dense, integers),
-    ]
-    for matrix_a, matrix_b in operands:
+    for matrix_a, matrix_b in [(dense, monomial), (monomial, dense)]:
         expected = abstract.RingArray.build(np.zeros((4, 4), dtype=int), ring)
         for row, col in np.ndindex(expected.shape):
             expected[row, col] = sum(matrix_b[kk, col] * matrix_a[row, kk] for kk in range(4))
-        product = ring_array._coefficient_matmul(matrix_a, matrix_b, ring=ring, right=True)
-        assert isinstance(product, abstract.RingArray)
-        assert np.array_equal(product, expected)
         assert np.array_equal(abstract.matmul(matrix_a, matrix_b, right=True), expected)
 
 

@@ -33,11 +33,7 @@ if TYPE_CHECKING:
 
 
 class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
-    """Array whose entries are members of a GroupRing.
-
-    Sufficiently large matrix products are computed with arrays of finite-field coefficients, rather
-    than by multiplying RingMembers one pair at a time.
-    """
+    """Array whose entries are members of a GroupRing."""
 
     _ring: GroupRing
 
@@ -289,6 +285,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             )
             array, ring = ring, array
         ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
+
         # read values as integers first (like RingMember.from_vector) to accept any integer-valued
         # array, such as a boolean or floating-point array
         coefficients = ring.field(np.asarray(array).astype(int))
