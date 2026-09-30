@@ -475,16 +475,16 @@ class ClassicalCode(AbstractCode):
                 randomized upper bounds; see help(get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nonzero code word and cannot be combined with
-                ``bound``.  Nonbinary and vector-distance calculations always use exhaustive
+            method: Binary exact-distance method, unused when bounding the distance.
+                ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every nonzero
+                code word.  Nonbinary and vector-distance calculations always use exhaustive
                 enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
-        _validate_distance_method_usage(method, bound=bound)
+        validate_distance_method(method)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
@@ -1871,15 +1871,16 @@ class QuditCode(AbstractCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nontrivial logical operator and cannot be
-                combined with ``bound``.  Nonbinary calculations always use exhaustive enumeration.
+            method: Binary exact-distance method, unused when bounding the distance.
+                ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every
+                nontrivial logical operator.  Nonbinary calculations always use exhaustive
+                enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
-        _validate_distance_method_usage(method, bound=bound)
+        validate_distance_method(method)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
@@ -3085,15 +3086,16 @@ class CSSCode(QuditCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nontrivial logical operator and cannot be
-                combined with ``bound``.  Nonbinary calculations always use exhaustive enumeration.
+            method: Binary exact-distance method, unused when bounding the distance.
+                ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every
+                nontrivial logical operator.  Nonbinary calculations always use exhaustive
+                enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
-        _validate_distance_method_usage(method, bound=bound)
+        validate_distance_method(method)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
@@ -3782,14 +3784,3 @@ def _resolve_distance_backend(
     if options <= _GAP_DISTANCE_BOUND_KWARGS and external.gap.is_installed():
         return "gap"
     return "decoder"
-
-
-def _validate_distance_method_usage(
-    method: DistanceMethod,
-    *,
-    bound: int | bool | None = None,
-) -> None:
-    """Validate exact-distance method selection at the high-level API."""
-    validate_distance_method(method)
-    if bound and method == "brute_force":
-        raise ValueError("method='brute_force' is only available for exact distance calculations")

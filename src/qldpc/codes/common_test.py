@@ -560,8 +560,8 @@ def test_exact_code_distance_method_api() -> None:
                 "method": "brouwer_zimmermann",
             }
 
-    with pytest.raises(ValueError, match="only available for exact distance"):
-        classical_code.get_distance(bound=True, method="brute_force")
+    with pytest.raises(ValueError, match="Unknown distance method"):
+        classical_code.get_distance(bound=True, method="other")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("field", [2, 3])
