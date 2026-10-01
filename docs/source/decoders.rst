@@ -16,9 +16,8 @@ they accept either kind (see `Code-capacity estimates`_). Some decoders are both
 :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` infers errors and
 predicts observable flips. Exact distance calculations do not need a decoder.
 
-A :class:`decoders.SinterDecoder <qldpc.decoders.sinter.core.SinterDecoder>` is the observable decoder
-that Sinter uses. It stores decoder settings, and builds an observable decoder for each detector
-error model that Sinter compiles it for.
+A :class:`decoders.SinterDecoder <qldpc.decoders.sinter.core.SinterDecoder>` stores decoder settings
+for Sinter and builds a compiled observable decoder for each detector error model.
 
 The :doc:`decoders example notebook <examples/decoders>` walks through the workflows on this page.
 
@@ -349,7 +348,7 @@ are not part of this guarantee. In particular,
      - ``ObservableLookupDecoder(...)`` and its ``decode_observables`` method
    * - ``WeightedLookupDecoder(..., predict_observable_flips=True)``
      - ``WeightedObservableLookupDecoder(...)`` and its ``decode_observables`` method
-   * - ``CompiledSinterDecoder.decode``
+   * - ``SinterDecoder.decode`` and ``CompiledSinterDecoder.decode`` (defunct)
      - ``CompiledSinterDecoder.decode_observables``
    * - ``SubgraphSinterDecoder`` and ``SequentialSinterDecoder``
      - ``SubgraphDecoder`` and ``SequentialWindowDecoder``

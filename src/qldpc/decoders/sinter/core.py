@@ -41,12 +41,8 @@ else:
     _SinterCompiledDecoder = sinter.CompiledDecoder
 
 
-class DecoderNotCompiledError(Exception):
-    pass
-
-
-class SinterDecoder(_SinterDecoder, ObservableDecoder):
-    """Sinter-compatible decoder that predicts observable flips.
+class SinterDecoder(_SinterDecoder):
+    """Sinter-compatible configuration that builds observable decoders.
 
     A SinterDecoder stores settings for an inner decoder.  When Sinter compiles a SinterDecoder for
     a detector error model, the SinterDecoder builds the inner decoder for that model, and returns a
@@ -54,13 +50,9 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
     observable flips natively (as MWPM, Relay-BP, and lookup-table decoders can), it is built in
     that mode.  Otherwise, it is built as an error decoder, and the compiled decoder converts the
     errors that it infers into observable flips.
-
-    A SinterDecoder is an observable decoder only once compiled: its own .decode_observables method
-    raises a DecoderNotCompiledError.
     """
 
-    # the deprecated .decode method of this class returns observable flips
-    decode_returns_observables = True
+    decode_is_defunct = True
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
     _prebuilt_decoder_rejection_reason = (
@@ -176,27 +168,20 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
         observable_flips = predicted_flips[:, :num_observable_bytes]
         observable_flips.tofile(obs_predictions_b8_out_path)
 
-    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Reject decoding before this observable decoder is compiled."""
-        raise DecoderNotCompiledError(
-            "This SinterDecoder needs to be compiled in order to decode.  Please compile with"
-            " SinterDecoder.compile_decoder_for_dem, and call decode_observables or"
-            " decode_shots on the compiled decoder"
-        )
-
-    # Deprecated compatibility method
+    # Defunct compatibility method
     if TYPE_CHECKING:
         # Hide this method from mypy, so that a SinterDecoder does not satisfy ErrorDecoder.
         decode: None
     else:
 
         def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Compatibility shim that rejects decoding before this decoder is compiled.
-
-            A SinterDecoder never decodes syndromes to errors, and must be compiled for a
-            detector error model before it predicts observable flips.
-            """
-            return self.decode_observables(syndrome)
+            """Reject a defunct direct-decoding call."""
+            raise ValueError(
+                "SinterDecoder.decode is DEFUNCT.  Compile the SinterDecoder for a detector error"
+                " model, then call decode_observables or decode_shots on the compiled decoder."
+                "\nIf you need this method restored, please open an issue at"
+                " https://github.com/qLDPCOrg/qLDPC/issues"
+            )
 
 
 class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
@@ -217,8 +202,7 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     num_observables: int
     num_erasure_bits: int = 0
 
-    # the deprecated .decode method of this class returns observable flips
-    decode_returns_observables = True
+    decode_is_defunct = True
 
     def __init__(
         self, dem_arrays: DetectorErrorModelArrays, decoder: ErrorDecoder | ObservableDecoder
@@ -336,23 +320,19 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
         return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
-    # Deprecated compatibility method
+    # Defunct compatibility method
     if TYPE_CHECKING:
         # Hide this method from mypy, so that a CompiledSinterDecoder does not satisfy ErrorDecoder.
         decode: None
     else:
 
         def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Deprecated alias for decode_observables.
-
-            Predicts observable flips.
-            """
-            warnings.warn(
-                "CompiledSinterDecoder.decode is deprecated; use decode_observables",
-                DeprecationWarning,
-                stacklevel=2,
+            """Reject a defunct alias for observable decoding."""
+            raise ValueError(
+                "CompiledSinterDecoder.decode is DEFUNCT; use decode_observables instead."
+                "\nIf you need this method restored, please open an issue at"
+                " https://github.com/qLDPCOrg/qLDPC/issues"
             )
-            return self.decode_observables(syndrome)
 
 
 class TrivialDecoder(SinterDecoder):

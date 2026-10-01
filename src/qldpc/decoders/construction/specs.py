@@ -114,17 +114,29 @@ class ObservableDecoderConstructor(Protocol):
         """Build an observable decoder."""
 
 
+class ObservableDecoderCompiler(Protocol):
+    """Object that compiles an observable decoder for a detector error model."""
+
+    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
+        """Build an observable decoder specialized to one detector error model."""
+
+
 DeferredErrorDecoderInput: TypeAlias = DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | None
 ErrorDecoderInput: TypeAlias = (
     DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | ErrorDecoder | SupportsDecode | None
 )
 DeferredObservableDecoderInput: TypeAlias = (
-    DecoderSpec[Any] | ErrorDecoderConstructor | ObservableDecoderConstructor | None
+    DecoderSpec[Any]
+    | ErrorDecoderConstructor
+    | ObservableDecoderConstructor
+    | ObservableDecoderCompiler
+    | None
 )
 ObservableDecoderInput: TypeAlias = (
     DecoderSpec[Any]
     | ErrorDecoderConstructor
     | ObservableDecoderConstructor
+    | ObservableDecoderCompiler
     | ErrorDecoder
     | SupportsDecode
     | ObservableDecoder

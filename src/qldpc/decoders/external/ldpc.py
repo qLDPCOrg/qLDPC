@@ -1,6 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Builders for decoders provided by the ldpc package."""
+"""Builders for decoders provided by the ldpc package.
+
+qLDPC imports this integration module while initializing its public decoder API.  Importing ``ldpc``
+and PyMatching eagerly here adds roughly 0.18 seconds (about 25 percent) to ``import qldpc`` in
+fresh-process development benchmarks.  The protocol-compatible subclasses are therefore created on
+first use in the private lazy-backend section at the bottom of this module.
+"""
 
 from __future__ import annotations
 
@@ -65,8 +71,7 @@ def get_decoder_bp_osd(
     `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    decoder_type = _get_backend_class("BpOsdDecoder")
-    return cast(ErrorDecoder, decoder_type(pcm, error_channel=error_channel, **decoder_args))
+    return _build_ldpc_decoder("BpOsdDecoder", pcm, error_channel, decoder_args)
 
 
 @_erasure_bit_support("BP_LSD", supported=False)
@@ -101,8 +106,7 @@ def get_decoder_bp_lsd(
     `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    decoder_type = _get_backend_class("BpLsdDecoder")
-    return cast(ErrorDecoder, decoder_type(pcm, error_channel=error_channel, **decoder_args))
+    return _build_ldpc_decoder("BpLsdDecoder", pcm, error_channel, decoder_args)
 
 
 @_erasure_bit_support("BF", supported=False)
@@ -138,8 +142,7 @@ def get_decoder_bf(
     `arXiv:2209.01180 <https://arxiv.org/abs/2209.01180>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    decoder_type = _get_backend_class("BeliefFindDecoder")
-    return cast(ErrorDecoder, decoder_type(pcm, error_channel=error_channel, **decoder_args))
+    return _build_ldpc_decoder("BeliefFindDecoder", pcm, error_channel, decoder_args)
 
 
 # Private input helpers
@@ -163,12 +166,29 @@ def _to_ldpc_inputs(
     return pcm, list(error_channel)
 
 
+# Lazy backend classes
+#
+# These classes cannot be declared at module scope without importing ldpc during every qldpc import.
+# Create them together on first use, then cache them as ordinary module globals so introspection,
+# isinstance checks, copying, and pickling behave like normal module-level classes.
+
 _BACKEND_CLASS_NAMES = frozenset({"BeliefFindDecoder", "BpLsdDecoder", "BpOsdDecoder"})
 _BACKEND_CLASSES: dict[str, type[Any]] | None = None
 
 
+def _build_ldpc_decoder(
+    name: str,
+    pcm: IntegerArray,
+    error_channel: list[float],
+    decoder_args: dict[str, object],
+) -> ErrorDecoder:
+    """Build one of the lazily declared protocol-compatible ldpc decoders."""
+    decoder_type = _get_backend_class(name)
+    return cast(ErrorDecoder, decoder_type(pcm, error_channel=error_channel, **decoder_args))
+
+
 def _get_backend_class(name: str) -> type[Any]:
-    """Build the protocol-compatible ldpc subclasses on first use."""
+    """Return a protocol-compatible ldpc subclass, creating all three on first use."""
     global _BACKEND_CLASSES
     if _BACKEND_CLASSES is None:
         import ldpc

@@ -10,7 +10,6 @@ from ..protocols import ErrorDecoder
 from .core import (
     CompiledSinterDecoder,
     CompiledTrivialDecoder,
-    DecoderNotCompiledError,
     SinterDecoder,
     TrivialDecoder,
 )
@@ -27,7 +26,6 @@ __all__ = [
     "CompiledSubgraphDecoder",
     "CompiledTrivialDecoder",
     "Decoder",
-    "DecoderNotCompiledError",
     "SequentialSinterDecoder",
     "SequentialWindowDecoder",
     "SinterDecoder",

@@ -41,8 +41,6 @@ def test_sinter_decoder() -> None:
         no_flips = compiled_decoder.decode_shots_bit_packed(bit_packed_shots[:0])
         assert no_flips.shape == (0, expected_flips.shape[1])
 
-        with pytest.raises(decoders.DecoderNotCompiledError, match="needs to be compiled"):
-            decoder.decode_observables(np.array([], dtype=int))
         assert np.array_equal(
             [compiled_decoder.decode_observables(np.asarray(error)) for error in circuit_errors],
             observable_flips,
@@ -91,22 +89,21 @@ def test_sinter_decoder_correlated_matching() -> None:
 
 
 def test_sinter_decoder_classes() -> None:
-    """Sinter decoders implement Sinter's classes and qLDPC's observable protocol."""
-    for sinter_class, decoder_class in [
-        (sinter.Decoder, decoders.SinterDecoder),
-        (sinter.CompiledDecoder, decoders.CompiledSinterDecoder),
-    ]:
-        assert sinter_class in decoder_class.__mro__
-        assert decoders.ObservableDecoder in decoder_class.__mro__
+    """Only compiled Sinter decoders implement qLDPC's observable protocol."""
+    assert sinter.Decoder in decoders.SinterDecoder.__mro__
+    assert decoders.ObservableDecoder not in decoders.SinterDecoder.__mro__
+    assert sinter.CompiledDecoder in decoders.CompiledSinterDecoder.__mro__
+    assert decoders.ObservableDecoder in decoders.CompiledSinterDecoder.__mro__
 
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     decoder: typing.Any = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
-    with pytest.raises(decoders.DecoderNotCompiledError, match="compile_decoder_for_dem"):
+    with pytest.raises(ValueError, match=r"SinterDecoder\.decode is DEFUNCT"):
         decoder.decode(np.array([1], dtype=int))
 
     compiled: typing.Any = decoder.compile_decoder_for_dem(dem)
-    with pytest.warns(DeprecationWarning, match="decode is deprecated"):
-        assert np.array_equal(compiled.decode(np.array([1], dtype=int)), [1])
+    with pytest.raises(ValueError, match=r"CompiledSinterDecoder\.decode is DEFUNCT"):
+        compiled.decode(np.array([1], dtype=int))
+    assert np.array_equal(compiled.decode_observables(np.array([1], dtype=int)), [1])
 
 
 def test_unsimplified_dense_decoder() -> None:

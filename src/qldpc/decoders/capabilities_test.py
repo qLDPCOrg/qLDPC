@@ -59,9 +59,13 @@ def test_is_prebuilt_observable_decoder() -> None:
     assert not decoders.is_prebuilt_observable_decoder(error_decoder)
     assert not decoders.is_prebuilt_observable_decoder(decoders.lookup_table(max_weight=1))
     assert not decoders.is_prebuilt_observable_decoder(decoders.ObservableLookupDecoder)
-    assert not decoders.is_prebuilt_observable_decoder(decoders.TrivialDecoder())
+    sinter_decoder = decoders.TrivialDecoder()
+    assert not isinstance(sinter_decoder, decoders.ObservableDecoder)
+    assert not decoders.is_prebuilt_observable_decoder(sinter_decoder)
+    compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(stim.DetectorErrorModel())
+    assert decoders.is_prebuilt_observable_decoder(compiled_sinter_decoder)
     assert not decoders.is_prebuilt_observable_decoder(decoders.relay_bp().build(matrix))
-    assert decoders.compiles_for_dem(decoders.TrivialDecoder())
+    assert decoders.compiles_for_dem(sinter_decoder)
     assert not decoders.compiles_for_dem(decoders.TrivialDecoder)
 
     class _UnannotatedConstructor:
