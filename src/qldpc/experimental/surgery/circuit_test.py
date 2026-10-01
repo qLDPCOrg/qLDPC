@@ -137,6 +137,25 @@ def test_explicit_intracode_structure_uses_code_equality_not_identity() -> None:
             intercode=False,
         )
 
+    permutation = np.array([1, 0, 2, 3, 4, 5, 6])
+    permuted_code = codes.CSSCode(
+        np.asarray(code_l.matrix_x)[:, permutation],
+        np.asarray(code_l.matrix_z)[:, permutation],
+    )
+    permuted_logical = np.asarray(code_l.get_logical_ops(Pauli.X)[0], dtype=np.uint8)[permutation]
+    permuted_gadget = build_gadget(permuted_code, permuted_logical, basis=Pauli.X)
+    assert permuted_code.field is code_l.field
+    assert permuted_code.matrix_x.shape == code_l.matrix_x.shape
+    assert permuted_code.num_qudits == code_l.num_qudits
+    assert permuted_code != code_l
+    with pytest.raises(ValueError, match="structurally identical"):
+        _merged_csscode(
+            gadget_l,
+            permuted_gadget,
+            build_bridge(gadget_l, permuted_gadget),
+            intercode=False,
+        )
+
 
 def test_single_ppm_rejects_a_reducible_logical_until_boosted() -> None:
     """A circuit cannot silently fix both factors of a requested logical product."""

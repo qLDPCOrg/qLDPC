@@ -165,6 +165,12 @@ def test_compile_interblock_pair_hgp_nonzero_logical() -> None:
     assert compiled.resources.source_data_qubits == 116
     assert compiled.resources.syndrome_rounds == 1
     assert not compiled.circuit.compile_detector_sampler().sample(shots=2).any()
+    expected_left = tuple(int(value) for value in code.get_logical_ops(Pauli.X)[3].tolist())
+    expected_right = tuple(int(value) for value in code.get_logical_ops(Pauli.X)[5].tolist())
+    zero_index = tuple(int(value) for value in code.get_logical_ops(Pauli.X)[0].tolist())
+    assert compiled.resolved_operators == (expected_left, expected_right)
+    assert expected_left != zero_index
+    assert expected_right != zero_index
 
 
 def test_compiler_rejects_invalid_rounds_and_block_collections() -> None:
