@@ -251,11 +251,11 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         """
         # A subclass that customizes unpacking, decoding, or packing (including a composite decoder
         # with no single inner observable decoder) keeps the generic path below.
-        uses_default_methods = all(
+        uses_base_shot_methods = all(
             getattr(type(self), name) is getattr(CompiledSinterDecoder, name)
             for name in ("decode_shots", "unpack_detection_event_data", "pack_observable_flips")
         )
-        if uses_default_methods and callable(
+        if uses_base_shot_methods and callable(
             decode_shots_bit_packed := getattr(
                 self.observable_decoder, "decode_shots_bit_packed", None
             )

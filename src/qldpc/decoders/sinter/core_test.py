@@ -77,7 +77,7 @@ def test_compiled_sinter_decoder_delegates_bit_packed_shots() -> None:
     """A compiled decoder delegates bit-packed shots to an inner decoder that decodes them."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
 
-    class PackedDecoder(decoders.ObservableDecoder):
+    class BitPackedShotDecoder(decoders.ObservableDecoder):
         output: npt.NDArray[np.uint8]
 
         def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
@@ -88,7 +88,7 @@ def test_compiled_sinter_decoder_delegates_bit_packed_shots() -> None:
         ) -> npt.NDArray[np.uint8]:
             return self.output
 
-    inner = PackedDecoder()
+    inner = BitPackedShotDecoder()
     compiled = decoders.CompiledSinterDecoder(decoders.DetectorErrorModelArrays(dem), inner)
     shots = np.array([[0], [1]], dtype=np.uint8)
     assert np.array_equal(compiled.decode_shots(shots), shots)

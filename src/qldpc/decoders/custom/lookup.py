@@ -24,7 +24,7 @@ from ..common import _erasure_bit_support, with_erasure_bits
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder
 
-_LOOKUP_BATCH_SIZE = 4096
+_LOOKUP_CHUNK_SIZE = 4096
 
 
 class _LookupDecoderBase:
@@ -92,11 +92,11 @@ class _LookupDecoderBase:
 
         # start working on the decoding map from syndrome -> error, stored with packed keys/values
         num_syndrome_bits = pcm.shape[0] if syndrome_mask is None else int(syndrome_mask.sum())
-        self._syndrome_codec = _VectorCodec(self.field.order, num_syndrome_bits, pcm.dtype)
-        self._output_codec = _VectorCodec(
+        self._syndrome_packer = _FieldVectorPacker(self.field.order, num_syndrome_bits, pcm.dtype)
+        self._prediction_packer = _FieldVectorPacker(
             self.field.order, len(default_correction), default_correction.dtype
         )
-        self._syndrome_to_error: dict[bytes, bytes] = {}
+        self._packed_syndrome_to_prediction: dict[bytes, bytes] = {}
 
         if observable_flip_matrix is None:
             self._build_syndrome_map_from_errors(
@@ -132,17 +132,19 @@ class _LookupDecoderBase:
         for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
-            key = self._syndrome_codec.pack(syndrome)
+            key = self._syndrome_packer.pack(syndrome)
             if penalty_func is None:
-                self._store(key, error)
+                self._store_prediction(key, error)
             elif (error_weight := penalty_func(error)) <= error_penalty.get(key, np.inf):
                 error_penalty[key] = error_weight
-                self._store(key, error)
+                self._store_prediction(key, error)
 
-    def _store(self, key: bytes, prediction: npt.NDArray[np.int_]) -> None:
-        """Record a packed table entry, appending an erasure bit if needed."""
+    def _store_prediction(self, packed_syndrome: bytes, prediction: npt.NDArray[np.int_]) -> None:
+        """Record a prediction for a packed syndrome, appending an erasure bit if needed."""
         prediction = self._maybe_add_erasure_bit(prediction)
-        self._syndrome_to_error[key] = self._output_codec.pack(prediction)
+        self._packed_syndrome_to_prediction[packed_syndrome] = self._prediction_packer.pack(
+            prediction
+        )
 
     def _save_interface_metadata(
         self,
@@ -187,16 +189,16 @@ class _LookupDecoderBase:
         # Probabilities are accumulated in log-space (via logaddexp) to avoid the underflow that
         # would otherwise arise from summing the tiny probabilities of individual errors.
         num_observables = observable_flip_matrix.shape[0]
-        flip_codec = _VectorCodec(self.field.order, num_observables, pcm.dtype)
-        error_codec = _VectorCodec(self.field.order, pcm.shape[1], pcm.dtype)
+        observable_flip_packer = _FieldVectorPacker(self.field.order, num_observables, pcm.dtype)
+        error_packer = _FieldVectorPacker(self.field.order, pcm.shape[1], pcm.dtype)
         net_log_probs: dict[bytes, dict[bytes, float]] = collections.defaultdict(dict)
         most_likely_errors: dict[tuple[bytes, bytes], bytes] = {}
         most_likely_error_log_probs: dict[tuple[bytes, bytes], float] = {}
         for error, syndrome_array in _LookupDecoderBase._iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
-            syndrome = self._syndrome_codec.pack(syndrome_array)
-            obs_flip = flip_codec.pack(get_observable_flip(error))
+            syndrome = self._syndrome_packer.pack(syndrome_array)
+            obs_flip = observable_flip_packer.pack(get_observable_flip(error))
             log_prob = -penalty_func(error)
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
@@ -210,7 +212,7 @@ class _LookupDecoderBase:
             key = (syndrome, obs_flip)
             if key not in most_likely_errors or log_prob >= most_likely_error_log_probs[key]:
                 most_likely_error_log_probs[key] = log_prob
-                most_likely_errors[key] = error_codec.pack(error)
+                most_likely_errors[key] = error_packer.pack(error)
 
         # Identify the most likely observable_flip for each syndrome, and map the syndrome to the
         # most likely error with that (syndrome, observable_flip) combination.  If a
@@ -235,10 +237,10 @@ class _LookupDecoderBase:
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
                     continue  # omit the ambiguous syndrome, leaving it to decode as erasure
             if predict_observable_flips:
-                prediction = flip_codec.unpack(most_likely_obs_flip)
+                prediction = observable_flip_packer.unpack(most_likely_obs_flip)
             else:
-                prediction = error_codec.unpack(most_likely_errors[syndrome, most_likely_obs_flip])
-            self._store(syndrome, prediction)
+                prediction = error_packer.unpack(most_likely_errors[syndrome, most_likely_obs_flip])
+            self._store_prediction(syndrome, prediction)
 
     @staticmethod
     def _organize_lookup_table_initialization_data(
@@ -460,7 +462,9 @@ class _LookupDecoderBase:
             return error
         return with_erasure_bits(error, False)
 
-    def _retained_syndrome(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_] | None:
+    def _remove_post_selected_bits(
+        self, syndrome: npt.NDArray[np.int_]
+    ) -> npt.NDArray[np.int_] | None:
         """Drop post-selected bits from a syndrome, or return None if any of them is nonzero."""
         syndrome = syndrome.view(np.ndarray)
         if self.syndrome_mask is None:
@@ -472,24 +476,26 @@ class _LookupDecoderBase:
 
     def _get_syndrome_key(self, syndrome: npt.NDArray[np.int_]) -> tuple[int, ...] | None:
         """Return the retained syndrome key, or None when a post-selected bit is nontrivial."""
-        retained_syndrome = self._retained_syndrome(syndrome)
+        retained_syndrome = self._remove_post_selected_bits(syndrome)
         return None if retained_syndrome is None else tuple(retained_syndrome.tolist())
 
     def __len__(self) -> int:
         """The number of entries in this lookup table."""
-        return len(self._syndrome_to_error)
+        return len(self._packed_syndrome_to_prediction)
 
     def _decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Look up the configured error or observable-flip prediction."""
-        retained_syndrome = self._retained_syndrome(syndrome)
+        retained_syndrome = self._remove_post_selected_bits(syndrome)
         if retained_syndrome is None:
             return self.default_correction.copy()
-        packed = self._syndrome_to_error.get(self._syndrome_codec.pack(retained_syndrome))
+        packed = self._packed_syndrome_to_prediction.get(
+            self._syndrome_packer.pack(retained_syndrome)
+        )
         if packed is None:
             return self.default_correction.copy()
-        return self._output_codec.unpack(packed)
+        return self._prediction_packer.unpack(packed)
 
-    def _pack_syndrome_rows(
+    def _pack_retained_syndromes(
         self, syndromes: npt.NDArray[np.integer]
     ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.bool_] | None]:
         """Pack the retained bits of syndrome rows.
@@ -504,49 +510,60 @@ class _LookupDecoderBase:
                 f" but got {syndromes.shape}"
             )
         if self.syndrome_mask is None:
-            return self._syndrome_codec.pack_rows(syndromes), None
-        post_selected = ~np.any(syndromes[:, ~self.syndrome_mask], axis=1)
-        return self._syndrome_codec.pack_rows(syndromes[:, self.syndrome_mask]), post_selected
+            return self._syndrome_packer.pack_rows(syndromes), None
+        passes_post_selection = ~np.any(syndromes[:, ~self.syndrome_mask], axis=1)
+        return self._syndrome_packer.pack_rows(
+            syndromes[:, self.syndrome_mask]
+        ), passes_post_selection
 
-    def _lookup_packed_rows(
+    def _lookup_packed_predictions(
         self,
         packed_syndromes: npt.NDArray[np.uint8],
-        post_selected: npt.NDArray[np.bool_] | None = None,
+        passes_post_selection: npt.NDArray[np.bool_] | None = None,
     ) -> npt.NDArray[np.uint8]:
         """Map packed syndrome rows directly to packed prediction rows.
 
-        Rows that are excluded by the post_selected mask get the default prediction.
+        Rows that fail post-selection (False in the passes_post_selection mask) get the default
+        prediction.
         """
         packed_syndromes = np.ascontiguousarray(packed_syndromes)
         num_predictions = len(packed_syndromes)
-        num_output_bytes = self._output_codec.num_bytes
-        packed_predictions = np.empty((num_predictions, num_output_bytes), dtype=np.uint8)
-        default = self._output_codec.pack(self.default_correction)
-        get = self._syndrome_to_error.get
-        key_dtype = np.dtype((np.void, self._syndrome_codec.num_bytes))
+        num_prediction_bytes = self._prediction_packer.num_packed_bytes
+        packed_predictions = np.empty((num_predictions, num_prediction_bytes), dtype=np.uint8)
+        packed_default = self._prediction_packer.pack(self.default_correction)
+        lookup_prediction = self._packed_syndrome_to_prediction.get
+        packed_syndrome_dtype = np.dtype((np.void, self._syndrome_packer.num_packed_bytes))
         # Bound temporary Python byte keys while retaining the throughput of bulk conversion.
-        for start in range(0, num_predictions, _LOOKUP_BATCH_SIZE):
-            stop = min(start + _LOOKUP_BATCH_SIZE, num_predictions)
-            if self._syndrome_codec.num_bytes:
+        for start in range(0, num_predictions, _LOOKUP_CHUNK_SIZE):
+            stop = min(start + _LOOKUP_CHUNK_SIZE, num_predictions)
+            if self._syndrome_packer.num_packed_bytes:
                 # A void view preserves trailing zero bytes; tolist() constructs the keys in C.
-                keys = cast(
+                packed_syndromes_chunk = cast(
                     list[bytes],
-                    packed_syndromes[start:stop].view(key_dtype).reshape(-1).tolist(),
+                    packed_syndromes[start:stop].view(packed_syndrome_dtype).reshape(-1).tolist(),
                 )
             else:
-                keys = [b""] * (stop - start)
+                packed_syndromes_chunk = [b""] * (stop - start)
             packed_predictions[start:stop] = np.frombuffer(
-                b"".join([get(key, default) for key in keys]), dtype=np.uint8
-            ).reshape(stop - start, num_output_bytes)
-        if post_selected is not None:
-            packed_predictions[~post_selected] = np.frombuffer(default, dtype=np.uint8)
+                b"".join(
+                    [
+                        lookup_prediction(packed_syndrome, packed_default)
+                        for packed_syndrome in packed_syndromes_chunk
+                    ]
+                ),
+                dtype=np.uint8,
+            ).reshape(stop - start, num_prediction_bytes)
+        if passes_post_selection is not None:
+            packed_predictions[~passes_post_selection] = np.frombuffer(
+                packed_default, dtype=np.uint8
+            )
         return packed_predictions
 
     def _decode_batch(self, syndromes: npt.NDArray[np.integer]) -> npt.NDArray[np.int_]:
         """Look up a batch of syndromes and return unpacked predictions."""
-        packed_syndromes, post_selected = self._pack_syndrome_rows(syndromes)
-        return self._output_codec.unpack_rows(
-            self._lookup_packed_rows(packed_syndromes, post_selected)
+        packed_syndromes, passes_post_selection = self._pack_retained_syndromes(syndromes)
+        return self._prediction_packer.unpack_rows(
+            self._lookup_packed_predictions(packed_syndromes, passes_post_selection)
         )
 
     def _stack_predictions(self, predictions: list[npt.NDArray[np.int_]]) -> npt.NDArray[np.int_]:
@@ -762,25 +779,29 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         """
         if self.field.order != 2:
             raise ValueError("Bit-packed lookup decoding is only available over GF(2)")
-        shots = np.ascontiguousarray(bit_packed_detection_event_data, dtype=np.uint8)
+        packed_shots = np.ascontiguousarray(bit_packed_detection_event_data, dtype=np.uint8)
         num_detector_bytes = -(-self.num_detectors // 8)
-        if shots.ndim != 2 or shots.shape[1] != num_detector_bytes:
+        if packed_shots.ndim != 2 or packed_shots.shape[1] != num_detector_bytes:
             raise ValueError(
                 f"Expected bit-packed syndromes of shape (num_syndromes, {num_detector_bytes}),"
-                f" but got {shots.shape}"
+                f" but got {packed_shots.shape}"
             )
         if self.syndrome_mask is None:
-            packed = self._lookup_packed_rows(shots)
+            packed_predictions = self._lookup_packed_predictions(packed_shots)
         else:
-            syndromes = np.unpackbits(shots, count=self.num_detectors, bitorder="little", axis=1)
-            packed = self._lookup_packed_rows(*self._pack_syndrome_rows(syndromes))
+            shots = np.unpackbits(packed_shots, count=self.num_detectors, bitorder="little", axis=1)
+            packed_predictions = self._lookup_packed_predictions(
+                *self._pack_retained_syndromes(shots)
+            )
         if not self.has_erasure_bit:
-            return packed
+            return packed_predictions
 
         erasure_byte, erasure_bit = divmod(self.num_observables, 8)
-        erased = (packed[:, erasure_byte] >> erasure_bit) & 1
-        packed[:, erasure_byte] &= (1 << erasure_bit) - 1  # clear the erasure bit from the flips
-        return np.column_stack([packed[:, : -(-self.num_observables // 8)], erased])
+        erased = (packed_predictions[:, erasure_byte] >> erasure_bit) & 1
+        # clear the erasure bit from the observable flips
+        packed_predictions[:, erasure_byte] &= (1 << erasure_bit) - 1
+        num_observable_bytes = -(-self.num_observables // 8)
+        return np.column_stack([packed_predictions[:, :num_observable_bytes], erased])
 
 
 class _WeightedLookupDecoderBase(_LookupDecoderBase):
@@ -1070,7 +1091,7 @@ def get_observable_decoder_lookup(
 # Private helpers
 
 
-class _VectorCodec:
+class _FieldVectorPacker:
     """Pack fixed-length vectors over a finite field into compact, hashable bytes.
 
     Over GF(2), vectors are bit-packed with np.packbits.  Over any other field, each entry is stored
@@ -1079,40 +1100,45 @@ class _VectorCodec:
     elements are out of scope, since _iter_errors_and_syndromes builds a tuple of every element.
     """
 
-    def __init__(self, order: int, length: int, dtype: npt.DTypeLike) -> None:
-        self.order = order
-        self.length = length
-        self.dtype = np.dtype(dtype)
-        self.storage_dtype = np.dtype(np.min_scalar_type(order - 1)).newbyteorder("<")
-        self.num_bytes = -(-length // 8) if order == 2 else length * self.storage_dtype.itemsize
+    def __init__(self, field_order: int, vector_length: int, unpacked_dtype: npt.DTypeLike) -> None:
+        self.field_order = field_order
+        self.vector_length = vector_length
+        self.unpacked_dtype = np.dtype(unpacked_dtype)
+        self.element_dtype = np.dtype(np.min_scalar_type(field_order - 1)).newbyteorder("<")
+        self.num_packed_bytes = (
+            -(-vector_length // 8)
+            if field_order == 2
+            else vector_length * self.element_dtype.itemsize
+        )
 
     def pack(self, vector: npt.NDArray[np.integer]) -> bytes:
         """Pack a vector of field elements."""
-        if self.order == 2:
+        if self.field_order == 2:
             return np.packbits(vector, bitorder="little").tobytes()
-        return np.asarray(vector, dtype=self.storage_dtype).tobytes()
+        return np.asarray(vector, dtype=self.element_dtype).tobytes()
 
     def unpack(self, packed: bytes) -> npt.NDArray[np.int_]:
         """Unpack a vector into a new array."""
-        if self.order == 2:
+        if self.field_order == 2:
             buffer = np.frombuffer(packed, dtype=np.uint8)
-            return np.unpackbits(buffer, count=self.length, bitorder="little").astype(self.dtype)
-        return np.frombuffer(packed, dtype=self.storage_dtype).astype(self.dtype)
+            bits = np.unpackbits(buffer, count=self.vector_length, bitorder="little")
+            return bits.astype(self.unpacked_dtype)
+        return np.frombuffer(packed, dtype=self.element_dtype).astype(self.unpacked_dtype)
 
     def pack_rows(self, vectors: npt.NDArray[np.integer]) -> npt.NDArray[np.uint8]:
         """Pack a two-dimensional array of vectors, one vector per row."""
-        if self.order == 2:
+        if self.field_order == 2:
             return np.packbits(vectors, bitorder="little", axis=1)
-        stored = np.ascontiguousarray(vectors, dtype=self.storage_dtype)
-        return stored.view(np.uint8).reshape(len(vectors), self.num_bytes)
+        elements = np.ascontiguousarray(vectors, dtype=self.element_dtype)
+        return elements.view(np.uint8).reshape(len(vectors), self.num_packed_bytes)
 
     def unpack_rows(self, packed: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
         """Unpack fixed-width byte rows into vectors, one vector per row."""
-        if self.order == 2:
-            bits = np.unpackbits(packed, count=self.length, bitorder="little", axis=1)
-            return bits.astype(self.dtype)
-        stored = np.ascontiguousarray(packed).view(self.storage_dtype)
-        return stored.reshape(len(packed), self.length).astype(self.dtype)
+        if self.field_order == 2:
+            bits = np.unpackbits(packed, count=self.vector_length, bitorder="little", axis=1)
+            return bits.astype(self.unpacked_dtype)
+        elements = np.ascontiguousarray(packed).view(self.element_dtype)
+        return elements.reshape(len(packed), self.vector_length).astype(self.unpacked_dtype)
 
 
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:

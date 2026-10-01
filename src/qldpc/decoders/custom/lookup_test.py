@@ -15,7 +15,7 @@ import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
-from qldpc.decoders.custom.lookup import _VectorCodec, get_observable_decoder_lookup
+from qldpc.decoders.custom.lookup import _FieldVectorPacker, get_observable_decoder_lookup
 
 
 def test_lookup(toy_problem: ToyProblem) -> None:
@@ -24,7 +24,7 @@ def test_lookup(toy_problem: ToyProblem) -> None:
 
     decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
-    assert len(decoder) == len(decoder._syndrome_to_error)
+    assert len(decoder) == len(decoder._packed_syndrome_to_prediction)
 
     # decode with a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
@@ -531,16 +531,16 @@ def test_penalty_func() -> None:
 
 @pytest.mark.parametrize("order", [2, 3, 2**17])  # bit-packed, uint8, uint32
 @pytest.mark.parametrize("length", [0, 9])
-def test_vector_codec(order: int, length: int) -> None:
+def test_field_vector_packer(order: int, length: int) -> None:
     """Scalar and row packing agree, and both round-trip."""
-    codec = _VectorCodec(order, length, np.int64)
+    packer = _FieldVectorPacker(order, length, np.int64)
     # large, non-contiguous values exercise multi-byte storage and strided rows
     vectors = (order - 1 - np.arange(4 * length)).reshape(2, 2 * length)[:, ::2] % order
-    packed = codec.pack_rows(vectors)
-    assert [codec.pack(vector) for vector in vectors] == [row.tobytes() for row in packed]
-    assert np.array_equal(codec.unpack_rows(packed), vectors)
-    assert codec.unpack_rows(packed).dtype == np.int64
-    assert np.array_equal(codec.unpack(codec.pack(vectors[1])), vectors[1])
+    packed = packer.pack_rows(vectors)
+    assert [packer.pack(vector) for vector in vectors] == [row.tobytes() for row in packed]
+    assert np.array_equal(packer.unpack_rows(packed), vectors)
+    assert packer.unpack_rows(packed).dtype == np.int64
+    assert np.array_equal(packer.unpack(packer.pack(vectors[1])), vectors[1])
 
 
 def test_lookup_batch_validation() -> None:
@@ -569,7 +569,7 @@ def test_lookup_batch_validation() -> None:
 def test_packed_lookup_table() -> None:
     """Lookup-table keys and values are compactly packed bytes."""
     decoder = decoders.LookupDecoder(codes.HammingCode(5).matrix, max_weight=1)
-    for key, value in decoder._syndrome_to_error.items():
+    for key, value in decoder._packed_syndrome_to_prediction.items():
         assert isinstance(key, bytes) and len(key) == 1  # 5 syndrome bits
         assert isinstance(value, bytes) and len(value) == 4  # 31 error bits
 
