@@ -276,10 +276,9 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         uses_default_packer = (
             type(self).pack_observable_flips is CompiledSinterDecoder.pack_observable_flips
         )
+        observable_decoder = getattr(self, "observable_decoder", None)
         if uses_default_packer and callable(
-            decode_shots_bit_packed := getattr(
-                self.observable_decoder, "decode_shots_bit_packed", None
-            )
+            decode_shots_bit_packed := getattr(observable_decoder, "decode_shots_bit_packed", None)
         ):
             packed_flips = np.asarray(
                 decode_shots_bit_packed(

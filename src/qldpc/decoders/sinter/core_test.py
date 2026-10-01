@@ -152,6 +152,23 @@ def test_compiled_sinter_decoder_shot_fallback() -> None:
     )
     assert inner.batch_calls == 2
 
+    class CompositeDecoder(decoders.CompiledSinterDecoder):
+        """A composite compiled decoder with no single inner observable decoder."""
+
+        num_detectors = 1
+        num_observables = 1
+
+        def decode_shots(
+            self, detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            return np.asarray(detection_event_data, dtype=np.uint8)
+
+    composite = CompositeDecoder.__new__(CompositeDecoder)
+    assert np.array_equal(
+        composite.decode_shots_bit_packed(np.packbits(shots, bitorder="little", axis=1)),
+        np.packbits(shots, bitorder="little", axis=1),
+    )
+
 
 def test_sinter_decoder_correlated_matching() -> None:
     """A SinterDecoder keeps the error decompositions that correlated matching uses."""
