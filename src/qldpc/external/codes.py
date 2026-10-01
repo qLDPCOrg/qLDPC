@@ -102,15 +102,18 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
 
 
 @qldpc.cache.use_disk_cache("qldpc-challenge")
-def get_qldpc_challenge_code(code_id: str) -> tuple[npt.NDArray[np.int_], int | None, bool]:
+def get_qldpc_challenge_code(
+    code_id: str,
+) -> tuple[npt.NDArray[np.int_], int | None, bool, tuple[int, ...]]:
     """Retrieve a quantum code by ID from the Unitary Foundation qLDPC Challenge.
 
     This function fetches the JSON artifacts that the challenge publishes at
     https://unitaryfoundation.github.io/qldpc-challenge/codes/, so it requires network access.
 
-    Return the symplectic parity check matrix of the code, its distance, and whether it's CSS.  A
-    submitted distance is only a witness-certified upper bound, so the distance is None unless the
-    challenge has certified it to be exact.
+    Return the symplectic parity check matrix of the code, its distance, whether it's CSS, and the
+    witness-certified upper bounds on distance in its submission: ``(d_X, d_Z)`` for a CSS code, or
+    ``(d,)`` otherwise.  A submitted distance is only an upper bound, so the distance is ``None``
+    unless the challenge has certified it to be exact.
 
     Results are cached to disk.  Use get_qldpc_challenge_code.refresh(code_id) to retrieve and
     cache the latest data from the challenge.
@@ -133,11 +136,16 @@ def get_qldpc_challenge_code(code_id: str) -> tuple[npt.NDArray[np.int_], int | 
             matrix[row, 1, support_z] = 1
         exact = any(entry["id"] == code_id and entry["tier"] == "exact" for entry in index["codes"])
         distance = int(code_data["distance"]["d"]) if exact else None
+        distance_bounds = (
+            tuple(int(code_data["distance"][side]["value"]) for side in ("X", "Z"))
+            if is_css
+            else (int(code_data["distance"]["d"]),)
+        )
     except (IndexError, KeyError, TypeError) as exception:
         raise ValueError(
             f"Could not parse qLDPC Challenge data for code '{code_id}'"
         ) from exception
-    return matrix.reshape(len(supports), 2 * num_qubits), distance, is_css
+    return matrix.reshape(len(supports), 2 * num_qubits), distance, is_css, distance_bounds
 
 
 def _gap_define_sparse_matrix(

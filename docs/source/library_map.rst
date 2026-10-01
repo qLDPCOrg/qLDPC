@@ -96,6 +96,12 @@ The backend requires a CUDA-enabled PyTorch installation and a visible CUDA GPU.
 ``sqetch`` estimates the X- and Z-distance sectors separately. The lowest logical weight it observes
 is an upper bound on the corresponding distance.
 
+Codes remember the best upper bound on distance that they have found or been given, such as the
+witness-certified bounds loaded by ``QuditCode.from_qldpc_challenge_id``. CSS codes remember X and
+Z bounds separately. With the default ``num_trials=None``, ``get_distance_bound`` returns the exact
+distance or best known bound if there is one, and otherwise computes a single bound. An explicit
+``num_trials`` always runs that many trials and never returns a worse bound than the best known one.
+
 Graphs, complexes, and lifted matrices
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -193,7 +199,7 @@ Built-in and custom codes share the same basic interface:
 
 Use ``code.matrix`` for a classical or general quantum check matrix, and ``code.matrix_x`` /
 ``code.matrix_z`` for the two CSS sectors. Use ``forget_distance()`` deliberately when a cached or
-construction-supplied distance should be discarded before recomputation.
+construction-supplied distance (or distance bound) should be discarded before recomputation.
 
 Build a custom CSS code
 ~~~~~~~~~~~~~~~~~~~~~~~
