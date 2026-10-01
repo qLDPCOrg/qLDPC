@@ -129,7 +129,7 @@ class _LookupDecoderBase:
         function, all errors) resolve in favor of the lowest-weight error for each syndrome.
         """
         error_penalty: dict[bytes, float] = {}
-        for error, syndrome in _LookupDecoderBase._iter_error_and_syndrome_arrays(
+        for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
             key = self._syndrome_codec.pack(syndrome)
@@ -192,7 +192,7 @@ class _LookupDecoderBase:
         net_log_probs: dict[bytes, dict[bytes, float]] = collections.defaultdict(dict)
         most_likely_errors: dict[tuple[bytes, bytes], bytes] = {}
         most_likely_error_log_probs: dict[tuple[bytes, bytes], float] = {}
-        for error, syndrome_array in _LookupDecoderBase._iter_error_and_syndrome_arrays(
+        for error, syndrome_array in _LookupDecoderBase._iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
             syndrome = self._syndrome_codec.pack(syndrome_array)
@@ -201,6 +201,8 @@ class _LookupDecoderBase:
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
             )
+            if predict_observable_flips:
+                continue  # representative errors are only needed to decode to errors
             # Record the first error for each key (so it always has a representative, even when all
             # of its errors have zero probability), then keep the most likely one thereafter.  A tie
             # in probability resolves toward the lighter error, since enumeration runs from heavy to
@@ -414,22 +416,6 @@ class _LookupDecoderBase:
         max_weight: int,
         syndrome_mask: npt.NDArray[np.bool_] | None,
         symplectic: bool,
-    ) -> Iterator[tuple[npt.NDArray[np.int_], tuple[int, ...]]]:
-        """Iterate over all errors that this decoder considers, and their syndromes as tuples.
-
-        See _iter_error_and_syndrome_arrays, which yields syndromes as arrays.
-        """
-        for error, syndrome in _LookupDecoderBase._iter_error_and_syndrome_arrays(
-            matrix, max_weight, syndrome_mask, symplectic
-        ):
-            yield error, tuple(syndrome.tolist())
-
-    @staticmethod
-    def _iter_error_and_syndrome_arrays(
-        matrix: IntegerArray,
-        max_weight: int,
-        syndrome_mask: npt.NDArray[np.bool_] | None,
-        symplectic: bool,
     ) -> Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
 
@@ -474,15 +460,20 @@ class _LookupDecoderBase:
             return error
         return with_erasure_bits(error, False)
 
+    def _retained_syndrome(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_] | None:
+        """Drop post-selected bits from a syndrome, or return None if any of them is nonzero."""
+        syndrome = syndrome.view(np.ndarray)
+        if self.syndrome_mask is None:
+            return syndrome
+        retained_syndrome = syndrome[self.syndrome_mask]
+        if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
+            return None
+        return retained_syndrome
+
     def _get_syndrome_key(self, syndrome: npt.NDArray[np.int_]) -> tuple[int, ...] | None:
         """Return the retained syndrome key, or None when a post-selected bit is nontrivial."""
-        syndrome = syndrome.view(np.ndarray)
-        if self.syndrome_mask is not None:
-            retained_syndrome = syndrome[self.syndrome_mask]
-            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
-                return None
-            syndrome = retained_syndrome
-        return tuple(syndrome.tolist())
+        retained_syndrome = self._retained_syndrome(syndrome)
+        return None if retained_syndrome is None else tuple(retained_syndrome.tolist())
 
     def __len__(self) -> int:
         """The number of entries in this lookup table."""
@@ -490,13 +481,10 @@ class _LookupDecoderBase:
 
     def _decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Look up the configured error or observable-flip prediction."""
-        syndrome = syndrome.view(np.ndarray)
-        if self.syndrome_mask is not None:
-            retained_syndrome = syndrome[self.syndrome_mask]
-            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
-                return self.default_correction.copy()
-            syndrome = retained_syndrome
-        packed = self._syndrome_to_error.get(self._syndrome_codec.pack(syndrome))
+        retained_syndrome = self._retained_syndrome(syndrome)
+        if retained_syndrome is None:
+            return self.default_correction.copy()
+        packed = self._syndrome_to_error.get(self._syndrome_codec.pack(retained_syndrome))
         if packed is None:
             return self.default_correction.copy()
         return self._output_codec.unpack(packed)
@@ -531,13 +519,10 @@ class _LookupDecoderBase:
         """
         packed_syndromes = np.ascontiguousarray(packed_syndromes)
         num_predictions = len(packed_syndromes)
-        packed_predictions = np.empty(
-            (num_predictions, self._output_codec.num_bytes), dtype=np.uint8
-        )
-        if self._output_codec.num_bytes == 0:
-            return packed_predictions
-
+        num_output_bytes = self._output_codec.num_bytes
+        packed_predictions = np.empty((num_predictions, num_output_bytes), dtype=np.uint8)
         default = self._output_codec.pack(self.default_correction)
+        get = self._syndrome_to_error.get
         key_dtype = np.dtype((np.void, self._syndrome_codec.num_bytes))
         # Bound temporary Python byte keys while retaining the throughput of bulk conversion.
         for start in range(0, num_predictions, _LOOKUP_BATCH_SIZE):
@@ -550,16 +535,11 @@ class _LookupDecoderBase:
                 )
             else:
                 keys = [b""] * (stop - start)
-            if post_selected is None or np.all(post_selected[start:stop]):
-                values = [self._syndrome_to_error.get(key, default) for key in keys]
-            else:
-                values = [
-                    self._syndrome_to_error.get(key, default) if keep else default
-                    for key, keep in zip(keys, post_selected[start:stop], strict=True)
-                ]
             packed_predictions[start:stop] = np.frombuffer(
-                b"".join(values), dtype=np.uint8
-            ).reshape(stop - start, self._output_codec.num_bytes)
+                b"".join([get(key, default) for key in keys]), dtype=np.uint8
+            ).reshape(stop - start, num_output_bytes)
+        if post_selected is not None:
+            packed_predictions[~post_selected] = np.frombuffer(default, dtype=np.uint8)
         return packed_predictions
 
     def _decode_batch(self, syndromes: npt.NDArray[np.integer]) -> npt.NDArray[np.int_]:
@@ -568,38 +548,6 @@ class _LookupDecoderBase:
         return self._output_codec.unpack_rows(
             self._lookup_packed_rows(packed_syndromes, post_selected)
         )
-
-    def _decode_binary_packed_batch(
-        self, bit_packed_syndromes: npt.NDArray[np.uint8]
-    ) -> npt.NDArray[np.uint8]:
-        """Look up binary syndromes that are already packed in little-endian bit order."""
-        if self.field.order != 2:
-            raise ValueError("Bit-packed lookup decoding is only available over GF(2)")
-        bit_packed_syndromes = np.ascontiguousarray(bit_packed_syndromes, dtype=np.uint8)
-        num_syndrome_bytes = -(-self.num_detectors // 8)
-        if bit_packed_syndromes.ndim != 2 or bit_packed_syndromes.shape[1] != num_syndrome_bytes:
-            raise ValueError(
-                f"Expected bit-packed syndromes of shape"
-                f" (num_syndromes, {num_syndrome_bytes}),"
-                f" but got {bit_packed_syndromes.shape}"
-            )
-
-        final_byte_bits = self.num_detectors % 8
-        if final_byte_bits and len(bit_packed_syndromes):
-            final_byte_mask = np.uint8((1 << final_byte_bits) - 1)
-            if np.any(bit_packed_syndromes[:, -1] & ~final_byte_mask):
-                bit_packed_syndromes = bit_packed_syndromes.copy()
-                bit_packed_syndromes[:, -1] &= final_byte_mask
-
-        if self.syndrome_mask is None:
-            return self._lookup_packed_rows(bit_packed_syndromes)
-        syndromes = np.unpackbits(
-            bit_packed_syndromes,
-            count=self.num_detectors,
-            bitorder="little",
-            axis=1,
-        )
-        return self._lookup_packed_rows(*self._pack_syndrome_rows(syndromes))
 
     def _stack_predictions(self, predictions: list[npt.NDArray[np.int_]]) -> npt.NDArray[np.int_]:
         """Stack predictions, one per row, into a 2D array, even if there are no predictions."""
@@ -804,15 +752,6 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         """
         return self._decode_batch(syndromes)
 
-    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        """Predict observable flips from a 2-D array of unpacked binary detection events.
-
-        Each output row contains one bit per observable and, when configured, one final erasure bit.
-        """
-        if self.field.order != 2:
-            raise ValueError("ObservableLookupDecoder.decode_shots is only available over GF(2)")
-        return np.asarray(self._decode_batch(detection_event_data), dtype=np.uint8)
-
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
@@ -821,24 +760,27 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         Observable flips occupy ``ceil(num_observables / 8)`` bytes per row.  When configured, an
         erasure is signalled in one additional whole byte, as required by Sinter.
         """
-        packed_predictions = self._decode_binary_packed_batch(bit_packed_detection_event_data)
-        num_observable_bytes = -(-self.num_observables // 8)
+        if self.field.order != 2:
+            raise ValueError("Bit-packed lookup decoding is only available over GF(2)")
+        shots = np.ascontiguousarray(bit_packed_detection_event_data, dtype=np.uint8)
+        num_detector_bytes = -(-self.num_detectors // 8)
+        if shots.ndim != 2 or shots.shape[1] != num_detector_bytes:
+            raise ValueError(
+                f"Expected bit-packed syndromes of shape (num_syndromes, {num_detector_bytes}),"
+                f" but got {shots.shape}"
+            )
+        if self.syndrome_mask is None:
+            packed = self._lookup_packed_rows(shots)
+        else:
+            syndromes = np.unpackbits(shots, count=self.num_detectors, bitorder="little", axis=1)
+            packed = self._lookup_packed_rows(*self._pack_syndrome_rows(syndromes))
         if not self.has_erasure_bit:
-            return packed_predictions[:, :num_observable_bytes]
+            return packed
 
-        sinter_predictions = np.empty(
-            (len(packed_predictions), num_observable_bytes + 1), dtype=np.uint8
-        )
-        if num_observable_bytes:
-            sinter_predictions[:, :num_observable_bytes] = packed_predictions[
-                :, :num_observable_bytes
-            ]
         erasure_byte, erasure_bit = divmod(self.num_observables, 8)
-        sinter_predictions[:, -1] = (packed_predictions[:, erasure_byte] >> erasure_bit) & 1
-        if erasure_bit:
-            observable_mask = np.uint8((1 << erasure_bit) - 1)
-            sinter_predictions[:, num_observable_bytes - 1] &= observable_mask
-        return sinter_predictions
+        erased = (packed[:, erasure_byte] >> erasure_bit) & 1
+        packed[:, erasure_byte] &= (1 << erasure_bit) - 1  # clear the erasure bit from the flips
+        return np.column_stack([packed[:, : -(-self.num_observables // 8)], erased])
 
 
 class _WeightedLookupDecoderBase(_LookupDecoderBase):
@@ -901,7 +843,7 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
                 if get_observable_flip is None
                 else get_observable_flip(error).astype(pcm.dtype)
             )
-            self.syndrome_to_candidates[syndrome].append(
+            self.syndrome_to_candidates[tuple(syndrome.tolist())].append(
                 (error, self._maybe_add_erasure_bit(output))
             )
 
@@ -1132,77 +1074,45 @@ class _VectorCodec:
     """Pack fixed-length vectors over a finite field into compact, hashable bytes.
 
     Over GF(2), vectors are bit-packed with np.packbits.  Over any other field, each entry is stored
-    as a fixed-width unsigned integer: the integer representation of a field element that galois
-    uses, which is lossless for both prime and extension fields.
+    as the smallest unsigned integer that holds the integer representation of a field element that
+    galois uses, which is lossless for both prime and extension fields.  Fields with more than 2**64
+    elements are out of scope, since _iter_errors_and_syndromes builds a tuple of every element.
     """
 
     def __init__(self, order: int, length: int, dtype: npt.DTypeLike) -> None:
         self.order = order
         self.length = length
         self.dtype = np.dtype(dtype)
-        self.width = max(1, ((order - 1).bit_length() + 7) // 8)
-        self.storage_dtype = (
-            np.dtype(f"<u{self.width}") if self.width in (1, 2, 4, 8) else None
-        )  # None for fields too large for a native integer type
-        self.num_bytes = -(-length // 8) if order == 2 else length * self.width
+        self.storage_dtype = np.dtype(np.min_scalar_type(order - 1)).newbyteorder("<")
+        self.num_bytes = -(-length // 8) if order == 2 else length * self.storage_dtype.itemsize
 
     def pack(self, vector: npt.NDArray[np.integer]) -> bytes:
         """Pack a vector of field elements."""
         if self.order == 2:
             return np.packbits(vector, bitorder="little").tobytes()
-        if self.storage_dtype is not None:
-            return np.asarray(vector).astype(self.storage_dtype).tobytes()
-        return b"".join(int(value).to_bytes(self.width, "little") for value in vector)
+        return np.asarray(vector, dtype=self.storage_dtype).tobytes()
 
     def unpack(self, packed: bytes) -> npt.NDArray[np.int_]:
         """Unpack a vector into a new array."""
         if self.order == 2:
-            bits = np.unpackbits(
-                np.frombuffer(packed, dtype=np.uint8), count=self.length, bitorder="little"
-            )
-            return bits.astype(self.dtype)
-        if self.storage_dtype is not None:
-            return np.frombuffer(packed, dtype=self.storage_dtype).astype(self.dtype)
-        return np.array(
-            [
-                int.from_bytes(packed[index : index + self.width], "little")
-                for index in range(0, len(packed), self.width)
-            ],
-            dtype=self.dtype,
-        ).reshape(self.length)
+            buffer = np.frombuffer(packed, dtype=np.uint8)
+            return np.unpackbits(buffer, count=self.length, bitorder="little").astype(self.dtype)
+        return np.frombuffer(packed, dtype=self.storage_dtype).astype(self.dtype)
 
     def pack_rows(self, vectors: npt.NDArray[np.integer]) -> npt.NDArray[np.uint8]:
         """Pack a two-dimensional array of vectors, one vector per row."""
-        num_vectors = len(vectors)
-        if self.num_bytes == 0:
-            return np.empty((num_vectors, 0), dtype=np.uint8)
         if self.order == 2:
             return np.packbits(vectors, bitorder="little", axis=1)
-        if self.storage_dtype is not None:
-            stored = np.ascontiguousarray(vectors, dtype=self.storage_dtype)
-            return stored.view(np.uint8).reshape(num_vectors, self.num_bytes)
-        packed = b"".join(
-            int(value).to_bytes(self.width, "little") for vector in vectors for value in vector
-        )
-        return np.frombuffer(packed, dtype=np.uint8).reshape(num_vectors, self.num_bytes)
+        stored = np.ascontiguousarray(vectors, dtype=self.storage_dtype)
+        return stored.view(np.uint8).reshape(len(vectors), self.num_bytes)
 
     def unpack_rows(self, packed: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
         """Unpack fixed-width byte rows into vectors, one vector per row."""
-        num_vectors = len(packed)
-        if self.length == 0:
-            return np.empty((num_vectors, 0), dtype=self.dtype)
         if self.order == 2:
             bits = np.unpackbits(packed, count=self.length, bitorder="little", axis=1)
             return bits.astype(self.dtype)
-        if self.storage_dtype is not None:
-            stored = np.ascontiguousarray(packed).view(self.storage_dtype)
-            return stored.reshape(num_vectors, self.length).astype(self.dtype)
-        values = [
-            int.from_bytes(row[index : index + self.width], "little")
-            for row in packed
-            for index in range(0, self.num_bytes, self.width)
-        ]
-        return np.asarray(values, dtype=self.dtype).reshape(num_vectors, self.length)
+        stored = np.ascontiguousarray(packed).view(self.storage_dtype)
+        return stored.reshape(len(packed), self.length).astype(self.dtype)
 
 
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:

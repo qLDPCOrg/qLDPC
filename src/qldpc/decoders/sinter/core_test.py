@@ -73,8 +73,8 @@ def test_sinter_decoder() -> None:
     )
 
 
-def test_compiled_sinter_decoder_delegates_shot_methods() -> None:
-    """A compiled decoder delegates unpacked and packed shots independently."""
+def test_compiled_sinter_decoder_delegates_bit_packed_shots() -> None:
+    """A compiled decoder delegates bit-packed shots to an inner decoder that decodes them."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L2")
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     shots = np.array([[1, 0], [0, 1]], dtype=np.uint8)
@@ -82,19 +82,10 @@ def test_compiled_sinter_decoder_delegates_shot_methods() -> None:
 
     class FastObservableDecoder(decoders.ObservableDecoder):
         def __init__(self) -> None:
-            self.unpacked_calls = 0
             self.packed_calls = 0
 
         def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            return self.decode_shots(syndrome[None, :].astype(np.uint8))[0]
-
-        def decode_shots(
-            self, detection_event_data: npt.NDArray[np.uint8]
-        ) -> npt.NDArray[np.uint8]:
-            self.unpacked_calls += 1
-            output = np.zeros((len(detection_event_data), 3), dtype=np.uint8)
-            output[:, [0, 2]] = detection_event_data
-            return output
+            return np.array([syndrome[0], 0, syndrome[1]])
 
         def decode_shots_bit_packed(
             self, *, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -103,20 +94,18 @@ def test_compiled_sinter_decoder_delegates_shot_methods() -> None:
             detection_events = np.unpackbits(
                 bit_packed_detection_event_data, count=2, bitorder="little", axis=1
             )
-            return np.packbits(self.decode_shots(detection_events), bitorder="little", axis=1)
+            flips = np.array([self.decode_observables(row) for row in detection_events])
+            return np.packbits(flips.astype(np.uint8), bitorder="little", axis=1)
 
     inner = FastObservableDecoder()
-    assert np.array_equal(inner.decode_observables(shots[0].astype(int)), expected[0])
-    inner.unpacked_calls = 0
     compiled = decoders.CompiledSinterDecoder(dem_arrays, inner)
     assert np.array_equal(compiled.decode_shots(shots), expected)
-    assert inner.unpacked_calls == 1
+    assert inner.packed_calls == 0
 
     packed_shots = np.packbits(shots, bitorder="little", axis=1)
     packed_expected = np.packbits(expected, bitorder="little", axis=1)
     assert np.array_equal(compiled.decode_shots_bit_packed(packed_shots), packed_expected)
     assert inner.packed_calls == 1
-    assert inner.unpacked_calls == 2  # the test implementation's packed method called it once
 
     class WrongWidthFastDecoder(FastObservableDecoder):
         def decode_shots_bit_packed(

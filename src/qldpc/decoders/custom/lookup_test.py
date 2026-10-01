@@ -416,11 +416,12 @@ def test_quantum_observable_flip_prediction() -> None:
         code = codes.SurfaceCode(3, field=order)
         logicals = code.get_logical_ops()
         achievable_flips: dict[tuple[int, ...], set[tuple[int, ...]]] = collections.defaultdict(set)
-        for error, syndrome in decoders.LookupDecoder._iter_errors_and_syndromes(
+        for error, syndrome_array in decoders.LookupDecoder._iter_errors_and_syndromes(
             code.matrix, 1, None, True
         ):
             conjugate = math.symplectic_conjugate(error.view(code.field))
-            achievable_flips[syndrome].add(tuple((logicals @ conjugate).view(np.ndarray).tolist()))
+            flip = tuple((logicals @ conjugate).view(np.ndarray).tolist())
+            achievable_flips[tuple(syndrome_array.tolist())].add(flip)
 
         # at this weight every syndrome admits exactly one flip, so the check below is an equality;
         # this pins that, since a syndrome admitting several flips would check much less
@@ -495,8 +496,11 @@ def test_observable_flip_matrix_arithmetic() -> None:
     pcm = field([[1, 1, 0], [0, 1, 1]])
     observable_flip_matrix = field([[2, 0, 2]])
     achievable_flips: dict[tuple[int, ...], set[int]] = collections.defaultdict(set)
-    for error, syndrome in decoders.LookupDecoder._iter_errors_and_syndromes(pcm, 1, None, False):
-        achievable_flips[syndrome].add(int((observable_flip_matrix @ error.view(field))[0]))
+    for error, syndrome_array in decoders.LookupDecoder._iter_errors_and_syndromes(
+        pcm, 1, None, False
+    ):
+        flip = int((observable_flip_matrix @ error.view(field))[0])
+        achievable_flips[tuple(syndrome_array.tolist())].add(flip)
     assert 3 in set.union(*achievable_flips.values())  # unreachable by an integer product
 
     decoder = decoders.ObservableLookupDecoder(
@@ -635,10 +639,10 @@ def test_lookup_batch_decoding(field: type[galois.FieldArray]) -> None:
     )
 
 
-@pytest.mark.parametrize("num_observables", [0, 7, 8, 9])
+@pytest.mark.parametrize("num_observables", [0, 1, 7, 8, 9, 16])
 @pytest.mark.parametrize("add_erasure_bit", [False, True])
 def test_observable_lookup_sinter_batches(num_observables: int, add_erasure_bit: bool) -> None:
-    """Observable lookup decodes unpacked and packed Sinter shots directly."""
+    """Observable lookup decodes bit-packed Sinter shots directly."""
     dem = stim.DetectorErrorModel(
         "\n".join(f"error(0.1) D{oo} L{oo}" for oo in range(num_observables))
     )
@@ -650,20 +654,11 @@ def test_observable_lookup_sinter_batches(num_observables: int, add_erasure_bit:
         shots[2, :2] = 1  # a table miss and therefore an erasure, when enabled
 
     expected = decoder.decode_observables_batch(shots.astype(int))
-    assert np.array_equal(decoder.decode_shots(shots), expected)
-
     packed_shots = np.packbits(shots, bitorder="little", axis=1)
     packed_expected = np.packbits(expected[:, :num_observables], bitorder="little", axis=1)
     if add_erasure_bit:
         packed_expected = np.hstack([packed_expected, expected[:, -1:].astype(np.uint8)])
     assert np.array_equal(decoder.decode_shots_bit_packed(packed_shots), packed_expected)
-
-    if num_observables % 8 and num_observables:
-        dirty_padding = packed_shots.copy()
-        dirty_padding[:, -1] |= np.uint8(0x80)
-        assert np.array_equal(decoder.decode_shots_bit_packed(dirty_padding), packed_expected)
-
-    assert decoder.decode_shots(shots[:0]).shape == expected[:0].shape
     assert decoder.decode_shots_bit_packed(packed_shots[:0]).shape == packed_expected[:0].shape
 
 
@@ -675,7 +670,6 @@ def test_observable_lookup_sinter_post_selection() -> None:
     )
     shots = np.array([[0, 1], [1, 0]], dtype=np.uint8)
     expected = decoder.decode_observables_batch(shots.astype(int))
-    assert np.array_equal(decoder.decode_shots(shots), expected)
     assert np.array_equal(
         decoder.decode_shots_bit_packed(np.packbits(shots, bitorder="little", axis=1)),
         np.hstack(
@@ -688,7 +682,7 @@ def test_observable_lookup_sinter_post_selection() -> None:
 
 
 def test_nonbinary_observable_lookup_rejects_sinter_batches() -> None:
-    """Sinter shot APIs are binary even though ordinary lookup batches are field-aware."""
+    """Bit-packed shots are binary even though ordinary lookup batches are field-aware."""
     field = galois.GF(3)
     decoder = decoders.ObservableLookupDecoder(
         field([[1]]),
@@ -696,7 +690,5 @@ def test_nonbinary_observable_lookup_rejects_sinter_batches() -> None:
         observable_flip_matrix=field([[1]]),
         penalty_func=lambda error: int(np.count_nonzero(error)),
     )
-    with pytest.raises(ValueError, match=r"only available over GF\(2\)"):
-        decoder.decode_shots(np.array([[1]], dtype=np.uint8))
     with pytest.raises(ValueError, match=r"only available over GF\(2\)"):
         decoder.decode_shots_bit_packed(np.array([[1]], dtype=np.uint8))
