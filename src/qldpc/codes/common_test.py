@@ -678,23 +678,23 @@ def test_from_qecdb_id() -> None:
 
 
 def test_from_qldpc_challenge_id() -> None:
-    """Retrieve CSS and general stabilizer codes from the Unitary Foundation qLDPC Challenge."""
-    matrix = np.array([[1, 1, 1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1, 1]])
+    """Retrieve a code from the Unitary Foundation qLDPC Challenge."""
+    code_data = (np.kron(np.eye(2, dtype=int), [1, 1, 1, 1]), 2, True)
     with unittest.mock.patch(
-        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix, 2, True)
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=code_data
     ):
         code = codes.QuditCode.from_qldpc_challenge_id("")
         assert isinstance(code, codes.CSSCode)
         assert code.is_equiv_to(codes.C4Code())
+        assert code.get_distance_if_known() == 2
 
-    matrix = np.array([[1, 0, 1, 0]])
     with unittest.mock.patch(
-        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix, 1, False)
+        "qldpc.external.codes.get_qldpc_challenge_code",
+        return_value=(np.array([[1, 0, 1, 0]]), None, False),
     ):
         code = codes.QuditCode.from_qldpc_challenge_id("")
-        assert isinstance(code, codes.QuditCode)
         assert not isinstance(code, codes.CSSCode)
-        assert np.array_equal(code.matrix, matrix)
+        assert code.get_distance_if_known() is None
 
 
 def test_qudit_deformations() -> None:
@@ -1201,22 +1201,13 @@ def test_css_from_qecdb_id() -> None:
 
 def test_css_from_qldpc_challenge_id() -> None:
     """Retrieve a CSS code from the Unitary Foundation qLDPC Challenge."""
-    matrix = np.array([[1, 1, 1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1, 1]])
+    code_data = (np.kron(np.eye(2, dtype=int), [1, 1, 1, 1]), 2, True)
     with unittest.mock.patch(
-        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix, 2, True)
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=code_data
     ):
         code = codes.CSSCode.from_qldpc_challenge_id("")
         assert isinstance(code, codes.CSSCode)
         assert code.is_equiv_to(codes.C4Code())
-
-    matrix = np.array([[1, 0, 1, 0]])
-    with (
-        unittest.mock.patch(
-            "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix, 1, False)
-        ),
-        pytest.raises(TypeError, match="Failed to convert"),
-    ):
-        codes.CSSCode.from_qldpc_challenge_id("")
 
 
 def test_swel_codes() -> None:

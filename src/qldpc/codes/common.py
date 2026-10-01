@@ -1309,7 +1309,10 @@ class QuditCode(AbstractCode):
 
     @staticmethod
     def from_qldpc_challenge_id(code_id: str) -> QuditCode:
-        """Retrieve a code by ID from the Unitary Foundation qLDPC Challenge."""
+        """Retrieve a code by ID from the Unitary Foundation qLDPC Challenge.
+
+        The code's distance is recorded only if the challenge has certified it to be exact.
+        """
         matrix, distance, is_css = external.codes.get_qldpc_challenge_code(code_id)
         code = QuditCode(matrix)
         if is_css:

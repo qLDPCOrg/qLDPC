@@ -9,6 +9,7 @@ import json
 import re
 import urllib.error
 import urllib.request
+from typing import Any
 
 import galois
 import numpy as np
@@ -73,137 +74,64 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int]:
     return checks, field
 
 
+def _get_json(url: str) -> Any:
+    """Retrieve JSON data from a URL."""
+    try:
+        return json.loads(urllib.request.urlopen(url, timeout=10).read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError) as exception:
+        raise RuntimeError(f"Cannot access {url}") from exception
+
+
 @qldpc.cache.use_disk_cache("qecdb")
 def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     """Retrieve a quantum code from qecdb.org.
 
-    This function fetches QECDB's JSON API at https://qecdb.org, so it requires network access.
+    This function queries QECDB's JSON API at https://qecdb.org, so it requires network access.
 
     Return the stabilizers of the code, its distance, and whether it's CSS.
     """
-    url = f"https://qecdb.org/api/codes/{code_id}"
-    try:
-        code_data = json.loads(urllib.request.urlopen(url, timeout=10).read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError) as exception:
-        raise RuntimeError(f"Cannot access {url}") from exception
-
-    if not isinstance(code_data, dict):
-        raise TypeError(f"Could not parse code data for '{code_id}'")
-
-    stabilizer_data = code_data.get("H")
-    if not isinstance(stabilizer_data, str) or not stabilizer_data:
-        raise ValueError(f"Could not find stabilizer data for code '{code_id}'")
-    stabilizers = stabilizer_data.split()
+    code_data = _get_json(f"https://qecdb.org/api/codes/{code_id}")
+    stabilizers = code_data.get("H", "").split()
     if not stabilizers:
         raise ValueError(f"Could not find stabilizer data for code '{code_id}'")
-
-    distance_data = code_data.get("d")
-    if distance_data is not None and (
-        not isinstance(distance_data, int) or isinstance(distance_data, bool)
-    ):
-        raise TypeError(f"Could not parse the distance for code '{code_id}'")
-
-    css_data = code_data.get("css", False)
-    if not isinstance(css_data, bool):
-        raise TypeError(f"Could not parse the CSS status for code '{code_id}'")
-
-    distance = distance_data
-    is_css = css_data
-    return stabilizers, distance, is_css
+    distance = code_data.get("d")
+    return stabilizers, None if distance is None else int(distance), code_data.get("css") is True
 
 
 @qldpc.cache.use_disk_cache("qldpc-challenge")
-def get_qldpc_challenge_code(
-    code_id: str,
-) -> tuple[npt.NDArray[np.int_], int, bool]:
+def get_qldpc_challenge_code(code_id: str) -> tuple[npt.NDArray[np.int_], int | None, bool]:
     """Retrieve a quantum code by ID from the Unitary Foundation qLDPC Challenge.
 
-    The challenge publishes each verified submission as a JSON artifact at
-    https://unitaryfoundation.github.io/qldpc-challenge/codes/<id>.json.
+    This function fetches the JSON artifacts that the challenge publishes at
+    https://unitaryfoundation.github.io/qldpc-challenge/codes/, so it requires network access.
 
-    Return its symplectic parity check matrix, claimed distance, and whether it is CSS.
+    Return the symplectic parity check matrix of the code, its distance, and whether it's CSS.  A
+    submitted distance is only a witness-certified upper bound, so the distance is None unless the
+    challenge has certified it to be exact.
     """
-    url = f"https://unitaryfoundation.github.io/qldpc-challenge/codes/{code_id}.json"
+    url = "https://unitaryfoundation.github.io/qldpc-challenge/codes"
+    code_data = _get_json(f"{url}/{code_id}.json")
+    index = _get_json(f"{url}/_index.json")
     try:
-        code_data = json.loads(urllib.request.urlopen(url, timeout=10).read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError) as exception:
-        raise RuntimeError(f"Cannot access {url}") from exception
-
-    if not isinstance(code_data, dict):
-        raise TypeError(f"Could not parse code data for '{code_id}'")
-
-    num_qubits = code_data.get("n")
-    checks_data = code_data.get("checks")
-    distance_data = code_data.get("distance")
-    if not isinstance(num_qubits, int) or isinstance(num_qubits, bool) or num_qubits < 1:
-        raise ValueError(f"Could not parse the number of qubits for code '{code_id}'")
-    if not isinstance(checks_data, dict):
-        raise TypeError(f"Could not parse the parity checks for code '{code_id}'")
-    if not isinstance(distance_data, dict):
-        raise TypeError(f"Could not parse the distance for code '{code_id}'")
-
-    distance = distance_data.get("d")
-    if not isinstance(distance, int) or isinstance(distance, bool):
-        raise TypeError(f"Could not parse the distance for code '{code_id}'")
-    if distance < 1:
-        raise ValueError(f"Could not parse the distance for code '{code_id}'")
-
-    def parse_support(support: object, check_type: str) -> list[int]:
-        if not isinstance(support, list) or any(
-            not isinstance(qubit, int) or isinstance(qubit, bool) or not 0 <= qubit < num_qubits
-            for qubit in support
-        ):
-            raise ValueError(
-                f"Could not parse {check_type}-type parity checks for code '{code_id}'"
-            )
-        if len(set(support)) != len(support):
-            raise ValueError(
-                f"Could not parse {check_type}-type parity checks for code '{code_id}'"
-            )
-        return support
-
-    def parse_css_checks(check_type: str) -> npt.NDArray[np.int_]:
-        supports = checks_data.get(check_type)
-        if not isinstance(supports, list):
-            raise TypeError(f"Could not parse {check_type}-type parity checks for code '{code_id}'")
-        matrix = np.zeros((len(supports), num_qubits), dtype=int)
-        for check_index, support in enumerate(supports):
-            for qubit in parse_support(support, check_type):
-                matrix[check_index, qubit] = 1
-        return matrix
-
-    code_type = code_data.get("code_type")
-    if code_type == "CSS":
-        matrix_x = parse_css_checks("X")
-        matrix_z = parse_css_checks("Z")
-        matrix = np.block(
-            [
-                [matrix_x, np.zeros_like(matrix_x)],
-                [np.zeros_like(matrix_z), matrix_z],
-            ]
+        num_qubits = code_data["n"]
+        checks = code_data["checks"]
+        is_css = code_data["code_type"] == "CSS"
+        supports = (
+            [(support, []) for support in checks["X"]] + [([], support) for support in checks["Z"]]
+            if is_css
+            else [(generator["X"], generator["Z"]) for generator in checks["S"]]
         )
-        return matrix, distance, True
-
-    if code_type != "stabilizer":
-        raise ValueError(f"Could not parse the code type for code '{code_id}'")
-
-    generators = checks_data.get("S")
-    if not isinstance(generators, list):
-        raise TypeError(f"Could not parse stabilizer parity checks for code '{code_id}'")
-    matrix = np.zeros((len(generators), 2 * num_qubits), dtype=int)
-    for check_index, generator in enumerate(generators):
-        if not isinstance(generator, dict):
-            raise TypeError(f"Could not parse stabilizer parity checks for code '{code_id}'")
-        support_x = parse_support(generator.get("X"), "stabilizer")
-        support_z = parse_support(generator.get("Z"), "stabilizer")
-        if not support_x and not support_z:
-            raise ValueError(f"Could not parse stabilizer parity checks for code '{code_id}'")
-        if support_x:
-            matrix[check_index, support_x] = 1
-        if support_z:
-            matrix[check_index, num_qubits + np.array(support_z)] = 1
-
-    return matrix, distance, False
+        matrix = np.zeros((len(supports), 2, num_qubits), dtype=int)
+        for row, (support_x, support_z) in enumerate(supports):
+            matrix[row, 0, support_x] = 1
+            matrix[row, 1, support_z] = 1
+        exact = any(entry["id"] == code_id and entry["tier"] == "exact" for entry in index["codes"])
+        distance = int(code_data["distance"]["d"]) if exact else None
+    except (IndexError, KeyError, TypeError) as exception:
+        raise ValueError(
+            f"Could not parse qLDPC Challenge data for code '{code_id}'"
+        ) from exception
+    return matrix.reshape(len(supports), 2 * num_qubits), distance, is_css
 
 
 def _gap_define_sparse_matrix(
