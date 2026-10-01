@@ -7,7 +7,7 @@ from __future__ import annotations
 import collections
 import itertools
 import warnings
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, MutableMapping, Sequence
 from typing import overload
 
 import galois
@@ -88,8 +88,14 @@ class _LookupDecoderBase:
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
 
-        # start working on the decoding map from syndrome -> error
-        self.syndrome_to_error: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
+        # start working on the decoding map from syndrome -> error, stored with packed keys/values
+        num_syndrome_bits = pcm.shape[0] if syndrome_mask is None else int(syndrome_mask.sum())
+        self._syndrome_codec = _VectorCodec(self.field.order, num_syndrome_bits, pcm.dtype)
+        self._output_codec = _VectorCodec(
+            self.field.order, len(default_correction), default_correction.dtype
+        )
+        self._syndrome_to_error: dict[bytes, bytes] = {}
+        self._syndrome_to_error_view = _PackedLookupTable(self)
 
         if observable_flip_matrix is None:
             self._build_syndrome_map_from_errors(
@@ -121,15 +127,34 @@ class _LookupDecoderBase:
         Errors are enumerated in decreasing weight, so ties in penalty (or, with no penalty
         function, all errors) resolve in favor of the lowest-weight error for each syndrome.
         """
-        error_penalty: dict[tuple[int, ...], float] = {}
-        for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(
+        error_penalty: dict[bytes, float] = {}
+        for error, syndrome in _LookupDecoderBase._iter_error_and_syndrome_arrays(
             pcm, max_weight, syndrome_mask, symplectic
         ):
+            key = self._syndrome_codec.pack_trusted(syndrome)
             if penalty_func is None:
-                self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(error)
-            elif (error_weight := penalty_func(error)) <= error_penalty.get(syndrome, np.inf):
-                error_penalty[syndrome] = error_weight
-                self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(error)
+                self._store(key, error)
+            elif (error_weight := penalty_func(error)) <= error_penalty.get(key, np.inf):
+                error_penalty[key] = error_weight
+                self._store(key, error)
+
+    def _store(self, key: bytes, prediction: npt.NDArray[np.int_]) -> None:
+        """Record a packed table entry, appending an erasure bit if needed."""
+        prediction = self._maybe_add_erasure_bit(prediction)
+        self._syndrome_to_error[key] = self._output_codec.pack_trusted(prediction)
+
+    @property
+    def syndrome_to_error(self) -> _PackedLookupTable:
+        """A mutable mapping from syndromes to the predictions of this lookup table.
+
+        Keys are tuples of syndrome entries (excluding post-selected bits), and values are
+        predictions (errors or observable flips, with an erasure bit if configured).  The table is
+        stored in a compact packed format, so this view unpacks entries on read: a value retrieved
+        from this mapping is a fresh copy, and editing it in place does not affect decoding.  To
+        change an entry, assign the edited array back to the mapping.  Assigning and deleting
+        entries do affect decoding.
+        """
+        return self._syndrome_to_error_view
 
     def _save_interface_metadata(
         self,
@@ -173,14 +198,17 @@ class _LookupDecoderBase:
         # 3. The log-probability of the most likely error for each key.
         # Probabilities are accumulated in log-space (via logaddexp) to avoid the underflow that
         # would otherwise arise from summing the tiny probabilities of individual errors.
-        Bitstring = tuple[int, ...]
-        net_log_probs: dict[Bitstring, dict[Bitstring, float]] = collections.defaultdict(dict)
-        most_likely_errors: dict[tuple[Bitstring, Bitstring], npt.NDArray[np.int_]] = {}
-        most_likely_error_log_probs: dict[tuple[Bitstring, Bitstring], float] = {}
-        for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(
+        num_observables = observable_flip_matrix.shape[0]
+        flip_codec = _VectorCodec(self.field.order, num_observables, pcm.dtype)
+        error_codec = _VectorCodec(self.field.order, pcm.shape[1], pcm.dtype)
+        net_log_probs: dict[bytes, dict[bytes, float]] = collections.defaultdict(dict)
+        most_likely_errors: dict[tuple[bytes, bytes], bytes] = {}
+        most_likely_error_log_probs: dict[tuple[bytes, bytes], float] = {}
+        for error, syndrome_array in _LookupDecoderBase._iter_error_and_syndrome_arrays(
             pcm, max_weight, syndrome_mask, symplectic
         ):
-            obs_flip = tuple(get_observable_flip(error).tolist())
+            syndrome = self._syndrome_codec.pack_trusted(syndrome_array)
+            obs_flip = flip_codec.pack_trusted(get_observable_flip(error))
             log_prob = -penalty_func(error)
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
@@ -192,7 +220,7 @@ class _LookupDecoderBase:
             key = (syndrome, obs_flip)
             if key not in most_likely_errors or log_prob >= most_likely_error_log_probs[key]:
                 most_likely_error_log_probs[key] = log_prob
-                most_likely_errors[key] = error
+                most_likely_errors[key] = error_codec.pack_trusted(error)
 
         # Identify the most likely observable_flip for each syndrome, and map the syndrome to the
         # most likely error with that (syndrome, observable_flip) combination.  If a
@@ -217,10 +245,10 @@ class _LookupDecoderBase:
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
                     continue  # omit the ambiguous syndrome, leaving it to decode as erasure
             if predict_observable_flips:
-                prediction = np.asarray(most_likely_obs_flip, dtype=pcm.dtype)
+                prediction = flip_codec.unpack(most_likely_obs_flip)
             else:
-                prediction = most_likely_errors[syndrome, most_likely_obs_flip]
-            self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(prediction)
+                prediction = error_codec.unpack(most_likely_errors[syndrome, most_likely_obs_flip])
+            self._store(syndrome, prediction)
 
     @staticmethod
     def _organize_lookup_table_initialization_data(
@@ -399,6 +427,22 @@ class _LookupDecoderBase:
         syndrome_mask: npt.NDArray[np.bool_] | None,
         symplectic: bool,
     ) -> Iterator[tuple[npt.NDArray[np.int_], tuple[int, ...]]]:
+        """Iterate over all errors that this decoder considers, and their syndromes as tuples.
+
+        See _iter_error_and_syndrome_arrays, which yields syndromes as arrays.
+        """
+        for error, syndrome in _LookupDecoderBase._iter_error_and_syndrome_arrays(
+            matrix, max_weight, syndrome_mask, symplectic
+        ):
+            yield error, tuple(syndrome.tolist())
+
+    @staticmethod
+    def _iter_error_and_syndrome_arrays(
+        matrix: IntegerArray,
+        max_weight: int,
+        syndrome_mask: npt.NDArray[np.bool_] | None,
+        symplectic: bool,
+    ) -> Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
 
         Errors are sorted in decreasing weight (number of bits or qudits addressed nontrivially).
@@ -434,16 +478,25 @@ class _LookupDecoderBase:
                         if np.any(syndrome[syndrome_bits_to_drop]):
                             continue
                         syndrome = syndrome[syndrome_mask]
-                    yield (
-                        error.view(np.ndarray).astype(dtype),
-                        tuple(syndrome.view(np.ndarray).tolist()),
-                    )
+                    yield error.view(np.ndarray).astype(dtype), syndrome.view(np.ndarray)
 
     def _maybe_add_erasure_bit(self, error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Append a trivial (zero) erasure bit to an error if this decoder tracks erasure bits."""
         if not self.has_erasure_bit:
             return error
         return with_erasure_bits(error, False)
+
+    def _get_packed_syndrome_key(self, syndrome: npt.NDArray[np.int_]) -> bytes | None:
+        """Return the packed retained syndrome, or None if it cannot be in the lookup table."""
+        syndrome = np.asarray(syndrome).view(np.ndarray)
+        if self.syndrome_mask is not None:
+            if syndrome.shape != self.syndrome_mask.shape:
+                return None
+            retained_syndrome = syndrome[self.syndrome_mask]
+            if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
+                return None
+            syndrome = retained_syndrome
+        return self._syndrome_codec.pack(syndrome)
 
     def _get_syndrome_key(self, syndrome: npt.NDArray[np.int_]) -> tuple[int, ...] | None:
         """Return the retained syndrome key, or None when a post-selected bit is nontrivial."""
@@ -457,14 +510,15 @@ class _LookupDecoderBase:
 
     def __len__(self) -> int:
         """The number of entries in this lookup table."""
-        return len(self.syndrome_to_error)
+        return len(self._syndrome_to_error)
 
     def _decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Look up the configured error or observable-flip prediction."""
-        key = self._get_syndrome_key(syndrome)
-        if key is None:
+        key = self._get_packed_syndrome_key(syndrome)
+        packed = None if key is None else self._syndrome_to_error.get(key)
+        if packed is None:
             return self.default_correction.copy()
-        return self.syndrome_to_error.get(key, self.default_correction).copy()
+        return self._output_codec.unpack(packed)
 
     def _stack_predictions(self, predictions: list[npt.NDArray[np.int_]]) -> npt.NDArray[np.int_]:
         """Stack predictions, one per row, into a 2D array, even if there are no predictions."""
@@ -925,6 +979,125 @@ def get_observable_decoder_lookup(
 
 
 # Private helpers
+
+
+class _VectorCodec:
+    """Pack fixed-length vectors over a finite field into compact, hashable bytes.
+
+    Over GF(2), vectors are bit-packed with np.packbits.  Over any other field, each entry is stored
+    as a fixed-width unsigned integer: the integer representation of a field element that galois
+    uses, which is lossless for both prime and extension fields.
+    """
+
+    def __init__(self, order: int, length: int, dtype: npt.DTypeLike) -> None:
+        self.order = order
+        self.length = length
+        self.dtype = np.dtype(dtype)
+        self.width = max(1, ((order - 1).bit_length() + 7) // 8)
+        self.storage_dtype = (
+            np.dtype(f"<u{self.width}") if self.width in (1, 2, 4, 8) else None
+        )  # None for fields too large for a native integer type
+
+    def is_valid(self, vector: npt.NDArray[np.int_]) -> bool:
+        """Is this a vector of the right length whose entries all represent field elements?"""
+        if vector.shape != (self.length,):
+            return False
+        if vector.dtype.kind not in "biuO" and not np.all(np.mod(vector, 1) == 0):
+            return False  # a non-integer entry is not a field element
+        return self.length == 0 or bool(0 <= vector.min() and vector.max() < self.order)
+
+    def pack(self, vector: npt.NDArray[np.int_]) -> bytes | None:
+        """Pack a vector, or return None if it is not a valid vector over the field."""
+        vector = np.asarray(vector).view(np.ndarray)
+        if not self.is_valid(vector):
+            return None
+        return self.pack_trusted(
+            vector if vector.dtype.kind in "biu" else np.array(vector.tolist(), dtype=object)
+        )
+
+    def pack_trusted(self, vector: npt.NDArray[np.int_]) -> bytes:
+        """Pack a vector that is known to be valid."""
+        if self.order == 2:
+            return np.packbits(
+                vector.astype(np.uint8) if vector.dtype == object else vector
+            ).tobytes()
+        if self.storage_dtype is not None:
+            return np.asarray(vector).astype(self.storage_dtype).tobytes()
+        return b"".join(int(value).to_bytes(self.width, "little") for value in vector)
+
+    def unpack(self, packed: bytes) -> npt.NDArray[np.int_]:
+        """Unpack a vector into a new array."""
+        if self.order == 2:
+            bits = np.unpackbits(np.frombuffer(packed, dtype=np.uint8), count=self.length)
+            return bits.astype(self.dtype)
+        if self.storage_dtype is not None:
+            return np.frombuffer(packed, dtype=self.storage_dtype).astype(self.dtype)
+        return np.array(
+            [
+                int.from_bytes(packed[index : index + self.width], "little")
+                for index in range(0, len(packed), self.width)
+            ],
+            dtype=self.dtype,
+        ).reshape(self.length)
+
+
+class _PackedLookupTable(MutableMapping[tuple[int, ...], npt.NDArray[np.int_]]):
+    """A mutable view of a lookup table that stores packed syndromes and predictions.
+
+    See help(LookupDecoder.syndrome_to_error) for details.
+    """
+
+    def __init__(self, decoder: _LookupDecoderBase) -> None:
+        self._decoder = decoder
+
+    def _pack_key(self, syndrome: object) -> bytes | None:
+        try:
+            return self._decoder._syndrome_codec.pack(np.asarray(syndrome))
+        except (TypeError, ValueError):
+            return None
+
+    def __getitem__(self, syndrome: tuple[int, ...]) -> npt.NDArray[np.int_]:
+        key = self._pack_key(syndrome)
+        if key is None or key not in self._decoder._syndrome_to_error:
+            raise KeyError(syndrome)
+        return self._decoder._output_codec.unpack(self._decoder._syndrome_to_error[key])
+
+    def __setitem__(self, syndrome: tuple[int, ...], prediction: npt.NDArray[np.int_]) -> None:
+        key = self._pack_key(syndrome)
+        if key is None:
+            raise ValueError(
+                f"A lookup table syndrome must be a vector of {self._decoder._syndrome_codec.length}"
+                f" elements of {self._decoder.field.name}, but got {syndrome}"
+            )
+        value = self._decoder._output_codec.pack(np.asarray(prediction))
+        if value is None:
+            raise ValueError(
+                f"A lookup table prediction must be a vector of"
+                f" {self._decoder._output_codec.length} elements of {self._decoder.field.name}, but"
+                f" got {prediction}"
+            )
+        self._decoder._syndrome_to_error[key] = value
+
+    def __delitem__(self, syndrome: tuple[int, ...]) -> None:
+        key = self._pack_key(syndrome)
+        if key is None or key not in self._decoder._syndrome_to_error:
+            raise KeyError(syndrome)
+        del self._decoder._syndrome_to_error[key]
+
+    def __iter__(self) -> Iterator[tuple[int, ...]]:
+        unpack = self._decoder._syndrome_codec.unpack
+        for key in list(self._decoder._syndrome_to_error):
+            yield tuple(unpack(key).tolist())
+
+    def __len__(self) -> int:
+        return len(self._decoder._syndrome_to_error)
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.copy()})"
+
+    def copy(self) -> dict[tuple[int, ...], npt.NDArray[np.int_]]:
+        """Return an unpacked dictionary snapshot of this lookup table."""
+        return dict(self.items())
 
 
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:

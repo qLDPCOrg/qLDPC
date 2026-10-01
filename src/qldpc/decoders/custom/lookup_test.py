@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import collections
+import sys
 import warnings
 
 import galois
@@ -15,7 +16,7 @@ import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
-from qldpc.decoders.custom.lookup import get_observable_decoder_lookup
+from qldpc.decoders.custom.lookup import _VectorCodec, get_observable_decoder_lookup
 
 
 def test_lookup(toy_problem: ToyProblem) -> None:
@@ -523,3 +524,85 @@ def test_penalty_func() -> None:
     error_channel = [0.2, 0.1]
     penalty_func = decoders.LookupDecoder._build_penalty_func(error_channel)
     assert penalty_func([0, 0]) < penalty_func([1, 0]) < penalty_func([0, 1]) < penalty_func([1, 1])
+
+
+@pytest.mark.parametrize("order", [2, 3, 4, 257, 2**17])
+def test_vector_codec_round_trip(order: int) -> None:
+    """Packed vectors round-trip exactly, with leading zeros, empty vectors, and their dtype."""
+    for length in [0, 1, 9, 17]:
+        codec = _VectorCodec(order, length, np.int64)
+        for vector in [np.zeros(length, dtype=int), np.arange(length) % order]:
+            packed = codec.pack(vector)
+            assert isinstance(packed, bytes)
+            unpacked = codec.unpack(packed)
+            assert unpacked.dtype == np.int64
+            assert np.array_equal(unpacked, vector)
+
+    # invalid vectors cannot be packed, so they cannot collide with valid ones
+    codec = _VectorCodec(order, 2, np.int64)
+    for invalid in [[0, order], [-1, 0], [0, 0, 0], [0.5, 0]]:
+        assert codec.pack(np.array(invalid)) is None
+    assert codec.pack(np.array([1.0, 0.0])) is not None
+    assert codec.pack(np.array([1, 0], dtype=object)) is not None
+
+
+def test_packed_lookup_table_memory() -> None:
+    """A packed lookup table needs much less memory than one of tuples and arrays."""
+    code = codes.HammingCode(5)
+    decoder = decoders.LookupDecoder(code.matrix, max_weight=1)
+    packed = decoder._syndrome_to_error.items()
+    unpacked = decoder.syndrome_to_error.copy().items()
+    packed_size = sum(sys.getsizeof(key) + sys.getsizeof(value) for key, value in packed)
+    unpacked_size = sum(sys.getsizeof(key) + sys.getsizeof(value) for key, value in unpacked)
+    assert 3 * packed_size < unpacked_size
+
+
+@pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3), galois.GF(4)])
+def test_syndrome_to_error_mapping(field: type[galois.FieldArray]) -> None:
+    """The syndrome_to_error mapping reads, writes, and deletes entries of the packed table."""
+    matrix = field([[1, 1, 0], [0, 1, 1]])
+    decoder = decoders.LookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
+    table = decoder.syndrome_to_error
+    assert table is decoder.syndrome_to_error
+    assert len(table) == len(decoder) == len(set(map(tuple, table)))
+
+    # every entry is consistent with its syndrome
+    for syndrome, error in table.items():
+        assert error[-1] == 0
+        assert np.array_equal(matrix @ field(error[:-1]), syndrome)
+        assert np.array_equal(decoder.decode(np.array(syndrome)), error)
+
+    # values are copies
+    syndrome = next(iter(table))
+    table[syndrome][0] = (table[syndrome][0] + 1) % field.order
+    assert np.array_equal(table[syndrome], decoder.decode(np.array(syndrome)))
+
+    # assignment and deletion affect decoding
+    custom = np.array([1, 1, 1, 0])
+    table[syndrome] = custom
+    assert np.array_equal(decoder.decode(np.array(syndrome)), custom)
+    del table[syndrome]
+    assert syndrome not in table
+    assert np.array_equal(decoder.decode(np.array(syndrome)), decoder.default_correction)
+    with pytest.raises(KeyError):
+        del table[syndrome]
+    with pytest.raises(KeyError):
+        table[(field.order, 0)]
+    with pytest.raises(KeyError):
+        table[(None, 1)]  # type: ignore[index]
+
+    # invalid entries are rejected
+    with pytest.raises(ValueError, match="syndrome must be"):
+        table[(0, 0, 0)] = custom
+    with pytest.raises(ValueError, match="prediction must be"):
+        table[(0, 0)] = np.array([0, 0, field.order, 0])
+
+    # snapshots are ordinary dictionaries
+    snapshot = table.copy()
+    assert type(snapshot) is dict and len(snapshot) == len(table)
+    assert "_PackedLookupTable" in repr(table)
+
+    # an out-of-field or misshapen syndrome decodes as one never seen
+    post_selected = decoders.LookupDecoder(matrix, max_weight=1, post_select=[0])
+    assert np.array_equal(post_selected.decode(np.array([0])), post_selected.default_correction)
+    assert np.array_equal(decoder.decode(np.array([field.order, 0])), decoder.default_correction)
