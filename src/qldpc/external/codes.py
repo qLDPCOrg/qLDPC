@@ -115,13 +115,13 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
 @qldpc.cache.use_disk_cache("qldpc-challenge")
 def get_qldpc_challenge_code(
     code_id: str,
-) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.int_], int]:
-    """Retrieve a CSS code by ID from the Unitary Foundation qLDPC Challenge.
+) -> tuple[npt.NDArray[np.int_], int, bool]:
+    """Retrieve a quantum code by ID from the Unitary Foundation qLDPC Challenge.
 
     The challenge publishes each verified submission as a JSON artifact at
     https://unitaryfoundation.github.io/qldpc-challenge/codes/<id>.json.
 
-    Return its X and Z parity check matrices and its claimed distance.
+    Return its symplectic parity check matrix, claimed distance, and whether it is CSS.
     """
     url = f"https://unitaryfoundation.github.io/qldpc-challenge/codes/{code_id}.json"
     try:
@@ -137,8 +137,6 @@ def get_qldpc_challenge_code(
     distance_data = code_data.get("distance")
     if not isinstance(num_qubits, int) or isinstance(num_qubits, bool) or num_qubits < 1:
         raise ValueError(f"Could not parse the number of qubits for code '{code_id}'")
-    if code_data.get("code_type") != "CSS":
-        raise ValueError(f"Code '{code_id}' is not a CSS code")
     if not isinstance(checks_data, dict):
         raise TypeError(f"Could not parse the parity checks for code '{code_id}'")
     if not isinstance(distance_data, dict):
@@ -150,28 +148,62 @@ def get_qldpc_challenge_code(
     if distance < 1:
         raise ValueError(f"Could not parse the distance for code '{code_id}'")
 
-    def parse_checks(check_type: str) -> npt.NDArray[np.int_]:
+    def parse_support(support: object, check_type: str) -> list[int]:
+        if not isinstance(support, list) or any(
+            not isinstance(qubit, int) or isinstance(qubit, bool) or not 0 <= qubit < num_qubits
+            for qubit in support
+        ):
+            raise ValueError(
+                f"Could not parse {check_type}-type parity checks for code '{code_id}'"
+            )
+        if len(set(support)) != len(support):
+            raise ValueError(
+                f"Could not parse {check_type}-type parity checks for code '{code_id}'"
+            )
+        return support
+
+    def parse_css_checks(check_type: str) -> npt.NDArray[np.int_]:
         supports = checks_data.get(check_type)
         if not isinstance(supports, list):
             raise TypeError(f"Could not parse {check_type}-type parity checks for code '{code_id}'")
         matrix = np.zeros((len(supports), num_qubits), dtype=int)
         for check_index, support in enumerate(supports):
-            if not isinstance(support, list) or any(
-                not isinstance(qubit, int) or isinstance(qubit, bool) or not 0 <= qubit < num_qubits
-                for qubit in support
-            ):
-                raise ValueError(
-                    f"Could not parse {check_type}-type parity checks for code '{code_id}'"
-                )
-            if len(set(support)) != len(support):
-                raise ValueError(
-                    f"Could not parse {check_type}-type parity checks for code '{code_id}'"
-                )
-            for qubit in support:
+            for qubit in parse_support(support, check_type):
                 matrix[check_index, qubit] = 1
         return matrix
 
-    return parse_checks("X"), parse_checks("Z"), distance
+    code_type = code_data.get("code_type")
+    if code_type == "CSS":
+        matrix_x = parse_css_checks("X")
+        matrix_z = parse_css_checks("Z")
+        matrix = np.block(
+            [
+                [matrix_x, np.zeros_like(matrix_x)],
+                [np.zeros_like(matrix_z), matrix_z],
+            ]
+        )
+        return matrix, distance, True
+
+    if code_type != "stabilizer":
+        raise ValueError(f"Could not parse the code type for code '{code_id}'")
+
+    generators = checks_data.get("S")
+    if not isinstance(generators, list):
+        raise TypeError(f"Could not parse stabilizer parity checks for code '{code_id}'")
+    matrix = np.zeros((len(generators), 2 * num_qubits), dtype=int)
+    for check_index, generator in enumerate(generators):
+        if not isinstance(generator, dict):
+            raise TypeError(f"Could not parse stabilizer parity checks for code '{code_id}'")
+        support_x = parse_support(generator.get("X"), "stabilizer")
+        support_z = parse_support(generator.get("Z"), "stabilizer")
+        if not support_x and not support_z:
+            raise ValueError(f"Could not parse stabilizer parity checks for code '{code_id}'")
+        if support_x:
+            matrix[check_index, support_x] = 1
+        if support_z:
+            matrix[check_index, num_qubits + np.array(support_z)] = 1
+
+    return matrix, distance, False
 
 
 def _gap_define_sparse_matrix(

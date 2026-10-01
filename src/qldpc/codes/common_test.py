@@ -678,15 +678,23 @@ def test_from_qecdb_id() -> None:
 
 
 def test_from_qldpc_challenge_id() -> None:
-    """Retrieve a CSS code from the Unitary Foundation qLDPC Challenge."""
-    matrix_x = [[1, 1, 1, 1]]
-    matrix_z = [[1, 1, 1, 1]]
+    """Retrieve CSS and general stabilizer codes from the Unitary Foundation qLDPC Challenge."""
+    matrix = np.array([[1, 1, 1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1, 1]])
     with unittest.mock.patch(
-        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix_x, matrix_z, 2)
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix, 2, True)
     ):
         code = codes.QuditCode.from_qldpc_challenge_id("")
         assert isinstance(code, codes.CSSCode)
         assert code.is_equiv_to(codes.C4Code())
+
+    matrix = np.array([[1, 0, 1, 0]])
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix, 1, False)
+    ):
+        code = codes.QuditCode.from_qldpc_challenge_id("")
+        assert isinstance(code, codes.QuditCode)
+        assert not isinstance(code, codes.CSSCode)
+        assert np.array_equal(code.matrix, matrix)
 
 
 def test_qudit_deformations() -> None:
@@ -1193,14 +1201,22 @@ def test_css_from_qecdb_id() -> None:
 
 def test_css_from_qldpc_challenge_id() -> None:
     """Retrieve a CSS code from the Unitary Foundation qLDPC Challenge."""
-    matrix_x = [[1, 1, 1, 1]]
-    matrix_z = [[1, 1, 1, 1]]
+    matrix = np.array([[1, 1, 1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1, 1]])
     with unittest.mock.patch(
-        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix_x, matrix_z, 2)
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix, 2, True)
     ):
         code = codes.CSSCode.from_qldpc_challenge_id("")
         assert isinstance(code, codes.CSSCode)
         assert code.is_equiv_to(codes.C4Code())
+
+    matrix = np.array([[1, 0, 1, 0]])
+    with (
+        unittest.mock.patch(
+            "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix, 1, False)
+        ),
+        pytest.raises(TypeError, match="Failed to convert"),
+    ):
+        codes.CSSCode.from_qldpc_challenge_id("")
 
 
 def test_swel_codes() -> None:

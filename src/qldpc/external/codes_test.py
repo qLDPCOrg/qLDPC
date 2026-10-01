@@ -118,7 +118,7 @@ def test_get_quantum_code() -> None:
 
 
 def test_get_qldpc_challenge_code() -> None:
-    """Retrieve CSS code data from the Unitary Foundation qLDPC Challenge."""
+    """Retrieve quantum code data from the Unitary Foundation qLDPC Challenge."""
     # cannot connect to the qLDPC Challenge
     with (
         unittest.mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("message")),
@@ -134,11 +134,13 @@ def test_get_qldpc_challenge_code() -> None:
     ):
         external.codes.get_qldpc_challenge_code("")
 
-    # non-CSS code
-    mock_page = get_mock_page('{"n": 2, "code_type": "stabilizer", "checks": {}, "distance": {}}')
+    # malformed stabilizer code
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "stabilizer", "checks": {}, "distance": {"d": 1}}'
+    )
     with (
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
-        pytest.raises(ValueError, match="not a CSS code"),
+        pytest.raises(TypeError, match="stabilizer parity checks"),
     ):
         external.codes.get_qldpc_challenge_code("")
 
@@ -219,10 +221,51 @@ def test_get_qldpc_challenge_code() -> None:
         ' "distance": {"d": 2}}'
     )
     with unittest.mock.patch("urllib.request.urlopen", return_value=mock_page):
-        matrix_x, matrix_z, distance = external.codes.get_qldpc_challenge_code("")
-        assert np.array_equal(matrix_x, [[1, 0, 1, 0]])
-        assert np.array_equal(matrix_z, [[0, 1, 0, 1]])
+        matrix, distance, is_css = external.codes.get_qldpc_challenge_code("")
+        assert np.array_equal(matrix, [[1, 0, 1, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1, 0, 1]])
         assert distance == 2
+        assert is_css
+
+    # retrieve a general stabilizer code, including an overlapping X/Z support for Y
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "stabilizer",'
+        ' "checks": {"S": [{"X": [0], "Z": [1]}, {"X": [1], "Z": [0, 1]}]},'
+        ' "distance": {"d": 1}}'
+    )
+    with unittest.mock.patch("urllib.request.urlopen", return_value=mock_page):
+        matrix, distance, is_css = external.codes.get_qldpc_challenge_code("")
+        assert np.array_equal(matrix, [[1, 0, 0, 1], [0, 1, 1, 1]])
+        assert distance == 1
+        assert not is_css
+
+    # malformed general-stabilizer records
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "invalid", "checks": {}, "distance": {"d": 1}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="code type"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "stabilizer", "checks": {"S": [0]}, "distance": {"d": 1}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="stabilizer parity checks"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "stabilizer",'
+        ' "checks": {"S": [{"X": [], "Z": []}]}, "distance": {"d": 1}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="stabilizer parity checks"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
 
 
 def test_distance_bound() -> None:
