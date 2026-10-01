@@ -625,6 +625,7 @@ def test_distance_bound_memory() -> None:
     assert isinstance(conjugated_code, codes.CSSCode)
     assert conjugated_code.get_distance_bound(pauli=Pauli.X) == 4
     assert conjugated_code.get_distance_bound(pauli=Pauli.Z) == 6
+    assert css_code.conjugated([0]).get_distance_bound() == 4
     assert css_code.canonicalized.get_distance_bound(pauli=Pauli.X) == 6
 
     # a bound on one sector bounds the other if X-distance and Z-distance are equal

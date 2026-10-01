@@ -3792,6 +3792,7 @@ class CSSCode(QuditCode):
             qudits: The qudits to transform.  If None, transform all qudits.
         """
         code = super().conjugated(qudits).maybe_to_css()
+        code._distance_bound = self._get_distance_bound_if_known()
         if isinstance(code, CSSCode):
             conjugated = np.zeros(len(self), dtype=bool)
             conjugated[slice(None) if qudits is None else qudits] = True
