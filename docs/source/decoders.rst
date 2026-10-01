@@ -60,7 +60,7 @@ Each helper returns a
 only stores settings. The signature of a helper lists the options of its decoder explicitly, so they
 are visible to autocomplete and static-analysis tools, and a misspelled option raises a
 ``TypeError``. The exception is ``ilp``, which forwards additional options to
-``cvxpy.Problem.solve``. Passing ``decoder=None`` retains qLDPC's default: BP+OSD for binary inputs
+``cvxpy.Problem.solve``. Passing ``decoder=None`` uses qLDPC's default: BP+OSD for binary inputs
 and generalized union-find for nonbinary field arrays.
 
 Building decoders immediately
@@ -68,8 +68,8 @@ Building decoders immediately
 
 The typed helpers above store validated settings; they do not build a decoder until ``.build(...)``
 or a higher-level API supplies a matrix or detector error model.  To construct one immediately, use
-the lowercase builders owned by their implementation modules.  They are also warning-free exports
-from ``qldpc.decoders`` and ``qldpc.decoders.construction``:
+the lowercase builders owned by their implementation modules.  They are exported from
+``qldpc.decoders`` and ``qldpc.decoders.construction``:
 
 * :func:`decoders.get_decoder_bp_osd <qldpc.decoders.external.ldpc.get_decoder_bp_osd>`
 * :func:`decoders.get_decoder_bp_lsd <qldpc.decoders.external.ldpc.get_decoder_bp_lsd>`
@@ -81,8 +81,7 @@ from ``qldpc.decoders`` and ``qldpc.decoders.construction``:
 * :func:`decoders.get_decoder_guf <qldpc.decoders.custom.guf.get_decoder_guf>`
 
 For example, ``decoders.get_decoder_bp_lsd(code.matrix, max_iter=30)`` builds immediately, whereas
-``decoders.bp_lsd(max_iter=30)`` returns reusable typed settings.  The old uppercase builder names,
-such as ``get_decoder_BP_LSD``, remain deprecated aliases and emit ``DeprecationWarning``.
+``decoders.bp_lsd(max_iter=30)`` returns reusable typed settings.
 
 Higher-level APIs accept the same settings:
 
@@ -115,7 +114,7 @@ arguments each accept either kind of decoder:
 
 * An error decoder (decoder settings, a constructor, or, where accepted, a prebuilt error decoder)
   infers a physical error, and the logical operators flipped by that error are its prediction. This
-  is the default, and ``decoder=None`` still selects BP+OSD or GUF. Decoder settings build an error
+  is the default, and ``decoder=None`` selects BP+OSD or GUF. Decoder settings build an error
   decoder here, even if the configured decoder could predict observable flips natively.
 * A Sinter-style decoder, such as
   ``decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=2))``, is compiled for a
@@ -246,7 +245,7 @@ implementation classes have canonical paths at
 :class:`decoders.DirectDecoder <qldpc.decoders.custom.composition.DirectDecoder>`.
 :class:`decoders.ErrorsToObservablesDecoder <qldpc.decoders.adapters.error_decoders.ErrorsToObservablesDecoder>`
 and :class:`decoders.ExpandedErrorDecoder <qldpc.decoders.adapters.error_decoders.ExpandedErrorDecoder>` are the
-conversion adapters.  The package-root imports remain stable facades.
+conversion adapters. These classes are also exported from ``qldpc.decoders``.
 
 Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
 
