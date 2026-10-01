@@ -7,13 +7,12 @@ from __future__ import annotations
 import functools
 import itertools
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import ParamSpec, Protocol, TypeVar
+from typing import ParamSpec, Protocol, Self, TypeVar
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import stim
-from typing_extensions import Self
 
 from qldpc import codes, math
 

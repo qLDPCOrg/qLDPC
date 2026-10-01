@@ -84,9 +84,14 @@ Distance bounds
 GAP/QDistRnd, ``backend="sqetch"`` to use the optional GPU-accelerated random-ISD estimator for
 binary CSS codes, or ``backend="decoder"`` to use qLDPC's decoder-based estimator. By default,
 ``backend="auto"`` chooses the first applicable backend in this order: an installed ``sqetch`` for
-binary CSS codes, available GAP/QDistRnd, then the decoder. Install the optional backend with
-``python -m pip install 'qldpc[sqetch]'``. It requires a CUDA-enabled PyTorch installation and a
-visible CUDA GPU.
+binary CSS codes, available GAP/QDistRnd, then the decoder. ``sqetch`` is not published on PyPI;
+install the version that qLDPC is tested against with:
+
+.. code-block:: bash
+
+   python -m pip install 'sqetch[gpu] @ git+https://github.com/a7b/yarn.git@e9ce9d0fcecc973988558bfee27fab6d6b8d7f97#subdirectory=sqetch'
+
+The backend requires a CUDA-enabled PyTorch installation and a visible CUDA GPU.
 
 ``sqetch`` estimates the X- and Z-distance sectors separately. The lowest logical weight it observes
 is an upper bound on the corresponding distance.

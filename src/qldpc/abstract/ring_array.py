@@ -13,12 +13,11 @@ from __future__ import annotations
 import functools
 import warnings
 from collections.abc import Iterable, Iterator, Mapping
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Self
 
 import galois
 import numpy as np
 import numpy.typing as npt
-from typing_extensions import Self
 
 import qldpc
 from qldpc._util import get_deprecated_alias
