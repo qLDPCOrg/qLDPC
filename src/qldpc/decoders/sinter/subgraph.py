@@ -69,8 +69,9 @@ class SubgraphDecoder(SinterDecoder):
                 when compiling a decoder for a DEM.
             decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
                 that builds an error decoder or an observable decoder from a detector error model,
-                or None to select the default decoder.  A prebuilt decoder is rejected, because an
-                inner decoder is built for each subgraph.
+                an observable-decoder compiler such as a SinterDecoder, or None to select the
+                default decoder.  A prebuilt decoder is rejected, because an inner decoder is built
+                for each subgraph.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
         SinterDecoder.__init__(

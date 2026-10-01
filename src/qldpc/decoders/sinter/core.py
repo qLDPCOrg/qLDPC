@@ -16,12 +16,12 @@ import stim
 from qldpc._util import get_external_caller_stacklevel
 
 from ..adapters.error_decoders import ErrorsToObservablesDecoder
-from ..construction.legacy import get_legacy_decoder_migration_message
-from ..construction.resolution import (
-    reject_prebuilt_decoder,
+from ..construction.legacy import (
+    get_legacy_decoder_migration_message,
     reject_removed_decoder_args,
     resolve_observable_decoder,
 )
+from ..construction.resolution import reject_prebuilt_decoder
 from ..construction.specs import DecoderSpec, DeferredObservableDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
@@ -80,8 +80,9 @@ class SinterDecoder(_SinterDecoder):
                 when compiling a decoder for a DEM.
             decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
                 that builds an error decoder or an observable decoder from a detector error model,
-                or None to select the default decoder.  A prebuilt decoder is rejected, because the
-                inner decoder is built for each (simplified) detector error model.  See
+                an observable-decoder compiler such as another SinterDecoder, or None to select the
+                default decoder.  A prebuilt decoder is rejected, because the inner decoder is built
+                for each (simplified) detector error model.  See
                 help(qldpc.decoders.get_observable_decoder).
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
@@ -319,6 +320,11 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         """Predict observable flips for one syndrome."""
         syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
         return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
+
+    @property
+    def has_erasure_bit(self) -> bool:
+        """Whether decode_observables appends an erasure bit to the predicted observable flips."""
+        return bool(self.num_erasure_bits)
 
     # Defunct compatibility method
     if TYPE_CHECKING:

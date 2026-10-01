@@ -64,26 +64,6 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
         decoders.get_error_decoder(matrix, decoder=0)  # type: ignore[arg-type]
 
 
-def test_deprecated_decoder_argument_resolution() -> None:
-    """Modern resolvers translate legacy arguments but reject the removed static keyword."""
-    matrix = np.eye(2, dtype=int)
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    prebuilt = decoders.LookupDecoder(matrix, max_weight=1)
-
-    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
-        resolution.resolve_decoder(matrix, None, {"static_decoder": prebuilt})
-    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
-        resolution.resolve_observable_decoder(dem, None, {"static_decoder": prebuilt})
-    with pytest.raises(ValueError, match="Cannot combine decoder"):
-        resolution.resolve_decoder(matrix, prebuilt, {"with_BF": True})
-
-    with pytest.warns(DeprecationWarning, match="with_BF keyword"):
-        decoder = resolution.resolve_decoder(matrix, None, {"with_BF": True})
-    assert np.array_equal(decoder.decode_errors(np.array([1, 0])), [1, 0])
-    resolution.resolve_decoder(matrix, None, {"with_BF": True}, warn_deprecated=False)
-    resolution.resolve_decoder(matrix, decoders.bf(), {})
-
-
 def _get_circuit_data() -> tuple[stim.DetectorErrorModel, npt.NDArray[np.int_]]:
     """A repetition-code memory experiment's detector error model and sampled syndromes."""
     circuit = stim.Circuit.generated(
@@ -177,14 +157,6 @@ def test_observable_decoder_inputs() -> None:
         )
     assert decoders.get_observable_decoder(dem, decoder=observable_lookup) is observable_lookup
 
-    # deprecated decoder-selection arguments are converted by an internal path
-    observable_decoder = resolution.resolve_observable_decoder(
-        dem, None, {"with_lookup": True, "max_weight": 2}, warn_deprecated=False
-    )
-    assert np.array_equal(
-        [observable_decoder.decode_observables(syndrome) for syndrome in syndromes], expected_flips
-    )
-
     # invalid inputs
     with pytest.raises(TypeError, match="decoder must be decoder settings"):
         decoders.get_observable_decoder(dem, decoder=object())  # type: ignore[arg-type]
@@ -195,6 +167,60 @@ def test_observable_decoder_inputs() -> None:
     spec = decoders.DecoderSpec("custom", decoders.get_decoder_lookup, (), build_invalid_decoder)
     with pytest.raises(TypeError, match="must provide a decode_observables method"):
         spec.build_observable_decoder(dem)
+
+
+def test_observable_decoder_compilers() -> None:
+    """An observable-decoder compiler, such as a SinterDecoder, is compiled for the given model."""
+    dem, syndromes = _get_circuit_data()
+    expected_flips = decoders.ObservableLookupDecoder(dem, max_weight=2).decode_observables_batch(
+        syndromes
+    )
+    lookup_compiler = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=2))
+    assert not decoders.is_prebuilt_decoder(lookup_compiler)
+
+    observable_decoder = decoders.get_observable_decoder(dem, decoder=lookup_compiler)
+    assert isinstance(observable_decoder, decoders.CompiledSinterDecoder)
+    assert not observable_decoder.has_erasure_bit
+    assert np.array_equal(
+        [observable_decoder.decode_observables(syndrome) for syndrome in syndromes],
+        expected_flips,
+    )
+    assert np.array_equal(
+        decoders.decode_observables(dem, syndromes[0], decoder=lookup_compiler), expected_flips[0]
+    )
+
+    # a nested compiler is compiled for each detector error model that the outer decoder decodes
+    nested_compiler = decoders.SinterDecoder(decoder=lookup_compiler)
+    nested_decoder = nested_compiler.compile_decoder_for_dem(dem)
+    assert isinstance(nested_decoder.decoder, decoders.CompiledSinterDecoder)
+    assert np.array_equal(nested_decoder.decode_shots(syndromes.astype(np.uint8)), expected_flips)
+
+    # a compiled decoder that only decodes bit-packed shots signals discards with an erasure bit
+    class BitPackedCompiler:
+        def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> object:
+            return _BitPackedOnly(lookup_compiler.compile_decoder_for_dem(dem))
+
+    bit_packed_decoder = decoders.get_observable_decoder(
+        dem,
+        decoder=BitPackedCompiler(),  # type: ignore[arg-type]
+    )
+    assert bit_packed_decoder.has_erasure_bit  # type: ignore[attr-defined]
+    for syndrome, flips in zip(syndromes, expected_flips):
+        assert np.array_equal(bit_packed_decoder.decode_observables(syndrome), [*flips, 0])
+
+    class InvalidCompiler:
+        def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> object:
+            return object()
+
+    with pytest.raises(TypeError, match="compiled by compile_decoder_for_dem must provide"):
+        decoders.get_observable_decoder(dem, decoder=InvalidCompiler())  # type: ignore[arg-type]
+
+
+class _BitPackedOnly:
+    """A compiled decoder that only exposes decode_shots_bit_packed."""
+
+    def __init__(self, compiled_decoder: decoders.CompiledSinterDecoder) -> None:
+        self.decode_shots_bit_packed = compiled_decoder.decode_shots_bit_packed
 
 
 def test_error_decoder_output_is_validated() -> None:

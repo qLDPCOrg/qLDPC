@@ -16,15 +16,17 @@ from ..external.relay_bp import (
     get_min_sum_bp_decoder,
     get_relay_bp_decoder,
 )
+from .legacy import (
+    get_legacy_decoder_migration_message,
+    reject_removed_decoder_args,
+    resolve_decoder,
+    resolve_observable_decoder,
+)
 from .resolution import (
     decode_observables,
     get_error_decoder,
     get_observable_decoder,
-    is_prebuilt_decoder,
     reject_prebuilt_decoder,
-    reject_removed_decoder_args,
-    resolve_decoder,
-    resolve_observable_decoder,
 )
 from .specs import (
     DecoderSpec,
@@ -32,8 +34,8 @@ from .specs import (
     DeferredObservableDecoderInput,
     ErrorDecoderConstructor,
     ErrorDecoderInput,
-    ObservableDecoderConstructor,
     ObservableDecoderCompiler,
+    ObservableDecoderConstructor,
     ObservableDecoderInput,
     PcmOrDem,
     bf,
@@ -53,8 +55,8 @@ __all__ = [
     "DeferredObservableDecoderInput",
     "ErrorDecoderConstructor",
     "ErrorDecoderInput",
-    "ObservableDecoderConstructor",
     "ObservableDecoderCompiler",
+    "ObservableDecoderConstructor",
     "ObservableDecoderInput",
     "PcmOrDem",
     "bf",
@@ -71,6 +73,7 @@ __all__ = [
     "get_decoder_rbp",
     "get_error_decoder",
     "get_error_decoder_mwpm",
+    "get_legacy_decoder_migration_message",
     "get_min_sum_bp_decoder",
     "get_observable_decoder",
     "get_observable_decoder_lookup",
@@ -78,7 +81,6 @@ __all__ = [
     "get_relay_bp_decoder",
     "guf",
     "ilp",
-    "is_prebuilt_decoder",
     "lookup_table",
     "min_sum_bp",
     "mwpm",

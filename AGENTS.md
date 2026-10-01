@@ -29,7 +29,8 @@ Do not copy transient project history, machine-specific paths, or local-session 
 - Keep complete lists of public symbols in `__all__` and AutoAPI.
   Human-written docs should explain what packages do and show representative tasks, not duplicate a class catalogue.
 - A module should not use a private (underscore-prefixed) name from another module unless it is a
-  narrowly shared internal helper deliberately housed in that package's `common.py`.
+  narrowly shared internal helper deliberately housed in a package's `common.py`, and used only
+  within that package.
   Otherwise, needing to do so indicates that the name should be public and documented.
   A test module may use private names of the module that it tests.
 
@@ -46,10 +47,10 @@ Do not copy transient project history, machine-specific paths, or local-session 
 | [`src/qldpc/abstract/`](src/qldpc/abstract/) | Groups, group rings, `RingArray`, semisimple linear algebra, and Wedderburn--Artin transforms | Co-located `*_test.py` files in the same directory |
 | [`src/qldpc/math.py`](src/qldpc/math.py) | Symplectic and finite-field array helpers | [`math_test.py`](src/qldpc/math_test.py) |
 | [`src/qldpc/objects.py`](src/qldpc/objects.py) | Pauli labels, graph nodes, Cayley complexes, and chain complexes | [`objects_test.py`](src/qldpc/objects_test.py) |
-| [`src/qldpc/decoders/external/`](src/qldpc/decoders/external/) | Integrations and immediate builders for ldpc, PyMatching, and Relay-BP | Co-located `*_test.py` files and [`external_test.py`](src/qldpc/decoders/external_test.py) |
-| [`src/qldpc/decoders/custom/`](src/qldpc/decoders/custom/) | qLDPC-owned decoder implementations and their immediate builders | Co-located `*_test.py` files and [`custom_test.py`](src/qldpc/decoders/custom_test.py) |
-| [`src/qldpc/decoders/construction/`](src/qldpc/decoders/construction/) | Typed decoder specs, generic resolution, and legacy keyword translation | Co-located `*_test.py` files and [`construction_test.py`](src/qldpc/decoders/construction_test.py) |
-| [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocols, capability checks, adapters, DEM arrays, Sinter, and windowed decoding | Co-located tests plus [`logical_error_rates/`](examples/logical_error_rates/) |
+| [`src/qldpc/decoders/external/`](src/qldpc/decoders/external/) | Integrations and immediate builders for ldpc, PyMatching, and Relay-BP | Co-located `*_test.py` files |
+| [`src/qldpc/decoders/custom/`](src/qldpc/decoders/custom/) | qLDPC-owned decoder implementations and their immediate builders | Co-located `*_test.py` files; [`custom_test.py`](src/qldpc/decoders/custom_test.py) covers deprecated aliases |
+| [`src/qldpc/decoders/construction/`](src/qldpc/decoders/construction/) | Typed decoder specs, generic resolution, and legacy keyword translation | Co-located `*_test.py` files |
+| [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocols, capability checks, adapters, DEM arrays, Sinter, and windowed decoding | Co-located tests, [`decoders_test.py`](src/qldpc/decoders_test.py) and [`sinter_test.py`](src/qldpc/decoders/sinter_test.py) for deprecated aliases, plus [`logical_error_rates/`](examples/logical_error_rates/) |
 | [`src/qldpc/circuits/`](src/qldpc/circuits/) | Stim circuits, bookkeeping, encoders, memory experiments, noise, benchmarking, and transversal operations | Co-located tests plus [`noise_models.ipynb`](examples/noise_models.ipynb) and [`transversal_gates.ipynb`](examples/transversal_gates.ipynb) |
 | [`src/qldpc/external/`](src/qldpc/external/) | GAP, GUAVA, QDistRnd, GroupNames, and code-database integrations | Co-located tests use controlled substitutes for processes, input, and network access |
 | [`src/qldpc/cache.py`](src/qldpc/cache.py) | Persistent disk-cache helpers for expensive computations | [`cache_test.py`](src/qldpc/cache_test.py) |
@@ -76,8 +77,10 @@ observable-decoder adapters live in `decoders/adapters/observable_decoders.py`.
 Immediate builders live beside their implementations: external-package integrations under
 `decoders/external/`, and qLDPC-owned implementations under `decoders/custom/`. Typed decoder
 settings, generic input resolution, and deprecated keyword translation live under
-`decoders/construction/`; legacy keyword-based construction is isolated in
-`decoders/construction/legacy.py`.
+`decoders/construction/`.
+Legacy keyword-based construction in `decoders/construction/legacy.py` is an attachment on top of
+the modern API: it translates deprecated arguments into modern decoder inputs and resolves them with
+`decoders/construction/resolution.py`, which never imports it.
 
 ## Core invariants
 

@@ -1,17 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Deprecated keyword-based decoder construction compatibility."""
+"""Deprecated keyword-based decoder construction compatibility.
+
+This module is an attachment on top of the modern decoder-construction API: it translates the
+keyword arguments of qLDPC 0.3.3 into modern decoder inputs, and resolves them with the modern
+resolution functions.  The modern modules never depend on it.
+"""
 
 from __future__ import annotations
 
 import functools
 import warnings
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, TypeVar
 
 import galois
 import numpy as np
 import numpy.typing as npt
+import stim
 
 from qldpc._util import get_external_caller_stacklevel
 
@@ -23,17 +29,16 @@ from ..external.ldpc import get_decoder_bp_lsd as _get_decoder_bp_lsd
 from ..external.ldpc import get_decoder_bp_osd as _get_decoder_bp_osd
 from ..external.pymatching import get_decoder_mwpm as _get_decoder_mwpm
 from ..external.relay_bp import get_decoder_rbp as _get_decoder_rbp
-from ..protocols import ErrorDecoder
-from .resolution import (
-    _build_decoder,
-    reject_removed_decoder_args,
-)
+from ..protocols import ErrorDecoder, ObservableDecoder
+from .resolution import get_error_decoder, get_observable_decoder
 from .specs import (
+    ErrorDecoderConstructor,
     ErrorDecoderInput,
     ObservableDecoderInput,
     PcmOrDem,
-    _decoder_spec,
 )
+
+_DecoderInput = TypeVar("_DecoderInput", ErrorDecoderInput, ObservableDecoderInput)
 
 # Legacy keyword-based compatibility
 DECODER_CONSTRUCTORS: dict[str, Callable[..., ErrorDecoder]] = {
@@ -70,6 +75,51 @@ def decode(
         stacklevel=get_external_caller_stacklevel(),
     )
     return _get_legacy_decoder(pcm_or_dem, decoder_args).decode(syndrome)
+
+
+def resolve_decoder(
+    pcm_or_dem: PcmOrDem,
+    decoder: ErrorDecoderInput,
+    decoder_args: Mapping[str, object],
+    *,
+    warn_deprecated: bool = True,
+) -> ErrorDecoder:
+    """Resolve an error decoder input, together with deprecated keyword-based decoder arguments.
+
+    This serves methods that still accept deprecated keyword arguments next to decoder=.  Without
+    such arguments, it is equivalent to qldpc.decoders.get_error_decoder.
+    """
+    decoder_input = _merge_legacy_decoder_args(
+        pcm_or_dem, decoder, decoder_args, warn_deprecated=warn_deprecated
+    )
+    return get_error_decoder(pcm_or_dem, decoder=decoder_input)
+
+
+def resolve_observable_decoder(
+    dem: stim.DetectorErrorModel,
+    decoder: ObservableDecoderInput,
+    decoder_args: Mapping[str, object],
+    *,
+    warn_deprecated: bool = True,
+) -> ObservableDecoder:
+    """Resolve an observable decoder input, together with deprecated keyword-based arguments.
+
+    This serves methods that still accept deprecated keyword arguments next to decoder=.  Without
+    such arguments, it is equivalent to qldpc.decoders.get_observable_decoder.
+    """
+    decoder_input = _merge_legacy_decoder_args(
+        dem, decoder, decoder_args, warn_deprecated=warn_deprecated
+    )
+    return get_observable_decoder(dem, decoder=decoder_input)
+
+
+def reject_removed_decoder_args(decoder_args: Mapping[str, object]) -> None:
+    """Reject the removed static_decoder argument outside of get_decoder and decode."""
+    if "static_decoder" in decoder_args:
+        raise TypeError(
+            "The static_decoder argument has been removed; pass a prebuilt decoder as decoder="
+            " instead"
+        )
 
 
 def get_legacy_decoder_migration_message(
@@ -127,16 +177,17 @@ def _get_legacy_decoder(pcm_or_dem: PcmOrDem, decoder_args: Mapping[str, object]
         if len(decoder_args) > 1:
             raise ValueError("If passed a static decoder, we cannot process decoding arguments")
         return static_decoder
-    built_decoder, _ = _build_decoder(
-        pcm_or_dem, _get_legacy_decoder_input(pcm_or_dem, decoder_args)
-    )
-    return built_decoder
+    return _get_legacy_decoder_input(pcm_or_dem, decoder_args)(pcm_or_dem)
 
 
 def _get_legacy_decoder_input(
     pcm_or_dem: PcmOrDem, decoder_args: Mapping[str, object]
-) -> ErrorDecoderInput:
-    """Translate deprecated decoder arguments into a decoder input."""
+) -> ErrorDecoderConstructor:
+    """Translate deprecated decoder arguments into a decoder constructor.
+
+    Free-form decoder options are passed through to the selected builder unchecked, as they were
+    in qLDPC 0.3.3, so they become a constructor rather than typed decoder settings.
+    """
     decoder_args = dict(decoder_args)
     if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
         if not callable(decoder_constructor):
@@ -157,18 +208,16 @@ def _get_legacy_decoder_input(
         decoder_name = "GUF"
     else:
         decoder_name = "BP_OSD"
-    return _decoder_spec(
-        _LEGACY_HELPER_NAMES[decoder_name], DECODER_CONSTRUCTORS[decoder_name], **decoder_args
-    )
+    return functools.partial(DECODER_CONSTRUCTORS[decoder_name], **decoder_args)
 
 
 def _merge_legacy_decoder_args(
     pcm_or_dem: PcmOrDem,
-    decoder: ObservableDecoderInput,
+    decoder: _DecoderInput,
     decoder_args: Mapping[str, object],
     *,
     warn_deprecated: bool = True,
-) -> ObservableDecoderInput:
+) -> _DecoderInput | ErrorDecoderConstructor:
     """Translate deprecated keyword arguments into a decoder input."""
     reject_removed_decoder_args(decoder_args)
     if not decoder_args:

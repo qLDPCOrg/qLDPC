@@ -3913,7 +3913,6 @@ class CSSCode(QuditCode):
             decoder_x is None
             and decoder_z is None
             and decoders.is_prebuilt_decoder(decoder)
-            and not decoders.compiles_for_dem(decoder)
             and not np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
         ):
             raise ValueError(

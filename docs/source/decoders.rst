@@ -249,7 +249,10 @@ conversion adapters. These classes are also exported from ``qldpc.decoders``.
 Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
 
 * a constructor, such as a decoder class, or any other callable that builds a decoder from a
-  parity-check matrix or detector error model; or
+  parity-check matrix or detector error model;
+* where observable flips are predicted for a detector error model, an observable-decoder compiler
+  (see :class:`decoders.ObservableDecoderCompiler <qldpc.decoders.construction.specs.ObservableDecoderCompiler>`),
+  such as a ``SinterDecoder``, which is compiled for that model; or
 * a prebuilt decoder, which is used as is.
 
 A prebuilt decoder is tied to the matrix used to construct it, so it is only accepted where the
@@ -266,8 +269,9 @@ decoder-based distance bounds of codes (other than a classical distance bound to
 logical-operator reduction, the code-capacity estimators of non-CSS codes, and Sinter decoders,
 which build a new decoder for every (simplified) detector error model, window, or subgraph that they
 decode. These methods accept a ``DecoderSpec`` or a constructor. A constructor can fix custom
-options with ``functools.partial`` or a ``lambda``. The code-capacity estimators of non-CSS codes
-also accept a Sinter-style decoder, which they compile for their internal detector error model.
+options with ``functools.partial`` or a ``lambda``. A ``SinterDecoder``, a ``SubgraphDecoder``, and
+the code-capacity estimators also accept an observable-decoder compiler, which they compile for each
+detector error model that they decode.
 
 Lookup-table outputs
 --------------------
@@ -320,7 +324,8 @@ Deprecated usage
 ~~~~~~~~~~~~~~~~
 
 The keyword-based decoder API of ``qldpc==0.3.3`` remains available during a deprecation period, and
-each use emits a ``DeprecationWarning`` that names its replacement. Compatibility is provided for
+each use emits a ``DeprecationWarning`` that names its replacement. Usage marked as defunct instead
+raises an error that names its replacement. Compatibility is provided for
 the names exported from the package root, ``qldpc.decoders``, in that release; internal module paths
 are not part of this guarantee. In particular,
 ``decoders.get_decoder`` and ``decoders.decode`` behave as they did in ``qldpc==0.3.3``:

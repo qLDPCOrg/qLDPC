@@ -13,7 +13,7 @@ import numpy.typing as npt
 import stim
 
 from ..adapters.error_decoders import match_error_decoder_to_dem
-from ..construction.resolution import resolve_decoder
+from ..construction.legacy import resolve_decoder
 from ..construction.specs import DeferredErrorDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, batch_decode_errors

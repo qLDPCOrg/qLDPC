@@ -4,14 +4,35 @@
 
 from __future__ import annotations
 
-from typing import get_type_hints
+from typing import TypeGuard, get_type_hints
 
-from .construction.resolution import is_prebuilt_decoder
-from .construction.specs import DecoderSpec
+from .construction.specs import DecoderSpec, ObservableDecoderCompiler
 from .protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
 
 
-def compiles_for_dem(decoder: object) -> bool:
+def is_prebuilt_decoder(decoder: object) -> bool:
+    """Whether a decoder input is already built for a matrix or detector error model.
+
+    A prebuilt decoder has a decoding method.  Decoder settings, a constructor, and a Sinter-style
+    decoder that is compiled for a detector error model (see compiles_for_dem) are not prebuilt.
+    """
+    return (
+        decoder is not None
+        and not isinstance(decoder, (DecoderSpec, type))
+        and not compiles_for_dem(decoder)
+        and any(
+            hasattr(decoder, method)
+            for method in (
+                "decode_errors",
+                "decode",
+                "decode_observables",
+                "decode_shots_bit_packed",
+            )
+        )
+    )
+
+
+def compiles_for_dem(decoder: object) -> TypeGuard[ObservableDecoderCompiler]:
     """Whether a decoder input is a Sinter-style decoder, compiled for a detector error model.
 
     Such a decoder, like a decoders.SinterDecoder, has a compile_decoder_for_dem method.

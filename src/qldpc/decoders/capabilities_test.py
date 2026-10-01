@@ -38,6 +38,30 @@ class _BitPackedCompiledDecoder:
         return np.zeros((len(bit_packed_detection_event_data), 1), dtype=np.uint8)
 
 
+def test_is_prebuilt_decoder() -> None:
+    """Prebuilt decoders decode, and are not settings, constructors, or compilers."""
+    matrix = np.eye(2, dtype=int)
+    prebuilt_decoders: list[object] = [
+        _FixedErrorDecoder([0, 0]),
+        _FixedObservableDecoder([0]),
+        _BitPackedCompiledDecoder(),
+        decoders.TrivialDecoder().compile_decoder_for_dem(stim.DetectorErrorModel()),
+        decoders.bp_osd().build(matrix),
+    ]
+    for decoder in prebuilt_decoders:
+        assert decoders.is_prebuilt_decoder(decoder)
+    deferred_decoders: list[object] = [
+        None,
+        decoders.bp_osd(),
+        decoders.LookupDecoder,
+        lambda matrix: _FixedErrorDecoder([0, 0]),
+        decoders.SinterDecoder(),
+        decoders.TrivialDecoder(),
+    ]
+    for decoder in deferred_decoders:
+        assert not decoders.is_prebuilt_decoder(decoder)
+
+
 def test_is_prebuilt_observable_decoder() -> None:
     """Classify decoder inputs by explicit capabilities."""
     matrix = galois.GF2([[1, 1]])

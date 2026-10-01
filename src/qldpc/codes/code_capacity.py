@@ -30,7 +30,8 @@ from qldpc.decoders.capabilities import (
     is_prebuilt_observable_decoder,
 )
 from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE
-from qldpc.decoders.construction.resolution import reject_prebuilt_decoder, resolve_decoder
+from qldpc.decoders.construction.legacy import resolve_decoder
+from qldpc.decoders.construction.resolution import reject_prebuilt_decoder
 from qldpc.decoders.construction.specs import (
     ErrorDecoderInput,
     ObservableDecoderConstructor,
@@ -286,7 +287,7 @@ def get_code_capacity_decoder(
             symplectic_errors=symplectic_dem_errors,
             error_probs=dem_error_probs,
         )
-        compiled_decoder = decoder.compile_decoder_for_dem(dem=dem)  # type:ignore[union-attr]
+        compiled_decoder = decoder.compile_decoder_for_dem(dem=dem)
         return _get_observable_code_capacity_decoder(
             compiled_decoder,
             syndrome_matrix,

@@ -149,3 +149,16 @@ def test_legacy_decoder_migration_messages() -> None:
         warnings.simplefilter("error")
         decoders.resolve_decoder(matrix, None, {"with_BF": True}, warn_deprecated=False)
         decoders.resolve_decoder(matrix, decoders.bf(), {})
+
+    # deprecated arguments build an observable decoder with error-decoder semantics
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D0 D1\nerror(0.1) D1")
+    observable_decoder = decoders.resolve_observable_decoder(
+        dem, None, {"with_lookup": True, "max_weight": 1}, warn_deprecated=False
+    )
+    assert isinstance(observable_decoder, decoders.ErrorsToObservablesDecoder)
+    assert np.array_equal(observable_decoder.decode_observables(np.array([1, 0])), [1])
+    assert np.array_equal(observable_decoder.decode_observables(np.array([1, 1])), [0])
+
+    # without deprecated arguments, decoder settings may build a native observable decoder
+    observable_decoder = decoders.resolve_observable_decoder(dem, decoders.lookup_table(1), {})
+    assert isinstance(observable_decoder, decoders.ObservableLookupDecoder)

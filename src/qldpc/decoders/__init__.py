@@ -14,22 +14,24 @@ from .adapters.error_decoders import (
 )
 from .capabilities import (
     compiles_for_dem,
+    is_prebuilt_decoder,
     is_prebuilt_observable_decoder,
 )
 from .common import (
     get_error_and_erasure,
     with_erasure_bits,
 )
-from .construction.legacy import get_legacy_decoder_migration_message
+from .construction.legacy import (
+    get_legacy_decoder_migration_message,
+    reject_removed_decoder_args,
+    resolve_decoder,
+    resolve_observable_decoder,
+)
 from .construction.resolution import (
     decode_observables,
     get_error_decoder,
     get_observable_decoder,
-    is_prebuilt_decoder,
     reject_prebuilt_decoder,
-    reject_removed_decoder_args,
-    resolve_decoder,
-    resolve_observable_decoder,
 )
 from .construction.specs import (
     DecoderSpec,
@@ -37,8 +39,8 @@ from .construction.specs import (
     DeferredObservableDecoderInput,
     ErrorDecoderConstructor,
     ErrorDecoderInput,
-    ObservableDecoderConstructor,
     ObservableDecoderCompiler,
+    ObservableDecoderConstructor,
     ObservableDecoderInput,
     PcmOrDem,
     bf,
@@ -119,8 +121,8 @@ __all__ = [
     "ILPDecoder",
     "LookupDecoder",
     "ObservableDecoder",
-    "ObservableDecoderConstructor",
     "ObservableDecoderCompiler",
+    "ObservableDecoderConstructor",
     "ObservableDecoderInput",
     "ObservableLookupDecoder",
     "PcmOrDem",
