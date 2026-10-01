@@ -73,21 +73,156 @@ def test_get_quantum_code() -> None:
     ):
         external.codes.get_quantum_code("")
 
-    # page missing stabilizer data
-    mock_page = get_mock_page("<tr> <td>d</td> <td>5</td> </tr>")
+    # API response missing stabilizer data
+    mock_page = get_mock_page('{"d": 5}')
     with (
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
         pytest.raises(ValueError, match="stabilizer data"),
     ):
         external.codes.get_quantum_code("")
 
-    # retrieve code data!
-    dist_line = "<tr> <td>d</td> <td>5</td> </tr>"
-    css_line = "<tr> <td>css</td> <td>False</td> </tr>"
-    stab_line = "<tr> <td>H</td> <td><tt>XXXX<br>ZZZZ</tt></td> </tr>"
-    mock_page = get_mock_page(f"{dist_line}\n{css_line}\n{stab_line}")
+    mock_page = get_mock_page('{"H": "  "}')
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="stabilizer data"),
+    ):
+        external.codes.get_quantum_code("")
+
+    # malformed API response
+    mock_page = get_mock_page("[]")
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="Could not parse code data"),
+    ):
+        external.codes.get_quantum_code("")
+
+    # malformed distance and CSS values
+    mock_page = get_mock_page('{"H": "XXXX ZZZZ", "d": "5"}')
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="parse the distance"),
+    ):
+        external.codes.get_quantum_code("")
+
+    mock_page = get_mock_page('{"H": "XXXX ZZZZ", "css": "False"}')
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="parse the CSS status"),
+    ):
+        external.codes.get_quantum_code("")
+
+    # retrieve code data
+    mock_page = get_mock_page('{"H": "XXXX ZZZZ", "d": 5, "css": false}')
     with unittest.mock.patch("urllib.request.urlopen", return_value=mock_page):
         assert external.codes.get_quantum_code("") == (["XXXX", "ZZZZ"], 5, False)
+
+
+def test_get_qldpc_challenge_code() -> None:
+    """Retrieve CSS code data from the Unitary Foundation qLDPC Challenge."""
+    # cannot connect to the qLDPC Challenge
+    with (
+        unittest.mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("message")),
+        pytest.raises(RuntimeError, match="Cannot access"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    # malformed API response
+    mock_page = get_mock_page("[]")
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="Could not parse code data"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    # non-CSS code
+    mock_page = get_mock_page('{"n": 2, "code_type": "stabilizer", "checks": {}, "distance": {}}')
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="not a CSS code"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    # malformed metadata
+    mock_page = get_mock_page(
+        '{"n": 0, "code_type": "CSS", "checks": {"X": [], "Z": []}, "distance": {"d": 1}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="number of qubits"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    mock_page = get_mock_page('{"n": 2, "code_type": "CSS", "checks": [], "distance": {"d": 1}}')
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="parity checks"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    mock_page = get_mock_page('{"n": 2, "code_type": "CSS", "checks": {}, "distance": []}')
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="parse the distance"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "CSS", "checks": {"X": [], "Z": []}, "distance": {}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="parse the distance"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "CSS", "checks": {"X": "invalid", "Z": []}, "distance": {"d": 1}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(TypeError, match="X-type parity checks"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    # malformed supports
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "CSS", "checks": {"X": [[2]], "Z": [[1]]}, "distance": {"d": 1}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="X-type parity checks"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    # repeated indices and nonpositive distances violate the challenge's sparse-check schema
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "CSS", "checks": {"X": [[0, 0]], "Z": [[1]]}, "distance": {"d": 1}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="X-type parity checks"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    mock_page = get_mock_page(
+        '{"n": 2, "code_type": "CSS", "checks": {"X": [[0]], "Z": [[1]]}, "distance": {"d": 0}}'
+    )
+    with (
+        unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
+        pytest.raises(ValueError, match="parse the distance"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
+
+    # retrieve code data
+    mock_page = get_mock_page(
+        '{"n": 4, "code_type": "CSS", "checks": {"X": [[0, 2]], "Z": [[1, 3]]},'
+        ' "distance": {"d": 2}}'
+    )
+    with unittest.mock.patch("urllib.request.urlopen", return_value=mock_page):
+        matrix_x, matrix_z, distance = external.codes.get_qldpc_challenge_code("")
+        assert np.array_equal(matrix_x, [[1, 0, 1, 0]])
+        assert np.array_equal(matrix_z, [[0, 1, 0, 1]])
+        assert distance == 2
 
 
 def test_distance_bound() -> None:

@@ -1307,6 +1307,11 @@ class QuditCode(AbstractCode):
         code._distance = distance
         return code
 
+    @staticmethod
+    def from_qldpc_challenge_id(code_id: str) -> CSSCode:
+        """Retrieve a CSS code by ID from the Unitary Foundation qLDPC Challenge."""
+        return CSSCode.from_qldpc_challenge_id(code_id)
+
     def __len__(self) -> int:
         """The block length of this code."""
         return self.matrix.shape[1] // 2
@@ -2660,6 +2665,14 @@ class CSSCode(QuditCode):
     def from_qecdb_id(code_id: str) -> CSSCode:
         """Retrieve a CSS code by ID from qecdb.org."""
         return QuditCode.from_qecdb_id(code_id).to_css()
+
+    @staticmethod
+    def from_qldpc_challenge_id(code_id: str) -> CSSCode:
+        """Retrieve a CSS code by ID from the Unitary Foundation qLDPC Challenge."""
+        matrix_x, matrix_z, distance = external.codes.get_qldpc_challenge_code(code_id)
+        code = CSSCode(matrix_x, matrix_z)
+        code._distance = distance
+        return code
 
     @property
     def is_subsystem_code(self) -> bool:

@@ -677,6 +677,18 @@ def test_from_qecdb_id() -> None:
         assert code.is_equiv_to(codes.C4Code())
 
 
+def test_from_qldpc_challenge_id() -> None:
+    """Retrieve a CSS code from the Unitary Foundation qLDPC Challenge."""
+    matrix_x = [[1, 1, 1, 1]]
+    matrix_z = [[1, 1, 1, 1]]
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix_x, matrix_z, 2)
+    ):
+        code = codes.QuditCode.from_qldpc_challenge_id("")
+        assert isinstance(code, codes.CSSCode)
+        assert code.is_equiv_to(codes.C4Code())
+
+
 def test_qudit_deformations() -> None:
     """Local Fourier transforms of a QuditCode."""
     code = codes.QuditCode(codes.SHYPSCode(2))
@@ -1175,6 +1187,18 @@ def test_css_from_qecdb_id() -> None:
     code_data = (strings, distance, is_css)
     with unittest.mock.patch("qldpc.external.codes.get_quantum_code", return_value=code_data):
         code = codes.CSSCode.from_qecdb_id("")
+        assert isinstance(code, codes.CSSCode)
+        assert code.is_equiv_to(codes.C4Code())
+
+
+def test_css_from_qldpc_challenge_id() -> None:
+    """Retrieve a CSS code from the Unitary Foundation qLDPC Challenge."""
+    matrix_x = [[1, 1, 1, 1]]
+    matrix_z = [[1, 1, 1, 1]]
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=(matrix_x, matrix_z, 2)
+    ):
+        code = codes.CSSCode.from_qldpc_challenge_id("")
         assert isinstance(code, codes.CSSCode)
         assert code.is_equiv_to(codes.C4Code())
 
