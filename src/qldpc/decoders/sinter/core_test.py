@@ -73,6 +73,51 @@ def test_sinter_decoder() -> None:
     )
 
 
+def test_compiled_sinter_decoder_delegates_bit_packed_shots() -> None:
+    """A compiled decoder delegates bit-packed shots to an inner decoder that decodes them."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+
+    class BitPackedShotDecoder(decoders.ObservableDecoder):
+        output: npt.NDArray[np.uint8]
+
+        def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.asarray(syndrome)
+
+        def decode_shots_bit_packed(
+            self, *, bit_packed_detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            return self.output
+
+    inner = BitPackedShotDecoder()
+    compiled = decoders.CompiledSinterDecoder(decoders.DetectorErrorModelArrays(dem), inner)
+    shots = np.array([[0], [1]], dtype=np.uint8)
+    assert np.array_equal(compiled.decode_shots(shots), shots)
+
+    inner.output = np.array([[5], [9]], dtype=np.uint8)
+    assert np.array_equal(compiled.decode_shots_bit_packed(shots), inner.output)
+    inner.output = np.zeros((2, 2), dtype=np.uint8)
+    with pytest.raises(ValueError, match="bit-packed shots of shape"):
+        compiled.decode_shots_bit_packed(shots)
+
+
+def test_compiled_sinter_decoder_subclass_decode_shots() -> None:
+    """A subclass that post-processes decode_shots gets the same packed and unpacked results."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+
+    class InvertingDecoder(decoders.CompiledSinterDecoder):
+        def decode_shots(
+            self, detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            return 1 - super().decode_shots(detection_event_data)
+
+    compiled = InvertingDecoder(
+        decoders.DetectorErrorModelArrays(dem), decoders.ObservableLookupDecoder(dem, max_weight=1)
+    )
+    shot = np.zeros((1, 1), dtype=np.uint8)
+    assert np.array_equal(compiled.decode_shots(shot), [[1]])
+    assert compiled.decode_shots_bit_packed(np.zeros((1, 1), dtype=np.uint8)).tolist() == [[1]]
+
+
 def test_sinter_decoder_correlated_matching() -> None:
     """A SinterDecoder keeps the error decompositions that correlated matching uses."""
     dem = stim.DetectorErrorModel("""
@@ -265,6 +310,9 @@ def test_erasure_signalled_in_an_added_byte(num_observables: int) -> None:
     erased_syndrome[:2] = 1
     shots = np.array([np.zeros(num_observables, dtype=np.uint8), erased_syndrome])
     packed_flips = compiled.decode_shots_bit_packed(compiled.packbits(shots))
+    assert np.array_equal(
+        compiled.pack_observable_flips(compiled.decode_shots(shots)), packed_flips
+    )
 
     assert packed_flips.shape == (2, (num_observables + 7) // 8 + 1)
     assert packed_flips[0, -1] == 0
