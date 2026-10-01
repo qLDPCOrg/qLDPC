@@ -59,13 +59,17 @@ class _WebsterBackendDetails:
 
 @dataclasses.dataclass(frozen=True)
 class _SurgeryResourceCounts:
-    """Exact static counts for one emitted surgery circuit."""
+    """Exact static counts for one emitted surgery circuit.
+
+    ``allocated_physical_qubits`` is the number of qubits the circuit addresses, not a
+    time-resolved peak of simultaneously live qubits.
+    """
 
     source_data_qubits: int
     gadget_ancilla_qubits: int
     adapter_data_qubits: int
     syndrome_ancilla_qubits: int
-    peak_physical_qubits: int
+    allocated_physical_qubits: int
     syndrome_rounds: int
     logical_outcomes: int
 
@@ -286,7 +290,7 @@ def _compile_interblock_pair_measurement(
         gadget_ancilla_qubits=gadget_ancilla_qubits,
         adapter_data_qubits=bridge.width,
         syndrome_ancilla_qubits=merged_code.num_checks,
-        peak_physical_qubits=diagnostic_circuit.num_qubits,
+        allocated_physical_qubits=diagnostic_circuit.num_qubits,
         syndrome_rounds=rounds,
         logical_outcomes=1,
     )
@@ -297,7 +301,8 @@ def _compile_interblock_pair_measurement(
         == merged_code.num_qudits
     )
     assert (
-        merged_code.num_qudits + resources.syndrome_ancilla_qubits == resources.peak_physical_qubits
+        merged_code.num_qudits + resources.syndrome_ancilla_qubits
+        == resources.allocated_physical_qubits
     )
 
     resolved_operators = tuple(

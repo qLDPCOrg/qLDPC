@@ -112,12 +112,14 @@ def test_explicit_intracode_structure_uses_code_equality_not_identity() -> None:
         build_bridge(gadget_l, gadget_r),
         intercode=False,
     )
-    assert merged.num_qudits < (
-        code_l.num_qudits
-        + code_r.num_qudits
-        + gadget_l.incidence.shape[0]
-        + gadget_r.incidence.shape[0]
+    shared_gadget_r = build_gadget(code_l, logical_l, basis=Pauli.X)
+    shared_merged = _merged_csscode(
+        gadget_l,
+        shared_gadget_r,
+        build_bridge(gadget_l, shared_gadget_r),
     )
+    assert np.array_equal(merged.matrix_x, shared_merged.matrix_x)
+    assert np.array_equal(merged.matrix_z, shared_merged.matrix_z)
 
     incompatible = codes.SurfaceCode(3)
     incompatible_logical = np.asarray(

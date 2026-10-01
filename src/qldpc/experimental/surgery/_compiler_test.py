@@ -118,7 +118,7 @@ def test_compile_interblock_pair_steane_truth_table(
     )
     assert (
         compiled.merged_code.num_qudits + resources.syndrome_ancilla_qubits
-        == resources.peak_physical_qubits
+        == resources.allocated_physical_qubits
     )
 
 
@@ -171,6 +171,28 @@ def test_compile_interblock_pair_hgp_nonzero_logical() -> None:
     assert compiled.resolved_operators == (expected_left, expected_right)
     assert expected_left != zero_index
     assert expected_right != zero_index
+
+
+@pytest.mark.parametrize(
+    ("basis", "states"),
+    [(Pauli.X, ("-", "+")), (Pauli.X, ("+", "-")), (Pauli.Z, ("1", "0")), (Pauli.Z, ("0", "1"))],
+)
+def test_compile_interblock_pair_hgp_initialization_binds_logical_index(
+    basis: PauliXZ,
+    states: tuple[str, str],
+) -> None:
+    """Initial states flip the requested nonzero logicals, giving odd raw parity."""
+    code = codes.HGPCode(codes.HammingCode(3))
+    compiled = _compile_interblock_pair_measurement(
+        (_LogicalBlock("left", code), _LogicalBlock("right", code)),
+        _pair_request(basis, left_index=3, right_index=5),
+        rounds=1,
+        initial_states={"left": states[0], "right": states[1]},
+    )
+
+    raw_observables = _raw_observable_samples(compiled.diagnostic_circuit, shots=8)
+    assert np.all(raw_observables[0] == 1)
+    assert np.array_equal(raw_observables[0], raw_observables[1])
 
 
 def test_compiler_rejects_invalid_rounds_and_block_collections() -> None:
