@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import pickle
+import subprocess
+import sys
 from typing import cast
 
 import galois
@@ -97,3 +99,13 @@ def test_matching_protocol_adapter() -> None:
     assert isinstance(decoder, decoders.BatchErrorDecoder)
     assert np.array_equal(decoder.decode_errors_batch(syndromes), decoder.decode_batch(syndromes))
     assert pickle.loads(pickle.dumps(pymatching.Matching)) is pymatching.Matching  # noqa: S301
+
+
+def test_pymatching_import_is_lazy() -> None:
+    """Importing the integration does not import pymatching until a matching is requested."""
+    code = """
+import sys
+import qldpc.decoders.external.pymatching
+assert "pymatching" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)

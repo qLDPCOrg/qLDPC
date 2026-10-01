@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import pickle
+import subprocess
+import sys
 from collections.abc import Callable
 
 import ldpc as ldpc_package
@@ -86,3 +88,13 @@ def test_ldpc_protocol_adapters() -> None:
         assert isinstance(decoder, backend_type)
         assert isinstance(decoder, decoders.ErrorDecoder)
         assert pickle.loads(pickle.dumps(adapter_type)) is adapter_type  # noqa: S301
+
+
+def test_ldpc_import_is_lazy() -> None:
+    """Importing the integration does not import ldpc until an adapter is requested."""
+    code = """
+import sys
+import qldpc.decoders.external.ldpc
+assert "ldpc" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)

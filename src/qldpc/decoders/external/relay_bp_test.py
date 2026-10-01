@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import copy
 import functools
+import subprocess
+import sys
 import unittest.mock
 
 import galois
@@ -21,6 +23,16 @@ from qldpc.decoders.external.relay_bp import (
     get_min_sum_bp_decoder,
     get_relay_bp_decoder,
 )
+
+
+def test_relay_bp_import_is_lazy() -> None:
+    """Importing the integration does not import relay-bp until a decoder is built."""
+    code = """
+import sys
+import qldpc.decoders.external.relay_bp
+assert "relay_bp" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_relay_bp(toy_problem: ToyProblem) -> None:
