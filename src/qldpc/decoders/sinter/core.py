@@ -237,6 +237,33 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         self.num_observables = dem_arrays.num_observables
         self.num_erasure_bits = int(getattr(self.observable_decoder, "has_erasure_bit", False))
 
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Predict observable flips for one syndrome."""
+        syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
+        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
+
+    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        """Predicts observable flips from the given detection events.
+
+        This method accepts and returns boolean data.
+
+        See help(sinter.CompiledDecoder) for additional information.
+        """
+        if callable(decode_shots := getattr(self.observable_decoder, "decode_shots", None)):
+            observable_flips = decode_shots(detection_event_data)
+        elif hasattr(self.observable_decoder, "decode_observables_batch"):
+            observable_flips = self.observable_decoder.decode_observables_batch(
+                detection_event_data
+            )
+        else:
+            observable_flips = [
+                self.observable_decoder.decode_observables(syndrome)
+                for syndrome in detection_event_data
+            ]
+        return np.asarray(observable_flips, dtype=np.uint8).reshape(
+            len(detection_event_data), self.num_observables + self.num_erasure_bits
+        )
+
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
@@ -246,9 +273,50 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
+        uses_default_packer = (
+            type(self).pack_observable_flips is CompiledSinterDecoder.pack_observable_flips
+        )
+        if uses_default_packer and callable(
+            decode_shots_bit_packed := getattr(
+                self.observable_decoder, "decode_shots_bit_packed", None
+            )
+        ):
+            packed_flips = np.asarray(
+                decode_shots_bit_packed(
+                    bit_packed_detection_event_data=bit_packed_detection_event_data
+                ),
+                dtype=np.uint8,
+            )
+            expected_shape = (
+                len(bit_packed_detection_event_data),
+                -(-self.num_observables // 8) + self.num_erasure_bits,
+            )
+            if packed_flips.shape != expected_shape:
+                raise ValueError(
+                    f"The inner observable decoder predicted bit-packed shots of shape"
+                    f" {packed_flips.shape}, but expected {expected_shape}"
+                )
+            return packed_flips
         detection_event_data = self.unpack_detection_event_data(bit_packed_detection_event_data)
         observable_flips = self.decode_shots(detection_event_data)
         return self.pack_observable_flips(observable_flips)
+
+    def unpack_detection_event_data(
+        self, bit_packed_detection_event_data: npt.NDArray[np.uint8], axis: int = -1
+    ) -> npt.NDArray[np.uint8]:
+        """Unpack the bit-packed data along an axis.
+
+        By default, bit_packed_detection_event_data is assumed to be a two-dimensional array in
+        which each row contains bit-packed detection events from one sample of a detector error
+        model (DEM).  In this case, the unpacked data is a boolean matrix whose entry in row ss and
+        column kk specify whether detector kk was flipped in sample ss of a DEM.
+        """
+        return np.unpackbits(
+            np.asarray(bit_packed_detection_event_data, dtype=np.uint8),
+            count=self.num_detectors,
+            bitorder="little",
+            axis=axis,
+        )
 
     def pack_observable_flips(
         self, observable_flips: npt.NDArray[np.uint8]
@@ -271,26 +339,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         packed_flips = self.packbits(observable_flips[:, : self.num_observables])
         return np.hstack([packed_flips, erased.astype(np.uint8)[:, None]])
 
-    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        """Predicts observable flips from the given detection events.
-
-        This method accepts and returns boolean data.
-
-        See help(sinter.CompiledDecoder) for additional information.
-        """
-        if hasattr(self.observable_decoder, "decode_observables_batch"):
-            observable_flips = self.observable_decoder.decode_observables_batch(
-                detection_event_data
-            )
-        else:
-            observable_flips = [
-                self.observable_decoder.decode_observables(syndrome)
-                for syndrome in detection_event_data
-            ]
-        return np.asarray(observable_flips, dtype=np.uint8).reshape(
-            len(detection_event_data), self.num_observables + self.num_erasure_bits
-        )
-
     def packbits(self, data: npt.NDArray[np.uint8], axis: int = -1) -> npt.NDArray[np.uint8]:
         """Bit-pack the data along an axis.
 
@@ -298,28 +346,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         generally passes around bit-packed data.
         """
         return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
-
-    def unpack_detection_event_data(
-        self, bit_packed_detection_event_data: npt.NDArray[np.uint8], axis: int = -1
-    ) -> npt.NDArray[np.uint8]:
-        """Unpack the bit-packed data along an axis.
-
-        By default, bit_packed_detection_event_data is assumed to be a two-dimensional array in
-        which each row contains bit-packed detection events from one sample of a detector error
-        model (DEM).  In this case, the unpacked data is a boolean matrix whose entry in row ss and
-        column kk specify whether detector kk was flipped in sample ss of a DEM.
-        """
-        return np.unpackbits(
-            np.asarray(bit_packed_detection_event_data, dtype=np.uint8),
-            count=self.num_detectors,
-            bitorder="little",
-            axis=axis,
-        )
-
-    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Predict observable flips for one syndrome."""
-        syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
-        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
     @property
     def has_erasure_bit(self) -> bool:

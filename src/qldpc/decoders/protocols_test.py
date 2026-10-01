@@ -83,10 +83,10 @@ def test_error_decoder_coercion() -> None:
     assert decoders.supports_batch_decoding(decoder)
     assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), 3 * syndromes)
 
-    # an error decoder is returned as is, and its batches are decoded one syndrome at a time
+    # an error decoder is returned as is, and its native batch method is used
     error_decoder = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
     assert decoders.as_error_decoder(error_decoder) is error_decoder
-    assert not decoders.supports_batch_decoding(error_decoder)
+    assert decoders.supports_batch_decoding(error_decoder)
     batch = decoders.batch_decode_errors(error_decoder, syndromes)
     assert np.array_equal(batch, syndromes)
     assert decoders.batch_decode_errors(error_decoder, syndromes[:0]).shape == (0, 2)

@@ -73,6 +73,86 @@ def test_sinter_decoder() -> None:
     )
 
 
+def test_compiled_sinter_decoder_delegates_shot_methods() -> None:
+    """A compiled decoder delegates unpacked and packed shots independently."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L2")
+    dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    shots = np.array([[1, 0], [0, 1]], dtype=np.uint8)
+    expected = np.array([[1, 0, 0], [0, 0, 1]], dtype=np.uint8)
+
+    class FastObservableDecoder(decoders.ObservableDecoder):
+        def __init__(self) -> None:
+            self.unpacked_calls = 0
+            self.packed_calls = 0
+
+        def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            raise AssertionError("the shot methods should be preferred")
+
+        def decode_shots(
+            self, detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            self.unpacked_calls += 1
+            output = np.zeros((len(detection_event_data), 3), dtype=np.uint8)
+            output[:, [0, 2]] = detection_event_data
+            return output
+
+        def decode_shots_bit_packed(
+            self, *, bit_packed_detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            self.packed_calls += 1
+            detection_events = np.unpackbits(
+                bit_packed_detection_event_data, count=2, bitorder="little", axis=1
+            )
+            return np.packbits(self.decode_shots(detection_events), bitorder="little", axis=1)
+
+    inner = FastObservableDecoder()
+    compiled = decoders.CompiledSinterDecoder(dem_arrays, inner)
+    assert np.array_equal(compiled.decode_shots(shots), expected)
+    assert inner.unpacked_calls == 1
+
+    packed_shots = np.packbits(shots, bitorder="little", axis=1)
+    packed_expected = np.packbits(expected, bitorder="little", axis=1)
+    assert np.array_equal(compiled.decode_shots_bit_packed(packed_shots), packed_expected)
+    assert inner.packed_calls == 1
+    assert inner.unpacked_calls == 2  # the test implementation's packed method called it once
+
+    class WrongWidthFastDecoder(FastObservableDecoder):
+        def decode_shots_bit_packed(
+            self, *, bit_packed_detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            return np.zeros((len(bit_packed_detection_event_data), 2), dtype=np.uint8)
+
+    wrong_width = decoders.CompiledSinterDecoder(dem_arrays, WrongWidthFastDecoder())
+    with pytest.raises(ValueError, match="bit-packed shots of shape"):
+        wrong_width.decode_shots_bit_packed(packed_shots)
+
+
+def test_compiled_sinter_decoder_shot_fallback() -> None:
+    """An inner decoder without shot methods keeps the generic batch path."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+
+    class BatchObservableDecoder(decoders.ObservableDecoder):
+        def __init__(self) -> None:
+            self.batch_calls = 0
+
+        def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.asarray(syndrome)
+
+        def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            self.batch_calls += 1
+            return np.asarray(syndromes)
+
+    inner = BatchObservableDecoder()
+    compiled = decoders.CompiledSinterDecoder(decoders.DetectorErrorModelArrays(dem), inner)
+    shots = np.array([[0], [1]], dtype=np.uint8)
+    assert np.array_equal(compiled.decode_shots(shots), shots)
+    assert np.array_equal(
+        compiled.decode_shots_bit_packed(np.packbits(shots, bitorder="little", axis=1)),
+        np.packbits(shots, bitorder="little", axis=1),
+    )
+    assert inner.batch_calls == 2
+
+
 def test_sinter_decoder_correlated_matching() -> None:
     """A SinterDecoder keeps the error decompositions that correlated matching uses."""
     dem = stim.DetectorErrorModel("""
@@ -265,6 +345,9 @@ def test_erasure_signalled_in_an_added_byte(num_observables: int) -> None:
     erased_syndrome[:2] = 1
     shots = np.array([np.zeros(num_observables, dtype=np.uint8), erased_syndrome])
     packed_flips = compiled.decode_shots_bit_packed(compiled.packbits(shots))
+    assert np.array_equal(
+        compiled.pack_observable_flips(compiled.decode_shots(shots)), packed_flips
+    )
 
     assert packed_flips.shape == (2, (num_observables + 7) // 8 + 1)
     assert packed_flips[0, -1] == 0
