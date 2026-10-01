@@ -234,6 +234,8 @@ def test_sinter_decoder_with_erasure() -> None:
     assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
     assert compiled.num_observables == dem.num_observables
     assert compiled.num_erasure_bits == 1
+    assert compiled.has_erasure_bit
+    assert not decoders.TrivialDecoder().compile_decoder_for_dem(dem).has_erasure_bit
 
     shots = np.array([[1, 0], [0, 1]], dtype=np.uint8)
     result = compiled.decode_shots(shots)
@@ -241,6 +243,11 @@ def test_sinter_decoder_with_erasure() -> None:
     assert np.array_equal(result[:, :-1], [[0], [1]])
     assert np.all(result[:, -1] == 0)
     assert compiled.decode_shots(np.array([[1, 1]], dtype=np.uint8))[0, -1] == 1
+
+    # a nested compiled decoder passes its erasure bit on to the decoder that wraps it
+    nested = decoders.SinterDecoder(decoder=decoder).compile_decoder_for_dem(dem)
+    assert nested.num_erasure_bits == 1
+    assert np.array_equal(nested.decode_shots(np.array([[1, 1]], dtype=np.uint8)), [[0, 1]])
 
 
 @pytest.mark.parametrize("num_observables", [7, 8])
