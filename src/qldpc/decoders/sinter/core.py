@@ -15,25 +15,16 @@ import stim
 
 from qldpc._util import get_external_caller_stacklevel
 
-from ..adapters.dem import ErrorsToObservablesDecoder
-from ..dems import DetectorErrorModelArrays
-from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
-from ..retrieval import (
-    DecoderSpec,
-    DeferredObservableDecoderInput,
-    get_legacy_decoder_migration_message,
+from ..adapters.error_decoders import ErrorsToObservablesDecoder
+from ..construction.legacy import get_legacy_decoder_migration_message
+from ..construction.resolution import (
     reject_prebuilt_decoder,
     reject_removed_decoder_args,
     resolve_observable_decoder,
 )
-
-__all__ = [
-    "CompiledSinterDecoder",
-    "CompiledTrivialDecoder",
-    "DecoderNotCompiledError",
-    "SinterDecoder",
-    "TrivialDecoder",
-]
+from ..construction.specs import DecoderSpec, DeferredObservableDecoderInput
+from ..dems import DetectorErrorModelArrays
+from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
 
 # sinter does not ship type information, so mypy treats sinter.Decoder and sinter.CompiledDecoder as
 # Any.  A subclass of Any is assumed to have every attribute, so it would structurally satisfy the
@@ -185,9 +176,17 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
         observable_flips = predicted_flips[:, :num_observable_bytes]
         observable_flips.tofile(obs_predictions_b8_out_path)
 
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Reject decoding before this observable decoder is compiled."""
+        raise DecoderNotCompiledError(
+            "This SinterDecoder needs to be compiled in order to decode.  Please compile with"
+            " SinterDecoder.compile_decoder_for_dem, and call decode_observables or"
+            " decode_shots on the compiled decoder"
+        )
+
+    # Deprecated compatibility method
     if TYPE_CHECKING:
-        # Hide this compatibility method from mypy, so that a SinterDecoder does not satisfy
-        # the ErrorDecoder protocol, which requires a decode method.
+        # Hide this method from mypy, so that a SinterDecoder does not satisfy ErrorDecoder.
         decode: None
     else:
 
@@ -198,14 +197,6 @@ class SinterDecoder(_SinterDecoder, ObservableDecoder):
             detector error model before it predicts observable flips.
             """
             return self.decode_observables(syndrome)
-
-    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Reject decoding before this observable decoder is compiled."""
-        raise DecoderNotCompiledError(
-            "This SinterDecoder needs to be compiled in order to decode.  Please compile with"
-            " SinterDecoder.compile_decoder_for_dem, and call decode_observables or"
-            " decode_shots on the compiled decoder"
-        )
 
 
 class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
@@ -340,9 +331,14 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
             axis=axis,
         )
 
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Predict observable flips for one syndrome."""
+        syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
+        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
+
+    # Deprecated compatibility method
     if TYPE_CHECKING:
-        # Hide this deprecated method from mypy, so that a CompiledSinterDecoder does not
-        # satisfy the ErrorDecoder protocol, which requires a decode method.
+        # Hide this method from mypy, so that a CompiledSinterDecoder does not satisfy ErrorDecoder.
         decode: None
     else:
 
@@ -357,11 +353,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
                 stacklevel=2,
             )
             return self.decode_observables(syndrome)
-
-    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Predict observable flips for one syndrome."""
-        syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
-        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
 
 class TrivialDecoder(SinterDecoder):

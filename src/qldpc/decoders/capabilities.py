@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from typing import get_type_hints
 
+from .construction.resolution import is_prebuilt_decoder
+from .construction.specs import DecoderSpec
 from .protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
-from .retrieval import DecoderSpec, is_prebuilt_decoder
 
 
 def compiles_for_dem(decoder: object) -> bool:

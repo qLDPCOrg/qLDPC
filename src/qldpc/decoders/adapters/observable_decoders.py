@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Adapters that normalize observable-decoder outputs."""
+"""Adapters that normalize or wrap observable decoders."""
 
 from __future__ import annotations
 
@@ -11,30 +11,6 @@ import numpy as np
 import numpy.typing as npt
 
 from ..protocols import ErrorDecoder, ObservableDecoder
-
-
-def validate_decoder_output(
-    output: npt.NDArray[Any],
-    num_values: int,
-    num_erasure_flags: int,
-    field: type[galois.FieldArray],
-    source: str,
-) -> None:
-    """Check that a decoder output holds num_values field elements followed by erasure flags."""
-    expected_shape = (num_values + num_erasure_flags,)
-    if output.shape != expected_shape:
-        flags = f" and {num_erasure_flags} erasure flag(s)" if num_erasure_flags else ""
-        raise ValueError(
-            f"{source} of shape {output.shape}, but expected shape {expected_shape}:"
-            f" {num_values} value(s){flags}"
-        )
-    if not (np.issubdtype(output.dtype, np.integer) or np.issubdtype(output.dtype, np.bool_)):
-        raise ValueError(f"{source} of dtype {output.dtype}, but expected integers")
-    values, erasure_flags = output[:num_values].astype(int), output[num_values:].astype(int)
-    if np.any(values < 0) or np.any(values >= field.order):
-        raise ValueError(f"{source} with entries that are not elements of {field.name}")
-    if np.any((erasure_flags != 0) & (erasure_flags != 1)):
-        raise ValueError(f"{source} with erasure flags that are not 0 or 1")
 
 
 class ErrorsToFieldObservablesDecoder(ObservableDecoder):
@@ -116,3 +92,37 @@ class BitPackedObservableDecoder(ObservableDecoder):
         )
         erased = bool(np.any(packed_prediction[0, num_bytes:]))
         return np.append(flips, np.uint8(erased))
+
+
+# Validation helpers
+
+
+def validate_observable_decoder(decoder: object, source: str) -> ObservableDecoder:
+    """Validate and type-narrow an object expected to decode to observable flips."""
+    if not isinstance(decoder, ObservableDecoder):
+        raise TypeError(f"{source} must provide a decode_observables method")
+    return decoder
+
+
+def validate_decoder_output(
+    output: npt.NDArray[Any],
+    num_values: int,
+    num_erasure_flags: int,
+    field: type[galois.FieldArray],
+    source: str,
+) -> None:
+    """Check that a decoder output holds num_values field elements followed by erasure flags."""
+    expected_shape = (num_values + num_erasure_flags,)
+    if output.shape != expected_shape:
+        flags = f" and {num_erasure_flags} erasure flag(s)" if num_erasure_flags else ""
+        raise ValueError(
+            f"{source} of shape {output.shape}, but expected shape {expected_shape}:"
+            f" {num_values} value(s){flags}"
+        )
+    if not (np.issubdtype(output.dtype, np.integer) or np.issubdtype(output.dtype, np.bool_)):
+        raise ValueError(f"{source} of dtype {output.dtype}, but expected integers")
+    values, erasure_flags = output[:num_values].astype(int), output[num_values:].astype(int)
+    if np.any(values < 0) or np.any(values >= field.order):
+        raise ValueError(f"{source} with entries that are not elements of {field.name}")
+    if np.any((erasure_flags != 0) & (erasure_flags != 1)):
+        raise ValueError(f"{source} with erasure flags that are not 0 or 1")

@@ -19,7 +19,7 @@ import stim
 
 from qldpc import codes, decoders
 from qldpc.codes import code_capacity
-from qldpc.decoders.adapters import observables as observable_adapters
+from qldpc.decoders.adapters import observable_decoders
 
 
 class _FixedObservableDecoder(decoders.ObservableDecoder):
@@ -184,7 +184,7 @@ def test_code_capacity_decoder_from_error_decoder() -> None:
     decoder = code_capacity.get_code_capacity_decoder(
         galois.GF2([[1, 1]]), galois.GF2([[1, 0]]), decoders.lookup_table(max_weight=1)
     )
-    assert isinstance(decoder.decoder, observable_adapters.ErrorsToFieldObservablesDecoder)
+    assert isinstance(decoder.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
     assert isinstance(decoder.decoder.error_decoder, decoders.LookupDecoder)
 
     # None represents an identity observable map without materializing a dense identity matrix
@@ -241,7 +241,7 @@ def test_code_capacity_decoder_from_observable_decoder() -> None:
     decoder = code_capacity.get_code_capacity_decoder(
         syndrome_matrix, observable_matrix, _BothDecoder([1, 0, 1])
     )
-    assert isinstance(decoder.decoder, observable_adapters.ErrorsToFieldObservablesDecoder)
+    assert isinstance(decoder.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
     assert decoder.get_failure_and_erasure(error) == (False, False)
 
     # an object with both decode and decode_observables keeps its legacy error-decoder semantics
@@ -255,7 +255,7 @@ def test_code_capacity_decoder_from_observable_decoder() -> None:
     decoder = code_capacity.get_code_capacity_decoder(
         syndrome_matrix, observable_matrix, _DecodeOnlyBoth()
     )
-    assert isinstance(decoder.decoder, observable_adapters.ErrorsToFieldObservablesDecoder)
+    assert isinstance(decoder.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
     assert decoder.get_failure_and_erasure(error) == (False, False)
 
     # the ObservableDecoder protocol does not require optional dimension metadata
@@ -493,8 +493,8 @@ def test_code_capacity_decoder_reuse() -> None:
         "qldpc.codes.monte_carlo",
         "qldpc.decoders.capabilities",
         "qldpc.decoders.custom",
-        "qldpc.decoders.lookup",
-        "qldpc.decoders.adapters.observables",
+        "qldpc.decoders.custom.lookup",
+        "qldpc.decoders.adapters.observable_decoders",
         "qldpc.circuits",
     ],
 )

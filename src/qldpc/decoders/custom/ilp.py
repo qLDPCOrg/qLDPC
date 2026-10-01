@@ -11,16 +11,15 @@ import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
+import stim
 
 from qldpc.math import IntegerArray
 
-from ..common import with_erasure_bits
+from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
 from ..protocols import ErrorDecoder
 
 if TYPE_CHECKING:
     import cvxpy
-
-__all__ = ["ILPDecoder"]
 
 
 class ILPDecoder(ErrorDecoder):
@@ -146,3 +145,28 @@ class ILPDecoder(ErrorDecoder):
             constraints.append(constraint)
 
         return constraints
+
+
+@_erasure_bit_support("ILP", supported=True)
+def get_decoder_ilp(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    add_erasure_bit: bool = False,
+    **decoder_args: object,
+) -> ILPDecoder:
+    """Build an integer-linear-program (ILP) decoder.
+
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
+            its dense detector-flip matrix.
+        add_erasure_bit: Whether to append a flag when the solver cannot produce an error that
+            reproduces the syndrome.
+        **decoder_args: Arguments passed to ``cvxpy.Problem.solve`` by :class:`ILPDecoder`.
+
+    Returns:
+        An :class:`ILPDecoder`.
+
+    ILP decoding supports prime fields.  Without an erasure bit, an unexplained syndrome is rejected
+    rather than returned as an ordinary inferred error.
+    """
+    return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)

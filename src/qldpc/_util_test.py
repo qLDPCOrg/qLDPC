@@ -89,6 +89,17 @@ def test_get_deprecated_alias() -> None:
     with pytest.raises(AttributeError, match=r"module 'some\.module' has no attribute 'Other'"):
         get_deprecated_alias("some.module", "Other", aliases)
 
+    with pytest.warns(DeprecationWarning, match="use canonical.module.NewName instead"):
+        assert (
+            get_deprecated_alias(
+                "some.module",
+                "OldName",
+                aliases,
+                {"OldName": "canonical.module.NewName"},
+            )
+            is NewName
+        )
+
 
 def test_deprecated_alias_import_warns_once() -> None:
     """Importing a deprecated name from a package warns once, although Python looks it up twice."""

@@ -12,17 +12,12 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from ..adapters.dem import match_error_decoder_to_dem
+from ..adapters.error_decoders import match_error_decoder_to_dem
+from ..construction.resolution import resolve_decoder
+from ..construction.specs import DeferredErrorDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, batch_decode_errors
-from ..retrieval import DeferredErrorDecoderInput, resolve_decoder
 from .core import CompiledSinterDecoder, SinterDecoder
-
-__all__ = [
-    "CompiledSequentialWindowDecoder",
-    "SequentialWindowDecoder",
-    "SlidingWindowDecoder",
-]
 
 
 class SequentialWindowDecoder(SinterDecoder):

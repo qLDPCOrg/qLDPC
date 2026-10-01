@@ -11,18 +11,17 @@ from typing import TYPE_CHECKING
 import galois
 import numpy as np
 import numpy.typing as npt
+import stim
 
 from qldpc import math
 from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
-from ..common import with_erasure_bits
+from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
 from ..protocols import ErrorDecoder
 
 if TYPE_CHECKING:
     from qldpc import codes
-
-__all__ = ["GUFDecoder"]
 
 
 class GUFDecoder(ErrorDecoder):
@@ -170,3 +169,25 @@ class GUFDecoder(ErrorDecoder):
             bits += [bit + len(self.code) for bit in bits]
 
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
+
+
+@_erasure_bit_support("GUF", supported=True)
+def get_decoder_guf(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+) -> GUFDecoder:
+    """Build a generalized union-find (GUF) decoder.
+
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
+            its dense detector-flip matrix.
+        **decoder_args: Arguments passed to :class:`GUFDecoder`, including ``max_weight``,
+            ``symplectic``, and ``add_erasure_bit``.
+
+    Returns:
+        A :class:`GUFDecoder`.
+
+    With ``add_erasure_bit=True``, the decoder appends a flag when its search is exhausted without
+    finding an error that reproduces the syndrome.  Supplying ``max_weight`` can make the search
+    exponential.  See `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
+    """
+    return GUFDecoder(_to_pcm(pcm_or_dem), **decoder_args)  # type: ignore[arg-type]

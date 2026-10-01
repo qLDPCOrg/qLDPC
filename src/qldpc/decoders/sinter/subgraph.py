@@ -11,11 +11,9 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
+from ..construction.specs import DeferredObservableDecoderInput
 from ..dems import DetectorErrorModelArrays
-from ..retrieval import DeferredObservableDecoderInput
 from .core import CompiledSinterDecoder, SinterDecoder
-
-__all__ = ["CompiledSubgraphDecoder", "SubgraphDecoder"]
 
 
 class SubgraphDecoder(SinterDecoder):

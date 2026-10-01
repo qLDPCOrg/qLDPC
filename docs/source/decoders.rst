@@ -13,7 +13,7 @@ reduction, and sliding-window decoders all work with physical errors, so they ne
 Circuit-level simulations only need to know which observables flipped, so they use observable
 decoders. Code-capacity estimates only need to know whether decoding changed the logical state, so
 they accept either kind (see `Code-capacity estimates`_). Some decoders are both: a
-:class:`decoders.RelayBPDecoder <qldpc.decoders.custom.relay_bp.RelayBPDecoder>` infers errors and
+:class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` infers errors and
 predicts observable flips. Exact distance calculations do not need a decoder.
 
 A :class:`decoders.SinterDecoder <qldpc.decoders.sinter.core.SinterDecoder>` is the observable decoder
@@ -45,17 +45,18 @@ Methods that decode, such as the code-capacity estimators below, instead accept 
 
 The helpers are available directly under ``qldpc.decoders``:
 
-* :func:`decoders.bp_osd <qldpc.decoders.retrieval.bp_osd>`
-* :func:`decoders.bp_lsd <qldpc.decoders.retrieval.bp_lsd>`
-* :func:`decoders.bf <qldpc.decoders.retrieval.bf>`
-* :func:`decoders.mwpm <qldpc.decoders.retrieval.mwpm>`
-* :func:`decoders.relay_bp <qldpc.decoders.retrieval.relay_bp>`
-* :func:`decoders.min_sum_bp <qldpc.decoders.retrieval.min_sum_bp>`
-* :func:`decoders.lookup_table <qldpc.decoders.retrieval.lookup_table>`
-* :func:`decoders.ilp <qldpc.decoders.retrieval.ilp>`
-* :func:`decoders.guf <qldpc.decoders.retrieval.guf>`
+* :func:`decoders.bp_osd <qldpc.decoders.construction.specs.bp_osd>`
+* :func:`decoders.bp_lsd <qldpc.decoders.construction.specs.bp_lsd>`
+* :func:`decoders.bf <qldpc.decoders.construction.specs.bf>`
+* :func:`decoders.mwpm <qldpc.decoders.construction.specs.mwpm>`
+* :func:`decoders.relay_bp <qldpc.decoders.construction.specs.relay_bp>`
+* :func:`decoders.min_sum_bp <qldpc.decoders.construction.specs.min_sum_bp>`
+* :func:`decoders.lookup_table <qldpc.decoders.construction.specs.lookup_table>`
+* :func:`decoders.ilp <qldpc.decoders.construction.specs.ilp>`
+* :func:`decoders.guf <qldpc.decoders.construction.specs.guf>`
 
-Each helper returns a :class:`decoders.DecoderSpec <qldpc.decoders.retrieval.DecoderSpec>`, which
+Each helper returns a
+:class:`decoders.DecoderSpec <qldpc.decoders.construction.specs.DecoderSpec>`, which
 only stores settings. The signature of a helper lists the options of its decoder explicitly, so they
 are visible to autocomplete and static-analysis tools, and a misspelled option raises a
 ``TypeError``. The exception is ``ilp``, which forwards additional options to
@@ -67,17 +68,17 @@ Building decoders immediately
 
 The typed helpers above store validated settings; they do not build a decoder until ``.build(...)``
 or a higher-level API supplies a matrix or detector error model.  To construct one immediately, use
-the lowercase builders in :mod:`qldpc.decoders.builders`.  The common error builders are also
-warning-free exports from ``qldpc.decoders``:
+the lowercase builders owned by their implementation modules.  They are also warning-free exports
+from ``qldpc.decoders`` and ``qldpc.decoders.construction``:
 
-* :func:`decoders.get_decoder_bp_osd <qldpc.decoders.builders.get_decoder_bp_osd>`
-* :func:`decoders.get_decoder_bp_lsd <qldpc.decoders.builders.get_decoder_bp_lsd>`
-* :func:`decoders.get_decoder_bf <qldpc.decoders.builders.get_decoder_bf>`
-* :func:`decoders.get_decoder_mwpm <qldpc.decoders.builders.get_decoder_mwpm>`
-* :func:`decoders.get_decoder_rbp <qldpc.decoders.builders.get_decoder_rbp>`
-* :func:`decoders.get_decoder_lookup <qldpc.decoders.builders.get_decoder_lookup>`
-* :func:`decoders.get_decoder_ilp <qldpc.decoders.builders.get_decoder_ilp>`
-* :func:`decoders.get_decoder_guf <qldpc.decoders.builders.get_decoder_guf>`
+* :func:`decoders.get_decoder_bp_osd <qldpc.decoders.external.ldpc.get_decoder_bp_osd>`
+* :func:`decoders.get_decoder_bp_lsd <qldpc.decoders.external.ldpc.get_decoder_bp_lsd>`
+* :func:`decoders.get_decoder_bf <qldpc.decoders.external.ldpc.get_decoder_bf>`
+* :func:`decoders.get_decoder_mwpm <qldpc.decoders.external.pymatching.get_decoder_mwpm>`
+* :func:`decoders.get_decoder_rbp <qldpc.decoders.external.relay_bp.get_decoder_rbp>`
+* :func:`decoders.get_decoder_lookup <qldpc.decoders.custom.lookup.get_decoder_lookup>`
+* :func:`decoders.get_decoder_ilp <qldpc.decoders.custom.ilp.get_decoder_ilp>`
+* :func:`decoders.get_decoder_guf <qldpc.decoders.custom.guf.get_decoder_guf>`
 
 For example, ``decoders.get_decoder_bp_lsd(code.matrix, max_iter=30)`` builds immediately, whereas
 ``decoders.bp_lsd(max_iter=30)`` returns reusable typed settings.  The old uppercase builder names,
@@ -125,7 +126,7 @@ arguments each accept either kind of decoder:
   annotated to return an observable decoder is treated as an observable-decoder constructor and is
   built from the same detector error model.
 * A prebuilt observable decoder, such as an
-  :class:`decoders.ObservableLookupDecoder <qldpc.decoders.lookup.ObservableLookupDecoder>` built with
+  :class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` built with
   the stabilizers and logical operators of a CSS sector, predicts logical flips directly, over any
   field. Detector, observable, and field metadata is validated when a decoder exposes it. Built-in
   observable decoders expose this metadata; a raw precompiled decoder that only provides Sinter's
@@ -156,9 +157,11 @@ errors that a decoder infers.
 Predicting observable flips
 ---------------------------
 
-:func:`decoders.get_observable_decoder <qldpc.decoders.retrieval.get_observable_decoder>` builds an
+:func:`decoders.get_observable_decoder <qldpc.decoders.construction.resolution.get_observable_decoder>`
+builds an
 observable decoder for a detector error model, and
-:func:`decoders.decode_observables <qldpc.decoders.retrieval.decode_observables>` predicts the
+:func:`decoders.decode_observables <qldpc.decoders.construction.resolution.decode_observables>`
+predicts the
 observable flips of one syndrome:
 
 .. code-block:: python
@@ -171,9 +174,9 @@ settings build a native observable decoder wherever observable flips are wanted:
 
 * ``mwpm`` builds a PyMatching decoder that tracks observables along matched paths;
 * ``relay_bp`` and ``min_sum_bp`` build a
-  :class:`decoders.RelayBPDecoder <qldpc.decoders.custom.relay_bp.RelayBPDecoder>`; and
+  :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>`; and
 * ``lookup_table`` builds an
-  :class:`decoders.ObservableLookupDecoder <qldpc.decoders.lookup.ObservableLookupDecoder>`, which
+  :class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>`, which
   maps each syndrome directly to its most likely observable flip.
 
 The settings of any other decoder build an error decoder, whose inferred errors are converted into
@@ -230,18 +233,20 @@ decoder may also define:
 Methods that use an error decoder also accept any object whose ``decode`` method returns an inferred
 error, such as a decoder built directly with the ldpc package, and wrap it in a
 :class:`decoders.WrappedErrorDecoder <qldpc.decoders.protocols.WrappedErrorDecoder>`. The immediate builders of library decoders, such as
-:func:`decoders.get_decoder_bp_osd <qldpc.decoders.builders.get_decoder_bp_osd>`, return subclasses
+:func:`decoders.get_decoder_bp_osd <qldpc.decoders.external.ldpc.get_decoder_bp_osd>`,
+return subclasses
 of the library's decoder classes from :mod:`qldpc.decoders.adapters`; for example,
 ``get_decoder_bp_osd`` returns an ``ldpc.BpOsdDecoder`` that is also an ``ErrorDecoder``.
 
-qLDPC's implementation classes have canonical paths at
-:class:`decoders.RelayBPDecoder <qldpc.decoders.custom.relay_bp.RelayBPDecoder>`,
+External integration classes have canonical paths such as
+:class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>`. qLDPC's own
+implementation classes have canonical paths at
 :class:`decoders.ILPDecoder <qldpc.decoders.custom.ilp.ILPDecoder>`,
 :class:`decoders.GUFDecoder <qldpc.decoders.custom.guf.GUFDecoder>`,
 :class:`decoders.CompositeDecoder <qldpc.decoders.custom.composition.CompositeDecoder>`, and
 :class:`decoders.DirectDecoder <qldpc.decoders.custom.composition.DirectDecoder>`.
-:class:`decoders.ErrorsToObservablesDecoder <qldpc.decoders.adapters.dem.ErrorsToObservablesDecoder>`
-and :class:`decoders.ExpandedErrorDecoder <qldpc.decoders.adapters.dem.ExpandedErrorDecoder>` are the
+:class:`decoders.ErrorsToObservablesDecoder <qldpc.decoders.adapters.error_decoders.ErrorsToObservablesDecoder>`
+and :class:`decoders.ExpandedErrorDecoder <qldpc.decoders.adapters.error_decoders.ExpandedErrorDecoder>` are the
 conversion adapters.  The package-root imports remain stable facades.
 
 Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
@@ -270,13 +275,13 @@ also accept a Sinter-style decoder, which they compile for their internal detect
 Lookup-table outputs
 --------------------
 
-:class:`decoders.LookupDecoder <qldpc.decoders.lookup.LookupDecoder>` and
-:class:`decoders.WeightedLookupDecoder <qldpc.decoders.lookup.WeightedLookupDecoder>` are error
+:class:`decoders.LookupDecoder <qldpc.decoders.custom.lookup.LookupDecoder>` and
+:class:`decoders.WeightedLookupDecoder <qldpc.decoders.custom.lookup.WeightedLookupDecoder>` are error
 decoders. They may use an observable-flip matrix to group candidate errors by logical effect, but
 their output is a representative physical error.
 
-:class:`decoders.ObservableLookupDecoder <qldpc.decoders.lookup.ObservableLookupDecoder>` and
-:class:`decoders.WeightedObservableLookupDecoder <qldpc.decoders.lookup.WeightedObservableLookupDecoder>`
+:class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` and
+:class:`decoders.WeightedObservableLookupDecoder <qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder>`
 are observable decoders, which return the observable flip itself:
 
 .. code-block:: python
@@ -318,7 +323,9 @@ Deprecated usage
 ~~~~~~~~~~~~~~~~
 
 The keyword-based decoder API of ``qldpc==0.3.3`` remains available during a deprecation period, and
-each use emits a ``DeprecationWarning`` that names its replacement. In particular,
+each use emits a ``DeprecationWarning`` that names its replacement. Compatibility is provided for
+the names exported from the package root, ``qldpc.decoders``, in that release; internal module paths
+are not part of this guarantee. In particular,
 ``decoders.get_decoder`` and ``decoders.decode`` behave as they did in ``qldpc==0.3.3``:
 
 .. list-table::
@@ -336,6 +343,8 @@ each use emits a ``DeprecationWarning`` that names its replacement. In particula
      - ``decoder=decoders.bp_osd(...)``, or ``decoders.guf(...)`` for nonbinary codes
    * - ``decoder_constructor=MyDecoder``
      - ``decoder=MyDecoder``
+   * - ``decoders.get_decoder_BP_OSD`` (and the other uppercase builder names)
+     - ``decoders.get_decoder_bp_osd`` (and the corresponding lowercase builder)
    * - ``decoder_x_kwargs={...}`` and ``decoder_z_kwargs={...}``
      - ``decoder_x=...`` and ``decoder_z=...``
    * - ``LookupDecoder(..., predict_observable_flips=True)``

@@ -20,8 +20,6 @@ from ..protocols import (
     supports_batch_decoding,
 )
 
-__all__ = ["CompositeDecoder", "DirectDecoder"]
-
 
 class CompositeDecoder(ErrorDecoder):
     """Decoder for a composite syndrome from multiple independent code blocks.

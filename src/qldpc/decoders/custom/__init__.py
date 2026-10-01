@@ -7,11 +7,17 @@ from typing import TYPE_CHECKING, Any
 from qldpc._util import get_deprecated_alias
 
 from ..common import PLACEHOLDER_ERROR_RATE
+from ..external.relay_bp import RelayBPDecoder
 from ..protocols import BatchErrorDecoder, ErrorDecoder
 from .composition import CompositeDecoder, DirectDecoder
 from .guf import GUFDecoder
 from .ilp import ILPDecoder
-from .relay_bp import RelayBPDecoder
+from .lookup import (
+    LookupDecoder,
+    ObservableLookupDecoder,
+    WeightedLookupDecoder,
+    WeightedObservableLookupDecoder,
+)
 
 __all__ = [
     "PLACEHOLDER_ERROR_RATE",
@@ -21,8 +27,14 @@ __all__ = [
     "DirectDecoder",
     "GUFDecoder",
     "ILPDecoder",
+    "LookupDecoder",
+    "ObservableLookupDecoder",
     "RelayBPDecoder",
+    "WeightedLookupDecoder",
+    "WeightedObservableLookupDecoder",
 ]
+
+# Deprecated compatibility aliases
 
 DEPRECATED_ALIASES = {"Decoder": ErrorDecoder, "BatchDecoder": BatchErrorDecoder}
 

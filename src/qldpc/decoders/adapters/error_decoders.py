@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Conversion of binary detector-error-model error decoders to observable decoders."""
+"""Adapters that align or convert errors inferred by error decoders."""
 
 from __future__ import annotations
 
@@ -16,19 +16,32 @@ from ..protocols import (
     batch_decode_errors,
 )
 
-__all__ = [
-    "ErrorsToObservablesDecoder",
-    "ExpandedErrorDecoder",
-    "match_error_decoder_to_dem",
-    "validate_observable_decoder",
-]
+
+class ErrorsToObservablesDecoder(ObservableDecoder):
+    """Convert errors inferred by an error decoder into binary DEM observable flips."""
+
+    def __init__(self, error_decoder: ErrorDecoder, dem: stim.DetectorErrorModel) -> None:
+        self.error_decoder = error_decoder
+        self._aligned_error_decoder = match_error_decoder_to_dem(error_decoder, dem)
+        self.has_erasure_bit = bool(getattr(error_decoder, "has_erasure_bit", False))
+        self.observable_flip_matrix = DetectorErrorModelArrays(
+            dem, simplify=False
+        ).observable_flip_matrix
+
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode one syndrome to predicted observable flips."""
+        return self.decode_observables_batch(np.asarray(syndrome)[None, :])[0]
+
+    def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a batch of syndromes to predicted observable flips."""
+        errors = batch_decode_errors(self._aligned_error_decoder, syndromes)
+        erasure_bits = errors[:, -1:] if self.has_erasure_bit else errors[:, :0]
+        errors = errors[:, : errors.shape[1] - erasure_bits.shape[1]]
+        flips = np.asarray(errors @ self.observable_flip_matrix.T) % 2
+        return np.hstack([flips, erasure_bits]).astype(np.uint8)
 
 
-def validate_observable_decoder(decoder: object, source: str) -> ObservableDecoder:
-    """Validate and type-narrow an object expected to decode to observable flips."""
-    if not isinstance(decoder, ObservableDecoder):
-        raise TypeError(f"{source} must provide a decode_observables method")
-    return decoder
+# Error-mechanism alignment
 
 
 class ExpandedErrorDecoder(BatchErrorDecoder):
@@ -101,27 +114,3 @@ def match_error_decoder_to_dem(decoder: ErrorDecoder, dem: stim.DetectorErrorMod
         " equivalent mechanisms).  If the decoder predicts observable flips rather than errors,"
         " give it a decode_observables method, and pass it where an observable decoder is accepted"
     )
-
-
-class ErrorsToObservablesDecoder(ObservableDecoder):
-    """Convert errors inferred by an error decoder into binary DEM observable flips."""
-
-    def __init__(self, error_decoder: ErrorDecoder, dem: stim.DetectorErrorModel) -> None:
-        self.error_decoder = error_decoder
-        self._aligned_error_decoder = match_error_decoder_to_dem(error_decoder, dem)
-        self.has_erasure_bit = bool(getattr(error_decoder, "has_erasure_bit", False))
-        self.observable_flip_matrix = DetectorErrorModelArrays(
-            dem, simplify=False
-        ).observable_flip_matrix
-
-    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode one syndrome to predicted observable flips."""
-        return self.decode_observables_batch(np.asarray(syndrome)[None, :])[0]
-
-    def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode a batch of syndromes to predicted observable flips."""
-        errors = batch_decode_errors(self._aligned_error_decoder, syndromes)
-        erasure_bits = errors[:, -1:] if self.has_erasure_bit else errors[:, :0]
-        errors = errors[:, : errors.shape[1] - erasure_bits.shape[1]]
-        flips = np.asarray(errors @ self.observable_flip_matrix.T) % 2
-        return np.hstack([flips, erasure_bits]).astype(np.uint8)

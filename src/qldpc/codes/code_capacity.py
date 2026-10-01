@@ -19,14 +19,26 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc import decoders
-from qldpc.decoders.adapters.observables import (
+from qldpc.decoders.adapters.observable_decoders import (
     BitPackedObservableDecoder,
     ErrorsToFieldObservablesDecoder,
     validate_decoder_output,
 )
-from qldpc.decoders.capabilities import constructs_observable_decoder
+from qldpc.decoders.capabilities import (
+    compiles_for_dem,
+    constructs_observable_decoder,
+    is_prebuilt_observable_decoder,
+)
 from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE
+from qldpc.decoders.construction.resolution import reject_prebuilt_decoder, resolve_decoder
+from qldpc.decoders.construction.specs import (
+    ErrorDecoderInput,
+    ObservableDecoderConstructor,
+    ObservableDecoderInput,
+)
+from qldpc.decoders.dems import DetectorErrorModelArrays
+from qldpc.decoders.protocols import ErrorDecoder, ObservableDecoder
+from qldpc.decoders.sinter.core import CompiledSinterDecoder
 
 
 def get_code_capacity_dem(
@@ -80,18 +92,12 @@ def get_code_capacity_dem(
             if observable_matrix is not None
             else scipy.sparse.identity(syndrome_matrix.shape[1], dtype=np.uint8, format="csc")
         )
-    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+    dem_arrays = DetectorErrorModelArrays.from_arrays(
         np.asarray(detector_flip_matrix, dtype=np.uint8),
         observable_flip_matrix,
         error_probs,
     )
     return dem_arrays.to_dem()
-
-
-def _get_single_qudit_error_effects(matrix: galois.FieldArray) -> galois.FieldArray:
-    """Apply a symplectic map to single-qudit X, Z, and Y errors without forming those errors."""
-    components_x, components_z = np.hsplit(matrix, 2)
-    return np.hstack([components_x, components_z, components_x + components_z]).view(type(matrix))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -108,7 +114,7 @@ class CodeCapacityDecoder:
     """
 
     # predicts the values of the observables of an error from its syndrome
-    decoder: decoders.ObservableDecoder
+    decoder: ObservableDecoder
     # maps an error to the syndrome that the decoder decodes
     syndrome_matrix: galois.FieldArray
     # maps an error to the values of its observables
@@ -137,7 +143,7 @@ class CodeCapacityDecoder:
 
     @staticmethod
     def from_error_decoder(
-        error_decoder: decoders.ErrorDecoder,
+        error_decoder: ErrorDecoder,
         syndrome_matrix: galois.FieldArray,
         observable_matrix: galois.FieldArray | None,
     ) -> CodeCapacityDecoder:
@@ -210,19 +216,10 @@ class CodeCapacityDecoder:
         return bool(np.any(predicted_observables != actual_observables)), False
 
 
-def _observable_matrices_equal(
-    matrix_a: galois.FieldArray | None, matrix_b: galois.FieldArray | None
-) -> bool:
-    """Whether two observable maps, where None denotes the identity, are equal."""
-    if matrix_a is None or matrix_b is None:
-        return matrix_a is matrix_b
-    return bool(np.array_equal(matrix_a, matrix_b))
-
-
 def get_code_capacity_decoder(
     syndrome_matrix: galois.FieldArray,
     observable_matrix: galois.FieldArray | None,
-    decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput,
+    decoder: ErrorDecoderInput | ObservableDecoderInput,
     decoder_args: Mapping[str, object] | None = None,
     *,
     dem_errors: galois.FieldArray | None = None,
@@ -281,7 +278,7 @@ def get_code_capacity_decoder(
     dem_error_probs: npt.NDArray[np.floating] | float = PLACEHOLDER_ERROR_RATE
     if dem_error_weights is not None:
         dem_error_probs = PLACEHOLDER_ERROR_RATE * np.asarray(dem_error_weights, dtype=float)
-    if not decoder_args and decoders.compiles_for_dem(decoder):
+    if not decoder_args and compiles_for_dem(decoder):
         dem = get_code_capacity_dem(
             syndrome_matrix,
             observable_matrix,
@@ -299,9 +296,9 @@ def get_code_capacity_decoder(
         )
 
     if prebuilt_rejection_reason is not None:
-        decoders.reject_prebuilt_decoder(decoder, prebuilt_rejection_reason)
+        reject_prebuilt_decoder(decoder, prebuilt_rejection_reason)
 
-    if not decoder_args and decoders.is_prebuilt_observable_decoder(decoder):
+    if not decoder_args and is_prebuilt_observable_decoder(decoder):
         return _get_observable_code_capacity_decoder(
             decoder,
             syndrome_matrix,
@@ -318,7 +315,7 @@ def get_code_capacity_decoder(
             symplectic_errors=symplectic_dem_errors,
             error_probs=dem_error_probs,
         )
-        constructor = cast(decoders.ObservableDecoderConstructor, decoder)
+        constructor = cast(ObservableDecoderConstructor, decoder)
         return _get_observable_code_capacity_decoder(
             constructor(dem),
             syndrome_matrix,
@@ -327,13 +324,31 @@ def get_code_capacity_decoder(
             require_dimensions=False,
         )
 
-    error_decoder = decoders.resolve_decoder(
+    error_decoder = resolve_decoder(
         syndrome_matrix,
         decoder,  # type:ignore[arg-type]
         decoder_args,
         warn_deprecated=warn_deprecated,
     )
     return CodeCapacityDecoder.from_error_decoder(error_decoder, syndrome_matrix, observable_matrix)
+
+
+# Private helpers
+
+
+def _get_single_qudit_error_effects(matrix: galois.FieldArray) -> galois.FieldArray:
+    """Apply a symplectic map to single-qudit X, Z, and Y errors without forming those errors."""
+    components_x, components_z = np.hsplit(matrix, 2)
+    return np.hstack([components_x, components_z, components_x + components_z]).view(type(matrix))
+
+
+def _observable_matrices_equal(
+    matrix_a: galois.FieldArray | None, matrix_b: galois.FieldArray | None
+) -> bool:
+    """Whether two observable maps, where None denotes the identity, are equal."""
+    if matrix_a is None or matrix_b is None:
+        return matrix_a is matrix_b
+    return bool(np.array_equal(matrix_a, matrix_b))
 
 
 def _get_observable_code_capacity_decoder(
@@ -350,12 +365,12 @@ def _get_observable_code_capacity_decoder(
     num_observables = (
         syndrome_matrix.shape[1] if observable_matrix is None else len(observable_matrix)
     )
-    observable_decoder: decoders.ObservableDecoder
-    if isinstance(decoder, decoders.CompiledSinterDecoder):
+    observable_decoder: ObservableDecoder
+    if isinstance(decoder, CompiledSinterDecoder):
         if field.order != 2:
             raise ValueError(f"{source} is binary, so it cannot decode a code over {field.name}")
         observable_decoder, num_erasure_flags = decoder, decoder.num_erasure_bits
-    elif isinstance(decoder, decoders.ObservableDecoder):
+    elif isinstance(decoder, ObservableDecoder):
         num_erasure_flags = int(bool(getattr(decoder, "has_erasure_bit", False)))
         observable_decoder = decoder
     elif callable(getattr(decoder, "decode_shots_bit_packed", None)):
@@ -373,7 +388,7 @@ def _get_observable_code_capacity_decoder(
         value = getattr(decoder, name, None)
         if (
             require_dimensions
-            and not isinstance(decoder, decoders.ObservableDecoder)
+            and not isinstance(decoder, ObservableDecoder)
             and not isinstance(value, (int, np.integer))
         ):
             raise ValueError(

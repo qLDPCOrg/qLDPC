@@ -37,6 +37,8 @@ __all__ = [
     "TrivialDecoder",
 ]
 
+# Deprecated compatibility aliases
+
 DEPRECATED_ALIASES: dict[str, type] = {
     "Decoder": ErrorDecoder,
     "SequentialSinterDecoder": SequentialWindowDecoder,

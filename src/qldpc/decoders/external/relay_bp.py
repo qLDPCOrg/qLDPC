@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Relay-BP decoder adapter."""
+"""Relay-BP decoder adapter and builders."""
 
 from __future__ import annotations
 
@@ -17,11 +17,11 @@ import stim
 
 from qldpc.math import IntegerArray
 
-from ..common import PLACEHOLDER_ERROR_RATE, with_erasure_bits
+from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder
 
-__all__ = ["RelayBPDecoder"]
+# Public decoder and builders
 
 
 class RelayBPDecoder(BatchErrorDecoder):
@@ -307,3 +307,68 @@ class RelayBPDecoder(BatchErrorDecoder):
             return inner_func(*args, **kwargs)
 
         return outer_func
+
+
+@_erasure_bit_support("RBP", supported=True)
+def get_decoder_rbp(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    **decoder_args: object,
+) -> RelayBPDecoder:
+    """Build a Relay-BP decoder.
+
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
+        error_priors: Prior probabilities for each error.  A DEM supplies these by default.
+        **decoder_args: Arguments passed to :class:`RelayBPDecoder`, including the backend class
+            ``name``, observable matrix, and ``add_erasure_bit``.
+
+    Returns:
+        A :class:`RelayBPDecoder`, which can infer errors and, when observable metadata is
+        available, predict observable flips.
+
+    With ``add_erasure_bit=True``, the decoder appends a flag set when the inferred error does not
+    reproduce the syndrome.
+
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
+    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
+    """
+    return RelayBPDecoder(pcm_or_dem, error_priors, **decoder_args)  # type: ignore[arg-type]
+
+
+def get_relay_bp_decoder(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
+) -> RelayBPDecoder:
+    """Build the ``RelayDecoder`` backend selected by a ``relay_bp`` :class:`DecoderSpec`.
+
+    The specification supplies a ``precision`` suffix and forwards all other options to
+    :func:`get_decoder_rbp`.  This public builder exists so deferred specifications have a stable,
+    pickleable construction path.
+    """
+    return _get_relay_decoder(pcm_or_dem, decoder_class_prefix="RelayDecoder", **decoder_args)
+
+
+def get_min_sum_bp_decoder(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
+) -> RelayBPDecoder:
+    """Build the ``MinSumBPDecoder`` backend selected by a ``min_sum_bp`` :class:`DecoderSpec`.
+
+    The specification supplies a ``precision`` suffix and forwards all other options to
+    :func:`get_decoder_rbp`.  This public builder exists so deferred specifications have a stable,
+    pickleable construction path.
+    """
+    return _get_relay_decoder(pcm_or_dem, decoder_class_prefix="MinSumBPDecoder", **decoder_args)
+
+
+# Private builder helpers
+
+
+def _get_relay_decoder(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    decoder_class_prefix: str,
+    precision: str,
+    **decoder_args: Any,
+) -> RelayBPDecoder:
+    """Build a RelayBPDecoder from a class-name prefix and precision."""
+    return get_decoder_rbp(pcm_or_dem, name=f"{decoder_class_prefix}{precision}", **decoder_args)
