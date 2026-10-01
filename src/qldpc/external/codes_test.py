@@ -94,19 +94,20 @@ def test_get_qldpc_challenge_code() -> None:
 
     # CSS code with a certified exact distance
     css_checks = {"X": [[0, 2]], "Z": [[1]]}
-    css = {"n": 3, "code_type": "CSS", "checks": css_checks, "distance": {"d": 2}}
+    css_distance = {"d": 2, "X": {"value": 2}, "Z": {"value": 3}}
+    css = {"n": 3, "code_type": "CSS", "checks": css_checks, "distance": css_distance}
     with unittest.mock.patch(get_json, side_effect=[css, index]):
-        matrix, distance, is_css = external.codes.get_qldpc_challenge_code("css")
+        matrix, distance, is_css, bounds = external.codes.get_qldpc_challenge_code("css")
     assert np.array_equal(matrix, [[1, 0, 1, 0, 0, 0], [0, 0, 0, 0, 1, 0]])
-    assert (distance, is_css) == (2, True)
+    assert (distance, is_css, bounds) == (2, True, (2, 3))
 
     # stabilizer code (with a Y on qubit 1) whose distance is only an upper bound
     stab_checks = {"S": [{"X": [0, 1], "Z": [1]}]}
     stab = {"n": 2, "code_type": "stabilizer", "checks": stab_checks, "distance": {"d": 1}}
     with unittest.mock.patch(get_json, side_effect=[stab, index]):
-        matrix, distance, is_css = external.codes.get_qldpc_challenge_code("stab")
+        matrix, distance, is_css, bounds = external.codes.get_qldpc_challenge_code("stab")
     assert np.array_equal(matrix, [[1, 1, 0, 1]])
-    assert (distance, is_css) == (None, False)
+    assert (distance, is_css, bounds) == (None, False, (1,))
 
     # malformed code data
     with (
