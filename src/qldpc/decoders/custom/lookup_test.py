@@ -25,7 +25,8 @@ def test_lookup(toy_problem: ToyProblem) -> None:
 
     decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
-    assert len(decoder) == len(decoder.syndrome_to_error)
+    assert len(decoder) == len(decoder._syndrome_to_error)
+    assert not hasattr(decoder, "syndrome_to_error")
 
     # decode with a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
@@ -607,7 +608,13 @@ def test_packed_lookup_table_memory() -> None:
     code = codes.HammingCode(5)
     decoder = decoders.LookupDecoder(code.matrix, max_weight=1)
     packed = decoder._syndrome_to_error.items()
-    unpacked = dict(decoder.syndrome_to_error).items()
+    unpacked = [
+        (
+            tuple(decoder._syndrome_codec.unpack(key).tolist()),
+            decoder._output_codec.unpack(value),
+        )
+        for key, value in packed
+    ]
     packed_payload_size = sum(sys.getsizeof(key) + sys.getsizeof(value) for key, value in packed)
     unpacked_payload_size = sum(
         sys.getsizeof(key) + sys.getsizeof(value) for key, value in unpacked
@@ -616,51 +623,10 @@ def test_packed_lookup_table_memory() -> None:
 
 
 @pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3), galois.GF(4)])
-def test_syndrome_to_error_mapping(field: type[galois.FieldArray]) -> None:
-    """The syndrome_to_error mapping reads, writes, and deletes entries of the packed table."""
+def test_invalid_lookup_syndromes(field: type[galois.FieldArray]) -> None:
+    """An out-of-field or misshapen syndrome decodes as one never seen."""
     matrix = field([[1, 1, 0], [0, 1, 1]])
     decoder = decoders.LookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
-    table = decoder.syndrome_to_error
-    assert table is decoder.syndrome_to_error
-    assert len(table) == len(decoder) == len(set(map(tuple, table)))
-
-    # every entry is consistent with its syndrome
-    for syndrome, error in table.items():
-        assert error[-1] == 0
-        assert np.array_equal(matrix @ field(error[:-1]), syndrome)
-        assert np.array_equal(decoder.decode(np.array(syndrome)), error)
-
-    # values are copies
-    syndrome = next(iter(table))
-    table[syndrome][0] = (table[syndrome][0] + 1) % field.order
-    assert np.array_equal(table[syndrome], decoder.decode(np.array(syndrome)))
-
-    # assignment and deletion affect decoding
-    custom = np.array([1, 1, 1, 0])
-    table[syndrome] = custom
-    assert np.array_equal(decoder.decode(np.array(syndrome)), custom)
-    del table[syndrome]
-    assert syndrome not in table
-    assert np.array_equal(decoder.decode(np.array(syndrome)), decoder.default_correction)
-    with pytest.raises(KeyError):
-        del table[syndrome]
-    with pytest.raises(KeyError):
-        table[(field.order, 0)]
-    with pytest.raises(KeyError):
-        table[(None, 1)]  # type: ignore[index]
-
-    # invalid entries are rejected
-    with pytest.raises(ValueError, match="syndrome must be"):
-        table[(0, 0, 0)] = custom
-    with pytest.raises(ValueError, match="prediction must be"):
-        table[(0, 0)] = np.array([0, 0, field.order, 0])
-
-    # snapshots are ordinary dictionaries
-    snapshot = dict(table)
-    assert type(snapshot) is dict and len(snapshot) == len(table)
-    assert "_PackedLookupTable" in repr(table)
-
-    # an out-of-field or misshapen syndrome decodes as one never seen
     post_selected = decoders.LookupDecoder(matrix, max_weight=1, post_select=[0])
     assert np.array_equal(post_selected.decode(np.array([0])), post_selected.default_correction)
     assert np.array_equal(decoder.decode(np.array([field.order, 0])), decoder.default_correction)
@@ -738,8 +704,8 @@ def test_observable_lookup_sinter_batches(num_observables: int, add_erasure_bit:
     assert decoder.decode_shots_bit_packed(packed_shots[:0]).shape == packed_expected[:0].shape
 
 
-def test_observable_lookup_sinter_post_selection_and_mutation() -> None:
-    """Direct packed shots preserve post-selection and mutable-table updates."""
+def test_observable_lookup_sinter_post_selection() -> None:
+    """Direct packed shots preserve post-selection."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1")
     decoder = decoders.ObservableLookupDecoder(
         dem, max_weight=1, post_select=[0], add_erasure_bit=True
@@ -756,9 +722,6 @@ def test_observable_lookup_sinter_post_selection_and_mutation() -> None:
             ]
         ),
     )
-
-    decoder.syndrome_to_error[(1,)] = np.array([1, 0])
-    assert np.array_equal(decoder.decode_shots(shots[:1]), [[1, 0]])
 
 
 def test_nonbinary_observable_lookup_rejects_sinter_batches() -> None:

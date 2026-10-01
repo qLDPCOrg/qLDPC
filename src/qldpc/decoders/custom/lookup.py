@@ -7,7 +7,7 @@ from __future__ import annotations
 import collections
 import itertools
 import warnings
-from collections.abc import Callable, Collection, Iterator, MutableMapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from typing import cast, overload
 
 import galois
@@ -97,7 +97,6 @@ class _LookupDecoderBase:
             self.field.order, len(default_correction), default_correction.dtype
         )
         self._syndrome_to_error: dict[bytes, bytes] = {}
-        self._syndrome_to_error_view = _PackedLookupTable(self)
 
         if observable_flip_matrix is None:
             self._build_syndrome_map_from_errors(
@@ -124,7 +123,7 @@ class _LookupDecoderBase:
         syndrome_mask: npt.NDArray[np.bool_] | None,
         symplectic: bool,
     ) -> None:
-        """Populate syndrome_to_error, mapping each syndrome to its likeliest error.
+        """Populate the lookup table, mapping each syndrome to its likeliest error.
 
         Errors are enumerated in decreasing weight, so ties in penalty (or, with no penalty
         function, all errors) resolve in favor of the lowest-weight error for each syndrome.
@@ -144,21 +143,6 @@ class _LookupDecoderBase:
         """Record a packed table entry, appending an erasure bit if needed."""
         prediction = self._maybe_add_erasure_bit(prediction)
         self._syndrome_to_error[key] = self._output_codec.pack_trusted(prediction)
-
-    @property
-    def syndrome_to_error(
-        self,
-    ) -> MutableMapping[tuple[int, ...], npt.NDArray[np.int_]]:
-        """A mutable mapping from syndromes to the predictions of this lookup table.
-
-        Keys are tuples of syndrome entries (excluding post-selected bits), and values are
-        predictions (errors or observable flips, with an erasure bit if configured).  The table is
-        stored in a compact packed format, so this view unpacks entries on read: a value retrieved
-        from this mapping is a fresh copy, and editing it in place does not affect decoding.  To
-        change an entry, assign the edited array back to the mapping.  Assigning and deleting
-        entries do affect decoding.
-        """
-        return self._syndrome_to_error_view
 
     def _save_interface_metadata(
         self,
@@ -186,7 +170,7 @@ class _LookupDecoderBase:
         confidence_ratio: float | None,
         symplectic: bool,
     ) -> None:
-        """Populate syndrome_to_error, mapping each syndrome to its most likely observable flip.
+        """Populate the lookup table, mapping each syndrome to its most likely observable flip.
 
         Builds a lookup table that maps each syndrome to an error that induces the most likely
         observable flips (or, if predict_observable_flips, to the observable flips themselves).
@@ -1280,65 +1264,6 @@ class _VectorCodec:
             for index in range(0, self.num_bytes, self.width)
         ]
         return np.asarray(values, dtype=self.dtype).reshape(num_vectors, self.length)
-
-
-class _PackedLookupTable(MutableMapping[tuple[int, ...], npt.NDArray[np.int_]]):
-    """A mutable view of a lookup table that stores packed syndromes and predictions.
-
-    See help(LookupDecoder.syndrome_to_error) for details.
-    """
-
-    def __init__(self, decoder: _LookupDecoderBase) -> None:
-        self._decoder = decoder
-
-    def _pack_key(self, syndrome: object) -> bytes | None:
-        try:
-            return self._decoder._syndrome_codec.pack(np.asarray(syndrome))
-        except (TypeError, ValueError):
-            return None
-
-    def __getitem__(self, syndrome: tuple[int, ...]) -> npt.NDArray[np.int_]:
-        key = self._pack_key(syndrome)
-        if key is None or key not in self._decoder._syndrome_to_error:
-            raise KeyError(syndrome)
-        return self._decoder._output_codec.unpack(self._decoder._syndrome_to_error[key])
-
-    def __setitem__(self, syndrome: tuple[int, ...], prediction: npt.NDArray[np.int_]) -> None:
-        key = self._pack_key(syndrome)
-        if key is None:
-            raise ValueError(
-                f"A lookup table syndrome must be a vector of {self._decoder._syndrome_codec.length}"
-                f" elements of {self._decoder.field.name}, but got {syndrome}"
-            )
-        value = self._decoder._output_codec.pack(np.asarray(prediction))
-        if value is None:
-            raise ValueError(
-                f"A lookup table prediction must be a vector of"
-                f" {self._decoder._output_codec.length} elements of {self._decoder.field.name}, but"
-                f" got {prediction}"
-            )
-        self._decoder._syndrome_to_error[key] = value
-
-    def __delitem__(self, syndrome: tuple[int, ...]) -> None:
-        key = self._pack_key(syndrome)
-        if key is None or key not in self._decoder._syndrome_to_error:
-            raise KeyError(syndrome)
-        del self._decoder._syndrome_to_error[key]
-
-    def __iter__(self) -> Iterator[tuple[int, ...]]:
-        unpack = self._decoder._syndrome_codec.unpack
-        for key in list(self._decoder._syndrome_to_error):
-            yield tuple(unpack(key).tolist())
-
-    def __len__(self) -> int:
-        return len(self._decoder._syndrome_to_error)
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.copy()})"
-
-    def copy(self) -> dict[tuple[int, ...], npt.NDArray[np.int_]]:
-        """Return an unpacked dictionary snapshot of this lookup table."""
-        return dict(self.items())
 
 
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
