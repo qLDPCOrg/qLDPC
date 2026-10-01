@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 from collections.abc import Callable, Collection, Sequence
-from typing import Any, Generic, Literal, Protocol, TypeAlias, TypeVar
+from typing import Generic, Literal, Protocol, TypeAlias, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -122,26 +122,25 @@ class ObservableDecoderCompiler(Protocol):
 
 
 DeferredErrorDecoderInput: TypeAlias = DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | None
-ErrorDecoderInput: TypeAlias = (
-    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | ErrorDecoder | SupportsDecode | None
+"""A decoder= input that builds an error decoder later, for a matrix or detector error model that
+the receiving method constructs: decoder settings, an error-decoder constructor, or None to select
+the default decoder.  Prebuilt decoders are excluded, because they are tied to one matrix."""
+
+ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
+"""A decoder= input that yields an error decoder: a DeferredErrorDecoderInput, or a prebuilt error
+decoder (an ErrorDecoder, or any object whose decode method returns an inferred error)."""
+
+DeferredDecoderInput: TypeAlias = (
+    DeferredErrorDecoderInput | ObservableDecoderConstructor | ObservableDecoderCompiler
 )
-DeferredObservableDecoderInput: TypeAlias = (
-    DecoderSpec[Any]
-    | ErrorDecoderConstructor
-    | ObservableDecoderConstructor
-    | ObservableDecoderCompiler
-    | None
-)
-ObservableDecoderInput: TypeAlias = (
-    DecoderSpec[Any]
-    | ErrorDecoderConstructor
-    | ObservableDecoderConstructor
-    | ObservableDecoderCompiler
-    | ErrorDecoder
-    | SupportsDecode
-    | ObservableDecoder
-    | None
-)
+"""A decoder= input that builds an error or observable decoder later, for a matrix or detector
+error model that the receiving method constructs: a DeferredErrorDecoderInput, an
+observable-decoder constructor, or an observable-decoder compiler such as a SinterDecoder.
+Prebuilt decoders are excluded, because they are tied to one matrix or detector error model."""
+
+DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableDecoder
+"""Any decoder= input: an ErrorDecoderInput, a DeferredDecoderInput, or a prebuilt observable
+decoder.  The receiving method adapts the decoder that the input yields to what it needs."""
 
 
 # Typed decoder-specification helpers

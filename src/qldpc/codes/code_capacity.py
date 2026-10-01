@@ -32,11 +32,7 @@ from qldpc.decoders.capabilities import (
 from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE
 from qldpc.decoders.construction.legacy import resolve_decoder
 from qldpc.decoders.construction.resolution import reject_prebuilt_decoder
-from qldpc.decoders.construction.specs import (
-    ErrorDecoderInput,
-    ObservableDecoderConstructor,
-    ObservableDecoderInput,
-)
+from qldpc.decoders.construction.specs import DecoderInput, ObservableDecoderConstructor
 from qldpc.decoders.dems import DetectorErrorModelArrays
 from qldpc.decoders.protocols import ErrorDecoder, ObservableDecoder
 from qldpc.decoders.sinter.core import CompiledSinterDecoder
@@ -220,7 +216,7 @@ class CodeCapacityDecoder:
 def get_code_capacity_decoder(
     syndrome_matrix: galois.FieldArray,
     observable_matrix: galois.FieldArray | None,
-    decoder: ErrorDecoderInput | ObservableDecoderInput,
+    decoder: DecoderInput,
     decoder_args: Mapping[str, object] | None = None,
     *,
     dem_errors: galois.FieldArray | None = None,

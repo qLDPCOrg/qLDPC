@@ -80,7 +80,7 @@ def test_native_observable_decoders_on_subgraphs() -> None:
     ]:
         assert spec.predicts_observables_natively
         predicted_flips = []
-        decoder_inputs: list[decoders.DeferredObservableDecoderInput] = [spec, spec.build]
+        decoder_inputs: list[decoders.DeferredDecoderInput] = [spec, spec.build]
         for decoder in decoder_inputs:
             sinter_decoder = decoders.SubgraphDecoder(
                 subgraph_detectors, [[0], []], decompose_errors=True, decoder=decoder

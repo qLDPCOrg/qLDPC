@@ -867,7 +867,7 @@ class ClassicalCode(AbstractCode):
         max_error_rate: float = 0.1,
         *,
         min_error_weight: int = 1,
-        decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
+        decoder: decoders.DecoderInput = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -2335,11 +2335,7 @@ class QuditCode(AbstractCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
-        decoder: (
-            decoders.DeferredErrorDecoderInput
-            | decoders.ObservableDecoderConstructor
-            | decoders.SinterDecoder
-        ) = None,
+        decoder: decoders.DeferredDecoderInput = None,
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -3822,9 +3818,9 @@ class CSSCode(QuditCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
-        decoder: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
-        decoder_x: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
-        decoder_z: decoders.ErrorDecoderInput | decoders.ObservableDecoderInput = None,
+        decoder: decoders.DecoderInput = None,
+        decoder_x: decoders.DecoderInput = None,
+        decoder_z: decoders.DecoderInput = None,
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,

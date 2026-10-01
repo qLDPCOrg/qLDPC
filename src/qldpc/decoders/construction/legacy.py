@@ -32,13 +32,13 @@ from ..external.relay_bp import get_decoder_rbp as _get_decoder_rbp
 from ..protocols import ErrorDecoder, ObservableDecoder
 from .resolution import get_error_decoder, get_observable_decoder
 from .specs import (
+    DecoderInput,
     ErrorDecoderConstructor,
     ErrorDecoderInput,
-    ObservableDecoderInput,
     PcmOrDem,
 )
 
-_DecoderInput = TypeVar("_DecoderInput", ErrorDecoderInput, ObservableDecoderInput)
+_InputT = TypeVar("_InputT", ErrorDecoderInput, DecoderInput)
 
 # Legacy keyword-based compatibility
 DECODER_CONSTRUCTORS: dict[str, Callable[..., ErrorDecoder]] = {
@@ -97,7 +97,7 @@ def resolve_decoder(
 
 def resolve_observable_decoder(
     dem: stim.DetectorErrorModel,
-    decoder: ObservableDecoderInput,
+    decoder: DecoderInput,
     decoder_args: Mapping[str, object],
     *,
     warn_deprecated: bool = True,
@@ -213,11 +213,11 @@ def _get_legacy_decoder_input(
 
 def _merge_legacy_decoder_args(
     pcm_or_dem: PcmOrDem,
-    decoder: _DecoderInput,
+    decoder: _InputT,
     decoder_args: Mapping[str, object],
     *,
     warn_deprecated: bool = True,
-) -> _DecoderInput | ErrorDecoderConstructor:
+) -> _InputT | ErrorDecoderConstructor:
     """Translate deprecated keyword arguments into a decoder input."""
     reject_removed_decoder_args(decoder_args)
     if not decoder_args:

@@ -11,7 +11,7 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from ..construction.specs import DeferredObservableDecoderInput
+from ..construction.specs import DeferredDecoderInput
 from ..dems import DetectorErrorModelArrays
 from .core import CompiledSinterDecoder, SinterDecoder
 
@@ -49,7 +49,7 @@ class SubgraphDecoder(SinterDecoder):
         *,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: DeferredObservableDecoderInput = None,
+        decoder: DeferredDecoderInput = None,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize an observable decoder that splits a model into disjoint subgraphs.

@@ -22,7 +22,7 @@ from ..construction.legacy import (
     resolve_observable_decoder,
 )
 from ..construction.resolution import reject_prebuilt_decoder
-from ..construction.specs import DecoderSpec, DeferredObservableDecoderInput
+from ..construction.specs import DecoderSpec, DeferredDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
 
@@ -65,7 +65,7 @@ class SinterDecoder(_SinterDecoder):
         *,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: DeferredObservableDecoderInput = None,
+        decoder: DeferredDecoderInput = None,
         **decoder_kwargs: object,
     ) -> None:
         """Initialize a SinterDecoder.

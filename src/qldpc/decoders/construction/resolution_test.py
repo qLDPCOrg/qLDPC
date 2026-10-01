@@ -144,7 +144,7 @@ def test_observable_decoder_inputs() -> None:
     expected_flips = observable_lookup.decode_observables_batch(syndromes)
 
     # prebuilt decoders, and constructors of either kind of decoder
-    decoder_inputs: list[decoders.ObservableDecoderInput] = [
+    decoder_inputs: list[decoders.DecoderInput] = [
         observable_lookup,
         error_lookup,
         lambda dem: decoders.ObservableLookupDecoder(dem, max_weight=2),
@@ -291,7 +291,7 @@ def test_decomposed_error_mechanisms() -> None:
     assert np.array_equal(decoders.decode_observables(dem, syndrome, decoder=spec), [0])
 
     # an error decoder that infers decomposed errors cannot predict observable flips
-    decoder_inputs: list[decoders.ObservableDecoderInput] = [
+    decoder_inputs: list[decoders.DecoderInput] = [
         spec.build(dem),
         lambda dem: decoders.get_decoder_mwpm(dem, decompose_errors=True),
     ]

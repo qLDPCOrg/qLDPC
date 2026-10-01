@@ -29,14 +29,14 @@ from .resolution import (
     reject_prebuilt_decoder,
 )
 from .specs import (
+    DecoderInput,
     DecoderSpec,
+    DeferredDecoderInput,
     DeferredErrorDecoderInput,
-    DeferredObservableDecoderInput,
     ErrorDecoderConstructor,
     ErrorDecoderInput,
     ObservableDecoderCompiler,
     ObservableDecoderConstructor,
-    ObservableDecoderInput,
     PcmOrDem,
     bf,
     bp_lsd,
@@ -50,14 +50,14 @@ from .specs import (
 )
 
 __all__ = [
+    "DecoderInput",
     "DecoderSpec",
+    "DeferredDecoderInput",
     "DeferredErrorDecoderInput",
-    "DeferredObservableDecoderInput",
     "ErrorDecoderConstructor",
     "ErrorDecoderInput",
     "ObservableDecoderCompiler",
     "ObservableDecoderConstructor",
-    "ObservableDecoderInput",
     "PcmOrDem",
     "bf",
     "bp_lsd",

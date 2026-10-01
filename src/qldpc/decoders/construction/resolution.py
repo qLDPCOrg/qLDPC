@@ -16,10 +16,10 @@ from ..custom.guf import get_decoder_guf as _get_decoder_guf
 from ..external.ldpc import get_decoder_bp_osd as _get_decoder_bp_osd
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
 from .specs import (
+    DecoderInput,
     DecoderSpec,
     ErrorDecoderInput,
     ObservableDecoderCompiler,
-    ObservableDecoderInput,
     PcmOrDem,
 )
 
@@ -42,7 +42,7 @@ def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None
 
 
 def get_observable_decoder(
-    dem: stim.DetectorErrorModel, *, decoder: ObservableDecoderInput = None
+    dem: stim.DetectorErrorModel, *, decoder: DecoderInput = None
 ) -> ObservableDecoder:
     """Build or retrieve a decoder that maps a syndrome to predicted observable flips.
 
@@ -74,7 +74,7 @@ def decode_observables(
     dem: stim.DetectorErrorModel,
     syndrome: npt.NDArray[np.int_],
     *,
-    decoder: ObservableDecoderInput = None,
+    decoder: DecoderInput = None,
 ) -> npt.NDArray[np.int_]:
     """Construct a decoder and predict the observable flips of one syndrome.
 
@@ -95,7 +95,7 @@ def reject_prebuilt_decoder(decoder: object, reason: str) -> None:
 # Resolution internals
 
 
-def _build_decoder(pcm_or_dem: PcmOrDem, decoder: ObservableDecoderInput) -> tuple[object, str]:
+def _build_decoder(pcm_or_dem: PcmOrDem, decoder: DecoderInput) -> tuple[object, str]:
     """Build or retrieve a decoder without constraining its output kind."""
     built_decoder: object
     if decoder is None:
