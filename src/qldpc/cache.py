@@ -9,17 +9,16 @@ import pathlib
 import sys
 import warnings
 from collections.abc import Callable, Hashable
-from typing import ParamSpec, Protocol, TypeVar, cast
+from typing import Generic, ParamSpec, TypeVar, cast
 
 import diskcache
 import platformdirs
 
 Params = ParamSpec("Params")
 Result = TypeVar("Result")
-Result_co = TypeVar("Result_co", covariant=True)
 
 
-class CachedFunction(Protocol[Params, Result_co]):
+class CachedFunction(Generic[Params, Result]):
     """A function whose results are cached to disk.
 
     Calling the function retrieves its result from the cache if available, and otherwise computes
@@ -27,10 +26,50 @@ class CachedFunction(Protocol[Params, Result_co]):
     recomputes the result, and saves the new result to the cache.
     """
 
-    def __call__(self, *args: Params.args, **kwargs: Params.kwargs) -> Result_co: ...
+    __wrapped__: Callable[Params, Result]
 
-    def refresh(self, *args: Params.args, **kwargs: Params.kwargs) -> Result_co:
+    def __init__(
+        self,
+        function: Callable[Params, Result],
+        cache_name: str,
+        *,
+        cache_dir: pathlib.Path | str | None = None,
+        key_func: Callable[..., Hashable] | None = None,
+    ) -> None:
+        self._function = function
+        self._cache_name = cache_name
+        self._cache_dir = cache_dir
+        self._key_func = key_func
+        functools.update_wrapper(self, function)
+
+    def __call__(self, *args: Params.args, **kwargs: Params.kwargs) -> Result:
+        """Retrieve a result from the cache if available, and otherwise compute and cache it."""
+        cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir)
+        key = self._get_key(*args, **kwargs)
+        if key in cache:
+            return cast(Result, cache[key])
+        result = self._function(*args, **kwargs)
+        cache[key] = result
+        return result
+
+    def refresh(self, *args: Params.args, **kwargs: Params.kwargs) -> Result:
         """Recompute the result for these arguments and overwrite the cached value."""
+        cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir)
+        key = self._get_key(*args, **kwargs)
+        result = self._function(*args, **kwargs)
+        cache[key] = result
+        return result
+
+    def _get_key(self, *args: Params.args, **kwargs: Params.kwargs) -> Hashable:
+        """Get the cache key for the given arguments."""
+        if self._key_func is not None:
+            return self._key_func(*args, **kwargs)
+        key = args + tuple(kwargs.items())
+        return key if len(key) != 1 else key[0]  # unpack length-1 tuples
+
+    def __reduce__(self) -> str:
+        """Pickle by reference to the module-level name of the decorated function."""
+        return self._function.__qualname__
 
 
 def get_disk_cache_path(
@@ -66,39 +105,14 @@ def use_disk_cache(
     existing cache entry, recomputes the result, and saves the new result to the cache.  Refreshing
     only affects this cache, and does not clear other caches used internally by the function.
 
+    The decorator is intended for module-level functions: a decorated function is pickled by
+    reference to its qualified name, and it does not bind as a method.
+
     Disk caching is bypassed when running with pytest.
     """
 
     def decorator(function: Callable[Params, Result]) -> CachedFunction[Params, Result]:
-        def get_key(*args: Params.args, **kwargs: Params.kwargs) -> Hashable:
-            if key_func is not None:
-                return key_func(*args, **kwargs)
-            key = args + tuple(kwargs.items())
-            return key if len(key) != 1 else key[0]  # unpack length-1 tuples
-
-        @functools.wraps(function)
-        def function_with_cache(*args: Params.args, **kwargs: Params.kwargs) -> Result:
-            # retrieve results from cache, if available
-            cache = get_disk_cache(cache_name, cache_dir=cache_dir)
-            key = get_key(*args, **kwargs)
-            if key in cache:
-                return cast(Result, cache[key])
-
-            # compute results and save to cache
-            result = function(*args, **kwargs)
-            cache[key] = result
-            return result
-
-        def refresh(*args: Params.args, **kwargs: Params.kwargs) -> Result:
-            cache = get_disk_cache(cache_name, cache_dir=cache_dir)
-            key = get_key(*args, **kwargs)
-            result = function(*args, **kwargs)
-            cache[key] = result
-            return result
-
-        refresh.__doc__ = CachedFunction.refresh.__doc__
-        function_with_cache.refresh = refresh  # type: ignore[attr-defined]
-        return cast(CachedFunction[Params, Result], function_with_cache)
+        return CachedFunction(function, cache_name, cache_dir=cache_dir, key_func=key_func)
 
     return decorator
 

@@ -4,13 +4,16 @@
 
 from __future__ import annotations
 
+import copy
 import pathlib
+import pickle
 import unittest.mock
 from collections.abc import Hashable
 
 import pytest
 
 import qldpc.cache
+import qldpc.external.codes
 
 
 def test_pytest() -> None:
@@ -108,3 +111,11 @@ def test_refresh() -> None:
         assert double.refresh(4) == 8
         assert cache["key-4"] == 8
         assert double(4) == 8
+
+
+def test_pickle() -> None:
+    """Cached module-level functions are pickled by reference."""
+    function = qldpc.external.codes.get_classical_code
+    assert pickle.dumps(function)
+    assert copy.deepcopy(function) is function
+    assert function.__wrapped__.__name__ == "get_classical_code"
