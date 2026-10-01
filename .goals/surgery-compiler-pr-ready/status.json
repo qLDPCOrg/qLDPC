@@ -1,6 +1,6 @@
 {
   "goal_id": "surgery-compiler-pr-ready",
-  "status": "building",
+  "status": "completed",
   "iteration": 2,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
@@ -11,6 +11,11 @@
       "iteration": 1,
       "verdict": "FAIL",
       "summary": "HGP logical-index and same-sized intra-code structure regressions are not pinned by meaningful tests."
+    },
+    {
+      "iteration": 2,
+      "verdict": "PASS",
+      "summary": "Focused mutation probes confirm both edge-case regressions are pinned; compatibility and the full gate pass."
     }
   ]
 }
