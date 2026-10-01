@@ -4,12 +4,16 @@
 
 from __future__ import annotations
 
+import pickle
 from collections.abc import Callable
 
+import ldpc as ldpc_package
 import numpy as np
 import pytest
+from ldpc import bplsd_decoder
 
 from qldpc import decoders
+from qldpc.decoders.external import ldpc as ldpc_integration
 from qldpc.decoders.external.ldpc import (
     get_decoder_bf,
     get_decoder_bp_lsd,
@@ -51,3 +55,34 @@ def test_ldpc_builders_reject_erasure(
     with pytest.raises(ValueError, match=rf"The {name} decoder cannot signal erasure"):
         builder(matrix, add_erasure_bit=True)
     assert builder(matrix, add_erasure_bit=False)
+
+
+def test_ldpc_protocol_adapters() -> None:
+    """The integration classes are ldpc decoders that satisfy qLDPC's error protocol."""
+    assert ldpc_integration.__getattr__("BpOsdDecoder") is ldpc_integration.BpOsdDecoder
+    with pytest.raises(AttributeError, match="has no attribute"):
+        ldpc_integration.__getattr__("NotAnLdpcDecoder")
+
+    matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=int)
+    adapted_decoders = [
+        (
+            get_decoder_bp_osd(matrix),
+            ldpc_integration.BpOsdDecoder,
+            ldpc_package.BpOsdDecoder,
+        ),
+        (
+            get_decoder_bp_lsd(matrix),
+            ldpc_integration.BpLsdDecoder,
+            bplsd_decoder.BpLsdDecoder,
+        ),
+        (
+            get_decoder_bf(matrix),
+            ldpc_integration.BeliefFindDecoder,
+            ldpc_package.BeliefFindDecoder,
+        ),
+    ]
+    for decoder, adapter_type, backend_type in adapted_decoders:
+        assert isinstance(decoder, adapter_type)
+        assert isinstance(decoder, backend_type)
+        assert isinstance(decoder, decoders.ErrorDecoder)
+        assert pickle.loads(pickle.dumps(adapter_type)) is adapter_type  # noqa: S301

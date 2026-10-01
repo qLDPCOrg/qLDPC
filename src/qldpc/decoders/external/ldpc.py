@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -19,6 +19,16 @@ from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder
 
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
+
+if TYPE_CHECKING:
+    import ldpc
+    import ldpc.bplsd_decoder
+
+    class BpOsdDecoder(ldpc.BpOsdDecoder, ErrorDecoder): ...
+
+    class BpLsdDecoder(ldpc.bplsd_decoder.BpLsdDecoder, ErrorDecoder): ...
+
+    class BeliefFindDecoder(ldpc.BeliefFindDecoder, ErrorDecoder): ...
 
 
 # Public builders
@@ -54,10 +64,9 @@ def get_decoder_bp_osd(
     `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_, and
     `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
     """
-    from ..adapters.backends import BpOsdDecoder
-
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return BpOsdDecoder(pcm, error_channel=error_channel, **decoder_args)
+    decoder_type = _get_backend_class("BpOsdDecoder")
+    return cast(ErrorDecoder, decoder_type(pcm, error_channel=error_channel, **decoder_args))
 
 
 @_erasure_bit_support("BP_LSD", supported=False)
@@ -91,10 +100,9 @@ def get_decoder_bp_lsd(
     `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_, and
     `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
     """
-    from ..adapters.backends import BpLsdDecoder
-
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return BpLsdDecoder(pcm, error_channel=error_channel, **decoder_args)
+    decoder_type = _get_backend_class("BpLsdDecoder")
+    return cast(ErrorDecoder, decoder_type(pcm, error_channel=error_channel, **decoder_args))
 
 
 @_erasure_bit_support("BF", supported=False)
@@ -129,10 +137,9 @@ def get_decoder_bf(
     `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_, and
     `arXiv:2209.01180 <https://arxiv.org/abs/2209.01180>`_.
     """
-    from ..adapters.backends import BeliefFindDecoder
-
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return BeliefFindDecoder(pcm, error_channel=error_channel, **decoder_args)
+    decoder_type = _get_backend_class("BeliefFindDecoder")
+    return cast(ErrorDecoder, decoder_type(pcm, error_channel=error_channel, **decoder_args))
 
 
 # Private input helpers
@@ -154,3 +161,39 @@ def _to_ldpc_inputs(
     if pcm.dtype.kind in "biu":
         pcm = pcm.astype(np.uint8, copy=False)
     return pcm, list(error_channel)
+
+
+_BACKEND_CLASS_NAMES = frozenset({"BeliefFindDecoder", "BpLsdDecoder", "BpOsdDecoder"})
+_BACKEND_CLASSES: dict[str, type[Any]] | None = None
+
+
+def _get_backend_class(name: str) -> type[Any]:
+    """Build the protocol-compatible ldpc subclasses on first use."""
+    global _BACKEND_CLASSES
+    if _BACKEND_CLASSES is None:
+        import ldpc
+        import ldpc.bplsd_decoder
+
+        class BpOsdDecoder(ldpc.BpOsdDecoder, ErrorDecoder):
+            """An ldpc.BpOsdDecoder that is also an ErrorDecoder."""
+
+        class BpLsdDecoder(ldpc.bplsd_decoder.BpLsdDecoder, ErrorDecoder):
+            """An ldpc.bplsd_decoder.BpLsdDecoder that is also an ErrorDecoder."""
+
+        class BeliefFindDecoder(ldpc.BeliefFindDecoder, ErrorDecoder):
+            """An ldpc.BeliefFindDecoder that is also an ErrorDecoder."""
+
+        classes = (BpOsdDecoder, BpLsdDecoder, BeliefFindDecoder)
+        for decoder_type in classes:
+            decoder_type.__module__ = __name__
+            decoder_type.__qualname__ = decoder_type.__name__
+            globals()[decoder_type.__name__] = decoder_type
+        _BACKEND_CLASSES = {decoder_type.__name__: decoder_type for decoder_type in classes}
+    return _BACKEND_CLASSES[name]
+
+
+def __getattr__(name: str) -> Any:
+    """Load a protocol-compatible ldpc subclass only when requested."""
+    if name not in _BACKEND_CLASS_NAMES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return _get_backend_class(name)

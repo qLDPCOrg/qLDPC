@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import warnings
 
 import numpy as np
@@ -94,6 +96,19 @@ def test_current_root_facade_exports_are_canonical() -> None:
     missing_name = "NotADecoder"
     with pytest.raises(AttributeError, match="has no attribute"):
         getattr(decoders, missing_name)
+
+
+def test_optional_decoder_dependencies_are_lazy() -> None:
+    """Importing qldpc does not import optional decoder backends."""
+    code = """
+import sys
+import qldpc
+import qldpc.decoders.adapters
+import qldpc.decoders.construction
+import qldpc.decoders.external
+assert not {"ldpc", "pymatching", "relay_bp"} & sys.modules.keys()
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 # Deprecated compatibility

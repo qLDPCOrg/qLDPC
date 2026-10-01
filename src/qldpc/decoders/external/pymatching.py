@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
@@ -18,6 +18,11 @@ from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder, ObservableDecoder
 
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
+
+if TYPE_CHECKING:
+    import pymatching
+
+    class Matching(pymatching.Matching, BatchErrorDecoder): ...
 
 
 # Public decoder and builders
@@ -205,9 +210,7 @@ def _build_matching(
 
     import pymatching
 
-    from ..adapters.backends import Matching
-
-    matching = pymatching.Matching() if predict_observables else Matching()
+    matching = pymatching.Matching() if predict_observables else _get_matching_type()()
     matching.load_from_check_matrix(pcm, **decoder_args)
     if infers_decomposed_errors:
         matching._infers_decomposed_errors = True
@@ -225,3 +228,29 @@ def _splits_errors(
         or (merged_arrays.observable_flip_matrix != decomposed_arrays.observable_flip_matrix).nnz
         > 0
     )
+
+
+_MATCHING_TYPE: type[Any] | None = None
+
+
+def _get_matching_type() -> type[Any]:
+    """Build the protocol-compatible PyMatching subclass on first use."""
+    global _MATCHING_TYPE
+    if _MATCHING_TYPE is None:
+        import pymatching
+
+        class Matching(pymatching.Matching, BatchErrorDecoder):
+            """A pymatching.Matching that is also a BatchErrorDecoder."""
+
+        Matching.__module__ = __name__
+        Matching.__qualname__ = Matching.__name__
+        globals()["Matching"] = Matching
+        _MATCHING_TYPE = Matching
+    return _MATCHING_TYPE
+
+
+def __getattr__(name: str) -> Any:
+    """Load the protocol-compatible PyMatching subclass only when requested."""
+    if name != "Matching":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return _get_matching_type()

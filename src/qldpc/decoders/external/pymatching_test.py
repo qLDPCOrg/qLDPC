@@ -4,14 +4,17 @@
 
 from __future__ import annotations
 
+import pickle
 from typing import cast
 
 import galois
 import numpy as np
+import pymatching as pymatching_package
 import pytest
 import stim
 
 from qldpc import decoders
+from qldpc.decoders.external import pymatching
 from qldpc.decoders.external.pymatching import (
     get_decoder_mwpm,
     get_error_decoder_mwpm,
@@ -78,3 +81,19 @@ def test_matching_builder_validation() -> None:
         get_decoder_mwpm(matrix).decode(syndrome)
     decoder = get_decoder_mwpm(matrix, ignore_non_graphlike_errors=True)
     assert np.array_equal(decoder.decode(syndrome), [0, 1])
+
+
+def test_matching_protocol_adapter() -> None:
+    """The error-mode matching is a PyMatching decoder with qLDPC batch methods."""
+    assert pymatching.__getattr__("Matching") is pymatching.Matching
+    with pytest.raises(AttributeError, match="has no attribute"):
+        pymatching.__getattr__("NotAMatchingDecoder")
+
+    matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=int)
+    syndromes = np.array([[1, 0], [1, 1]], dtype=int)
+    decoder = get_decoder_mwpm(matrix)
+    assert isinstance(decoder, pymatching.Matching)
+    assert isinstance(decoder, pymatching_package.Matching)
+    assert isinstance(decoder, decoders.BatchErrorDecoder)
+    assert np.array_equal(decoder.decode_errors_batch(syndromes), decoder.decode_batch(syndromes))
+    assert pickle.loads(pickle.dumps(pymatching.Matching)) is pymatching.Matching  # noqa: S301

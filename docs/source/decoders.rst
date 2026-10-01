@@ -234,8 +234,7 @@ Methods that use an error decoder also accept any object whose ``decode`` method
 error, such as a decoder built directly with the ldpc package, and wrap it in a
 :class:`decoders.WrappedErrorDecoder <qldpc.decoders.protocols.WrappedErrorDecoder>`. The immediate builders of library decoders, such as
 :func:`decoders.get_decoder_bp_osd <qldpc.decoders.external.ldpc.get_decoder_bp_osd>`,
-return subclasses
-of the library's decoder classes from :mod:`qldpc.decoders.adapters`; for example,
+return subclasses of the library's decoder classes defined by their integration modules; for example,
 ``get_decoder_bp_osd`` returns an ``ldpc.BpOsdDecoder`` that is also an ``ErrorDecoder``.
 
 External integration classes have canonical paths such as
