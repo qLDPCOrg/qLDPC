@@ -89,6 +89,9 @@ def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     This function queries QECDB's JSON API at https://qecdb.org, so it requires network access.
 
     Return the stabilizers of the code, its distance, and whether it's CSS.
+
+    Results are cached to disk.  Use get_quantum_code.refresh(code_id) to retrieve and cache the
+    latest data from QECDB.
     """
     code_data = _get_json(f"https://qecdb.org/api/codes/{code_id}")
     stabilizers = code_data.get("H", "").split()
@@ -108,6 +111,9 @@ def get_qldpc_challenge_code(code_id: str) -> tuple[npt.NDArray[np.int_], int | 
     Return the symplectic parity check matrix of the code, its distance, and whether it's CSS.  A
     submitted distance is only a witness-certified upper bound, so the distance is None unless the
     challenge has certified it to be exact.
+
+    Results are cached to disk.  Use get_qldpc_challenge_code.refresh(code_id) to retrieve and
+    cache the latest data from the challenge.
     """
     url = "https://unitaryfoundation.github.io/qldpc-challenge/codes"
     code_data = _get_json(f"{url}/{code_id}.json")
