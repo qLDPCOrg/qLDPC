@@ -677,6 +677,26 @@ def test_from_qecdb_id() -> None:
         assert code.is_equiv_to(codes.C4Code())
 
 
+def test_from_qldpc_challenge_id() -> None:
+    """Retrieve a code from the Unitary Foundation qLDPC Challenge."""
+    code_data = (np.kron(np.eye(2, dtype=int), [1, 1, 1, 1]), 2, True)
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=code_data
+    ):
+        code = codes.QuditCode.from_qldpc_challenge_id("")
+        assert isinstance(code, codes.CSSCode)
+        assert code.is_equiv_to(codes.C4Code())
+        assert code.get_distance_if_known() == 2
+
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code",
+        return_value=(np.array([[1, 0, 1, 0]]), None, False),
+    ):
+        code = codes.QuditCode.from_qldpc_challenge_id("")
+        assert not isinstance(code, codes.CSSCode)
+        assert code.get_distance_if_known() is None
+
+
 def test_qudit_deformations() -> None:
     """Local Fourier transforms of a QuditCode."""
     code = codes.QuditCode(codes.SHYPSCode(2))
@@ -1175,6 +1195,17 @@ def test_css_from_qecdb_id() -> None:
     code_data = (strings, distance, is_css)
     with unittest.mock.patch("qldpc.external.codes.get_quantum_code", return_value=code_data):
         code = codes.CSSCode.from_qecdb_id("")
+        assert isinstance(code, codes.CSSCode)
+        assert code.is_equiv_to(codes.C4Code())
+
+
+def test_css_from_qldpc_challenge_id() -> None:
+    """Retrieve a CSS code from the Unitary Foundation qLDPC Challenge."""
+    code_data = (np.kron(np.eye(2, dtype=int), [1, 1, 1, 1]), 2, True)
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=code_data
+    ):
+        code = codes.CSSCode.from_qldpc_challenge_id("")
         assert isinstance(code, codes.CSSCode)
         assert code.is_equiv_to(codes.C4Code())
 
