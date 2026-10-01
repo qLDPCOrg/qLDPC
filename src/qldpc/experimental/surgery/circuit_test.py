@@ -82,6 +82,62 @@ def test_merged_csscode_accessor_handles_single_and_joint_layouts() -> None:
         _merged_csscode(gadget_l, gadget_r)
 
 
+def test_merged_csscode_rejects_structure_for_single_layout() -> None:
+    """Explicit inter-block structure is only meaningful for joint layouts."""
+    from qldpc.experimental.surgery.circuit import _merged_csscode
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
+    with pytest.raises(ValueError, match="only valid for a joint"):
+        _merged_csscode(gadget, intercode=True)
+
+
+def test_explicit_intracode_structure_uses_code_equality_not_identity() -> None:
+    """One shared data register may be described by equivalent code objects."""
+    from qldpc.experimental.surgery import build_bridge, build_gadget
+    from qldpc.experimental.surgery.circuit import _merged_csscode
+
+    code_l = codes.SteaneCode()
+    code_r = codes.SteaneCode()
+    logical_l = np.asarray(code_l.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    logical_r = np.asarray(code_r.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget_l = build_gadget(code_l, logical_l, basis=Pauli.X)
+    gadget_r = build_gadget(code_r, logical_r, basis=Pauli.X)
+
+    merged = _merged_csscode(
+        gadget_l,
+        gadget_r,
+        build_bridge(gadget_l, gadget_r),
+        intercode=False,
+    )
+    assert merged.num_qudits < (
+        code_l.num_qudits
+        + code_r.num_qudits
+        + gadget_l.incidence.shape[0]
+        + gadget_r.incidence.shape[0]
+    )
+
+    incompatible = codes.SurfaceCode(3)
+    incompatible_logical = np.asarray(
+        incompatible.get_logical_ops(Pauli.X)[0],
+        dtype=np.uint8,
+    )
+    incompatible_gadget = build_gadget(
+        incompatible,
+        incompatible_logical,
+        basis=Pauli.X,
+    )
+    with pytest.raises(ValueError, match="structurally identical"):
+        _merged_csscode(
+            gadget_l,
+            incompatible_gadget,
+            build_bridge(gadget_l, incompatible_gadget),
+            intercode=False,
+        )
+
+
 def test_single_ppm_rejects_a_reducible_logical_until_boosted() -> None:
     """A circuit cannot silently fix both factors of a requested logical product."""
     from qldpc.experimental.surgery import boost_gadget
