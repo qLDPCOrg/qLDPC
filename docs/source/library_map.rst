@@ -264,8 +264,7 @@ Optional integrations and side effects
 --------------------------------------
 
 * Install ``qldpc[gap]`` for the optional ``passagemath-gap`` libgap binding.
-  The binding supports non-Windows Python 3.11--3.13.
-  On other platforms or Python versions, use a GAP executable instead.
+  The binding requires non-Windows Python 3.13.
   If neither option is available, some paths offer a manual copy/paste workflow that reads standard
   input and uses the system clipboard.
 * When a GAP package is unavailable to libgap, qLDPC asks for permission to install it with GAP's
