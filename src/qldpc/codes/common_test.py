@@ -19,7 +19,7 @@ import pytest
 import stim
 
 from qldpc import abstract, codes, decoders, external, math
-from qldpc.codes import common, monte_carlo
+from qldpc.codes import code_capacity, common
 from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
@@ -1770,12 +1770,12 @@ def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPat
 
     # the observables of a qudit code are the symplectic products of an error with the logical
     # operators of the code, which carry signs over an odd-characteristic field
-    captured_decoders: list[monte_carlo.CodeCapacityDecoder] = []
+    captured_decoders: list[code_capacity.CodeCapacityDecoder] = []
     captured_decoder_kwargs: list[dict[str, Any]] = []
 
-    def get_code_capacity_decoder(*args: Any, **kwargs: Any) -> monte_carlo.CodeCapacityDecoder:
+    def get_code_capacity_decoder(*args: Any, **kwargs: Any) -> code_capacity.CodeCapacityDecoder:
         captured_decoder_kwargs.append(kwargs)
-        captured_decoders.append(monte_carlo.get_code_capacity_decoder(*args, **kwargs))
+        captured_decoders.append(code_capacity.get_code_capacity_decoder(*args, **kwargs))
         return captured_decoders[-1]
 
     monkeypatch.setattr(common, "get_code_capacity_decoder", get_code_capacity_decoder)

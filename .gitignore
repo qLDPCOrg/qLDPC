@@ -29,3 +29,6 @@ build
 *.c
 *.so
 *.pyd
+
+# ignore the uv lockfile, which can reveal private/proprietary info about a package artifactory
+uv.lock

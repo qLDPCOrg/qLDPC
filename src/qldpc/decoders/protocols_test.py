@@ -99,10 +99,13 @@ def test_error_decoder_coercion() -> None:
     observable_decoders = [
         decoders.ObservableLookupDecoder(dem, max_weight=1),
         legacy_decoder,
+        decoders.TrivialDecoder().compile_decoder_for_dem(dem),
         types.SimpleNamespace(decode_observables=lambda syndrome: syndrome),
     ]
     for observable_decoder in observable_decoders:
         with pytest.raises(TypeError, match="observable flips rather than errors"):
             decoders.as_error_decoder(observable_decoder)
+    with pytest.raises(TypeError, match="cannot decode until it is compiled"):
+        decoders.as_error_decoder(decoders.SinterDecoder())
     with pytest.raises(TypeError, match="must be an ErrorDecoder, or have a decode method"):
         decoders.as_error_decoder(object())

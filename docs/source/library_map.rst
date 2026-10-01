@@ -114,7 +114,8 @@ What each package does
      - Start here
    * - ``qldpc.codes``
      - Core classical, quantum, CSS, and subsystem code models; built-in constructions; distance and
-       code-capacity estimation.
+       code-capacity estimation. Fixed-weight statistics and allocation live separately from
+       code-capacity detector-error-model and decoder orchestration.
      - :doc:`qLDPC basics <examples/basics>` and
        :doc:`codes API <autoapi/qldpc/codes/index>`.
    * - ``qldpc.decoders``
