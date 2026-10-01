@@ -153,7 +153,11 @@ def _check_qubit_ids(code: codes.CSSCode) -> None:
             qubit_map,
         )
 
-        assert _sort_gate_targets(circuit_a) == _sort_gate_targets(circuit_b)
+        if code.is_subsystem_code:
+            # layer codes may order the commuting gates within a moment by qubit index
+            assert _sort_gate_targets(circuit_a) == _sort_gate_targets(circuit_b)
+        else:
+            assert circuit_a.flattened() == circuit_b.flattened()
 
 
 def _sort_gate_targets(circuit: stim.Circuit) -> stim.Circuit:
@@ -249,6 +253,34 @@ def test_subsystem_memory_experiment(basis: PauliXZ | None) -> None:
 
     with pytest.raises(ValueError, match="does not determine all"):
         circuits.get_memory_experiment(code, basis, syndrome_measurement_strategy=SingletonLayers())
+
+    # the circuit and its detectors share one schedule, even if layers are not reproducible
+    class ShuffledLayers(circuits.EdgeColoring):
+        num_calls = 0
+
+        def get_gauge_layers(self, code: codes.QuditCode) -> tuple[tuple[int, ...], ...]:
+            self.num_calls += 1
+            layers = super().get_gauge_layers(code)
+            return layers if self.num_calls % 2 else layers[::-1]
+
+    strategy = ShuffledLayers()
+    circuits.get_memory_experiment(
+        code, basis, num_rounds=2, syndrome_measurement_strategy=strategy
+    ).detector_error_model()
+    assert strategy.num_calls == 1
+
+
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z, None])
+def test_subsystem_product_memory_experiments(basis: PauliXZ | None) -> None:
+    """Memory experiments for other subsystem hypergraph product codes."""
+    code_a = codes.ClassicalCode.random(5, 3, seed=0)
+    code_b = codes.ClassicalCode.random(4, 2, seed=1)
+    for code in [codes.SHYPSCode(3), codes.SHPCode(code_a, code_b)]:
+        parts = circuits.get_memory_experiment_parts(code, basis, num_rounds=2)
+        assert_detectors_track_stabilizers(code, basis, parts.detector_record, num_rounds=2)
+        circuit = parts.initialization + parts.qec_cycle + parts.readout
+        circuit.detector_error_model()
+        assert not np.any(circuit.compile_detector_sampler().sample(4, append_observables=True))
 
 
 def test_non_css_subsystem_memory_experiment() -> None:

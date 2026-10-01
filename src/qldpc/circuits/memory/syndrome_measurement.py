@@ -122,6 +122,12 @@ class SyndromeMeasurementStrategy(abc.ABC):
         measurement of one layer completes before the measurement of the next layer begins.  This
         method thereby supports subsystem codes, whose (gauge) checks need not commute.
 
+        Since self.get_circuit only sees the stabilizer code defined by one layer at a time, any
+        code-specific scheduling (such as a code's custom get_syndrome_subgraphs) or optimization
+        (such as the logical error rates targeted by AlphaSyndrome) is with respect to that layer
+        code rather than the full subsystem code.  In particular, the layer code treats the gauge
+        operators of the subsystem code as logical operators.
+
         Args:
             code: The code whose checks we want to measure.
             qubit_ids: Integer indices for the data and check (syndrome readout) qubits, with one

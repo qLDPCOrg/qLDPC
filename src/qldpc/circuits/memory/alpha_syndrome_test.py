@@ -38,6 +38,23 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
     assert alpha_syndrome_is_valid(codes.HGPCode(code_a, code_b))
 
+    # gauge layers of a subsystem code have no opposite-type stabilizers, so the evaluation circuits
+    # used to build their schedules have no detectors (which sinter's built-in decoders mishandle)
+    code = codes.BaconShorCode(2)
+    strategy = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.001),
+        "pymatching",
+        iters_per_step=2,
+        shots_per_iter=5,
+        verbose=False,
+        seed=seed,
+    )
+    circuit, record = strategy.get_subsystem_circuit(code)
+    assert circuit.num_measurements == record.num_events == code.num_checks
+    circuits.get_memory_experiment(
+        code, basis=Pauli.Z, num_rounds=2, syndrome_measurement_strategy=strategy
+    ).detector_error_model()
+
     # AlphaSyndrome does not support non-CSS codes
     with pytest.raises(TypeError, match="only supports CSS codes"):
         strategy = circuits.AlphaSyndrome(circuits.DepolarizingNoiseModel(0.001), "decoder_name")

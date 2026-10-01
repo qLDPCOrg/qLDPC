@@ -25,7 +25,11 @@ from ..noise_model import (
     as_noiseless_circuit,
     op_type,
 )
-from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
+from .syndrome_measurement import (
+    EdgeColoring,
+    SyndromeMeasurementStrategy,
+    validate_gauge_layers,
+)
 
 # default strategy used to schedule the two-qubit gates of a syndrome measurement circuit
 DEFAULT_STRATEGY = EdgeColoring()
@@ -285,9 +289,10 @@ def _get_basis_memory_experiment_parts(
     data_reset.append(f"R{basis}", data_ids)
 
     # build a logical QEC cycle
-    detectors = _get_stabilizer_detectors(code, qubit_ids, syndrome_measurement_strategy, basis)
+    layers = _get_gauge_layers(code, syndrome_measurement_strategy)
+    detectors = _get_stabilizer_detectors(code, qubit_ids, layers, basis)
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
-        code, num_rounds, qubit_ids, detectors, syndrome_measurement_strategy
+        code, num_rounds, qubit_ids, detectors, syndrome_measurement_strategy, layers
     )
 
     # measure out the data qubits
@@ -363,9 +368,10 @@ def _get_combined_memory_simulation_parts(
     state_prep = get_logical_bell_prep(code, data_ids, reference_ids)
 
     # build a logical QEC cycle
-    detectors = _get_stabilizer_detectors(code, qubit_ids, syndrome_measurement_strategy)
+    layers = _get_gauge_layers(code, syndrome_measurement_strategy)
+    detectors = _get_stabilizer_detectors(code, qubit_ids, layers)
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
-        code, num_rounds, qubit_ids, detectors, syndrome_measurement_strategy
+        code, num_rounds, qubit_ids, detectors, syndrome_measurement_strategy, layers
     )
     # reject strategies that would use noiseless Bell reference qubits as work qubits
     operated_qubits = {
@@ -558,10 +564,26 @@ class _StabilizerDetector(NamedTuple):
     stabilizer: galois.FieldArray  # the stabilizer, as a symplectic vector
 
 
+def _get_gauge_layers(
+    code: codes.QuditCode, syndrome_measurement_strategy: SyndromeMeasurementStrategy
+) -> tuple[tuple[int, ...], ...] | None:
+    """Validated gauge measurement layers for a subsystem code, or None for a stabilizer code.
+
+    The layers are computed once so that the circuit and its detectors use the same schedule.
+    """
+    if not code.is_subsystem_code:
+        return None
+    layers = tuple(
+        tuple(sorted(layer)) for layer in syndrome_measurement_strategy.get_gauge_layers(code)
+    )
+    validate_gauge_layers(code, layers)
+    return layers
+
+
 def _get_stabilizer_detectors(
     code: codes.QuditCode,
     qubit_ids: QubitIDs,
-    syndrome_measurement_strategy: SyndromeMeasurementStrategy,
+    layers: Sequence[Sequence[int]] | None,
     basis: PauliXZ | None = None,
 ) -> list[_StabilizerDetector]:
     """Identify the stabilizers to annotate with detectors in a memory experiment.
@@ -569,18 +591,18 @@ def _get_stabilizer_detectors(
     For a stabilizer code, every check is a stabilizer, and the detector for a check is keyed by its
     check qubit.  If a basis is provided, only annotate checks of that type.
 
-    For a subsystem code, a detector tracks a product of checks from one layer of the gauge
-    measurement schedule defined by syndrome_measurement_strategy.get_gauge_layers, such that this
-    product is a stabilizer.  The detector is keyed by the tuple of check qubits in this product.
-    If a basis is provided, only annotate stabilizers of that type.  This method prefers the
-    stabilizer generators in code.get_stabilizer_ops() (which may, for example, have low weight),
-    and adds other products of checks as necessary to generate all tracked stabilizers.
+    For a subsystem code, a detector tracks a product of checks from one of the given layers of the
+    gauge measurement schedule, such that this product is a stabilizer.  The detector is keyed by
+    the tuple of check qubits in this product.  If a basis is provided, only annotate stabilizers of
+    that type.  This method prefers the stabilizer generators in code.get_stabilizer_ops() (which
+    may, for example, have low weight), and adds other products of checks as necessary to generate
+    all tracked stabilizers.
 
     Raises:
         ValueError: If the gauge measurement schedule of a subsystem code does not determine all
             stabilizers that the memory experiment should track.
     """
-    if not code.is_subsystem_code:
+    if layers is None:
         detector_check_ids = (
             qubit_ids.check
             if basis is None
@@ -596,7 +618,6 @@ def _get_stabilizer_detectors(
 
     num_qubits = len(code)
     gauge_ops = code.matrix.view(code.field)
-    layers = [sorted(layer) for layer in syndrome_measurement_strategy.get_gauge_layers(code)]
 
     def is_tracked(ops: galois.FieldArray) -> npt.NDArray[np.bool_]:
         """Identify the rows of a symplectic matrix that have the tracked Pauli type."""
@@ -610,10 +631,10 @@ def _get_stabilizer_detectors(
 
     # collect (layer, coefficients, stabilizer) triplets, where the coefficients of checks in a
     # layer multiply to a stabilizer
-    candidates: list[tuple[list[int], galois.FieldArray, galois.FieldArray]] = []
+    candidates: list[tuple[Sequence[int], galois.FieldArray, galois.FieldArray]] = []
     for layer in layers:
         # row-reduce [checks | identity] to express stabilizers in the span of these checks
-        layer_ops = gauge_ops[layer]
+        layer_ops = gauge_ops[list(layer)]
         identity = code.field.Identity(len(layer))
         reduced = np.hstack([layer_ops, identity]).view(code.field).row_reduce()
         reduced = reduced[np.any(reduced[:, : 2 * num_qubits], axis=1)]
@@ -626,7 +647,7 @@ def _get_stabilizer_detectors(
         )
     for layer in layers:
         # every product of checks in this layer that commutes with all checks is a stabilizer
-        layer_ops = gauge_ops[layer]
+        layer_ops = gauge_ops[list(layer)]
         commutators = layer_ops @ math.symplectic_conjugate(gauge_ops).T
         coefficients = commutators.T.null_space()
         stabilizers = coefficients @ layer_ops
@@ -663,6 +684,7 @@ def _get_qec_cycle(
     qubit_ids: QubitIDs,
     detectors: Sequence[_StabilizerDetector],
     syndrome_measurement_strategy: SyndromeMeasurementStrategy,
+    layers: Sequence[Sequence[int]] | None = None,
 ) -> tuple[stim.Circuit, MeasurementRecord, DetectorRecord]:
     """Build a circuit of num_rounds noiseless syndrome measurements for a given code.
 
@@ -674,15 +696,16 @@ def _get_qec_cycle(
             most recent measurement outcomes of some check qubits in qubit_ids.check.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
             round of QEC measures the parity checks of the code.
+        layers: The gauge measurement layers of a subsystem code, or None for a stabilizer code.
 
     Returns:
         stim.Circuit: The noiseless circuit of num_rounds syndrome measurements.
         MeasurementRecord: The record of all measurements in the constructed circuit.
         DetectorRecord: The record of all detectors in the constructed circuit.
     """
-    if code.is_subsystem_code:
+    if layers is not None:
         one_round, round_measurement_record = syndrome_measurement_strategy.get_subsystem_circuit(
-            code, qubit_ids
+            code, qubit_ids, layers=layers
         )
     else:
         one_round, round_measurement_record = syndrome_measurement_strategy.get_circuit(
