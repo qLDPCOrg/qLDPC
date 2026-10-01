@@ -66,10 +66,11 @@ GAP integration on Windows remains limited; see [issue #294](https://github.com/
 You can install the optional `sqetch` distance-estimation backend with:
 
 ```bash
-python -m pip install 'qldpc[sqetch]'
+python -m pip install 'sqetch[gpu] @ git+https://github.com/a7b/yarn.git@e9ce9d0fcecc973988558bfee27fab6d6b8d7f97#subdirectory=sqetch'
 ```
 
-This extra installs the pinned upstream version of `sqetch` with GPU support.
+This command installs the upstream version of `sqetch` that qLDPC is tested against, with GPU support.
+`sqetch` is not published on PyPI, so it is not available as a qLDPC extra.
 For binary CSS codes, select it with `code.get_distance_bound(backend="sqetch")`.
 
 ### Troubleshooting
@@ -147,7 +148,7 @@ Continue with the [library map](https://qldpc.readthedocs.io/library_map.html) f
 | Construct and analyze a first code | [qLDPC basics](https://qldpc.readthedocs.io/examples/basics.html) |
 | Estimate logical error rates | [Logical-error-rate examples](https://qldpc.readthedocs.io/examples/index.html#logical-error-rates) |
 | Build memory circuits or noise models | [Circuit examples](https://qldpc.readthedocs.io/examples/index.html) |
-| Change or extend qLDPC safely | [Agent and contributor guide](AGENTS.md) |
+| Change or extend qLDPC safely | [Agent and contributor guide](https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md) |
 
 For the complete list of classes and functions, including construction-specific literature, use the API reference and source docstrings.
 This README focuses on getting started and finding the right documentation.
@@ -168,7 +169,7 @@ This README focuses on getting started and finding the right documentation.
 - [Documentation](https://qldpc.readthedocs.io/)
 - [Examples](https://github.com/qLDPCOrg/qLDPC/tree/main/examples)
 - [API reference](https://qldpc.readthedocs.io/autoapi/index.html)
-- [Agent and contributor guide](AGENTS.md)
+- [Agent and contributor guide](https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md)
 - [Issue tracker](https://github.com/qLDPCOrg/qLDPC/issues)
 
 Questions, feedback, and ideas are welcome through [GitHub issues](https://github.com/qLDPCOrg/qLDPC/issues/new) or by email at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com).
@@ -195,4 +196,4 @@ Alternatively:
 Michael A. Perlin. qLDPC. https://github.com/qLDPCOrg/qLDPC, 2023.
 ```
 
-qLDPC is distributed under the [Apache License 2.0](LICENSE).
+qLDPC is distributed under the [Apache License 2.0](https://github.com/qLDPCOrg/qLDPC/blob/main/LICENSE).
