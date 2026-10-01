@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import galois
 import numpy as np
 import pytest
 import scipy.stats
@@ -184,37 +183,6 @@ def test_get_sample_allocation() -> None:
     for max_error_rate in [1.5, float("nan")]:
         with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
             monte_carlo.get_sample_allocation(1000, 10, max_error_rate)
-
-
-def test_get_error_and_erasure() -> None:
-    """Decoding a syndrome, with and without an erasure bit."""
-    field = galois.GF2
-    syndrome = field([1, 0, 1])
-
-    class _Decoder:
-        def __init__(self, output: np.ndarray, has_erasure_bit: bool = False) -> None:
-            self.output = output
-            if has_erasure_bit:
-                self.has_erasure_bit = True
-
-        def decode(self, syndrome: np.ndarray) -> np.ndarray:
-            return self.output
-
-    # a plain decoder returns the inferred error and no erasure
-    decoder = _Decoder(np.array([1, 1, 0, 0], dtype=np.uint8))
-    error, erasure = monte_carlo.get_error_and_erasure(decoder, syndrome)
-    assert not erasure and isinstance(error, field) and np.array_equal(error, field([1, 1, 0, 0]))
-
-    # an erasure-enabled decoder strips the last (erasure) bit and reports it.  The first and last
-    # entries differ, so reading the wrong end of the vector fails here
-    decoder = _Decoder(np.array([0, 1, 1, 0, 1], dtype=np.uint8), has_erasure_bit=True)
-    error, erasure = monte_carlo.get_error_and_erasure(decoder, syndrome)
-    assert erasure and np.array_equal(error, field([0, 1, 1, 0]))
-
-    # the same decoder reports no erasure when the syndrome was recognized
-    decoder = _Decoder(np.array([1, 1, 0, 0, 0], dtype=np.uint8), has_erasure_bit=True)
-    error, erasure = monte_carlo.get_error_and_erasure(decoder, syndrome)
-    assert not erasure and np.array_equal(error, field([1, 1, 0, 0]))
 
 
 def test_jeffreys_variance() -> None:

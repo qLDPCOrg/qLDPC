@@ -28,22 +28,29 @@ Do not copy transient project history, machine-specific paths, or local-session 
   Do not infer that this weaker guarantee applies elsewhere.
 - Keep complete lists of public symbols in `__all__` and AutoAPI.
   Human-written docs should explain what packages do and show representative tasks, not duplicate a class catalogue.
-- A module should not use a private (underscore-prefixed) name from another module.
-  Needing to do so indicates that the name should be public and documented.
+- A module should not use a private (underscore-prefixed) name from another module unless it is a
+  narrowly shared internal helper deliberately housed in a package's `common.py`, and used only
+  within that package.
+  Otherwise, needing to do so indicates that the name should be public and documented.
   A test module may use private names of the module that it tests.
 
 ## Repository map
 
 | Area | What it does | Tests and examples |
 | --- | --- | --- |
-| [`src/qldpc/codes/common.py`](src/qldpc/codes/common.py) | `AbstractCode`, `ClassicalCode`, `QuditCode`, and `CSSCode`; logicals, stabilizers, distance, concatenation, and error-rate interfaces | [`common_test.py`](src/qldpc/codes/common_test.py), [`monte_carlo_test.py`](src/qldpc/codes/monte_carlo_test.py) |
+| [`src/qldpc/codes/common.py`](src/qldpc/codes/common.py) | `AbstractCode`, `ClassicalCode`, `QuditCode`, and `CSSCode`; logicals, stabilizers, distance, concatenation, and error-rate interfaces | [`common_test.py`](src/qldpc/codes/common_test.py) |
+| [`src/qldpc/codes/monte_carlo.py`](src/qldpc/codes/monte_carlo.py) | Fixed-weight sample allocation, rate estimation, and statistical uncertainty | [`monte_carlo_test.py`](src/qldpc/codes/monte_carlo_test.py) |
+| [`src/qldpc/codes/code_capacity.py`](src/qldpc/codes/code_capacity.py) | Code-capacity detector error models, observable-decoder orchestration, and sector reuse | [`code_capacity_test.py`](src/qldpc/codes/code_capacity_test.py), [`common_test.py`](src/qldpc/codes/common_test.py) |
 | [`src/qldpc/codes/classical.py`](src/qldpc/codes/classical.py) | Classical code families | [`classical_test.py`](src/qldpc/codes/classical_test.py), [`basics.ipynb`](examples/basics.ipynb) |
 | [`src/qldpc/codes/quantum.py`](src/qldpc/codes/quantum.py) | Quantum, CSS, subsystem, product, and geometric code families | [`quantum_test.py`](src/qldpc/codes/quantum_test.py), [`bivariate_bicycle_codes.ipynb`](examples/bivariate_bicycle_codes.ipynb) |
 | [`src/qldpc/codes/distance.py`](src/qldpc/codes/distance.py) | Exact binary classical and quantum distance enumeration | [`distance_test.py`](src/qldpc/codes/distance_test.py) |
 | [`src/qldpc/abstract/`](src/qldpc/abstract/) | Groups, group rings, `RingArray`, semisimple linear algebra, and Wedderburn--Artin transforms | Co-located `*_test.py` files in the same directory |
 | [`src/qldpc/math.py`](src/qldpc/math.py) | Symplectic and finite-field array helpers | [`math_test.py`](src/qldpc/math_test.py) |
 | [`src/qldpc/objects.py`](src/qldpc/objects.py) | Pauli labels, graph nodes, Cayley complexes, and chain complexes | [`objects_test.py`](src/qldpc/objects_test.py) |
-| [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocol/adapters, implementations, DEM arrays, retrieval, Sinter, and windowed decoding | Co-located tests plus [`logical_error_rates/`](examples/logical_error_rates/) |
+| [`src/qldpc/decoders/external/`](src/qldpc/decoders/external/) | Integrations and immediate builders for ldpc, PyMatching, and Relay-BP | Co-located `*_test.py` files |
+| [`src/qldpc/decoders/custom/`](src/qldpc/decoders/custom/) | qLDPC-owned decoder implementations and their immediate builders | Co-located `*_test.py` files; [`custom_test.py`](src/qldpc/decoders/custom_test.py) covers deprecated aliases |
+| [`src/qldpc/decoders/construction/`](src/qldpc/decoders/construction/) | Typed decoder specs, generic resolution, and legacy keyword translation | Co-located `*_test.py` files |
+| [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocols, capability checks, adapters, DEM arrays, Sinter, and windowed decoding | Co-located tests, [`decoders_test.py`](src/qldpc/decoders_test.py) and [`sinter_test.py`](src/qldpc/decoders/sinter_test.py) for deprecated aliases, plus [`logical_error_rates/`](examples/logical_error_rates/) |
 | [`src/qldpc/circuits/`](src/qldpc/circuits/) | Stim circuits, bookkeeping, encoders, memory experiments, noise, benchmarking, and transversal operations | Co-located tests plus [`noise_models.ipynb`](examples/noise_models.ipynb) and [`transversal_gates.ipynb`](examples/transversal_gates.ipynb) |
 | [`src/qldpc/external/`](src/qldpc/external/) | GAP, GUAVA, QDistRnd, GroupNames, and code-database integrations | Co-located tests use controlled substitutes for processes, input, and network access |
 | [`src/qldpc/cache.py`](src/qldpc/cache.py) | Persistent disk-cache helpers for expensive computations | [`cache_test.py`](src/qldpc/cache_test.py) |
@@ -63,7 +70,17 @@ AbstractCode
 
 The methods in `codes/common.py` share cached and mutable state for standard form, logical and gauge operators, parameters, and code transformations.
 Do not split them into mixins merely to reduce the file length.
-Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
+Free-standing statistical Monte Carlo helpers live in `codes/monte_carlo.py`.
+Code-capacity detector-error-model and decoder orchestration lives in `codes/code_capacity.py`.
+Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed
+observable-decoder adapters live in `decoders/adapters/observable_decoders.py`.
+Immediate builders live beside their implementations: external-package integrations under
+`decoders/external/`, and qLDPC-owned implementations under `decoders/custom/`. Typed decoder
+settings, generic input resolution, and deprecated keyword translation live under
+`decoders/construction/`.
+Legacy keyword-based construction in `decoders/construction/legacy.py` is an attachment on top of
+the modern API: it translates deprecated arguments into modern decoder inputs and resolves them with
+`decoders/construction/resolution.py`, which never imports it.
 
 ## Core invariants
 
@@ -97,10 +114,12 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 
 ### Decoders
 
-- [`decoders.get_error_decoder`](src/qldpc/decoders/retrieval.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
+- [`decoders.get_error_decoder`](src/qldpc/decoders/construction/resolution.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
 - Keep error decoders (`decode_errors`, with `decode` as an alias) distinct from observable decoders (`decode_observables`).
   Code that consumes a user-supplied error decoder coerces it with `decoders.as_error_decoder` and calls `decode_errors`.
 - A method that decodes a matrix it constructs itself must reject prebuilt decoders with `decoders.reject_prebuilt_decoder`.
+- Code-capacity estimators resolve their `decoder=`, `decoder_x=`, and `decoder_z=` inputs with [`codes.code_capacity.get_code_capacity_decoder`](src/qldpc/codes/code_capacity.py), which always yields an observable decoder: error decoders are wrapped so that their inferred errors become logical predictions.
+  Keep `decoders.get_error_decoder` and `decoders.resolve_decoder` error-decoder-specific, and dispatch on explicit capabilities (`compile_decoder_for_dem`, `decode_observables`, the `ErrorDecoder` protocol), never on output length.
 - Only decoders that declare erasure support may append an erasure flag.
   They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
 - Detector-error-model decomposition indices and remaps must remain valid after cancellation and simplification.
@@ -151,8 +170,8 @@ Free-standing Monte Carlo helpers already live in `codes/monte_carlo.py`.
 
 ### Add or adapt a decoder
 
-1. Implement the protocol in [`decoders/custom.py`](src/qldpc/decoders/custom.py) or the relevant adapter module.
-2. Add retrieval wiring in [`decoders/retrieval.py`](src/qldpc/decoders/retrieval.py) and exports in [`decoders/__init__.py`](src/qldpc/decoders/__init__.py).
+1. Put integrations with third-party decoder packages under [`decoders/external/`](src/qldpc/decoders/external/), and qLDPC-owned implementations under [`decoders/custom/`](src/qldpc/decoders/custom/).
+2. Keep each immediate builder beside the implementation it constructs. Add typed settings or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/), then export the modern API from the relevant package `__init__.py` and [`decoders/__init__.py`](src/qldpc/decoders/__init__.py). Keep deprecated keyword translation isolated in `construction/legacy.py`.
 3. Decide and test batch behavior, nonbinary support, detector-error-model support, and erasure signaling explicitly.
 4. Use direct syndrome/error reproductions in addition to factory-selection tests.
 

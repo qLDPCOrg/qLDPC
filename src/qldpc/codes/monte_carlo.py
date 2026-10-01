@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Monte-Carlo helpers for code-capacity logical error rate estimation.
+"""Statistical helpers for code-capacity logical error rate estimation.
 
 These utilities turn the failure and discard counts collected by the .get_logical_error_rate_func
 methods of the code classes into logical error and discard rate estimates, and support the sampling
-that those methods perform.  They depend only on the decoder interface and on the binomial weight
-distribution, not on the code classes themselves, so they live in their own module.
+that those methods perform.
 """
 
 from __future__ import annotations
@@ -14,12 +13,11 @@ import dataclasses
 from collections.abc import Iterable
 from typing import TypeVar
 
-import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.special
 
-from qldpc import decoders, math
+from qldpc import math
 
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 
@@ -412,20 +410,3 @@ def _get_error_probs_by_weight(
         for kk in range(max_weight + 1)
     ]
     return np.exp(log_probs)
-
-
-def get_error_and_erasure(
-    decoder: decoders.ErrorDecoder | decoders.SupportsDecode,
-    syndrome: galois.FieldArray,
-) -> tuple[galois.FieldArray, bool]:
-    """Decode a syndrome and return the inferred error together with an erasure flag.
-
-    If the decoder has a has_erasure_bit attribute set to True (e.g., a LookupDecoder constructed
-    with ``add_erasure_bit=True``), the last element of the decoded vector is treated as the erasure
-    bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
-    correction was found normally.  The erasure bit is stripped before returning the error.
-    """
-    error = decoders.as_error_decoder(decoder).decode_errors(syndrome.view(np.ndarray))
-    if getattr(decoder, "has_erasure_bit", False):
-        return error[:-1].view(type(syndrome)), bool(error[-1])
-    return error.view(type(syndrome)), False

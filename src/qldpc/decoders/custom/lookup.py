@@ -16,13 +16,13 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc import codes, math
+from qldpc import math
 from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
-from .common import with_erasure_bits
-from .dems import DetectorErrorModelArrays
-from .protocols import ErrorDecoder
+from ..common import _erasure_bit_support, with_erasure_bits
+from ..dems import DetectorErrorModelArrays
+from ..protocols import ErrorDecoder, ObservableDecoder
 
 
 class _LookupDecoderBase:
@@ -83,6 +83,7 @@ class _LookupDecoderBase:
         # observable flips, which it does with the deprecated predict_observable_flips=True
         self.predict_observable_flips = predict_observable_flips
         self.decode_returns_observables = predict_observable_flips
+        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -129,6 +130,21 @@ class _LookupDecoderBase:
             elif (error_weight := penalty_func(error)) <= error_penalty.get(syndrome, np.inf):
                 error_penalty[syndrome] = error_weight
                 self.syndrome_to_error[syndrome] = self._maybe_add_erasure_bit(error)
+
+    def _save_interface_metadata(
+        self,
+        pcm: IntegerArray,
+        observable_flip_matrix: IntegerArray | None,
+        predict_observable_flips: bool,
+    ) -> None:
+        """Record dimensions and the field so prebuilt-decoder compatibility can be checked."""
+        self.num_detectors = pcm.shape[0]
+        self.num_observables = (
+            observable_flip_matrix.shape[0]
+            if predict_observable_flips and observable_flip_matrix is not None
+            else 0
+        )
+        self.field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
 
     def _build_syndrome_map_from_observable_flips(
         self,
@@ -391,6 +407,8 @@ class _LookupDecoderBase:
         When post-selecting (keep is not None), errors whose syndrome is nontrivial on any dropped
         bit are skipped, and dropped bits are omitted from the yielded syndrome.
         """
+        from qldpc import codes
+
         dtype = matrix.dtype
         # rewrite the checks so multiplying by an error produces its syndrome
         code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
@@ -540,12 +558,7 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
 
         predict_observable_flips is deprecated; use ObservableLookupDecoder for observable output.
         """
-        if predict_observable_flips:
-            warnings.warn(
-                "predict_observable_flips=True is deprecated; use ObservableLookupDecoder instead",
-                DeprecationWarning,
-                stacklevel=get_external_caller_stacklevel(),
-            )
+        _warn_deprecated_observable_prediction(predict_observable_flips, "ObservableLookupDecoder")
         super().__init__(
             pcm_or_dem,
             max_weight,
@@ -674,6 +687,7 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
         # observable flips, which it does with the deprecated predict_observable_flips=True
         self.predict_observable_flips = predict_observable_flips
         self.decode_returns_observables = predict_observable_flips
+        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -761,13 +775,9 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
         add_erasure_bit: bool = False,
         symplectic: bool = False,
     ) -> None:
-        if predict_observable_flips:
-            warnings.warn(
-                "predict_observable_flips=True is deprecated; use"
-                " WeightedObservableLookupDecoder instead",
-                DeprecationWarning,
-                stacklevel=get_external_caller_stacklevel(),
-            )
+        _warn_deprecated_observable_prediction(
+            predict_observable_flips, "WeightedObservableLookupDecoder"
+        )
         super().__init__(
             pcm_or_dem,
             max_weight,
@@ -875,6 +885,48 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
         )
 
 
+@_erasure_bit_support("lookup", supported=True)
+def get_decoder_lookup(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+) -> LookupDecoder:
+    """Build a lookup table that maps syndromes to inferred errors.
+
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.  A DEM supplies
+            default error probabilities and observable metadata.
+        **decoder_args: Arguments passed to :class:`LookupDecoder`, including the required
+            ``max_weight`` and optional erasure, confidence, and symplectic settings.
+
+    Returns:
+        A :class:`LookupDecoder`.
+
+    ``add_erasure_bit=True`` appends a flag for syndromes absent from the table.  A positive
+    ``confidence_ratio`` also enables the flag and erases ambiguous syndromes.  This error builder
+    returns a representative physical error; use :func:`get_observable_decoder_lookup` to return
+    observable flips directly.
+    """
+    return LookupDecoder(pcm_or_dem, **decoder_args)  # type: ignore[arg-type]
+
+
+def get_observable_decoder_lookup(
+    dem: stim.DetectorErrorModel, **decoder_args: object
+) -> ObservableDecoder:
+    """Build a lookup table that maps DEM syndromes directly to observable flips.
+
+    Args:
+        dem: The detector error model whose detectors and observables define the table.
+        **decoder_args: Arguments passed to :class:`ObservableLookupDecoder`, including
+            ``max_weight`` and optional erasure, confidence, and post-selection settings.
+
+    Returns:
+        An :class:`ObservableLookupDecoder`.
+    """
+    return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
+
+
+# Private helpers
+
+
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
     """The weight of an error: the number of qudits, or of bits, that it addresses nontrivially.
 
@@ -886,3 +938,16 @@ def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
     if symplectic:
         return int(math.symplectic_weight(np.asarray(error)))
     return int(np.count_nonzero(error))
+
+
+# Deprecated compatibility helpers
+
+
+def _warn_deprecated_observable_prediction(enabled: bool, replacement: str) -> None:
+    """Warn about the legacy mode in which an error decoder predicts observable flips."""
+    if enabled:
+        warnings.warn(
+            f"predict_observable_flips=True is deprecated; use {replacement} instead",
+            DeprecationWarning,
+            stacklevel=get_external_caller_stacklevel(),
+        )

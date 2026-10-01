@@ -115,7 +115,12 @@ def get_external_caller_stacklevel() -> int:
     return stacklevel
 
 
-def get_deprecated_alias(module_name: str, name: str, aliases: Mapping[str, type]) -> Any:
+def get_deprecated_alias(
+    module_name: str,
+    name: str,
+    aliases: Mapping[str, Any],
+    replacement_names: Mapping[str, str] | None = None,
+) -> Any:
     """Retrieve the replacement for a deprecated name, and warn that the name is deprecated.
 
     This function backs module-level __getattr__ functions (PEP 562), which Python calls only for
@@ -140,6 +145,8 @@ def get_deprecated_alias(module_name: str, name: str, aliases: Mapping[str, type
         module_name: The name of the module whose attribute is being retrieved.
         name: The name of the attribute being retrieved.
         aliases: A map from each deprecated name in the module to its replacement.
+        replacement_names: Optional user-facing names for replacements whose Python ``__name__`` is
+            ambiguous, such as an object moved without being renamed.
 
     Returns:
         The replacement for the deprecated name.
@@ -150,9 +157,10 @@ def get_deprecated_alias(module_name: str, name: str, aliases: Mapping[str, type
     if name not in aliases:
         raise AttributeError(f"module {module_name!r} has no attribute {name!r}")
     replacement = aliases[name]
+    replacement_name = (replacement_names or {}).get(name, replacement.__name__)
     if not _is_import_probe(sys._getframe(2)):
         warnings.warn(
-            f"{name} is deprecated; use {replacement.__name__} instead",
+            f"{name} is deprecated; use {replacement_name} instead",
             DeprecationWarning,
             stacklevel=get_external_caller_stacklevel(),
         )

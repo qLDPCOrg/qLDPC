@@ -48,6 +48,7 @@ by an earlier notebook.
    logical_error_rates/4_sliding_window_decoding
    logical_error_rates/5_state_preparation
    logical_error_rates/6_knill_qec
+   logical_error_rates/7_individual_observables
 
 Miscellaneous
 -------------

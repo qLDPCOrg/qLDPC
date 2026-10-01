@@ -9,14 +9,17 @@ import random
 import unittest.mock
 import warnings
 from collections.abc import Iterator, Sequence
+from typing import Any
 
 import galois
 import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import pytest
+import stim
 
 from qldpc import abstract, codes, decoders, external, math
+from qldpc.codes import code_capacity, common
 from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
@@ -331,6 +334,86 @@ def test_classical_capacity() -> None:
     assert random.getstate() == generator_state
     np.random.seed(1)
     assert hamming_code.get_logical_error_rate_func(200, 0.3)(0.1) == curve
+
+
+def _get_capacity_counts(
+    code: codes.ClassicalCode | codes.QuditCode, seed: int = 0, **kwargs: Any
+) -> tuple[list[int], list[int]]:
+    """Seeded failure and discard counts of a code-capacity experiment, by error weight."""
+    np.random.seed(seed)
+    func = code.get_logical_error_rate_func(**kwargs)
+    return func.num_failures.tolist(), func.num_discards.tolist()
+
+
+def test_classical_capacity_with_observable_decoders() -> None:
+    """Classical code-capacity estimates accept observable decoders."""
+    code = codes.HammingCode(3)
+    num_bits = len(code)
+
+    # the observables of a classical code are its bits, so a decoder that predicts no flips fails
+    # on every nonzero error
+    func = code.get_logical_error_rate_func(100, 0.5, decoder=decoders.TrivialDecoder())
+    assert np.array_equal(func.num_failures[1:], func.num_samples[1:])
+
+    # the Hamming code is perfect, so a lookup table of weight-one errors decodes every syndrome
+    # uniquely, and direct observable decoding agrees exactly with error decoding
+    kwargs: dict[str, Any] = {"num_samples": 200, "max_error_rate": 0.3}
+    expected = _get_capacity_counts(code, decoder=decoders.lookup_table(max_weight=1), **kwargs)
+    assert expected != _get_capacity_counts(code, decoder=decoders.TrivialDecoder(), **kwargs)
+    observable_lookup = decoders.ObservableLookupDecoder(
+        code.matrix,
+        max_weight=1,
+        observable_flip_matrix=code.field.Identity(num_bits),
+        error_channel=[0.1] * num_bits,
+    )
+    sinter_lookup = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    for decoder in [observable_lookup, sinter_lookup]:
+        assert _get_capacity_counts(code, decoder=decoder, **kwargs) == expected
+
+    # direct observable decoding also works over other fields, without Stim
+    nonbinary_code = codes.ClassicalCode(codes.RepetitionCode(3, field=3).matrix)
+    kwargs = {"num_samples": 100, "max_error_rate": 0.5}
+    nonbinary_lookup = decoders.ObservableLookupDecoder(
+        nonbinary_code.matrix,
+        max_weight=1,
+        observable_flip_matrix=nonbinary_code.field.Identity(len(nonbinary_code)),
+        error_channel=[0.1] * len(nonbinary_code),
+    )
+    assert _get_capacity_counts(
+        nonbinary_code, decoder=nonbinary_lookup, **kwargs
+    ) == _get_capacity_counts(
+        nonbinary_code,
+        decoder=decoders.LookupDecoder(nonbinary_code.matrix, max_weight=1),
+        **kwargs,
+    )
+
+    # but Sinter-style decoders, which compile for a (binary) Stim detector error model, do not
+    with pytest.raises(ValueError, match="cannot decode a code over GF"):
+        nonbinary_code.get_logical_error_rate_func(1, decoder=decoders.TrivialDecoder())
+
+    # an observable decoder built for other observables is rejected
+    compiled_decoder = decoders.TrivialDecoder().compile_decoder_for_dem(
+        stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D0 D1\nerror(0.1) D1")
+    )
+    with pytest.raises(ValueError, match="has num_observables=1"):
+        codes.RepetitionCode(3).get_logical_error_rate_func(1, decoder=compiled_decoder)
+    wrong_syndrome_lookup = decoders.ObservableLookupDecoder(
+        code.field([[1, 1, 0]]),
+        max_weight=1,
+        observable_flip_matrix=code.field.Identity(3),
+        error_channel=[0.1] * 3,
+    )
+    with pytest.raises(ValueError, match="has num_detectors=1"):
+        codes.RepetitionCode(3).get_logical_error_rate_func(1, decoder=wrong_syndrome_lookup)
+
+    # randomized distance bounds still require error decoders
+    vector = np.zeros(num_bits, dtype=int)
+    vector[0] = 1
+    with pytest.raises(TypeError, match="predicts observable flips rather than errors"):
+        codes.HammingCode(3).get_distance_bound(
+            vector=vector,
+            decoder=observable_lookup,  # type:ignore[arg-type]
+        )
 
 
 ####################################################################################################
@@ -1653,6 +1736,165 @@ def test_css_capacity() -> None:
     )
     assert logical_error_rate_func(0) == (0, 0)  # no logical error with zero uncertainty
     assert logical_error_rate_func(0.1)[0] > 0  # nonzero logical error rate at a nonzero rate
+
+
+def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-CSS code-capacity estimates accept Sinter-style observable decoders."""
+    code = codes.FiveQubitCode()
+    code_as_qudit_code = codes.QuditCode(code.matrix)
+    assert not isinstance(code_as_qudit_code, codes.CSSCode)
+
+    # the five-qubit code is perfect, so an observable lookup table of weight-one errors corrects
+    # every weight-one error, whereas a decoder that predicts no flips does not
+    kwargs: dict[str, Any] = {"num_samples": 100, "max_error_rate": 0.3}
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    failures, discards = _get_capacity_counts(code_as_qudit_code, decoder=decoder, **kwargs)
+    assert failures[1] == 0 and not any(discards)
+    failures, _ = _get_capacity_counts(
+        code_as_qudit_code, decoder=decoders.TrivialDecoder(), **kwargs
+    )
+    assert failures[1] > 0
+
+    # prebuilt decoders, of either kind, are rejected
+    compiled_decoder = decoder.compile_decoder_for_dem(stim.DetectorErrorModel())
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
+        code_as_qudit_code.get_logical_error_rate_func(
+            0,
+            decoder=compiled_decoder,  # type: ignore[arg-type]
+        )
+
+    # Sinter-style decoders cannot decode nonbinary codes
+    nonbinary_code = codes.QuditCode(codes.ToricCode(4, field=3).matrix)
+    with pytest.raises(ValueError, match="cannot decode a code over GF"):
+        nonbinary_code.get_logical_error_rate_func(0, decoder=decoders.TrivialDecoder())
+
+    # the observables of a qudit code are the symplectic products of an error with the logical
+    # operators of the code, which carry signs over an odd-characteristic field
+    captured_decoders: list[code_capacity.CodeCapacityDecoder] = []
+    captured_decoder_kwargs: list[dict[str, Any]] = []
+
+    def get_code_capacity_decoder(*args: Any, **kwargs: Any) -> code_capacity.CodeCapacityDecoder:
+        captured_decoder_kwargs.append(kwargs)
+        captured_decoders.append(code_capacity.get_code_capacity_decoder(*args, **kwargs))
+        return captured_decoders[-1]
+
+    monkeypatch.setattr(common, "get_code_capacity_decoder", get_code_capacity_decoder)
+    nonbinary_code.get_logical_error_rate_func(0)
+    (decoder_for_code,) = captured_decoders
+    field = nonbinary_code.field
+    for _ in range(10):
+        error = field.Random(2 * len(nonbinary_code))
+        assert np.array_equal(
+            decoder_for_code.observable_matrix @ error,
+            nonbinary_code.get_logical_ops() @ math.symplectic_conjugate(error),
+        )
+        assert np.array_equal(
+            decoder_for_code.syndrome_matrix @ error,
+            nonbinary_code.get_stabilizer_ops() @ math.symplectic_conjugate(error),
+        )
+
+    # Sinter compilation uses direct single-Pauli effects and preserves the caller's Pauli bias
+    code_as_qudit_code.get_logical_error_rate_func(
+        0,
+        pauli_bias=(0.2, 0.3, 0.5),
+        decoder=decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1)),
+    )
+    decoder_kwargs = captured_decoder_kwargs[-1]
+    assert decoder_kwargs["symplectic_dem_errors"] is True
+    assert "dem_errors" not in decoder_kwargs
+    assert np.allclose(
+        decoder_kwargs["dem_error_weights"],
+        np.repeat([0.6, 1.5, 0.9], len(code_as_qudit_code)),
+    )
+
+
+def test_css_capacity_with_observable_decoders() -> None:
+    """CSS code-capacity estimates accept observable decoders, per sector."""
+    code = codes.SurfaceCode(3)
+    kwargs: dict[str, Any] = {"num_samples": 200, "max_error_rate": 0.3}
+
+    # a shared Sinter-style decoder is compiled for each sector, even though their stabilizer
+    # matrices differ, and corrects every weight-one error
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    failures, discards = _get_capacity_counts(code, decoder=decoder, **kwargs)
+    assert failures[1] == 0 and not any(discards)
+
+    # Error and observable decoders can be mixed.  A pure X bias leaves the Z sector error-free, so
+    # replacing the Z-sector decoder by a trivial observable decoder changes nothing, and similarly
+    # for a pure Z bias and the X sector.
+    error_decoder = decoders.lookup_table(max_weight=2)
+    trivial_decoder = decoders.TrivialDecoder()
+    mixed_configurations: list[tuple[tuple[int, int, int], dict[str, Any]]] = [
+        ((1, 0, 0), {"decoder_x": error_decoder, "decoder_z": trivial_decoder}),
+        ((0, 0, 1), {"decoder_x": trivial_decoder, "decoder_z": error_decoder}),
+    ]
+    for pauli_bias, mixed_decoders in mixed_configurations:
+        kwargs["pauli_bias"] = pauli_bias
+        expected = _get_capacity_counts(code, decoder=error_decoder, **kwargs)
+        assert expected == _get_capacity_counts(code, **mixed_decoders, **kwargs)
+        assert expected != _get_capacity_counts(code, decoder=trivial_decoder, **kwargs)
+
+    # prebuilt observable decoders are accepted per sector
+    stabilizer_ops_x = code.get_stabilizer_ops(Pauli.X, canonicalized=False)
+    stabilizer_ops_z = code.get_stabilizer_ops(Pauli.Z, canonicalized=False)
+    decoder_x = decoders.ObservableLookupDecoder(
+        stabilizer_ops_z,
+        max_weight=1,
+        observable_flip_matrix=code.get_logical_ops(Pauli.Z),
+        error_channel=[0.1] * len(code),
+    )
+    decoder_z = decoders.ObservableLookupDecoder(
+        stabilizer_ops_x,
+        max_weight=1,
+        observable_flip_matrix=code.get_logical_ops(Pauli.X),
+        error_channel=[0.1] * len(code),
+    )
+    kwargs["pauli_bias"] = (0, 1, 0)
+    failures, _ = _get_capacity_counts(code, decoder_x=decoder_x, decoder_z=decoder_z, **kwargs)
+    assert failures[1] == 0
+
+    # but not shared by sectors with different stabilizers
+    with pytest.raises(ValueError, match="stabilizer matrices differ"):
+        code.get_logical_error_rate_func(0, decoder=decoder_x)
+
+    class _ExternalCompiledDecoder:
+        def decode_shots_bit_packed(
+            self, *, bit_packed_detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            raise AssertionError("shared compiled decoder should be rejected")  # pragma: no cover
+
+    with pytest.raises(ValueError, match="stabilizer matrices differ"):
+        code.get_logical_error_rate_func(
+            0,
+            decoder=_ExternalCompiledDecoder(),  # type: ignore[arg-type]
+        )
+
+    # or logical operators
+    steane_code = codes.SteaneCode()
+    stabilizer_ops = steane_code.get_stabilizer_ops(Pauli.X, canonicalized=False)
+    assert np.array_equal(
+        stabilizer_ops, steane_code.get_stabilizer_ops(Pauli.Z, canonicalized=False)
+    )
+    decoder_x = decoders.ObservableLookupDecoder(
+        stabilizer_ops,
+        max_weight=1,
+        observable_flip_matrix=steane_code.get_logical_ops(Pauli.Z),
+        error_channel=[0.1] * len(steane_code),
+    )
+    with pytest.raises(ValueError, match="logical operators differ"):
+        steane_code.get_logical_error_rate_func(0, decoder=decoder_x)
+
+    # erasure signaled by an observable decoder discards samples
+    func = steane_code.get_logical_error_rate_func(
+        num_samples=20,
+        max_error_rate=1,
+        pauli_bias=(1, 0, 0),
+        decoder=decoders.SinterDecoder(
+            decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True)
+        ),
+    )
+    assert func(0.5, discard_rate=True)[0] > 0
+    assert func.num_discards[1] == func.num_samples[1]  # every weight-one error has a syndrome
 
 
 def test_capacity_pauli_bias_convention() -> None:

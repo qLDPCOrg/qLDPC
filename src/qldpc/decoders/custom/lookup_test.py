@@ -15,6 +15,7 @@ import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
+from qldpc.decoders.custom.lookup import get_observable_decoder_lookup
 
 
 def test_lookup(toy_problem: ToyProblem) -> None:
@@ -29,6 +30,13 @@ def test_lookup(toy_problem: ToyProblem) -> None:
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
     decoder = decoders.get_decoder_lookup(dem, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
+
+    erasing_decoder = decoders.get_decoder_lookup(matrix, max_weight=2, add_erasure_bit=True)
+    assert erasing_decoder.has_erasure_bit
+    assert np.array_equal(erasing_decoder.decode(syndrome), [*error, 0])
+
+    observable_decoder = get_observable_decoder_lookup(dem, max_weight=2)
+    assert np.array_equal(observable_decoder.decode_observables(syndrome), [])
 
 
 def test_observable_lookup_decoding() -> None:
