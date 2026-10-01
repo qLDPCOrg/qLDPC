@@ -55,8 +55,11 @@ For the recommended in-process integration, install qLDPC with its maintained li
 python -m pip install 'qldpc[gap]'
 ```
 
-qLDPC uses `passagemath-gap` when it is installed, so supported GAP operations do not launch a separate process.
-If the extra is unavailable, qLDPC still supports a GAP executable on `PATH` (`conda install -c conda-forge gap` is one option) and retains its documented manual copy/paste fallback.
+qLDPC uses `passagemath-gap` when available, so supported GAP operations do not launch a separate process.
+The in-process binding supports Python 3.11 through 3.13 on non-Windows platforms.
+On Python 3.14 or Windows, install GAP separately and make its executable available on `PATH`.
+Use Python 3.13 when you require the in-process binding.
+If the extra is unavailable, qLDPC supports a GAP executable on `PATH` (`conda install -c conda-forge gap` is one option) and a manual copy/paste fallback.
 If a package such as GUAVA or QDistRnd is absent from the in-process binding, qLDPC asks for permission to install it through GAP's PackageManager.
 If that attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing the package for libgap before using the executable instead.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).

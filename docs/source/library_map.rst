@@ -263,10 +263,12 @@ The :doc:`API reference <autoapi/index>` carries the literature links for each f
 Optional integrations and side effects
 --------------------------------------
 
-* Install ``qldpc[gap]`` for the optional ``passagemath-gap`` libgap binding. GAP-backed
-  features use that in-process binding when available. Otherwise, qLDPC can invoke a separately
-  installed GAP executable in a child process. If neither option is available, some paths offer a
-  manual copy/paste workflow that reads standard input and uses the system clipboard.
+* Install ``qldpc[gap]`` for the optional ``passagemath-gap`` libgap binding.
+  The binding supports non-Windows Python 3.11--3.13.
+  On Python 3.14 or Windows, use a separate GAP executable instead.
+  Use Python 3.13 when the in-process binding is required.
+  If neither option is available, some paths offer a manual copy/paste workflow that reads standard
+  input and uses the system clipboard.
 * When a GAP package is unavailable to libgap, qLDPC asks for permission to install it with GAP's
   PackageManager so that the active libgap runtime can discover it. If that attempt fails and a
   separate GAP executable is available, qLDPC prints manual installation instructions before using
