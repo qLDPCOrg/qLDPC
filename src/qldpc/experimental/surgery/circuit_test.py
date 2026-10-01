@@ -82,6 +82,83 @@ def test_merged_csscode_accessor_handles_single_and_joint_layouts() -> None:
         _merged_csscode(gadget_l, gadget_r)
 
 
+def test_merged_csscode_rejects_structure_for_single_layout() -> None:
+    """Explicit inter-block structure is only meaningful for joint layouts."""
+    from qldpc.experimental.surgery.circuit import _merged_csscode
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
+    with pytest.raises(ValueError, match="only valid for a joint"):
+        _merged_csscode(gadget, intercode=True)
+
+
+def test_explicit_intracode_structure_uses_code_equality_not_identity() -> None:
+    """One shared data register may be described by equivalent code objects."""
+    from qldpc.experimental.surgery import build_bridge, build_gadget
+    from qldpc.experimental.surgery.circuit import _merged_csscode
+
+    code_l = codes.SteaneCode()
+    code_r = codes.SteaneCode()
+    logical_l = np.asarray(code_l.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    logical_r = np.asarray(code_r.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget_l = build_gadget(code_l, logical_l, basis=Pauli.X)
+    gadget_r = build_gadget(code_r, logical_r, basis=Pauli.X)
+
+    merged = _merged_csscode(
+        gadget_l,
+        gadget_r,
+        build_bridge(gadget_l, gadget_r),
+        intercode=False,
+    )
+    shared_gadget_r = build_gadget(code_l, logical_l, basis=Pauli.X)
+    shared_merged = _merged_csscode(
+        gadget_l,
+        shared_gadget_r,
+        build_bridge(gadget_l, shared_gadget_r),
+    )
+    assert np.array_equal(merged.matrix_x, shared_merged.matrix_x)
+    assert np.array_equal(merged.matrix_z, shared_merged.matrix_z)
+
+    incompatible = codes.SurfaceCode(3)
+    incompatible_logical = np.asarray(
+        incompatible.get_logical_ops(Pauli.X)[0],
+        dtype=np.uint8,
+    )
+    incompatible_gadget = build_gadget(
+        incompatible,
+        incompatible_logical,
+        basis=Pauli.X,
+    )
+    with pytest.raises(ValueError, match="structurally identical"):
+        _merged_csscode(
+            gadget_l,
+            incompatible_gadget,
+            build_bridge(gadget_l, incompatible_gadget),
+            intercode=False,
+        )
+
+    permutation = np.array([1, 0, 2, 3, 4, 5, 6])
+    permuted_code = codes.CSSCode(
+        np.asarray(code_l.matrix_x)[:, permutation],
+        np.asarray(code_l.matrix_z)[:, permutation],
+    )
+    permuted_logical = np.asarray(code_l.get_logical_ops(Pauli.X)[0], dtype=np.uint8)[permutation]
+    permuted_gadget = build_gadget(permuted_code, permuted_logical, basis=Pauli.X)
+    assert permuted_code.field is code_l.field
+    assert permuted_code.matrix_x.shape == code_l.matrix_x.shape
+    assert permuted_code.num_qudits == code_l.num_qudits
+    assert permuted_code != code_l
+    with pytest.raises(ValueError, match="structurally identical"):
+        _merged_csscode(
+            gadget_l,
+            permuted_gadget,
+            build_bridge(gadget_l, permuted_gadget),
+            intercode=False,
+        )
+
+
 def test_single_ppm_rejects_a_reducible_logical_until_boosted() -> None:
     """A circuit cannot silently fix both factors of a requested logical product."""
     from qldpc.experimental.surgery import boost_gadget

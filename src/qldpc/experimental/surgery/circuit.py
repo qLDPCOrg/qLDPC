@@ -513,8 +513,7 @@ def build_single_ppm_circuit(
 
 
 def _stitch_intercode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> CSSCode:
-    """Inter-code joint stitch (g_l.code is not g_r.code). Handles both bases."""
-    assert g_l.code is not g_r.code
+    """Inter-code joint stitch with disjoint data registers. Handles both bases."""
     field = g_l.code.field
     g_l_aug, g_r_aug = bridge.g_l_aug, bridge.g_r_aug
 
@@ -599,14 +598,20 @@ def _stitch_intercode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> C
 
 
 def _stitch_intracode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> CSSCode:
-    """Intra-code joint stitch (g_l.code is g_r.code). Handles both bases.
+    """Intra-code joint stitch over one shared data register. Handles both bases.
 
     Differences from _stitch_intercode:
       - Shared data check rows (count = m_meas/comp_data once, not l+r).
       - Shared data column block (n columns, not n_l + n_r).
       - χ rows from both sides write into the SAME data-column slice.
     """
-    assert g_l.code is g_r.code
+    same_code = (
+        g_l.code.field is g_r.code.field
+        and np.array_equal(g_l.code.matrix_x, g_r.code.matrix_x)
+        and np.array_equal(g_l.code.matrix_z, g_r.code.matrix_z)
+    )
+    if not same_code:
+        raise ValueError("an intra-code joint stitch requires structurally identical data codes")
     field = g_l.code.field
     g_l_aug, g_r_aug = bridge.g_l_aug, bridge.g_r_aug
 
@@ -682,30 +687,37 @@ def _stitch_to_joint_csscode(
     g_l: GadgetLayout,
     g_r: GadgetLayout,
     bridge: Bridge,
+    *,
+    intercode: bool | None = None,
 ) -> CSSCode:
     """Assemble merged CSSCode for two-PPM surgery.
 
-    Dispatches on the structural axis (g_l.code is g_r.code → intra-code shares data; otherwise
-    inter-code). Each branch handles both bridge.basis values internally via the χ-carrier
-    abstraction.
+    ``intercode`` explicitly selects whether the two gadgets occupy disjoint data blocks. The
+    default retains the historical object-identity behavior for existing internal callers.
     """
-    if g_l.code is g_r.code:
-        return _stitch_intracode(g_l, g_r, bridge)
-    return _stitch_intercode(g_l, g_r, bridge)
+    if intercode is None:
+        intercode = g_l.code is not g_r.code
+    if intercode:
+        return _stitch_intercode(g_l, g_r, bridge)
+    return _stitch_intracode(g_l, g_r, bridge)
 
 
 def _merged_csscode(
     g_l: GadgetLayout,
     g_r: GadgetLayout | None = None,
     bridge: Bridge | None = None,
+    *,
+    intercode: bool | None = None,
 ) -> CSSCode:
     """Construct the merged code for either a single or joint PPM layout."""
     if (g_r is None) != (bridge is None):
         raise ValueError("g_r and bridge must either both be provided or both be omitted")
     if g_r is None:
+        if intercode is not None:
+            raise ValueError("intercode is only valid for a joint PPM layout")
         return g_l._get_cone_result().code
     assert bridge is not None
-    return _stitch_to_joint_csscode(g_l, g_r, bridge)
+    return _stitch_to_joint_csscode(g_l, g_r, bridge, intercode=intercode)
 
 
 def _expand_joint_data_init(
@@ -769,7 +781,11 @@ def build_joint_ppm_circuit(
     noise_model: NoiseModel | None = None,
     data_init: str | tuple[str, ...] | list[str] | None = None,
 ) -> tuple[stim.Circuit, CSSCode]:
-    """Joint-PPM circuit measuring a logical Pauli product across two gadgets via a bridge.
+    """Build a joint-PPM circuit measuring a logical Pauli product across two gadgets.
+
+    Gadgets over the same code object share one data block; gadgets over distinct code objects use
+    disjoint data blocks. Compiler callers with explicit logical block identities use the private
+    structural entry point instead.
 
     Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 
@@ -802,12 +818,33 @@ def build_joint_ppm_circuit(
             or a per-code spec whose length matches neither 1 nor that code's data-qubit count.
         TypeError: ``data_init`` is not a str, tuple, list, or None, or a tuple entry is not a str.
     """
+    return _build_joint_ppm_circuit(
+        g_l,
+        g_r,
+        bridge,
+        intercode=g_l.code is not g_r.code,
+        rounds=rounds,
+        noise_model=noise_model,
+        data_init=data_init,
+    )
+
+
+def _build_joint_ppm_circuit(
+    g_l: GadgetLayout,
+    g_r: GadgetLayout,
+    bridge: Bridge,
+    *,
+    intercode: bool,
+    rounds: int,
+    noise_model: NoiseModel | None = None,
+    data_init: str | tuple[str, ...] | list[str] | None = None,
+) -> tuple[stim.Circuit, CSSCode]:
+    """Build a joint-PPM circuit with an explicit shared- versus disjoint-data choice."""
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
     _validate_bridge_gadget(g_l, bridge.g_l_aug, bridge.extra_ancilla_l, side="l")
     _validate_bridge_gadget(g_r, bridge.g_r_aug, bridge.extra_ancilla_r, side="r")
-    joint_code = _merged_csscode(g_l, g_r, bridge)
-    intercode = g_l.code is not g_r.code
+    joint_code = _merged_csscode(g_l, g_r, bridge, intercode=intercode)
     input_dimension = g_l.code.dimension + (g_r.code.dimension if intercode else 0)
     _validate_one_logical_measurement(
         joint_code,
