@@ -26,7 +26,7 @@ GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 
 @qldpc.cache.use_disk_cache(
     "group_generators",
-    key_func=lambda group, warning_to_raise_if_calling_gap: "".join(group.split()),
+    key_func=lambda group, **_: "".join(group.split()),  # strip whitespace
 )
 def get_generators(
     group: str, *, warning_to_raise_if_calling_gap: str | None = None
@@ -310,7 +310,7 @@ def maybe_get_webpage(order: int) -> str | None:
     "idempotents",
     key_func=lambda group, field: ("".join(group.split()), field),  # strip whitespace
 )
-def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList | None:
+def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList:
     """Get the primitive central idempotents of a group algebra over a finite field.
 
     This function uses the GAP Wedderga package (https://gap-packages.github.io/wedderga/), run in

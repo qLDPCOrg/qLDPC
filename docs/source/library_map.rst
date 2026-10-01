@@ -279,8 +279,10 @@ Optional integrations and side effects
   the executable instead. Packages missing from the executable backend can trigger an installation
   prompt and ``git clone`` into qLDPC's GAP package directory.
 * Group and code lookups may use online resources when local data and GAP cannot answer the request.
-* Expensive results can be cached under the user's platform cache directory. Disk caching is
-  intentionally bypassed while pytest is running.
+* Expensive results can be cached under the user's platform cache directory. A cached function
+  ``func`` also has a ``func.refresh(...)`` method, which takes the same arguments, recomputes the
+  result, and overwrites the cached value. Disk caching is intentionally bypassed while pytest is
+  running.
 * The test configuration disables network sockets. Tests for optional integrations use mocks rather
   than live services.
 

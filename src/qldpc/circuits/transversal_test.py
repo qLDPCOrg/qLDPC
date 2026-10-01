@@ -107,6 +107,17 @@ def test_transversal_group_degree() -> None:
     assert len(circuits.get_transversal_ops(code, ["H"])) == 0
 
 
+def test_group_intersection_keywords() -> None:
+    """The cache key of a group intersection supports keyword arguments."""
+    group_a = abstract.SymmetricGroup(3)
+    group_b = abstract.CyclicGroup(3)
+    generators = transversal._sympy_group_intersection_generators(group_a, group_b)
+    assert generators  # the cyclic group is a nontrivial subgroup of the symmetric group
+    assert generators == transversal._sympy_group_intersection_generators(
+        group_a=group_a, group_b=group_b
+    )
+
+
 def test_finding_circuit(
     pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

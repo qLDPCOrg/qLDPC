@@ -9,12 +9,67 @@ import pathlib
 import sys
 import warnings
 from collections.abc import Callable, Hashable
-from typing import Any, ParamSpec
+from typing import Generic, ParamSpec, TypeVar, cast
 
 import diskcache
 import platformdirs
 
 Params = ParamSpec("Params")
+Result = TypeVar("Result")
+
+
+class CachedFunction(Generic[Params, Result]):
+    """A function whose results are cached to disk.
+
+    Calling the function retrieves its result from the cache if available, and otherwise computes
+    and caches the result.  Calling CachedFunction.refresh ignores any existing cache entry,
+    recomputes the result, and saves the new result to the cache.
+    """
+
+    __wrapped__: Callable[Params, Result]
+
+    def __init__(
+        self,
+        function: Callable[Params, Result],
+        cache_name: str,
+        *,
+        cache_dir: pathlib.Path | str | None = None,
+        key_func: Callable[..., Hashable] | None = None,
+    ) -> None:
+        self._function = function
+        self._cache_name = cache_name
+        self._cache_dir = cache_dir
+        self._key_func = key_func
+        functools.update_wrapper(self, function)
+
+    def __call__(self, *args: Params.args, **kwargs: Params.kwargs) -> Result:
+        """Retrieve a result from the cache if available, and otherwise compute and cache it."""
+        cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir)
+        key = self._get_key(*args, **kwargs)
+        if key in cache:
+            return cast(Result, cache[key])
+        result = self._function(*args, **kwargs)
+        cache[key] = result
+        return result
+
+    def refresh(self, *args: Params.args, **kwargs: Params.kwargs) -> Result:
+        """Recompute the result for these arguments and overwrite the cached value."""
+        cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir)
+        key = self._get_key(*args, **kwargs)
+        result = self._function(*args, **kwargs)
+        cache[key] = result
+        return result
+
+    def _get_key(self, *args: Params.args, **kwargs: Params.kwargs) -> Hashable:
+        """Get the cache key for the given arguments."""
+        if self._key_func is not None:
+            return self._key_func(*args, **kwargs)
+        key = args + tuple(kwargs.items())
+        return key if len(key) != 1 else key[0]  # unpack length-1 tuples
+
+    def __reduce__(self) -> str:
+        """Pickle by reference to the module-level name of the decorated function."""
+        return self._function.__qualname__
 
 
 def get_disk_cache_path(
@@ -39,31 +94,25 @@ def use_disk_cache(
     *,
     cache_dir: pathlib.Path | str | None = None,
     key_func: Callable[..., Hashable] | None = None,
-) -> Callable[[Callable[Params, Any]], Callable[Params, Any]]:
-    """Decorator to cache results to disk."""
+) -> Callable[[Callable[Params, Result]], CachedFunction[Params, Result]]:
+    """Decorator to cache results to disk.
 
-    def decorator(function: Callable[Params, Any]) -> Callable[Params, Any]:
-        if running_with_pytest():
-            return function
+    By default, the cache key is the tuple of positional arguments followed by (keyword, value)
+    pairs, unpacked if this tuple has length 1.  A custom key_func, called with the same arguments
+    as the decorated function, overrides this default.
 
-        @functools.wraps(function)
-        def function_with_cache(*args: Params.args, **kwargs: Params.kwargs) -> Any:
-            # retrieve results from cache, if available
-            cache = get_disk_cache(cache_name, cache_dir=cache_dir)
-            if key_func is not None:
-                key = key_func(*args, **kwargs)
-            else:
-                key = args + tuple(kwargs.items())
-                key = key if len(key) != 1 else key[0]  # unpack length-1 tuples
-            if key in cache:
-                return cache[key]
+    The decorated function has a .refresh method with the same signature, which ignores any
+    existing cache entry, recomputes the result, and saves the new result to the cache.  Refreshing
+    only affects this cache, and does not clear other caches used internally by the function.
 
-            # compute results and save to cache
-            result = function(*args, **kwargs)
-            cache[key] = result
-            return result
+    The decorator is intended for module-level functions: a decorated function is pickled by
+    reference to its qualified name, and it does not bind as a method.
 
-        return function_with_cache
+    Disk caching is bypassed when running with pytest.
+    """
+
+    def decorator(function: Callable[Params, Result]) -> CachedFunction[Params, Result]:
+        return CachedFunction(function, cache_name, cache_dir=cache_dir, key_func=key_func)
 
     return decorator
 
