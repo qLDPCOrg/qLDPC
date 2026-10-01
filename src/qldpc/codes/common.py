@@ -13,7 +13,7 @@ import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from typing import Any
+from typing import Any, Self
 
 import galois
 import numpy as np
@@ -21,7 +21,6 @@ import numpy.typing as npt
 import scipy.linalg
 import scipy.sparse
 import stim
-from typing_extensions import Self
 
 from qldpc import abstract, decoders, external, math
 from qldpc._util import format_docstring, get_external_caller_stacklevel

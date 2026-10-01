@@ -30,7 +30,7 @@ Some searches are expensive, some bounds are heuristic, experimental APIs can ch
 
 ### Standard installation
 
-qLDPC requires Python 3.10 or later:
+qLDPC requires Python 3.11 or later:
 
 ```bash
 python -m pip install qldpc

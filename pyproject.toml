@@ -16,13 +16,12 @@ keywords = [
 license = "Apache-2.0"
 license-files = [ "COPYRIGHT", "LICENSE" ]
 authors = [ { name = "Michael A. Perlin", email = "mika.perlin@gmail.com" } ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "Natural Language :: English",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -45,7 +44,6 @@ dependencies = [
   "stim>=1.16",
   "sympy>=1.12",
   "tqdm>=4",
-  "typing-extensions>=4",
 ]
 optional-dependencies.dev = [
   "checks-superstaq>=0.5.67",
@@ -66,7 +64,7 @@ optional-dependencies.docs = [
   "sphinx-rtd-theme>=2",
 ]
 optional-dependencies.gap = [
-  "passagemath-gap==10.8.12; python_version>='3.11' and python_version<'3.15' and sys_platform!='win32'",
+  "passagemath-gap==10.8.12; python_version<'3.15' and sys_platform!='win32'",
 ]
 optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
 urls.Documentation = "https://qldpc.readthedocs.io/"

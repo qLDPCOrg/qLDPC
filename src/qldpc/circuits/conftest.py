@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
+from typing import Self
+
 import stim
-from typing_extensions import Self
 
 
 class StimCircuitWrapper:
