@@ -884,6 +884,30 @@ def test_lifted_product_line_logicals(
     )
 
 
+def test_lifted_product_line_logicals_noncommutative(
+    ring_dihedral3_gf5: abstract.GroupRing,
+) -> None:
+    """Canonical line operators need a basis change over a non-commutative ring.
+
+    The random matrices of test_lifted_product_line_logicals reach this case only for some seeds,
+    so a fixed matrix pins it down.
+    """
+    ring = ring_dihedral3_gf5
+    assert not ring.is_commutative
+    rot, ref = ring.group.generators
+    values = [[ref * rot, ref * rot, ring.group.identity], [ref, rot * ref, ref * rot]]
+    matrix = abstract.RingArray.build(values, ring)
+    for code in (
+        codes.LPCode(matrix, set_logicals=True),
+        codes.SLPCode(matrix, set_logicals=True),
+    ):
+        assert code.dimension > 0
+        assert np.array_equal(
+            code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
+            np.eye(code.dimension),
+        )
+
+
 def test_lifted_product_valid_over_group_algebras() -> None:
     """Canonical-logical LP/SLP construction yields valid codes over several group algebras.
 
