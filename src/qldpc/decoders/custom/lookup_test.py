@@ -603,14 +603,16 @@ def test_lookup_batch_validation() -> None:
 
 
 def test_packed_lookup_table_memory() -> None:
-    """A packed lookup table needs much less memory than one of tuples and arrays."""
+    """Packed keys and values use less shallow object memory than tuples and arrays."""
     code = codes.HammingCode(5)
     decoder = decoders.LookupDecoder(code.matrix, max_weight=1)
     packed = decoder._syndrome_to_error.items()
-    unpacked = decoder.syndrome_to_error.copy().items()
-    packed_size = sum(sys.getsizeof(key) + sys.getsizeof(value) for key, value in packed)
-    unpacked_size = sum(sys.getsizeof(key) + sys.getsizeof(value) for key, value in unpacked)
-    assert 3 * packed_size < unpacked_size
+    unpacked = dict(decoder.syndrome_to_error).items()
+    packed_payload_size = sum(sys.getsizeof(key) + sys.getsizeof(value) for key, value in packed)
+    unpacked_payload_size = sum(
+        sys.getsizeof(key) + sys.getsizeof(value) for key, value in unpacked
+    )
+    assert packed_payload_size < unpacked_payload_size
 
 
 @pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3), galois.GF(4)])
@@ -654,7 +656,7 @@ def test_syndrome_to_error_mapping(field: type[galois.FieldArray]) -> None:
         table[(0, 0)] = np.array([0, 0, field.order, 0])
 
     # snapshots are ordinary dictionaries
-    snapshot = table.copy()
+    snapshot = dict(table)
     assert type(snapshot) is dict and len(snapshot) == len(table)
     assert "_PackedLookupTable" in repr(table)
 

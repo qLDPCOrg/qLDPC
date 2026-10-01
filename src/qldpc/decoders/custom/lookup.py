@@ -24,6 +24,8 @@ from ..common import _erasure_bit_support, with_erasure_bits
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder
 
+_LOOKUP_BATCH_SIZE = 4096
+
 
 class _LookupDecoderBase:
     """Shared implementation of lookup-table decoders.
@@ -144,7 +146,9 @@ class _LookupDecoderBase:
         self._syndrome_to_error[key] = self._output_codec.pack_trusted(prediction)
 
     @property
-    def syndrome_to_error(self) -> _PackedLookupTable:
+    def syndrome_to_error(
+        self,
+    ) -> MutableMapping[tuple[int, ...], npt.NDArray[np.int_]]:
         """A mutable mapping from syndromes to the predictions of this lookup table.
 
         Keys are tuples of syndrome entries (excluding post-selected bits), and values are
@@ -574,10 +578,11 @@ class _LookupDecoderBase:
 
         default = self._output_codec.pack_trusted(self.default_correction)
         key_dtype = np.dtype((np.void, self._syndrome_codec.num_bytes))
-        chunk_size = 4096
-        for start in range(0, num_predictions, chunk_size):
-            stop = min(start + chunk_size, num_predictions)
+        # Bound temporary Python byte keys while retaining the throughput of bulk conversion.
+        for start in range(0, num_predictions, _LOOKUP_BATCH_SIZE):
+            stop = min(start + _LOOKUP_BATCH_SIZE, num_predictions)
             if self._syndrome_codec.num_bytes:
+                # A void view preserves trailing zero bytes; tolist() constructs the keys in C.
                 keys = cast(
                     list[bytes],
                     packed_syndromes[start:stop].view(key_dtype).reshape(-1).tolist(),
@@ -745,7 +750,10 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         return self._decode(syndrome)
 
     def decode_errors_batch(self, syndromes: npt.ArrayLike) -> npt.NDArray[np.int_]:
-        """Decode a batch of error syndromes, one per row, and return inferred errors."""
+        """Decode a 2-D batch of syndromes, one per row, and return inferred errors.
+
+        A malformed or absent syndrome receives the same default correction as scalar decoding.
+        """
         return self._decode_batch(syndromes)
 
     decode_batch = decode_errors_batch
@@ -824,11 +832,17 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         return self._decode(syndrome)
 
     def decode_observables_batch(self, syndromes: npt.ArrayLike) -> npt.NDArray[np.int_]:
-        """Decode a batch of syndromes, one per row, and return predicted observable flips."""
+        """Decode a 2-D batch of syndromes, one per row, and return observable flips.
+
+        A malformed or absent syndrome receives the same default prediction as scalar decoding.
+        """
         return self._decode_batch(syndromes)
 
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        """Predict observable flips from unpacked binary detection events."""
+        """Predict observable flips from a 2-D array of unpacked binary detection events.
+
+        Each output row contains one bit per observable and, when configured, one final erasure bit.
+        """
         if self.field.order != 2:
             raise ValueError("ObservableLookupDecoder.decode_shots is only available over GF(2)")
         return np.asarray(self._decode_batch(detection_event_data), dtype=np.uint8)
@@ -836,7 +850,11 @@ class ObservableLookupDecoder(_LookupDecoderBase):
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
-        """Predict bit-packed observable flips from bit-packed binary detection events."""
+        """Predict little-endian bit-packed flips from bit-packed binary detection events.
+
+        Observable flips occupy ``ceil(num_observables / 8)`` bytes per row.  When configured, an
+        erasure is signalled in one additional whole byte, as required by Sinter.
+        """
         packed_predictions = self._decode_binary_packed_batch(bit_packed_detection_event_data)
         num_observable_bytes = -(-self.num_observables // 8)
         if not self.has_erasure_bit:

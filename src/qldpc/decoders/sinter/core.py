@@ -276,6 +276,8 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         uses_default_packer = (
             type(self).pack_observable_flips is CompiledSinterDecoder.pack_observable_flips
         )
+        # Composite subclasses implement their own unpacked decoding and may have no single inner
+        # observable decoder.  They must retain the generic unpack/decode/repack fallback below.
         observable_decoder = getattr(self, "observable_decoder", None)
         if uses_default_packer and callable(
             decode_shots_bit_packed := getattr(observable_decoder, "decode_shots_bit_packed", None)
