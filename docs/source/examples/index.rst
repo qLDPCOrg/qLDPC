@@ -61,6 +61,7 @@ The TQEC example also requires the external ``tqec`` package.
 
    logical_error_rates/misc/alpha_syndrome
    logical_error_rates/misc/decoding_tqec_circuits
+   logical_error_rates/misc/directionally_complete_rm
 
 Experimental
 ------------
