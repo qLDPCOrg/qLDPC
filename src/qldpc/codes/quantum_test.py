@@ -884,6 +884,18 @@ def test_lifted_product_line_logicals(
     )
 
 
+def test_lifted_product_line_logicals_noncommutative(
+    ring_dihedral3_gf5: abstract.GroupRing,
+) -> None:
+    """Line operators over a non-commutative ring, for a matrix that needs a basis change."""
+    rot, ref = ring_dihedral3_gf5.group.generators
+    values = [[ref * rot, ref * rot, rot**3], [ref, rot * ref, ref * rot]]
+    matrix = abstract.RingArray.build(values, ring_dihedral3_gf5)
+    code = codes.LPCode(matrix, set_logicals=True)
+    logical_ops_x, logical_ops_z = code.get_logical_ops(Pauli.X), code.get_logical_ops(Pauli.Z)
+    assert np.array_equal(logical_ops_x @ logical_ops_z.T, np.eye(code.dimension))
+
+
 def test_lifted_product_valid_over_group_algebras() -> None:
     """Canonical-logical LP/SLP construction yields valid codes over several group algebras.
 

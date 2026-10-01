@@ -583,6 +583,59 @@ def test_distance_qudit() -> None:
         assert code.get_distance_exact() == 2
 
 
+def test_distance_bound_memory() -> None:
+    """Codes remember their best known upper bound on distance."""
+    # a classical code reuses its remembered bound rather than building a decoder
+    classical_code = codes.HammingCode(3)
+    classical_code.forget_distance()
+    with unittest.mock.patch(
+        "qldpc.codes.common._decode_consistently", side_effect=[[1] * 4, [1] * 5]
+    ):
+        assert classical_code.get_distance_bound() == 4
+        assert classical_code.get_distance_bound(num_trials=1) == 4  # never worse than known
+    with unittest.mock.patch("qldpc.decoders.resolve_decoder", side_effect=AssertionError):
+        assert classical_code.get_distance_bound() == 4
+        assert classical_code.canonicalized.get_distance_bound() == 4
+
+    # a general stabilizer code only computes a bound when asked for (or missing) one
+    qudit_code = codes.FiveQubitCode()
+    qudit_code.forget_distance()
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch(
+            "qldpc.external.codes.get_distance_bound", side_effect=[4, 5]
+        ) as gap_bound,
+    ):
+        assert qudit_code.get_distance_bound() == qudit_code.get_distance_bound() == 4
+        assert qudit_code.get_distance_bound(num_trials=1) == 4  # never worse than a known bound
+        assert qudit_code.get_distance_bound(num_trials=1, cutoff=4) == 4  # cutoff already met
+    assert gap_bound.call_count == 2
+    assert qudit_code.conjugated().get_distance_bound() == 4
+
+    # CSS codes remember X-distance and Z-distance bounds, which swap under conjugation
+    css_code = codes.SurfaceCode(3, 5)
+    css_code.forget_distance()
+    with unittest.mock.patch.object(
+        css_code, "get_distance_bound_with_decoder", side_effect=[6, 4]
+    ):
+        assert css_code.get_distance_bound(pauli=Pauli.X, backend="decoder") == 6
+        assert css_code.get_distance_bound(pauli=Pauli.Z, backend="decoder") == 4
+        assert css_code.get_distance_bound() == 4
+    conjugated_code = css_code.conjugated()
+    assert isinstance(conjugated_code, codes.CSSCode)
+    assert conjugated_code.get_distance_bound(pauli=Pauli.X) == 4
+    assert conjugated_code.get_distance_bound(pauli=Pauli.Z) == 6
+    assert css_code.conjugated([0]).get_distance_bound() == 4
+    assert css_code.canonicalized.get_distance_bound(pauli=Pauli.X) == 6
+
+    # a bound on one sector bounds the other if X-distance and Z-distance are equal
+    steane_code = codes.SteaneCode()
+    steane_code.forget_distance()
+    with unittest.mock.patch.object(steane_code, "get_distance_bound_with_decoder", return_value=4):
+        assert steane_code.get_distance_bound(pauli=Pauli.X, backend="decoder") == 4
+    assert steane_code.get_distance_bound(pauli=Pauli.Z) == 4
+
+
 def test_exact_code_distance_method_api() -> None:
     """High-level exact-distance methods forward the selected binary method."""
     classical_code = codes.ClassicalCode(codes.RepetitionCode(3).matrix)
@@ -675,6 +728,28 @@ def test_from_qecdb_id() -> None:
     with unittest.mock.patch("qldpc.external.codes.get_quantum_code", return_value=code_data):
         code = codes.QuditCode.from_qecdb_id("")
         assert code.is_equiv_to(codes.C4Code())
+
+
+def test_from_qldpc_challenge_id() -> None:
+    """Retrieve a code from the Unitary Foundation qLDPC Challenge."""
+    code_data = (np.kron(np.eye(2, dtype=int), [1, 1, 1, 1]), 2, True, (2, 4))
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=code_data
+    ):
+        code = codes.QuditCode.from_qldpc_challenge_id("")
+        assert isinstance(code, codes.CSSCode)
+        assert code.is_equiv_to(codes.C4Code())
+        assert code.get_distance_if_known() == 2
+        assert code.get_distance_bound(pauli=Pauli.Z) == 4
+
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code",
+        return_value=(np.array([[1, 0, 1, 0]]), None, False, (1,)),
+    ):
+        code = codes.QuditCode.from_qldpc_challenge_id("")
+        assert not isinstance(code, codes.CSSCode)
+        assert code.get_distance_if_known() is None
+        assert code.get_distance_bound() == 1
 
 
 def test_qudit_deformations() -> None:
@@ -1179,6 +1254,17 @@ def test_css_from_qecdb_id() -> None:
         assert code.is_equiv_to(codes.C4Code())
 
 
+def test_css_from_qldpc_challenge_id() -> None:
+    """Retrieve a CSS code from the Unitary Foundation qLDPC Challenge."""
+    code_data = (np.kron(np.eye(2, dtype=int), [1, 1, 1, 1]), 2, True, (2, 2))
+    with unittest.mock.patch(
+        "qldpc.external.codes.get_qldpc_challenge_code", return_value=code_data
+    ):
+        code = codes.CSSCode.from_qldpc_challenge_id("")
+        assert isinstance(code, codes.CSSCode)
+        assert code.is_equiv_to(codes.C4Code())
+
+
 def test_swel_codes() -> None:
     """Identify and construct SWEL logical operator bases (see CSSCode.is_swel)."""
     steane_code = codes.SteaneCode()
@@ -1321,6 +1407,7 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
         decoder=decoder,
     )
 
+    code.forget_distance()
     with pytest.raises(ValueError, match="cannot be combined"):
         code.get_distance_bound(pauli=Pauli.X, decoder=decoder, backend="sqetch")
 
@@ -1479,6 +1566,7 @@ def test_css_auto_distance_bound_backend_selection() -> None:
         assert code.get_distance_bound(pauli=Pauli.Z) == 3
     sqetch_bound.assert_called_once_with(code, 1, Pauli.Z, cutoff=None)
 
+    code.forget_distance()
     with (
         unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
@@ -1487,6 +1575,7 @@ def test_css_auto_distance_bound_backend_selection() -> None:
         assert code.get_distance_bound(pauli=Pauli.Z) == 4
     gap_bound.assert_called_once_with(code, 1, cutoff=None, maxav="fail")
 
+    code.forget_distance()
     with (
         unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
@@ -1546,6 +1635,7 @@ def test_css_distance_bound_backend_selection() -> None:
         assert code.get_distance_bound(num_trials=2, pauli=Pauli.X, backend="decoder") == 3
     bound.assert_called_once_with(Pauli.X, 2, cutoff=None, decoder=None)
 
+    code.forget_distance()
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.codes.get_distance_bound", return_value=4) as gap_bound,
@@ -1558,6 +1648,7 @@ def test_css_distance_bound_backend_selection() -> None:
         )
     gap_bound.assert_called_once_with(code, 3, cutoff=2, maxav="average")
 
+    code.forget_distance()
     with pytest.raises(ValueError, match="not recognized by sqetch"):
         code.get_distance_bound(pauli=Pauli.Z, backend="sqetch", maxav="fail")
     with pytest.raises(ValueError, match="not recognized by GAP"):

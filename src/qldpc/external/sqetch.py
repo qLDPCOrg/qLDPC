@@ -22,6 +22,12 @@ from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ, PauliXZLike
 if TYPE_CHECKING:
     from qldpc.codes import CSSCode
 
+# PyPI rejects direct-URL dependencies, so sqetch cannot be a qldpc extra.
+_INSTALL_COMMAND = (
+    "pip install 'sqetch[gpu] @ git+https://github.com/a7b/yarn.git"
+    "@e9ce9d0fcecc973988558bfee27fab6d6b8d7f97#subdirectory=sqetch'"
+)
+
 
 def is_installed() -> bool:
     """Return whether the optional upstream package is discoverable."""
@@ -37,7 +43,7 @@ def _get_sqetch() -> Any:
             raise
         raise ModuleNotFoundError(
             "The sqetch distance backend requires the optional 'sqetch' package. "
-            "Install it with `pip install 'qldpc[sqetch]'`."
+            f"Install it with `{_INSTALL_COMMAND}`."
         ) from error
     return sqetch
 
@@ -137,7 +143,7 @@ def get_distance_bound(
             raise
         raise RuntimeError(
             "The sqetch backend requires PyTorch with CUDA extension support. "
-            "Install it with `pip install 'qldpc[sqetch]'`."
+            f"Install it with `{_INSTALL_COMMAND}`."
         ) from error
     if result.best_weight is None:
         raise RuntimeError(

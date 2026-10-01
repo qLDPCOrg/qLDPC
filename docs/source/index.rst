@@ -19,7 +19,7 @@ Use the :doc:`library map <library_map>` to understand qLDPC's data model and pa
 Installation
 ------------
 
-``qLDPC`` requires Python 3.10 or later and can be installed from the Python Package Index (PyPI):
+``qLDPC`` requires Python 3.11 or later and can be installed from the Python Package Index (PyPI):
 
 .. code-block:: bash
 

@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 import urllib.error
 import urllib.request
+from typing import Any
 
 import galois
 import numpy as np
@@ -72,32 +74,72 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int]:
     return checks, field
 
 
+def _get_json(url: str) -> Any:
+    """Retrieve JSON data from a URL."""
+    try:
+        return json.loads(urllib.request.urlopen(url, timeout=10).read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError) as exception:
+        raise RuntimeError(f"Cannot access {url}") from exception
+
+
 @qldpc.cache.use_disk_cache("qecdb")
 def get_quantum_code(code_id: str) -> tuple[list[str], int | None, bool]:
     """Retrieve a quantum code from qecdb.org.
 
-    This function fetches and scrapes the code's HTML page at https://qecdb.org, so it requires
-    network access and is sensitive to that page's layout.
+    This function queries QECDB's JSON API at https://qecdb.org, so it requires network access.
 
     Return the stabilizers of the code, its distance, and whether it's CSS.
     """
-    url = f"https://qecdb.org/codes/{code_id}"
-    try:
-        lines = urllib.request.urlopen(url, timeout=10).read().decode("utf-8").splitlines()
-    except (urllib.error.URLError, TimeoutError) as exception:
-        raise RuntimeError(f"Cannot access {url}") from exception
-
-    stab_line = next((line for line in lines if "<td>H</td>" in line), None)
-    dist_line = next((line for line in lines if "<td>d</td>" in line), None)
-    css_line = next((line for line in lines if "<td>css</td>" in line), None)
-
-    if stab_line is None:
+    code_data = _get_json(f"https://qecdb.org/api/codes/{code_id}")
+    stabilizers = code_data.get("H", "").split()
+    if not stabilizers:
         raise ValueError(f"Could not find stabilizer data for code '{code_id}'")
+    distance = code_data.get("d")
+    return stabilizers, None if distance is None else int(distance), code_data.get("css") is True
 
-    stabilizers = re.findall("[IXYZ]+", stab_line)
-    distance = int(dist.group()) if (dist := re.search(r"\d+", dist_line or "")) else None
-    is_css = bool(re.search(r"\btrue\b", css_line, re.IGNORECASE)) if css_line else False
-    return stabilizers, distance, is_css
+
+@qldpc.cache.use_disk_cache("qldpc-challenge")
+def get_qldpc_challenge_code(
+    code_id: str,
+) -> tuple[npt.NDArray[np.int_], int | None, bool, tuple[int, ...]]:
+    """Retrieve a quantum code by ID from the Unitary Foundation qLDPC Challenge.
+
+    This function fetches the JSON artifacts that the challenge publishes at
+    https://unitaryfoundation.github.io/qldpc-challenge/codes/, so it requires network access.
+
+    Return the symplectic parity check matrix of the code, its distance, whether it's CSS, and the
+    witness-certified upper bounds on distance in its submission: ``(d_X, d_Z)`` for a CSS code, or
+    ``(d,)`` otherwise.  A submitted distance is only an upper bound, so the distance is ``None``
+    unless the challenge has certified it to be exact.
+    """
+    url = "https://unitaryfoundation.github.io/qldpc-challenge/codes"
+    code_data = _get_json(f"{url}/{code_id}.json")
+    index = _get_json(f"{url}/_index.json")
+    try:
+        num_qubits = code_data["n"]
+        checks = code_data["checks"]
+        is_css = code_data["code_type"] == "CSS"
+        supports = (
+            [(support, []) for support in checks["X"]] + [([], support) for support in checks["Z"]]
+            if is_css
+            else [(generator["X"], generator["Z"]) for generator in checks["S"]]
+        )
+        matrix = np.zeros((len(supports), 2, num_qubits), dtype=int)
+        for row, (support_x, support_z) in enumerate(supports):
+            matrix[row, 0, support_x] = 1
+            matrix[row, 1, support_z] = 1
+        exact = any(entry["id"] == code_id and entry["tier"] == "exact" for entry in index["codes"])
+        distance = int(code_data["distance"]["d"]) if exact else None
+        distance_bounds = (
+            tuple(int(code_data["distance"][side]["value"]) for side in ("X", "Z"))
+            if is_css
+            else (int(code_data["distance"]["d"]),)
+        )
+    except (IndexError, KeyError, TypeError) as exception:
+        raise ValueError(
+            f"Could not parse qLDPC Challenge data for code '{code_id}'"
+        ) from exception
+    return matrix.reshape(len(supports), 2 * num_qubits), distance, is_css, distance_bounds
 
 
 def _gap_define_sparse_matrix(

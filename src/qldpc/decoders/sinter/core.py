@@ -197,6 +197,9 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     erasure bits in one whole byte added past the packed observable flips.  Sinter reads that added
     byte as a request to discard the shot, so an erasure becomes a discarded shot rather than a
     predicted flip of an observable that the sampled circuit does not have.
+
+    If the inner observable decoder has a decode_shots_bit_packed method, .decode_shots_bit_packed
+    uses it directly, unless a subclass customizes how shots are unpacked, decoded, or packed.
     """
 
     num_detectors: int
@@ -246,6 +249,35 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
+        # Hand bit-packed shots straight to the inner observable decoder if it decodes them itself.
+        # That skips the generic unpack/decode_shots/pack path below, so only do it when this class
+        # does not override any of those steps (as composite decoders and post-processing subclasses
+        # do); otherwise packed and unpacked predictions could disagree.
+        overrides_shot_pipeline = any(
+            getattr(type(self), name) is not getattr(CompiledSinterDecoder, name)
+            for name in ("decode_shots", "unpack_detection_event_data", "pack_observable_flips")
+        )
+        if not overrides_shot_pipeline and callable(
+            decode_shots_bit_packed := getattr(
+                self.observable_decoder, "decode_shots_bit_packed", None
+            )
+        ):
+            packed_flips = np.asarray(
+                decode_shots_bit_packed(
+                    bit_packed_detection_event_data=bit_packed_detection_event_data
+                ),
+                dtype=np.uint8,
+            )
+            expected_shape = (
+                len(bit_packed_detection_event_data),
+                -(-self.num_observables // 8) + self.num_erasure_bits,
+            )
+            if packed_flips.shape != expected_shape:
+                raise ValueError(
+                    f"The inner observable decoder predicted bit-packed shots of shape"
+                    f" {packed_flips.shape}, but expected {expected_shape}"
+                )
+            return packed_flips
         detection_event_data = self.unpack_detection_event_data(bit_packed_detection_event_data)
         observable_flips = self.decode_shots(detection_event_data)
         return self.pack_observable_flips(observable_flips)

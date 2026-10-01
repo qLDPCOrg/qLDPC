@@ -8,10 +8,10 @@ import collections
 import copy
 import dataclasses
 from collections.abc import Hashable, ItemsView, Iterable, Iterator, Mapping, Sequence
+from typing import Self
 
 import numpy as np
 import stim
-from typing_extensions import Self
 
 from qldpc import codes
 

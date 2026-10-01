@@ -30,7 +30,7 @@ Some searches are expensive, some bounds are heuristic, experimental APIs can ch
 
 ### Standard installation
 
-qLDPC requires Python 3.10 or later:
+qLDPC requires Python 3.11 or later:
 
 ```bash
 python -m pip install qldpc
@@ -55,8 +55,9 @@ For the recommended in-process integration, install qLDPC with its maintained li
 python -m pip install 'qldpc[gap]'
 ```
 
-qLDPC uses `passagemath-gap` when it is installed, so supported GAP operations do not launch a separate process.
-If the extra is unavailable, qLDPC still supports a GAP executable on `PATH` (`conda install -c conda-forge gap` is one option) and retains its documented manual copy/paste fallback.
+qLDPC uses `passagemath-gap` when available, so supported GAP operations do not launch a separate process.
+The in-process binding requires Python 3.13 on non-Windows platforms.
+If the extra is unavailable, qLDPC supports a GAP executable on `PATH` (`conda install -c conda-forge gap` is one option) and a manual copy/paste fallback.
 If a package such as GUAVA or QDistRnd is absent from the in-process binding, qLDPC asks for permission to install it through GAP's PackageManager.
 If that attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing the package for libgap before using the executable instead.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
@@ -66,10 +67,11 @@ GAP integration on Windows remains limited; see [issue #294](https://github.com/
 You can install the optional `sqetch` distance-estimation backend with:
 
 ```bash
-python -m pip install 'qldpc[sqetch]'
+python -m pip install 'sqetch[gpu] @ git+https://github.com/a7b/yarn.git@e9ce9d0fcecc973988558bfee27fab6d6b8d7f97#subdirectory=sqetch'
 ```
 
-This extra installs the pinned upstream version of `sqetch` with GPU support.
+This command installs the upstream version of `sqetch` that qLDPC is tested against, with GPU support.
+`sqetch` is not published on PyPI, so it is not available as a qLDPC extra.
 For binary CSS codes, select it with `code.get_distance_bound(backend="sqetch")`.
 
 ### Troubleshooting
@@ -147,7 +149,7 @@ Continue with the [library map](https://qldpc.readthedocs.io/library_map.html) f
 | Construct and analyze a first code | [qLDPC basics](https://qldpc.readthedocs.io/examples/basics.html) |
 | Estimate logical error rates | [Logical-error-rate examples](https://qldpc.readthedocs.io/examples/index.html#logical-error-rates) |
 | Build memory circuits or noise models | [Circuit examples](https://qldpc.readthedocs.io/examples/index.html) |
-| Change or extend qLDPC safely | [Agent and contributor guide](AGENTS.md) |
+| Change or extend qLDPC safely | [Agent and contributor guide](https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md) |
 
 For the complete list of classes and functions, including construction-specific literature, use the API reference and source docstrings.
 This README focuses on getting started and finding the right documentation.
@@ -168,7 +170,7 @@ This README focuses on getting started and finding the right documentation.
 - [Documentation](https://qldpc.readthedocs.io/)
 - [Examples](https://github.com/qLDPCOrg/qLDPC/tree/main/examples)
 - [API reference](https://qldpc.readthedocs.io/autoapi/index.html)
-- [Agent and contributor guide](AGENTS.md)
+- [Agent and contributor guide](https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md)
 - [Issue tracker](https://github.com/qLDPCOrg/qLDPC/issues)
 
 Questions, feedback, and ideas are welcome through [GitHub issues](https://github.com/qLDPCOrg/qLDPC/issues/new) or by email at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com).
@@ -195,4 +197,4 @@ Alternatively:
 Michael A. Perlin. qLDPC. https://github.com/qLDPCOrg/qLDPC, 2023.
 ```
 
-qLDPC is distributed under the [Apache License 2.0](LICENSE).
+qLDPC is distributed under the [Apache License 2.0](https://github.com/qLDPCOrg/qLDPC/blob/main/LICENSE).

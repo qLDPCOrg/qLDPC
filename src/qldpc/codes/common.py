@@ -13,7 +13,7 @@ import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from typing import Any
+from typing import Any, Self
 
 import galois
 import numpy as np
@@ -21,7 +21,6 @@ import numpy.typing as npt
 import scipy.linalg
 import scipy.sparse
 import stim
-from typing_extensions import Self
 
 from qldpc import abstract, decoders, external, math
 from qldpc._util import format_docstring, get_external_caller_stacklevel
@@ -136,6 +135,7 @@ class AbstractCode(abc.ABC):
     _field: type[galois.FieldArray]
     _dimension: int | None = None
     _distance: int | float | None = None
+    _distance_bound: int | float | None = None  # best known upper bound on distance
 
     _is_canonicalized: bool = False
 
@@ -154,6 +154,7 @@ class AbstractCode(abc.ABC):
             self._field = matrix._field
             self._dimension = matrix._dimension
             self._distance = matrix._distance
+            self._distance_bound = matrix._distance_bound
 
             if field is not None and abstract.resolve_field(field) is not matrix._field:
                 raise ValueError(
@@ -284,8 +285,8 @@ class AbstractCode(abc.ABC):
         """The number of logical (qu)dits encoded by this code."""
 
     def forget_distance(self) -> Self:
-        """Forget the known distance of this code."""
-        self._distance = None
+        """Forget the known distance (and known distance bounds) of this code."""
+        self._distance = self._distance_bound = None
         return self
 
 
@@ -351,6 +352,7 @@ class ClassicalCode(AbstractCode):
         code = ClassicalCode(matrix, self.field)
         code._dimension = len(self) - len(matrix)
         code._distance = self._distance
+        code._distance_bound = self._distance_bound
         code._is_canonicalized = True
         return code
 
@@ -631,7 +633,7 @@ class ClassicalCode(AbstractCode):
 
     def get_distance_bound(
         self,
-        num_trials: int = 1,
+        num_trials: int | None = None,
         *,
         cutoff: int | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
@@ -651,7 +653,9 @@ class ClassicalCode(AbstractCode):
         by this vector.
 
         Args:
-            num_trials: Minimize over this many independent upper bounds.
+            num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
+                default), return the best known upper bound on distance, or compute a single
+                upper bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
@@ -666,7 +670,9 @@ class ClassicalCode(AbstractCode):
                 qldpc.decoders.get_decoder.
 
         Returns:
-            An upper bound on distance if it is defined, or np.nan otherwise.
+            An upper bound on distance if it is defined, or np.nan otherwise.  When bounding code
+            distance, the returned bound is never worse than the best bound already known for this
+            code, and the best bound is remembered for later calls.
         """
         validate_distance_backend(backend)
         if backend not in ("auto", "decoder"):
@@ -677,6 +683,10 @@ class ClassicalCode(AbstractCode):
             decoders.reject_prebuilt_decoder(decoder, _CLASSICAL_DISTANCE_BOUND_REASON)
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
+        known_bound = None if vector is not None else self._distance_bound
+        if num_trials is None and known_bound is not None:
+            return known_bound
+        num_trials = 1 if num_trials is None else num_trials
 
         # initialize a (possibly "effective") check matrix and syndrome
         if vector is not None:
@@ -696,13 +706,15 @@ class ClassicalCode(AbstractCode):
             return syndrome
 
         # minimize over many individual bounds, each from solving a randomized decoding problem
-        min_bound = len(self)
+        min_bound = len(self) if known_bound is None else int(known_bound)
         for _ in range(num_trials):
             if cutoff and min_bound <= cutoff:
-                return min_bound
+                break
             correction = _decode_consistently(error_decoder, check_matrix, get_syndrome, self.field)
             min_bound = min(min_bound, int(np.count_nonzero(correction)))
 
+        if vector is None:
+            self._distance_bound = min_bound
         return min_bound
 
     @staticmethod
@@ -1096,6 +1108,7 @@ class QuditCode(AbstractCode):
         if not is_subsystem_code:
             code._dimension = len(code) - len(matrix)
         code._distance = self._distance
+        code._distance_bound = self._distance_bound
         code._stabilizer_ops = self._stabilizer_ops
         code._gauge_ops = self._gauge_ops
         code._logical_ops = self._logical_ops
@@ -1161,6 +1174,7 @@ class QuditCode(AbstractCode):
         code = CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
         code._dimension = self._dimension
         code._distance = self._distance
+        code._distance_bound = self._distance_bound
         return code
 
     def to_css(self) -> CSSCode:
@@ -1305,6 +1319,24 @@ class QuditCode(AbstractCode):
         code = QuditCode.from_strings(strings, field=2)
         if is_css:
             code = code.to_css()
+        code._distance = distance
+        return code
+
+    @staticmethod
+    def from_qldpc_challenge_id(code_id: str) -> QuditCode:
+        """Retrieve a code by ID from the Unitary Foundation qLDPC Challenge.
+
+        The code remembers the upper bounds on distance from its submission, but its exact distance
+        is recorded only if the challenge has certified it.
+        """
+        matrix, distance, is_css, distance_bounds = external.codes.get_qldpc_challenge_code(code_id)
+        code = QuditCode(matrix)
+        if is_css:
+            css_code = code.to_css()
+            css_code._distance_bound_x, css_code._distance_bound_z = distance_bounds
+            code = css_code
+        else:
+            (code._distance_bound,) = distance_bounds
         code._distance = distance
         return code
 
@@ -2051,7 +2083,7 @@ class QuditCode(AbstractCode):
 
     def get_distance_bound(
         self,
-        num_trials: int = 1,
+        num_trials: int | None = None,
         *,
         cutoff: int | None = None,
         backend: DistanceBackend = "auto",
@@ -2063,7 +2095,9 @@ class QuditCode(AbstractCode):
         otherwise.  The ``sqetch`` backend is available only on :class:`CSSCode`.
 
         Args:
-            num_trials: Minimize over this many independent upper bounds.
+            num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
+                default), return the best known upper bound on distance, or compute a single
+                upper bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             backend: Distance-bound backend.  ``"auto"`` and ``"gap"`` use GAP/QDistRnd;
                 ``"decoder"`` and ``"sqetch"`` require a CSSCode and are rejected here.
@@ -2071,7 +2105,9 @@ class QuditCode(AbstractCode):
                 See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
         Returns:
-            An upper bound on distance if it is defined, or np.nan otherwise.
+            An upper bound on distance if it is defined, or np.nan otherwise.  The returned bound is
+            never worse than the best bound already known for this code, and the best bound is
+            remembered for later calls.
         """
         validate_distance_backend(backend)
         if backend not in ("auto", "gap"):
@@ -2080,8 +2116,13 @@ class QuditCode(AbstractCode):
             )
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
-        if num_trials == 0 or cutoff == len(self):
-            return len(self)
+        known_bound = self._distance_bound
+        if num_trials is None and known_bound is not None:
+            return known_bound
+        num_trials = 1 if num_trials is None else num_trials
+        best_bound = len(self) if known_bound is None else known_bound
+        if num_trials == 0 or (cutoff is not None and best_bound <= cutoff):
+            return best_bound
 
         if not external.gap.is_installed():
             raise NotImplementedError(
@@ -2091,7 +2132,9 @@ class QuditCode(AbstractCode):
         maxav = bound_kwargs.pop("maxav", "fail")
         if bound_kwargs:
             raise ValueError(f"Arguments not recognized for distance bounding: {bound_kwargs}")
-        return external.codes.get_distance_bound(self, num_trials, cutoff=cutoff, maxav=maxav)
+        bound = external.codes.get_distance_bound(self, num_trials, cutoff=cutoff, maxav=maxav)
+        self._distance_bound = min(best_bound, bound)
+        return self._distance_bound
 
     def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
         """Apply local Fourier transforms, swapping X-type and Z-type operators.
@@ -2119,6 +2162,7 @@ class QuditCode(AbstractCode):
             code._gauge_ops = transform_ops(self.get_gauge_ops())
         code._dimension = self._dimension
         code._distance = self._distance
+        code._distance_bound = self._distance_bound
         return code
 
     def conjugate(self) -> QuditCode:
@@ -2510,6 +2554,8 @@ class CSSCode(QuditCode):
     _code_z: ClassicalCode
     _distance_x: int | float | None = None
     _distance_z: int | float | None = None
+    _distance_bound_x: int | float | None = None
+    _distance_bound_z: int | float | None = None
 
     _equal_distance_xz: bool  # are the X and Z distances promised to be equal?
 
@@ -2662,6 +2708,11 @@ class CSSCode(QuditCode):
         """Retrieve a CSS code by ID from qecdb.org."""
         return QuditCode.from_qecdb_id(code_id).to_css()
 
+    @staticmethod
+    def from_qldpc_challenge_id(code_id: str) -> CSSCode:
+        """Retrieve a CSS code by ID from the Unitary Foundation qLDPC Challenge."""
+        return QuditCode.from_qldpc_challenge_id(code_id).to_css()
+
     @property
     def is_subsystem_code(self) -> bool:
         """Is this code a subsystem code?
@@ -2744,6 +2795,9 @@ class CSSCode(QuditCode):
         code._distance = self._distance
         code._distance_x = self._distance_x
         code._distance_z = self._distance_z
+        code._distance_bound = self._distance_bound
+        code._distance_bound_x = self._distance_bound_x
+        code._distance_bound_z = self._distance_bound_z
         code._stabilizer_ops = self._stabilizer_ops
         code._gauge_ops = self._gauge_ops
         code._logical_ops = self._logical_ops
@@ -3398,13 +3452,40 @@ class CSSCode(QuditCode):
             else self._distance
         )
 
+    def _get_distance_bound_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
+        """Retrieve the best known upper bound on (X-, Z-, or ordinary) distance, or ``None``."""
+        if pauli is Pauli.X:
+            candidates = [self._distance_x, self._distance_bound_x]
+        elif pauli is Pauli.Z:
+            candidates = [self._distance_z, self._distance_bound_z]
+        else:
+            candidates = [
+                self._distance,
+                self._distance_bound,
+                self._distance_x,
+                self._distance_z,
+                self._distance_bound_x,
+                self._distance_bound_z,
+            ]
+        return min((bound for bound in candidates if bound is not None), default=None)
+
+    def _update_distance_bound(self, bound: float, pauli: PauliXZ) -> float:
+        """Remember an upper bound on the X-distance or Z-distance, and return the best bound."""
+        known_bound = self._get_distance_bound_if_known(None if self._equal_distance_xz else pauli)
+        bound = bound if known_bound is None else min(bound, known_bound)
+        if pauli is Pauli.X or self._equal_distance_xz:
+            self._distance_bound_x = bound
+        if pauli is Pauli.Z or self._equal_distance_xz:
+            self._distance_bound_z = bound
+        return bound
+
     @format_docstring(
         gap_options=sorted(_GAP_DISTANCE_BOUND_KWARGS),
         sqetch_options=sorted(_SQETCH_DISTANCE_BOUND_KWARGS),
     )
     def get_distance_bound(
         self,
-        num_trials: int = 1,
+        num_trials: int | None = None,
         pauli: PauliXZLike | None = None,
         *,
         cutoff: int | None = None,
@@ -3420,7 +3501,9 @@ class CSSCode(QuditCode):
         GAP/QDistRnd, then the decoder-based algorithm.
 
         Args:
-            num_trials: Minimize over this many independent upper bounds.
+            num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
+                default), return the best known upper bound on distance, or compute a single
+                upper bound if no bound is known.
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
@@ -3439,15 +3522,22 @@ class CSSCode(QuditCode):
                 to backends that accept them.
 
         Returns:
-            An upper bound on distance if it is defined, or np.nan otherwise.
+            An upper bound on distance if it is defined, or np.nan otherwise.  The returned bound is
+            never worse than the best bound already known for this code, and the best bound is
+            remembered for later calls.
         """
         validate_distance_backend(backend)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         decoders.reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
-        if num_trials == 0 or cutoff == len(self):
-            return len(self)
+        known_bound = self._get_distance_bound_if_known(pauli)
+        if num_trials is None and known_bound is not None:
+            return known_bound
+        num_trials = 1 if num_trials is None else num_trials
+        best_bound = len(self) if known_bound is None else known_bound
+        if num_trials == 0 or (cutoff is not None and best_bound <= cutoff):
+            return best_bound
 
         if decoder is not None:
             if backend not in ("auto", "decoder"):
@@ -3460,35 +3550,36 @@ class CSSCode(QuditCode):
             # minimize over X and Z bounds with roughly half the number of trials each
             num_trials_xz = [num_trials // 2, (num_trials + 1) // 2]
             random.shuffle(num_trials_xz)
-            return min(
-                [
-                    self.get_distance_bound(
-                        num_trials=num_trials,
-                        pauli=pauli,
-                        cutoff=cutoff,
-                        decoder=decoder,
-                        backend=backend,
-                        **bound_kwargs,
-                    )
-                    for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
-                ]
-            )
+            sector_bounds = [
+                self.get_distance_bound(
+                    num_trials=num_trials,
+                    pauli=pauli,
+                    cutoff=cutoff,
+                    decoder=decoder,
+                    backend=backend,
+                    **bound_kwargs,
+                )
+                for pauli, num_trials in zip(PAULIS_XZ, num_trials_xz)
+            ]
+            return min(best_bound, *sector_bounds)
 
         backend = _resolve_distance_backend(
             backend, bound_kwargs, is_binary=self.field is galois.GF2
         )
 
         if backend == "decoder":
-            return self.get_distance_bound_with_decoder(
+            bound = self.get_distance_bound_with_decoder(
                 pauli, num_trials, cutoff=cutoff, decoder=decoder, **bound_kwargs
             )
+            return self._update_distance_bound(bound, pauli)
 
         if backend == "sqetch":
             if unknown := set(bound_kwargs) - _SQETCH_DISTANCE_BOUND_KWARGS:
                 raise ValueError(f"Arguments not recognized by sqetch: {sorted(unknown)}")
-            return external.sqetch.get_distance_bound(
+            bound = external.sqetch.get_distance_bound(
                 self, num_trials, pauli, cutoff=cutoff, **bound_kwargs
             )
+            return self._update_distance_bound(bound, pauli)
 
         if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
@@ -3504,7 +3595,8 @@ class CSSCode(QuditCode):
             else CSSCode(self.matrix_z, self.matrix_x, is_subsystem_code=self._is_subsystem_code)
         )
         maxav = bound_kwargs.get("maxav", "fail")
-        return external.codes.get_distance_bound(code, num_trials, cutoff=cutoff, maxav=maxav)
+        bound = external.codes.get_distance_bound(code, num_trials, cutoff=cutoff, maxav=maxav)
+        return self._update_distance_bound(bound, pauli)
 
     def get_distance_bound_with_decoder(
         self,
@@ -3606,8 +3698,9 @@ class CSSCode(QuditCode):
         return min_bound
 
     def forget_distance(self) -> Self:
-        """Forget the known distance of this code."""
+        """Forget the known distances (and known distance bounds) of this code."""
         self._distance_x = self._distance_z = self._distance = None
+        self._distance_bound_x = self._distance_bound_z = self._distance_bound = None
         return self
 
     def reduce_logical_op(
@@ -3699,12 +3792,15 @@ class CSSCode(QuditCode):
             qudits: The qudits to transform.  If None, transform all qudits.
         """
         code = super().conjugated(qudits).maybe_to_css()
+        code._distance_bound = self._get_distance_bound_if_known()
         if isinstance(code, CSSCode):
             conjugated = np.zeros(len(self), dtype=bool)
             conjugated[slice(None) if qudits is None else qudits] = True
             # conjugating all qudits swaps the roles of X-type and Z-type operators
             if conjugated.all():
                 code._distance_x, code._distance_z = self._distance_z, self._distance_x
+                code._distance_bound_x = self._distance_bound_z
+                code._distance_bound_z = self._distance_bound_x
         return code
 
     def conjugate(self) -> CSSCode:
