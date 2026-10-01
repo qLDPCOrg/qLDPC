@@ -86,7 +86,7 @@ def test_compiled_sinter_decoder_delegates_shot_methods() -> None:
             self.packed_calls = 0
 
         def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            raise AssertionError("the shot methods should be preferred")
+            return self.decode_shots(syndrome[None, :].astype(np.uint8))[0]
 
         def decode_shots(
             self, detection_event_data: npt.NDArray[np.uint8]
@@ -106,6 +106,8 @@ def test_compiled_sinter_decoder_delegates_shot_methods() -> None:
             return np.packbits(self.decode_shots(detection_events), bitorder="little", axis=1)
 
     inner = FastObservableDecoder()
+    assert np.array_equal(inner.decode_observables(shots[0].astype(int)), expected[0])
+    inner.unpacked_calls = 0
     compiled = decoders.CompiledSinterDecoder(dem_arrays, inner)
     assert np.array_equal(compiled.decode_shots(shots), expected)
     assert inner.unpacked_calls == 1
@@ -143,6 +145,7 @@ def test_compiled_sinter_decoder_shot_fallback() -> None:
             return np.asarray(syndromes)
 
     inner = BatchObservableDecoder()
+    assert np.array_equal(inner.decode_observables(np.array([1])), [1])
     compiled = decoders.CompiledSinterDecoder(decoders.DetectorErrorModelArrays(dem), inner)
     shots = np.array([[0], [1]], dtype=np.uint8)
     assert np.array_equal(compiled.decode_shots(shots), shots)
@@ -168,6 +171,25 @@ def test_compiled_sinter_decoder_shot_fallback() -> None:
         composite.decode_shots_bit_packed(np.packbits(shots, bitorder="little", axis=1)),
         np.packbits(shots, bitorder="little", axis=1),
     )
+
+
+def test_compiled_sinter_decoder_subclass_decode_shots() -> None:
+    """A subclass that post-processes decode_shots gets the same packed and unpacked results."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+
+    class InvertingDecoder(decoders.CompiledSinterDecoder):
+        def decode_shots(
+            self, detection_event_data: npt.NDArray[np.uint8]
+        ) -> npt.NDArray[np.uint8]:
+            return 1 - super().decode_shots(detection_event_data)
+
+    compiled = InvertingDecoder(
+        decoders.DetectorErrorModelArrays(dem), decoders.ObservableLookupDecoder(dem, max_weight=1)
+    )
+    shot = np.zeros((1, 1), dtype=np.uint8)
+    assert np.array_equal(compiled.decode_shots(shot), [[1]])
+    packed_flips = compiled.decode_shots_bit_packed(np.packbits(shot, bitorder="little", axis=1))
+    assert np.array_equal(np.unpackbits(packed_flips, count=1, bitorder="little", axis=1), [[1]])
 
 
 def test_sinter_decoder_correlated_matching() -> None:

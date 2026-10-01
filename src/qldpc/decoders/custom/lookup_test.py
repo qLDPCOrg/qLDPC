@@ -539,13 +539,6 @@ def test_vector_codec_round_trip(order: int) -> None:
             assert unpacked.dtype == np.int64
             assert np.array_equal(unpacked, vector)
 
-    # invalid vectors cannot be packed, so they cannot collide with valid ones
-    codec = _VectorCodec(order, 2, np.int64)
-    for invalid in [[0, order], [-1, 0], [0, 0, 0], [0.5, 0]]:
-        assert codec.pack(np.array(invalid)) is None
-    assert codec.pack(np.array([1.0, 0.0])) is not None
-    assert codec.pack(np.array([1, 0], dtype=object)) is not None
-
 
 @pytest.mark.parametrize("order", [2, 3, 4, 257, 2**17])
 @pytest.mark.parametrize("length", [0, 1, 9, 17])
@@ -555,7 +548,7 @@ def test_vector_codec_batch_round_trip(order: int, length: int) -> None:
     values = (np.arange(3 * 2 * length) % order).reshape(3, 2 * length)[:, ::2]
     assert not values.flags.c_contiguous or length <= 1
 
-    packed = codec.pack_rows_trusted(values)
+    packed = codec.pack_rows(values)
     assert packed.shape == (len(values), codec.num_bytes)
     unpacked = codec.unpack_rows(packed)
     assert unpacked.dtype == np.int64
@@ -563,36 +556,16 @@ def test_vector_codec_batch_round_trip(order: int, length: int) -> None:
 
     if order == 2 and length == 9:
         vector = np.array([[1, 0, 1, 0, 0, 0, 0, 1, 1]], dtype=np.uint8)
-        assert codec.pack_rows_trusted(vector).tolist() == [[0b10000101, 0b00000001]]
-
-
-def test_vector_codec_batch_validity() -> None:
-    """Batch validity is row-specific and rejects non-field or non-integral entries."""
-    codec = _VectorCodec(3, 2, np.int64)
-    assert codec.valid_rows(np.array([[0, 2], [0, 3], [-1, 0]])).tolist() == [
-        True,
-        False,
-        False,
-    ]
-    assert codec.valid_rows(np.array([[0.0, 2.0], [0.5, 1.0]])).tolist() == [True, False]
-    assert codec.valid_rows(np.array([[0, 2]], dtype=object)).tolist() == [True]
-    with pytest.raises(ValueError, match="Expected vectors of shape"):
-        codec.valid_rows(np.zeros((2, 3), dtype=int))
-    with pytest.raises(ValueError, match="Expected packed vectors of shape"):
-        codec.unpack_rows(np.zeros((2, 3), dtype=np.uint8))
+        assert codec.pack_rows(vector).tolist() == [[0b10000101, 0b00000001]]
 
 
 def test_lookup_batch_validation() -> None:
-    """Packed batch helpers reject malformed row and validity-mask shapes."""
+    """Batch decoding rejects batches of the wrong shape."""
     decoder = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
     with pytest.raises(ValueError, match="Expected syndromes of shape"):
         decoder.decode_errors_batch(np.zeros(2, dtype=int))
     with pytest.raises(ValueError, match="Expected syndromes of shape"):
         decoder.decode_errors_batch(np.array(0))
-    with pytest.raises(ValueError, match="Expected packed syndromes of shape"):
-        decoder._lookup_packed_rows(np.zeros((1, 2), dtype=np.uint8))
-    with pytest.raises(ValueError, match="Expected a validity mask"):
-        decoder._lookup_packed_rows(np.zeros((1, 1), dtype=np.uint8), np.ones(2, dtype=bool))
 
     observable = decoders.ObservableLookupDecoder(
         stim.DetectorErrorModel("error(0.1) D0 L0"), max_weight=1
@@ -623,21 +596,11 @@ def test_packed_lookup_table_memory() -> None:
 
 
 @pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3), galois.GF(4)])
-def test_invalid_lookup_syndromes(field: type[galois.FieldArray]) -> None:
-    """An out-of-field or misshapen syndrome decodes as one never seen."""
-    matrix = field([[1, 1, 0], [0, 1, 1]])
-    decoder = decoders.LookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
-    post_selected = decoders.LookupDecoder(matrix, max_weight=1, post_select=[0])
-    assert np.array_equal(post_selected.decode(np.array([0])), post_selected.default_correction)
-    assert np.array_equal(decoder.decode(np.array([field.order, 0])), decoder.default_correction)
-
-
-@pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3), galois.GF(4)])
 def test_lookup_batch_decoding(field: type[galois.FieldArray]) -> None:
     """Packed batch lookup matches scalar lookup over binary and nonbinary fields."""
     matrix = field([[1, 1, 0], [0, 1, 1]])
     error_decoder = decoders.LookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
-    syndromes = np.array([[0, 0], [1, 0], [0, 1], [field.order, 0]], dtype=int)
+    syndromes = np.array([[0, 0], [1, 0], [0, 1], [1, 1]], dtype=int)
     expected_errors = np.array([error_decoder.decode_errors(row) for row in syndromes])
     assert np.array_equal(error_decoder.decode_errors_batch(syndromes), expected_errors)
     assert np.array_equal(error_decoder.decode_batch(syndromes), expected_errors)
@@ -662,8 +625,8 @@ def test_lookup_batch_decoding(field: type[galois.FieldArray]) -> None:
     post_selected = decoders.LookupDecoder(
         matrix, max_weight=1, post_select=[0], add_erasure_bit=True
     )
-    expected_post_selected = np.array([post_selected.decode_errors(row) for row in syndromes[:-1]])
-    assert np.array_equal(post_selected.decode_errors_batch(syndromes[:-1]), expected_post_selected)
+    expected_post_selected = np.array([post_selected.decode_errors(row) for row in syndromes])
+    assert np.array_equal(post_selected.decode_errors_batch(syndromes), expected_post_selected)
 
     wide_syndromes = np.zeros((len(syndromes), 4), dtype=int)
     wide_syndromes[:, ::2] = syndromes
@@ -686,7 +649,7 @@ def test_observable_lookup_sinter_batches(num_observables: int, add_erasure_bit:
     if num_observables > 1:
         shots[2, :2] = 1  # a table miss and therefore an erasure, when enabled
 
-    expected = decoder.decode_observables_batch(shots)
+    expected = decoder.decode_observables_batch(shots.astype(int))
     assert np.array_equal(decoder.decode_shots(shots), expected)
 
     packed_shots = np.packbits(shots, bitorder="little", axis=1)
@@ -711,7 +674,7 @@ def test_observable_lookup_sinter_post_selection() -> None:
         dem, max_weight=1, post_select=[0], add_erasure_bit=True
     )
     shots = np.array([[0, 1], [1, 0]], dtype=np.uint8)
-    expected = decoder.decode_observables_batch(shots)
+    expected = decoder.decode_observables_batch(shots.astype(int))
     assert np.array_equal(decoder.decode_shots(shots), expected)
     assert np.array_equal(
         decoder.decode_shots_bit_packed(np.packbits(shots, bitorder="little", axis=1)),

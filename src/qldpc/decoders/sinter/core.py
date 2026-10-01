@@ -197,6 +197,11 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     erasure bits in one whole byte added past the packed observable flips.  Sinter reads that added
     byte as a request to discard the shot, so an erasure becomes a discarded shot rather than a
     predicted flip of an observable that the sampled circuit does not have.
+
+    If the inner observable decoder has a decode_shots method, which takes unpacked binary detection
+    events and returns num_observables flips plus any erasure bits per shot, .decode_shots uses it
+    directly.  Likewise, .decode_shots_bit_packed uses a decode_shots_bit_packed method of the inner
+    decoder directly, unless a subclass customizes how shots are unpacked, decoded, or packed.
     """
 
     num_detectors: int
@@ -273,14 +278,16 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        uses_default_packer = (
-            type(self).pack_observable_flips is CompiledSinterDecoder.pack_observable_flips
+        # A subclass that customizes unpacking, decoding, or packing (including a composite decoder
+        # with no single inner observable decoder) keeps the generic path below.
+        uses_default_methods = all(
+            getattr(type(self), name) is getattr(CompiledSinterDecoder, name)
+            for name in ("decode_shots", "unpack_detection_event_data", "pack_observable_flips")
         )
-        # Composite subclasses implement their own unpacked decoding and may have no single inner
-        # observable decoder.  They must retain the generic unpack/decode/repack fallback below.
-        observable_decoder = getattr(self, "observable_decoder", None)
-        if uses_default_packer and callable(
-            decode_shots_bit_packed := getattr(observable_decoder, "decode_shots_bit_packed", None)
+        if uses_default_methods and callable(
+            decode_shots_bit_packed := getattr(
+                self.observable_decoder, "decode_shots_bit_packed", None
+            )
         ):
             packed_flips = np.asarray(
                 decode_shots_bit_packed(

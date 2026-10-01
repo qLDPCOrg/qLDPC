@@ -84,12 +84,21 @@ def test_error_decoder_coercion() -> None:
     assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), 3 * syndromes)
 
     # an error decoder is returned as is, and its native batch method is used
-    error_decoder = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
-    assert decoders.as_error_decoder(error_decoder) is error_decoder
-    assert decoders.supports_batch_decoding(error_decoder)
+    lookup_decoder = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
+    assert decoders.as_error_decoder(lookup_decoder) is lookup_decoder
+    assert decoders.supports_batch_decoding(lookup_decoder)
+    assert np.array_equal(decoders.batch_decode_errors(lookup_decoder, syndromes), syndromes)
+
+    # an error decoder without a batch method decodes batches one syndrome at a time
+    class SingleSyndromeDecoder(decoders.ErrorDecoder):
+        def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.concatenate([syndrome, syndrome])
+
+    error_decoder = SingleSyndromeDecoder()
+    assert not decoders.supports_batch_decoding(error_decoder)
     batch = decoders.batch_decode_errors(error_decoder, syndromes)
-    assert np.array_equal(batch, syndromes)
-    assert decoders.batch_decode_errors(error_decoder, syndromes[:0]).shape == (0, 2)
+    assert np.array_equal(batch, np.hstack([syndromes, syndromes]))
+    assert decoders.batch_decode_errors(error_decoder, syndromes[:0]).shape == (0, 4)
 
     # objects that predict observable flips, or that do not decode, are rejected
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
