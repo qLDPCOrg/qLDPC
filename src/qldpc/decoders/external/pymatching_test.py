@@ -8,6 +8,7 @@ import builtins
 import pickle
 import subprocess
 import sys
+from collections.abc import Callable
 from typing import Literal, cast
 
 import galois
@@ -19,9 +20,8 @@ import stim
 from qldpc import decoders
 from qldpc.decoders.external import pymatching
 from qldpc.decoders.external.pymatching import (
-    get_decoder_mwpm,
-    get_error_decoder_mwpm,
-    get_observable_decoder_mwpm,
+    _get_decoder_mwpm,
+    _get_observable_decoder_mwpm,
 )
 
 
@@ -35,23 +35,25 @@ def test_mwpm_error_builders() -> None:
     syndrome = matrix @ error % 2
 
     for pcm_or_dem in [matrix, dem]:
-        decoded = np.asarray(get_decoder_mwpm(pcm_or_dem).decode(syndrome), dtype=int)
+        decoded = np.asarray(_get_decoder_mwpm(pcm_or_dem).decode(syndrome), dtype=int)
         assert decoded.shape == error.shape
         assert np.array_equal(matrix @ decoded % 2, syndrome)
 
-    assert get_error_decoder_mwpm(matrix).decode(syndrome).shape == (3,)
+    assert _get_decoder_mwpm(matrix).decode(syndrome).shape == (3,)
     with pytest.raises(ValueError, match="cannot infer errors"):
-        get_error_decoder_mwpm(matrix, enable_correlations=True)
+        _get_decoder_mwpm(matrix, enable_correlations=True)
+    # the erasure-bit guard of every builder accepts add_erasure_bit, and rejects a True value
+    erasure_checked_builder = cast(Callable[..., object], _get_decoder_mwpm)
     with pytest.raises(ValueError, match="The MWPM decoder cannot signal erasure"):
-        get_decoder_mwpm(matrix, add_erasure_bit=True)
-    assert get_decoder_mwpm(matrix, add_erasure_bit=False)
+        erasure_checked_builder(matrix, add_erasure_bit=True)
+    assert erasure_checked_builder(matrix, add_erasure_bit=False)
 
 
 def test_mwpm_observable_builders() -> None:
     """Ordinary and correlated matching predict DEM observable flips."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D1 L1")
     syndromes = np.array([[1, 0], [0, 1]], dtype=int)
-    observable_decoder = get_observable_decoder_mwpm(dem)
+    observable_decoder = _get_observable_decoder_mwpm(dem)
     assert np.array_equal(observable_decoder.decode_observables(syndromes[0]), syndromes[0])
     batch_decoder = cast(decoders.BatchObservableDecoder, observable_decoder)
     assert np.array_equal(batch_decoder.decode_observables_batch(syndromes), syndromes)
@@ -61,7 +63,7 @@ def test_mwpm_observable_builders() -> None:
         error(0.3) D2 L0
         error(0.3) D3
     """)
-    correlated_decoder = get_observable_decoder_mwpm(correlated_dem, enable_correlations=True)
+    correlated_decoder = _get_observable_decoder_mwpm(correlated_dem, enable_correlations=True)
     assert np.array_equal(correlated_decoder.decode_observables(np.ones(4, dtype=int)), [0])
 
 
@@ -69,20 +71,20 @@ def test_matching_builder_validation() -> None:
     """MWPM validates weights, decomposition, and non-graphlike errors."""
     dem = stim.DetectorErrorModel("error(0.1) D0 ^ D1 L0\nerror(0.2) D0")
     with pytest.raises(ValueError, match="Cannot set error weights"):
-        get_decoder_mwpm(dem, weights=[1.0, 1.0])
+        _get_decoder_mwpm(dem, weights=[1.0, 1.0])
 
-    decomposed = get_decoder_mwpm(dem, decompose_errors=True)
+    decomposed = _get_decoder_mwpm(dem, decompose_errors=True)
     assert getattr(decomposed, "_infers_decomposed_errors", False)
 
     graphlike_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D0 D1")
-    decoder = get_decoder_mwpm(graphlike_dem, decompose_errors=True)
+    decoder = _get_decoder_mwpm(graphlike_dem, decompose_errors=True)
     assert not getattr(decoder, "_infers_decomposed_errors", False)
 
     matrix = galois.GF(2)([[1, 1], [1, 0], [1, 0]])
     syndrome = np.array([1, 0, 0], dtype=int)
     with pytest.raises(ValueError, match="column 0 of the parity check matrix addresses 3"):
-        get_decoder_mwpm(matrix).decode(syndrome)
-    decoder = get_decoder_mwpm(matrix, ignore_non_graphlike_errors=True)
+        _get_decoder_mwpm(matrix).decode(syndrome)
+    decoder = _get_decoder_mwpm(matrix, ignore_non_graphlike_errors=True)
     assert np.array_equal(decoder.decode(syndrome), [0, 1])
 
     assert not decoders.mwpm().options["enable_correlations"]
@@ -102,7 +104,7 @@ def test_matching_protocol_adapter() -> None:
 
     matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=int)
     syndromes = np.array([[1, 0], [1, 1]], dtype=int)
-    decoder = get_decoder_mwpm(matrix)
+    decoder = _get_decoder_mwpm(matrix)
     assert isinstance(decoder, pymatching.Matching)
     assert isinstance(decoder, pymatching_package.Matching)
     assert isinstance(decoder, decoders.BatchErrorDecoder)
@@ -124,7 +126,7 @@ def test_pymatching_missing_dependency_message(monkeypatch: pytest.MonkeyPatch) 
     """A missing required dependency identifies a broken qLDPC installation."""
     monkeypatch.setitem(sys.modules, "pymatching", None)
     with pytest.raises(ModuleNotFoundError, match="required qLDPC dependency"):
-        pymatching.get_observable_decoder_mwpm(
+        pymatching._get_observable_decoder_mwpm(
             stim.DetectorErrorModel("error(0.1) D0 L0"),
             enable_correlations=True,
         )

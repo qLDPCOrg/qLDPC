@@ -24,14 +24,13 @@ from ..construction.specs import observable_decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ObservableDecoder
 
-# Public decoder and builder
+# Public decoder and settings
 
 
 class FrontierObservableDecoder(ObservableDecoder):
     """Frontier decoder that predicts the observable flips of one detector error model.
 
-    Build one with decoders.get_observable_decoder_frontier, or from decoders.frontier(...)
-    settings with decoders.get_observable_decoder.
+    Build one with ``decoders.frontier(...).build_observable_decoder(dem)``.
     """
 
     def __init__(
@@ -83,7 +82,7 @@ class FrontierObservableDecoder(ObservableDecoder):
         return np.array(flips + [erased] * self.has_erasure_bit, dtype=int)
 
 
-def get_observable_decoder_frontier(
+def _get_observable_decoder_frontier(
     dem: stim.DetectorErrorModel,
     *,
     K: int = 128,
@@ -95,7 +94,7 @@ def get_observable_decoder_frontier(
     committee: bool = False,
     add_erasure_bit: bool = False,
 ) -> FrontierObservableDecoder:
-    """Build a Frontier decoder that predicts the observable flips of a detector error model.
+    """Configure a Frontier decoder that predicts the observable flips of a detector error model.
 
     Frontier (https://github.com/aleverrier/frontier) scans the error mechanisms of a binary
     detector error model in a fixed order.  After each step, it groups partial solutions by the
@@ -103,8 +102,8 @@ def get_observable_decoder_frontier(
     likely observable flips among the remaining groups that are consistent with the syndrome.
     Pruning makes this prediction approximate.
 
-    Frontier is not a qLDPC dependency.  If it is missing, this function raises an error that shows
-    how to install the version that qLDPC is tested against.
+    Frontier is not a qLDPC dependency.  If it is missing, building the decoder raises an error that
+    shows how to install the version that qLDPC is tested against.
 
     Args:
         dem: The binary detector error model to decode.
@@ -128,7 +127,10 @@ def get_observable_decoder_frontier(
             observable flips, and is clear otherwise.
 
     Returns:
-        A FrontierObservableDecoder.
+        Decoder settings.  Their ``build_observable_decoder(dem)`` method takes a binary detector
+        error model and returns a
+        :class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder`.  Frontier cannot
+        infer errors, so the settings cannot ``build`` an error decoder.
     """
     _validate_frontier_options(
         K=K,
@@ -178,7 +180,7 @@ def get_observable_decoder_frontier(
     )
 
 
-frontier = observable_decoder_spec("frontier", get_observable_decoder_frontier)
+frontier = observable_decoder_spec("frontier", _get_observable_decoder_frontier)
 
 
 # Private builder helpers
@@ -276,5 +278,5 @@ def _get_column_mask(matrix: scipy.sparse.csc_matrix, column: int) -> int:
 
 __all__ = [
     "FrontierObservableDecoder",
-    "get_observable_decoder_frontier",
+    "frontier",
 ]

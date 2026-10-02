@@ -182,7 +182,7 @@ def test_code_capacity_decoder_from_error_decoder() -> None:
 
     # settings build an error decoder, even if it could predict observable flips natively
     decoder = code_capacity.get_code_capacity_decoder(
-        galois.GF2([[1, 1]]), galois.GF2([[1, 0]]), decoders.lookup_table(max_weight=1)
+        galois.GF2([[1, 1]]), galois.GF2([[1, 0]]), decoders.lookup(max_weight=1)
     )
     assert isinstance(decoder.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
     assert isinstance(decoder.decoder.error_decoder, decoders.LookupDecoder)
@@ -312,7 +312,7 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
 
     # an erasure-enabled inner decoder discards samples
     sinter_decoder = decoders.SinterDecoder(
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True)
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True)
     )
     decoder = code_capacity.get_code_capacity_decoder(
         code.matrix, observable_matrix, sinter_decoder
@@ -477,7 +477,7 @@ def test_code_capacity_decoder_reuse() -> None:
     observables_b = galois.GF2([[1, 0, 0]])
 
     decoder = code_capacity.get_code_capacity_decoder(
-        syndrome_matrix, observables_a, decoders.lookup_table(max_weight=1)
+        syndrome_matrix, observables_a, decoders.lookup(max_weight=1)
     )
     assert decoder.reuse_for(syndrome_matrix, observables_a) is decoder
     assert decoder.reuse_for(galois.GF2([[1, 1, 0]]), observables_a) is None

@@ -13,9 +13,11 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
+from qldpc._util import format_docstring
 from qldpc.math import IntegerArray
 
 from ..common import (
+    PLACEHOLDER_ERROR_RATE,
     _deprecate_error_rate_option,
     _erasure_bit_support,
     _get_matrix_error_channel,
@@ -61,6 +63,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     `arXiv:2503.10988 <https://arxiv.org/abs/2503.10988>`_.
     """
 
+    @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
     def __init__(
         self,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -90,8 +93,8 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         Args:
             pcm_or_dem: A binary parity-check matrix or detector error model to decode.
             error_channel: One probability for every matrix-column error, or one probability per
-                column. Defaults to 0.001. A DEM supplies its own probabilities, so neither
-                probability argument can be specified with one.
+                column.  Defaults to {PLACEHOLDER_ERROR_RATE}.  A DEM supplies its own
+                probabilities, so neither probability argument can be specified with one.
             add_erasure_bit: Whether to append Tesseract's low-confidence flag to each result.
             det_beam: Beam-search cutoff.
             beam_climbing: Whether to retry with increasing beam sizes.
@@ -211,61 +214,30 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
 
 
 @_erasure_bit_support("Tesseract", supported=True)
-def get_decoder_tesseract(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-    *,
-    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
-    add_erasure_bit: bool = False,
-    det_beam: int = 5,
-    beam_climbing: bool = False,
-    no_revisit_dets: bool = True,
-    verbose: bool = False,
-    merge_errors: bool | None = None,
-    pqlimit: int = 200_000,
-    det_orders: Sequence[Sequence[int]] | None = None,
-    det_penalty: float = 0.0,
-    create_visualization: bool = False,
-    sparsify_errors: bool = False,
-    sparsify_base_degree: int = -1,
-    sparsify_max_degree: int = -1,
-    sparsify_reactivate_limit: int = -1,
-    num_det_orders: int | None = None,
-    det_order_method: TesseractDetectorOrderMethod | None = None,
-    seed: int | None = None,
-    error_rate: float | None = None,
+def _get_decoder_tesseract(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
 ) -> TesseractDecoder:
-    """Build an optional Tesseract error and observable decoder.
+    """Configure a Tesseract search-based decoder.
 
-    The arguments are forwarded to :class:`TesseractDecoder`.
+    The options are those of :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`.
+
+    Returns:
+        Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` methods
+        take a binary parity-check matrix or detector error model and return a
+        :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`, which infers errors and
+        predicts observable flips natively.
+
+    Tesseract requires the optional ``tesseract-decoder`` package, which can be installed with
+    ``pip install 'qldpc[tesseract]'``.
     """
-    return TesseractDecoder(
-        pcm_or_dem,
-        error_channel=error_channel,
-        add_erasure_bit=add_erasure_bit,
-        det_beam=det_beam,
-        beam_climbing=beam_climbing,
-        no_revisit_dets=no_revisit_dets,
-        verbose=verbose,
-        merge_errors=merge_errors,
-        pqlimit=pqlimit,
-        det_orders=det_orders,
-        det_penalty=det_penalty,
-        create_visualization=create_visualization,
-        sparsify_errors=sparsify_errors,
-        sparsify_base_degree=sparsify_base_degree,
-        sparsify_max_degree=sparsify_max_degree,
-        sparsify_reactivate_limit=sparsify_reactivate_limit,
-        num_det_orders=num_det_orders,
-        det_order_method=det_order_method,
-        seed=seed,
-        error_rate=error_rate,
-    )
+    return TesseractDecoder(pcm_or_dem, **decoder_args)
 
 
 tesseract = decoder_spec(
     "tesseract",
-    get_decoder_tesseract,
-    get_decoder_tesseract,
+    _get_decoder_tesseract,
+    _get_decoder_tesseract,
+    signature_source=TesseractDecoder,
     option_transform=_deprecate_error_rate_option,
 )
 
@@ -278,7 +250,22 @@ def tesseract_preset(
     add_erasure_bit: bool = False,
     error_rate: float | None = None,
 ) -> DecoderSpec[TesseractDecoder]:
-    """Configure one of Tesseract's named Sinter presets."""
+    """Configure one of Tesseract's named Sinter presets.
+
+    Args:
+        preset: ``"long-beam"`` or ``"short-beam"``, which set the beam-search cutoff, the
+            priority-queue limit, and the number of generated detector orders.
+        sparsify: None, or ``"surface-code-like"`` or ``"color-code-like"`` to sparsify errors with
+            the base degree of the corresponding Tesseract preset.
+        error_channel: One probability for every matrix-column error, or one probability per
+            column.  A detector error model supplies its own probabilities.
+        add_erasure_bit: Whether to append Tesseract's low-confidence flag to each result.
+        error_rate: Deprecated i.i.d. matrix error probability.  Use ``error_channel`` instead.
+
+    Returns:
+        Settings for :func:`decoders.tesseract <qldpc.decoders.tesseract>` that reproduce the
+        preset.
+    """
     beam_presets = {
         "long-beam": (20, 1_000_000, 21),
         "short-beam": (15, 200_000, 16),

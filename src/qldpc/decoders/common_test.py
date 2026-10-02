@@ -12,6 +12,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders import common
+from qldpc.decoders.external.ldpc import _get_decoder_bp_osd
 
 
 def test_with_erasure_bits() -> None:
@@ -118,7 +119,7 @@ def test_erasure_bit_support_decorator() -> None:
         matrix: npt.NDArray[np.int_], *, add_erasure_bit: bool = False
     ) -> decoders.ErrorDecoder:
         del add_erasure_bit
-        return decoders.get_decoder_bp_osd(matrix)
+        return _get_decoder_bp_osd(matrix)
 
     with pytest.raises(ValueError, match="The Friendly Name decoder cannot signal erasure"):
         unusually_named_builder(np.eye(1, dtype=int), add_erasure_bit=True)
@@ -128,7 +129,7 @@ def test_erasure_bit_support_decorator() -> None:
         matrix: npt.NDArray[np.int_], *, add_erasure_bit: bool = False
     ) -> decoders.ErrorDecoder:
         del add_erasure_bit
-        return decoders.get_decoder_bp_osd(matrix)
+        return _get_decoder_bp_osd(matrix)
 
     assert unsupported_builder(np.eye(1, dtype=int), add_erasure_bit=False)
     with pytest.raises(ValueError, match="The unsupported decoder cannot signal erasure"):

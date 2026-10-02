@@ -81,7 +81,7 @@ def test_is_prebuilt_observable_decoder() -> None:
     error_decoder = _FixedErrorDecoder([0, 0])
     assert np.array_equal(error_decoder.decode_errors(np.array([0])), [0, 0])
     assert not decoders.is_prebuilt_observable_decoder(error_decoder)
-    assert not decoders.is_prebuilt_observable_decoder(decoders.lookup_table(max_weight=1))
+    assert not decoders.is_prebuilt_observable_decoder(decoders.lookup(max_weight=1))
     assert not decoders.is_prebuilt_observable_decoder(decoders.ObservableLookupDecoder)
     sinter_decoder = decoders.TrivialDecoder()
     assert not isinstance(sinter_decoder, decoders.ObservableDecoder)

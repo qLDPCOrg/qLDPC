@@ -911,8 +911,8 @@ class ClassicalCode(AbstractCode):
 
         - Decoder settings such as ``decoder=decoders.bp_osd(...)``, a constructor that builds an
           error decoder from a parity check matrix, or an error decoder prebuilt for the parity
-          check matrix of this code.  If decoder is None, the default decoder is chosen by
-          qldpc.decoders.get_error_decoder.  An error decoder infers an error from its syndrome,
+          check matrix of this code.  If decoder is None, the default decoder is GUF for a
+          nonbinary field and BP+OSD otherwise.  An error decoder infers an error from its syndrome,
           and decoding fails if that error differs from the sampled error.
         - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
           observable-decoder constructor with an observable return annotation.  It is built for a
@@ -2404,9 +2404,9 @@ class QuditCode(AbstractCode):
 
         - Decoder settings such as ``decoder=decoders.bp_osd(...)``, or a constructor that builds an
           error decoder from a parity check matrix.  If decoder is None, the default decoder is
-          chosen by qldpc.decoders.get_error_decoder.  An error decoder infers a symplectic error
-          from its syndrome, and decoding fails if that error and the sampled error have different
-          logical actions.
+          GUF for a nonbinary field and BP+OSD otherwise.  An error decoder infers a symplectic
+          error from its syndrome, and decoding fails if that error and the sampled error have
+          different logical actions.
         - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
           observable-decoder constructor with an observable return annotation.  It is built for a
           detector error model whose detectors are the stabilizer generators of the code, whose
@@ -2444,7 +2444,7 @@ class QuditCode(AbstractCode):
         # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``, and
         # likewise for logical operators.  An error decoder is built to invert the syndrome matrix,
         # so a decoded error is a solution to the syndrome it was handed.  The matrix is a field
-        # array, from which get_error_decoder selects a decoder appropriate to the field.
+        # array, from which the default decoder is selected appropriately to the field.
         syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
         observable_matrix = -math.symplectic_conjugate(self.get_logical_ops())
 
@@ -3969,7 +3969,7 @@ class CSSCode(QuditCode):
         separately for each sector.  A shared prebuilt decoder is rejected if it would decode both
         sectors, unless the X-type and Z-type stabilizer matrices are equal (and, for a prebuilt
         observable decoder, so are the X-type and Z-type logical operators).  If all of these
-        arguments are None, the default decoder is chosen by qldpc.decoders.get_error_decoder.
+        arguments are None, the default decoder is GUF for a nonbinary field and BP+OSD otherwise.
 
         The ``decoder_x_kwargs``, ``decoder_z_kwargs``, and remaining keyword arguments are
         deprecated decoder-selection and construction arguments for qldpc.decoders.get_decoder, for

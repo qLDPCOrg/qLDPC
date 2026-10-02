@@ -14,6 +14,7 @@ import sinter
 import stim
 
 from qldpc import decoders
+from qldpc.decoders.custom.lookup import _get_decoder_lookup
 
 
 def test_sinter_decoder() -> None:
@@ -52,7 +53,7 @@ def test_sinter_decoder() -> None:
     compiled_decoder = decoders.SinterDecoder(decoder=decoders.mwpm()).compile_decoder_for_dem(dem)
     assert compiled_decoder.decoder is compiled_decoder.observable_decoder
 
-    error_decoder = decoders.get_decoder_lookup(dem, max_weight=3)
+    error_decoder = _get_decoder_lookup(dem, max_weight=3)
     compiled_decoder = decoders.CompiledSinterDecoder(
         decoders.DetectorErrorModelArrays(dem), error_decoder
     )
@@ -141,7 +142,7 @@ def test_sinter_decoder_classes() -> None:
     assert decoders.ObservableDecoder in decoders.CompiledSinterDecoder.__mro__
 
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    decoder: typing.Any = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    decoder: typing.Any = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
     with pytest.raises(ValueError, match=r"SinterDecoder\.decode is DEFUNCT"):
         decoder.decode(np.array([1], dtype=int))
 
@@ -271,9 +272,7 @@ def test_sinter_decoder_with_erasure() -> None:
         error(0.1) D0
         error(0.1) D1 L0
     """)
-    decoder = decoders.SinterDecoder(
-        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True)
-    )
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1, add_erasure_bit=True))
     compiled = decoder.compile_decoder_for_dem(dem)
 
     assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
@@ -301,9 +300,7 @@ def test_erasure_signalled_in_an_added_byte(num_observables: int) -> None:
     dem = stim.DetectorErrorModel(
         "\n".join(f"error(0.1) D{oo} L{oo}" for oo in range(num_observables))
     )
-    decoder = decoders.SinterDecoder(
-        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True)
-    )
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1, add_erasure_bit=True))
     compiled = decoder.compile_decoder_for_dem(dem)
 
     erased_syndrome = np.zeros(num_observables, dtype=np.uint8)
@@ -329,9 +326,7 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
     detection_events[1, 0] = True
     detection_events[2, :2] = True
 
-    decoder = decoders.SinterDecoder(
-        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True)
-    )
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1, add_erasure_bit=True))
     predictions = sinter.predict_observables(
         dem=dem, dets=detection_events, decoder="qldpc", custom_decoders={"qldpc": decoder}
     )
@@ -364,5 +359,5 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
             dem=dem,
             dets=detection_events,
             decoder="qldpc",
-            custom_decoders={"qldpc": WideDecoder(decoder=decoders.lookup_table(max_weight=1))},
+            custom_decoders={"qldpc": WideDecoder(decoder=decoders.lookup(max_weight=1))},
         )

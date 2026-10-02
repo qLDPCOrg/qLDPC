@@ -8,8 +8,10 @@
 # -- Path setup --------------------------------------------------------------
 from __future__ import annotations
 
+import importlib
 import os
 import sys
+import typing
 
 sys.path.insert(0, os.path.abspath("../../src"))
 
@@ -72,6 +74,33 @@ autoapi_ignore = ["*_test.py", "*conftest.py"]
 autoapi_keep_files = True
 
 autoapi_member_order = "groupwise"
+
+
+def _skip_decoder_settings_helpers(
+    app: object, what: str, name: str, obj: object, skip: bool | None, options: object
+) -> bool | None:
+    """Skip the static AutoAPI entries of generated decoder settings helpers.
+
+    Helpers such as ``bp_osd = decoder_spec(...)`` are assignments, so AutoAPI, which reads source
+    statically, would render them as data with no signature.  decoders.rst documents them instead
+    with autodoc, which inspects their runtime signatures and docstrings.
+    """
+    if what != "data":
+        return skip
+    from qldpc.decoders.construction.specs import DecoderSpec
+
+    module_name, _, attribute = name.rpartition(".")
+    value = getattr(importlib.import_module(module_name), attribute, None)
+    return_annotation = getattr(value, "__annotations__", {}).get("return")
+    if typing.get_origin(return_annotation) is DecoderSpec:
+        return True
+    return skip
+
+
+def setup(app: typing.Any) -> None:
+    """Register Sphinx event handlers."""
+    app.connect("autoapi-skip-member", _skip_decoder_settings_helpers)
+
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

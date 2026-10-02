@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Relay-BP decoder adapter and builders."""
+"""Relay-BP decoder adapter and settings."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder
 
-# Public decoder and builders
+# Public decoder and settings
 
 
 class RelayBPDecoder(BatchErrorDecoder):
@@ -311,7 +311,7 @@ class RelayBPDecoder(BatchErrorDecoder):
 
 
 @_erasure_bit_support("RBP", supported=True)
-def get_decoder_rbp(
+def _get_decoder_rbp(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
@@ -337,7 +337,7 @@ def get_decoder_rbp(
     return RelayBPDecoder(pcm_or_dem, error_priors, **decoder_args)  # type: ignore[arg-type]
 
 
-def get_relay_bp_decoder(
+def _get_decoder_relay_bp(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     precision: Literal["F32", "F64", "I32", "I64"] = "F32",
@@ -360,11 +360,41 @@ def get_relay_bp_decoder(
     logging: bool = False,
     seed: int = 0,
 ) -> RelayBPDecoder:
-    """Build the ``RelayDecoder`` backend selected by a ``relay_bp`` :class:`DecoderSpec`.
+    """Configure a Relay-BP decoder from the relay-bp package.
 
-    The specification supplies a ``precision`` suffix and forwards all other options to
-    :func:`get_decoder_rbp`.  This public builder exists so deferred specifications have a stable,
-    pickleable construction path.
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
+        precision: Numeric precision of the ``relay_bp.RelayDecoder<precision>`` backend class.
+        error_priors: Prior probability of each error mechanism.  Defaults to the probabilities of a
+            detector error model, or to a placeholder probability for a matrix.
+        observable_error_matrix: Binary matrix whose rows specify which error mechanisms flip which
+            observables, for a matrix input.  A detector error model supplies its own.
+        include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
+        add_erasure_bit: Whether to append a flag set when the error that Relay-BP settles on does
+            not reproduce the syndrome.
+        alpha: Backend option; see ``help(relay_bp.RelayDecoderF32)``.
+        alpha_iteration_scaling_factor: Backend option.
+        gamma0: Backend option.
+        data_scale_value: Backend option.
+        max_data_value: Backend option.
+        pre_iter: Backend option.
+        num_sets: Backend option.
+        set_max_iter: Backend option.
+        gamma_dist_interval: Backend option, or None for the backend default.
+        explicit_gammas: Backend option.
+        stop_nconv: Backend option.
+        stopping_criterion: Backend option, or None for the backend default.
+        logging: Backend option.
+        seed: Backend option.
+
+    Returns:
+        Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` methods
+        take a parity-check matrix or detector error model and return a
+        :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
+        observable metadata is available, predicts observable flips.
+
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
+    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
     """
     optional_args = {
         "gamma_dist_interval": gamma_dist_interval,
@@ -394,7 +424,7 @@ def get_relay_bp_decoder(
     )
 
 
-def get_min_sum_bp_decoder(
+def _get_decoder_min_sum_bp(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     precision: Literal["F32", "F64", "I8", "I16", "I32", "I64", "Fixed"] = "F32",
@@ -411,11 +441,34 @@ def get_min_sum_bp_decoder(
     int_bits: int | None = None,
     frac_bits: int | None = None,
 ) -> RelayBPDecoder:
-    """Build the ``MinSumBPDecoder`` backend selected by a ``min_sum_bp`` :class:`DecoderSpec`.
+    """Configure a min-sum belief-propagation decoder from the relay-bp package.
 
-    The specification supplies a ``precision`` suffix and forwards all other options to
-    :func:`get_decoder_rbp`.  This public builder exists so deferred specifications have a stable,
-    pickleable construction path.
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
+        precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend class.
+        error_priors: Prior probability of each error mechanism.  Defaults to the probabilities of a
+            detector error model, or to a placeholder probability for a matrix.
+        observable_error_matrix: Binary matrix whose rows specify which error mechanisms flip which
+            observables, for a matrix input.  A detector error model supplies its own.
+        include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
+        add_erasure_bit: Whether to append a flag set when the error that belief propagation settles
+            on does not reproduce the syndrome.
+        max_iter: Backend option; see ``help(relay_bp.MinSumBPDecoderF32)``.
+        alpha: Backend option.
+        alpha_iteration_scaling_factor: Backend option.
+        gamma0: Backend option.
+        data_scale_value: Backend option.
+        max_data_value: Backend option.
+        int_bits: Backend option for fixed-point precision.
+        frac_bits: Backend option for fixed-point precision.
+
+    Returns:
+        Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` methods
+        take a parity-check matrix or detector error model and return a
+        :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
+        observable metadata is available, predicts observable flips.
+
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_.
     """
     return _get_relay_decoder(
         pcm_or_dem,
@@ -436,8 +489,8 @@ def get_min_sum_bp_decoder(
     )
 
 
-relay_bp = decoder_spec("relay_bp", get_relay_bp_decoder, get_relay_bp_decoder)
-min_sum_bp = decoder_spec("min_sum_bp", get_min_sum_bp_decoder, get_min_sum_bp_decoder)
+relay_bp = decoder_spec("relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp)
+min_sum_bp = decoder_spec("min_sum_bp", _get_decoder_min_sum_bp, _get_decoder_min_sum_bp)
 
 
 # Private builder helpers
@@ -451,4 +504,4 @@ def _get_relay_decoder(
     **decoder_args: Any,
 ) -> RelayBPDecoder:
     """Build a RelayBPDecoder from a class-name prefix and precision."""
-    return get_decoder_rbp(pcm_or_dem, name=f"{decoder_class_prefix}{precision}", **decoder_args)
+    return _get_decoder_rbp(pcm_or_dem, name=f"{decoder_class_prefix}{precision}", **decoder_args)

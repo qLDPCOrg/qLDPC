@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Builders for decoders provided by the ldpc package.
+"""Settings for decoders provided by the ldpc package.
 
 qLDPC imports this integration module while initializing its public decoder API.  Importing ``ldpc``
 and PyMatching eagerly here adds roughly 0.18 seconds (about 25 percent) to ``import qldpc`` in
@@ -43,12 +43,12 @@ if TYPE_CHECKING:
     class BeliefFindDecoder(ldpc.BeliefFindDecoder, ErrorDecoder): ...
 
 
-# Public builders
+# Decoder settings
 
 
 @_erasure_bit_support("BP_OSD", supported=False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
-def get_decoder_bp_osd(
+def _get_decoder_bp_osd(
     pcm_or_dem: _PcmOrDem,
     *,
     error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
@@ -63,7 +63,7 @@ def get_decoder_bp_osd(
     osd_order: int = 0,
     error_rate: float | None = None,
 ) -> ErrorDecoder:
-    """Build a belief-propagation with ordered-statistics (BP+OSD) decoder.
+    """Configure a belief-propagation with ordered-statistics (BP+OSD) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -82,8 +82,9 @@ def get_decoder_bp_osd(
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
-        An ``ldpc.BpOsdDecoder`` subclass that is also an
-        :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
+        detector error model (DEM) and returns an ``ldpc.BpOsdDecoder`` subclass that is
+        also an :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -112,7 +113,7 @@ def get_decoder_bp_osd(
 
 @_erasure_bit_support("BP_LSD", supported=False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
-def get_decoder_bp_lsd(
+def _get_decoder_bp_lsd(
     pcm_or_dem: _PcmOrDem,
     *,
     error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
@@ -130,7 +131,7 @@ def get_decoder_bp_lsd(
     always_run_lsd: bool = False,
     error_rate: float | None = None,
 ) -> ErrorDecoder:
-    """Build a belief-propagation with localized-statistics (BP+LSD) decoder.
+    """Configure a belief-propagation with localized-statistics (BP+LSD) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -152,8 +153,9 @@ def get_decoder_bp_lsd(
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
-        An ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass that is also an
-        :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
+        detector error model (DEM) and returns an ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass
+        that is also an :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -185,7 +187,7 @@ def get_decoder_bp_lsd(
 
 @_erasure_bit_support("BF", supported=False)
 @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
-def get_decoder_bf(
+def _get_decoder_bf(
     pcm_or_dem: _PcmOrDem,
     *,
     error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
@@ -200,7 +202,7 @@ def get_decoder_bf(
     bits_per_step: int = 0,
     error_rate: float | None = None,
 ) -> ErrorDecoder:
-    """Build a belief-find (BF) decoder.
+    """Configure a belief-find (BF) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -219,8 +221,9 @@ def get_decoder_bf(
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
-        An ``ldpc.BeliefFindDecoder`` subclass that is also an
-        :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
+        detector error model (DEM) and returns an ``ldpc.BeliefFindDecoder`` subclass that is
+        also an :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -249,9 +252,9 @@ def get_decoder_bf(
     )
 
 
-bp_osd = decoder_spec("bp_osd", get_decoder_bp_osd, option_transform=_deprecate_error_rate_option)
-bp_lsd = decoder_spec("bp_lsd", get_decoder_bp_lsd, option_transform=_deprecate_error_rate_option)
-bf = decoder_spec("bf", get_decoder_bf, option_transform=_deprecate_error_rate_option)
+bp_osd = decoder_spec("bp_osd", _get_decoder_bp_osd, option_transform=_deprecate_error_rate_option)
+bp_lsd = decoder_spec("bp_lsd", _get_decoder_bp_lsd, option_transform=_deprecate_error_rate_option)
+bf = decoder_spec("bf", _get_decoder_bf, option_transform=_deprecate_error_rate_option)
 
 
 # Private input helpers

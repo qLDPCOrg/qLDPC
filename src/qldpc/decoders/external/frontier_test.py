@@ -17,7 +17,9 @@ import pytest
 import stim
 
 from qldpc import codes, decoders
+from qldpc.decoders.construction.resolution import _get_observable_decoder
 from qldpc.decoders.external import frontier
+from qldpc.decoders.external.frontier import _get_observable_decoder_frontier
 
 
 @dataclasses.dataclass(frozen=True)
@@ -135,7 +137,7 @@ def test_frontier_validation(monkeypatch: pytest.MonkeyPatch) -> None:
         ({"column_order": "random"}, "column_order must be one of"),
     ]:
         with pytest.raises(ValueError, match=message):
-            decoders.get_observable_decoder_frontier(dem, **options)  # type: ignore[arg-type]
+            _get_observable_decoder_frontier(dem, **options)  # type: ignore[arg-type]
 
 
 def test_frontier_decoding(calls: list[_Call]) -> None:
@@ -146,7 +148,7 @@ def test_frontier_decoding(calls: list[_Call]) -> None:
         error(0.3) D1 L1
         detector D2
     """)
-    decoder = decoders.get_observable_decoder_frontier(
+    decoder = _get_observable_decoder_frontier(
         dem, K=11, Delta=4.5, column_order="time_order", add_erasure_bit=True
     )
     assert isinstance(decoder, decoders.FrontierObservableDecoder)
@@ -182,12 +184,12 @@ def test_frontier_scan_orders(calls: list[_Call]) -> None:
     dem = stim.DetectorErrorModel("error(0.1) D0\nerror(0.2) D0 D1\nerror(0.3) D1")
     labels = ["error_0", "error_1", "error_2"]
 
-    model = decoders.get_observable_decoder_frontier(dem, column_order="time_order").model
+    model = _get_observable_decoder_frontier(dem, column_order="time_order").model
     assert [column.label for column in model.columns] == labels
     assert model.backward_columns is None
 
     # with the substitute for Frontier, deadline reordering reverses each scan
-    decoder = decoders.get_observable_decoder_frontier(dem, committee=True)
+    decoder = _get_observable_decoder_frontier(dem, committee=True)
     assert [column.label for column in decoder.model.columns] == labels[::-1]
     assert [column.index for column in decoder.model.backward_columns] == [0, 1, 2]
     assert [column.label for column in decoder.model.backward_columns] == labels[::-1]
@@ -198,14 +200,12 @@ def test_frontier_scan_orders(calls: list[_Call]) -> None:
 
 def test_frontier_degenerate_models(calls: list[_Call]) -> None:
     """Models without detectors or error mechanisms are decoded with a nonempty Frontier model."""
-    decoder = decoders.get_observable_decoder_frontier(stim.DetectorErrorModel("error(0.9) L0"))
+    decoder = _get_observable_decoder_frontier(stim.DetectorErrorModel("error(0.9) L0"))
     assert decoder.decode_observables(np.zeros(0, dtype=int)).tolist() == [1]
     assert calls[-1][1].num_detectors == 1
     assert calls[-1][2] == [0]
 
-    decoder = decoders.get_observable_decoder_frontier(
-        stim.DetectorErrorModel(""), add_erasure_bit=True
-    )
+    decoder = _get_observable_decoder_frontier(stim.DetectorErrorModel(""), add_erasure_bit=True)
     assert decoder.model.columns == ()
     assert decoder.decode_observables(np.zeros(0, dtype=int)).tolist() == [0]
 
@@ -216,9 +216,11 @@ def test_frontier_with_generic_decoding_apis(calls: list[_Call]) -> None:
     settings = decoders.frontier(add_erasure_bit=True)
     syndrome = np.array([1, 0])
 
-    assert decoders.get_observable_decoder(dem, decoder=settings).decode_observables(
-        syndrome
-    ).tolist() == [1, 0, 0]
+    assert _get_observable_decoder(dem, decoder=settings).decode_observables(syndrome).tolist() == [
+        1,
+        0,
+        0,
+    ]
 
     sinter_decoder = decoders.SinterDecoder(decoder=settings).compile_decoder_for_dem(dem)
     assert sinter_decoder.num_erasure_bits == 1
@@ -256,11 +258,11 @@ def test_frontier_missing_installation(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(
         ModuleNotFoundError, match=r"Install it with `pip install 'frontier @ git\+"
     ):
-        decoders.get_observable_decoder_frontier(dem)
+        _get_observable_decoder_frontier(dem)
 
     # an import error within an installed Frontier package is not mistaken for a missing package
     monkeypatch.setitem(sys.modules, "frontier", types.ModuleType("frontier"))
     monkeypatch.setitem(sys.modules, "frontier.progressive", None)
     with pytest.raises(ModuleNotFoundError) as error:
-        decoders.get_observable_decoder_frontier(dem)
+        _get_observable_decoder_frontier(dem)
     assert "Install it with" not in str(error.value)

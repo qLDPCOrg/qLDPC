@@ -149,23 +149,25 @@ class ILPDecoder(ErrorDecoder):
 
 
 @_erasure_bit_support("ILP", supported=True)
-def get_decoder_ilp(
+def _get_decoder_ilp(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     add_erasure_bit: bool = False,
     **decoder_args: object,
 ) -> ILPDecoder:
-    """Build an integer-linear-program (ILP) decoder.
+    """Configure an integer-linear-program (ILP) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
             its dense detector-flip matrix.
         add_erasure_bit: Whether to append a flag when the solver cannot produce an error that
             reproduces the syndrome.
-        **decoder_args: Arguments passed to ``cvxpy.Problem.solve`` by :class:`ILPDecoder`.
+        **decoder_args: Arguments passed to ``cvxpy.Problem.solve``.
 
     Returns:
-        An :class:`ILPDecoder`.
+        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
+        detector error model (DEM), whose dense detector-flip matrix is decoded, and returns an
+        :class:`~qldpc.decoders.custom.ilp.ILPDecoder`.
 
     ILP decoding supports prime fields.  Without an erasure bit, an unexplained syndrome is rejected
     rather than returned as an ordinary inferred error.
@@ -173,4 +175,4 @@ def get_decoder_ilp(
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
-ilp = decoder_spec("ilp", get_decoder_ilp, signature_source=ILPDecoder)
+ilp = decoder_spec("ilp", _get_decoder_ilp, signature_source=ILPDecoder)

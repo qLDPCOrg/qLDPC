@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import dataclasses
-import functools
 import inspect
 from collections.abc import Callable
 from typing import (
@@ -73,8 +72,9 @@ class DecoderSpec(Generic[_DecoderT_co]):
         if self._builder is None:
             raise TypeError(
                 f"decoders.{self._helper_name}(...) predicts observable flips but cannot infer"
-                " errors, so it cannot build an error decoder.  Pass it where an observable decoder"
-                " is accepted, such as to decoders.get_observable_decoder or decoders.SinterDecoder"
+                " errors, so it cannot build an error decoder.  Call build_observable_decoder(dem)"
+                " instead, or pass it where an observable decoder is accepted, such as to"
+                " decoders.SinterDecoder"
             )
         return self._builder(pcm_or_dem, **self.options)
 
@@ -192,9 +192,8 @@ def decoder_spec(
         if parameter.default is not inspect.Parameter.empty
     )
 
-    @functools.wraps(source)
     def make_spec(*args: object, **kwargs: object) -> DecoderSpec[_DecoderT]:
-        bound = helper_signature.bind(*args, **kwargs)
+        bound = _bind_helper_arguments(helper_name, helper_signature, args, kwargs)
         explicitly_provided = _get_explicit_option_names(bound, helper_signature)
         bound.apply_defaults()
         options = _get_bound_options(bound, helper_signature)
@@ -208,13 +207,9 @@ def decoder_spec(
             defaults,
         )
 
-    make_spec.__name__ = helper_name
-    make_spec.__qualname__ = helper_name
-    make_spec.__module__ = builder.__module__
-    make_spec.__doc__ = f"Configure the decoder built by :func:`{builder.__name__}`."
-    return_annotation = DecoderSpec[ErrorDecoder]
-    vars(make_spec)["__signature__"] = helper_signature.replace(return_annotation=return_annotation)
-    make_spec.__annotations__ = _get_helper_annotations(helper_signature, return_annotation)
+    _set_helper_metadata(
+        make_spec, helper_name, builder, helper_signature, DecoderSpec[ErrorDecoder]
+    )
     return make_spec
 
 
@@ -235,9 +230,8 @@ def observable_decoder_spec(
         if parameter.default is not inspect.Parameter.empty
     )
 
-    @functools.wraps(observable_builder)
     def make_spec(*args: object, **kwargs: object) -> DecoderSpec[Never]:
-        bound = helper_signature.bind(*args, **kwargs)
+        bound = _bind_helper_arguments(helper_name, helper_signature, args, kwargs)
         explicitly_provided = _get_explicit_option_names(bound, helper_signature)
         bound.apply_defaults()
         options = _get_bound_options(bound, helper_signature)
@@ -251,17 +245,60 @@ def observable_decoder_spec(
             defaults,
         )
 
-    make_spec.__name__ = helper_name
-    make_spec.__qualname__ = helper_name
-    make_spec.__module__ = observable_builder.__module__
-    make_spec.__doc__ = (
-        f"Configure the observable decoder built by :func:`{observable_builder.__name__}`."
+    _set_helper_metadata(
+        make_spec, helper_name, observable_builder, helper_signature, DecoderSpec[Never]
     )
-    vars(make_spec)["__signature__"] = helper_signature.replace(
-        return_annotation=DecoderSpec[Never]
-    )
-    make_spec.__annotations__ = _get_helper_annotations(helper_signature, DecoderSpec[Never])
     return make_spec
+
+
+def _set_helper_metadata(
+    helper: Callable[..., object],
+    helper_name: str,
+    builder: Callable[..., object],
+    signature: inspect.Signature,
+    return_annotation: object,
+) -> None:
+    """Give a generated helper the public name, docs, and signature of a settings helper.
+
+    The docstring of the builder documents the options of the helper.  Unlike functools.wraps, this
+    does not copy the attributes of a decoder class that provides the signature.
+    """
+    helper.__name__ = helper_name
+    helper.__qualname__ = helper_name
+    helper.__module__ = builder.__module__
+    helper.__doc__ = _get_helper_docstring(builder.__doc__, signature)
+    vars(helper)["__signature__"] = signature.replace(return_annotation=return_annotation)
+    helper.__annotations__ = _get_helper_annotations(signature, return_annotation)
+
+
+def _get_helper_docstring(docstring: str | None, signature: inspect.Signature) -> str | None:
+    """Drop the arguments of a builder docstring that its settings helper does not accept.
+
+    A builder documents the matrix or detector error model that it decodes, which is instead passed
+    to DecoderSpec.build, and may document keyword arguments that it forwards to a decoder class.
+    """
+    if docstring is None:
+        return None
+    lines = docstring.splitlines()
+    kept_lines: list[str] = []
+    args_indent: int | None = None
+    entry_indent: int | None = None
+    keep_entry = True
+    for line in lines:
+        indent = len(line) - len(line.lstrip())
+        if line.strip() == "Args:":
+            args_indent, entry_indent = indent, None
+        elif args_indent is not None and (not line.strip() or indent <= args_indent):
+            args_indent = None
+        elif args_indent is not None:
+            entry_indent = indent if entry_indent is None else entry_indent
+            if indent == entry_indent:
+                name = line.strip().split(":", maxsplit=1)[0].lstrip("*")
+                keep_entry = name in signature.parameters
+            if not keep_entry:
+                continue
+        kept_lines.append(line)
+    return "\n".join(kept_lines)
 
 
 def _get_helper_signature(
@@ -286,6 +323,19 @@ def _get_helper_annotations(
     }
     annotations["return"] = return_annotation
     return annotations
+
+
+def _bind_helper_arguments(
+    helper_name: str,
+    signature: inspect.Signature,
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+) -> inspect.BoundArguments:
+    """Bind the arguments of a generated helper, naming the helper in any error."""
+    try:
+        return signature.bind(*args, **kwargs)
+    except TypeError as error:
+        raise TypeError(f"{helper_name}() {error}") from None
 
 
 def _get_explicit_option_names(

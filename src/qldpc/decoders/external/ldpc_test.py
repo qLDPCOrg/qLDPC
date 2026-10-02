@@ -19,13 +19,13 @@ from ldpc import bplsd_decoder
 from qldpc import decoders
 from qldpc.decoders.external import ldpc as ldpc_integration
 from qldpc.decoders.external.ldpc import (
-    get_decoder_bf,
-    get_decoder_bp_lsd,
-    get_decoder_bp_osd,
+    _get_decoder_bf,
+    _get_decoder_bp_lsd,
+    _get_decoder_bp_osd,
 )
 
 
-@pytest.mark.parametrize("builder", [get_decoder_bp_osd, get_decoder_bp_lsd, get_decoder_bf])
+@pytest.mark.parametrize("builder", [_get_decoder_bp_osd, _get_decoder_bp_lsd, _get_decoder_bf])
 def test_ldpc_builders(
     builder: Callable[..., decoders.ErrorDecoder],
 ) -> None:
@@ -46,9 +46,9 @@ def test_ldpc_builders(
 @pytest.mark.parametrize(
     ("builder", "name"),
     [
-        (get_decoder_bf, "BF"),
-        (get_decoder_bp_osd, "BP_OSD"),
-        (get_decoder_bp_lsd, "BP_LSD"),
+        (_get_decoder_bf, "BF"),
+        (_get_decoder_bp_osd, "BP_OSD"),
+        (_get_decoder_bp_lsd, "BP_LSD"),
     ],
 )
 def test_ldpc_builders_reject_erasure(
@@ -61,7 +61,7 @@ def test_ldpc_builders_reject_erasure(
     assert builder(matrix, add_erasure_bit=False)
 
 
-@pytest.mark.parametrize("builder", [get_decoder_bp_osd, get_decoder_bp_lsd, get_decoder_bf])
+@pytest.mark.parametrize("builder", [_get_decoder_bp_osd, _get_decoder_bp_lsd, _get_decoder_bf])
 def test_ldpc_error_channel_compatibility(
     builder: Callable[..., Any],
 ) -> None:
@@ -86,7 +86,7 @@ def test_ldpc_error_channel_compatibility(
 def test_bp_lsd_random_serial_schedule() -> None:
     """The immediate and deferred BP+LSD builders expose the backend schedule option."""
     matrix = np.eye(2, dtype=int)
-    immediate_decoder: Any = get_decoder_bp_lsd(matrix, random_serial_schedule=True)
+    immediate_decoder: Any = _get_decoder_bp_lsd(matrix, random_serial_schedule=True)
     deferred_decoder: Any = decoders.bp_lsd(random_serial_schedule=True).build(matrix)
     assert immediate_decoder.random_serial_schedule
     assert deferred_decoder.random_serial_schedule
@@ -101,17 +101,17 @@ def test_ldpc_protocol_adapters() -> None:
     matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=int)
     adapted_decoders = [
         (
-            get_decoder_bp_osd(matrix),
+            _get_decoder_bp_osd(matrix),
             ldpc_integration.BpOsdDecoder,
             ldpc_package.BpOsdDecoder,
         ),
         (
-            get_decoder_bp_lsd(matrix),
+            _get_decoder_bp_lsd(matrix),
             ldpc_integration.BpLsdDecoder,
             bplsd_decoder.BpLsdDecoder,
         ),
         (
-            get_decoder_bf(matrix),
+            _get_decoder_bf(matrix),
             ldpc_integration.BeliefFindDecoder,
             ldpc_package.BeliefFindDecoder,
         ),
