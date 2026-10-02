@@ -68,8 +68,7 @@ optional-dependencies.gap = [
 ]
 optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
 optional-dependencies.tesseract = [
-  # wheels exist only for CPython 3.12-3.14 on macOS arm64 and Linux x86-64
-  "tesseract-decoder==0.1.1.dev20260910235247; python_version>='3.12' and platform_machine in 'arm64 x86_64'",
+  "tesseract-decoder==0.1.1.dev20260910235247; python_version>='3.12'",
 ]
 urls.Documentation = "https://qldpc.readthedocs.io/"
 urls.Issues = "https://github.com/qLDPCOrg/qLDPC/issues"

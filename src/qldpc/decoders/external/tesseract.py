@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import platform
-import sys
 from collections.abc import Sequence
 from typing import Any, Literal
 
@@ -28,11 +26,6 @@ _DETECTOR_ORDER_NAMES: dict[TesseractDetectorOrderMethod, str] = {
     "coordinate": "Coordinate",
     "index": "Index",
 }
-
-# platforms with published wheels; keep in sync with the marker of the tesseract extra
-_SUPPORTED_PYTHON_VERSIONS = ((3, 12), (3, 13), (3, 14))
-_SUPPORTED_PLATFORMS = (("darwin", "arm64"), ("linux", "x86_64"))
-_SOURCE_URL = "https://github.com/quantumlib/tesseract-decoder"
 
 
 class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
@@ -282,43 +275,13 @@ def _get_tesseract() -> Any:
     except ModuleNotFoundError as error:
         if error.name != "tesseract_decoder":
             raise
-        message = _get_missing_tesseract_message(
-            platform.python_implementation(),
-            sys.version_info[:2],
-            sys.platform,
-            platform.machine(),
-        )
-        raise ModuleNotFoundError(message) from error
+        raise ModuleNotFoundError(
+            "The Tesseract decoder requires the optional 'tesseract-decoder' package.  Install it"
+            " with `pip install 'qldpc[tesseract]'`.  The pinned release publishes wheels for"
+            " CPython 3.12-3.14 on macOS arm64 and Linux x86-64; for other environments, see"
+            " https://github.com/quantumlib/tesseract-decoder#installation"
+        ) from error
     return tesseract_decoder
-
-
-def _is_supported_platform(
-    implementation: str, version: tuple[int, int], system: str, machine: str
-) -> bool:
-    """Whether tesseract-decoder publishes wheels for a Python implementation and platform."""
-    return (
-        implementation == "CPython"
-        and version in _SUPPORTED_PYTHON_VERSIONS
-        and (system, machine) in _SUPPORTED_PLATFORMS
-    )
-
-
-def _get_missing_tesseract_message(
-    implementation: str, version: tuple[int, int], system: str, machine: str
-) -> str:
-    """Explain how to obtain tesseract-decoder for a Python implementation and platform."""
-    requirement = "The Tesseract decoder requires the optional 'tesseract-decoder' package"
-    if _is_supported_platform(implementation, version, system, machine):
-        return (
-            f"{requirement}.  Install it with `pip install 'qldpc[tesseract]'`.  On Linux, its"
-            " wheels require glibc 2.35 or later (2.39 or later for Python 3.14)."
-        )
-    return (
-        f"{requirement}, which publishes wheels only for CPython 3.12-3.14 on macOS arm64 and"
-        f" Linux x86-64.  `pip install 'qldpc[tesseract]'` therefore cannot install it for"
-        f" {implementation} {version[0]}.{version[1]} on {system} {machine}.  Use a supported Python"
-        f" and platform, or build tesseract-decoder from source: {_SOURCE_URL}"
-    )
 
 
 def _get_dem_and_num_errors(
