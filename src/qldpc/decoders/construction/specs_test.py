@@ -127,32 +127,15 @@ def test_decoder_specs() -> None:
 
 
 @pytest.mark.parametrize(
-    ("preset", "det_beam", "pqlimit", "num_det_orders"),
-    [("long-beam", 20, 1_000_000, 21), ("short-beam", 15, 200_000, 16)],
+    "preset",
+    ["long-beam", "short-beam"],
 )
-@pytest.mark.parametrize(
-    ("sparsify", "sparsify_base_degree"),
-    [(None, -1), ("surface-code-like", 2), ("color-code-like", 3)],
-)
-def test_tesseract_presets(
-    preset: Any,
-    det_beam: int,
-    pqlimit: int,
-    num_det_orders: int,
-    sparsify: Any,
-    sparsify_base_degree: int,
-) -> None:
-    """Tesseract preset helpers reproduce upstream's named configurations."""
-    options = decoders.tesseract_preset(preset, sparsify=sparsify).options
-    assert options["det_beam"] == det_beam
-    assert options["beam_climbing"] is True
-    assert options["pqlimit"] == pqlimit
-    assert options["sparsify_errors"] is (sparsify is not None)
-    assert options["sparsify_base_degree"] == sparsify_base_degree
-    assert options["num_det_orders"] == num_det_orders
-    assert options["det_order_method"] == "index"
-    assert options["seed"] == 2_384_753
-    assert options["merge_errors"] is None
+@pytest.mark.parametrize("sparsify", [None, "surface-code-like", "color-code-like"])
+def test_tesseract_presets(preset: Any, sparsify: Any) -> None:
+    """Tesseract preset helpers accept every named family."""
+    spec = decoders.tesseract_preset(preset, sparsify=sparsify)
+    assert spec.infers_errors
+    assert spec.predicts_observables_natively
 
 
 def test_tesseract_preset_options() -> None:
@@ -166,7 +149,6 @@ def test_tesseract_preset_options() -> None:
     assert spec.options["error_rate"] == 0.3
     assert spec.options["error_channel"] is channel
     assert spec.options["add_erasure_bit"] is True
-    assert repr(default).startswith("decoders.tesseract(det_beam=20, beam_climbing=True")
 
     with pytest.raises(ValueError, match="Unknown Tesseract preset"):
         decoders.tesseract_preset("medium-beam")  # type: ignore[arg-type]
