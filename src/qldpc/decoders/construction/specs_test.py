@@ -107,6 +107,23 @@ def test_decoder_specs() -> None:
         decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
 
 
+def test_frontier_helper() -> None:
+    """The Frontier helper forwards every option to the settings that it returns."""
+    options: dict[str, Any] = {
+        "K": 64,
+        "Delta": 6.0,
+        "score_alpha": 0.5,
+        "metric_mode": "frontier_lite",
+        "int_metric_scale": 512,
+        "column_order": "time_order",
+        "committee": True,
+        "add_erasure_bit": True,
+    }
+    settings = decoders.frontier(**options)
+    assert settings == decoders.FrontierDecoder(**options)
+    assert settings.options == options
+
+
 def _get_graphlike_inputs() -> tuple[npt.NDArray[np.int_], stim.DetectorErrorModel]:
     """A parity check matrix and a detector error model whose errors flip at most two checks."""
     matrix = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=int)
