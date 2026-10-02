@@ -195,8 +195,10 @@ def test_frontier_decoding(calls: list[tuple[str, _Model, list[int], dict[str, o
 
     with pytest.raises(ValueError, match="Expected a syndrome of shape"):
         decoder.decode_observables(np.zeros(2, dtype=int))
-    with pytest.raises(ValueError, match="Expected a 2D batch"):
+    with pytest.raises(ValueError, match="Expected a syndrome batch"):
         decoder.decode_observables_batch(np.zeros(3, dtype=int))
+    with pytest.raises(ValueError, match=r"shape \(shots, 3\)"):
+        decoder.decode_observables_batch(np.zeros((0, 2), dtype=int))
 
 
 def test_frontier_scan_orders(
@@ -278,12 +280,16 @@ def test_frontier_with_generic_decoding_apis(
 
 
 def test_frontier_unexpected_status() -> None:
-    """An unrecognized Frontier result status is reported instead of being decoded."""
+    """Malformed Frontier results are reported instead of being decoded."""
     model = _Model(columns=(), layout=(), num_detectors=1, num_observables=1)
     decoder = frontier.FrontierObservableDecoder(
         model, lambda *args, **kwargs: _Result("timeout", None), num_detectors=1, decode_options={}
     )
     with pytest.raises(RuntimeError, match="unexpected status: 'timeout'"):
+        decoder.decode_observables(np.zeros(1, dtype=int))
+
+    decoder.decode_func = lambda *args, **kwargs: _Result("ok", None)
+    with pytest.raises(ValueError, match="status='ok' without logical_hat"):
         decoder.decode_observables(np.zeros(1, dtype=int))
 
 

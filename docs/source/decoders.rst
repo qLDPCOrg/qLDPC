@@ -57,7 +57,9 @@ Passing ``decoder=None`` uses qLDPC's default: BP+OSD for binary inputs and gene
 Building decoders immediately
 -----------------------------
 
-The typed helpers above store validated settings; they do not build a decoder until ``.build(...)`` or a higher-level API supplies a matrix or detector error model.
+The typed helpers above store settings and do not build a decoder until a higher-level API supplies a matrix or detector error model.
+Settings with ``infers_errors=True`` can also build an error decoder immediately with ``.build(...)``.
+Any settings can be passed to a compatible high-level API, which calls ``build_observable_decoder(...)`` when it needs observable predictions.
 To construct one immediately, use the lowercase builders owned by their implementation modules.
 They are exported from ``qldpc.decoders`` and ``qldpc.decoders.construction``:
 
@@ -99,9 +101,10 @@ Code-capacity estimates
 A code-capacity estimate samples errors, decodes their syndromes, and counts a failure whenever the decoder mispredicts the logical action of a sampled error.
 It therefore only ever asks which logical operators (observables) an error flips, and its ``decoder=``, ``decoder_x=``, and ``decoder_z=`` arguments each accept either kind of decoder:
 
-* An error decoder (decoder settings, a constructor, or, where accepted, a prebuilt error decoder) infers a physical error, and the logical operators flipped by that error are its prediction.
+* An error decoder (settings with ``infers_errors=True``, a constructor, or, where accepted, a prebuilt error decoder) infers a physical error, and the logical operators flipped by that error are its prediction.
   This is the default, and ``decoder=None`` selects BP+OSD or GUF.
-  Decoder settings build an error decoder here, even if the configured decoder could predict observable flips natively.
+  These settings build an error decoder here, even if the configured decoder could predict observable flips natively.
+* Settings with ``infers_errors=False``, such as ``decoders.frontier(...)``, build their native observable decoder from the code-capacity detector error model.
 * A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=2))``, is compiled for a code-capacity detector error model whose detectors are the stabilizers (or parity checks) of the code and whose observables are its logical operators (or, for a classical code, its bits).
   A shared Sinter-style decoder is compiled separately for each CSS sector.
   Stim detector error models are binary, so such a decoder is rejected for a code over another field.

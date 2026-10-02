@@ -29,7 +29,7 @@ from ..custom.lookup import (
     get_decoder_lookup,
     get_observable_decoder_lookup,
 )
-from ..external.frontier import _validate_frontier_options, get_observable_decoder_frontier
+from ..external.frontier import get_observable_decoder_frontier
 from ..external.ldpc import get_decoder_bf as _get_decoder_bf
 from ..external.ldpc import get_decoder_bp_lsd as _get_decoder_bp_lsd
 from ..external.ldpc import get_decoder_bp_osd as _get_decoder_bp_osd
@@ -327,14 +327,6 @@ def frontier(
     add_erasure_bit: bool = False,
 ) -> DecoderSpec[Never]:
     """Configure a Frontier decoder, which predicts observable flips but cannot infer errors."""
-    _validate_frontier_options(
-        K=K,
-        Delta=Delta,
-        score_alpha=score_alpha,
-        metric_mode=metric_mode,
-        int_metric_scale=int_metric_scale,
-        column_order=column_order,
-    )
     options = {
         "K": K,
         "Delta": Delta,

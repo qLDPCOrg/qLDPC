@@ -153,8 +153,9 @@ def test_observable_decoder_specs() -> None:
     assert not spec.infers_errors
     assert spec.predicts_observables_natively
     assert repr(decoders.frontier(committee=True)) == "decoders.frontier(committee=True)"
+    invalid_spec = decoders.frontier(K=0)
     with pytest.raises(ValueError, match="K must be positive"):
-        decoders.frontier(K=0)
+        invalid_spec.build_observable_decoder(dem)
 
 
 def _get_graphlike_inputs() -> tuple[npt.NDArray[np.int_], stim.DetectorErrorModel]:

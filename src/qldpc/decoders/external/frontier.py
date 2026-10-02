@@ -117,6 +117,8 @@ class FrontierObservableDecoder(BatchObservableDecoder):
             self.model, np.concatenate([syndrome, padding]), **self.decode_options
         )
         if result.status == "ok":
+            if result.logical_hat is None:
+                raise ValueError("Frontier returned status='ok' without logical_hat")
             logical_hat, erased = int(result.logical_hat), False
         elif result.status == "no_path":
             logical_hat, erased = 0, True
@@ -128,8 +130,11 @@ class FrontierObservableDecoder(BatchObservableDecoder):
     def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of syndromes, one per row, to predicted observable flips."""
         syndromes = np.asarray(syndromes, dtype=np.uint8)
-        if syndromes.ndim != 2:
-            raise ValueError(f"Expected a 2D batch of syndromes, got shape {syndromes.shape}")
+        if syndromes.ndim != 2 or syndromes.shape[1] != self.num_detectors:
+            raise ValueError(
+                f"Expected a syndrome batch with shape (shots, {self.num_detectors}), "
+                f"got {syndromes.shape}"
+            )
         predictions = [self.decode_observables(syndrome) for syndrome in syndromes]
         return np.array(predictions, dtype=int).reshape(
             len(syndromes), self.num_observables + self.has_erasure_bit

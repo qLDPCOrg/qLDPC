@@ -250,10 +250,10 @@ def get_code_capacity_decoder(
       its predictions.  A decoder that is both an error decoder and an observable decoder, such as a
       RelayBPDecoder, is used as an error decoder.
 
-    This intentionally differs from qldpc.decoders.resolve_observable_decoder, which may ask decoder
-    settings to build a native observable decoder.  Here, decoder settings that can infer errors
-    always build an error decoder; to decode observables directly, pass a Sinter-style decoder, an
-    observable-decoder constructor, or a prebuilt observable decoder.
+    A DecoderSpec with ``infers_errors=True`` builds an error decoder.  A DecoderSpec with
+    ``infers_errors=False``, a Sinter-style decoder, or an observable-decoder constructor builds an
+    observable decoder from the code-capacity detector error model.  A prebuilt observable decoder
+    is used directly.
 
     Args:
         syndrome_matrix: The matrix that maps an error to its syndrome.
