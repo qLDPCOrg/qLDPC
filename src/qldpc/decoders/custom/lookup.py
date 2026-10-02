@@ -161,29 +161,27 @@ class _LookupDecoderBase:
         )
         self._packed_syndrome_to_prediction: dict[bytes, bytes] = {}
 
+        # enumerate errors and their syndromes, and use them to build the decoding map
+        errors_and_syndromes = _iter_errors_and_syndromes(
+            pcm,
+            max_weight,
+            syndrome_mask,
+            symplectic,
+            error_channel=independent_error_channel,
+            probability_cutoff=probability_cutoff,
+        )
         if observable_flip_matrix is None:
-            self._build_syndrome_map_from_errors(
-                pcm,
-                max_weight,
-                error_log_probability,
-                syndrome_mask,
-                symplectic,
-                independent_error_channel,
-                probability_cutoff,
-            )
+            self._build_syndrome_map_from_errors(errors_and_syndromes, error_log_probability)
         else:
             assert error_log_probability is not None
             self._build_syndrome_map_from_observable_flips(
-                pcm,
-                max_weight,
+                errors_and_syndromes,
                 error_log_probability,
+                pcm,
                 observable_flip_matrix,
-                predict_observable_flips,
-                syndrome_mask,
-                confidence_ratio,
                 symplectic,
-                independent_error_channel,
-                probability_cutoff,
+                predict_observable_flips,
+                confidence_ratio,
             )
 
     def __len__(self) -> int:
@@ -192,16 +190,13 @@ class _LookupDecoderBase:
 
     def _build_syndrome_map_from_observable_flips(
         self,
-        pcm: IntegerArray,
-        max_weight: int,
+        errors_and_syndromes: Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]],
         error_log_probability: _ErrorLogProbability,
+        pcm: IntegerArray,
         observable_flip_matrix: IntegerArray,
-        predict_observable_flips: bool,
-        syndrome_mask: npt.NDArray[np.bool_] | None,
-        confidence_ratio: float | None,
         symplectic: bool,
-        independent_error_channel: npt.NDArray[np.floating] | None,
-        probability_cutoff: float,
+        predict_observable_flips: bool,
+        confidence_ratio: float | None,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its most likely observable flip.
 
@@ -223,14 +218,7 @@ class _LookupDecoderBase:
         net_log_probs: dict[bytes, dict[bytes, float]] = collections.defaultdict(dict)
         most_likely_errors: dict[tuple[bytes, bytes], bytes] = {}
         most_likely_error_log_probs: dict[tuple[bytes, bytes], float] = {}
-        for error, syndrome_array in _iter_errors_and_syndromes(
-            pcm,
-            max_weight,
-            syndrome_mask,
-            symplectic,
-            error_channel=independent_error_channel,
-            probability_cutoff=probability_cutoff,
-        ):
+        for error, syndrome_array in errors_and_syndromes:
             syndrome = self._syndrome_packer.pack(syndrome_array)
             obs_flip = observable_flip_packer.pack(get_observable_flip(error))
             log_prob = error_log_probability(error)
@@ -278,13 +266,8 @@ class _LookupDecoderBase:
 
     def _build_syndrome_map_from_errors(
         self,
-        pcm: IntegerArray,
-        max_weight: int,
+        errors_and_syndromes: Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]],
         error_log_probability: _ErrorLogProbability | None,
-        syndrome_mask: npt.NDArray[np.bool_] | None,
-        symplectic: bool,
-        independent_error_channel: npt.NDArray[np.floating] | None,
-        probability_cutoff: float,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its likeliest error.
 
@@ -292,14 +275,7 @@ class _LookupDecoderBase:
         channel, all errors) resolve in favor of the lowest-weight error for each syndrome.
         """
         best_log_probabilities: dict[bytes, float] = {}
-        for error, syndrome in _iter_errors_and_syndromes(
-            pcm,
-            max_weight,
-            syndrome_mask,
-            symplectic,
-            error_channel=independent_error_channel,
-            probability_cutoff=probability_cutoff,
-        ):
+        for error, syndrome in errors_and_syndromes:
             key = self._syndrome_packer.pack(syndrome)
             if error_log_probability is None:
                 self._store_prediction(key, error)
@@ -1062,12 +1038,13 @@ def _iter_errors_and_syndromes(
     syndrome_mask: npt.NDArray[np.bool_] | None,
     symplectic: bool,
     *,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    error_channel: npt.NDArray[np.floating] | None = None,
     probability_cutoff: float = 0,
 ) -> Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
     """Iterate over all errors that this decoder considers, and their associated syndromes.
 
-    Errors are sorted in decreasing weight (number of bits or qudits addressed nontrivially).
+    Errors are sorted in decreasing weight (number of bits or qudits addressed nontrivially).  A
+    positive probability_cutoff requires an error_channel, and skips errors below the cutoff.
 
     The syndrome_mask is a boolean mask of syndrome bits to retain, or None to keep all bits.
     When post-selecting (keep is not None), errors whose syndrome is nontrivial on any dropped
@@ -1079,47 +1056,51 @@ def _iter_errors_and_syndromes(
     # rewrite the checks so multiplying by an error produces its syndrome
     code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
     matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
-    syndrome_bits_to_drop = (
-        None if syndrome_mask is None else ~syndrome_mask
-    )  # post-selected bits, required to be trivial
-
-    # identify the set of local errors that can occur
     repeat = 2 if symplectic else 1
-    error_ops = tuple(itertools.product(range(code.field.order), repeat=repeat))[1:]
-
     block_length = matrix.shape[1] // repeat
+
+    errors: Iterator[npt.NDArray[np.int_]]
     if probability_cutoff:
         assert error_channel is not None
-        for error in _iter_errors_above_probability_cutoff(
+        errors = _iter_errors_above_probability_cutoff(
             code.field,
             block_length,
             repeat,
             max_weight,
             dtype,
-            np.asarray(error_channel, dtype=float),
+            error_channel,
             probability_cutoff,
-        ):
-            syndrome = matrix @ error.view(code.field)
-            if syndrome_mask is not None:
-                if np.any(syndrome[syndrome_bits_to_drop]):
-                    continue
-                syndrome = syndrome[syndrome_mask]
-            yield error, syndrome.view(np.ndarray)
-        return
+        )
+    else:
+        errors = _iter_errors_up_to_weight(
+            code.field.order, block_length, repeat, max_weight, dtype
+        )
 
+    for error in errors:
+        syndrome = (matrix @ error.view(code.field)).view(np.ndarray)
+        if syndrome_mask is not None:
+            if np.any(syndrome[~syndrome_mask]):
+                continue  # a post-selected syndrome bit is nontrivial
+            syndrome = syndrome[syndrome_mask]
+        yield error, syndrome
+
+
+def _iter_errors_up_to_weight(
+    field_order: int,
+    block_length: int,
+    repeat: int,
+    max_weight: int,
+    dtype: npt.DTypeLike,
+) -> Iterator[npt.NDArray[np.int_]]:
+    """Yield every error with weight at most max_weight, in order of decreasing weight."""
+    local_errors = tuple(itertools.product(range(field_order), repeat=repeat))[1:]
     for weight in range(max_weight, -1, -1):
         for error_sites in itertools.combinations(range(block_length), weight):
             error_site_indices = list(error_sites)
-            for local_errors in itertools.product(error_ops, repeat=weight):
-                error = code.field.Zeros((repeat, block_length))
-                error[:, error_site_indices] = np.asarray(local_errors, dtype=dtype).T
-                error = error.ravel()
-                syndrome = matrix @ error
-                if syndrome_mask is not None:
-                    if np.any(syndrome[syndrome_bits_to_drop]):
-                        continue
-                    syndrome = syndrome[syndrome_mask]
-                yield error.view(np.ndarray).astype(dtype), syndrome.view(np.ndarray)
+            for site_errors in itertools.product(local_errors, repeat=weight):
+                error = np.zeros((repeat, block_length), dtype=dtype)
+                error[:, error_site_indices] = np.asarray(site_errors, dtype=dtype).T
+                yield error.ravel()
 
 
 def _iter_errors_above_probability_cutoff(
@@ -1347,18 +1328,15 @@ def _build_observable_flip_func(
 
 
 def _build_error_log_probability(
-    error_channel: npt.NDArray[np.floating] | Sequence[float],
+    error_channel: npt.NDArray[np.floating],
     field_order: int = 2,
 ) -> _ErrorLogProbability:
     """Construct a full-error log probability from independent mechanism probabilities."""
-    error_channel = np.asarray(error_channel)
     with np.errstate(divide="ignore"):  # a probability of 0 or 1 yields a -inf log, which is ok
         log_probs = np.log(error_channel / (field_order - 1))
         log_non_probs = np.log(1 - error_channel)
 
-    def error_log_probability(
-        error: _ErrorVector,
-    ) -> float:
+    def error_log_probability(error: _ErrorVector) -> float:
         """Return the full independent-channel log probability of an error."""
         events = np.asarray(error).astype(bool)
         return float(np.sum(log_probs[events]) + np.sum(log_non_probs[~events]))
