@@ -327,17 +327,18 @@ def frontier(
     add_erasure_bit: bool = False,
 ) -> DecoderSpec[Never]:
     """Configure a Frontier decoder, which predicts observable flips but cannot infer errors."""
-    options = {
-        "K": K,
-        "Delta": Delta,
-        "score_alpha": score_alpha,
-        "metric_mode": metric_mode,
-        "int_metric_scale": int_metric_scale,
-        "column_order": column_order,
-        "committee": committee,
-        "add_erasure_bit": add_erasure_bit,
-    }
-    return DecoderSpec("frontier", None, tuple(options.items()), get_observable_decoder_frontier)
+    return _observable_decoder_spec(
+        "frontier",
+        get_observable_decoder_frontier,
+        K=K,
+        Delta=Delta,
+        score_alpha=score_alpha,
+        metric_mode=metric_mode,
+        int_metric_scale=int_metric_scale,
+        column_order=column_order,
+        committee=committee,
+        add_erasure_bit=add_erasure_bit,
+    )
 
 
 def relay_bp(
@@ -504,3 +505,13 @@ def _decoder_spec(
 ) -> DecoderSpec[_Decoder]:
     """Store deferred decoder construction options."""
     return DecoderSpec(helper_name, builder, tuple(options.items()), observable_builder)
+
+
+def _observable_decoder_spec(
+    helper_name: str,
+    observable_builder: Callable[..., ObservableDecoder],
+    /,
+    **options: object,
+) -> DecoderSpec[Never]:
+    """Store deferred construction options for an observable-only decoder."""
+    return DecoderSpec(helper_name, None, tuple(options.items()), observable_builder)
