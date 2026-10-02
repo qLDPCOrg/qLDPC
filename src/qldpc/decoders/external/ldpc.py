@@ -67,7 +67,6 @@ def get_decoder_bp_osd(
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
         error_channel: One probability for every matrix-column error, or one probability per column.
             Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
             probabilities, so neither probability argument can be specified with one.
@@ -80,6 +79,7 @@ def get_decoder_bp_osd(
         serial_schedule_order: Explicit update order for a serial schedule.
         osd_method: Ordered-statistics decoding method.
         osd_order: Ordered-statistics decoding order.
+        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.BpOsdDecoder`` subclass that is also an
@@ -91,7 +91,7 @@ def get_decoder_bp_osd(
     `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_, and
     `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
     """
-    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
+    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     return _build_ldpc_decoder(
         "BpOsdDecoder",
         pcm,
@@ -134,7 +134,6 @@ def get_decoder_bp_lsd(
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
         error_channel: One probability for every matrix-column error, or one probability per column.
             Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
             probabilities, so neither probability argument can be specified with one.
@@ -150,6 +149,7 @@ def get_decoder_bp_lsd(
         lsd_method: Localized-statistics decoding method.
         lsd_order: Localized-statistics decoding order.
         always_run_lsd: Whether to run LSD after belief propagation converges.
+        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass that is also an
@@ -161,7 +161,7 @@ def get_decoder_bp_lsd(
     `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_, and
     `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
     """
-    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
+    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     return _build_ldpc_decoder(
         "BpLsdDecoder",
         pcm,
@@ -204,7 +204,6 @@ def get_decoder_bf(
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
         error_channel: One probability for every matrix-column error, or one probability per column.
             Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
             probabilities, so neither probability argument can be specified with one.
@@ -217,6 +216,7 @@ def get_decoder_bf(
         serial_schedule_order: Explicit update order for a serial schedule.
         uf_method: Union-find cluster-solving method.
         bits_per_step: Number of bits added to each cluster step.
+        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.BeliefFindDecoder`` subclass that is also an
@@ -230,7 +230,7 @@ def get_decoder_bf(
     `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_, and
     `arXiv:2209.01180 <https://arxiv.org/abs/2209.01180>`_.
     """
-    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
+    pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     return _build_ldpc_decoder(
         "BeliefFindDecoder",
         pcm,
@@ -259,11 +259,11 @@ bf = decoder_spec("bf", get_decoder_bf, option_transform=_deprecate_error_rate_o
 
 def _to_ldpc_inputs(
     pcm_or_dem: _PcmOrDem,
-    error_rate: float | None,
     error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None,
+    error_rate: float | None,
 ) -> tuple[IntegerArray, list[float]]:
     """Convert backend input to the matrix and probabilities expected by ldpc."""
-    matrix_error_channel = _get_matrix_error_channel(pcm_or_dem, error_rate, error_channel)
+    matrix_error_channel = _get_matrix_error_channel(pcm_or_dem, error_channel, error_rate)
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix

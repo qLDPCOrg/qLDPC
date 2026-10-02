@@ -301,7 +301,7 @@ def test_tesseract_preset_merge_defaults(fake_tesseract: None) -> None:
     assert warnings[0].filename == __file__
     assert deprecated_spec.options["error_channel"] == 0.2
     with pytest.raises(ValueError, match="cannot both be specified"):
-        decoders.tesseract_preset(error_rate=0.2, error_channel=0.1)
+        decoders.tesseract_preset(error_channel=0.1, error_rate=0.2)
     with pytest.raises(ValueError, match="Unknown Tesseract preset"):
         decoders.tesseract_preset(cast(Any, "medium-beam"))
     with pytest.raises(ValueError, match="Unknown Tesseract sparsify preset"):

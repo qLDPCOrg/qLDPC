@@ -80,8 +80,8 @@ def _deprecate_error_rate_option(
 
 def _get_matrix_error_channel(
     pcm_or_dem: _PcmOrDem,
-    error_rate: float | None,
     error_channel: _ErrorChannel,
+    error_rate: float | None,
 ) -> npt.NDArray[np.floating] | None:
     """Normalize matrix error probabilities and reject explicit probabilities for a DEM."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):

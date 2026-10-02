@@ -75,7 +75,7 @@ def test_ldpc_error_channel_compatibility(
     assert np.array_equal(deprecated_decoder.error_channel, [0.3, 0.3])
 
     with pytest.raises(ValueError, match="cannot both be specified"):
-        builder(matrix, error_rate=0.3, error_channel=0.2)
+        builder(matrix, error_channel=0.2, error_rate=0.3)
 
     dem = stim.DetectorErrorModel("error(0.1) D0\nerror(0.2) D1")
     for kwargs in ({"error_channel": 0.3}, {"error_rate": 0.3}):

@@ -54,29 +54,29 @@ def test_get_matrix_error_channel() -> None:
         [common.PLACEHOLDER_ERROR_RATE] * 2,
     )
     channel = np.array([0.1, 0.2])
-    normalized_channel = common._get_matrix_error_channel(matrix, None, channel)
+    normalized_channel = common._get_matrix_error_channel(matrix, channel, None)
     assert normalized_channel is not None
     assert np.array_equal(normalized_channel, channel)
 
     with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3") as warnings:
-        deprecated_channel = common._get_matrix_error_channel(matrix, 0.3, None)
+        deprecated_channel = common._get_matrix_error_channel(matrix, None, 0.3)
     assert deprecated_channel is not None
     assert np.array_equal(deprecated_channel, [0.3, 0.3])
     assert warnings[0].filename == __file__
 
     with pytest.raises(ValueError, match="cannot both be specified"):
-        common._get_matrix_error_channel(matrix, 0.3, 0.2)
+        common._get_matrix_error_channel(matrix, 0.2, 0.3)
     with pytest.raises(ValueError, match="error probabilities of shape"):
-        common._get_matrix_error_channel(matrix, None, [0.1])
+        common._get_matrix_error_channel(matrix, [0.1], None)
     for invalid_channel in ([np.nan, 0.2], [-0.1, 0.2], [0.1, 1.1]):
         with pytest.raises(ValueError, match="finite and between 0 and 1"):
-            common._get_matrix_error_channel(matrix, None, invalid_channel)
+            common._get_matrix_error_channel(matrix, invalid_channel, None)
 
     dem = stim.DetectorErrorModel("error(0.1) D0")
     assert common._get_matrix_error_channel(dem, None, None) is None
-    for error_rate, error_channel in ((0.2, None), (None, 0.2)):
+    for error_channel, error_rate in ((None, 0.2), (0.2, None)):
         with pytest.raises(ValueError, match="supplies its own error probabilities"):
-            common._get_matrix_error_channel(dem, error_rate, error_channel)
+            common._get_matrix_error_channel(dem, error_channel, error_rate)
 
 
 def test_get_error_and_erasure() -> None:

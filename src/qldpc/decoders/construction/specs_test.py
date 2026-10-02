@@ -211,7 +211,7 @@ def test_tesseract_preset_options() -> None:
         deprecated_spec = decoders.tesseract_preset("short-beam", error_rate=0.3)
     assert deprecated_spec.options["error_channel"] == 0.3
     with pytest.raises(ValueError, match="cannot both be specified"):
-        decoders.tesseract_preset("short-beam", error_rate=0.3, error_channel=channel)
+        decoders.tesseract_preset("short-beam", error_channel=channel, error_rate=0.3)
 
     with pytest.raises(ValueError, match="Unknown Tesseract preset"):
         decoders.tesseract_preset("medium-beam")  # type: ignore[arg-type]
@@ -221,9 +221,38 @@ def test_tesseract_preset_options() -> None:
 
 def test_deprecated_error_rate_settings_are_last_and_warn() -> None:
     """Deferred helpers keep deprecated options last and translate them with a warning."""
-    for helper in (decoders.bp_osd, decoders.bp_lsd, decoders.bf, decoders.tesseract):
-        parameters = list(inspect.signature(helper).parameters)
+    entry_points = (
+        decoders.bp_osd,
+        decoders.bp_lsd,
+        decoders.bf,
+        decoders.tesseract,
+        decoders.tesseract_preset,
+        decoders.get_decoder_bp_osd,
+        decoders.get_decoder_bp_lsd,
+        decoders.get_decoder_bf,
+        decoders.TesseractDecoder,
+        decoders.get_decoder_tesseract,
+    )
+    for entry_point in entry_points:
+        parameters = list(inspect.signature(entry_point).parameters)
         assert parameters[-1] == "error_rate"
+
+    documented_entry_points: tuple[Callable[..., object], ...] = (
+        decoders.get_decoder_bp_osd,
+        decoders.get_decoder_bp_lsd,
+        decoders.get_decoder_bf,
+        decoders.TesseractDecoder.__init__,
+    )
+    for documented_entry_point in documented_entry_points:
+        docstring = inspect.getdoc(documented_entry_point)
+        assert docstring is not None
+        arguments = docstring.split("Args:\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
+        documented_names = [
+            line.strip().split(":", maxsplit=1)[0]
+            for line in arguments.splitlines()
+            if line.startswith("    ") and not line.startswith("        ")
+        ]
+        assert documented_names[-1] == "error_rate"
 
     with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2"):
         spec = decoders.bp_osd(error_rate=0.2)

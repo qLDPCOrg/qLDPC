@@ -89,7 +89,6 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
 
         Args:
             pcm_or_dem: A binary parity-check matrix or detector error model to decode.
-            error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
             error_channel: One probability for every matrix-column error, or one probability per
                 column. Defaults to 0.001. A DEM supplies its own probabilities, so neither
                 probability argument can be specified with one.
@@ -112,10 +111,11 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
             num_det_orders: Number of generated detector orders, or None for Tesseract's default.
             det_order_method: Generated detector-order method, or None for Tesseract's default.
             seed: Seed for generated detector orders, or None for Tesseract's default.
+            error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
         """
         backend = _get_tesseract()
         is_dem = isinstance(pcm_or_dem, stim.DetectorErrorModel)
-        dem, num_errors = _get_dem_and_num_errors(pcm_or_dem, error_rate, error_channel)
+        dem, num_errors = _get_dem_and_num_errors(pcm_or_dem, error_channel, error_rate)
         backend_order_method = (
             None
             if det_order_method is None
@@ -240,7 +240,6 @@ def get_decoder_tesseract(
     """
     return TesseractDecoder(
         pcm_or_dem,
-        error_rate=error_rate,
         error_channel=error_channel,
         add_erasure_bit=add_erasure_bit,
         det_beam=det_beam,
@@ -259,6 +258,7 @@ def get_decoder_tesseract(
         num_det_orders=num_det_orders,
         det_order_method=det_order_method,
         seed=seed,
+        error_rate=error_rate,
     )
 
 
@@ -303,12 +303,12 @@ def tesseract_preset(
         ) from None
 
     explicitly_provided: set[str] = set()
-    if error_rate is not None:
-        explicitly_provided.add("error_rate")
     if error_channel is not None:
         explicitly_provided.add("error_channel")
+    if error_rate is not None:
+        explicitly_provided.add("error_rate")
     probability_options = _deprecate_error_rate_option(
-        {"error_rate": error_rate, "error_channel": error_channel},
+        {"error_channel": error_channel, "error_rate": error_rate},
         frozenset(explicitly_provided),
     )
     return tesseract(
@@ -346,8 +346,8 @@ def _get_tesseract() -> Any:
 
 def _get_dem_and_num_errors(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-    error_rate: float | None,
     error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None,
+    error_rate: float | None,
 ) -> tuple[stim.DetectorErrorModel, int]:
     """Convert an input to Tesseract's DEM while preserving its error indexing."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
@@ -366,7 +366,7 @@ def _get_dem_and_num_errors(
     _validate_binary_matrix(pcm_or_dem)
     probabilities = cast(
         npt.NDArray[np.floating],
-        _get_matrix_error_channel(pcm_or_dem, error_rate, error_channel),
+        _get_matrix_error_channel(pcm_or_dem, error_channel, error_rate),
     )
     dem_arrays = DetectorErrorModelArrays.from_arrays(pcm_or_dem, None, probabilities)
     return dem_arrays.to_dem(), dem_arrays.num_errors
