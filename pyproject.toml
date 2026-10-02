@@ -48,14 +48,13 @@ dependencies = [
 optional-dependencies.dev = [
   "checks-superstaq>=0.5.67",
   "jupyter>=1.1.1",
-  "pypandoc-binary>=1.13",                                                  # bundles pandoc for building the notebook docs locally
-  "pyproject-fmt>=2",                                                       # pyproject.toml formatting, run by checks/format_.py
+  "pypandoc-binary>=1.13",              # bundles pandoc for building the notebook docs locally
+  "pyproject-fmt>=2",                   # pyproject.toml formatting, run by checks/format_.py
   "pytest>=8",
-  "pytest-randomly>=3.10",                                                  # tests that need reproducibility read its randomly_seed option
-  "pytest-socket>=0.7",                                                     # implements the --disable-socket in [tool.pytest] addopts below
+  "pytest-randomly>=3.10",              # tests that need reproducibility read its randomly_seed option
+  "pytest-socket>=0.7",                 # implements the --disable-socket in [tool.pytest] addopts below
   "python-lsp-server[all]>=1.14",
-  "qldpc[docs,gap,relay-bp]",
-  "qldpc[tesseract]; sys_platform=='darwin' and platform_machine=='arm64'",
+  "qldpc[docs,gap,relay-bp,tesseract]",
 ]
 optional-dependencies.docs = [
   "ipython>=8",          # for nbsphinx's IPython.sphinxext.ipython_console_highlighting extension
