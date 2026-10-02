@@ -79,6 +79,10 @@ class _CallableErrorChannel:
             )
         return log_probability
 
+    def __repr__(self) -> str:
+        """Show the callable error channel that this adapter represents."""
+        return f"lambda error: -{self._func!r}(error)" if self._penalty else repr(self._func)
+
 
 def _prepare_error_channel(
     error_channel: _ErrorChannel,
@@ -222,8 +226,8 @@ class _LookupDecoderBase:
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its likeliest error.
 
-        Errors are enumerated in decreasing weight, so ties in penalty (or, with no penalty
-        function, all errors) resolve in favor of the lowest-weight error for each syndrome.
+        Errors are enumerated in decreasing weight, so ties in log probability (or, with no error
+        channel, all errors) resolve in favor of the lowest-weight error for each syndrome.
         """
         best_log_probabilities: dict[bytes, float] = {}
         for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(

@@ -402,7 +402,8 @@ def lookup_table(
     penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
 ) -> DecoderSpec[LookupDecoder]:
     """Configure a lookup decoder with an independent or callable correlated error channel."""
-    error_channel = _prepare_error_channel(error_channel, penalty_func)
+    if penalty_func is not None:
+        error_channel = _prepare_error_channel(error_channel, penalty_func)
     return _decoder_spec(
         "lookup_table",
         get_decoder_lookup,

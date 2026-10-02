@@ -81,6 +81,7 @@ def test_decoder_specs() -> None:
     syndrome = np.array([1, 0], dtype=int)
 
     spec = decoders.lookup_table(max_weight=1, error_channel=_uniform_binary_error_channel)
+    assert spec.options["error_channel"] is _uniform_binary_error_channel
     restored = pickle.loads(pickle.dumps(spec))  # noqa: S301 - trusted in-memory round trip
     assert np.array_equal(
         decoders.get_error_decoder(matrix, decoder=restored).decode(syndrome), syndrome
@@ -109,7 +110,7 @@ def test_decoder_specs() -> None:
             max_weight=1, penalty_func=lambda error: -float(error[1])
         )
     assert "penalty_func" not in legacy_spec.options
-    assert callable(legacy_spec.options["error_channel"])
+    assert "error_channel=lambda error: -<function" in repr(legacy_spec)
     legacy_decoder = legacy_spec.build(np.array([[1, 1]], dtype=int))
     assert np.array_equal(legacy_decoder.decode(np.array([1])), [0, 1])
 
