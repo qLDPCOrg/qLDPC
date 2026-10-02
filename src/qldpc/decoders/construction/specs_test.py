@@ -58,7 +58,7 @@ def test_decoder_spec_observable_modes() -> None:
     """Specs expose native observable construction and error-conversion fallback."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
 
-    native_spec = decoders.lookup_table(max_weight=1)
+    native_spec = decoders.lookup_table(max_weight=1, probability_cutoff=0.05)
     assert native_spec.predicts_observables_natively
     assert isinstance(native_spec.build_observable_decoder(dem), decoders.ObservableLookupDecoder)
 

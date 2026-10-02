@@ -392,6 +392,7 @@ def lookup_table(
     post_select: Collection[int] = (),
     add_erasure_bit: bool | None = None,
     confidence_ratio: float | None = None,
+    probability_cutoff: float = 0,
     symplectic: bool = False,
 ) -> DecoderSpec[LookupDecoder]:
     """Configure a lookup-table decoder."""
@@ -406,6 +407,7 @@ def lookup_table(
         post_select=post_select,
         add_erasure_bit=add_erasure_bit,
         confidence_ratio=confidence_ratio,
+        probability_cutoff=probability_cutoff,
         symplectic=symplectic,
     )
 

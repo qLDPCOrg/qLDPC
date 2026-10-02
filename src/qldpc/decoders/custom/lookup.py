@@ -8,7 +8,7 @@ import collections
 import itertools
 import warnings
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import cast, overload
+from typing import NamedTuple, cast, overload
 
 import galois
 import numpy as np
@@ -25,6 +25,30 @@ from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder
 
 _LOOKUP_CHUNK_SIZE = 4096
+
+
+class _ScoredLocalError(NamedTuple):
+    """A local error and its log probability."""
+
+    error: tuple[int, ...]
+    log_probability: float
+
+
+class _ScoredErrorSite(NamedTuple):
+    """A physical error site and its possible local errors."""
+
+    site_index: int
+    inactive_log_probability: float
+    errors: tuple[_ScoredLocalError, ...]
+    best_log_probability: float
+
+
+class _ErrorSelection(NamedTuple):
+    """One selection in a linked list of local errors."""
+
+    parent: _ErrorSelection | None
+    site_index: int
+    error: tuple[int, ...]
 
 
 class _LookupDecoderBase:
@@ -45,6 +69,7 @@ class _LookupDecoderBase:
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,  # falsy by default
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
     ) -> None:
         if confidence_ratio is not None and not confidence_ratio >= 0:  # also rejects NaN
@@ -58,16 +83,22 @@ class _LookupDecoderBase:
             add_erasure_bit = True  # auto-enable the erasure bit used to signal erasure
         add_erasure_bit = bool(add_erasure_bit)  # a default of None is treated as False
 
-        pcm, observable_flip_matrix, penalty_func, syndrome_mask, default_correction = (
-            self._organize_lookup_table_initialization_data(
-                pcm_or_dem,
-                error_channel,
-                penalty_func,
-                observable_flip_matrix,
-                predict_observable_flips,
-                post_select,
-                add_erasure_bit,
-            )
+        (
+            pcm,
+            observable_flip_matrix,
+            penalty_func,
+            syndrome_mask,
+            default_correction,
+            error_channel,
+        ) = self._organize_lookup_table_initialization_data(
+            pcm_or_dem,
+            error_channel,
+            penalty_func,
+            observable_flip_matrix,
+            predict_observable_flips,
+            post_select,
+            add_erasure_bit,
+            probability_cutoff,
         )
         if observable_flip_matrix is not None and penalty_func is None:
             raise ValueError(
@@ -100,7 +131,13 @@ class _LookupDecoderBase:
 
         if observable_flip_matrix is None:
             self._build_syndrome_map_from_errors(
-                pcm, max_weight, penalty_func, syndrome_mask, symplectic
+                pcm,
+                max_weight,
+                penalty_func,
+                syndrome_mask,
+                symplectic,
+                error_channel,
+                probability_cutoff,
             )
         else:
             assert penalty_func is not None  # primarily for type-checking reasons
@@ -113,6 +150,8 @@ class _LookupDecoderBase:
                 syndrome_mask,
                 confidence_ratio,
                 symplectic,
+                error_channel,
+                probability_cutoff,
             )
 
     def _build_syndrome_map_from_errors(
@@ -122,6 +161,8 @@ class _LookupDecoderBase:
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
         syndrome_mask: npt.NDArray[np.bool_] | None,
         symplectic: bool,
+        error_channel: npt.NDArray[np.floating] | None,
+        probability_cutoff: float,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its likeliest error.
 
@@ -130,7 +171,12 @@ class _LookupDecoderBase:
         """
         error_penalty: dict[bytes, float] = {}
         for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(
-            pcm, max_weight, syndrome_mask, symplectic
+            pcm,
+            max_weight,
+            syndrome_mask,
+            symplectic,
+            error_channel=error_channel,
+            probability_cutoff=probability_cutoff,
         ):
             key = self._syndrome_packer.pack(syndrome)
             if penalty_func is None:
@@ -171,6 +217,8 @@ class _LookupDecoderBase:
         syndrome_mask: npt.NDArray[np.bool_] | None,
         confidence_ratio: float | None,
         symplectic: bool,
+        error_channel: npt.NDArray[np.floating] | None,
+        probability_cutoff: float,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its most likely observable flip.
 
@@ -195,7 +243,12 @@ class _LookupDecoderBase:
         most_likely_errors: dict[tuple[bytes, bytes], bytes] = {}
         most_likely_error_log_probs: dict[tuple[bytes, bytes], float] = {}
         for error, syndrome_array in _LookupDecoderBase._iter_errors_and_syndromes(
-            pcm, max_weight, syndrome_mask, symplectic
+            pcm,
+            max_weight,
+            syndrome_mask,
+            symplectic,
+            error_channel=error_channel,
+            probability_cutoff=probability_cutoff,
         ):
             syndrome = self._syndrome_packer.pack(syndrome_array)
             obs_flip = observable_flip_packer.pack(get_observable_flip(error))
@@ -251,14 +304,21 @@ class _LookupDecoderBase:
         predict_observable_flips: bool,
         post_select: Collection[int],
         add_erasure_bit: bool,
+        probability_cutoff: float = 0,
     ) -> tuple[
         IntegerArray,
         IntegerArray | None,
         Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
         npt.NDArray[np.bool_] | None,
         npt.NDArray[np.int_],
+        npt.NDArray[np.floating] | None,
     ]:
         """Organize and validate the inputs to a LookupDecoder."""
+        if not np.isfinite(probability_cutoff) or not 0 <= probability_cutoff <= 1:
+            raise ValueError(
+                "A LookupDecoder probability_cutoff must be a finite probability between 0 and 1,"
+                " inclusive"
+            )
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
             if (
                 error_channel is not None
@@ -297,6 +357,11 @@ class _LookupDecoderBase:
                     "A LookupDecoder error_channel must contain finite probabilities between 0 and"
                     " 1, inclusive"
                 )
+        if probability_cutoff and error_channel is None:
+            raise ValueError(
+                "A positive LookupDecoder probability_cutoff requires a stim.DetectorErrorModel or"
+                " an error_channel"
+            )
 
         # if an explicit penalty_func was not provided, build one from the error channel
         penalty_func = penalty_func or (
@@ -325,7 +390,14 @@ class _LookupDecoderBase:
         if add_erasure_bit:
             default_correction = np.hstack([default_correction, np.ones(1, dtype=pcm.dtype)])
 
-        return pcm, observable_flip_matrix, penalty_func, syndrome_mask, default_correction
+        return (
+            pcm,
+            observable_flip_matrix,
+            penalty_func,
+            syndrome_mask,
+            default_correction,
+            error_channel,
+        )
 
     @staticmethod
     def _build_penalty_func(
@@ -418,6 +490,9 @@ class _LookupDecoderBase:
         max_weight: int,
         syndrome_mask: npt.NDArray[np.bool_] | None,
         symplectic: bool,
+        *,
+        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+        probability_cutoff: float = 0,
     ) -> Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
 
@@ -442,6 +517,25 @@ class _LookupDecoderBase:
         error_ops = tuple(itertools.product(range(code.field.order), repeat=repeat))[1:]
 
         block_length = matrix.shape[1] // repeat
+        if probability_cutoff:
+            assert error_channel is not None
+            for error in _iter_errors_above_probability_cutoff(
+                code.field,
+                block_length,
+                repeat,
+                max_weight,
+                dtype,
+                np.asarray(error_channel, dtype=float),
+                probability_cutoff,
+            ):
+                syndrome = matrix @ error.view(code.field)
+                if syndrome_mask is not None:
+                    if np.any(syndrome[syndrome_bits_to_drop]):
+                        continue
+                    syndrome = syndrome[syndrome_mask]
+                yield error, syndrome.view(np.ndarray)
+            return
+
         for weight in range(max_weight, -1, -1):
             for error_sites in itertools.combinations(range(block_length), weight):
                 error_site_indices = list(error_sites)
@@ -634,6 +728,16 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
     probability, erasing every syndrome with a competing flip that can actually occur.
 
+    A positive ``probability_cutoff`` omits every error whose full independent Bernoulli
+    probability is below the cutoff.  Equality is retained.  This option requires probabilities
+    from a detector error model or ``error_channel``; it cannot be used with only a custom
+    ``penalty_func``.  Enumeration factors the probability into the no-error probability and the
+    odds of active mechanisms, then prunes sorted combinations whose best possible completion is
+    below the cutoff.  It therefore avoids generating combinations merely to reject them afterward.
+    The default cutoff of zero preserves exhaustive enumeration.  When combined with
+    ``confidence_ratio``, confidence is computed from the errors retained by both ``max_weight`` and
+    ``probability_cutoff``.
+
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
     ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
@@ -652,6 +756,7 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
     ) -> None:
         """Initialize an error lookup table.
@@ -669,6 +774,7 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             confidence_ratio=confidence_ratio,
+            probability_cutoff=probability_cutoff,
             symplectic=symplectic,
         )
 
@@ -712,6 +818,7 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
     ) -> None: ...
 
@@ -727,6 +834,7 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
     ) -> None: ...
 
@@ -741,6 +849,7 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
     ) -> None:
         super().__init__(
@@ -753,6 +862,7 @@ class ObservableLookupDecoder(_LookupDecoderBase):
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             confidence_ratio=confidence_ratio,
+            probability_cutoff=probability_cutoff,
             symplectic=symplectic,
         )
 
@@ -821,7 +931,7 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
         add_erasure_bit: bool = False,
         symplectic: bool = False,
     ) -> None:
-        pcm, observable_flip_matrix, _, syndrome_mask, default_correction = (
+        pcm, observable_flip_matrix, _, syndrome_mask, default_correction, _ = (
             self._organize_lookup_table_initialization_data(
                 pcm_or_dem,
                 None,
@@ -1059,7 +1169,8 @@ def get_decoder_lookup(
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.  A DEM supplies
             default error probabilities and observable metadata.
         **decoder_args: Arguments passed to :class:`LookupDecoder`, including the required
-            ``max_weight`` and optional erasure, confidence, and symplectic settings.
+            ``max_weight`` and optional erasure, confidence, probability-cutoff, and symplectic
+            settings.
 
     Returns:
         A :class:`LookupDecoder`.
@@ -1080,7 +1191,8 @@ def get_observable_decoder_lookup(
     Args:
         dem: The detector error model whose detectors and observables define the table.
         **decoder_args: Arguments passed to :class:`ObservableLookupDecoder`, including
-            ``max_weight`` and optional erasure, confidence, and post-selection settings.
+            ``max_weight`` and optional erasure, confidence, probability-cutoff, and post-selection
+            settings.
 
     Returns:
         An :class:`ObservableLookupDecoder`.
@@ -1152,6 +1264,283 @@ def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
     if symplectic:
         return int(math.symplectic_weight(np.asarray(error)))
     return int(np.count_nonzero(error))
+
+
+def _iter_errors_above_probability_cutoff(
+    field: type[galois.FieldArray],
+    block_length: int,
+    repeat: int,
+    max_weight: int,
+    dtype: npt.DTypeLike,
+    error_channel: npt.NDArray[np.floating],
+    probability_cutoff: float,
+) -> Iterator[npt.NDArray[np.int_]]:
+    """Yield errors above a Bernoulli-probability cutoff without exhaustively generating them."""
+    probabilities = error_channel.reshape(repeat, block_length)
+    with np.errstate(divide="ignore"):
+        log_probabilities = np.log(probabilities)
+        log_non_probabilities = np.log1p(-probabilities)
+
+    local_errors = tuple(itertools.product(range(field.order), repeat=repeat))[1:]
+    forced_sites: list[_ScoredErrorSite] = []
+    optional_sites: list[_ScoredErrorSite] = []
+
+    for site_index in range(block_length):
+        inactive_log_probability = float(np.sum(log_non_probabilities[:, site_index]))
+        scored_errors: list[_ScoredLocalError] = []
+        for local_error_values in local_errors:
+            active = np.asarray(local_error_values, dtype=bool)
+            local_log_probability = float(
+                np.sum(
+                    np.where(
+                        active,
+                        log_probabilities[:, site_index],
+                        log_non_probabilities[:, site_index],
+                    )
+                )
+            )
+            if not np.isfinite(local_log_probability):
+                continue
+            scored_errors.append(_ScoredLocalError(local_error_values, local_log_probability))
+
+        if not scored_errors:
+            continue
+        scored_errors.sort(key=lambda error: error.log_probability, reverse=True)
+        scored_site = _ScoredErrorSite(
+            site_index,
+            inactive_log_probability,
+            tuple(scored_errors),
+            scored_errors[0].log_probability,
+        )
+        if np.isfinite(inactive_log_probability):
+            optional_sites.append(scored_site)
+        else:
+            forced_sites.append(scored_site)
+
+    optional_sites.sort(
+        key=lambda site: site.best_log_probability - site.inactive_log_probability,
+        reverse=True,
+    )
+    optional_best_log_prefix = [0.0]
+    for site in optional_sites:
+        optional_best_log_prefix.append(optional_best_log_prefix[-1] + site.best_log_probability)
+
+    optional_inactive_log_suffix = [0.0] * (len(optional_sites) + 1)
+    for index in range(len(optional_sites) - 1, -1, -1):
+        optional_inactive_log_suffix[index] = (
+            optional_inactive_log_suffix[index + 1] + optional_sites[index].inactive_log_probability
+        )
+
+    forced_best_log_suffix = [0.0] * (len(forced_sites) + 1)
+    for index in range(len(forced_sites) - 1, -1, -1):
+        forced_best_log_suffix[index] = (
+            forced_best_log_suffix[index + 1] + forced_sites[index].best_log_probability
+        )
+
+    log_cutoff = float(np.log(probability_cutoff))
+    log_tolerance = 16 * np.finfo(float).eps * max(1, error_channel.size)
+
+    def iter_selections(
+        selection: _ErrorSelection | None,
+    ) -> Iterator[tuple[int, tuple[int, ...]]]:
+        while selection is not None:
+            yield selection.site_index, selection.error
+            selection = selection.parent
+
+    def get_probability(
+        selection: _ErrorSelection | None,
+        extra_errors: Iterator[tuple[int, tuple[int, ...]]] | None = None,
+    ) -> float:
+        active = np.zeros((repeat, block_length), dtype=bool)
+        for site_index, local_error in itertools.chain(
+            iter_selections(selection), extra_errors or ()
+        ):
+            active[:, site_index] = np.asarray(local_error, dtype=bool)
+        return float(np.prod(np.where(active, probabilities, 1 - probabilities), dtype=float))
+
+    def compare_to_cutoff(
+        log_probability: float,
+        log_scale: float,
+        selection: _ErrorSelection | None,
+        extra_errors: Iterator[tuple[int, tuple[int, ...]]],
+    ) -> int:
+        """Return 1 if retained, -1 if definitely below cutoff, or 0 if uncertain and below."""
+        comparison_scale = max(1.0, log_scale, abs(log_probability), abs(log_cutoff))
+        if abs(log_probability - log_cutoff) > log_tolerance * comparison_scale:
+            return 1 if log_probability > log_cutoff else -1
+        return 1 if get_probability(selection, extra_errors) >= probability_cutoff else 0
+
+    def build_error(selection: _ErrorSelection | None) -> npt.NDArray[np.int_]:
+        error = field.Zeros((repeat, block_length))
+        for site_index, local_error in iter_selections(selection):
+            error[:, site_index] = np.asarray(local_error, dtype=dtype)
+        return error.ravel().view(np.ndarray).astype(dtype)
+
+    def get_best_optional_log_probability(start: int, count: int) -> tuple[float, float]:
+        stop = start + count
+        selected_log_probability = optional_best_log_prefix[stop] - optional_best_log_prefix[start]
+        inactive_log_probability = optional_inactive_log_suffix[stop]
+        log_probability = selected_log_probability + inactive_log_probability
+        log_scale = (
+            abs(optional_best_log_prefix[stop])
+            + abs(optional_best_log_prefix[start])
+            + abs(inactive_log_probability)
+        )
+        return log_probability, log_scale
+
+    def iter_best_optional_errors(start: int, count: int) -> Iterator[tuple[int, tuple[int, ...]]]:
+        for site in optional_sites[start : start + count]:
+            yield site.site_index, site.errors[0].error
+
+    forced_weight = len(forced_sites)
+    for weight in range(min(block_length, max_weight), forced_weight - 1, -1):
+        optional_weight = weight - forced_weight
+        if optional_weight > len(optional_sites):
+            continue
+
+        best_optional_log_probability, best_optional_log_scale = get_best_optional_log_probability(
+            0, optional_weight
+        )
+        best_log_probability = forced_best_log_suffix[0] + best_optional_log_probability
+        if (
+            compare_to_cutoff(
+                best_log_probability,
+                abs(forced_best_log_suffix[0]) + best_optional_log_scale,
+                None,
+                itertools.chain(
+                    ((site.site_index, site.errors[0].error) for site in forced_sites),
+                    iter_best_optional_errors(0, optional_weight),
+                ),
+            )
+            == -1
+        ):
+            continue
+
+        forced_stack: list[tuple[int, float, float, _ErrorSelection | None]] = [(0, 0.0, 0.0, None)]
+        while forced_stack:
+            forced_index, current_log_probability, current_log_scale, selection = forced_stack.pop()
+            if forced_index < len(forced_sites):
+                site = forced_sites[forced_index]
+                best_later_log_probability = (
+                    forced_best_log_suffix[forced_index + 1] + best_optional_log_probability
+                )
+                best_later_log_scale = (
+                    abs(forced_best_log_suffix[forced_index + 1]) + best_optional_log_scale
+                )
+                forced_children: list[tuple[int, float, float, _ErrorSelection]] = []
+                for scored_error in site.errors:
+                    child_log_probability = current_log_probability + scored_error.log_probability
+                    child_log_scale = current_log_scale + abs(scored_error.log_probability)
+                    child_selection = _ErrorSelection(
+                        selection, site.site_index, scored_error.error
+                    )
+                    cutoff_comparison = compare_to_cutoff(
+                        child_log_probability + best_later_log_probability,
+                        child_log_scale + best_later_log_scale,
+                        child_selection,
+                        itertools.chain(
+                            (
+                                (
+                                    later_site.site_index,
+                                    later_site.errors[0].error,
+                                )
+                                for later_site in forced_sites[forced_index + 1 :]
+                            ),
+                            iter_best_optional_errors(0, optional_weight),
+                        ),
+                    )
+                    if cutoff_comparison == -1:
+                        break
+                    forced_children.append(
+                        (
+                            forced_index + 1,
+                            child_log_probability,
+                            child_log_scale,
+                            child_selection,
+                        )
+                    )
+                forced_stack.extend(reversed(forced_children))
+                continue
+
+            optional_stack: list[tuple[int, int, float, float, _ErrorSelection | None]] = [
+                (
+                    0,
+                    optional_weight,
+                    current_log_probability,
+                    current_log_scale,
+                    selection,
+                )
+            ]
+            while optional_stack:
+                (
+                    start,
+                    remaining,
+                    optional_log_probability,
+                    optional_log_scale,
+                    optional_selection,
+                ) = optional_stack.pop()
+                if remaining == 0:
+                    error = build_error(optional_selection)
+                    events = error.astype(bool).reshape(repeat, block_length)
+                    probability = float(
+                        np.prod(
+                            np.where(events, probabilities, 1 - probabilities),
+                            dtype=float,
+                        )
+                    )
+                    if probability >= probability_cutoff:
+                        yield error
+                    continue
+
+                optional_children: list[tuple[int, int, float, float, _ErrorSelection]] = []
+                skipped_log_probability = 0.0
+                skipped_log_scale = 0.0
+                final_position = len(optional_sites) - remaining
+                for position in range(start, final_position + 1):
+                    site = optional_sites[position]
+                    best_later_log_probability, best_later_log_scale = (
+                        get_best_optional_log_probability(position + 1, remaining - 1)
+                    )
+                    position_is_definitely_below_cutoff = True
+                    for scored_error in site.errors:
+                        child_log_probability = (
+                            optional_log_probability
+                            + skipped_log_probability
+                            + scored_error.log_probability
+                        )
+                        child_log_scale = (
+                            optional_log_scale
+                            + skipped_log_scale
+                            + abs(scored_error.log_probability)
+                        )
+                        child_selection = _ErrorSelection(
+                            optional_selection,
+                            site.site_index,
+                            scored_error.error,
+                        )
+                        cutoff_comparison = compare_to_cutoff(
+                            child_log_probability + best_later_log_probability,
+                            child_log_scale + best_later_log_scale,
+                            child_selection,
+                            iter_best_optional_errors(position + 1, remaining - 1),
+                        )
+                        if cutoff_comparison == -1:
+                            break
+                        position_is_definitely_below_cutoff = False
+                        optional_children.append(
+                            (
+                                position + 1,
+                                remaining - 1,
+                                child_log_probability,
+                                child_log_scale,
+                                child_selection,
+                            )
+                        )
+                    if position_is_definitely_below_cutoff:
+                        break
+                    skipped_log_probability += site.inactive_log_probability
+                    skipped_log_scale += abs(site.inactive_log_probability)
+                optional_stack.extend(reversed(optional_children))
 
 
 # Deprecated compatibility helpers
