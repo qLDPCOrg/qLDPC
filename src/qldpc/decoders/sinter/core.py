@@ -47,9 +47,9 @@ class SinterDecoder(_SinterDecoder):
     A SinterDecoder stores settings for an inner decoder.  When Sinter compiles a SinterDecoder for
     a detector error model, the SinterDecoder builds the inner decoder for that model, and returns a
     CompiledSinterDecoder that predicts observable flips.  If the inner decoder can predict
-    observable flips natively (as MWPM, Relay-BP, and lookup-table decoders can), it is built in
-    that mode.  Otherwise, it is built as an error decoder, and the compiled decoder converts the
-    errors that it infers into observable flips.
+    observable flips natively (as Frontier, MWPM, Relay-BP, and lookup-table decoders can), it is
+    built in that mode.  Otherwise, it is built as an error decoder, and the compiled decoder
+    converts the errors that it infers into observable flips.
     """
 
     decode_is_defunct = True

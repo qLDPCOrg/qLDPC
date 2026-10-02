@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pickle
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Never
 
 import numpy as np
 import numpy.typing as npt
@@ -15,6 +15,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders.adapters import error_decoders
+from qldpc.decoders.custom.lookup import get_observable_decoder_lookup
 
 
 def _uniform_binary_error_channel(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
@@ -29,6 +30,7 @@ def test_decoder_specs_store_public_builders() -> None:
         decoders.bp_lsd(),
         decoders.bf(),
         decoders.mwpm(),
+        decoders.frontier(),
         decoders.relay_bp(),
         decoders.min_sum_bp(),
         decoders.tesseract(),
@@ -41,6 +43,7 @@ def test_decoder_specs_store_public_builders() -> None:
         "bp_lsd": "qldpc.decoders.external.ldpc",
         "bf": "qldpc.decoders.external.ldpc",
         "mwpm": "qldpc.decoders.external.pymatching",
+        "frontier": "qldpc.decoders.external.frontier",
         "relay_bp": "qldpc.decoders.external.relay_bp",
         "min_sum_bp": "qldpc.decoders.external.relay_bp",
         "tesseract": "qldpc.decoders.external.tesseract",
@@ -123,6 +126,44 @@ def test_decoder_specs() -> None:
         decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
 
 
+def test_observable_decoder_specs() -> None:
+    """A spec without an error builder builds observable decoders, but not error decoders."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    spec: decoders.DecoderSpec[Never] = decoders.DecoderSpec(
+        "observable_lookup", None, (("max_weight", 1),), get_observable_decoder_lookup
+    )
+    assert decoders.lookup_table(1).infers_errors
+    assert not spec.infers_errors
+    assert spec.predicts_observables_natively
+    assert isinstance(spec.build_observable_decoder(dem), decoders.ObservableLookupDecoder)
+    with pytest.raises(TypeError, match="cannot build an error decoder"):
+        spec.build(dem)
+    with pytest.raises(TypeError, match="cannot build an error decoder"):
+        decoders.get_error_decoder(dem, decoder=spec)
+    with pytest.raises(ValueError, match="needs an error builder or an observable builder"):
+        decoders.DecoderSpec("nothing", None, ())
+
+    # the Frontier helper stores its options without importing Frontier
+    options: dict[str, Any] = {
+        "K": 64,
+        "Delta": 6.0,
+        "score_alpha": 0.5,
+        "metric_mode": "frontier_lite",
+        "int_metric_scale": 512,
+        "column_order": "time_order",
+        "committee": True,
+        "add_erasure_bit": True,
+    }
+    spec = decoders.frontier(**options)
+    assert spec.options == options
+    assert not spec.infers_errors
+    assert spec.predicts_observables_natively
+    assert repr(decoders.frontier(committee=True)) == "decoders.frontier(committee=True)"
+    invalid_spec = decoders.frontier(K=0)
+    with pytest.raises(ValueError, match="K must be positive"):
+        invalid_spec.build_observable_decoder(dem)
+
+
 def _get_graphlike_inputs() -> tuple[npt.NDArray[np.int_], stim.DetectorErrorModel]:
     """A parity check matrix and a detector error model whose errors flip at most two checks."""
     matrix = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=int)
@@ -188,6 +229,7 @@ def test_decoder_spec_helper_defaults() -> None:
 
     # helpers for decoders defined in qLDPC mirror all non-deprecated constructor options
     qldpc_decoders: list[tuple[Callable[..., object], Callable[..., object], set[str]]] = [
+        (decoders.frontier, decoders.get_observable_decoder_frontier, set()),
         (decoders.lookup_table, decoders.LookupDecoder, {"predict_observable_flips"}),
         (decoders.guf, decoders.GUFDecoder, set()),
         (decoders.ilp, decoders.ILPDecoder, set()),

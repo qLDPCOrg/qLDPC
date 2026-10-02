@@ -5,6 +5,7 @@
 from ..custom.guf import get_decoder_guf
 from ..custom.ilp import get_decoder_ilp
 from ..custom.lookup import get_decoder_lookup, get_observable_decoder_lookup
+from ..external.frontier import get_observable_decoder_frontier
 from ..external.ldpc import get_decoder_bf, get_decoder_bp_lsd, get_decoder_bp_osd
 from ..external.pymatching import (
     get_decoder_mwpm,
@@ -42,6 +43,7 @@ from .specs import (
     bf,
     bp_lsd,
     bp_osd,
+    frontier,
     guf,
     ilp,
     lookup_table,
@@ -65,6 +67,7 @@ __all__ = [
     "bp_lsd",
     "bp_osd",
     "decode_observables",
+    "frontier",
     "get_decoder_bf",
     "get_decoder_bp_lsd",
     "get_decoder_bp_osd",
@@ -79,6 +82,7 @@ __all__ = [
     "get_legacy_decoder_migration_message",
     "get_min_sum_bp_decoder",
     "get_observable_decoder",
+    "get_observable_decoder_frontier",
     "get_observable_decoder_lookup",
     "get_observable_decoder_mwpm",
     "get_relay_bp_decoder",

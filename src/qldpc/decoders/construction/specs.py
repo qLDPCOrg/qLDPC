@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 from collections.abc import Callable, Collection, Sequence
-from typing import Generic, Literal, Protocol, TypeAlias, TypeVar
+from typing import Generic, Literal, Never, Protocol, TypeAlias, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -29,6 +29,7 @@ from ..custom.lookup import (
     get_decoder_lookup,
     get_observable_decoder_lookup,
 )
+from ..external.frontier import get_observable_decoder_frontier
 from ..external.ldpc import get_decoder_bf as _get_decoder_bf
 from ..external.ldpc import get_decoder_bp_lsd as _get_decoder_bp_lsd
 from ..external.ldpc import get_decoder_bp_osd as _get_decoder_bp_osd
@@ -59,20 +60,40 @@ PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 
 @dataclasses.dataclass(frozen=True, slots=True, eq=False, repr=False)
 class DecoderSpec(Generic[_DecoderT_co]):
-    """Deferred, typed construction settings for an error decoder."""
+    """Deferred, typed construction settings for a decoder.
+
+    A specification builds an error decoder, an observable decoder, or both.  A specification
+    without an error builder, such as ``decoders.frontier(...)``, is typed ``DecoderSpec[Never]``.
+    """
 
     _helper_name: str
-    _builder: Callable[..., _DecoderT_co]
+    _builder: Callable[..., _DecoderT_co] | None
     _options: tuple[tuple[str, object], ...]
     _observable_builder: Callable[..., ObservableDecoder] | None = None
+
+    def __post_init__(self) -> None:
+        """Require at least one way to build a decoder."""
+        if self._builder is None and self._observable_builder is None:
+            raise ValueError("A decoder spec needs an error builder or an observable builder")
 
     @property
     def options(self) -> dict[str, object]:
         """Return a copy of the construction options, including defaults."""
         return dict(self._options)
 
+    @property
+    def infers_errors(self) -> bool:
+        """Whether this specification can build an error decoder."""
+        return self._builder is not None
+
     def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
         """Build an error decoder for a parity-check matrix or detector error model."""
+        if self._builder is None:
+            raise TypeError(
+                f"decoders.{self._helper_name}(...) predicts observable flips but cannot infer"
+                " errors, so it cannot build an error decoder.  Pass it where an observable decoder"
+                " is accepted, such as to decoders.get_observable_decoder or decoders.SinterDecoder"
+            )
         return self._builder(pcm_or_dem, **self.options)
 
     @property
@@ -299,6 +320,32 @@ def mwpm(
     return spec
 
 
+def frontier(
+    *,
+    K: int = 128,
+    Delta: float = 8.0,
+    score_alpha: float = 0.8,
+    metric_mode: Literal["logsumexp_float", "frontier_lite"] = "logsumexp_float",
+    int_metric_scale: int = 1024,
+    column_order: Literal["deadline_reorder", "time_order"] = "deadline_reorder",
+    committee: bool = False,
+    add_erasure_bit: bool = False,
+) -> DecoderSpec[Never]:
+    """Configure a Frontier decoder, which predicts observable flips but cannot infer errors."""
+    return _observable_decoder_spec(
+        "frontier",
+        get_observable_decoder_frontier,
+        K=K,
+        Delta=Delta,
+        score_alpha=score_alpha,
+        metric_mode=metric_mode,
+        int_metric_scale=int_metric_scale,
+        column_order=column_order,
+        committee=committee,
+        add_erasure_bit=add_erasure_bit,
+    )
+
+
 def relay_bp(
     *,
     precision: Literal["F32", "F64", "I32", "I64"] = "F32",
@@ -512,3 +559,13 @@ def _decoder_spec(
 ) -> DecoderSpec[_Decoder]:
     """Store deferred decoder construction options."""
     return DecoderSpec(helper_name, builder, tuple(options.items()), observable_builder)
+
+
+def _observable_decoder_spec(
+    helper_name: str,
+    observable_builder: Callable[..., ObservableDecoder],
+    /,
+    **options: object,
+) -> DecoderSpec[Never]:
+    """Store deferred construction options for an observable-only decoder."""
+    return DecoderSpec(helper_name, None, tuple(options.items()), observable_builder)

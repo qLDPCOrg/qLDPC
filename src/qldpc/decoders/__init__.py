@@ -46,6 +46,7 @@ from .construction.specs import (
     bf,
     bp_lsd,
     bp_osd,
+    frontier,
     guf,
     ilp,
     lookup_table,
@@ -70,6 +71,10 @@ from .custom.lookup import get_decoder_lookup
 from .dems import (
     DetectorErrorModelArrays,
     FlipPattern,
+)
+from .external.frontier import (
+    FrontierObservableDecoder,
+    get_observable_decoder_frontier,
 )
 from .external.ldpc import get_decoder_bf, get_decoder_bp_lsd, get_decoder_bp_osd
 from .external.pymatching import get_decoder_mwpm
@@ -120,6 +125,7 @@ __all__ = [
     "ErrorsToObservablesDecoder",
     "ExpandedErrorDecoder",
     "FlipPattern",
+    "FrontierObservableDecoder",
     "GUFDecoder",
     "ILPDecoder",
     "LookupDecoder",
@@ -149,6 +155,7 @@ __all__ = [
     "compiles_for_dem",
     "decode",
     "decode_observables",
+    "frontier",
     "get_decoder",
     "get_decoder_BF",
     "get_decoder_BP_LSD",
@@ -170,6 +177,7 @@ __all__ = [
     "get_error_decoder",
     "get_legacy_decoder_migration_message",
     "get_observable_decoder",
+    "get_observable_decoder_frontier",
     "guf",
     "ilp",
     "is_prebuilt_decoder",
