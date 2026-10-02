@@ -276,8 +276,9 @@ def _get_tesseract() -> Any:
         if error.name != "tesseract_decoder":
             raise
         raise ModuleNotFoundError(
-            "The Tesseract decoder requires the optional 'tesseract-decoder' package. "
-            "Install it with `pip install 'qldpc[tesseract]'`."
+            "The Tesseract decoder requires the optional 'tesseract-decoder' package, which is"
+            " available for CPython 3.12-3.14 on macOS arm64 and Linux x86-64.  Install it with"
+            " `pip install 'qldpc[tesseract]'`."
         ) from error
     return tesseract_decoder
 

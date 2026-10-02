@@ -54,7 +54,7 @@ Install the optional [Tesseract](https://github.com/quantumlib/tesseract-decoder
 python -m pip install 'qldpc[tesseract]'
 ```
 
-Tesseract is distributed only as wheels for CPython 3.12–3.14 on macOS arm64 and recent glibc-based Linux x86-64 systems.
+Tesseract is distributed only as wheels for CPython 3.12–3.14 on macOS arm64 and recent glibc-based Linux x86-64 systems; on other platforms, the extra installs nothing.
 
 #### GAP integration
 

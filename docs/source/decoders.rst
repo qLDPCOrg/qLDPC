@@ -75,7 +75,7 @@ For example, ``decoders.get_decoder_bp_lsd(code.matrix, max_iter=30)`` builds im
 
 Tesseract is an optional binary decoder.
 Install qLDPC with the ``tesseract`` extra to use it: ``pip install 'qldpc[tesseract]'``.
-The pinned upstream release is distributed only as wheels for CPython 3.12--3.14 on macOS arm64 and recent glibc-based Linux x86-64 systems.
+The pinned upstream release is distributed only as wheels for CPython 3.12--3.14 on macOS arm64 and recent glibc-based Linux x86-64 systems; on other platforms, the extra installs nothing.
 A parity-check matrix is converted to a detector error model with probabilities supplied by ``error_rate`` or ``error_channel``; a detector error model supplies its own probabilities and observable definitions.
 By default, Tesseract merges the interchangeable error mechanisms of a detector error model, but not identical columns of a parity-check matrix, for which merging could report a column other than the most likely one.
 Set ``merge_errors`` to override this choice.
