@@ -54,55 +54,40 @@ class _ErrorSelection(NamedTuple):
     error: tuple[int, ...]
 
 
-class _CallableErrorChannel:
-    """Prepare a user callable for use as an error log-probability function."""
+def _prepare_error_channel(
+    error_channel: _ErrorChannel,
+    penalty_func: _ErrorLogProbability | None,
+) -> _ErrorChannel:
+    """Validate a callable error channel, or replace a deprecated penalty function with one."""
+    if penalty_func is not None:
+        if error_channel is not None:
+            raise ValueError(
+                "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
+            )
+        warnings.warn(
+            "LookupDecoder penalty_func is deprecated; pass a callable error_channel that returns"
+            " the full error log probability instead",
+            DeprecationWarning,
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        # legacy penalties are not validated as normalized log probabilities
+        return lambda error: -float(penalty_func(error))
 
-    def __init__(
-        self,
-        func: _ErrorLogProbability,
-        *,
-        penalty: bool = False,
-    ) -> None:
-        self._func = func
-        self._penalty = penalty
+    if not callable(error_channel):
+        return error_channel
+    get_log_probability = error_channel
 
-    def __call__(self, error: _ErrorVector) -> float:
-        """Return the adapted callable's error log probability."""
-        log_probability = float(self._func(error)) * (-1 if self._penalty else 1)
-        if not self._penalty and (
-            np.isnan(log_probability) or log_probability == np.inf or log_probability > 0
-        ):
+    def error_log_probability(error: _ErrorVector) -> float:
+        """Return the log probability of an error, rejecting invalid values."""
+        log_probability = float(get_log_probability(error))
+        if not log_probability <= 0:  # also rejects NaN
             raise ValueError(
                 "A callable LookupDecoder error_channel must return a log probability that is"
                 " non-positive or -inf"
             )
         return log_probability
 
-    def __repr__(self) -> str:
-        """Show the callable error channel that this adapter represents."""
-        return f"lambda error: -{self._func!r}(error)" if self._penalty else repr(self._func)
-
-
-def _prepare_error_channel(
-    error_channel: _ErrorChannel,
-    penalty_func: _ErrorLogProbability | None,
-) -> _ErrorChannel:
-    """Wrap callable channels and replace a deprecated penalty function."""
-    if penalty_func is None:
-        if callable(error_channel) and not isinstance(error_channel, _CallableErrorChannel):
-            return _CallableErrorChannel(error_channel)
-        return error_channel
-    if error_channel is not None:
-        raise ValueError(
-            "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
-        )
-    warnings.warn(
-        "LookupDecoder penalty_func is deprecated; pass a callable error_channel that returns the"
-        " full error log probability instead",
-        DeprecationWarning,
-        stacklevel=get_external_caller_stacklevel(),
-    )
-    return _CallableErrorChannel(penalty_func, penalty=True)
+    return error_log_probability
 
 
 class _LookupDecoderBase:

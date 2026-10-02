@@ -26,7 +26,6 @@ from ..custom.ilp import ILPDecoder
 from ..custom.ilp import get_decoder_ilp as _get_decoder_ilp
 from ..custom.lookup import (
     LookupDecoder,
-    _prepare_error_channel,
     get_decoder_lookup,
     get_observable_decoder_lookup,
 )
@@ -402,8 +401,6 @@ def lookup_table(
     penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
 ) -> DecoderSpec[LookupDecoder]:
     """Configure a lookup decoder with an independent or callable correlated error channel."""
-    if penalty_func is not None:
-        error_channel = _prepare_error_channel(error_channel, penalty_func)
     return _decoder_spec(
         "lookup_table",
         get_decoder_lookup,
@@ -416,6 +413,7 @@ def lookup_table(
         confidence_ratio=confidence_ratio,
         probability_cutoff=probability_cutoff,
         symplectic=symplectic,
+        penalty_func=penalty_func,
     )
 
 

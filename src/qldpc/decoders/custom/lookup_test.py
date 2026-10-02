@@ -17,11 +17,7 @@ import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
-from qldpc.decoders.custom.lookup import (
-    _FieldVectorPacker,
-    _prepare_error_channel,
-    get_observable_decoder_lookup,
-)
+from qldpc.decoders.custom.lookup import _FieldVectorPacker, get_observable_decoder_lookup
 
 
 def _get_cutoff_errors(
@@ -363,7 +359,6 @@ def test_callable_error_channel() -> None:
     decoder = decoders.LookupDecoder(field([[1]]), max_weight=1, error_channel=error_channel)
     assert np.array_equal(decoder.decode(np.array([2], dtype=int)), [2])
     assert seen == {0, 1, 2}
-    assert repr(_prepare_error_channel(error_channel, None)) == repr(error_channel)
 
     for invalid_channel in [lambda _: np.nan, lambda _: 0.1]:
         with pytest.raises(ValueError, match="non-positive or -inf"):
