@@ -7,11 +7,9 @@ from __future__ import annotations
 import builtins
 import importlib.util
 import inspect
-import math
 import subprocess
 import sys
 import types
-from collections.abc import Iterator
 from typing import Any, cast
 
 import galois
@@ -46,6 +44,7 @@ class _FakeTesseractDecoder:
     def __init__(self, config: _FakeTesseractConfig) -> None:
         self.config = config
         self.dem_arrays = decoders.DetectorErrorModelArrays(config.dem, simplify=False)
+        self.lookup = decoders.LookupDecoder(config.dem, max_weight=config.dem.num_errors)
         self.low_confidence_flag = False
         self.predicted_errors_buffer: list[int] = []
 
@@ -59,27 +58,10 @@ class _FakeTesseractDecoder:
             self.low_confidence_flag = True
             return self.predicted_errors_buffer
 
-        matrix = self.dem_arrays.detector_flip_matrix
-        probabilities = self.dem_arrays.error_probs
-        best_cost = math.inf
-        for value in range(1 << self.dem_arrays.num_errors):
-            error = np.array(
-                [(value >> index) & 1 for index in range(self.dem_arrays.num_errors)],
-                dtype=np.uint8,
-            )
-            if not np.array_equal(np.asarray(matrix @ error).ravel() % 2, syndrome):
-                continue
-            cost = 0.0
-            for probability in probabilities[error.astype(bool)]:
-                if probability == 0:
-                    cost = math.inf
-                    break
-                cost += math.log((1 - probability) / probability)
-            if cost < best_cost:
-                best_cost = cost
-                self.predicted_errors_buffer = np.flatnonzero(error).tolist()
-
-        self.low_confidence_flag = best_cost == math.inf
+        error = np.asarray(self.lookup.decode(syndrome.astype(int)), dtype=np.uint8)
+        self.predicted_errors_buffer = np.flatnonzero(error).tolist()
+        reproduced = np.asarray(self.dem_arrays.detector_flip_matrix @ error).ravel() % 2
+        self.low_confidence_flag = not np.array_equal(reproduced, syndrome)
         return self.predicted_errors_buffer
 
     def decode(self, syndrome: npt.NDArray[np.bool_]) -> npt.NDArray[np.bool_]:
@@ -94,20 +76,22 @@ class _FakeTesseractDecoder:
 
 
 @pytest.fixture
-def fake_tesseract(monkeypatch: pytest.MonkeyPatch) -> Iterator[types.SimpleNamespace]:
+def fake_tesseract(monkeypatch: pytest.MonkeyPatch) -> None:
     """Install a controlled stand-in for the optional upstream package."""
-    backend = types.SimpleNamespace(
-        tesseract=types.SimpleNamespace(TesseractConfig=_FakeTesseractConfig),
-        utils=types.SimpleNamespace(
-            DetectorOrderMethod=types.SimpleNamespace(
-                BFS="BFS",
-                Coordinate="Coordinate",
-                Index="Index",
-            )
+    monkeypatch.setitem(
+        sys.modules,
+        "tesseract_decoder",
+        types.SimpleNamespace(
+            tesseract=types.SimpleNamespace(TesseractConfig=_FakeTesseractConfig),
+            utils=types.SimpleNamespace(
+                DetectorOrderMethod=types.SimpleNamespace(
+                    BFS="BFS",
+                    Coordinate="Coordinate",
+                    Index="Index",
+                )
+            ),
         ),
     )
-    monkeypatch.setitem(sys.modules, "tesseract_decoder", backend)
-    yield backend
 
 
 def test_tesseract_import_is_lazy() -> None:
@@ -151,9 +135,8 @@ def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> 
         tesseract._get_tesseract()
 
 
-def test_tesseract_matrix_error_decoding(fake_tesseract: types.SimpleNamespace) -> None:
+def test_tesseract_matrix_error_decoding(fake_tesseract: None) -> None:
     """Dense, sparse, and field matrices decode to errors in column order."""
-    del fake_tesseract
     matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=int)
     syndromes = np.array([[1, 0], [0, 1]], dtype=int)
     expected = np.array([[1, 0, 0], [0, 0, 1]], dtype=np.uint8)
@@ -170,14 +153,15 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: types.SimpleNamespace) 
             matrix_input,
             error_channel=np.array([0.1, 0.2, 0.3]),
         )
-        assert isinstance(decoder, decoders.ErrorDecoder)
-        assert not decoders.supports_batch_decoding(decoder)
-        assert isinstance(decoder, decoders.BatchObservableDecoder)
         assert np.array_equal(decoder.decode_errors(syndromes[0]), expected[0])
-        assert np.array_equal(decoder.decode(syndromes[0]), expected[0])
-        assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), expected)
-        assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 3)
-        assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.1, 0.2, 0.3])
+
+    assert isinstance(decoder, decoders.ErrorDecoder)
+    assert not decoders.supports_batch_decoding(decoder)
+    assert isinstance(decoder, decoders.BatchObservableDecoder)
+    assert np.array_equal(decoder.decode(syndromes[0]), expected[0])
+    assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), expected)
+    assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 3)
+    assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.1, 0.2, 0.3])
 
     decoder = decoders.get_decoder_tesseract(matrix, error_rate=0.25)
     assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.25, 0.25, 0.25])
@@ -194,10 +178,9 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: types.SimpleNamespace) 
 
 
 def test_tesseract_dem_error_and_observable_decoding(
-    fake_tesseract: types.SimpleNamespace,
+    fake_tesseract: None,
 ) -> None:
     """A DEM supports original-index errors and native observable predictions."""
-    del fake_tesseract
     dem = stim.DetectorErrorModel("""
         error(0.1) D0 L0
         error(0) D1 L1
@@ -217,9 +200,8 @@ def test_tesseract_dem_error_and_observable_decoding(
     assert decoder.decode_observables_batch(syndromes[:0]).shape == (0, 2)
 
 
-def test_tesseract_erasure_bits(fake_tesseract: types.SimpleNamespace) -> None:
+def test_tesseract_erasure_bits(fake_tesseract: None) -> None:
     """Tesseract low-confidence results become optional qLDPC erasure flags."""
-    del fake_tesseract
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     decoder = decoders.get_decoder_tesseract(dem, pqlimit=0, add_erasure_bit=True)
     syndromes = np.array([[1], [0]], dtype=int)
@@ -233,43 +215,29 @@ def test_tesseract_erasure_bits(fake_tesseract: types.SimpleNamespace) -> None:
     assert decoder.decode_observables_batch(syndromes[:0]).shape == (0, 2)
 
 
-def test_tesseract_options_and_validation(fake_tesseract: types.SimpleNamespace) -> None:
+def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
     """Construction forwards typed options and rejects unsupported inputs."""
-    del fake_tesseract
     assert inspect.signature(decoders.get_decoder_tesseract).parameters == (
         inspect.signature(decoders.TesseractDecoder).parameters
     )
 
-    decoder = decoders.get_decoder_tesseract(
-        np.eye(2, dtype=int),
-        det_beam=8,
-        beam_climbing=True,
-        no_revisit_dets=False,
-        verbose=True,
-        merge_errors=False,
-        pqlimit=123,
-        det_orders=[[1, 0]],
-        det_penalty=0.5,
-        create_visualization=True,
-        sparsify_errors=True,
-        sparsify_base_degree=2,
-        sparsify_max_degree=4,
-        sparsify_reactivate_limit=7,
-    )
-    config = decoder.config
-    assert config.det_beam == 8
-    assert config.beam_climbing
-    assert not config.no_revisit_dets
-    assert config.verbose
-    assert not config.merge_errors
-    assert config.pqlimit == 123
-    assert config.det_orders == [[1, 0]]
-    assert config.det_penalty == 0.5
-    assert config.create_visualization
-    assert config.sparsify_errors
-    assert config.sparsify_base_degree == 2
-    assert config.sparsify_max_degree == 4
-    assert config.sparsify_reactivate_limit == 7
+    options: dict[str, Any] = {
+        "det_beam": 8,
+        "beam_climbing": True,
+        "no_revisit_dets": False,
+        "verbose": True,
+        "merge_errors": False,
+        "pqlimit": 123,
+        "det_orders": [[1, 0]],
+        "det_penalty": 0.5,
+        "create_visualization": True,
+        "sparsify_errors": True,
+        "sparsify_base_degree": 2,
+        "sparsify_max_degree": 4,
+        "sparsify_reactivate_limit": 7,
+    }
+    config = decoders.get_decoder_tesseract(np.eye(2, dtype=int), **options).config
+    assert {name: getattr(config, name) for name in options} == options
 
     decoder = decoders.get_decoder_tesseract(
         np.eye(2, dtype=int),
@@ -309,10 +277,9 @@ def test_tesseract_options_and_validation(fake_tesseract: types.SimpleNamespace)
 
 
 def test_tesseract_rejects_invalid_backend_error_index(
-    fake_tesseract: types.SimpleNamespace,
+    fake_tesseract: None,
 ) -> None:
     """An invalid upstream result cannot silently corrupt a dense inferred error."""
-    del fake_tesseract
     decoder = decoders.get_decoder_tesseract(np.eye(1, dtype=int))
     decoder.decoder.decode_to_errors = lambda syndrome: [1]
     with pytest.raises(ValueError, match="outside the provided"):
@@ -320,10 +287,9 @@ def test_tesseract_rejects_invalid_backend_error_index(
 
 
 def test_tesseract_specs_sinter_and_code_capacity(
-    fake_tesseract: types.SimpleNamespace,
+    fake_tesseract: None,
 ) -> None:
     """Typed settings use native observables through resolution, Sinter, and code capacity."""
-    del fake_tesseract
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     spec = decoders.tesseract(det_beam=7)
     assert spec.predicts_observables_natively
