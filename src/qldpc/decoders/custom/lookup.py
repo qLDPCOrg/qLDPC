@@ -744,9 +744,9 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     that syndrome, which may be different from the single most likely error.  Concretely: errors
     consistent with a given syndrome are grouped by their observable flip value; the total
     probability of each group is the sum of the probabilities of its member errors, restricted to
-    the errors of ``weight <= max_weight`` that this decoder enumerates.  This truncation does not
-    renormalize the supplied distribution.  This decoder then assigns each ``syndrome`` the
-    highest-probability individual ``error`` from the group with the highest total probability.
+    the errors of ``weight <= max_weight`` that this decoder enumerates.  This decoder then assigns
+    each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
+    total probability.
 
     The deprecated ``predict_observable_flips=True`` option makes ``.decode`` return the most likely
     observable flip for each syndrome, rather than a representative ``error``.  Use an
@@ -778,13 +778,13 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     probability, erasing every syndrome with a competing flip that can actually occur.
 
     A positive ``probability_cutoff`` omits every error whose full probability is below the cutoff.
-    Equality is retained.  Efficient pruning requires the factorization of a detector error model or
-    array-like independent ``error_channel``; a callable channel is rejected with a positive cutoff
-    rather than exhaustively generated and post-filtered.  Enumeration factors the probability into
-    the no-error probability and the likelihood ratios of active mechanisms, then prunes sorted
-    combinations whose best possible completion is below the cutoff.  The default cutoff of zero
-    preserves exhaustive enumeration.  When combined with ``confidence_ratio``, confidence is
-    computed from the errors retained by both ``max_weight`` and ``probability_cutoff``.
+    Efficient pruning requires the factorization of a detector error model or array-like independent
+    ``error_channel``; a callable channel is rejected with a positive cutoff rather than
+    exhaustively generated and post-filtered.  Enumeration factors the probability into the no-error
+    probability and the likelihood ratios of active mechanisms, then prunes sorted combinations
+    whose best possible completion is below the cutoff.  The default cutoff of zero preserves
+    exhaustive enumeration.  When combined with ``confidence_ratio``, confidence is computed from
+    the errors retained by both ``max_weight`` and ``probability_cutoff``.
 
     The constructor argument ``penalty_func`` is deprecated.  It is immediately replaced by the
     callable channel ``error_channel=lambda error: -penalty_func(error)``.  Legacy penalty outputs
