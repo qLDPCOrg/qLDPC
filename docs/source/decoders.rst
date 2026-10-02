@@ -49,8 +49,7 @@ The helpers are available directly under ``qldpc.decoders``:
 * :func:`decoders.ilp <qldpc.decoders.construction.specs.ilp>`
 * :func:`decoders.guf <qldpc.decoders.construction.specs.guf>`
 
-Most helpers return a :class:`decoders.DecoderSpec <qldpc.decoders.construction.specs.DecoderSpec>`, which only stores settings for a decoder that infers errors; some of these decoders can also predict observable flips directly.
-:func:`decoders.frontier <qldpc.decoders.construction.specs.frontier>` instead returns a :class:`decoders.FrontierDecoder <qldpc.decoders.external.frontier.FrontierDecoder>`, because Frontier predicts observable flips but cannot infer errors.
+Each helper returns a :class:`decoders.DecoderSpec <qldpc.decoders.construction.specs.DecoderSpec>`, which only stores settings.
 The signature of a helper lists the options of its decoder explicitly, so they are visible to autocomplete and static-analysis tools, and a misspelled option raises a ``TypeError``.
 The exception is ``ilp``, which forwards additional options to ``cvxpy.Problem.solve``.
 Passing ``decoder=None`` uses qLDPC's default: BP+OSD for binary inputs and generalized union-find for nonbinary field arrays.
@@ -58,8 +57,7 @@ Passing ``decoder=None`` uses qLDPC's default: BP+OSD for binary inputs and gene
 Building decoders immediately
 -----------------------------
 
-The ``DecoderSpec`` helpers above store validated settings; they do not build a decoder until ``.build(...)`` or a higher-level API supplies a matrix or detector error model.
-Frontier settings are instead compiled for a detector error model by the observable-decoding APIs described below.
+The typed helpers above store validated settings; they do not build a decoder until ``.build(...)`` or a higher-level API supplies a matrix or detector error model.
 To construct one immediately, use the lowercase builders owned by their implementation modules.
 They are exported from ``qldpc.decoders`` and ``qldpc.decoders.construction``:
 
@@ -142,18 +140,20 @@ Some decoders can predict observable flips natively, without first inferring an 
 Their settings build a native observable decoder wherever observable flips are wanted:
 
 * ``mwpm`` builds a PyMatching decoder that tracks observables along matched paths;
-* ``frontier`` builds a :class:`decoders.FrontierObservableDecoder <qldpc.decoders.external.frontier.FrontierObservableDecoder>` that performs pruned logical inference directly from a detector error model;
+* ``frontier`` builds a :class:`decoders.FrontierObservableDecoder <qldpc.decoders.external.frontier.FrontierObservableDecoder>`, described below;
 * ``relay_bp`` and ``min_sum_bp`` build a :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>`; and
 * ``lookup_table`` builds an :class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>`, which maps each syndrome directly to its most likely observable flip.
 
-The ``DecoderSpec`` settings of any other decoder build an error decoder, whose inferred errors are converted into observable flips.
+The settings of any other decoder build an error decoder, whose inferred errors are converted into observable flips.
 ``DecoderSpec.predicts_observables_natively`` reports which of these applies.
+Conversely, ``DecoderSpec.infers_errors`` reports whether settings can build an error decoder at all.
 
 Frontier
 ~~~~~~~~
 
 `Frontier <https://github.com/aleverrier/frontier>`_ is an approximate maximum-likelihood decoder that scans the error mechanisms of a detector error model, and uses pruned dynamic programming to predict the most likely observable flips.
-It does not infer an error, so ``decoders.frontier(...)`` is accepted by :func:`decoders.get_observable_decoder <qldpc.decoders.construction.resolution.get_observable_decoder>`, ``SinterDecoder``, and code-capacity estimators, but not by methods that require an error decoder.
+Frontier cannot infer errors, so ``decoders.frontier(...).build(...)`` raises a ``TypeError``, as do methods that require an error decoder.
+Its settings are accepted wherever observable flips are wanted, such as by :func:`decoders.get_observable_decoder <qldpc.decoders.construction.resolution.get_observable_decoder>`, ``SinterDecoder``, and code-capacity estimators.
 
 .. code-block:: python
 
@@ -170,7 +170,7 @@ If no error that Frontier keeps is consistent with a syndrome, it predicts no ob
 See :func:`decoders.get_observable_decoder_frontier <qldpc.decoders.external.frontier.get_observable_decoder_frontier>` for all settings.
 
 Frontier is not published on PyPI, so it is not a qLDPC dependency.
-If it is missing, compiling Frontier settings raises an error that shows how to install the version that qLDPC is tested against.
+If it is missing, building a Frontier decoder raises an error that shows how to install the version that qLDPC is tested against.
 
 For Sinter, wrap decoder settings (or a constructor) in a :class:`decoders.SinterDecoder <qldpc.decoders.sinter.core.SinterDecoder>`, or in one of its subclasses:
 

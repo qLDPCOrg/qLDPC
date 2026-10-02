@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 from collections.abc import Callable, Collection, Sequence
-from typing import Generic, Literal, Protocol, TypeAlias, TypeVar
+from typing import Generic, Literal, Never, Protocol, TypeAlias, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -29,7 +29,7 @@ from ..custom.lookup import (
     get_decoder_lookup,
     get_observable_decoder_lookup,
 )
-from ..external.frontier import FrontierDecoder
+from ..external.frontier import _validate_frontier_options, get_observable_decoder_frontier
 from ..external.ldpc import get_decoder_bf as _get_decoder_bf
 from ..external.ldpc import get_decoder_bp_lsd as _get_decoder_bp_lsd
 from ..external.ldpc import get_decoder_bp_osd as _get_decoder_bp_osd
@@ -55,20 +55,40 @@ PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 
 @dataclasses.dataclass(frozen=True, slots=True, eq=False, repr=False)
 class DecoderSpec(Generic[_DecoderT_co]):
-    """Deferred, typed construction settings for an error decoder."""
+    """Deferred, typed construction settings for a decoder.
+
+    A specification builds an error decoder, an observable decoder, or both.  A specification
+    without an error builder, such as ``decoders.frontier(...)``, is typed ``DecoderSpec[Never]``.
+    """
 
     _helper_name: str
-    _builder: Callable[..., _DecoderT_co]
+    _builder: Callable[..., _DecoderT_co] | None
     _options: tuple[tuple[str, object], ...]
     _observable_builder: Callable[..., ObservableDecoder] | None = None
+
+    def __post_init__(self) -> None:
+        """Require at least one way to build a decoder."""
+        if self._builder is None and self._observable_builder is None:
+            raise ValueError("A decoder spec needs an error builder or an observable builder")
 
     @property
     def options(self) -> dict[str, object]:
         """Return a copy of the construction options, including defaults."""
         return dict(self._options)
 
+    @property
+    def infers_errors(self) -> bool:
+        """Whether this specification can build an error decoder."""
+        return self._builder is not None
+
     def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
         """Build an error decoder for a parity-check matrix or detector error model."""
+        if self._builder is None:
+            raise TypeError(
+                f"decoders.{self._helper_name}(...) predicts observable flips but cannot infer"
+                " errors, so it cannot build an error decoder.  Pass it where an observable decoder"
+                " is accepted, such as to decoders.get_observable_decoder or decoders.SinterDecoder"
+            )
         return self._builder(pcm_or_dem, **self.options)
 
     @property
@@ -305,18 +325,27 @@ def frontier(
     column_order: Literal["deadline_reorder", "time_order"] = "deadline_reorder",
     committee: bool = False,
     add_erasure_bit: bool = False,
-) -> FrontierDecoder:
-    """Configure a Frontier decoder, which predicts observable flips but not errors."""
-    return FrontierDecoder(
+) -> DecoderSpec[Never]:
+    """Configure a Frontier decoder, which predicts observable flips but cannot infer errors."""
+    _validate_frontier_options(
         K=K,
         Delta=Delta,
         score_alpha=score_alpha,
         metric_mode=metric_mode,
         int_metric_scale=int_metric_scale,
         column_order=column_order,
-        committee=committee,
-        add_erasure_bit=add_erasure_bit,
     )
+    options = {
+        "K": K,
+        "Delta": Delta,
+        "score_alpha": score_alpha,
+        "metric_mode": metric_mode,
+        "int_metric_scale": int_metric_scale,
+        "column_order": column_order,
+        "committee": committee,
+        "add_erasure_bit": add_erasure_bit,
+    }
+    return DecoderSpec("frontier", None, tuple(options.items()), get_observable_decoder_frontier)
 
 
 def relay_bp(

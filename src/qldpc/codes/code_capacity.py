@@ -32,7 +32,11 @@ from qldpc.decoders.capabilities import (
 from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE
 from qldpc.decoders.construction.legacy import resolve_decoder
 from qldpc.decoders.construction.resolution import reject_prebuilt_decoder
-from qldpc.decoders.construction.specs import DecoderInput, ObservableDecoderConstructor
+from qldpc.decoders.construction.specs import (
+    DecoderInput,
+    DecoderSpec,
+    ObservableDecoderConstructor,
+)
 from qldpc.decoders.dems import DetectorErrorModelArrays
 from qldpc.decoders.protocols import ErrorDecoder, ObservableDecoder
 from qldpc.decoders.sinter.core import CompiledSinterDecoder
@@ -232,9 +236,10 @@ def get_code_capacity_decoder(
     an observable decoder as follows:
 
     - A Sinter-style decoder (an object with a compile_decoder_for_dem method, such as a
-      decoders.SinterDecoder), or a constructor explicitly declared to return an observable decoder,
-      is built for the detector error model that get_code_capacity_dem constructs.  This requires
-      the matrices to be binary.
+      decoders.SinterDecoder), a constructor explicitly declared to return an observable decoder,
+      or decoder settings that cannot infer errors (such as decoders.frontier(...)), is built for
+      the detector error model that get_code_capacity_dem constructs.  This requires the matrices
+      to be binary.
     - A prebuilt observable decoder (an object with a decode_observables method, or a compiled
       Sinter decoder with a decode_shots_bit_packed method, that is not also an error decoder) is
       used as is.  It must predict the observable values ``observable_matrix @ error`` from the
@@ -246,8 +251,9 @@ def get_code_capacity_decoder(
       RelayBPDecoder, is used as an error decoder.
 
     This intentionally differs from qldpc.decoders.resolve_observable_decoder, which may ask decoder
-    settings to build a native observable decoder.  Code-capacity settings retain their historical
-    error-decoder semantics; direct observable decoding must be requested explicitly.
+    settings to build a native observable decoder.  Code-capacity settings that can infer errors
+    retain their historical error-decoder semantics; direct observable decoding must be requested
+    explicitly.
 
     Args:
         syndrome_matrix: The matrix that maps an error to its syndrome.
@@ -304,7 +310,8 @@ def get_code_capacity_decoder(
             require_dimensions=True,
         )
 
-    if not decoder_args and constructs_observable_decoder(decoder):
+    observable_spec = isinstance(decoder, DecoderSpec) and not decoder.infers_errors
+    if not decoder_args and (observable_spec or constructs_observable_decoder(decoder)):
         dem = get_code_capacity_dem(
             syndrome_matrix,
             observable_matrix,
@@ -312,12 +319,17 @@ def get_code_capacity_decoder(
             symplectic_errors=symplectic_dem_errors,
             error_probs=dem_error_probs,
         )
-        constructor = cast(ObservableDecoderConstructor, decoder)
+        if isinstance(decoder, DecoderSpec):
+            observable_decoder = decoder.build_observable_decoder(dem)
+            source = "A decoder spec"
+        else:
+            observable_decoder = cast(ObservableDecoderConstructor, decoder)(dem)
+            source = "An observable decoder constructor"
         return _get_observable_code_capacity_decoder(
-            constructor(dem),
+            observable_decoder,
             syndrome_matrix,
             observable_matrix,
-            "An observable decoder constructor",
+            source,
             require_dimensions=False,
         )
 

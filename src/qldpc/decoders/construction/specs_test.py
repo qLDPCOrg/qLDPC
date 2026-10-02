@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pickle
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Never
 
 import numpy as np
 import numpy.typing as npt
@@ -15,6 +15,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders.adapters import error_decoders
+from qldpc.decoders.custom.lookup import get_observable_decoder_lookup
 
 
 def test_decoder_specs_store_public_builders() -> None:
@@ -107,8 +108,24 @@ def test_decoder_specs() -> None:
         decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
 
 
-def test_frontier_helper() -> None:
-    """The Frontier helper forwards every option to the settings that it returns."""
+def test_observable_decoder_specs() -> None:
+    """A spec without an error builder builds observable decoders, but not error decoders."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    spec: decoders.DecoderSpec[Never] = decoders.DecoderSpec(
+        "observable_lookup", None, (("max_weight", 1),), get_observable_decoder_lookup
+    )
+    assert decoders.lookup_table(1).infers_errors
+    assert not spec.infers_errors
+    assert spec.predicts_observables_natively
+    assert isinstance(spec.build_observable_decoder(dem), decoders.ObservableLookupDecoder)
+    with pytest.raises(TypeError, match="cannot build an error decoder"):
+        spec.build(dem)
+    with pytest.raises(TypeError, match="cannot build an error decoder"):
+        decoders.get_error_decoder(dem, decoder=spec)
+    with pytest.raises(ValueError, match="needs an error builder or an observable builder"):
+        decoders.DecoderSpec("nothing", None, ())
+
+    # the Frontier helper validates and stores its options, but does not import Frontier
     options: dict[str, Any] = {
         "K": 64,
         "Delta": 6.0,
@@ -119,9 +136,13 @@ def test_frontier_helper() -> None:
         "committee": True,
         "add_erasure_bit": True,
     }
-    settings = decoders.frontier(**options)
-    assert settings == decoders.FrontierDecoder(**options)
-    assert settings.options == options
+    spec = decoders.frontier(**options)
+    assert spec.options == options
+    assert not spec.infers_errors
+    assert spec.predicts_observables_natively
+    assert repr(decoders.frontier(committee=True)) == "decoders.frontier(committee=True)"
+    with pytest.raises(ValueError, match="K must be positive"):
+        decoders.frontier(K=0)
 
 
 def _get_graphlike_inputs() -> tuple[npt.NDArray[np.int_], stim.DetectorErrorModel]:
@@ -189,7 +210,7 @@ def test_decoder_spec_helper_defaults() -> None:
 
     # helpers for decoders defined in qLDPC mirror all non-deprecated constructor options
     qldpc_decoders: list[tuple[Callable[..., object], Callable[..., object], set[str]]] = [
-        (decoders.frontier, decoders.FrontierDecoder, set()),
+        (decoders.frontier, decoders.get_observable_decoder_frontier, set()),
         (decoders.lookup_table, decoders.LookupDecoder, {"predict_observable_flips"}),
         (decoders.guf, decoders.GUFDecoder, set()),
         (decoders.ilp, decoders.ILPDecoder, set()),

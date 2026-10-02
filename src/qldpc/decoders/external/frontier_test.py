@@ -121,24 +121,28 @@ assert "frontier" not in sys.modules
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_frontier_settings() -> None:
-    """Frontier settings are validated, comparable, picklable, and reproduced by their repr."""
+def test_frontier_settings(
+    calls: list[tuple[str, _Model, list[int], dict[str, object]]],
+) -> None:
+    """Frontier settings are reproduced by their repr, and survive process serialization."""
     settings = decoders.frontier(K=64, column_order="time_order", committee=True)
-    assert isinstance(settings, decoders.FrontierDecoder)
-    assert settings == pickle.loads(pickle.dumps(settings))  # noqa: S301
+    assert isinstance(settings, decoders.DecoderSpec)
     assert repr(settings) == "decoders.frontier(K=64, column_order='time_order', committee=True)"
     assert repr(decoders.frontier()) == "decoders.frontier()"
-    assert decoders.frontier(add_erasure_bit=True).options == {
-        "K": 128,
-        "Delta": 8.0,
-        "score_alpha": 0.8,
-        "metric_mode": "logsumexp_float",
-        "int_metric_scale": 1024,
-        "column_order": "deadline_reorder",
-        "committee": False,
-        "add_erasure_bit": True,
-    }
 
+    restored = pickle.loads(pickle.dumps(settings))  # noqa: S301 - trusted in-memory round trip
+    assert restored.options == settings.options
+    decoder = restored.build_observable_decoder(stim.DetectorErrorModel("error(0.1) D0 L0"))
+    assert isinstance(decoder, decoders.FrontierObservableDecoder)
+    assert decoder.decode_observables(np.array([1])).tolist() == [1]
+    assert calls[-1][0] == "committee"
+    assert calls[-1][3]["K"] == 64
+
+
+def test_frontier_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid settings are rejected before Frontier is imported."""
+    monkeypatch.setitem(sys.modules, "frontier", None)
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     for options, message in [
         ({"K": 0}, "K must be positive"),
         ({"Delta": -1}, "Delta must be non-negative"),
@@ -149,7 +153,7 @@ def test_frontier_settings() -> None:
         ({"column_order": "random"}, "column_order must be one of"),
     ]:
         with pytest.raises(ValueError, match=message):
-            decoders.frontier(**options)  # type: ignore[arg-type]
+            decoders.get_observable_decoder_frontier(dem, **options)  # type: ignore[arg-type]
 
 
 def test_frontier_decoding(calls: list[tuple[str, _Model, list[int], dict[str, object]]]) -> None:
@@ -269,8 +273,8 @@ def test_frontier_with_generic_decoding_apis(
     assert 0 <= logical_error_rate <= 1
     assert len(calls) > num_calls
 
-    with pytest.raises(TypeError, match="decoder must be"):
-        decoders.get_error_decoder(code.matrix, decoder=settings)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="cannot build an error decoder"):
+        decoders.get_error_decoder(code.matrix, decoder=settings)
 
 
 def test_frontier_unexpected_status() -> None:

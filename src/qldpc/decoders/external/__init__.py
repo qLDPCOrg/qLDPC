@@ -3,7 +3,6 @@
 """Integrations with decoder implementations maintained outside qLDPC."""
 
 from .frontier import (
-    FrontierDecoder,
     FrontierObservableDecoder,
     get_observable_decoder_frontier,
 )
@@ -22,7 +21,6 @@ from .relay_bp import (
 )
 
 __all__ = [
-    "FrontierDecoder",
     "FrontierObservableDecoder",
     "MatchingObservableDecoder",
     "RelayBPDecoder",

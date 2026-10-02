@@ -5,7 +5,7 @@
 Frontier performs approximate maximum-likelihood decoding over the logical classes of a binary
 detector error model, using dynamic programming that prunes unlikely partial solutions.  It predicts
 observable flips rather than an error, so this module provides only observable decoders.  Frontier
-is imported only when settings are compiled for a detector error model.
+is imported only when a decoder is built.
 """
 
 from __future__ import annotations
@@ -48,122 +48,35 @@ def _get_frontier() -> Any:
     return frontier
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
-class FrontierDecoder:
-    """Settings for a Frontier decoder, which compile it for a detector error model.
-
-    Frontier (https://github.com/aleverrier/frontier) scans the error mechanisms of a binary
-    detector error model in a fixed order.  After each step, it groups partial solutions by the
-    detectors and observables that they flip, and prunes unlikely groups.  It then predicts the most
-    likely observable flips among the remaining groups that are consistent with the syndrome.
-    Pruning makes this prediction approximate.
-
-    Frontier only predicts observable flips, so these settings are accepted wherever an
-    observable-decoder compiler is, such as by decoders.get_observable_decoder and
-    decoders.SinterDecoder, but not where an error decoder is required.
-
-    See help(decoders.get_observable_decoder_frontier) for the meaning of each setting.
-    """
-
-    K: int = 128
-    Delta: float = 8.0
-    score_alpha: float = 0.8
-    metric_mode: Literal["logsumexp_float", "frontier_lite"] = "logsumexp_float"
-    int_metric_scale: int = 1024
-    column_order: Literal["deadline_reorder", "time_order"] = "deadline_reorder"
-    committee: bool = False
-    add_erasure_bit: bool = False
-
-    def __post_init__(self) -> None:
-        """Validate the settings, which Frontier would otherwise check only when decoding."""
-        if self.K <= 0:
-            raise ValueError("K must be positive")
-        if not self.Delta >= 0:
-            raise ValueError("Delta must be non-negative")
-        if not (math.isfinite(self.score_alpha) and self.score_alpha >= 0):
-            raise ValueError("score_alpha must be finite and non-negative")
-        if self.metric_mode not in _METRIC_MODES:
-            raise ValueError(f"metric_mode must be one of {_METRIC_MODES}")
-        if self.int_metric_scale <= 0:
-            raise ValueError("int_metric_scale must be positive")
-        if self.column_order not in _COLUMN_ORDERS:
-            raise ValueError(f"column_order must be one of {_COLUMN_ORDERS}")
-
-    @property
-    def options(self) -> dict[str, object]:
-        """Return a copy of the settings, including defaults."""
-        return {field.name: getattr(self, field.name) for field in dataclasses.fields(self)}
-
-    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> FrontierObservableDecoder:
-        """Build a Frontier decoder that predicts the observable flips of a detector error model."""
-        frontier = _get_frontier()
-        dem_arrays = DetectorErrorModelArrays(dem)
-
-        # Frontier requires at least one detector, so pad detector-free models with a dummy one.
-        num_detectors = max(dem_arrays.num_detectors, 1)
-        columns, layout = self._get_scan(
-            frontier,
-            _get_columns(dem_arrays, frontier.progressive.ProgressiveColumn),
-            num_detectors,
-        )
-        backward_columns = backward_layout = None
-        if self.committee:
-            # Frontier would otherwise rebuild the reverse scan for every syndrome
-            reversed_columns = [
-                dataclasses.replace(column, index=index)
-                for index, column in enumerate(reversed(columns))
-            ]
-            backward_columns, backward_layout = self._get_scan(
-                frontier, reversed_columns, num_detectors
-            )
-        model = frontier.FrontierModel(
-            columns=columns,
-            layout=layout,
-            num_detectors=num_detectors,
-            num_observables=dem_arrays.num_observables,
-            backward_columns=backward_columns,
-            backward_layout=backward_layout,
-        )
-        return FrontierObservableDecoder(
-            model,
-            frontier.decode_frontier_committee if self.committee else frontier.decode_frontier,
-            num_detectors=dem_arrays.num_detectors,
-            decode_options={
-                "K": self.K,
-                "Delta": self.Delta,
-                "score_alpha": self.score_alpha,
-                "metric_mode": self.metric_mode,
-                "int_metric_scale": self.int_metric_scale,
-            },
-            add_erasure_bit=self.add_erasure_bit,
-        )
-
-    def _get_scan(
-        self, frontier: Any, columns: list[Any], num_detectors: int
-    ) -> tuple[tuple[Any, ...], Any]:
-        """Order the columns of one scan, and build the Frontier layout for that order."""
-        if self.column_order == "deadline_reorder":
-            columns, _ = frontier.progressive.optimize_column_order(
-                columns, num_detectors=num_detectors
-            )
-        layout = frontier.progressive.build_frontier_layout(columns, num_detectors=num_detectors)
-        return tuple(columns), layout
-
-    def __repr__(self) -> str:
-        """Show the helper call that reproduces these settings."""
-        options = ", ".join(
-            f"{field.name}={getattr(self, field.name)!r}"
-            for field in dataclasses.fields(self)
-            if getattr(self, field.name) != field.default
-        )
-        return f"decoders.frontier({options})"
+def _validate_frontier_options(
+    *,
+    K: int,
+    Delta: float,
+    score_alpha: float,
+    metric_mode: str,
+    int_metric_scale: int,
+    column_order: str,
+) -> None:
+    """Validate Frontier settings, which Frontier would otherwise check only when decoding."""
+    if K <= 0:
+        raise ValueError("K must be positive")
+    if not Delta >= 0:
+        raise ValueError("Delta must be non-negative")
+    if not (math.isfinite(score_alpha) and score_alpha >= 0):
+        raise ValueError("score_alpha must be finite and non-negative")
+    if metric_mode not in _METRIC_MODES:
+        raise ValueError(f"metric_mode must be one of {_METRIC_MODES}")
+    if int_metric_scale <= 0:
+        raise ValueError("int_metric_scale must be positive")
+    if column_order not in _COLUMN_ORDERS:
+        raise ValueError(f"column_order must be one of {_COLUMN_ORDERS}")
 
 
 class FrontierObservableDecoder(BatchObservableDecoder):
     """Frontier decoder that predicts the observable flips of one detector error model.
 
-    Build one with decoders.get_observable_decoder_frontier, or by compiling FrontierDecoder
-    settings for a detector error model.
+    Build one with decoders.get_observable_decoder_frontier, or from decoders.frontier(...)
+    settings with decoders.get_observable_decoder.
     """
 
     def __init__(
@@ -237,9 +150,14 @@ def get_observable_decoder_frontier(
 ) -> FrontierObservableDecoder:
     """Build a Frontier decoder that predicts the observable flips of a detector error model.
 
+    Frontier (https://github.com/aleverrier/frontier) scans the error mechanisms of a binary
+    detector error model in a fixed order.  After each step, it groups partial solutions by the
+    detectors and observables that they flip, and prunes unlikely groups.  It then predicts the most
+    likely observable flips among the remaining groups that are consistent with the syndrome.
+    Pruning makes this prediction approximate.
+
     Frontier is not a qLDPC dependency.  If it is missing, this function raises an error that shows
-    how to install the version that qLDPC is tested against.  See help(decoders.FrontierDecoder) for
-    a description of the algorithm.
+    how to install the version that qLDPC is tested against.
 
     Args:
         dem: The binary detector error model to decode.
@@ -265,16 +183,63 @@ def get_observable_decoder_frontier(
     Returns:
         A FrontierObservableDecoder.
     """
-    return FrontierDecoder(
+    _validate_frontier_options(
         K=K,
         Delta=Delta,
         score_alpha=score_alpha,
         metric_mode=metric_mode,
         int_metric_scale=int_metric_scale,
         column_order=column_order,
-        committee=committee,
+    )
+    frontier = _get_frontier()
+    dem_arrays = DetectorErrorModelArrays(dem)
+
+    # Frontier requires at least one detector, so pad detector-free models with a dummy one.
+    num_detectors = max(dem_arrays.num_detectors, 1)
+    columns = _get_columns(dem_arrays, frontier.progressive.ProgressiveColumn)
+    columns, layout = _get_scan(frontier, columns, num_detectors, column_order)
+    backward_columns = backward_layout = None
+    if committee:
+        # Frontier would otherwise rebuild the reverse scan for every syndrome
+        reversed_columns = [
+            dataclasses.replace(column, index=index)
+            for index, column in enumerate(reversed(columns))
+        ]
+        backward_columns, backward_layout = _get_scan(
+            frontier, reversed_columns, num_detectors, column_order
+        )
+    model = frontier.FrontierModel(
+        columns=tuple(columns),
+        layout=layout,
+        num_detectors=num_detectors,
+        num_observables=dem_arrays.num_observables,
+        backward_columns=None if backward_columns is None else tuple(backward_columns),
+        backward_layout=backward_layout,
+    )
+    return FrontierObservableDecoder(
+        model,
+        frontier.decode_frontier_committee if committee else frontier.decode_frontier,
+        num_detectors=dem_arrays.num_detectors,
+        decode_options={
+            "K": K,
+            "Delta": Delta,
+            "score_alpha": score_alpha,
+            "metric_mode": metric_mode,
+            "int_metric_scale": int_metric_scale,
+        },
         add_erasure_bit=add_erasure_bit,
-    ).compile_decoder_for_dem(dem)
+    )
+
+
+def _get_scan(
+    frontier: Any, columns: list[Any], num_detectors: int, column_order: str
+) -> tuple[list[Any], Any]:
+    """Order the columns of one Frontier scan, and build the layout for that order."""
+    if column_order == "deadline_reorder":
+        columns, _ = frontier.progressive.optimize_column_order(
+            columns, num_detectors=num_detectors
+        )
+    return columns, frontier.progressive.build_frontier_layout(columns, num_detectors=num_detectors)
 
 
 def _get_columns(dem_arrays: DetectorErrorModelArrays, column_type: type) -> list[Any]:
@@ -310,7 +275,6 @@ def _get_column_mask(matrix: scipy.sparse.csc_matrix, column: int) -> int:
 
 
 __all__ = [
-    "FrontierDecoder",
     "FrontierObservableDecoder",
     "get_observable_decoder_frontier",
 ]

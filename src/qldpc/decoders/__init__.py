@@ -72,7 +72,6 @@ from .dems import (
     FlipPattern,
 )
 from .external.frontier import (
-    FrontierDecoder,
     FrontierObservableDecoder,
     get_observable_decoder_frontier,
 )
@@ -124,7 +123,6 @@ __all__ = [
     "ErrorsToObservablesDecoder",
     "ExpandedErrorDecoder",
     "FlipPattern",
-    "FrontierDecoder",
     "FrontierObservableDecoder",
     "GUFDecoder",
     "ILPDecoder",
