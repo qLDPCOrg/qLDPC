@@ -181,9 +181,7 @@ def test_frontier_decoding(calls: list[tuple[str, _Model, list[int], dict[str, o
     # the last entry of a prediction is the erasure flag, which Frontier signals with "no_path"
     syndromes = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1]])
     expected = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 0], [0, 0, 1]]
-    assert decoder.decode_observables(syndromes[1]).tolist() == expected[1]
-    assert decoder.decode_observables_batch(syndromes).tolist() == expected
-    assert decoder.decode_observables_batch(np.zeros((0, 3), dtype=int)).shape == (0, 3)
+    assert [decoder.decode_observables(syndrome).tolist() for syndrome in syndromes] == expected
     assert calls[0][0] == "forward"
     assert calls[0][3] == {
         "K": 11,
@@ -195,10 +193,6 @@ def test_frontier_decoding(calls: list[tuple[str, _Model, list[int], dict[str, o
 
     with pytest.raises(ValueError, match="Expected a syndrome of shape"):
         decoder.decode_observables(np.zeros(2, dtype=int))
-    with pytest.raises(ValueError, match="Expected a syndrome batch"):
-        decoder.decode_observables_batch(np.zeros(3, dtype=int))
-    with pytest.raises(ValueError, match=r"shape \(shots, 3\)"):
-        decoder.decode_observables_batch(np.zeros((0, 2), dtype=int))
 
 
 def test_frontier_scan_orders(
@@ -239,7 +233,6 @@ def test_frontier_degenerate_models(
     """Models without detectors or error mechanisms are decoded with a nonempty Frontier model."""
     decoder = decoders.get_observable_decoder_frontier(stim.DetectorErrorModel("error(0.9) L0"))
     assert decoder.decode_observables(np.zeros(0, dtype=int)).tolist() == [1]
-    assert decoder.decode_observables_batch(np.zeros((2, 0), dtype=int)).tolist() == [[1], [1]]
     assert calls[-1][1].num_detectors == 1
     assert calls[-1][2] == [0]
 
@@ -266,6 +259,7 @@ def test_frontier_with_generic_decoding_apis(
     assert sinter_decoder.num_erasure_bits == 1
     shots = np.array([[1, 0], [0, 1]], dtype=np.uint8)
     assert sinter_decoder.decode_shots(shots).tolist() == [[1, 0, 0], [0, 1, 0]]
+    assert sinter_decoder.decode_shots(np.zeros((0, 2), dtype=np.uint8)).shape == (0, 3)
 
     code = codes.RepetitionCode(3)
     num_calls = len(calls)

@@ -21,58 +21,12 @@ import scipy.sparse
 import stim
 
 from ..dems import DetectorErrorModelArrays
-from ..protocols import BatchObservableDecoder
+from ..protocols import ObservableDecoder
 
-# PyPI rejects direct-URL dependencies, so frontier cannot be a qldpc extra.
-_INSTALL_COMMAND = (
-    "pip install 'frontier @ git+https://github.com/aleverrier/frontier.git"
-    "@5d5a60968182eb17cdc12c5ac1949732ead0905b'"
-)
-
-_METRIC_MODES = ("logsumexp_float", "frontier_lite")
-_COLUMN_ORDERS = ("deadline_reorder", "time_order")
+# Public decoder and builder
 
 
-def _get_frontier() -> Any:
-    """Import the optional upstream dependency or raise an actionable error."""
-    try:
-        import frontier
-        import frontier.progressive
-    except ModuleNotFoundError as error:
-        if error.name != "frontier":
-            raise
-        raise ModuleNotFoundError(
-            "The Frontier decoder requires the optional 'frontier' package. "
-            f"Install it with `{_INSTALL_COMMAND}`."
-        ) from error
-    return frontier
-
-
-def _validate_frontier_options(
-    *,
-    K: int,
-    Delta: float,
-    score_alpha: float,
-    metric_mode: str,
-    int_metric_scale: int,
-    column_order: str,
-) -> None:
-    """Validate Frontier settings, which Frontier would otherwise check only when decoding."""
-    if K <= 0:
-        raise ValueError("K must be positive")
-    if not Delta >= 0:
-        raise ValueError("Delta must be non-negative")
-    if not (math.isfinite(score_alpha) and score_alpha >= 0):
-        raise ValueError("score_alpha must be finite and non-negative")
-    if metric_mode not in _METRIC_MODES:
-        raise ValueError(f"metric_mode must be one of {_METRIC_MODES}")
-    if int_metric_scale <= 0:
-        raise ValueError("int_metric_scale must be positive")
-    if column_order not in _COLUMN_ORDERS:
-        raise ValueError(f"column_order must be one of {_COLUMN_ORDERS}")
-
-
-class FrontierObservableDecoder(BatchObservableDecoder):
+class FrontierObservableDecoder(ObservableDecoder):
     """Frontier decoder that predicts the observable flips of one detector error model.
 
     Build one with decoders.get_observable_decoder_frontier, or from decoders.frontier(...)
@@ -126,19 +80,6 @@ class FrontierObservableDecoder(BatchObservableDecoder):
             raise RuntimeError(f"Frontier returned an unexpected status: {result.status!r}")
         flips = [(logical_hat >> index) & 1 for index in range(self.num_observables)]
         return np.array(flips + [erased] * self.has_erasure_bit, dtype=int)
-
-    def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode a batch of syndromes, one per row, to predicted observable flips."""
-        syndromes = np.asarray(syndromes, dtype=np.uint8)
-        if syndromes.ndim != 2 or syndromes.shape[1] != self.num_detectors:
-            raise ValueError(
-                f"Expected a syndrome batch with shape (shots, {self.num_detectors}), "
-                f"got {syndromes.shape}"
-            )
-        predictions = [self.decode_observables(syndrome) for syndrome in syndromes]
-        return np.array(predictions, dtype=int).reshape(
-            len(syndromes), self.num_observables + self.has_erasure_bit
-        )
 
 
 def get_observable_decoder_frontier(
@@ -234,6 +175,56 @@ def get_observable_decoder_frontier(
         },
         add_erasure_bit=add_erasure_bit,
     )
+
+
+# Private builder helpers
+
+# PyPI rejects direct-URL dependencies, so frontier cannot be a qldpc extra.
+_INSTALL_COMMAND = (
+    "pip install 'frontier @ git+https://github.com/aleverrier/frontier.git"
+    "@5d5a60968182eb17cdc12c5ac1949732ead0905b'"
+)
+_METRIC_MODES = ("logsumexp_float", "frontier_lite")
+_COLUMN_ORDERS = ("deadline_reorder", "time_order")
+
+
+def _get_frontier() -> Any:
+    """Import the optional upstream dependency or raise an actionable error."""
+    try:
+        import frontier
+        import frontier.progressive
+    except ModuleNotFoundError as error:
+        if error.name != "frontier":
+            raise
+        raise ModuleNotFoundError(
+            "The Frontier decoder requires the optional 'frontier' package. "
+            f"Install it with `{_INSTALL_COMMAND}`."
+        ) from error
+    return frontier
+
+
+def _validate_frontier_options(
+    *,
+    K: int,
+    Delta: float,
+    score_alpha: float,
+    metric_mode: str,
+    int_metric_scale: int,
+    column_order: str,
+) -> None:
+    """Validate Frontier settings, which Frontier would otherwise check only when decoding."""
+    if K <= 0:
+        raise ValueError("K must be positive")
+    if not Delta >= 0:
+        raise ValueError("Delta must be non-negative")
+    if not (math.isfinite(score_alpha) and score_alpha >= 0):
+        raise ValueError("score_alpha must be finite and non-negative")
+    if metric_mode not in _METRIC_MODES:
+        raise ValueError(f"metric_mode must be one of {_METRIC_MODES}")
+    if int_metric_scale <= 0:
+        raise ValueError("int_metric_scale must be positive")
+    if column_order not in _COLUMN_ORDERS:
+        raise ValueError(f"column_order must be one of {_COLUMN_ORDERS}")
 
 
 def _get_scan(
