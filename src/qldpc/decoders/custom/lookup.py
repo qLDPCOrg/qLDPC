@@ -764,34 +764,28 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     If asked to decode a syndrome that was not observed when constructing the lookup table, the
     erasure bit is set to 1.  The erasure bit is set to 0 otherwise.
 
-    If initialized with a positive ``confidence_ratio`` (which then requires an
-    ``observable_flip_matrix``), this decoder handles ambiguous syndromes -- those consistent with
-    more than one observable flip -- by declining to guess unless one flip is clearly dominant.
-    Letting ``prob_top`` and ``prob_rest`` be the net probabilities of the most likely observable
-    flip and of all other flips combined (summed over the enumerated ``weight <= max_weight``
-    errors, grouped as above), the decoder assigns the most likely flip iff it is at least
-    ``confidence_ratio`` times as likely as the rest, i.e. ``prob_top >= confidence_ratio *
-    prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
-    erasure, identically to a syndrome that was never enumerated.  A positive ``confidence_ratio``
-    therefore auto-enables the erasure bit, setting ``add_erasure_bit=True``.  At the extreme,
-    ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
-    probability, erasing every syndrome with a competing flip that can actually occur.
+    If initialized with a positive ``confidence_ratio`` (which requires observables, from a
+    detector error model or an ``observable_flip_matrix``), this decoder only assigns a syndrome its
+    most likely observable flip if that flip is at least ``confidence_ratio`` times as likely as all
+    other flips combined.  Otherwise, the syndrome decodes to erasure, so a positive
+    ``confidence_ratio`` sets ``add_erasure_bit=True``.  With ``confidence_ratio=np.inf``, every
+    syndrome with a competing flip that can occur decodes to erasure.
 
     A positive ``probability_cutoff`` omits every error whose probability is below the cutoff,
-    which can dramatically speed up construction of the lookup table.  When combined with
-    ``confidence_ratio``, confidence is computed from the retained errors.  A positive cutoff is not
-    supported with a callable ``error_channel``.
+    which allows ignoring very-low-probability events.  When combined with ``confidence_ratio``,
+    confidence is computed from the retained errors.  A positive cutoff is not supported with a
+    callable ``error_channel``.
+
+    If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
+    that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
+    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
+    ``[X|Z]`` support.
 
     The constructor argument ``penalty_func`` is deprecated.  It is immediately replaced by the
     callable channel ``error_channel=lambda error: -penalty_func(error)``.  Legacy penalty outputs
     are not subjected to the stricter normalized-log-probability validation, but the adapted channel
     has the same cutoff restriction as any other callable channel.  The decode-time ``penalty_func``
     of a WeightedLookupDecoder is a separate, non-deprecated optimization objective.
-
-    If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
-    that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
-    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
-    ``[X|Z]`` support.
     """
 
     def __init__(
