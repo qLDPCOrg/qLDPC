@@ -112,7 +112,7 @@ What each package does
        Fixed-weight statistics and allocation live separately from code-capacity detector-error-model and decoder orchestration.
      - :doc:`qLDPC basics <examples/basics>` and :doc:`codes API <autoapi/qldpc/codes/index>`.
    * - ``qldpc.decoders``
-     - Decoder protocol and adapters; lookup, ILP, BP-family, MWPM, Relay-BP, detector-error-model, Sinter, and windowed decoding support.
+     - Decoder protocol and adapters; lookup, ILP, BP-family, Frontier, MWPM, Relay-BP, detector-error-model, Sinter, and windowed decoding support.
      - :doc:`logical-error-rate examples <examples/index>` and :doc:`decoders API <autoapi/qldpc/decoders/index>`.
    * - ``qldpc.circuits``
      - Qubit-only Stim circuits, memory experiments, state-preparation diagnostics, encoders, noise models, scheduling, and transversal operations.
@@ -191,6 +191,7 @@ Choose or supply a decoder
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Configure a decoder with a typed helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``, and build it for a parity-check matrix or Stim detector error model with ``.build(...)``, or pass the settings as ``decoder=`` to a method that decodes.
+Some settings, such as ``decoders.frontier(...)``, predict observable flips but cannot infer errors, so they are accepted only where observable flips are wanted.
 The default decoder is GUF for a nonbinary field array and BP+OSD otherwise.
 ``qldpc.decoders.get_observable_decoder`` builds a decoder that predicts the observable flips of a detector error model instead, and ``qldpc.decoders.SinterDecoder`` does so for Sinter.
 Code-capacity estimators accept either kind of decoder.

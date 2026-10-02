@@ -2,6 +2,10 @@
 
 """Integrations with decoder implementations maintained outside qLDPC."""
 
+from .frontier import (
+    FrontierObservableDecoder,
+    get_observable_decoder_frontier,
+)
 from .ldpc import get_decoder_bf, get_decoder_bp_lsd, get_decoder_bp_osd
 from .pymatching import (
     MatchingObservableDecoder,
@@ -17,6 +21,7 @@ from .relay_bp import (
 )
 
 __all__ = [
+    "FrontierObservableDecoder",
     "MatchingObservableDecoder",
     "RelayBPDecoder",
     "get_decoder_bf",
@@ -26,6 +31,7 @@ __all__ = [
     "get_decoder_rbp",
     "get_error_decoder_mwpm",
     "get_min_sum_bp_decoder",
+    "get_observable_decoder_frontier",
     "get_observable_decoder_mwpm",
     "get_relay_bp_decoder",
 ]

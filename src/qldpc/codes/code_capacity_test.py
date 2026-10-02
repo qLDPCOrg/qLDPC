@@ -8,7 +8,7 @@ import os
 import pathlib
 import subprocess
 import sys
-from typing import Any
+from typing import Any, Never
 
 import galois
 import numpy as np
@@ -354,6 +354,16 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
     decoder = code_capacity.get_code_capacity_decoder(
         code.matrix, observable_matrix, observable_constructor
     )
+    assert decoder.get_failure_and_erasure(code.field([1, 0, 0])) == (False, False)
+
+    # so are settings that build an observable decoder, but cannot infer errors
+    observable_spec: decoders.DecoderSpec[Never] = decoders.DecoderSpec(
+        "observable_lookup", None, (), observable_constructor
+    )
+    decoder = code_capacity.get_code_capacity_decoder(
+        code.matrix, observable_matrix, observable_spec
+    )
+    assert isinstance(decoder.decoder, decoders.ObservableLookupDecoder)
     assert decoder.get_failure_and_erasure(code.field([1, 0, 0])) == (False, False)
 
     # relative mechanism weights are scaled by a fixed placeholder probability
