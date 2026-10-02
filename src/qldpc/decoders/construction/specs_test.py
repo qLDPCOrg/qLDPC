@@ -33,6 +33,7 @@ def test_decoder_specs_store_public_builders() -> None:
         decoders.frontier(),
         decoders.relay_bp(),
         decoders.min_sum_bp(),
+        decoders.tesseract(),
         decoders.lookup_table(1),
         decoders.ilp(),
         decoders.guf(),
@@ -45,6 +46,7 @@ def test_decoder_specs_store_public_builders() -> None:
         "frontier": "qldpc.decoders.external.frontier",
         "relay_bp": "qldpc.decoders.external.relay_bp",
         "min_sum_bp": "qldpc.decoders.external.relay_bp",
+        "tesseract": "qldpc.decoders.external.tesseract",
         "lookup_table": "qldpc.decoders.custom.lookup",
         "ilp": "qldpc.decoders.custom.ilp",
         "guf": "qldpc.decoders.custom.guf",
@@ -76,6 +78,7 @@ def test_decoder_spec_observable_modes() -> None:
         converted_spec.build_observable_decoder(dem),
         error_decoders.ErrorsToObservablesDecoder,
     )
+    assert decoders.tesseract().predicts_observables_natively
 
 
 def test_decoder_specs() -> None:
@@ -97,6 +100,7 @@ def test_decoder_specs() -> None:
     )
     assert repr(decoders.lookup_table(2)) == "decoders.lookup_table(max_weight=2)"
     assert repr(decoders.relay_bp(gamma0=0.2)) == "decoders.relay_bp(gamma0=0.2)"
+    assert repr(decoders.tesseract(det_beam=7)) == "decoders.tesseract(det_beam=7)"
     assert repr(decoders.ilp(verbose=False)) == "decoders.ilp(verbose=False)"
     assert repr(decoders.guf(max_weight=1)) == "decoders.guf(max_weight=1)"
     channel = np.array([0.1, 0.2])
@@ -120,6 +124,36 @@ def test_decoder_specs() -> None:
     # misspelled options are rejected, rather than silently passed to a decoder
     with pytest.raises(TypeError, match="lsd_ordr"):
         decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    "preset",
+    ["long-beam", "short-beam"],
+)
+@pytest.mark.parametrize("sparsify", [None, "surface-code-like", "color-code-like"])
+def test_tesseract_presets(preset: Any, sparsify: Any) -> None:
+    """Tesseract preset helpers accept every named family."""
+    spec = decoders.tesseract_preset(preset, sparsify=sparsify)
+    assert spec.infers_errors
+    assert spec.predicts_observables_natively
+
+
+def test_tesseract_preset_options() -> None:
+    """Tesseract presets preserve qLDPC options and reject unknown selectors."""
+    channel = np.array([0.1, 0.2])
+    default = decoders.tesseract_preset()
+    assert default.options == decoders.tesseract_preset("long-beam").options
+    spec = decoders.tesseract_preset(
+        "short-beam", error_rate=0.3, error_channel=channel, add_erasure_bit=True
+    )
+    assert spec.options["error_rate"] == 0.3
+    assert spec.options["error_channel"] is channel
+    assert spec.options["add_erasure_bit"] is True
+
+    with pytest.raises(ValueError, match="Unknown Tesseract preset"):
+        decoders.tesseract_preset("medium-beam")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Unknown Tesseract sparsify preset"):
+        decoders.tesseract_preset(sparsify="generic")  # type: ignore[arg-type]
 
 
 def test_observable_decoder_specs() -> None:
@@ -229,6 +263,7 @@ def test_decoder_spec_helper_defaults() -> None:
         (decoders.lookup_table, decoders.LookupDecoder, {"predict_observable_flips"}),
         (decoders.guf, decoders.GUFDecoder, set()),
         (decoders.ilp, decoders.ILPDecoder, set()),
+        (decoders.tesseract, decoders.TesseractDecoder, set()),
     ]
     for helper, constructor, excluded in qldpc_decoders:
         helper_defaults = get_defaults(helper)

@@ -53,6 +53,8 @@ from .construction.specs import (
     min_sum_bp,
     mwpm,
     relay_bp,
+    tesseract,
+    tesseract_preset,
 )
 from .custom import (
     CompositeDecoder,
@@ -78,6 +80,7 @@ from .external.frontier import (
 from .external.ldpc import get_decoder_bf, get_decoder_bp_lsd, get_decoder_bp_osd
 from .external.pymatching import get_decoder_mwpm
 from .external.relay_bp import RelayBPDecoder, get_decoder_rbp
+from .external.tesseract import TesseractDecoder, get_decoder_tesseract
 from .protocols import (
     BatchErrorDecoder,
     BatchObservableDecoder,
@@ -140,6 +143,7 @@ __all__ = [
     "SubgraphDecoder",
     "SubgraphSinterDecoder",
     "SupportsDecode",
+    "TesseractDecoder",
     "TrivialDecoder",
     "WeightedLookupDecoder",
     "WeightedObservableLookupDecoder",
@@ -169,6 +173,7 @@ __all__ = [
     "get_decoder_lookup",
     "get_decoder_mwpm",
     "get_decoder_rbp",
+    "get_decoder_tesseract",
     "get_error_and_erasure",
     "get_error_decoder",
     "get_legacy_decoder_migration_message",
@@ -188,6 +193,8 @@ __all__ = [
     "resolve_decoder",
     "resolve_observable_decoder",
     "supports_batch_decoding",
+    "tesseract",
+    "tesseract_preset",
     "with_erasure_bits",
 ]
 
