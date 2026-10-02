@@ -777,15 +777,10 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
     probability, erasing every syndrome with a competing flip that can actually occur.
 
-    A positive ``probability_cutoff`` omits every error whose full probability is below the cutoff.
-    With independent mechanism probabilities (from an array-like ``error_channel`` or a detector
-    error model), the probability of an error is the no-error probability times the likelihood
-    ratios of its active mechanisms.  Enumeration sorts mechanisms by likelihood ratio and prunes
-    every combination whose most likely completion falls below the cutoff, so unlikely errors are
-    never generated, rather than being generated and then discarded.  The default cutoff of zero
-    preserves exhaustive enumeration.  When combined with ``confidence_ratio``, confidence is
-    computed from the errors retained by both ``max_weight`` and ``probability_cutoff``.  A positive
-    cutoff is not supported with a callable ``error_channel``.
+    A positive ``probability_cutoff`` omits every error whose probability is below the cutoff,
+    which can dramatically speed up construction of the lookup table.  When combined with
+    ``confidence_ratio``, confidence is computed from the retained errors.  A positive cutoff is not
+    supported with a callable ``error_channel``.
 
     The constructor argument ``penalty_func`` is deprecated.  It is immediately replaced by the
     callable channel ``error_channel=lambda error: -penalty_func(error)``.  Legacy penalty outputs
