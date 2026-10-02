@@ -17,10 +17,8 @@ from qldpc import decoders
 from qldpc.decoders.adapters import error_decoders
 
 
-def _uniform_binary_error_log_probability(
-    error: npt.NDArray[np.int_] | Sequence[int],
-) -> float:
-    """Return a uniform full-error log probability for pickling tests."""
+def _uniform_binary_error_channel(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
+    """Return the log probability of a uniformly random binary error."""
     return -float(np.size(error) * np.log(2))
 
 
@@ -65,7 +63,7 @@ def test_decoder_spec_observable_modes() -> None:
     """Specs expose native observable construction and error-conversion fallback."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
 
-    native_spec = decoders.lookup_table(max_weight=1, probability_cutoff=0.05)
+    native_spec = decoders.lookup_table(max_weight=1)
     assert native_spec.predicts_observables_natively
     assert isinstance(native_spec.build_observable_decoder(dem), decoders.ObservableLookupDecoder)
 
@@ -82,7 +80,7 @@ def test_decoder_specs() -> None:
     matrix = np.eye(2, dtype=int)
     syndrome = np.array([1, 0], dtype=int)
 
-    spec = decoders.lookup_table(max_weight=1, error_channel=_uniform_binary_error_log_probability)
+    spec = decoders.lookup_table(max_weight=1, error_channel=_uniform_binary_error_channel)
     restored = pickle.loads(pickle.dumps(spec))  # noqa: S301 - trusted in-memory round trip
     assert np.array_equal(
         decoders.get_error_decoder(matrix, decoder=restored).decode(syndrome), syndrome
@@ -107,11 +105,13 @@ def test_decoder_specs() -> None:
 
     # deprecated lookup penalties remain available through deferred construction
     with pytest.warns(DeprecationWarning, match="penalty_func is deprecated"):
-        legacy_spec = decoders.lookup_table(max_weight=1, penalty_func=lambda _: 0.0)
+        legacy_spec = decoders.lookup_table(
+            max_weight=1, penalty_func=lambda error: -float(error[1])
+        )
     assert "penalty_func" not in legacy_spec.options
     assert callable(legacy_spec.options["error_channel"])
-    legacy_decoder = legacy_spec.build(matrix)
-    assert np.array_equal(legacy_decoder.decode(syndrome), syndrome)
+    legacy_decoder = legacy_spec.build(np.array([[1, 1]], dtype=int))
+    assert np.array_equal(legacy_decoder.decode(np.array([1])), [0, 1])
 
     # a spec that was not built by a helper still has a (less concise) representation
     spec = decoders.DecoderSpec("custom", decoders.get_decoder_lookup, (("max_weight", 1),))

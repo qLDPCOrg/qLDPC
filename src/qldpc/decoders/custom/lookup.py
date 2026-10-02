@@ -8,7 +8,7 @@ import collections
 import itertools
 import warnings
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import NamedTuple, cast, overload
+from typing import NamedTuple, TypeAlias, cast, overload
 
 import galois
 import numpy as np
@@ -25,6 +25,10 @@ from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder
 
 _LOOKUP_CHUNK_SIZE = 4096
+
+_ErrorVector: TypeAlias = npt.NDArray[np.int_] | Sequence[int]
+_ErrorLogProbability: TypeAlias = Callable[[_ErrorVector], float]
+_ErrorChannel: TypeAlias = npt.NDArray[np.floating] | Sequence[float] | _ErrorLogProbability | None
 
 
 class _ScoredLocalError(NamedTuple):
@@ -51,36 +55,39 @@ class _ErrorSelection(NamedTuple):
     error: tuple[int, ...]
 
 
-class _NegatedErrorChannel:
-    """Negate a callable to adapt it to a log-probability channel."""
+class _CallableErrorChannel:
+    """Prepare a user callable for use as an error log-probability function."""
 
     def __init__(
         self,
-        func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float],
+        func: _ErrorLogProbability,
+        *,
+        penalty: bool = False,
     ) -> None:
         self._func = func
+        self._penalty = penalty
 
-    def __call__(self, error: npt.NDArray[np.int_] | Sequence[int]) -> float:
-        """Return the negated value of the adapted callable."""
-        return -float(self._func(error))
+    def __call__(self, error: _ErrorVector) -> float:
+        """Return the adapted callable's error log probability."""
+        log_probability = float(self._func(error)) * (-1 if self._penalty else 1)
+        if not self._penalty and (
+            np.isnan(log_probability) or log_probability == np.inf or log_probability > 0
+        ):
+            raise ValueError(
+                "A callable LookupDecoder error_channel must return a log probability that is"
+                " non-positive or -inf"
+            )
+        return log_probability
 
 
-def _replace_deprecated_penalty_func(
-    error_channel: (
-        npt.NDArray[np.floating]
-        | Sequence[float]
-        | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
-        | None
-    ),
-    penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
-) -> (
-    npt.NDArray[np.floating]
-    | Sequence[float]
-    | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
-    | None
-):
-    """Replace a deprecated penalty function with a callable error channel."""
+def _prepare_error_channel(
+    error_channel: _ErrorChannel,
+    penalty_func: _ErrorLogProbability | None,
+) -> _ErrorChannel:
+    """Wrap callable channels and replace a deprecated penalty function."""
     if penalty_func is None:
+        if callable(error_channel) and not isinstance(error_channel, _CallableErrorChannel):
+            return _CallableErrorChannel(error_channel)
         return error_channel
     if error_channel is not None:
         raise ValueError(
@@ -92,7 +99,7 @@ def _replace_deprecated_penalty_func(
         DeprecationWarning,
         stacklevel=get_external_caller_stacklevel(),
     )
-    return _NegatedErrorChannel(penalty_func)
+    return _CallableErrorChannel(penalty_func, penalty=True)
 
 
 class _LookupDecoderBase:
@@ -121,7 +128,7 @@ class _LookupDecoderBase:
         symplectic: bool = False,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
-        error_channel = _replace_deprecated_penalty_func(error_channel, penalty_func)
+        error_channel = _prepare_error_channel(error_channel, penalty_func)
         if confidence_ratio is not None and not confidence_ratio >= 0:  # also rejects NaN
             raise ValueError("A LookupDecoder confidence_ratio must be a non-negative number")
         if confidence_ratio:  # a positive confidence_ratio signals erasure via the erasure bit
@@ -207,7 +214,7 @@ class _LookupDecoderBase:
         self,
         pcm: IntegerArray,
         max_weight: int,
-        error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
+        error_log_probability: _ErrorLogProbability | None,
         syndrome_mask: npt.NDArray[np.bool_] | None,
         symplectic: bool,
         independent_error_channel: npt.NDArray[np.floating] | None,
@@ -262,7 +269,7 @@ class _LookupDecoderBase:
         self,
         pcm: IntegerArray,
         max_weight: int,
-        error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float],
+        error_log_probability: _ErrorLogProbability,
         observable_flip_matrix: IntegerArray,
         predict_observable_flips: bool,
         syndrome_mask: npt.NDArray[np.bool_] | None,
@@ -349,12 +356,7 @@ class _LookupDecoderBase:
     @staticmethod
     def _organize_lookup_table_initialization_data(
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-        error_channel: (
-            npt.NDArray[np.floating]
-            | Sequence[float]
-            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
-            | None
-        ),
+        error_channel: _ErrorChannel,
         observable_flip_matrix: IntegerArray | None,
         predict_observable_flips: bool,
         post_select: Collection[int],
@@ -363,7 +365,7 @@ class _LookupDecoderBase:
     ) -> tuple[
         IntegerArray,
         IntegerArray | None,
-        Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
+        _ErrorLogProbability | None,
         npt.NDArray[np.bool_] | None,
         npt.NDArray[np.int_],
         npt.NDArray[np.floating] | None,
@@ -391,11 +393,9 @@ class _LookupDecoderBase:
             pcm = pcm_or_dem
 
         independent_error_channel: npt.NDArray[np.floating] | None = None
-        error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None
+        error_log_probability: _ErrorLogProbability | None = None
         if callable(error_channel):
-            error_log_probability = _LookupDecoderBase._validate_error_log_probability(
-                error_channel
-            )
+            error_log_probability = error_channel
         elif error_channel is not None:
             independent_error_channel = np.asarray(error_channel, dtype=float)
             expected_shape = (pcm.shape[1],)
@@ -452,7 +452,7 @@ class _LookupDecoderBase:
     def _build_error_log_probability(
         error_channel: npt.NDArray[np.floating] | Sequence[float],
         field_order: int = 2,
-    ) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
+    ) -> _ErrorLogProbability:
         """Construct a full-error log probability from independent mechanism probabilities."""
         error_channel = np.asarray(error_channel)
         with np.errstate(divide="ignore"):  # a probability of 0 or 1 yields a -inf log, which is ok
@@ -460,32 +460,13 @@ class _LookupDecoderBase:
             log_non_probs = np.log(1 - error_channel)
 
         def error_log_probability(
-            error: npt.NDArray[np.int_] | Sequence[int],
+            error: _ErrorVector,
         ) -> float:
             """Return the full independent-channel log probability of an error."""
             events = np.asarray(error).astype(bool)
             return float(np.sum(log_probs[events]) + np.sum(log_non_probs[~events]))
 
         return error_log_probability
-
-    @staticmethod
-    def _validate_error_log_probability(
-        error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float],
-    ) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
-        """Validate the outputs of a callable error channel."""
-
-        def validated_error_log_probability(
-            error: npt.NDArray[np.int_] | Sequence[int],
-        ) -> float:
-            log_probability = float(error_log_probability(error))
-            if np.isnan(log_probability) or log_probability == np.inf or log_probability > 0:
-                raise ValueError(
-                    "A callable LookupDecoder error_channel must return a log probability that is"
-                    " non-positive or -inf"
-                )
-            return log_probability
-
-        return validated_error_log_probability
 
     @staticmethod
     def _build_observable_flip_func(
@@ -818,10 +799,10 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     computed from the errors retained by both ``max_weight`` and ``probability_cutoff``.
 
     The constructor argument ``penalty_func`` is deprecated.  It is immediately replaced by the
-    callable channel ``error_channel=lambda error: -penalty_func(error)``, which then follows the
-    same validation and cutoff restrictions as any other callable channel.  The decode-time
-    ``penalty_func`` of a WeightedLookupDecoder is a separate, non-deprecated optimization
-    objective.
+    callable channel ``error_channel=lambda error: -penalty_func(error)``.  Legacy penalty outputs
+    are not subjected to the stricter normalized-log-probability validation, but the adapted channel
+    has the same cutoff restriction as any other callable channel.  The decode-time ``penalty_func``
+    of a WeightedLookupDecoder is a separate, non-deprecated optimization objective.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
@@ -1415,12 +1396,14 @@ def _iter_errors_above_probability_cutoff(
         if np.isfinite(inactive_log_probability):
             optional_sites.append(scored_site)
         else:
+            # A site containing a probability-one mechanism cannot be left inactive.
             forced_sites.append(scored_site)
 
     optional_sites.sort(
         key=lambda site: site.best_log_probability - site.inactive_log_probability,
         reverse=True,
     )
+    # Prefix/suffix sums provide exact-weight upper bounds for the sorted optional sites.
     optional_best_log_prefix = [0.0]
     for site in optional_sites:
         optional_best_log_prefix.append(optional_best_log_prefix[-1] + site.best_log_probability)
@@ -1463,17 +1446,19 @@ def _iter_errors_above_probability_cutoff(
             )
         )
 
-    def compare_to_cutoff(
+    def bound_reaches_cutoff(
         log_probability: float,
         log_scale: float,
         selection: _ErrorSelection | None,
         extra_errors: Iterator[tuple[int, tuple[int, ...]]],
-    ) -> int:
-        """Return 1 if retained, -1 if definitely below cutoff, or 0 if uncertain and below."""
+    ) -> bool | None:
+        """Return whether a bound qualifies, or None when rounding makes it uncertain."""
+        # Log bounds are fast, while a direct product resolves values close enough for rounding to
+        # change the comparison.  An uncertain result stays traversable until the strict leaf check.
         comparison_scale = max(1.0, log_scale, abs(log_probability), abs(log_cutoff))
         if abs(log_probability - log_cutoff) > log_tolerance * comparison_scale:
-            return 1 if log_probability > log_cutoff else -1
-        return 1 if get_probability(selection, extra_errors) >= probability_cutoff else 0
+            return log_probability > log_cutoff
+        return True if get_probability(selection, extra_errors) >= probability_cutoff else None
 
     def build_error(selection: _ErrorSelection | None) -> npt.NDArray[np.int_]:
         error = field.Zeros((repeat, block_length))
@@ -1486,6 +1471,7 @@ def _iter_errors_above_probability_cutoff(
         selected_log_probability = optional_best_log_prefix[stop] - optional_best_log_prefix[start]
         inactive_log_probability = optional_inactive_log_suffix[stop]
         log_probability = selected_log_probability + inactive_log_probability
+        # Adding both prefix magnitudes bounds cancellation in their subtraction above.
         log_scale = (
             abs(optional_best_log_prefix[stop])
             + abs(optional_best_log_prefix[start])
@@ -1498,6 +1484,7 @@ def _iter_errors_above_probability_cutoff(
             yield site.site_index, site.errors[0].error
 
     forced_weight = len(forced_sites)
+    # Enumerate physical weights from heavy to light, matching the exhaustive path's tie-breaking.
     for weight in range(min(block_length, max_weight), forced_weight - 1, -1):
         optional_weight = weight - forced_weight
         if optional_weight > len(optional_sites):
@@ -1507,8 +1494,9 @@ def _iter_errors_above_probability_cutoff(
             0, optional_weight
         )
         best_log_probability = forced_best_log_suffix[0] + best_optional_log_probability
+        # Only a definite False prunes; None means rounding could hide an inclusive-boundary match.
         if (
-            compare_to_cutoff(
+            bound_reaches_cutoff(
                 best_log_probability,
                 abs(forced_best_log_suffix[0]) + best_optional_log_scale,
                 None,
@@ -1517,11 +1505,12 @@ def _iter_errors_above_probability_cutoff(
                     iter_best_optional_errors(0, optional_weight),
                 ),
             )
-            == -1
+            is False
         ):
             continue
 
         forced_stack: list[tuple[int, float, float, _ErrorSelection | None]] = [(0, 0.0, 0.0, None)]
+        # Explicit stacks support high-weight errors without consuming Python recursion depth.
         while forced_stack:
             forced_index, current_log_probability, current_log_scale, selection = forced_stack.pop()
             if forced_index < len(forced_sites):
@@ -1539,7 +1528,7 @@ def _iter_errors_above_probability_cutoff(
                     child_selection = _ErrorSelection(
                         selection, site.site_index, scored_error.error
                     )
-                    cutoff_comparison = compare_to_cutoff(
+                    cutoff_comparison = bound_reaches_cutoff(
                         child_log_probability + best_later_log_probability,
                         child_log_scale + best_later_log_scale,
                         child_selection,
@@ -1554,7 +1543,7 @@ def _iter_errors_above_probability_cutoff(
                             iter_best_optional_errors(0, optional_weight),
                         ),
                     )
-                    if cutoff_comparison == -1:
+                    if cutoff_comparison is False:
                         break
                     forced_children.append(
                         (
@@ -1623,13 +1612,13 @@ def _iter_errors_above_probability_cutoff(
                             site.site_index,
                             scored_error.error,
                         )
-                        cutoff_comparison = compare_to_cutoff(
+                        cutoff_comparison = bound_reaches_cutoff(
                             child_log_probability + best_later_log_probability,
                             child_log_scale + best_later_log_scale,
                             child_selection,
                             iter_best_optional_errors(position + 1, remaining - 1),
                         )
-                        if cutoff_comparison == -1:
+                        if cutoff_comparison is False:
                             break
                         position_is_definitely_below_cutoff = False
                         optional_children.append(
