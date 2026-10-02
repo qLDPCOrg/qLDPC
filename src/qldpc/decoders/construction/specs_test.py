@@ -128,6 +128,9 @@ def test_decoder_specs() -> None:
 
     # A backend-specific option is retained for validation by the backend at build time
     assert decoders.bp_lsd(lsd_ordr=1).options["lsd_ordr"] == 1
+    # Helpers without a backend keyword escape hatch still reject unknown options at construction
+    with pytest.raises(TypeError, match=r"guf\(\).*unexpected keyword argument 'max_weigth'"):
+        decoders.guf(max_weigth=1)  # type: ignore[call-arg]
 
 
 def test_decoder_spec_helper_annotations() -> None:

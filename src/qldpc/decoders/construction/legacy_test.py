@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import functools
 import re
+import unittest.mock
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -208,6 +209,21 @@ def test_deprecated_builders() -> None:
     # the deprecated uppercase aliases resolve to the deprecated lowercase builders
     with pytest.warns(DeprecationWarning, match="get_decoder_BP_OSD"):
         assert decoders.get_decoder_BP_OSD is decoders.get_decoder_bp_osd
+
+
+def test_deprecated_tesseract_builder() -> None:
+    """The public Tesseract getter warns and forwards its options to the private builder."""
+    matrix = np.eye(2, dtype=int)
+    with (
+        unittest.mock.patch.object(legacy, "_get_decoder_tesseract") as builder,
+        warnings.catch_warnings(record=True) as caught,
+    ):
+        warnings.simplefilter("always")
+        assert decoders.get_decoder_tesseract(matrix, det_beam=7) is builder.return_value
+    builder.assert_called_once_with(matrix, det_beam=7)
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert "decoders.tesseract(...).build(pcm_or_dem)" in str(caught[0].message)
 
 
 def test_deprecated_resolution_functions() -> None:
