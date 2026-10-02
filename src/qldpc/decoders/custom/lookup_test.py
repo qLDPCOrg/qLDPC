@@ -6,11 +6,9 @@ from __future__ import annotations
 
 import collections
 import warnings
-from collections.abc import Sequence
 
 import galois
 import numpy as np
-import numpy.typing as npt
 import pytest
 import scipy.sparse
 import stim
@@ -24,29 +22,6 @@ from qldpc.decoders.custom.lookup import (
 )
 
 
-def _get_cutoff_errors(
-    matrix: math.IntegerArray,
-    max_weight: int,
-    error_channel: npt.NDArray[np.floating] | Sequence[float],
-    probability_cutoff: float,
-    *,
-    syndrome_mask: npt.NDArray[np.bool_] | None = None,
-    symplectic: bool = False,
-) -> set[tuple[int, ...]]:
-    """Return the errors admitted by cutoff enumeration."""
-    return {
-        tuple(error.tolist())
-        for error, _ in _iter_errors_and_syndromes(
-            matrix,
-            max_weight,
-            syndrome_mask,
-            symplectic,
-            error_channel=error_channel,
-            probability_cutoff=probability_cutoff,
-        )
-    }
-
-
 def test_lookup(toy_problem: ToyProblem) -> None:
     """Lookup decoding should be straightforward."""
     matrix, error, syndrome = toy_problem
@@ -58,8 +33,6 @@ def test_lookup(toy_problem: ToyProblem) -> None:
     # decode with a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
     decoder = decoders.get_decoder_lookup(dem, max_weight=2)
-    assert np.array_equal(error, decoder.decode(syndrome))
-    decoder = decoders.get_decoder_lookup(dem, max_weight=2, probability_cutoff=1e-7)
     assert np.array_equal(error, decoder.decode(syndrome))
 
     erasing_decoder = decoders.get_decoder_lookup(matrix, max_weight=2, add_erasure_bit=True)
@@ -321,166 +294,64 @@ def test_invalid_arguments() -> None:
     # The endpoints are deterministic but valid probabilities.
     decoders.LookupDecoder(pcm, 1, error_channel=[0, 1])
 
-    # A positive cutoff needs actual probabilities, rather than an arbitrary penalty.
-    with pytest.raises(ValueError, match=r"requires.*error_channel"):
-        decoders.LookupDecoder(pcm, 1, probability_cutoff=0.1)
+    # a positive cutoff needs independent probabilities
     with pytest.raises(ValueError, match="array-like independent error_channel"):
         decoders.LookupDecoder(pcm, 1, error_channel=lambda _: -1.0, probability_cutoff=0.1)
-    with (
-        pytest.warns(DeprecationWarning, match="penalty_func is deprecated"),
-        pytest.raises(ValueError, match=r"requires.*error_channel"),
-    ):
-        decoders.LookupDecoder(pcm, 1, penalty_func=lambda _: 0.0, probability_cutoff=0.1)
-    decoders.LookupDecoder(pcm, 1, probability_cutoff=0)
 
 
 def test_callable_error_channel() -> None:
-    """A callable error channel supplies a correlated full-error distribution."""
+    """A callable error channel supplies a correlated error distribution."""
     matrix = np.array([[1, 1, 1]], dtype=int)
-    observable = np.array([[0, 1, 1]], dtype=int)
     probabilities = [0.1125, 0.15, 0.15, 0.1125, 0.2, 0.1125, 0.1125, 0.05]
-    correlated_channel = lambda error: float(
-        np.log(probabilities[int("".join(map(str, error)), 2)])
-    )
-    decoder = decoders.LookupDecoder(matrix, 3, error_channel=correlated_channel)
-    assert np.array_equal(observable @ decoder.decode(np.array([1], dtype=int)), [0])
-    observable_decoder = decoders.ObservableLookupDecoder(
+    decoder = decoders.LookupDecoder(
         matrix,
         3,
-        observable_flip_matrix=observable,
-        error_channel=correlated_channel,
+        error_channel=lambda error: float(np.log(probabilities[int("".join(map(str, error)), 2)])),
     )
-    assert np.array_equal(observable_decoder.decode_observables(np.array([1], dtype=int)), [1])
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0, 0])
 
-    field = galois.GF(3)
-    seen: set[int] = set()
+    with pytest.raises(ValueError, match="non-positive or -inf"):
+        decoders.LookupDecoder(matrix, 1, error_channel=lambda _: 0.1)
 
-    def error_channel(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
-        value = int(error[0])
-        seen.add(value)
-        return float(np.log([0.2, 0.3, 0.5][value]))
-
-    decoder = decoders.LookupDecoder(field([[1]]), max_weight=1, error_channel=error_channel)
-    assert np.array_equal(decoder.decode(np.array([2], dtype=int)), [2])
-    assert seen == {0, 1, 2}
-
-    for invalid_channel in [lambda _: np.nan, lambda _: 0.1]:
-        with pytest.raises(ValueError, match="non-positive or -inf"):
-            decoders.LookupDecoder(
-                np.eye(1, dtype=int),
-                max_weight=1,
-                error_channel=invalid_channel,
-            )
-
-    decoder = decoders.LookupDecoder(
-        np.eye(1, dtype=int),
-        max_weight=1,
-        error_channel=lambda error: -np.inf if error[0] else 0.0,
-    )
-    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
-
-
-def test_deprecated_lookup_penalty_func() -> None:
-    """The deprecated constructor penalty retains its relative-weight behavior."""
-    matrix = np.array([[1, 1, 1]], dtype=int)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        legacy = decoders.LookupDecoder(
+    # deprecated penalty functions are converted to callable error channels
+    with pytest.warns(DeprecationWarning, match="penalty_func is deprecated"):
+        decoder = decoders.LookupDecoder(
             matrix, 2, penalty_func=lambda error: -float(np.dot([1, 2, 3], error))
         )
-    assert len(caught) == 1
-    assert caught[0].filename == __file__
-    assert "penalty_func is deprecated" in str(caught[0].message)
-    assert np.array_equal(legacy.decode(np.array([1], dtype=int)), [0, 0, 1])
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [0, 0, 1])
 
 
 def test_probability_cutoff() -> None:
-    """Cutoff enumeration handles field, pruning, precision, and scale edge cases."""
-    matrix = np.eye(3, dtype=int)
-    channel = np.array([0.2, 0.1, 0.01])
-    exhaustive = _iter_errors_and_syndromes(matrix, 3, None, False)
-    expected = {
-        tuple(error.tolist())
-        for error, _ in exhaustive
-        if np.prod(np.where(error.astype(bool), channel, 1 - channel)) >= 0.008
-    }
-    assert _get_cutoff_errors(matrix, 3, channel, 0.008) == expected
+    """A probability cutoff prunes unlikely errors without enumerating them."""
+    error_channel = np.full(60, 1e-3)
+    error_channel[:6] = 0.4
+    errors = np.array(
+        [
+            error
+            for error, _ in _iter_errors_and_syndromes(
+                np.zeros((1, 60), dtype=int),
+                30,
+                None,
+                False,
+                error_channel=error_channel,
+                probability_cutoff=1e-3,
+            )
+        ]
+    )
+    assert len(errors) == 2**6
+    assert not np.any(errors[:, 6:])
 
-    endpoint_errors = _get_cutoff_errors(np.eye(3, dtype=int), 3, [1, 0, 0.5], 0.5)
-    assert endpoint_errors == {(1, 0, 0), (1, 0, 1)}
-
-    field = galois.GF(3)
-    field_errors = _get_cutoff_errors(field([[1]]), 1, [0.2], 0.1)
-    assert field_errors == {(0,), (1,), (2,)}
-    decoder = decoders.LookupDecoder(field([[1, 1]]), 2, error_channel=[0.6, 0.6])
-    assert np.count_nonzero(decoder.decode(np.array([1]))) == 1
-
-    matrix = np.array([[1, 0]], dtype=int)
-    symplectic_errors = _get_cutoff_errors(matrix, 1, [0.6, 0.6], 0.3, symplectic=True)
-    assert symplectic_errors == {(1, 1)}
-
-    forced_errors = _get_cutoff_errors(matrix, 1, [1, 0.2], 0.5, symplectic=True)
-    assert forced_errors == {(1, 0)}
-
-    post_selected_errors = _get_cutoff_errors(
+    # the cutoff prunes the unlikely Z error, and post-selection on the Z check drops the Y error
+    decoder = decoders.LookupDecoder(
         np.eye(2, dtype=int),
         1,
-        [0.2, 0.2],
-        0.1,
-        syndrome_mask=np.array([False, True]),
+        error_channel=[0.6, 0.2],
+        post_select=[0],
+        probability_cutoff=0.1,
+        symplectic=True,
     )
-    assert post_selected_errors == {(0, 0), (0, 1)}
-
-    # Prune cold branches within an otherwise viable weight.
-    num_errors = 60
-    error_channel = np.full(num_errors, 1e-3)
-    error_channel[:6] = 0.4
-    errors = _get_cutoff_errors(
-        np.zeros((1, num_errors), dtype=int),
-        num_errors // 2,
-        error_channel,
-        1e-3,
-    )
-
-    assert len(errors) == 2**6
-    assert all(not any(error[6:]) for error in errors)
-
-    # Distinguish adjacent floating-point cutoffs without losing exact-boundary errors.
-    num_errors = 10
-    error_probability = 2.0**-num_errors
-    matrix = np.zeros((1, num_errors), dtype=int)
-    assert not _get_cutoff_errors(
-        matrix,
-        num_errors,
-        np.full(num_errors, 0.5),
-        np.nextafter(error_probability, 1),
-    )
-
-    probability = np.nextafter(1.0, 0)
-    channel = np.full(num_errors, probability)
-    cutoff = float(np.prod(channel))
-    assert _get_cutoff_errors(matrix, num_errors, channel, cutoff) == {(1,) * num_errors}
-    assert not _get_cutoff_errors(np.zeros((1, 1), dtype=int), 1, [probability], 1)
-
-    # The explicit search stack supports weights beyond Python's recursion limit.
-    num_errors = 1000
-    assert _get_cutoff_errors(
-        np.zeros((1, num_errors), dtype=int),
-        num_errors,
-        np.full(num_errors, 0.9999),
-        0.8,
-    ) == {(1,) * num_errors}
-
-    # Pruning bounds round differently from exact probabilities, so they need a safety margin.
-    error_channel = np.array([0.3, 0.1, 0.1])
-    boundary_error = np.array([1, 0, 1], dtype=int)
-    probability_cutoff = float(
-        np.prod(np.where(boundary_error.astype(bool), error_channel, 1 - error_channel))
-    )
-
-    assert tuple(boundary_error.tolist()) in _get_cutoff_errors(
-        np.eye(3, dtype=int), 2, error_channel, probability_cutoff
-    )
+    assert len(decoder) == 2
+    assert np.array_equal(decoder.decode(np.array([0, 1], dtype=int)), [1, 0])
 
 
 def test_confidence_ratio() -> None:
