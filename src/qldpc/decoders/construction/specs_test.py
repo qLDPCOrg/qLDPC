@@ -106,9 +106,11 @@ def test_decoder_specs() -> None:
     assert spec.options["max_weight"] == 2
 
     # deprecated lookup penalties remain available through deferred construction
-    legacy_spec = decoders.lookup_table(max_weight=1, penalty_func=lambda _: 0.0)
     with pytest.warns(DeprecationWarning, match="penalty_func is deprecated"):
-        legacy_decoder = legacy_spec.build(matrix)
+        legacy_spec = decoders.lookup_table(max_weight=1, penalty_func=lambda _: 0.0)
+    assert "penalty_func" not in legacy_spec.options
+    assert callable(legacy_spec.options["error_channel"])
+    legacy_decoder = legacy_spec.build(matrix)
     assert np.array_equal(legacy_decoder.decode(syndrome), syndrome)
 
     # a spec that was not built by a helper still has a (less concise) representation

@@ -51,6 +51,50 @@ class _ErrorSelection(NamedTuple):
     error: tuple[int, ...]
 
 
+class _NegatedErrorChannel:
+    """Negate a callable to adapt it to a log-probability channel."""
+
+    def __init__(
+        self,
+        func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float],
+    ) -> None:
+        self._func = func
+
+    def __call__(self, error: npt.NDArray[np.int_] | Sequence[int]) -> float:
+        """Return the negated value of the adapted callable."""
+        return -float(self._func(error))
+
+
+def _replace_deprecated_penalty_func(
+    error_channel: (
+        npt.NDArray[np.floating]
+        | Sequence[float]
+        | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+        | None
+    ),
+    penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
+) -> (
+    npt.NDArray[np.floating]
+    | Sequence[float]
+    | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+    | None
+):
+    """Replace a deprecated penalty function with a callable error channel."""
+    if penalty_func is None:
+        return error_channel
+    if error_channel is not None:
+        raise ValueError(
+            "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
+        )
+    warnings.warn(
+        "LookupDecoder penalty_func is deprecated; pass a callable error_channel that returns the"
+        " full error log probability instead",
+        DeprecationWarning,
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    return _NegatedErrorChannel(penalty_func)
+
+
 class _LookupDecoderBase:
     """Shared implementation of lookup-table decoders.
 
@@ -77,6 +121,7 @@ class _LookupDecoderBase:
         symplectic: bool = False,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
+        error_channel = _replace_deprecated_penalty_func(error_channel, penalty_func)
         if confidence_ratio is not None and not confidence_ratio >= 0:  # also rejects NaN
             raise ValueError("A LookupDecoder confidence_ratio must be a non-negative number")
         if confidence_ratio:  # a positive confidence_ratio signals erasure via the erasure bit
@@ -103,7 +148,6 @@ class _LookupDecoderBase:
             post_select,
             add_erasure_bit,
             probability_cutoff,
-            penalty_func,
         )
         if observable_flip_matrix is not None and error_log_probability is None:
             raise ValueError(
@@ -316,7 +360,6 @@ class _LookupDecoderBase:
         post_select: Collection[int],
         add_erasure_bit: bool,
         probability_cutoff: float = 0,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> tuple[
         IntegerArray,
         IntegerArray | None,
@@ -326,27 +369,16 @@ class _LookupDecoderBase:
         npt.NDArray[np.floating] | None,
     ]:
         """Organize and validate the inputs to a LookupDecoder."""
-        if penalty_func is not None:
-            warnings.warn(
-                "LookupDecoder penalty_func is deprecated; pass a callable error_channel that"
-                " returns the full error log probability instead",
-                DeprecationWarning,
-                stacklevel=get_external_caller_stacklevel(),
-            )
         if not np.isfinite(probability_cutoff) or not 0 <= probability_cutoff <= 1:
             raise ValueError(
                 "A LookupDecoder probability_cutoff must be a finite probability between 0 and 1,"
                 " inclusive"
             )
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            if (
-                error_channel is not None
-                or penalty_func is not None
-                or observable_flip_matrix is not None
-            ):
+            if error_channel is not None or observable_flip_matrix is not None:
                 raise ValueError(
-                    "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
-                    " providing a stim.DetectorErrorModel to a LookupDecoder"
+                    "Cannot specify an error_channel or observable_flip_matrix when providing a"
+                    " stim.DetectorErrorModel to a LookupDecoder"
                 )
             dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
             pcm = dem_arrays.detector_flip_matrix
@@ -357,10 +389,6 @@ class _LookupDecoderBase:
                 observable_flip_matrix = dem_arrays.observable_flip_matrix
         else:
             pcm = pcm_or_dem
-            if error_channel is not None and penalty_func is not None:
-                raise ValueError(
-                    "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
-                )
 
         independent_error_channel: npt.NDArray[np.floating] | None = None
         error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None
@@ -385,16 +413,6 @@ class _LookupDecoderBase:
                 independent_error_channel,
                 (type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2).order,
             )
-        elif penalty_func is not None:
-
-            def legacy_log_weight(
-                error: npt.NDArray[np.int_] | Sequence[int],
-            ) -> float:
-                """Convert a deprecated penalty into its legacy log weight."""
-                return -float(penalty_func(error))
-
-            error_log_probability = legacy_log_weight
-
         if probability_cutoff and independent_error_channel is None:
             raise ValueError(
                 "A positive LookupDecoder probability_cutoff requires a stim.DetectorErrorModel or"
@@ -798,6 +816,12 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     combinations whose best possible completion is below the cutoff.  The default cutoff of zero
     preserves exhaustive enumeration.  When combined with ``confidence_ratio``, confidence is
     computed from the errors retained by both ``max_weight`` and ``probability_cutoff``.
+
+    The constructor argument ``penalty_func`` is deprecated.  It is immediately replaced by the
+    callable channel ``error_channel=lambda error: -penalty_func(error)``, which then follows the
+    same validation and cutoff restrictions as any other callable channel.  The decode-time
+    ``penalty_func`` of a WeightedLookupDecoder is a separate, non-deprecated optimization
+    objective.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the

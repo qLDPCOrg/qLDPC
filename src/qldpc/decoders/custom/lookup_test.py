@@ -271,10 +271,7 @@ def test_invalid_arguments() -> None:
         decoders.LookupDecoder(dem, 1, error_channel=[0.1])
     with pytest.raises(ValueError, match=r"providing a stim\.DetectorErrorModel"):
         decoders.LookupDecoder(dem, 1, error_channel=lambda _: 0.0)
-    with (
-        pytest.warns(DeprecationWarning, match="penalty_func is deprecated"),
-        pytest.raises(ValueError, match="both an error_channel and a penalty_func"),
-    ):
+    with pytest.raises(ValueError, match="both an error_channel and a penalty_func"):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], penalty_func=lambda _: 0.0)
 
     # an observable lookup decoder built from a parity check matrix requires observables
