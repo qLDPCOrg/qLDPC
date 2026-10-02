@@ -8,6 +8,7 @@ import builtins
 import pickle
 import subprocess
 import sys
+import unittest.mock
 from collections.abc import Callable
 from typing import Literal, cast
 
@@ -94,6 +95,26 @@ def test_matching_builder_validation() -> None:
     ).predicts_observables_natively
     with pytest.raises(ValueError, match=r"decompose_errors=True.*enable_correlations=True"):
         decoders.mwpm(enable_correlations=True, decompose_errors=True)
+    with pytest.raises(ValueError, match="faults_matrix is reserved"):
+        decoders.mwpm(faults_matrix=np.eye(2, dtype=int))
+    with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
+        decoders.mwpm(enable_correlations=True, backend_extension=12)
+
+
+def test_matching_backend_options() -> None:
+    """Deferred and immediate builders forward additional options in both modes."""
+    matrix = np.eye(2, dtype=int)
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    with unittest.mock.patch.object(pymatching, "_build_matching") as backend:
+        _get_decoder_mwpm(matrix, backend_extension=12)
+        assert backend.call_args.kwargs["backend_extension"] == 12
+        spec = decoders.mwpm(backend_extension=12)
+        assert spec.options["backend_extension"] == 12
+        spec.build(matrix)
+        assert backend.call_args.kwargs["backend_extension"] == 12
+        observable = spec.build_observable_decoder(dem)
+        assert isinstance(observable, pymatching.MatchingObservableDecoder)
+        assert backend.call_args.kwargs["backend_extension"] == 12
 
 
 def test_matching_protocol_adapter() -> None:

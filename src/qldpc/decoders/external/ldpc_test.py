@@ -7,6 +7,7 @@ from __future__ import annotations
 import pickle
 import subprocess
 import sys
+import unittest.mock
 from collections.abc import Callable
 from typing import Any
 
@@ -90,6 +91,30 @@ def test_bp_lsd_random_serial_schedule() -> None:
     deferred_decoder: Any = decoders.bp_lsd(random_serial_schedule=True).build(matrix)
     assert immediate_decoder.random_serial_schedule
     assert deferred_decoder.random_serial_schedule
+
+
+@pytest.mark.parametrize(
+    ("builder", "helper"),
+    [
+        (_get_decoder_bp_osd, decoders.bp_osd),
+        (_get_decoder_bp_lsd, decoders.bp_lsd),
+        (_get_decoder_bf, decoders.bf),
+    ],
+)
+def test_ldpc_backend_options(
+    builder: Callable[..., decoders.ErrorDecoder],
+    helper: Callable[..., decoders.DecoderSpec[decoders.ErrorDecoder]],
+) -> None:
+    """Named options and extra backend options reach the underlying ldpc constructor."""
+    matrix = np.eye(2, dtype=int)
+    with unittest.mock.patch.object(ldpc_integration, "_build_ldpc_decoder") as backend:
+        builder(matrix, max_iter=4, backend_extension=12)
+        assert backend.call_args.args[3]["max_iter"] == 4
+        assert backend.call_args.args[3]["backend_extension"] == 12
+        spec = helper(max_iter=4, backend_extension=12)
+        assert spec.options["backend_extension"] == 12
+        spec.build(matrix)
+        assert backend.call_args.args[3]["backend_extension"] == 12
 
 
 def test_ldpc_protocol_adapters() -> None:

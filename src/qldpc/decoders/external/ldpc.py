@@ -62,6 +62,7 @@ def _get_decoder_bp_osd(
     osd_method: Literal["OSD_0", "OSD_E", "OSD_CS"] = "OSD_0",
     osd_order: int = 0,
     error_rate: float | None = None,
+    **backend_options: object,
 ) -> ErrorDecoder:
     """Configure a belief-propagation with ordered-statistics (BP+OSD) decoder.
 
@@ -79,6 +80,7 @@ def _get_decoder_bp_osd(
         serial_schedule_order: Explicit update order for a serial schedule.
         osd_method: Ordered-statistics decoding method.
         osd_order: Ordered-statistics decoding order.
+        **backend_options: Additional options forwarded to ``ldpc.BpOsdDecoder``.
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
@@ -107,6 +109,7 @@ def _get_decoder_bp_osd(
             "serial_schedule_order": serial_schedule_order,
             "osd_method": osd_method,
             "osd_order": osd_order,
+            **backend_options,
         },
     )
 
@@ -130,6 +133,7 @@ def _get_decoder_bp_lsd(
     lsd_order: int = 0,
     always_run_lsd: bool = False,
     error_rate: float | None = None,
+    **backend_options: object,
 ) -> ErrorDecoder:
     """Configure a belief-propagation with localized-statistics (BP+LSD) decoder.
 
@@ -150,6 +154,7 @@ def _get_decoder_bp_lsd(
         lsd_method: Localized-statistics decoding method.
         lsd_order: Localized-statistics decoding order.
         always_run_lsd: Whether to run LSD after belief propagation converges.
+        **backend_options: Additional options forwarded to ``ldpc.BpLsdDecoder``.
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
@@ -181,6 +186,7 @@ def _get_decoder_bp_lsd(
             "lsd_method": lsd_method,
             "lsd_order": lsd_order,
             "always_run_lsd": always_run_lsd,
+            **backend_options,
         },
     )
 
@@ -201,6 +207,7 @@ def _get_decoder_bf(
     uf_method: Literal["inversion", "peeling"] = "peeling",
     bits_per_step: int = 0,
     error_rate: float | None = None,
+    **backend_options: object,
 ) -> ErrorDecoder:
     """Configure a belief-find (BF) decoder.
 
@@ -218,6 +225,7 @@ def _get_decoder_bf(
         serial_schedule_order: Explicit update order for a serial schedule.
         uf_method: Union-find cluster-solving method.
         bits_per_step: Number of bits added to each cluster step.
+        **backend_options: Additional options forwarded to ``ldpc.BeliefFindDecoder``.
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
@@ -248,6 +256,7 @@ def _get_decoder_bf(
             "serial_schedule_order": serial_schedule_order,
             "uf_method": uf_method,
             "bits_per_step": bits_per_step,
+            **backend_options,
         },
     )
 

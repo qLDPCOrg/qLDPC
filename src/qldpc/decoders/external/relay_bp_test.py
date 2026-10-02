@@ -86,6 +86,28 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
         assert np.array_equal(np.asarray(matrix) @ relay_decoder.decode(syndrome) % 2, syndrome)
 
 
+@pytest.mark.parametrize(
+    ("builder", "helper"),
+    [
+        (_get_decoder_relay_bp, decoders.relay_bp),
+        (_get_decoder_min_sum_bp, decoders.min_sum_bp),
+    ],
+)
+def test_relay_backend_options(
+    builder: Callable[..., decoders.RelayBPDecoder],
+    helper: Callable[..., decoders.DecoderSpec[decoders.RelayBPDecoder]],
+) -> None:
+    """Named options and additional backend options survive deferred construction."""
+    matrix = np.eye(2, dtype=int)
+    with unittest.mock.patch("qldpc.decoders.external.relay_bp._get_relay_decoder") as backend:
+        builder(matrix, backend_extension=12)
+        assert backend.call_args.kwargs["backend_extension"] == 12
+        spec = helper(backend_extension=12)
+        assert spec.options["backend_extension"] == 12
+        spec.build(matrix)
+        assert backend.call_args.kwargs["backend_extension"] == 12
+
+
 def test_relay_bp_observables() -> None:
     """A RelayBPDecoder predicts observable flips, with or without an erasure bit."""
     circuit = stim.Circuit.generated(

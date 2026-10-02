@@ -359,6 +359,7 @@ def _get_decoder_relay_bp(
     stopping_criterion: str | None = None,
     logging: bool = False,
     seed: int = 0,
+    **backend_options: object,
 ) -> RelayBPDecoder:
     """Configure a Relay-BP decoder from the relay-bp package.
 
@@ -386,6 +387,7 @@ def _get_decoder_relay_bp(
         stopping_criterion: Backend option, or None for the backend default.
         logging: Backend option.
         seed: Backend option.
+        **backend_options: Additional options passed to the selected Relay-BP backend.
 
     Returns:
         Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` methods
@@ -421,6 +423,7 @@ def _get_decoder_relay_bp(
         logging=logging,
         seed=seed,
         **{name: value for name, value in optional_args.items() if value is not None},
+        **backend_options,
     )
 
 
@@ -440,6 +443,7 @@ def _get_decoder_min_sum_bp(
     max_data_value: float | None = None,
     int_bits: int | None = None,
     frac_bits: int | None = None,
+    **backend_options: object,
 ) -> RelayBPDecoder:
     """Configure a min-sum belief-propagation decoder from the relay-bp package.
 
@@ -461,6 +465,7 @@ def _get_decoder_min_sum_bp(
         max_data_value: Backend option.
         int_bits: Backend option for fixed-point precision.
         frac_bits: Backend option for fixed-point precision.
+        **backend_options: Additional options passed to the selected Relay-BP backend.
 
     Returns:
         Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` methods
@@ -486,6 +491,7 @@ def _get_decoder_min_sum_bp(
         max_data_value=max_data_value,
         int_bits=int_bits,
         frac_bits=frac_bits,
+        **backend_options,
     )
 
 

@@ -126,9 +126,8 @@ def test_decoder_specs() -> None:
     spec = decoders.DecoderSpec("custom", _get_decoder_lookup, (("max_weight", 1),))
     assert repr(spec).startswith("DecoderSpec('custom', ")
 
-    # misspelled options are rejected, rather than silently passed to a decoder
-    with pytest.raises(TypeError, match="lsd_ordr"):
-        decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
+    # A backend-specific option is retained for validation by the backend at build time
+    assert decoders.bp_lsd(lsd_ordr=1).options["lsd_ordr"] == 1
 
 
 def test_decoder_spec_helper_annotations() -> None:
@@ -250,6 +249,8 @@ def test_deprecated_error_rate_settings_are_last_and_warn() -> None:
     )
     for entry_point in entry_points:
         parameters = list(inspect.signature(entry_point).parameters)
+        if parameters[-1] == "backend_options":
+            parameters.pop()
         assert parameters[-1] == "error_rate"
 
     documented_entry_points: tuple[Callable[..., object], ...] = (

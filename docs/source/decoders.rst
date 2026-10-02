@@ -53,8 +53,9 @@ The helpers are available directly under ``qldpc.decoders``:
 
 Each helper returns a :class:`decoders.DecoderSpec <qldpc.decoders.construction.specs.DecoderSpec>`, which only stores settings.
 See `Decoder settings reference`_ for the options of each helper.
-The signature of a helper lists the options of its decoder explicitly, so they are visible to autocomplete and static-analysis tools, and a misspelled option raises a ``TypeError``.
-The exception is ``ilp``, which forwards additional options to ``cvxpy.Problem.solve``.
+The signatures list known options explicitly for autocomplete and static analysis.
+The helpers for ldpc, PyMatching, and Relay-BP also forward additional keyword options to their backends; unsupported options are rejected by the backend when the decoder is built.
+The ``ilp`` helper likewise forwards additional options to ``cvxpy.Problem.solve``.
 Passing ``decoder=None`` uses qLDPC's default: BP+OSD for binary inputs and generalized union-find for nonbinary field arrays.
 Install every optional decoder available on the current platform with ``pip install 'qldpc[decoders]'``.
 PyMatching is included in the base qLDPC installation.
@@ -331,7 +332,6 @@ The following changes take effect without a deprecation period:
 * The ``lookup_table`` settings helper has been renamed to ``decoders.lookup``.
 * Builders that were not exported from ``qldpc.decoders``, such as ``get_error_decoder_mwpm``, ``get_observable_decoder_mwpm``, ``get_relay_bp_decoder``, ``get_min_sum_bp_decoder``, and ``get_observable_decoder_lookup``, have been removed.
   Use decoder settings and their ``build`` and ``build_observable_decoder`` methods instead.
-* Decoder builders no longer forward unrecognized options to the libraries that they wrap; an unrecognized option raises a ``TypeError``.
 * A detector error model supplies its own error probabilities, so passing ``error_channel`` or ``error_rate`` together with a detector error model raises a ``ValueError``.
 
 The following usage remains available during a deprecation period, and each use emits a ``DeprecationWarning`` that names its replacement:
@@ -347,6 +347,8 @@ The following usage remains available during a deprecation period, and each use 
      - ``decoders.bp_osd(...).build(pcm_or_dem)`` (and the corresponding settings helper)
    * - ``decoders.get_decoder_rbp(pcm_or_dem, ...)``
      - ``decoders.relay_bp(...).build(pcm_or_dem)`` or ``decoders.min_sum_bp(...).build(pcm_or_dem)``
+   * - ``decoders.get_decoder_tesseract(pcm_or_dem, ...)``
+     - ``decoders.tesseract(...).build(pcm_or_dem)``
    * - ``decoders.get_error_decoder(pcm_or_dem, decoder=settings)``
      - ``settings.build(pcm_or_dem)``
    * - ``decoders.get_observable_decoder(dem, decoder=settings)``

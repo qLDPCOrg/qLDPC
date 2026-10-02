@@ -29,6 +29,7 @@ from ..custom.lookup import LookupDecoder, _get_decoder_lookup
 from ..external.ldpc import _get_decoder_bf, _get_decoder_bp_lsd, _get_decoder_bp_osd
 from ..external.pymatching import _get_decoder_mwpm
 from ..external.relay_bp import RelayBPDecoder, _get_decoder_rbp
+from ..external.tesseract import TesseractDecoder, _get_decoder_tesseract
 from ..protocols import BatchErrorDecoder, ErrorDecoder, ObservableDecoder
 from .resolution import _get_error_decoder, _get_observable_decoder
 from .specs import (
@@ -175,6 +176,15 @@ def get_decoder_rbp(
         "decoders.relay_bp(...).build(pcm_or_dem) or decoders.min_sum_bp(...).build(pcm_or_dem)",
     )
     return _get_decoder_rbp(pcm_or_dem, error_priors, **decoder_args)
+
+
+def get_decoder_tesseract(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> TesseractDecoder:
+    """Build a Tesseract decoder through a deprecated API.
+
+    Use ``decoders.tesseract(...).build(pcm_or_dem)`` instead.
+    """
+    _warn_deprecated_builder("get_decoder_tesseract", "tesseract")
+    return _get_decoder_tesseract(pcm_or_dem, **decoder_args)
 
 
 def resolve_decoder(

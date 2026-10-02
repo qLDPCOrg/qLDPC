@@ -78,6 +78,7 @@ def _get_decoder_mwpm(
         "disallow", "independent", "smallest-weight", "keep-original", "replace"
     ] = "smallest-weight",
     use_virtual_boundary_node: bool = False,
+    **backend_options: object,
 ) -> BatchErrorDecoder:
     """Configure a minimum-weight perfect matching (MWPM) decoder.
 
@@ -96,6 +97,9 @@ def _get_decoder_mwpm(
         measurement_error_probabilities: Measurement-error probabilities for repeated rounds.
         merge_strategy: Strategy used when merging duplicate matching edges.
         use_virtual_boundary_node: Whether to use a virtual boundary node.
+        **backend_options: Additional options forwarded to
+            ``pymatching.Matching.load_from_check_matrix``.  ``faults_matrix`` is reserved for
+            observable decoding and cannot be specified here.
 
     Returns:
         Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
@@ -131,6 +135,7 @@ def _get_decoder_mwpm(
         measurement_error_probabilities=measurement_error_probabilities,
         merge_strategy=merge_strategy,
         use_virtual_boundary_node=use_virtual_boundary_node,
+        **backend_options,
     )
 
 
@@ -165,12 +170,18 @@ def _get_observable_decoder_mwpm(
 def _validate_mwpm_options(
     options: dict[str, object], _explicitly_provided: frozenset[str]
 ) -> dict[str, object]:
-    """Reject construction options that correlated matching cannot use."""
+    """Reject options that would change error decoding or break correlated matching."""
+    if "faults_matrix" in options:
+        raise ValueError(
+            "MWPM faults_matrix is reserved for observable decoding from a detector error model"
+        )
     if not options["enable_correlations"]:
         return options
     parameters = inspect.signature(_get_decoder_mwpm).parameters
     for name, value in options.items():
-        if name != "enable_correlations" and not _is_default_value(value, parameters[name].default):
+        if name != "enable_correlations" and (
+            name not in parameters or not _is_default_value(value, parameters[name].default)
+        ):
             raise ValueError(
                 f"The MWPM option {name}={value!r} is not supported with enable_correlations=True"
             )

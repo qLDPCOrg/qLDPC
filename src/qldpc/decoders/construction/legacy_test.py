@@ -198,9 +198,9 @@ def test_deprecated_builders() -> None:
         decoder = decoders.get_decoder_ilp(matrix)
     assert isinstance(decoder, decoders.ILPDecoder)
 
-    # options are forwarded to the builder, which rejects unrecognized options
-    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="unexpected keyword"):
-        decoders.get_decoder_bp_osd(matrix, input_vector_type="syndrome")
+    # additional options are forwarded to the backend, which rejects unsupported names
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="Unknown parameter"):
+        decoders.get_decoder_bp_osd(matrix, unsupported_backend_option=True)
     with pytest.warns(DeprecationWarning):
         bp_osd_decoder: Any = decoders.get_decoder_bp_osd(matrix, max_iter=7)
     assert bp_osd_decoder.max_iter == 7
