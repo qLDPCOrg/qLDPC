@@ -28,9 +28,7 @@ Do not copy transient project history, machine-specific paths, or local-session 
   Do not infer that this weaker guarantee applies elsewhere.
 - Keep complete lists of public symbols in `__all__` and AutoAPI.
   Human-written docs should explain what packages do and show representative tasks, not duplicate a class catalogue.
-- A module should not use a private (underscore-prefixed) name from another module unless it is a
-  narrowly shared internal helper deliberately housed in a package's `common.py`, and used only
-  within that package.
+- A module should not use a private (underscore-prefixed) name from another module unless it is a narrowly shared internal helper deliberately housed in a package's `common.py`, and used only within that package.
   Otherwise, needing to do so indicates that the name should be public and documented.
   A test module may use private names of the module that it tests.
 
@@ -72,15 +70,10 @@ The methods in `codes/common.py` share cached and mutable state for standard for
 Do not split them into mixins merely to reduce the file length.
 Free-standing statistical Monte Carlo helpers live in `codes/monte_carlo.py`.
 Code-capacity detector-error-model and decoder orchestration lives in `codes/code_capacity.py`.
-Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed
-observable-decoder adapters live in `decoders/adapters/observable_decoders.py`.
-Immediate builders live beside their implementations: external-package integrations under
-`decoders/external/`, and qLDPC-owned implementations under `decoders/custom/`. Typed decoder
-settings, generic input resolution, and deprecated keyword translation live under
-`decoders/construction/`.
-Legacy keyword-based construction in `decoders/construction/legacy.py` is an attachment on top of
-the modern API: it translates deprecated arguments into modern decoder inputs and resolves them with
-`decoders/construction/resolution.py`, which never imports it.
+Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed observable-decoder adapters live in `decoders/adapters/observable_decoders.py`.
+Immediate builders live beside their implementations: external-package integrations under `decoders/external/`, and qLDPC-owned implementations under `decoders/custom/`.
+Typed decoder settings, generic input resolution, and deprecated keyword translation live under `decoders/construction/`.
+Legacy keyword-based construction in `decoders/construction/legacy.py` is an attachment on top of the modern API: it translates deprecated arguments into modern decoder inputs and resolves them with `decoders/construction/resolution.py`, which never imports it.
 
 ## Core invariants
 
@@ -171,7 +164,9 @@ the modern API: it translates deprecated arguments into modern decoder inputs an
 ### Add or adapt a decoder
 
 1. Put integrations with third-party decoder packages under [`decoders/external/`](src/qldpc/decoders/external/), and qLDPC-owned implementations under [`decoders/custom/`](src/qldpc/decoders/custom/).
-2. Keep each immediate builder beside the implementation it constructs. Add typed settings or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/), then export the modern API from the relevant package `__init__.py` and [`decoders/__init__.py`](src/qldpc/decoders/__init__.py). Keep deprecated keyword translation isolated in `construction/legacy.py`.
+2. Keep each immediate builder beside the implementation it constructs.
+   Add typed settings or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/), then export the modern API from the relevant package `__init__.py` and [`decoders/__init__.py`](src/qldpc/decoders/__init__.py).
+   Keep deprecated keyword translation isolated in `construction/legacy.py`.
 3. Decide and test batch behavior, nonbinary support, detector-error-model support, and erasure signaling explicitly.
 4. Use direct syndrome/error reproductions in addition to factory-selection tests.
 
