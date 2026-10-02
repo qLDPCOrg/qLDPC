@@ -799,13 +799,6 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     preserves exhaustive enumeration.  When combined with ``confidence_ratio``, confidence is
     computed from the errors retained by both ``max_weight`` and ``probability_cutoff``.
 
-    The constructor argument ``penalty_func`` is deprecated.  Pass a callable ``error_channel`` that
-    returns the full error log probability instead.  During the deprecation period, a penalty is
-    interpreted with its legacy log weight ``-penalty_func(error)``.  This preserves relative
-    weighting but does not assert a normalized distribution, and it cannot be combined with a
-    positive ``probability_cutoff``.  The decode-time ``penalty_func`` of a WeightedLookupDecoder is
-    a separate, non-deprecated optimization objective.
-
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
     ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate

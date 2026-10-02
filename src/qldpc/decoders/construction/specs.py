@@ -400,11 +400,7 @@ def lookup_table(
     symplectic: bool = False,
     penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
 ) -> DecoderSpec[LookupDecoder]:
-    """Configure a lookup decoder with an independent or callable correlated error channel.
-
-    See :class:`LookupDecoder` for the two ``error_channel`` forms.  ``penalty_func`` is deprecated;
-    it remains available here only to construct legacy decoder specifications.
-    """
+    """Configure a lookup decoder with an independent or callable correlated error channel."""
     return _decoder_spec(
         "lookup_table",
         get_decoder_lookup,
